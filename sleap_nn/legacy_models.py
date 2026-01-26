@@ -7,9 +7,8 @@ TensorFlow/Keras backend to PyTorch format compatible with sleap-nn.
 import h5py
 import numpy as np
 import torch
-from typing import Dict, Tuple, Any, Optional, List
+from typing import Dict, Any, Optional
 from pathlib import Path
-from omegaconf import OmegaConf
 import re
 from loguru import logger
 
@@ -181,18 +180,61 @@ def parse_keras_layer_name(layer_path: str) -> Dict[str, Any]:
     return info
 
 
+def filter_legacy_weights_by_component(
+    legacy_weights: Dict[str, np.ndarray], component: Optional[str]
+) -> Dict[str, np.ndarray]:
+    """Filter legacy weights based on component type.
+
+    Args:
+        legacy_weights: Dictionary of legacy weights from load_keras_weights()
+        component: Component type to filter for. One of:
+            - "backbone": Keep only encoder/decoder weights (exclude heads)
+            - "head": Keep only head layer weights
+            - None: No filtering (keep all weights)
+
+    Returns:
+        Filtered dictionary of legacy weights
+    """
+    if component is None:
+        return legacy_weights
+
+    filtered = {}
+    for path, weight in legacy_weights.items():
+        # Check if this is a head layer (contains "Head" in the path)
+        is_head_layer = "Head" in path
+
+        if component == "backbone" and not is_head_layer:
+            filtered[path] = weight
+        elif component == "head" and is_head_layer:
+            filtered[path] = weight
+
+    return filtered
+
+
 def map_legacy_to_pytorch_layers(
-    legacy_weights: Dict[str, np.ndarray], pytorch_model: torch.nn.Module
+    legacy_weights: Dict[str, np.ndarray],
+    pytorch_model: torch.nn.Module,
+    component: Optional[str] = None,
 ) -> Dict[str, str]:
     """Create mapping between legacy Keras layers and PyTorch model layers.
 
     Args:
         legacy_weights: Dictionary of legacy weights from load_keras_weights()
         pytorch_model: PyTorch model instance to map to
+        component: Optional component type for filtering weights before mapping.
+            One of "backbone", "head", or None (no filtering).
 
     Returns:
         Dictionary mapping legacy layer paths to PyTorch parameter names
     """
+    # Filter weights based on component type
+    filtered_weights = filter_legacy_weights_by_component(legacy_weights, component)
+
+    if component is not None:
+        logger.info(
+            f"Filtered legacy weights for {component}: "
+            f"{len(filtered_weights)}/{len(legacy_weights)} weights"
+        )
     mapping = {}
 
     # Get all PyTorch parameters with their shapes
@@ -201,7 +243,7 @@ def map_legacy_to_pytorch_layers(
         pytorch_params[name] = param.shape
 
     # For each legacy weight, find the corresponding PyTorch parameter
-    for legacy_path, weight in legacy_weights.items():
+    for legacy_path, weight in filtered_weights.items():
         # Extract the layer name from the legacy path
         # Legacy path format: "model_weights/stack0_enc0_conv0/stack0_enc0_conv0/kernel:0"
         clean_path = legacy_path.replace("model_weights/", "")
@@ -220,8 +262,6 @@ def map_legacy_to_pytorch_layers(
         # This handles cases where Keras uses suffixes like _0, _1, etc.
         if "Head" in layer_name:
             # Remove trailing _N where N is a number
-            import re
-
             layer_name_clean = re.sub(r"_\d+$", "", layer_name)
         else:
             layer_name_clean = layer_name
@@ -266,12 +306,17 @@ def map_legacy_to_pytorch_layers(
     if not mapping:
         logger.info(
             f"No mappings could be created between legacy weights and PyTorch model. "
-            f"Legacy weights: {len(legacy_weights)}, PyTorch parameters: {len(pytorch_params)}"
+            f"Legacy weights: {len(filtered_weights)}, PyTorch parameters: {len(pytorch_params)}"
         )
     else:
         logger.info(
-            f"Successfully mapped {len(mapping)}/{len(legacy_weights)} legacy weights to PyTorch parameters"
+            f"Successfully mapped {len(mapping)}/{len(pytorch_params)} PyTorch parameters from legacy weights"
         )
+        unmatched_count = len(filtered_weights) - len(mapping)
+        if unmatched_count > 0:
+            logger.warning(
+                f"({unmatched_count} legacy weights did not match any parameters in this model component)"
+            )
 
     return mapping
 
@@ -280,6 +325,7 @@ def load_legacy_model_weights(
     pytorch_model: torch.nn.Module,
     h5_path: str,
     mapping: Optional[Dict[str, str]] = None,
+    component: Optional[str] = None,
 ) -> None:
     """Load legacy Keras weights into a PyTorch model.
 
@@ -288,6 +334,10 @@ def load_legacy_model_weights(
         h5_path: Path to the legacy .h5 model file
         mapping: Optional manual mapping of layer names. If None,
                  will attempt automatic mapping.
+        component: Optional component type for filtering weights. One of:
+            - "backbone": Only load encoder/decoder weights (exclude heads)
+            - "head": Only load head layer weights
+            - None: Load all weights (default, for full model loading)
     """
     # Load legacy weights
     legacy_weights = load_keras_weights(h5_path)
@@ -295,7 +345,9 @@ def load_legacy_model_weights(
     if mapping is None:
         # Attempt automatic mapping
         try:
-            mapping = map_legacy_to_pytorch_layers(legacy_weights, pytorch_model)
+            mapping = map_legacy_to_pytorch_layers(
+                legacy_weights, pytorch_model, component=component
+            )
         except Exception as e:
             logger.error(f"Failed to create weight mappings: {e}")
             return
