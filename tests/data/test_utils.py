@@ -13,6 +13,7 @@ from sleap_nn.data.utils import (
     gaussian_pdf,
     check_memory,
     check_cache_memory,
+    estimate_cache_memory,
 )
 
 
@@ -120,3 +121,64 @@ def test_check_cache_memory(labels_path_fixture, request):
         assert check_cache_memory([labels], [labels]) == True
     else:
         assert check_cache_memory([labels], [labels]) == False
+
+
+@pytest.mark.parametrize(
+    "labels_path_fixture",
+    [("minimal_instance"), ("small_robot_minimal")],
+)
+def test_estimate_cache_memory(labels_path_fixture, request):
+    """Test detailed memory estimation for caching image samples."""
+    labels_path = request.getfixturevalue(labels_path_fixture)
+    labels = sio.load_slp(labels_path)
+
+    # Test basic estimation without workers
+    estimate = estimate_cache_memory([labels], [labels], num_workers=0)
+
+    assert isinstance(estimate, dict)
+    assert "raw_cache_bytes" in estimate
+    assert "python_overhead_bytes" in estimate
+    assert "worker_overhead_bytes" in estimate
+    assert "buffer_bytes" in estimate
+    assert "total_bytes" in estimate
+    assert "available_bytes" in estimate
+    assert "sufficient" in estimate
+    assert "num_samples" in estimate
+
+    assert estimate["raw_cache_bytes"] > 0
+    assert estimate["python_overhead_bytes"] > 0
+    assert estimate["worker_overhead_bytes"] == 0  # No workers
+    assert estimate["buffer_bytes"] > 0
+    assert estimate["total_bytes"] > estimate["raw_cache_bytes"]
+    assert estimate["num_samples"] == len(labels) * 2  # train + val
+
+
+@pytest.mark.parametrize("num_workers", [0, 2, 4])
+def test_estimate_cache_memory_with_workers(minimal_instance, num_workers):
+    """Test memory estimation accounts for DataLoader workers."""
+    labels = sio.load_slp(minimal_instance)
+
+    estimate = estimate_cache_memory([labels], [labels], num_workers=num_workers)
+
+    if num_workers == 0:
+        assert estimate["worker_overhead_bytes"] == 0
+    else:
+        # Workers should add overhead
+        assert estimate["worker_overhead_bytes"] > 0
+        # More workers = more overhead
+        estimate_fewer = estimate_cache_memory(
+            [labels], [labels], num_workers=num_workers - 1
+        )
+        assert (
+            estimate["worker_overhead_bytes"] >= estimate_fewer["worker_overhead_bytes"]
+        )
+
+
+@pytest.mark.parametrize("num_workers", [0, 2, 4])
+def test_check_cache_memory_with_workers(minimal_instance, num_workers):
+    """Test check_cache_memory accepts num_workers parameter."""
+    labels = sio.load_slp(minimal_instance)
+
+    # Should not raise - just verify it accepts the parameter
+    result = check_cache_memory([labels], [labels], num_workers=num_workers)
+    assert isinstance(result, bool)
