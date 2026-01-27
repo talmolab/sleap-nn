@@ -32,7 +32,6 @@ from sleap_nn.data.identity import generate_class_maps, make_class_vectors
 from sleap_nn.data.instance_centroids import generate_centroids
 from sleap_nn.data.instance_cropping import generate_crops
 from sleap_nn.data.normalization import (
-    apply_normalization,
     convert_to_grayscale,
     convert_to_rgb,
 )
@@ -702,9 +701,6 @@ class BottomUpDataset(BaseDataset):
             user_instances_only=self.user_instances_only,
         )
 
-        # apply normalization
-        sample["image"] = apply_normalization(sample["image"])
-
         if self.ensure_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
         elif self.ensure_grayscale:
@@ -918,9 +914,6 @@ class BottomUpMultiClassDataset(BaseDataset):
         ).to(torch.int32)
 
         sample["num_tracks"] = torch.tensor(len(self.class_names), dtype=torch.int32)
-
-        # apply normalization
-        sample["image"] = apply_normalization(sample["image"])
 
         if self.ensure_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
@@ -1171,9 +1164,6 @@ class CenteredInstanceDataset(BaseDataset):
 
         instances = instances[:, inst_idx]
 
-        # apply normalization
-        image = apply_normalization(image)
-
         if self.ensure_rgb:
             image = convert_to_rgb(image)
         elif self.ensure_grayscale:
@@ -1420,9 +1410,6 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
 
         instances = instances[:, inst_idx]
 
-        # apply normalization
-        image = apply_normalization(image)
-
         if self.ensure_rgb:
             image = convert_to_rgb(image)
         elif self.ensure_grayscale:
@@ -1664,9 +1651,6 @@ class CentroidDataset(BaseDataset):
             user_instances_only=self.user_instances_only,
         )
 
-        # apply normalization
-        sample["image"] = apply_normalization(sample["image"])
-
         if self.ensure_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
         elif self.ensure_grayscale:
@@ -1849,9 +1833,6 @@ class SingleInstanceDataset(BaseDataset):
             max_instances=self.max_instances,
             user_instances_only=self.user_instances_only,
         )
-
-        # apply normalization
-        sample["image"] = apply_normalization(sample["image"])
 
         if self.ensure_rgb:
             sample["image"] = convert_to_rgb(sample["image"])

@@ -1279,3 +1279,83 @@ def test_infinite_dataloader(minimal_instance, tmp_path):
 
     dl = InfiniteDataLoader(dataset=dataset, batch_size=1, len_dataloader=15)
     assert len(dl) == 15
+
+
+def test_uint8_pipeline_bottomup(minimal_instance):
+    """Test that BottomUpDataset returns uint8 images for GPU normalization."""
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    pafs_head = DictConfig({"sigma": 4, "output_stride": 4})
+
+    dataset = BottomUpDataset(
+        max_stride=32,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        pafs_head_config=pafs_head,
+        labels=[sio.load_slp(minimal_instance)],
+        apply_aug=False,
+    )
+
+    sample = next(iter(dataset))
+    # Image should be uint8 for GPU normalization (4x bandwidth savings)
+    assert (
+        sample["image"].dtype == torch.uint8
+    ), f"Expected uint8 image for GPU normalization, got {sample["image"].dtype}"
+
+
+def test_uint8_pipeline_singleinstance(minimal_instance):
+    """Test that SingleInstanceDataset returns uint8 images for GPU normalization."""
+    labels = sio.load_slp(minimal_instance)
+    for lf in labels:
+        lf.instances = lf.instances[:1]
+
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})
+
+    dataset = SingleInstanceDataset(
+        max_stride=8,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        labels=[labels],
+        apply_aug=False,
+    )
+
+    sample = next(iter(dataset))
+    assert (
+        sample["image"].dtype == torch.uint8
+    ), f"Expected uint8 image for GPU normalization, got {sample["image"].dtype}"
+
+
+def test_uint8_pipeline_centroid(minimal_instance):
+    """Test that CentroidDataset returns uint8 images for GPU normalization."""
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})
+
+    dataset = CentroidDataset(
+        max_stride=8,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        labels=[sio.load_slp(minimal_instance)],
+        apply_aug=False,
+    )
+
+    sample = next(iter(dataset))
+    assert (
+        sample["image"].dtype == torch.uint8
+    ), f"Expected uint8 image for GPU normalization, got {sample["image"].dtype}"
+
+
+def test_uint8_pipeline_centered_instance(minimal_instance):
+    """Test that CenteredInstanceDataset returns uint8 images for GPU normalization."""
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})
+
+    dataset = CenteredInstanceDataset(
+        max_stride=8,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        crop_size=100,
+        labels=[sio.load_slp(minimal_instance)],
+        apply_aug=False,
+    )
+
+    sample = next(iter(dataset))
+    assert (
+        sample["instance_image"].dtype == torch.uint8
+    ), f"Expected uint8 image for GPU normalization, got {sample["instance_image"].dtype}"
