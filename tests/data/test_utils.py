@@ -169,7 +169,9 @@ def test_estimate_cache_memory_with_workers(minimal_instance, num_workers):
         estimate_fewer = estimate_cache_memory(
             [labels], [labels], num_workers=num_workers - 1
         )
-        assert estimate["worker_overhead_bytes"] >= estimate_fewer["worker_overhead_bytes"]
+        assert (
+            estimate["worker_overhead_bytes"] >= estimate_fewer["worker_overhead_bytes"]
+        )
 
 
 @pytest.mark.parametrize("num_workers", [0, 2, 4])
