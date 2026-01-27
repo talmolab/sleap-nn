@@ -2,9 +2,11 @@
 
 from sleap_nn.data.skia_augmentation import crop_and_resize_skia as crop_and_resize
 
-# from concurrent.futures import ThreadPoolExecutor # TODO: implement parallel processing
-# import concurrent.futures
-# import os
+import os
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from copy import deepcopy
 from itertools import cycle
 from pathlib import Path
 import torch.distributed as dist
@@ -46,6 +48,183 @@ from sleap_nn.training.utils import is_distributed_initialized
 from sleap_nn.config.get_config import get_aug_config
 
 
+# Minimum number of samples to use parallel caching (overhead not worth it for smaller)
+MIN_SAMPLES_FOR_PARALLEL_CACHING = 20
+
+
+class ParallelCacheFiller:
+    """Parallel implementation of image caching using thread-local video copies.
+
+    This class uses ThreadPoolExecutor to parallelize I/O-bound operations when
+    caching images to disk or memory. Each worker thread gets its own copy of
+    video objects to ensure thread safety.
+
+    Attributes:
+        labels: List of sio.Labels objects containing the data.
+        lf_idx_list: List of dictionaries with labeled frame indices.
+        cache_type: Either "disk" or "memory".
+        cache_path: Path to save cached images (for disk caching).
+        num_workers: Number of worker threads.
+    """
+
+    def __init__(
+        self,
+        labels: List[sio.Labels],
+        lf_idx_list: List[Dict],
+        cache_type: str,
+        cache_path: Optional[Path] = None,
+        num_workers: int = 4,
+    ):
+        """Initialize the parallel cache filler.
+
+        Args:
+            labels: List of sio.Labels objects.
+            lf_idx_list: List of sample dictionaries with frame indices.
+            cache_type: Either "disk" or "memory".
+            cache_path: Path for disk caching.
+            num_workers: Number of worker threads.
+        """
+        self.labels = labels
+        self.lf_idx_list = lf_idx_list
+        self.cache_type = cache_type
+        self.cache_path = cache_path
+        self.num_workers = num_workers
+
+        self.cache: Dict = {}
+        self._cache_lock = threading.Lock()
+        self._local = threading.local()
+        self._video_info: Dict = {}
+
+        # Prepare video copies for thread-local access
+        self._prepare_video_copies()
+
+    def _prepare_video_copies(self):
+        """Close original videos and prepare for thread-local copies."""
+        for label in self.labels:
+            for video in label.videos:
+                vid_id = id(video)
+                if vid_id not in self._video_info:
+                    # Store original state
+                    original_open_backend = video.open_backend
+
+                    # Close the video backend
+                    video.close()
+                    video.open_backend = False
+
+                    self._video_info[vid_id] = {
+                        "video": video,
+                        "original_open_backend": original_open_backend,
+                    }
+
+    def _get_thread_local_video(self, video: sio.Video) -> sio.Video:
+        """Get or create a thread-local video copy.
+
+        Args:
+            video: The original video object.
+
+        Returns:
+            A thread-local copy of the video that is safe to use.
+        """
+        vid_id = id(video)
+
+        if not hasattr(self._local, "videos"):
+            self._local.videos = {}
+
+        if vid_id not in self._local.videos:
+            # Create a thread-local copy
+            video_copy = deepcopy(video)
+            video_copy.open_backend = True
+            self._local.videos[vid_id] = video_copy
+
+        return self._local.videos[vid_id]
+
+    def _process_sample(
+        self, sample: Dict
+    ) -> Tuple[int, int, Optional[np.ndarray], Optional[str]]:
+        """Process a single sample (read image, optionally save/cache).
+
+        Args:
+            sample: Dictionary with labels_idx, lf_idx, etc.
+
+        Returns:
+            Tuple of (labels_idx, lf_idx, image_or_none, error_or_none).
+        """
+        labels_idx = sample["labels_idx"]
+        lf_idx = sample["lf_idx"]
+
+        try:
+            # Get the labeled frame
+            lf = self.labels[labels_idx][lf_idx]
+
+            # Get thread-local video
+            video = self._get_thread_local_video(lf.video)
+
+            # Read the image
+            img = video[lf.frame_idx]
+
+            if img.shape[-1] == 1:
+                img = np.squeeze(img)
+
+            if self.cache_type == "disk":
+                f_name = self.cache_path / f"sample_{labels_idx}_{lf_idx}.jpg"
+                Image.fromarray(img).save(str(f_name), format="JPEG")
+                return labels_idx, lf_idx, None, None
+            elif self.cache_type == "memory":
+                return labels_idx, lf_idx, img, None
+
+        except Exception as e:
+            return labels_idx, lf_idx, None, f"{type(e).__name__}: {str(e)}"
+
+    def fill_cache(
+        self, progress_callback=None
+    ) -> Tuple[Dict, List[Tuple[int, int, str]]]:
+        """Fill the cache in parallel.
+
+        Args:
+            progress_callback: Optional callback(completed_count) for progress updates.
+
+        Returns:
+            Tuple of (cache_dict, list_of_errors).
+        """
+        errors = []
+        completed = 0
+
+        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+            futures = {
+                executor.submit(self._process_sample, sample): sample
+                for sample in self.lf_idx_list
+            }
+
+            for future in as_completed(futures):
+                labels_idx, lf_idx, img, error = future.result()
+
+                if error:
+                    errors.append((labels_idx, lf_idx, error))
+                elif self.cache_type == "memory" and img is not None:
+                    with self._cache_lock:
+                        self.cache[(labels_idx, lf_idx)] = img
+
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed)
+
+        # Restore original video states
+        self._restore_videos()
+
+        return self.cache, errors
+
+    def _restore_videos(self):
+        """Restore original video states after caching is complete."""
+        for vid_info in self._video_info.values():
+            video = vid_info["video"]
+            video.open_backend = vid_info["original_open_backend"]
+            if video.open_backend:
+                try:
+                    video.open()
+                except Exception:
+                    pass
+
+
 class BaseDataset(Dataset):
     """Base class for custom torch Datasets.
 
@@ -83,6 +262,8 @@ class BaseDataset(Dataset):
         use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        parallel_caching: If True, use parallel processing for caching (faster for large datasets). Default: True.
+        cache_workers: Number of worker threads for parallel caching. If 0, uses min(4, cpu_count). Default: 0.
         labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
     """
 
@@ -102,6 +283,8 @@ class BaseDataset(Dataset):
         cache_img_path: Optional[str] = None,
         use_existing_imgs: bool = False,
         rank: Optional[int] = None,
+        parallel_caching: bool = True,
+        cache_workers: int = 0,
     ) -> None:
         """Initialize class attributes."""
         super().__init__()
@@ -142,6 +325,8 @@ class BaseDataset(Dataset):
         self.cache_img = cache_img
         self.cache_img_path = cache_img_path
         self.use_existing_imgs = use_existing_imgs
+        self.parallel_caching = parallel_caching
+        self.cache_workers = cache_workers
         if self.cache_img is not None and "disk" in self.cache_img:
             if self.cache_img_path is None:
                 self.cache_img_path = "."
@@ -167,10 +352,18 @@ class BaseDataset(Dataset):
 
         if self.cache_img is not None:
             if self.cache_img == "memory":
-                self._fill_cache(labels)
+                self._fill_cache(
+                    labels,
+                    parallel=self.parallel_caching,
+                    num_workers=self.cache_workers,
+                )
             elif self.cache_img == "disk" and not self.use_existing_imgs:
                 if self.rank is None or self.rank == -1 or self.rank == 0:
-                    self._fill_cache(labels)
+                    self._fill_cache(
+                        labels,
+                        parallel=self.parallel_caching,
+                        num_workers=self.cache_workers,
+                    )
                 # Synchronize all ranks after cache creation
                 if is_distributed_initialized():
                     dist.barrier()
@@ -219,12 +412,21 @@ class BaseDataset(Dataset):
         """Returns an iterator."""
         return self
 
-    def _fill_cache(self, labels: List[sio.Labels]):
-        """Load all samples to cache."""
-        # TODO: Implement parallel processing (using threads might cause error with MediaVideo backend)
-        import os
-        import sys
+    def _fill_cache(
+        self,
+        labels: List[sio.Labels],
+        parallel: bool = True,
+        num_workers: int = 0,
+    ):
+        """Load all samples to cache.
 
+        Args:
+            labels: List of sio.Labels objects containing the data.
+            parallel: If True, use parallel processing for caching (faster for large
+                datasets). Default: True.
+            num_workers: Number of worker threads for parallel caching. If 0, uses
+                min(4, cpu_count). Default: 0.
+        """
         total_samples = len(self.lf_idx_list)
         cache_type = "disk" if self.cache_img == "disk" else "memory"
 
@@ -234,6 +436,32 @@ class BaseDataset(Dataset):
             or os.environ.get("FORCE_COLOR") == "0"
         )
         use_progress = sys.stdout.isatty() and not no_color
+
+        # Use parallel caching for larger datasets
+        use_parallel = parallel and total_samples >= MIN_SAMPLES_FOR_PARALLEL_CACHING
+
+        if use_parallel:
+            self._fill_cache_parallel(
+                labels, total_samples, cache_type, use_progress, num_workers
+            )
+        else:
+            self._fill_cache_sequential(labels, total_samples, cache_type, use_progress)
+
+    def _fill_cache_sequential(
+        self,
+        labels: List[sio.Labels],
+        total_samples: int,
+        cache_type: str,
+        use_progress: bool,
+    ):
+        """Sequential implementation of cache filling.
+
+        Args:
+            labels: List of sio.Labels objects.
+            total_samples: Total number of samples to cache.
+            cache_type: Either "disk" or "memory".
+            use_progress: Whether to show a progress bar.
+        """
 
         def process_samples(progress=None, task=None):
             for sample in self.lf_idx_list:
@@ -267,6 +495,74 @@ class BaseDataset(Dataset):
         else:
             logger.info(f"Caching {total_samples} images to {cache_type}...")
             process_samples()
+
+    def _fill_cache_parallel(
+        self,
+        labels: List[sio.Labels],
+        total_samples: int,
+        cache_type: str,
+        use_progress: bool,
+        num_workers: int = 0,
+    ):
+        """Parallel implementation of cache filling using thread-local video copies.
+
+        Args:
+            labels: List of sio.Labels objects.
+            total_samples: Total number of samples to cache.
+            cache_type: Either "disk" or "memory".
+            use_progress: Whether to show a progress bar.
+            num_workers: Number of worker threads. If 0, uses min(4, cpu_count).
+        """
+        # Determine number of workers
+        if num_workers <= 0:
+            num_workers = min(4, os.cpu_count() or 1)
+
+        cache_path = Path(self.cache_img_path) if self.cache_img_path else None
+
+        filler = ParallelCacheFiller(
+            labels=labels,
+            lf_idx_list=self.lf_idx_list,
+            cache_type=cache_type,
+            cache_path=cache_path,
+            num_workers=num_workers,
+        )
+
+        if use_progress:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("{task.completed}/{task.total}"),
+                TimeElapsedColumn(),
+                console=Console(force_terminal=True),
+                transient=True,
+            ) as progress:
+                task = progress.add_task(
+                    f"Caching images to {cache_type} (parallel, {num_workers} workers)",
+                    total=total_samples,
+                )
+
+                def progress_callback(completed):
+                    progress.update(task, completed=completed)
+
+                cache, errors = filler.fill_cache(progress_callback)
+        else:
+            logger.info(
+                f"Caching {total_samples} images to {cache_type} "
+                f"(parallel, {num_workers} workers)..."
+            )
+            cache, errors = filler.fill_cache()
+
+        # Update instance cache
+        if cache_type == "memory":
+            self.cache.update(cache)
+
+        # Log any errors
+        if errors:
+            logger.warning(
+                f"Parallel caching completed with {len(errors)} errors. "
+                f"First error: {errors[0]}"
+            )
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
@@ -342,6 +638,8 @@ class BottomUpDataset(BaseDataset):
         cache_img_path: Optional[str] = None,
         use_existing_imgs: bool = False,
         rank: Optional[int] = None,
+        parallel_caching: bool = True,
+        cache_workers: int = 0,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -359,6 +657,8 @@ class BottomUpDataset(BaseDataset):
             cache_img_path=cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
         self.confmap_head_config = confmap_head_config
         self.pafs_head_config = pafs_head_config
@@ -538,6 +838,8 @@ class BottomUpMultiClassDataset(BaseDataset):
         cache_img_path: Optional[str] = None,
         use_existing_imgs: bool = False,
         rank: Optional[int] = None,
+        parallel_caching: bool = True,
+        cache_workers: int = 0,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -555,6 +857,8 @@ class BottomUpMultiClassDataset(BaseDataset):
             cache_img_path=cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
         self.confmap_head_config = confmap_head_config
         self.class_maps_head_config = class_maps_head_config
@@ -749,6 +1053,8 @@ class CenteredInstanceDataset(BaseDataset):
         cache_img_path: Optional[str] = None,
         use_existing_imgs: bool = False,
         rank: Optional[int] = None,
+        parallel_caching: bool = True,
+        cache_workers: int = 0,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -766,6 +1072,8 @@ class CenteredInstanceDataset(BaseDataset):
             cache_img_path=cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
         self.labels = None
         self.crop_size = crop_size
@@ -1024,6 +1332,8 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         cache_img_path: Optional[str] = None,
         use_existing_imgs: bool = False,
         rank: Optional[int] = None,
+        parallel_caching: bool = True,
+        cache_workers: int = 0,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -1044,6 +1354,8 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
             cache_img_path=cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
         self.class_vectors_head_config = class_vectors_head_config
         self.class_names = self.class_vectors_head_config.classes
@@ -1279,6 +1591,8 @@ class CentroidDataset(BaseDataset):
         cache_img_path: Optional[str] = None,
         use_existing_imgs: bool = False,
         rank: Optional[int] = None,
+        parallel_caching: bool = True,
+        cache_workers: int = 0,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -1296,6 +1610,8 @@ class CentroidDataset(BaseDataset):
             cache_img_path=cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
         self.anchor_ind = anchor_ind
         self.confmap_head_config = confmap_head_config
@@ -1459,6 +1775,8 @@ class SingleInstanceDataset(BaseDataset):
         cache_img_path: Optional[str] = None,
         use_existing_imgs: bool = False,
         rank: Optional[int] = None,
+        parallel_caching: bool = True,
+        cache_workers: int = 0,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -1476,6 +1794,8 @@ class SingleInstanceDataset(BaseDataset):
             cache_img_path=cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
         self.confmap_head_config = confmap_head_config
 
@@ -1694,6 +2014,10 @@ def get_train_val_datasets(
         val_cache_img_path = Path(base_cache_img_path) / "val_imgs"
     use_existing_imgs = config.data_config.use_existing_imgs
 
+    # Parallel caching configuration
+    parallel_caching = getattr(config.data_config, "parallel_caching", True)
+    cache_workers = getattr(config.data_config, "cache_workers", 0)
+
     model_type = get_model_type_from_cfg(config=config)
     backbone_type = get_backbone_type_from_cfg(config=config)
 
@@ -1747,6 +2071,8 @@ def get_train_val_datasets(
             cache_img_path=train_cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
         val_dataset = BottomUpDataset(
             labels=val_labels,
@@ -1770,6 +2096,8 @@ def get_train_val_datasets(
             cache_img_path=val_cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
 
     elif model_type == "multi_class_bottomup":
@@ -1803,6 +2131,8 @@ def get_train_val_datasets(
             cache_img_path=train_cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
         val_dataset = BottomUpMultiClassDataset(
             labels=val_labels,
@@ -1826,6 +2156,8 @@ def get_train_val_datasets(
             cache_img_path=val_cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
 
     elif model_type == "centered_instance":
@@ -1865,6 +2197,8 @@ def get_train_val_datasets(
             cache_img_path=train_cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
         val_dataset = CenteredInstanceDataset(
             labels=val_labels,
@@ -1889,6 +2223,8 @@ def get_train_val_datasets(
             cache_img_path=val_cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
 
     elif model_type == "multi_class_topdown":
@@ -1929,6 +2265,8 @@ def get_train_val_datasets(
             cache_img_path=train_cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
         val_dataset = TopDownCenteredInstanceMultiClassDataset(
             labels=val_labels,
@@ -1954,6 +2292,8 @@ def get_train_val_datasets(
             cache_img_path=val_cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
 
     elif model_type == "centroid":
@@ -1990,6 +2330,8 @@ def get_train_val_datasets(
             cache_img_path=train_cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
         val_dataset = CentroidDataset(
             labels=val_labels,
@@ -2013,6 +2355,8 @@ def get_train_val_datasets(
             cache_img_path=val_cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
 
     else:
@@ -2045,6 +2389,8 @@ def get_train_val_datasets(
             cache_img_path=train_cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
         val_dataset = SingleInstanceDataset(
             labels=val_labels,
@@ -2067,6 +2413,8 @@ def get_train_val_datasets(
             cache_img_path=val_cache_img_path,
             use_existing_imgs=use_existing_imgs,
             rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
 
     # If using caching, close the videos to prevent `h5py objects can't be pickled error` when num_workers > 0.
