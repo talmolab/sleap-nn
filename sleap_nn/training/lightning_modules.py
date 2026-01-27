@@ -229,7 +229,9 @@ class LightningModel(L.LightningModule):
             elif self.pretrained_backbone_weights.endswith(".h5"):
                 # load from sleap model weights
                 load_legacy_model_weights(
-                    self.model.backbone, self.pretrained_backbone_weights
+                    self.model.backbone,
+                    self.pretrained_backbone_weights,
+                    component="backbone",
                 )
 
             else:
@@ -258,7 +260,9 @@ class LightningModel(L.LightningModule):
             elif self.pretrained_head_weights.endswith(".h5"):
                 # load from sleap model weights
                 load_legacy_model_weights(
-                    self.model.head_layers, self.pretrained_head_weights
+                    self.model.head_layers,
+                    self.pretrained_head_weights,
+                    component="head",
                 )
 
             else:
