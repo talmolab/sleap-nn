@@ -1,12 +1,14 @@
 """Miscellaneous utility functions for data processing."""
 
 from typing import Tuple, List, Any, Optional
+import sys
 import torch
 from omegaconf import DictConfig
 import sleap_io as sio
 from sleap_nn.config.utils import get_model_type_from_cfg
 import psutil
 import numpy as np
+from loguru import logger
 from sleap_nn.data.providers import get_max_instances
 
 
@@ -115,35 +117,151 @@ def check_memory(
     return img_mem
 
 
-def check_cache_memory(
+def estimate_cache_memory(
     train_labels: List[sio.Labels],
     val_labels: List[sio.Labels],
+    num_workers: int = 0,
     memory_buffer: float = 0.2,
-) -> bool:
-    """Check memory requirements for in-memory caching dataset pipeline.
+) -> dict:
+    """Estimate memory requirements for in-memory caching dataset pipeline.
+
+    This function calculates the total memory needed for caching images, accounting for:
+    - Raw image data size
+    - Python object overhead (dictionary keys, numpy array wrappers)
+    - DataLoader worker memory overhead (Copy-on-Write duplication on Unix systems)
+    - General memory buffer for training overhead
+
+    When using DataLoader with num_workers > 0, worker processes are spawned via fork()
+    on Unix systems. While Copy-on-Write (CoW) initially shares memory, Python's reference
+    counting can trigger memory page duplication when workers access cached data.
 
     Args:
         train_labels: List of `sleap_io.Labels` objects for training data.
         val_labels: List of `sleap_io.Labels` objects for validation data.
-        memory_buffer: Fraction of the total image memory required for caching that
-            should be reserved as a buffer.
+        num_workers: Number of DataLoader worker processes. When > 0, additional memory
+            overhead is estimated for worker process duplication.
+        memory_buffer: Fraction of memory to reserve as buffer for training overhead
+            (model weights, activations, gradients, etc.). Default: 0.2 (20%).
+
+    Returns:
+        dict: Memory estimation breakdown with keys:
+            - 'raw_cache_bytes': Raw image data size in bytes
+            - 'python_overhead_bytes': Estimated Python object overhead
+            - 'worker_overhead_bytes': Estimated memory for DataLoader workers
+            - 'buffer_bytes': Memory buffer for training overhead
+            - 'total_bytes': Total estimated memory requirement
+            - 'available_bytes': Available system memory
+            - 'sufficient': True if total <= available, False otherwise
+    """
+    # Calculate raw image cache size
+    train_cache_bytes = 0
+    val_cache_bytes = 0
+    num_train_samples = 0
+    num_val_samples = 0
+
+    for train, val in zip(train_labels, val_labels):
+        train_cache_bytes += check_memory(train)
+        val_cache_bytes += check_memory(val)
+        num_train_samples += len(train)
+        num_val_samples += len(val)
+
+    raw_cache_bytes = train_cache_bytes + val_cache_bytes
+    total_samples = num_train_samples + num_val_samples
+
+    # Python object overhead: dict keys, numpy array wrappers, tuple keys
+    # Estimate ~200 bytes per sample for Python object overhead
+    python_overhead_per_sample = 200
+    python_overhead_bytes = total_samples * python_overhead_per_sample
+
+    # Worker memory overhead
+    # When num_workers > 0, workers are forked or spawned depending on platform.
+    # Default start methods (Python 3.8+):
+    #   - Linux: fork (Copy-on-Write, partial memory duplication)
+    #   - macOS: spawn (full dataset copy to each worker, changed in Python 3.8)
+    #   - Windows: spawn (full dataset copy to each worker)
+    worker_overhead_bytes = 0
+    if num_workers > 0:
+        if sys.platform == "linux":
+            # Linux uses fork() with Copy-on-Write by default
+            # Estimate 25% duplication per worker due to Python refcounting
+            # triggering CoW page copies
+            worker_overhead_bytes = int(raw_cache_bytes * 0.25 * num_workers)
+            if num_workers >= 4:
+                logger.info(
+                    f"Using in-memory caching with {num_workers} DataLoader workers. "
+                    f"Estimated additional memory for workers: "
+                    f"{worker_overhead_bytes / (1024**3):.2f} GB"
+                )
+        else:
+            # macOS (darwin) and Windows use spawn - dataset is copied to each worker
+            # Since Python 3.8, macOS defaults to spawn due to fork safety issues
+            # With caching enabled, we avoid pickling labels_list, but the cache
+            # dict is still part of the dataset and gets copied to each worker
+            worker_overhead_bytes = int(raw_cache_bytes * 0.5 * num_workers)
+            platform_name = "macOS" if sys.platform == "darwin" else "Windows"
+            logger.warning(
+                f"Using in-memory caching with {num_workers} DataLoader workers on {platform_name}. "
+                f"Memory usage may be significantly higher than estimated (~{worker_overhead_bytes / (1024**3):.1f} GB extra) "
+                f"due to spawn-based multiprocessing. "
+                f"Consider using disk caching or num_workers=0 for large datasets."
+            )
+
+    # Memory buffer for training overhead (model, gradients, activations)
+    subtotal = raw_cache_bytes + python_overhead_bytes + worker_overhead_bytes
+    buffer_bytes = int(subtotal * memory_buffer)
+
+    total_bytes = subtotal + buffer_bytes
+    available_bytes = psutil.virtual_memory().available
+
+    return {
+        "raw_cache_bytes": raw_cache_bytes,
+        "python_overhead_bytes": python_overhead_bytes,
+        "worker_overhead_bytes": worker_overhead_bytes,
+        "buffer_bytes": buffer_bytes,
+        "total_bytes": total_bytes,
+        "available_bytes": available_bytes,
+        "sufficient": total_bytes <= available_bytes,
+        "num_samples": total_samples,
+    }
+
+
+def check_cache_memory(
+    train_labels: List[sio.Labels],
+    val_labels: List[sio.Labels],
+    memory_buffer: float = 0.2,
+    num_workers: int = 0,
+) -> bool:
+    """Check memory requirements for in-memory caching dataset pipeline.
+
+    This function determines if the system has sufficient memory for in-memory
+    image caching, accounting for DataLoader worker processes.
+
+    Args:
+        train_labels: List of `sleap_io.Labels` objects for training data.
+        val_labels: List of `sleap_io.Labels` objects for validation data.
+        memory_buffer: Fraction of memory to reserve as buffer. Default: 0.2 (20%).
+        num_workers: Number of DataLoader worker processes. When > 0, additional memory
+            overhead is estimated for worker process duplication.
 
     Returns:
         bool: True if the total memory required for caching is within available system
             memory, False otherwise.
     """
-    train_cache_memory_final = 0
-    val_cache_memory_final = 0
-    for train, val in zip(train_labels, val_labels):
-        train_cache_memory = check_memory(train)
-        val_cache_memory = check_memory(val)
-        train_cache_memory_final += train_cache_memory
-        val_cache_memory_final += val_cache_memory
+    estimate = estimate_cache_memory(
+        train_labels=train_labels,
+        val_labels=val_labels,
+        num_workers=num_workers,
+        memory_buffer=memory_buffer,
+    )
 
-    total_cache_memory = train_cache_memory_final + val_cache_memory_final
-    total_cache_memory += memory_buffer * total_cache_memory  # memory required in bytes
-    available_memory = psutil.virtual_memory().available  # available memory in bytes
+    if not estimate["sufficient"]:
+        total_gb = estimate["total_bytes"] / (1024**3)
+        available_gb = estimate["available_bytes"] / (1024**3)
+        raw_gb = estimate["raw_cache_bytes"] / (1024**3)
+        logger.info(
+            f"Memory check failed: need ~{total_gb:.2f} GB "
+            f"(raw cache: {raw_gb:.2f} GB, {estimate['num_samples']} samples), "
+            f"available: {available_gb:.2f} GB"
+        )
 
-    if total_cache_memory > available_memory:
-        return False
-    return True
+    return estimate["sufficient"]
