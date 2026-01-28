@@ -49,6 +49,7 @@ dependencies = [
     "jupyterlab",
     "pyzmq",
     "rich-click>=1.9.5",
+    "textual>=0.40.0",
 ]
 dynamic = ["version", "readme"]
 
