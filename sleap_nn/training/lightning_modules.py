@@ -51,9 +51,15 @@ matplotlib.use(
 import matplotlib.pyplot as plt
 from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
 from sleap_nn.config.trainer_config import (
+    CosineAnnealingWarmupConfig,
+    LinearWarmupLinearDecayConfig,
     LRSchedulerConfig,
     ReduceLROnPlateauConfig,
     StepLRConfig,
+)
+from sleap_nn.training.schedulers import (
+    LinearWarmupCosineAnnealingLR,
+    LinearWarmupLinearDecayLR,
 )
 from sleap_nn.config.get_config import get_backbone_config
 from sleap_nn.legacy_models import (
@@ -430,13 +436,51 @@ class LightningModel(L.LightningModule):
                 lr_scheduler_cfg.step_lr = StepLRConfig()
             elif self.lr_scheduler == "reduce_lr_on_plateau":
                 lr_scheduler_cfg.reduce_lr_on_plateau = ReduceLROnPlateauConfig()
+            elif self.lr_scheduler == "cosine_annealing_warmup":
+                lr_scheduler_cfg.cosine_annealing_warmup = CosineAnnealingWarmupConfig()
+            elif self.lr_scheduler == "linear_warmup_linear_decay":
+                lr_scheduler_cfg.linear_warmup_linear_decay = (
+                    LinearWarmupLinearDecayConfig()
+                )
 
         elif isinstance(self.lr_scheduler, dict):
             lr_scheduler_cfg = self.lr_scheduler
 
         for k, v in self.lr_scheduler.items():
             if v is not None:
-                if k == "step_lr":
+                if k == "cosine_annealing_warmup":
+                    cfg = self.lr_scheduler.cosine_annealing_warmup
+                    # Use trainer's max_epochs if not specified in config
+                    max_epochs = (
+                        cfg.max_epochs
+                        if cfg.max_epochs is not None
+                        else self.trainer.max_epochs
+                    )
+                    scheduler = LinearWarmupCosineAnnealingLR(
+                        optimizer=optimizer,
+                        warmup_epochs=cfg.warmup_epochs,
+                        max_epochs=max_epochs,
+                        warmup_start_lr=cfg.warmup_start_lr,
+                        eta_min=cfg.eta_min,
+                    )
+                    break
+                elif k == "linear_warmup_linear_decay":
+                    cfg = self.lr_scheduler.linear_warmup_linear_decay
+                    # Use trainer's max_epochs if not specified in config
+                    max_epochs = (
+                        cfg.max_epochs
+                        if cfg.max_epochs is not None
+                        else self.trainer.max_epochs
+                    )
+                    scheduler = LinearWarmupLinearDecayLR(
+                        optimizer=optimizer,
+                        warmup_epochs=cfg.warmup_epochs,
+                        max_epochs=max_epochs,
+                        warmup_start_lr=cfg.warmup_start_lr,
+                        end_lr=cfg.end_lr,
+                    )
+                    break
+                elif k == "step_lr":
                     scheduler = torch.optim.lr_scheduler.StepLR(
                         optimizer=optimizer,
                         step_size=self.lr_scheduler.step_lr.step_size,
