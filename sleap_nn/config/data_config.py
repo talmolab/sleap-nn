@@ -198,6 +198,8 @@ class DataConfig:
         cache_img_path: (str) Path to save `.jpg` images created with `torch_dataset_cache_img_disk` data pipeline framework. If `None`, the path provided in `trainer_config.save_ckpt` is used. The `train_imgs` and `val_imgs` dirs are created inside this path. *Default*: `None`.
         use_existing_imgs: (bool) Use existing train and val images/ chunks in the `cache_img_path` for `torch_dataset_cache_img_disk` frameworks. If `True`, the `cache_img_path` should have `train_imgs` and `val_imgs` dirs. *Default*: `False`.
         delete_cache_imgs_after_training: (bool) If `False`, the images (torch_dataset_cache_img_disk) are retained after training. Else, the files are deleted. *Default*: `True`.
+        parallel_caching: (bool) If `True`, use parallel processing to cache images (significantly faster for large datasets). *Default*: `True`.
+        cache_workers: (int) Number of worker threads for parallel caching. If 0, uses min(4, cpu_count). *Default*: `0`.
         preprocessing: Configuration options related to data preprocessing.
         use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False. *Default*: `True`.
         augmentation_config: Configurations related to augmentation. (only if `use_augmentations_train` is `True`)
@@ -217,6 +219,8 @@ class DataConfig:
     cache_img_path: Optional[str] = None
     use_existing_imgs: bool = False
     delete_cache_imgs_after_training: bool = True
+    parallel_caching: bool = True
+    cache_workers: int = 0
     preprocessing: PreprocessingConfig = field(factory=PreprocessingConfig)
     use_augmentations_train: bool = True
     augmentation_config: Optional[AugmentationConfig] = None

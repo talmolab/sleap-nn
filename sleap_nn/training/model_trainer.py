@@ -807,8 +807,16 @@ class ModelTrainer:
         base_cache_img_path = None
         if self.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_memory":
             # check available memory. If insufficient memory, default to disk caching.
+            # Account for DataLoader worker memory overhead
+            train_num_workers = self.config.trainer_config.train_data_loader.num_workers
+            val_num_workers = self.config.trainer_config.val_data_loader.num_workers
+            max_num_workers = max(train_num_workers, val_num_workers)
+
             mem_available = check_cache_memory(
-                self.train_labels, self.val_labels, memory_buffer=MEMORY_BUFFER
+                self.train_labels,
+                self.val_labels,
+                memory_buffer=MEMORY_BUFFER,
+                num_workers=max_num_workers,
             )
             if not mem_available:
                 # Validate: multi-GPU + auto-generated run_name + fallback to disk cache

@@ -229,7 +229,9 @@ class LightningModel(L.LightningModule):
             elif self.pretrained_backbone_weights.endswith(".h5"):
                 # load from sleap model weights
                 load_legacy_model_weights(
-                    self.model.backbone, self.pretrained_backbone_weights
+                    self.model.backbone,
+                    self.pretrained_backbone_weights,
+                    component="backbone",
                 )
 
             else:
@@ -258,7 +260,9 @@ class LightningModel(L.LightningModule):
             elif self.pretrained_head_weights.endswith(".h5"):
                 # load from sleap model weights
                 load_legacy_model_weights(
-                    self.model.head_layers, self.pretrained_head_weights
+                    self.model.head_layers,
+                    self.pretrained_head_weights,
+                    component="head",
                 )
 
             else:
@@ -332,7 +336,6 @@ class LightningModel(L.LightningModule):
             prog_bar=False,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
         # Log epoch explicitly for custom x-axis support in wandb
@@ -341,7 +344,6 @@ class LightningModel(L.LightningModule):
             float(self.current_epoch),
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
         # Log epoch-averaged training loss
@@ -353,7 +355,6 @@ class LightningModel(L.LightningModule):
                 prog_bar=False,
                 on_step=False,
                 on_epoch=True,
-                logger=True,
                 sync_dist=True,
             )
         # Log current learning rate (useful for monitoring LR schedulers)
@@ -365,7 +366,6 @@ class LightningModel(L.LightningModule):
                 prog_bar=False,
                 on_step=False,
                 on_epoch=True,
-                logger=True,
                 sync_dist=True,
             )
 
@@ -385,7 +385,6 @@ class LightningModel(L.LightningModule):
             prog_bar=False,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
         # Log epoch explicitly so val/* metrics can use it as x-axis in wandb
@@ -395,7 +394,6 @@ class LightningModel(L.LightningModule):
             float(self.current_epoch),
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
 
@@ -651,7 +649,6 @@ class SingleInstanceLightningModule(LightningModel):
                     prog_bar=False,
                     on_step=False,
                     on_epoch=True,
-                    logger=True,
                     sync_dist=True,
                 )
         # Log step-level loss (every batch, uses global_step x-axis)
@@ -661,7 +658,6 @@ class SingleInstanceLightningModule(LightningModel):
             prog_bar=True,
             on_step=True,
             on_epoch=False,
-            logger=True,
             sync_dist=True,
         )
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
@@ -694,7 +690,6 @@ class SingleInstanceLightningModule(LightningModel):
             prog_bar=True,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
 
@@ -917,7 +912,6 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                     prog_bar=False,
                     on_step=False,
                     on_epoch=True,
-                    logger=True,
                     sync_dist=True,
                 )
 
@@ -928,7 +922,6 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             prog_bar=True,
             on_step=True,
             on_epoch=False,
-            logger=True,
             sync_dist=True,
         )
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
@@ -961,7 +954,6 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             prog_bar=True,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
 
@@ -1177,7 +1169,6 @@ class CentroidLightningModule(LightningModel):
             prog_bar=True,
             on_step=True,
             on_epoch=False,
-            logger=True,
             sync_dist=True,
         )
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
@@ -1200,7 +1191,6 @@ class CentroidLightningModule(LightningModel):
             prog_bar=True,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
 
@@ -1478,7 +1468,6 @@ class BottomUpLightningModule(LightningModel):
             prog_bar=True,
             on_step=True,
             on_epoch=False,
-            logger=True,
             sync_dist=True,
         )
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
@@ -1488,7 +1477,6 @@ class BottomUpLightningModule(LightningModel):
             confmap_loss,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
         self.log(
@@ -1496,7 +1484,6 @@ class BottomUpLightningModule(LightningModel):
             pafs_loss,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
         return loss
@@ -1547,7 +1534,6 @@ class BottomUpLightningModule(LightningModel):
             prog_bar=True,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
         self.log(
@@ -1555,7 +1541,6 @@ class BottomUpLightningModule(LightningModel):
             confmap_loss,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
         self.log(
@@ -1563,7 +1548,6 @@ class BottomUpLightningModule(LightningModel):
             pafs_loss,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
 
@@ -1823,7 +1807,6 @@ class BottomUpMultiClassLightningModule(LightningModel):
             prog_bar=True,
             on_step=True,
             on_epoch=False,
-            logger=True,
             sync_dist=True,
         )
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
@@ -1833,7 +1816,6 @@ class BottomUpMultiClassLightningModule(LightningModel):
             confmap_loss,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
         self.log(
@@ -1841,7 +1823,6 @@ class BottomUpMultiClassLightningModule(LightningModel):
             classmaps_loss,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
 
@@ -1894,7 +1875,6 @@ class BottomUpMultiClassLightningModule(LightningModel):
                     class_accuracy,
                     on_step=False,
                     on_epoch=True,
-                    logger=True,
                     sync_dist=True,
                 )
 
@@ -1937,7 +1917,6 @@ class BottomUpMultiClassLightningModule(LightningModel):
             prog_bar=True,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
         self.log(
@@ -1945,7 +1924,6 @@ class BottomUpMultiClassLightningModule(LightningModel):
             confmap_loss,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
         self.log(
@@ -1953,7 +1931,6 @@ class BottomUpMultiClassLightningModule(LightningModel):
             classmaps_loss,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
 
@@ -2006,7 +1983,6 @@ class BottomUpMultiClassLightningModule(LightningModel):
                     class_accuracy,
                     on_step=False,
                     on_epoch=True,
-                    logger=True,
                     sync_dist=True,
                 )
 
@@ -2242,7 +2218,6 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                     prog_bar=False,
                     on_step=False,
                     on_epoch=True,
-                    logger=True,
                     sync_dist=True,
                 )
 
@@ -2253,7 +2228,6 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             prog_bar=True,
             on_step=True,
             on_epoch=False,
-            logger=True,
             sync_dist=True,
         )
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
@@ -2263,7 +2237,6 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             confmap_loss,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
         self.log(
@@ -2271,7 +2244,6 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             classvector_loss,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
 
@@ -2285,7 +2257,6 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             class_accuracy,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
         return loss
@@ -2325,7 +2296,6 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             prog_bar=True,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
         self.log(
@@ -2333,7 +2303,6 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             confmap_loss,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
         self.log(
@@ -2341,7 +2310,6 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             classvector_loss,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
 
@@ -2355,7 +2323,6 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             class_accuracy,
             on_step=False,
             on_epoch=True,
-            logger=True,
             sync_dist=True,
         )
 
