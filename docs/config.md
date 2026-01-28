@@ -785,6 +785,24 @@ trainer_config:
     - `factor`: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. **Default**: `0.5`
     - `min_lr`: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. **Default**: `1e-8`
 
+#### Cosine Annealing with Linear Warmup
+The learning rate increases linearly during warmup, then decreases following a cosine curve to the minimum value. This schedule is widely used in vision transformers and modern CNN architectures.
+
+- `lr_scheduler.cosine_annealing_warmup`:
+    - `warmup_epochs`: (int) Number of epochs for linear warmup phase. **Default**: `5`
+    - `max_epochs`: (int) Total number of training epochs. If `None`, uses `trainer_config.max_epochs`. **Default**: `None`
+    - `warmup_start_lr`: (float) Learning rate at start of warmup. **Default**: `0.0`
+    - `eta_min`: (float) Minimum learning rate at end of cosine decay. **Default**: `0.0`
+
+#### Linear Warmup + Linear Decay
+The learning rate increases linearly during warmup, then decreases linearly to the end learning rate. This schedule provides a simple, interpretable learning rate trajectory.
+
+- `lr_scheduler.linear_warmup_linear_decay`:
+    - `warmup_epochs`: (int) Number of epochs for linear warmup phase. **Default**: `5`
+    - `max_epochs`: (int) Total number of training epochs. If `None`, uses `trainer_config.max_epochs`. **Default**: `None`
+    - `warmup_start_lr`: (float) Learning rate at start of warmup. **Default**: `0.0`
+    - `end_lr`: (float) Learning rate at end of training. **Default**: `0.0`
+
 **Example Learning Rate Scheduler configurations:**
 
 **No scheduler (constant learning rate):**
@@ -793,6 +811,8 @@ trainer_config:
   lr_scheduler:
     step_lr: null
     reduce_lr_on_plateau: null
+    cosine_annealing_warmup: null
+    linear_warmup_linear_decay: null
 ```
 
 **Step LR Scheduler:**
@@ -803,6 +823,8 @@ trainer_config:
       step_size: 20
       gamma: 0.5
     reduce_lr_on_plateau: null
+    cosine_annealing_warmup: null
+    linear_warmup_linear_decay: null
 ```
 
 **Reduce LR on Plateau:**
@@ -817,6 +839,34 @@ trainer_config:
       patience: 5
       factor: 0.5
       min_lr: 1e-8
+    cosine_annealing_warmup: null
+    linear_warmup_linear_decay: null
+```
+
+**Cosine Annealing with Linear Warmup:**
+```yaml
+trainer_config:
+  lr_scheduler:
+    step_lr: null
+    reduce_lr_on_plateau: null
+    cosine_annealing_warmup:
+      warmup_epochs: 5
+      warmup_start_lr: 0.0
+      eta_min: 1e-6
+    linear_warmup_linear_decay: null
+```
+
+**Linear Warmup + Linear Decay:**
+```yaml
+trainer_config:
+  lr_scheduler:
+    step_lr: null
+    reduce_lr_on_plateau: null
+    cosine_annealing_warmup: null
+    linear_warmup_linear_decay:
+      warmup_epochs: 5
+      warmup_start_lr: 0.0
+      end_lr: 1e-6
 ```
 
 ### Early Stopping
