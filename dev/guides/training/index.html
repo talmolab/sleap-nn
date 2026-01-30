@@ -1213,6 +1213,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../reference/evaluation_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../help/faq/" class="md-nav__link">
         
   
@@ -4333,6 +4361,56 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#understanding-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Understanding Training
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Understanding Training">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#epochs-and-batches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Epochs and Batches
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#early-stopping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Early Stopping
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#augmentation-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Augmentation Strategy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#best-practices" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4426,6 +4504,10 @@
 
 <h1 id="training-models">Training Models<a class="headerlink" href="#training-models" title="Permanent link">&para;</a></h1>
 <p>Train pose estimation models with SLEAP-NN.</p>
+<div class="admonition tip">
+<p class="admonition-title">New to SLEAP-NN?</p>
+<p>See <a href="../../reference/models/">Model Types</a> to understand the different model architectures (single instance, top-down, bottom-up) and when to use each.</p>
+</div>
 <div class="admonition info">
 <p class="admonition-title">Using uv workflow</p>
 <ul>
@@ -4443,6 +4525,7 @@
 <p>Or with separate config directory and name:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/configs<span class="w"> </span>--config-name<span class="w"> </span>my_config
 </span></code></pre></div>
+<p>See the <a href="../../reference/cli/">CLI Reference</a> for all available parameters.</p>
 <h3 id="using-python-api">Using Python API<a class="headerlink" href="#using-python-api" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">omegaconf</span><span class="w"> </span><span class="kn">import</span> <span class="n">OmegaConf</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.train</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_training</span>
@@ -4531,7 +4614,7 @@
 </span></code></pre></div>
 <hr />
 <h2 id="top-down-training">Top-Down Training<a class="headerlink" href="#top-down-training" title="Permanent link">&para;</a></h2>
-<p>Top-down models need two separate training runs:</p>
+<p>Top-down models need two separate training runs. See <a href="../../reference/models/#top-down">Model Types</a> for details on when to use top-down vs bottom-up.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># Train centroid model</span>
 </span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>-d<span class="w"> </span>/path/to/configs<span class="w"> </span>-c<span class="w"> </span>centroid_unet<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="s2">&quot;data_config.train_labels_path=[labels.pkg.slp]&quot;</span>
@@ -4699,6 +4782,35 @@
 <p class="admonition-title">Workers without caching</p>
 <p>Keep <code>num_workers: 0</code> when not using caching.</p>
 </div>
+<hr />
+<h2 id="understanding-training">Understanding Training<a class="headerlink" href="#understanding-training" title="Permanent link">&para;</a></h2>
+<h3 id="epochs-and-batches">Epochs and Batches<a class="headerlink" href="#epochs-and-batches" title="Permanent link">&para;</a></h3>
+<p>Training occurs in <strong>epochs</strong>, where one epoch consists of the larger of:</p>
+<ul>
+<li>(number of training images) / (batch size), or</li>
+<li>200 batches</li>
+</ul>
+<p>With larger datasets, one epoch equals one pass over the training data.</p>
+<h3 id="early-stopping">Early Stopping<a class="headerlink" href="#early-stopping" title="Permanent link">&para;</a></h3>
+<p>By default, training stops early when a plateau is detected in the validation loss to prevent overfitting. You can disable this or set a fixed number of epochs:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nt">trainer_config</span><span class="p">:</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span><span class="nt">max_epochs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200</span>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="w">  </span><span class="nt">early_stopping</span><span class="p">:</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">  </span><span class="c1"># Disable early stopping</span>
+</span></code></pre></div>
+<h3 id="augmentation-strategy">Augmentation Strategy<a class="headerlink" href="#augmentation-strategy" title="Permanent link">&para;</a></h3>
+<p>During training, augmentations are applied to raw images and poses to generate variants of labeled data. This promotes generalization.</p>
+<p><strong>Rotation recommendations:</strong></p>
+<ul>
+<li><strong>Overhead/top-down view</strong>: Use full rotation range (-180° to 180°)</li>
+<li><strong>Side view</strong>: Use limited rotation (-15° to 15°)</li>
+</ul>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="nt">data_config</span><span class="p">:</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">  </span><span class="nt">augmentation</span><span class="p">:</span>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="w">    </span><span class="nt">rotation</span><span class="p">:</span>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="w">      </span><span class="nt">min_angle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-180.0</span>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="w">      </span><span class="nt">max_angle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">180.0</span>
+</span></code></pre></div>
 <hr />
 <h2 id="best-practices">Best Practices<a class="headerlink" href="#best-practices" title="Permanent link">&para;</a></h2>
 <ol>

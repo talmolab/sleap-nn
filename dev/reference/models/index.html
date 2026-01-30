@@ -14,7 +14,7 @@
         <link rel="prev" href="../cli/">
       
       
-        <link rel="next" href="../../help/faq/">
+        <link rel="next" href="../evaluation_metrics/">
       
       
         
@@ -1327,6 +1327,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#centroid-model-tips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Centroid Model Tips
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#configuration_1" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1554,6 +1565,67 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#training-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training Options
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Training Options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#batch-size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Batch Size
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#receptive-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Receptive Field
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#augmentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Augmentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#online-hard-keypoint-mining-ohkm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Online Hard Keypoint Mining (OHKM)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#tips" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1568,6 +1640,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../evaluation_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -4568,6 +4668,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#centroid-model-tips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Centroid Model Tips
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#configuration_1" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4795,6 +4906,67 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#training-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training Options
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Training Options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#batch-size" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Batch Size
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#receptive-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Receptive Field
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#augmentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Augmentation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#online-hard-keypoint-mining-ohkm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Online Hard Keypoint Mining (OHKM)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#tips" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4894,15 +5066,33 @@
 <hr />
 <h2 id="top-down">Top-Down<a class="headerlink" href="#top-down" title="Permanent link">&para;</a></h2>
 <p><strong>Two-stage: detect centers, then estimate pose.</strong></p>
+<p><img alt="Top-down approach" src="../../assets/images/topdown_approach.jpg" /></p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>Stage 1: Image → Backbone → Centroid Map → Instance Centers
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>Stage 2: Crop → Backbone → Confidence Maps → Keypoints
 </span></code></pre></div>
 <h3 id="when-to-use_1">When to Use<a class="headerlink" href="#when-to-use_1" title="Permanent link">&para;</a></h3>
 <ul>
-<li>Multiple animals</li>
-<li>Animals not heavily overlapping</li>
-<li>Need precise localization</li>
+<li>Multiple animals that are clearly separated</li>
+<li>Animals vary in size (centroid crops normalize scale)</li>
+<li>Need precise localization per individual</li>
 </ul>
+<h3 id="centroid-model-tips">Centroid Model Tips<a class="headerlink" href="#centroid-model-tips" title="Permanent link">&para;</a></h3>
+<div class="admonition tip">
+<p class="admonition-title">Sigma for centroid detection</p>
+<p>Increasing <code>sigma</code> makes centroid confidence maps coarser—easier to detect animals but less precise. This is often a good trade-off for the centroid stage.</p>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Use a specific anchor part</p>
+<p>Choosing a specific node as the centroid (e.g., thorax) leads to more consistent results than using the bounding box center, which often falls on different parts of the animal. This matters because the centered instance model depends on consistent positioning within the crop.</p>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Reduce resolution for centroid model</p>
+<p>Since centroids can be detected coarsely, you can reduce input image resolution (<code>preprocessing.scale</code>) to save computation. This is especially useful early in labeling when training data is limited.</p>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Crop size</p>
+<p>Set <strong>crop size</strong> large enough to include the whole animal in the centered instance crops.</p>
+</div>
 <h3 id="configuration_1">Configuration<a class="headerlink" href="#configuration_1" title="Permanent link">&para;</a></h3>
 <p><strong>Centroid model:</strong>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">head_configs</span><span class="p">:</span>
@@ -4935,14 +5125,20 @@
 <hr />
 <h2 id="bottom-up">Bottom-Up<a class="headerlink" href="#bottom-up" title="Permanent link">&para;</a></h2>
 <p><strong>Detect all keypoints, then group into instances.</strong></p>
+<p><img alt="Bottom-up approach" src="../../assets/images/bottomup_approach.png" /></p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>Image → Backbone → [Confidence Maps + Part Affinity Fields] → Grouping → Instances
 </span></code></pre></div>
 <h3 id="when-to-use_2">When to Use<a class="headerlink" href="#when-to-use_2" title="Permanent link">&para;</a></h3>
 <ul>
-<li>Multiple animals</li>
-<li>Heavy occlusion or overlap</li>
+<li>Animals frequently occlude each other</li>
+<li>Many animals in frame (more efficient than top-down)</li>
 <li>Animals touching/interacting</li>
+<li>Uniform animal sizes</li>
 </ul>
+<div class="admonition tip">
+<p class="admonition-title">Try both approaches</p>
+<p>Top-down works better for some datasets while bottom-up works better for others. To maximize accuracy, try both and compare results.</p>
+</div>
 <h3 id="how-it-works">How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h3>
 <ol>
 <li><strong>Confidence maps</strong>: Locate all keypoints of all animals</li>
@@ -5094,6 +5290,83 @@
 </tr>
 </tbody>
 </table>
+<hr />
+<h2 id="training-options">Training Options<a class="headerlink" href="#training-options" title="Permanent link">&para;</a></h2>
+<p>Key hyperparameters to configure when training models.</p>
+<h3 id="batch-size">Batch Size<a class="headerlink" href="#batch-size" title="Permanent link">&para;</a></h3>
+<p>Number of examples per training step.</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Higher</td>
+<td>Better generalization, requires more GPU memory</td>
+</tr>
+<tr>
+<td>Lower</td>
+<td>May overfit, useful when few varied examples</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Tip:</strong> Reduce batch size if you run out of GPU memory.</p>
+<h3 id="receptive-field">Receptive Field<a class="headerlink" href="#receptive-field" title="Permanent link">&para;</a></h3>
+<p>Controls how much context the model sees around each pixel. Determined by <strong>max stride</strong> and <strong>input scaling</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>max_stride</code></td>
+<td>Larger stride = larger receptive field, but more parameters</td>
+</tr>
+<tr>
+<td><code>input_scale</code></td>
+<td>Downsampling increases receptive field relative to original size</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Rule of thumb:</strong> Receptive field should be approximately as large as your animal.</p>
+<p>For <strong>top-down</strong> models:</p>
+<ul>
+<li><strong>Centroid model</strong>: Use larger receptive field (more downsampling OK)</li>
+<li><strong>Centered instance model</strong>: Smaller receptive field to preserve details</li>
+</ul>
+<h3 id="augmentation">Augmentation<a class="headerlink" href="#augmentation" title="Permanent link">&para;</a></h3>
+<p>Data augmentation helps train more robust models.</p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Recommended Settings</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Rotation</strong></td>
+<td>Side view: -15° to 15°, Top view: -180° to 180°</td>
+</tr>
+<tr>
+<td><strong>Brightness/Contrast</strong></td>
+<td>Enable if test videos have different lighting</td>
+</tr>
+<tr>
+<td><strong>Scale</strong></td>
+<td>Small variations (0.9-1.1) for size robustness</td>
+</tr>
+</tbody>
+</table>
+<h3 id="online-hard-keypoint-mining-ohkm">Online Hard Keypoint Mining (OHKM)<a class="headerlink" href="#online-hard-keypoint-mining-ohkm" title="Permanent link">&para;</a></h3>
+<p>Enable for skeletons with many joints. Makes "hard" joints contribute more to the loss, improving accuracy on difficult keypoints.</p>
+<p>See <a href="https://arxiv.org/abs/1604.03540">Shrivastava et al., 2016</a> for details.</p>
 <hr />
 <h2 id="tips">Tips<a class="headerlink" href="#tips" title="Permanent link">&para;</a></h2>
 <div class="admonition tip">

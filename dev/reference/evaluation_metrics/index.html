@@ -8,13 +8,13 @@
       
       
       
-        <link rel="canonical" href="https://nn.sleap.ai/dev/configuration/data/">
+        <link rel="canonical" href="https://nn.sleap.ai/dev/reference/evaluation_metrics/">
       
       
-        <link rel="prev" href="../">
+        <link rel="prev" href="../models/">
       
       
-        <link rel="next" href="../model/">
+        <link rel="next" href="../../help/faq/">
       
       
         
@@ -25,7 +25,7 @@
     
     
       
-        <title>Data Config - sleap-nn documentation</title>
+        <title>Evaluation Metrics - sleap-nn documentation</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#data-config" class="md-skip">
+        <a href="#evaluation-metrics" class="md-skip">
           Skip to content
         </a>
       
@@ -119,7 +119,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Data Config
+              Evaluation Metrics
             
           </span>
         </div>
@@ -304,7 +304,7 @@
   
   
     <li class="md-tabs__item md-tabs__item--active">
-      <a href="../../reference/" class="md-tabs__link">
+      <a href="../" class="md-tabs__link">
         
   
   
@@ -931,7 +931,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../reference/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -970,8 +970,6 @@
                 
   
   
-    
-  
   
   
     
@@ -987,15 +985,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_1" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_1" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../../configuration/" class="md-nav__link ">
               
   
   
@@ -1019,7 +1017,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_1_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_1_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5_1">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1034,37 +1032,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Data Config
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../configuration/data/" class="md-nav__link">
         
   
   
@@ -1080,237 +1051,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#data-paths" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Data Paths
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#data-pipeline" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Data Pipeline
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#preprocessing" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Preprocessing
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Preprocessing">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#common-patterns" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Common Patterns
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#augmentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Augmentation
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Augmentation">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#intensity-augmentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Intensity Augmentation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#geometric-augmentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Geometric Augmentation
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Examples
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Examples">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#no-augmentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        No Augmentation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#geometric-only-using-defaults" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Geometric Only (using defaults)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#geometric-only-explicit" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Geometric Only (explicit)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#full-augmentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Full Augmentation
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#full-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Full Reference
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Full Reference">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#dataconfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        DataConfig
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#preprocessingconfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        PreprocessingConfig
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#intensityconfig-augmentation_configintensity" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        IntensityConfig (augmentation_config.intensity)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#geometricconfig-augmentation_configgeometric" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        GeometricConfig (augmentation_config.geometric)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1323,7 +1063,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../model/" class="md-nav__link">
+      <a href="../../configuration/model/" class="md-nav__link">
         
   
   
@@ -1351,7 +1091,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../trainer/" class="md-nav__link">
+      <a href="../../configuration/trainer/" class="md-nav__link">
         
   
   
@@ -1379,7 +1119,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../samples/" class="md-nav__link">
+      <a href="../../configuration/samples/" class="md-nav__link">
         
   
   
@@ -1415,7 +1155,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/cli/" class="md-nav__link">
+      <a href="../cli/" class="md-nav__link">
         
   
   
@@ -1443,7 +1183,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../reference/models/" class="md-nav__link">
+      <a href="../models/" class="md-nav__link">
         
   
   
@@ -1468,10 +1208,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../reference/evaluation_metrics/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation Metrics
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1487,6 +1254,81 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#distance-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distance Metrics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#object-keypoint-similarity-oks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Object-keypoint similarity (OKS)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#percentage-of-correct-keypoints-pck-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Percentage of Correct Keypoints (PCK) metrics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#visibility-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Visibility metrics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#voc-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VOC metrics
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -4403,10 +4245,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#data-paths" class="md-nav__link">
+  <a href="#distance-metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Data Paths
+        Distance Metrics
       
     </span>
   </a>
@@ -4414,10 +4256,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#data-pipeline" class="md-nav__link">
+  <a href="#object-keypoint-similarity-oks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Data Pipeline
+        Object-keypoint similarity (OKS)
       
     </span>
   </a>
@@ -4425,191 +4267,35 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#preprocessing" class="md-nav__link">
+  <a href="#percentage-of-correct-keypoints-pck-metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Preprocessing
+        Percentage of Correct Keypoints (PCK) metrics
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Preprocessing">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#common-patterns" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Common Patterns
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#augmentation" class="md-nav__link">
+  <a href="#visibility-metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Augmentation
+        Visibility metrics
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Augmentation">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#intensity-augmentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Intensity Augmentation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#geometric-augmentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Geometric Augmentation
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
+  <a href="#voc-metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Examples
+        VOC metrics
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Examples">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#no-augmentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        No Augmentation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#geometric-only-using-defaults" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Geometric Only (using defaults)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#geometric-only-explicit" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Geometric Only (explicit)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#full-augmentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Full Augmentation
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#full-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Full Reference
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Full Reference">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#dataconfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        DataConfig
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#preprocessingconfig" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        PreprocessingConfig
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#intensityconfig-augmentation_configintensity" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        IntensityConfig (augmentation_config.intensity)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#geometricconfig-augmentation_configgeometric" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        GeometricConfig (augmentation_config.geometric)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -4633,596 +4319,58 @@
   
 
 
-<h1 id="data-config">Data Config<a class="headerlink" href="#data-config" title="Permanent link">&para;</a></h1>
-<p>Configure data loading, preprocessing, and augmentation.</p>
-<hr />
-<h2 id="data-paths">Data Paths<a class="headerlink" href="#data-paths" title="Permanent link">&para;</a></h2>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">data_config</span><span class="p">:</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">train_labels_path</span><span class="p">:</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">train.slp</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">more_train.slp</span><span class="w">      </span><span class="c1"># Multiple files supported</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">val_labels_path</span><span class="p">:</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">val.slp</span><span class="w">             </span><span class="c1"># Optional</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">validation_fraction</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span><span class="w">  </span><span class="c1"># Used if val_labels_path not set</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">test_file_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">test.slp</span><span class="w">  </span><span class="c1"># For post-training evaluation</span>
-</span></code></pre></div>
-<table>
-<thead>
-<tr>
-<th>Option</th>
-<th>Description</th>
-<th>Default</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>train_labels_path</code></td>
-<td>Training data files</td>
-<td>Required</td>
-</tr>
-<tr>
-<td><code>val_labels_path</code></td>
-<td>Validation data files</td>
-<td><code>null</code></td>
-</tr>
-<tr>
-<td><code>validation_fraction</code></td>
-<td>Fraction for auto-split</td>
-<td><code>0.1</code></td>
-</tr>
-<tr>
-<td><code>test_file_path</code></td>
-<td>Test data for evaluation</td>
-<td><code>null</code></td>
-</tr>
-<tr>
-<td><code>user_instances_only</code></td>
-<td>Only use user-labeled instances</td>
-<td><code>true</code></td>
-</tr>
-</tbody>
-</table>
-<hr />
-<h2 id="data-pipeline">Data Pipeline<a class="headerlink" href="#data-pipeline" title="Permanent link">&para;</a></h2>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">data_config</span><span class="p">:</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">data_pipeline_fw</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">torch_dataset</span><span class="w">  </span><span class="c1"># or cache options</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">cache_img_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/path/to/cache</span><span class="w">   </span><span class="c1"># For disk caching</span>
-</span></code></pre></div>
-<table>
-<thead>
-<tr>
-<th>Option</th>
-<th>Description</th>
-<th>When to Use</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>torch_dataset</code></td>
-<td>Load on demand</td>
-<td>Default, works everywhere</td>
-</tr>
-<tr>
-<td><code>torch_dataset_cache_img_memory</code></td>
-<td>Cache in RAM</td>
-<td>Faster, needs enough RAM</td>
-</tr>
-<tr>
-<td><code>torch_dataset_cache_img_disk</code></td>
-<td>Cache to disk</td>
-<td>Large datasets, multi-GPU</td>
-</tr>
-</tbody>
-</table>
-<div class="admonition tip">
-<p class="admonition-title">With caching, you can use <code>num_workers &gt; 0</code></p>
-</div>
-<hr />
-<h2 id="preprocessing">Preprocessing<a class="headerlink" href="#preprocessing" title="Permanent link">&para;</a></h2>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">data_config</span><span class="p">:</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">preprocessing</span><span class="p">:</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">ensure_rgb</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">          </span><span class="c1"># Force 3 channels</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">ensure_grayscale</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">    </span><span class="c1"># Force 1 channel</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">scale</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span><span class="w">                 </span><span class="c1"># Resize factor (0.5 = half size)</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">max_height</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">           </span><span class="c1"># Pad to this height</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">max_width</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">            </span><span class="c1"># Pad to this width</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="nt">crop_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">            </span><span class="c1"># For centered-instance models</span>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="nt">min_crop_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">         </span><span class="c1"># Minimum auto crop size</span>
-</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="nt">crop_padding</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">         </span><span class="c1"># Extra padding for crops</span>
-</span></code></pre></div>
-<h3 id="common-patterns">Common Patterns<a class="headerlink" href="#common-patterns" title="Permanent link">&para;</a></h3>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Downscale for speed</label><label for="__tabbed_1_2">Fixed dimensions</label><label for="__tabbed_1_3">Centered-instance model</label></div>
-<div class="tabbed-content">
-<div class="tabbed-block">
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">preprocessing</span><span class="p">:</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">scale</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span><span class="w">  </span><span class="c1"># Half resolution, 4x faster</span>
-</span></code></pre></div>
-</div>
-<div class="tabbed-block">
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">preprocessing</span><span class="p">:</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">max_height</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">max_width</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">512</span>
-</span></code></pre></div>
-</div>
-<div class="tabbed-block">
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">preprocessing</span><span class="p">:</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">crop_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">256</span><span class="w">  </span><span class="c1"># Fixed crop size</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="c1"># or</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="nt">crop_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">  </span><span class="c1"># Auto-compute from data</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="nt">min_crop_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="nt">crop_padding</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span>
-</span></code></pre></div>
-</div>
-</div>
-</div>
-<hr />
-<h2 id="augmentation">Augmentation<a class="headerlink" href="#augmentation" title="Permanent link">&para;</a></h2>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">data_config</span><span class="p">:</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">use_augmentations_train</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">augmentation_config</span><span class="p">:</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="nt">intensity</span><span class="p">:</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">      </span><span class="c1"># ... intensity settings</span>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">geometric</span><span class="p">:</span>
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">      </span><span class="c1"># ... geometric settings</span>
-</span></code></pre></div>
-<h3 id="intensity-augmentation">Intensity Augmentation<a class="headerlink" href="#intensity-augmentation" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">augmentation_config</span><span class="p">:</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">intensity</span><span class="p">:</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="c1"># Noise</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="nt">uniform_noise_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="nt">gaussian_noise_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="nt">gaussian_noise_mean</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="nt">gaussian_noise_std</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
-</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>
-</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="c1"># Contrast</span>
-</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">    </span><span class="nt">contrast_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.9</span>
-</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">    </span><span class="nt">contrast_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.1</span>
-</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">    </span><span class="nt">contrast_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
-</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>
-</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">    </span><span class="c1"># Brightness</span>
-</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">    </span><span class="nt">brightness_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
-</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">    </span><span class="nt">brightness_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
-</span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="w">    </span><span class="nt">brightness_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
-</span></code></pre></div>
-<h3 id="geometric-augmentation">Geometric Augmentation<a class="headerlink" href="#geometric-augmentation" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">augmentation_config</span><span class="p">:</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">geometric</span><span class="p">:</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="c1"># Rotation (degrees)</span>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span><span class="nt">rotation_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-15.0</span>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">    </span><span class="nt">rotation_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">15.0</span>
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">    </span><span class="c1"># Scale</span>
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">    </span><span class="nt">scale_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.9</span>
-</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">    </span><span class="nt">scale_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.1</span>
-</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>
-</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="w">    </span><span class="c1"># Translation (fraction of image size)</span>
-</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="w">    </span><span class="nt">translate_width</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
-</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="w">    </span><span class="nt">translate_height</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
-</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>
-</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="w">    </span><span class="c1"># Combined probability (used when individual *_p values are null)</span>
-</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="w">    </span><span class="nt">affine_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
-</span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>
-</span><span id="__span-8-18"><a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a><span class="w">    </span><span class="c1"># Independent probabilities (override affine_p when set)</span>
-</span><span id="__span-8-19"><a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a><span class="w">    </span><span class="nt">rotation_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span><span class="w">   </span><span class="c1"># Always apply rotation by default</span>
-</span><span id="__span-8-20"><a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a><span class="w">    </span><span class="nt">scale_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span><span class="w">      </span><span class="c1"># Always apply scaling by default</span>
-</span><span id="__span-8-21"><a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a><span class="w">    </span><span class="nt">translate_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w"> </span><span class="c1"># Uses affine_p if null</span>
-</span><span id="__span-8-22"><a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a>
-</span><span id="__span-8-23"><a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a><span class="w">    </span><span class="c1"># Random erase</span>
-</span><span id="__span-8-24"><a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a><span class="w">    </span><span class="nt">erase_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
-</span><span id="__span-8-25"><a id="__codelineno-8-25" name="__codelineno-8-25" href="#__codelineno-8-25"></a><span class="w">    </span><span class="nt">erase_scale_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0001</span>
-</span><span id="__span-8-26"><a id="__codelineno-8-26" name="__codelineno-8-26" href="#__codelineno-8-26"></a><span class="w">    </span><span class="nt">erase_scale_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span>
-</span><span id="__span-8-27"><a id="__codelineno-8-27" name="__codelineno-8-27" href="#__codelineno-8-27"></a>
-</span><span id="__span-8-28"><a id="__codelineno-8-28" name="__codelineno-8-28" href="#__codelineno-8-28"></a><span class="w">    </span><span class="c1"># Mixup</span>
-</span><span id="__span-8-29"><a id="__codelineno-8-29" name="__codelineno-8-29" href="#__codelineno-8-29"></a><span class="w">    </span><span class="nt">mixup_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
-</span><span id="__span-8-30"><a id="__codelineno-8-30" name="__codelineno-8-30" href="#__codelineno-8-30"></a><span class="w">    </span><span class="nt">mixup_lambda_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span>
-</span><span id="__span-8-31"><a id="__codelineno-8-31" name="__codelineno-8-31" href="#__codelineno-8-31"></a><span class="w">    </span><span class="nt">mixup_lambda_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.05</span>
-</span></code></pre></div>
-<hr />
-<h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
-<h3 id="no-augmentation">No Augmentation<a class="headerlink" href="#no-augmentation" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">data_config</span><span class="p">:</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">use_augmentations_train</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-</span></code></pre></div>
-<h3 id="geometric-only-using-defaults">Geometric Only (using defaults)<a class="headerlink" href="#geometric-only-using-defaults" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">data_config</span><span class="p">:</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">use_augmentations_train</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="c1"># Default augmentation_config applies rotation ±15° and scale 0.9-1.1 with p=1.0</span>
-</span></code></pre></div>
-<h3 id="geometric-only-explicit">Geometric Only (explicit)<a class="headerlink" href="#geometric-only-explicit" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">data_config</span><span class="p">:</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">use_augmentations_train</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span><span class="nt">augmentation_config</span><span class="p">:</span>
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span><span class="nt">intensity</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
-</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">    </span><span class="nt">geometric</span><span class="p">:</span>
-</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">      </span><span class="nt">rotation_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-30.0</span>
-</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">      </span><span class="nt">rotation_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30.0</span>
-</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">      </span><span class="nt">rotation_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span><span class="w">        </span><span class="c1"># 50% chance of rotation</span>
-</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">      </span><span class="nt">scale_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.8</span>
-</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="w">      </span><span class="nt">scale_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.2</span>
-</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="w">      </span><span class="nt">scale_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span><span class="w">           </span><span class="c1"># 50% chance of scaling</span>
-</span></code></pre></div>
-<h3 id="full-augmentation">Full Augmentation<a class="headerlink" href="#full-augmentation" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">data_config</span><span class="p">:</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nt">use_augmentations_train</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span><span class="nt">augmentation_config</span><span class="p">:</span>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">    </span><span class="nt">intensity</span><span class="p">:</span>
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">      </span><span class="nt">contrast_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.3</span>
-</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">      </span><span class="nt">brightness_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.3</span>
-</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">      </span><span class="nt">gaussian_noise_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.2</span>
-</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">      </span><span class="nt">gaussian_noise_std</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span>
-</span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">    </span><span class="nt">geometric</span><span class="p">:</span>
-</span><span id="__span-12-10"><a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="w">      </span><span class="nt">rotation_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">-30.0</span>
-</span><span id="__span-12-11"><a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="w">      </span><span class="nt">rotation_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30.0</span>
-</span><span id="__span-12-12"><a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="w">      </span><span class="nt">scale_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.8</span>
-</span><span id="__span-12-13"><a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="w">      </span><span class="nt">scale_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.2</span>
-</span><span id="__span-12-14"><a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="w">      </span><span class="nt">affine_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.7</span>
-</span></code></pre></div>
-<hr />
-<h2 id="full-reference">Full Reference<a class="headerlink" href="#full-reference" title="Permanent link">&para;</a></h2>
-<h3 id="dataconfig">DataConfig<a class="headerlink" href="#dataconfig" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Option</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>train_labels_path</code></td>
-<td>list</td>
-<td><code>null</code></td>
-<td>List of paths to training <code>.slp</code> files</td>
-</tr>
-<tr>
-<td><code>val_labels_path</code></td>
-<td>list</td>
-<td><code>null</code></td>
-<td>List of paths to validation <code>.slp</code> files</td>
-</tr>
-<tr>
-<td><code>validation_fraction</code></td>
-<td>float</td>
-<td><code>0.1</code></td>
-<td>Fraction of training data for auto-split validation</td>
-</tr>
-<tr>
-<td><code>use_same_data_for_val</code></td>
-<td>bool</td>
-<td><code>false</code></td>
-<td>Use same data for both training and validation (useful for intentional overfitting)</td>
-</tr>
-<tr>
-<td><code>test_file_path</code></td>
-<td>str/list</td>
-<td><code>null</code></td>
-<td>Path(s) to test data for post-training evaluation</td>
-</tr>
-<tr>
-<td><code>provider</code></td>
-<td>str</td>
-<td><code>LabelsReader</code></td>
-<td>Data provider class (only <code>LabelsReader</code> supported)</td>
-</tr>
-<tr>
-<td><code>user_instances_only</code></td>
-<td>bool</td>
-<td><code>true</code></td>
-<td>Only use user-labeled instances (not predicted)</td>
-</tr>
-<tr>
-<td><code>data_pipeline_fw</code></td>
-<td>str</td>
-<td><code>torch_dataset</code></td>
-<td>Data loading framework: <code>torch_dataset</code>, <code>torch_dataset_cache_img_memory</code>, <code>torch_dataset_cache_img_disk</code></td>
-</tr>
-<tr>
-<td><code>cache_img_path</code></td>
-<td>str</td>
-<td><code>null</code></td>
-<td>Path for disk caching (used with <code>torch_dataset_cache_img_disk</code>)</td>
-</tr>
-<tr>
-<td><code>use_existing_imgs</code></td>
-<td>bool</td>
-<td><code>false</code></td>
-<td>Use existing cached images instead of regenerating</td>
-</tr>
-<tr>
-<td><code>delete_cache_imgs_after_training</code></td>
-<td>bool</td>
-<td><code>true</code></td>
-<td>Delete cached images after training completes</td>
-</tr>
-<tr>
-<td><code>parallel_caching</code></td>
-<td>bool</td>
-<td><code>true</code></td>
-<td>Use parallel processing for caching (faster for large datasets)</td>
-</tr>
-<tr>
-<td><code>cache_workers</code></td>
-<td>int</td>
-<td><code>0</code></td>
-<td>Number of workers for parallel caching (0 = auto: min(4, cpu_count))</td>
-</tr>
-<tr>
-<td><code>use_augmentations_train</code></td>
-<td>bool</td>
-<td><code>true</code></td>
-<td>Apply augmentations during training</td>
-</tr>
-</tbody>
-</table>
-<h3 id="preprocessingconfig">PreprocessingConfig<a class="headerlink" href="#preprocessingconfig" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Option</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>ensure_rgb</code></td>
-<td>bool</td>
-<td><code>false</code></td>
-<td>Convert images to 3 channels (RGB). Single-channel images are replicated</td>
-</tr>
-<tr>
-<td><code>ensure_grayscale</code></td>
-<td>bool</td>
-<td><code>false</code></td>
-<td>Convert images to 1 channel (grayscale)</td>
-</tr>
-<tr>
-<td><code>max_height</code></td>
-<td>int</td>
-<td><code>null</code></td>
-<td>Pad images to this height</td>
-</tr>
-<tr>
-<td><code>max_width</code></td>
-<td>int</td>
-<td><code>null</code></td>
-<td>Pad images to this width</td>
-</tr>
-<tr>
-<td><code>scale</code></td>
-<td>float</td>
-<td><code>1.0</code></td>
-<td>Resize factor (e.g., 0.5 = half size)</td>
-</tr>
-<tr>
-<td><code>crop_size</code></td>
-<td>int</td>
-<td><code>null</code></td>
-<td>Crop size for centered-instance models. If <code>null</code>, auto-computed from data</td>
-</tr>
-<tr>
-<td><code>min_crop_size</code></td>
-<td>int</td>
-<td><code>100</code></td>
-<td>Minimum crop size when auto-computing</td>
-</tr>
-<tr>
-<td><code>crop_padding</code></td>
-<td>int</td>
-<td><code>null</code></td>
-<td>Extra padding around crops. If <code>null</code>, auto-computed from augmentation settings</td>
-</tr>
-</tbody>
-</table>
-<h3 id="intensityconfig-augmentation_configintensity">IntensityConfig (augmentation_config.intensity)<a class="headerlink" href="#intensityconfig-augmentation_configintensity" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Option</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>uniform_noise_min</code></td>
-<td>float</td>
-<td><code>0.0</code></td>
-<td>Minimum uniform noise value (0-1 scale)</td>
-</tr>
-<tr>
-<td><code>uniform_noise_max</code></td>
-<td>float</td>
-<td><code>1.0</code></td>
-<td>Maximum uniform noise value (0-1 scale)</td>
-</tr>
-<tr>
-<td><code>uniform_noise_p</code></td>
-<td>float</td>
-<td><code>0.0</code></td>
-<td>Probability of applying uniform noise</td>
-</tr>
-<tr>
-<td><code>gaussian_noise_mean</code></td>
-<td>float</td>
-<td><code>0.0</code></td>
-<td>Mean of Gaussian noise distribution</td>
-</tr>
-<tr>
-<td><code>gaussian_noise_std</code></td>
-<td>float</td>
-<td><code>1.0</code></td>
-<td>Standard deviation of Gaussian noise</td>
-</tr>
-<tr>
-<td><code>gaussian_noise_p</code></td>
-<td>float</td>
-<td><code>0.0</code></td>
-<td>Probability of applying Gaussian noise</td>
-</tr>
-<tr>
-<td><code>contrast_min</code></td>
-<td>float</td>
-<td><code>0.9</code></td>
-<td>Minimum contrast factor</td>
-</tr>
-<tr>
-<td><code>contrast_max</code></td>
-<td>float</td>
-<td><code>1.1</code></td>
-<td>Maximum contrast factor</td>
-</tr>
-<tr>
-<td><code>contrast_p</code></td>
-<td>float</td>
-<td><code>0.0</code></td>
-<td>Probability of applying contrast adjustment</td>
-</tr>
-<tr>
-<td><code>brightness_min</code></td>
-<td>float</td>
-<td><code>1.0</code></td>
-<td>Minimum brightness factor</td>
-</tr>
-<tr>
-<td><code>brightness_max</code></td>
-<td>float</td>
-<td><code>1.0</code></td>
-<td>Maximum brightness factor (max 2.0)</td>
-</tr>
-<tr>
-<td><code>brightness_p</code></td>
-<td>float</td>
-<td><code>0.0</code></td>
-<td>Probability of applying brightness adjustment</td>
-</tr>
-</tbody>
-</table>
-<h3 id="geometricconfig-augmentation_configgeometric">GeometricConfig (augmentation_config.geometric)<a class="headerlink" href="#geometricconfig-augmentation_configgeometric" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Option</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>rotation_min</code></td>
-<td>float</td>
-<td><code>-15.0</code></td>
-<td>Minimum rotation angle in degrees</td>
-</tr>
-<tr>
-<td><code>rotation_max</code></td>
-<td>float</td>
-<td><code>15.0</code></td>
-<td>Maximum rotation angle in degrees</td>
-</tr>
-<tr>
-<td><code>rotation_p</code></td>
-<td>float</td>
-<td><code>1.0</code></td>
-<td>Probability of rotation (independent). If <code>null</code>, uses <code>affine_p</code></td>
-</tr>
-<tr>
-<td><code>scale_min</code></td>
-<td>float</td>
-<td><code>0.9</code></td>
-<td>Minimum scale factor</td>
-</tr>
-<tr>
-<td><code>scale_max</code></td>
-<td>float</td>
-<td><code>1.1</code></td>
-<td>Maximum scale factor</td>
-</tr>
-<tr>
-<td><code>scale_p</code></td>
-<td>float</td>
-<td><code>1.0</code></td>
-<td>Probability of scaling (independent). If <code>null</code>, uses <code>affine_p</code></td>
-</tr>
-<tr>
-<td><code>translate_width</code></td>
-<td>float</td>
-<td><code>0.0</code></td>
-<td>Maximum horizontal translation as fraction of width</td>
-</tr>
-<tr>
-<td><code>translate_height</code></td>
-<td>float</td>
-<td><code>0.0</code></td>
-<td>Maximum vertical translation as fraction of height</td>
-</tr>
-<tr>
-<td><code>translate_p</code></td>
-<td>float</td>
-<td><code>null</code></td>
-<td>Probability of translation (independent). If <code>null</code>, uses <code>affine_p</code></td>
-</tr>
-<tr>
-<td><code>affine_p</code></td>
-<td>float</td>
-<td><code>0.0</code></td>
-<td>Probability of bundled affine transform (rotation + scale + translate)</td>
-</tr>
-<tr>
-<td><code>erase_scale_min</code></td>
-<td>float</td>
-<td><code>0.0001</code></td>
-<td>Minimum erased area as proportion of image</td>
-</tr>
-<tr>
-<td><code>erase_scale_max</code></td>
-<td>float</td>
-<td><code>0.01</code></td>
-<td>Maximum erased area as proportion of image</td>
-</tr>
-<tr>
-<td><code>erase_ratio_min</code></td>
-<td>float</td>
-<td><code>1.0</code></td>
-<td>Minimum aspect ratio of erased area</td>
-</tr>
-<tr>
-<td><code>erase_ratio_max</code></td>
-<td>float</td>
-<td><code>1.0</code></td>
-<td>Maximum aspect ratio of erased area</td>
-</tr>
-<tr>
-<td><code>erase_p</code></td>
-<td>float</td>
-<td><code>0.0</code></td>
-<td>Probability of random erasing</td>
-</tr>
-<tr>
-<td><code>mixup_lambda_min</code></td>
-<td>float</td>
-<td><code>0.01</code></td>
-<td>Minimum mixup strength</td>
-</tr>
-<tr>
-<td><code>mixup_lambda_max</code></td>
-<td>float</td>
-<td><code>0.05</code></td>
-<td>Maximum mixup strength</td>
-</tr>
-<tr>
-<td><code>mixup_p</code></td>
-<td>float</td>
-<td><code>0.0</code></td>
-<td>Probability of applying mixup</td>
-</tr>
-</tbody>
-</table>
+<h1 id="evaluation-metrics">Evaluation Metrics<a class="headerlink" href="#evaluation-metrics" title="Permanent link">&para;</a></h1>
+<p>Here, we explain the various evaluation metrics we output at the end of running inference with a trained SLEAP model. We report 5 broad categories of metrics:</p>
+<ul>
+<li><a href="#distance-metrics">Distance metrics</a></li>
+<li><a href="#object-keypoint-similarity-oks">Object Keypoint similarity (OKS)</a></li>
+<li><a href="#percentage-of-correct-keypoints-pck-metrics">Percentage of Correct Keypoints (PCK) metrics</a></li>
+<li><a href="#visibility-metrics">Visibility metrics</a></li>
+<li><a href="#voc-metrics">VOC metrics</a></li>
+</ul>
+<h2 id="distance-metrics">Distance Metrics<a class="headerlink" href="#distance-metrics" title="Permanent link">&para;</a></h2>
+<p>This metric computes the Euclidean distance between pairs of predicted and ground-truth (gt) instances. For each instance pair, we calculate the L2 norm of the difference between the predicted and corresponding ground-truth keypoints. The following statistics are reported:</p>
+<ul>
+<li>
+<p><em><code>Avg_dist</code></em>: Mean Euclidean distance across all (pred, gt) pairs.</p>
+</li>
+<li>
+<p><em><code>Dist@k</code></em>: Percentile-based distance metrics which includes the distance at the 50<sup>th</sup>, 75<sup>th</sup>, 90<sup>th</sup>, 95<sup>th</sup>, and 99<sup>th</sup> percentiles (denoted as p50, p75, p90, p95, p99).</p>
+</li>
+</ul>
+<p>These metrics provide insight into the distribution of how far off the predictions are from the ground-truth key-points.</p>
+<h2 id="object-keypoint-similarity-oks">Object-keypoint similarity (OKS)<a class="headerlink" href="#object-keypoint-similarity-oks" title="Permanent link">&para;</a></h2>
+<p>This returns the mean OKS score between every pair of ground truth and
+predicted instance, ranging from 0 to 1.0 and 1.0 indicating a perfect match. OKS provides a measure of similarity between ground-truth and predicted pose by taking into account the instance size (scale) and node visibility.</p>
+<p>OKS is computed by measuring the Euclidean distance between each predicted keypoint and its corresponding ground-truth keypoint. This distance is then normalized based on the scale of the object (bounding box area for the instance) and standard-deviation that defines the spread in the localization accuracy of each node. For each node, keypoint similarity is computed by taking the negative exponent of the normalized distance. Mean OKS is the average of keypoint similarities across all visible nodes.</p>
+<p>The implementation is based off of the descriptions in: <a href="https://arxiv.org/abs/1707.05388">Ronch &amp; Perona. "Benchmarking and Error Diagnosis in Multi-Instance Pose Estimation." ICCV (2017)</a>.</p>
+<h2 id="percentage-of-correct-keypoints-pck-metrics">Percentage of Correct Keypoints (PCK) metrics<a class="headerlink" href="#percentage-of-correct-keypoints-pck-metrics" title="Permanent link">&para;</a></h2>
+<p>This metric measures the fraction of keypoints that fall within a certain pixel distance (threshold) from the ground-truth location. This is useful to evaluate how precise the predicted points are. The following are generated using PCK metric:</p>
+<ul>
+<li><em><code>PCKs</code></em>: PCK on each predicted instances for each node at different thresholds. (Thresholds: [1, 2, 3, ..., 10])</li>
+<li><em><code>mPCK part</code></em>: Mean PCK per node averaged over all predicted instances across thresholds.</li>
+<li><em><code>mPCK</code></em>: Mean PCK across all predicted nodes and thresholds.</li>
+</ul>
+<h2 id="visibility-metrics">Visibility metrics<a class="headerlink" href="#visibility-metrics" title="Permanent link">&para;</a></h2>
+<p>This metric evaluates the visibility accuracy of the predicted nodes. It measures how well the model identifies whether the keypoint is present or missing - independent of its spatial accuracy (i.e. distance from ground-truth). This is useful for evaluating models on datasets with occlusions (NaN nodes).</p>
+<p>The following statistics are computed across all matched instance pairs:</p>
+<ul>
+<li><em><code>True positives (TP)</code></em>: Node is visible in both ground-truth and prediction.</li>
+<li><em><code>False positives (FP)</code></em>: Node is missing in ground-truth but visible in prediction.</li>
+<li><em><code>True negatives (TN)</code></em>: Node is missing in both ground-truth and prediction.</li>
+<li><em><code>False negatives (FN)</code></em>: Node is visible in ground-truth but missing in prediction.</li>
+<li><em><code>Precision (TP / (TP + FP))</code></em>: Proportion of predicted visible nodes that are correct.</li>
+<li><em><code>Recall (TP / (TP + FN))</code></em>: Proportion of actual visible nodes that were correctly predicted.</li>
+</ul>
+<h2 id="voc-metrics">VOC metrics<a class="headerlink" href="#voc-metrics" title="Permanent link">&para;</a></h2>
+<p>The following VOC-style metrics are generated using either OKS or PCK as the matching scores and a set of thresholds where a predicted instance is considered as a True Positive if its match score is greater than the threshold else it is counted as a False Positive.</p>
+<ul>
+<li><em><code>Average Precision (AP)</code></em>: Average of best precisions over fixed set of recall thresholds, at each match score threshold.</li>
+<li><em><code>Average Recall (AR)</code></em>: Maximum recall achieved at each match score threshold.</li>
+<li><em><code>Mean Average Precision (mAP)</code></em>: Mean of average precisions across match thresholds.</li>
+<li><em><code>Mean Average Recall (mAR)</code></em>: Mean of average recalls across match thresholds.</li>
+</ul>
+<p>To learn how to generate these metrics using sleap-nn, see the <a href="../../guides/evaluation/">Evaluation guide</a>.</p>
 
 
 

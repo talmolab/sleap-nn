@@ -869,18 +869,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#cli-arguments" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        CLI Arguments
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="CLI Arguments">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
   <a href="#essential-parameters" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -888,33 +876,6 @@
       
     </span>
   </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#image-pre-processing" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Image Pre-processing
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#data-selection" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Data Selection
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1449,6 +1410,34 @@
     
   
     Model Types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/evaluation_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation Metrics
   
 
     
@@ -4384,18 +4373,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#cli-arguments" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        CLI Arguments
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="CLI Arguments">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
   <a href="#essential-parameters" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4403,33 +4380,6 @@
       
     </span>
   </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#image-pre-processing" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Image Pre-processing
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#data-selection" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Data Selection
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -4619,9 +4569,9 @@
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span>--model_paths<span class="w"> </span>models/my_model/
 </span></code></pre></div>
 <p>Output: <code>video.mp4.predictions.slp</code></p>
+<p>See the <a href="../../reference/cli/">CLI Reference</a> for all available parameters.</p>
 <hr />
-<h2 id="cli-arguments">CLI Arguments<a class="headerlink" href="#cli-arguments" title="Permanent link">&para;</a></h2>
-<h3 id="essential-parameters">Essential Parameters<a class="headerlink" href="#essential-parameters" title="Permanent link">&para;</a></h3>
+<h2 id="essential-parameters">Essential Parameters<a class="headerlink" href="#essential-parameters" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
@@ -4674,100 +4624,7 @@
 </tbody>
 </table>
 <p>*Not required for track-only mode.</p>
-<h3 id="image-pre-processing">Image Pre-processing<a class="headerlink" href="#image-pre-processing" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Parameter</th>
-<th>Description</th>
-<th>Default</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>--max_height</code></td>
-<td>Pad to this height</td>
-<td>From training</td>
-</tr>
-<tr>
-<td><code>--max_width</code></td>
-<td>Pad to this width</td>
-<td>From training</td>
-</tr>
-<tr>
-<td><code>--input_scale</code></td>
-<td>Scale factor</td>
-<td>From training</td>
-</tr>
-<tr>
-<td><code>--ensure_rgb</code></td>
-<td>Force 3 channels</td>
-<td><code>False</code></td>
-</tr>
-<tr>
-<td><code>--ensure_grayscale</code></td>
-<td>Force 1 channel</td>
-<td><code>False</code></td>
-</tr>
-<tr>
-<td><code>--crop_size</code></td>
-<td>Crop size (original coords)</td>
-<td>From training</td>
-</tr>
-<tr>
-<td><code>--anchor_part</code></td>
-<td>Centroid anchor node</td>
-<td>From training</td>
-</tr>
-</tbody>
-</table>
-<div class="admonition warning">
-<p class="admonition-title">Breaking Change in v0.1.0: crop_size</p>
-<p><code>crop_size</code> now represents size in <strong>original image coordinates</strong> (crop-first-then-resize).</p>
-<p>Migration: If using <code>crop_size=128</code> with <code>input_scale=0.5</code>, use <code>crop_size=256</code>.</p>
-</div>
-<h3 id="data-selection">Data Selection<a class="headerlink" href="#data-selection" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Parameter</th>
-<th>Description</th>
-<th>Default</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>--frames</code></td>
-<td>Frame indices (e.g., <code>0-100,200-300</code>)</td>
-<td>All</td>
-</tr>
-<tr>
-<td><code>--video_index</code></td>
-<td>Video index in multi-video .slp</td>
-<td><code>None</code></td>
-</tr>
-<tr>
-<td><code>--only_labeled_frames</code></td>
-<td>Only labeled frames</td>
-<td><code>False</code></td>
-</tr>
-<tr>
-<td><code>--only_suggested_frames</code></td>
-<td>Only suggested frames</td>
-<td><code>False</code></td>
-</tr>
-<tr>
-<td><code>--exclude_user_labeled</code></td>
-<td>Skip user-labeled</td>
-<td><code>False</code></td>
-</tr>
-<tr>
-<td><code>--no_empty_frames</code></td>
-<td>Remove empty frames</td>
-<td><code>False</code></td>
-</tr>
-</tbody>
-</table>
+<p>For all parameters including image pre-processing and data selection options, see the <a href="../../reference/cli/">CLI Reference</a>.</p>
 <hr />
 <h2 id="model-types">Model Types<a class="headerlink" href="#model-types" title="Permanent link">&para;</a></h2>
 <h3 id="single-instance-bottom-up">Single Instance / Bottom-Up<a class="headerlink" href="#single-instance-bottom-up" title="Permanent link">&para;</a></h3>
