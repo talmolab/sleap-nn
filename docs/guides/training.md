@@ -2,6 +2,9 @@
 
 Train pose estimation models with SLEAP-NN.
 
+!!! tip "New to SLEAP-NN?"
+    See [Model Types](../reference/models.md) to understand the different model architectures (single instance, top-down, bottom-up) and when to use each.
+
 !!! info "Using uv workflow"
     - If using `uvx`, no installation needed
     - If using `uv sync`, prefix commands with `uv run`:
@@ -137,7 +140,7 @@ train(
 
 ## Top-Down Training
 
-Top-down models need two separate training runs:
+Top-down models need two separate training runs. See [Model Types](../reference/models.md#top-down) for details on when to use top-down vs bottom-up.
 
 ```bash
 # Train centroid model
