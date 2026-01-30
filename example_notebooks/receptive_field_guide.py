@@ -18,42 +18,42 @@
 
 import marimo
 
-__generated_with = "0.15.3"
+__generated_with = "0.19.7"
 app = marimo.App(width="medium")
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""# Receptive Field Guide""")
+    mo.md(r"""
+    # Receptive Field Guide
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
+    mo.md(r"""
     _**Note**_:
-    This notebook executes automatically; there is no need to run individual cells, as all interactions are managed through the provided UI elements (sliders, buttons, etc.). Just upload a sample image and click `"Start exploring receptive fields!"` button!
-    """
-    )
+    This notebook executes automatically; there is no need to run individual cells, as all interactions are managed through the provided UI elements (sliders, buttons, etc.). Just upload a sample image and click `"Start exploring receptive fields!"` button! (If the run button in the bottom-left corner is highlighted in yellow, click on the run button)
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
+    mo.md(r"""
     This notebook shows how the [receptive field](https://distill.pub/2019/computing-receptive-fields/) changes when you adjust `max_stride` and `data_config.preprocessing.scale`, and how to pick good values. Receptive field is essentially the region of the input image that influence the value of a single pixel in the feature maps of a given layer—here, the last encoder layer.
 
     In sleap-nn, receptive field is governed primarily by `data_config.preprocessing.scale` and `max_stride`. For a UNet backbone, max_stride is configurable; for ConvNeXt and SwinT, the effective stride is fixed and adjustable only through the `stem_patch_stride` (for these, max_stride = stem_patch_stride × 16). Let's visualize how the receptive field varies under different settings!
-    """
-    )
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""Upload a sample image:""")
+    mo.md(r"""
+    Upload a sample image:
+    """)
     return
 
 
@@ -88,9 +88,9 @@ def _(Image, image, io, mo, run_rf):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""Lowering the input scale (more downsampling) makes the receptive field larger relative to the original image but can erase fine details; increasing max_stride (leads to more down blocks in the backbone) also makes the receptive field larger but increases the number of model parameters, and thus, increases GPU memory and training time."""
-    )
+    mo.md(r"""
+    Lowering the input scale (more downsampling) makes the receptive field larger relative to the original image but can erase fine details; increasing max_stride (leads to more down blocks in the backbone) also makes the receptive field larger but increases the number of model parameters, and thus, increases GPU memory and training time.
+    """)
     return
 
 
@@ -328,15 +328,14 @@ def _(np, plt):
 
         # Show the plot
         plt.show()
-
     return (plot_receptive_field,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""The receptive field should be about the size of the animal—large enough to recognize what’s at its center using only the area inside the RF box. In top-down pipelines, use a larger RF for the centroid detector than for the instance/keypoint head: centroids benefit from broader context to identify an instance, while centered-instance model heads need finer detail to detect the keypoints."""
-    )
+    mo.md(r"""
+    The receptive field should be about the size of the animal—large enough to recognize what’s at its center using only the area inside the RF box. In top-down pipelines, use a larger RF for the centroid detector than for the instance/keypoint head: centroids benefit from broader context to identify an instance, while centered-instance model heads need finer detail to detect the keypoints.
+    """)
     return
 
 
@@ -367,7 +366,6 @@ def _():
 
     from PIL import Image
     import io
-
     return Image, io, mo, np, plt
 
 

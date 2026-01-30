@@ -491,7 +491,7 @@ def train(
 @click.option(
     "--queue_maxsize",
     type=int,
-    default=8,
+    default=32,
     help="Maximum size of the frame buffer queue.",
 )
 @click.option(

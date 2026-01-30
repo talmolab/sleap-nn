@@ -12,16 +12,20 @@ theme:
   palette:
     - scheme: slate
       primary: deep orange
+      accent: deep orange
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
     - scheme: default
       primary: deep orange
+      accent: deep orange
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
 
   features:
+    - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.tracking
     - toc.follow
     - navigation.sections
@@ -92,6 +96,9 @@ markdown_extensions:
       custom_checkbox: true
   - pymdownx.tilde
 
+extra_css:
+  - stylesheets/extra.css
+
 extra:
   version:
     provider: mike
@@ -105,19 +112,31 @@ extra:
 nav:
   - Overview: index.md
   - Installation: installation.md
-  - How-to guides:
-    - Configuration Setup: config.md
-    - Training: training.md
-    - Inference & Tracking: inference.md
-    - Exporting: export.md
-    - CLI Reference: cli.md
   - Tutorials:
-    - Example Notebooks: example_notebooks.md
-    - Colab Notebooks: colab_notebooks/index.md
-    - Step-by-Step Tutorial: step_by_step_tutorial.md
-  - Additional Resources:
-    - Core Components: core_components.md
-    - Model Architectures: models.md
-    - Full API: api/
+    - tutorials/index.md
+    - Quick Start: getting-started/quickstart.md
+    - Your First Model: getting-started/first-model.md
+    - Example Notebooks: tutorials/notebooks.md
+  - Guides:
+    - guides/index.md
+    - Training:
+      - guides/training.md
+      - Multi-GPU: guides/multi-gpu.md
+    - Inference: guides/inference.md
+    - Evaluation: guides/evaluation.md
+    - Tracking: guides/tracking.md
+    - Export: guides/export.md
+  - Reference:
+    - reference/index.md
+    - Configuration:
+      - configuration/index.md
+      - Data Config: configuration/data.md
+      - Model Config: configuration/model.md
+      - Trainer Config: configuration/trainer.md
+      - Sample Configs: configuration/samples.md
+    - CLI: reference/cli.md
+    - Model Types: reference/models.md
+    - FAQ: help/faq.md
+  - API Reference: api/
   - Changelog: changelog.md
   - Releases: https://github.com/talmolab/sleap-nn/releases
