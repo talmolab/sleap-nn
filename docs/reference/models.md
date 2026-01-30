@@ -51,6 +51,8 @@ sleap-nn track -i video.mp4 -m models/single_instance/
 
 **Two-stage: detect centers, then estimate pose.**
 
+![Top-down approach](../assets/images/topdown_approach.jpg)
+
 ```
 Stage 1: Image → Backbone → Centroid Map → Instance Centers
 Stage 2: Crop → Backbone → Confidence Maps → Keypoints
@@ -113,6 +115,8 @@ sleap-nn track -i video.mp4 \
 ## Bottom-Up {#bottom-up}
 
 **Detect all keypoints, then group into instances.**
+
+![Bottom-up approach](../assets/images/bottomup_approach.png)
 
 ```
 Image → Backbone → [Confidence Maps + Part Affinity Fields] → Grouping → Instances
