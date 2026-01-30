@@ -58,9 +58,14 @@ Stage 2: Crop → Backbone → Confidence Maps → Keypoints
 
 ### When to Use
 
-- Multiple animals
-- Animals not heavily overlapping
-- Need precise localization
+- Multiple animals that are clearly separated
+- Animals vary in size (centroid crops normalize scale)
+- Need precise localization per individual
+
+!!! tip "Top-Down Tips"
+    - Choose an **anchor part** with a stable position near the center of your animal (e.g., thorax)
+    - Use larger receptive field for centroid model (more downsampling is OK since fine details aren't needed)
+    - Set **crop size** large enough to include the whole animal
 
 ### Configuration
 
@@ -115,9 +120,13 @@ Image → Backbone → [Confidence Maps + Part Affinity Fields] → Grouping →
 
 ### When to Use
 
-- Multiple animals
-- Heavy occlusion or overlap
+- Animals frequently occlude each other
+- Many animals in frame (more efficient than top-down)
 - Animals touching/interacting
+- Uniform animal sizes
+
+!!! tip "Try both approaches"
+    Top-down works better for some datasets while bottom-up works better for others. To maximize accuracy, try both and compare results.
 
 ### How It Works
 
@@ -262,6 +271,55 @@ Approximate training times on RTX 3090 (1000 labeled frames):
 | Single Instance | ~30 min | ~500 FPS |
 | Top-Down | ~1 hr (2 models) | ~100 FPS |
 | Bottom-Up | ~1 hr | ~80 FPS |
+
+---
+
+## Training Options
+
+Key hyperparameters to configure when training models.
+
+### Batch Size
+
+Number of examples per training step.
+
+| Setting | Effect |
+|---------|--------|
+| Higher | Better generalization, requires more GPU memory |
+| Lower | May overfit, useful when few varied examples |
+
+**Tip:** Reduce batch size if you run out of GPU memory.
+
+### Receptive Field
+
+Controls how much context the model sees around each pixel. Determined by **max stride** and **input scaling**.
+
+| Parameter | Description |
+|-----------|-------------|
+| `max_stride` | Larger stride = larger receptive field, but more parameters |
+| `input_scale` | Downsampling increases receptive field relative to original size |
+
+**Rule of thumb:** Receptive field should be approximately as large as your animal.
+
+For **top-down** models:
+
+- **Centroid model**: Use larger receptive field (more downsampling OK)
+- **Centered instance model**: Smaller receptive field to preserve details
+
+### Augmentation
+
+Data augmentation helps train more robust models.
+
+| Type | Recommended Settings |
+|------|---------------------|
+| **Rotation** | Side view: -15° to 15°, Top view: -180° to 180° |
+| **Brightness/Contrast** | Enable if test videos have different lighting |
+| **Scale** | Small variations (0.9-1.1) for size robustness |
+
+### Online Hard Keypoint Mining (OHKM)
+
+Enable for skeletons with many joints. Makes "hard" joints contribute more to the loss, improving accuracy on difficult keypoints.
+
+See [Shrivastava et al., 2016](https://arxiv.org/abs/1604.03540) for details.
 
 ---
 
