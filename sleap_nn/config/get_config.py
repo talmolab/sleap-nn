@@ -463,9 +463,9 @@ def get_data_config(
     crop_size: Optional[int] = None,
     min_crop_size: Optional[int] = 100,
     crop_padding: Optional[int] = None,
-    use_augmentations_train: bool = False,
+    use_augmentations_train: bool = True,
     intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
-    geometry_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+    geometry_aug: Optional[Union[str, List[str], Dict[str, Any]]] = "rotation",
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
 
@@ -517,7 +517,7 @@ def get_data_config(
             crop size. If `None`, padding is auto-computed based on augmentation settings.
             Only used when `crop_size` is `None`. Default: None.
         use_augmentations_train: True if the data augmentation should be applied to the
-            training data, else False. Default: False.
+            training data, else False. Default: True.
         intensity_aug: One of ["uniform_noise", "gaussian_noise", "contrast", "brightness"]
             or list of strings from the above allowed values. To have custom values, pass
             a dict with the structure in `sleap_nn.config.data_config.IntensityConfig`.
@@ -529,7 +529,8 @@ def get_data_config(
             or list of strings from the above allowed values. To have custom values, pass
             a dict with the structure in `sleap_nn.config.data_config.GeometryConfig`.
             For eg: {
-                        "rotation": 45,
+                        "rotation_min": -45,
+                        "rotation_max": 45,
                         "affine_p": 1.0
                     }
     """
