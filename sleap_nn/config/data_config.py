@@ -109,10 +109,10 @@ class GeometricConfig:
     Attributes:
         rotation_min: (float) Minimum rotation angle in degrees. A random angle in (rotation_min, rotation_max) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation. *Default*: `-15.0`.
         rotation_max: (float) Maximum rotation angle in degrees. A random angle in (rotation_min, rotation_max) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation. *Default*: `15.0`.
-        rotation_p: (float, optional) Probability of applying random rotation independently. If set, rotation is applied separately from scale/translate. If `None`, falls back to `affine_p` for bundled behavior. *Default*: `None`.
+        rotation_p: (float, optional) Probability of applying random rotation independently. If set, rotation is applied separately from scale/translate. If `None`, falls back to `affine_p` for bundled behavior. *Default*: `1.0`.
         scale_min: (float) Minimum scaling factor. If scale_min and scale_max are provided, the scale is randomly sampled from the range scale_min <= scale <= scale_max for isotropic scaling. *Default*: `0.9`.
         scale_max: (float) Maximum scaling factor. If scale_min and scale_max are provided, the scale is randomly sampled from the range scale_min <= scale <= scale_max for isotropic scaling. *Default*: `1.1`.
-        scale_p: (float, optional) Probability of applying random scaling independently. If set, scaling is applied separately from rotation/translate. If `None`, falls back to `affine_p` for bundled behavior. *Default*: `None`.
+        scale_p: (float, optional) Probability of applying random scaling independently. If set, scaling is applied separately from rotation/translate. If `None`, falls back to `affine_p` for bundled behavior. *Default*: `1.0`.
         translate_width: (float) Maximum absolute fraction for horizontal translation. For example, if translate_width=a, then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a. Will not translate by default. *Default*: `0.0`.
         translate_height: (float) Maximum absolute fraction for vertical translation. For example, if translate_height=a, then vertical shift is randomly sampled in the range -img_height * a < dy < img_height * a. Will not translate by default. *Default*: `0.0`.
         translate_p: (float, optional) Probability of applying random translation independently. If set, translation is applied separately from rotation/scale. If `None`, falls back to `affine_p` for bundled behavior. *Default*: `None`.
@@ -129,10 +129,10 @@ class GeometricConfig:
 
     rotation_min: float = field(default=-15.0, validator=validators.ge(-180))
     rotation_max: float = field(default=15.0, validator=validators.le(180))
-    rotation_p: Optional[float] = field(default=None)
+    rotation_p: Optional[float] = field(default=1.0)
     scale_min: float = field(default=0.9, validator=validators.ge(0))
     scale_max: float = field(default=1.1, validator=validators.ge(0))
-    scale_p: Optional[float] = field(default=None)
+    scale_p: Optional[float] = field(default=1.0)
     translate_width: float = 0.0
     translate_height: float = 0.0
     translate_p: Optional[float] = field(default=None)
@@ -223,7 +223,9 @@ class DataConfig:
     cache_workers: int = 0
     preprocessing: PreprocessingConfig = field(factory=PreprocessingConfig)
     use_augmentations_train: bool = True
-    augmentation_config: Optional[AugmentationConfig] = None
+    augmentation_config: Optional[AugmentationConfig] = field(
+        factory=lambda: AugmentationConfig(geometric=GeometricConfig())
+    )
     skeletons: Optional[list] = None
 
 

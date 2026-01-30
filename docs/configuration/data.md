@@ -138,13 +138,13 @@ augmentation_config:
     translate_width: 0.0
     translate_height: 0.0
 
-    # Combined probability
-    affine_p: 1.0
+    # Combined probability (used when individual *_p values are null)
+    affine_p: 0.0
 
-    # Or independent probabilities
-    rotation_p: null  # Overrides affine_p for rotation
-    scale_p: null     # Overrides affine_p for scale
-    translate_p: null # Overrides affine_p for translation
+    # Independent probabilities (override affine_p when set)
+    rotation_p: 1.0   # Always apply rotation by default
+    scale_p: 1.0      # Always apply scaling by default
+    translate_p: null # Uses affine_p if null
 
     # Random erase
     erase_p: 0.0
@@ -168,7 +168,15 @@ data_config:
   use_augmentations_train: false
 ```
 
-### Geometric Only
+### Geometric Only (using defaults)
+
+```yaml
+data_config:
+  use_augmentations_train: true
+  # Default augmentation_config applies rotation ±15° and scale 0.9-1.1 with p=1.0
+```
+
+### Geometric Only (explicit)
 
 ```yaml
 data_config:
@@ -176,11 +184,12 @@ data_config:
   augmentation_config:
     intensity: null
     geometric:
-      rotation_min: -15.0
-      rotation_max: 15.0
-      scale_min: 0.9
-      scale_max: 1.1
-      affine_p: 0.5
+      rotation_min: -30.0
+      rotation_max: 30.0
+      rotation_p: 0.5        # 50% chance of rotation
+      scale_min: 0.8
+      scale_max: 1.2
+      scale_p: 0.5           # 50% chance of scaling
 ```
 
 ### Full Augmentation
@@ -261,10 +270,10 @@ data_config:
 |--------|------|---------|-------------|
 | `rotation_min` | float | `-15.0` | Minimum rotation angle in degrees |
 | `rotation_max` | float | `15.0` | Maximum rotation angle in degrees |
-| `rotation_p` | float | `null` | Probability of rotation (independent). If `null`, uses `affine_p` |
+| `rotation_p` | float | `1.0` | Probability of rotation (independent). If `null`, uses `affine_p` |
 | `scale_min` | float | `0.9` | Minimum scale factor |
 | `scale_max` | float | `1.1` | Maximum scale factor |
-| `scale_p` | float | `null` | Probability of scaling (independent). If `null`, uses `affine_p` |
+| `scale_p` | float | `1.0` | Probability of scaling (independent). If `null`, uses `affine_p` |
 | `translate_width` | float | `0.0` | Maximum horizontal translation as fraction of width |
 | `translate_height` | float | `0.0` | Maximum vertical translation as fraction of height |
 | `translate_p` | float | `null` | Probability of translation (independent). If `null`, uses `affine_p` |
