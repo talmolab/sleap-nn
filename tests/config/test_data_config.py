@@ -246,3 +246,62 @@ def test_validate_test_file_path_invalid(caplog):
     with pytest.raises(ValueError):
         DataConfig(test_file_path={"path": "test.slp"})
     assert "test_file_path must be a string or list of strings" in caplog.text
+
+
+def test_default_augmentation_enabled():
+    """Test that augmentation is enabled by default with rotation and scale applied."""
+    config = DataConfig()
+
+    # Augmentation should be enabled by default
+    assert config.use_augmentations_train is True
+
+    # augmentation_config should not be None
+    assert config.augmentation_config is not None
+
+    # geometric config should be set
+    assert config.augmentation_config.geometric is not None
+
+    # rotation and scale should be applied with probability 1.0
+    geometric = config.augmentation_config.geometric
+    assert geometric.rotation_p == 1.0
+    assert geometric.scale_p == 1.0
+
+    # rotation range should be ±15 degrees
+    assert geometric.rotation_min == -15.0
+    assert geometric.rotation_max == 15.0
+
+    # scale range should be 0.9-1.1
+    assert geometric.scale_min == 0.9
+    assert geometric.scale_max == 1.1
+
+
+def test_geometric_config_default_probabilities():
+    """Test that GeometricConfig has correct default probabilities."""
+    config = GeometricConfig()
+
+    # rotation and scale should always be applied by default
+    assert config.rotation_p == 1.0
+    assert config.scale_p == 1.0
+
+    # translate should fall back to affine_p (None means use affine_p)
+    assert config.translate_p is None
+
+    # affine_p should be 0.0 (only used as fallback)
+    assert config.affine_p == 0.0
+
+
+def test_data_config_augmentation_unique_per_instance():
+    """Test that each DataConfig instance gets its own augmentation_config."""
+    config1 = DataConfig()
+    config2 = DataConfig()
+
+    # Each instance should have its own augmentation_config object
+    assert config1.augmentation_config is not config2.augmentation_config
+    assert (
+        config1.augmentation_config.geometric
+        is not config2.augmentation_config.geometric
+    )
+
+    # Modifying one should not affect the other
+    config1.augmentation_config.geometric.rotation_p = 0.5
+    assert config2.augmentation_config.geometric.rotation_p == 1.0
