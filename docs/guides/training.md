@@ -292,6 +292,47 @@ trainer_config:
 
 ---
 
+## Understanding Training
+
+### Epochs and Batches
+
+Training occurs in **epochs**, where one epoch consists of the larger of:
+
+- (number of training images) / (batch size), or
+- 200 batches
+
+With larger datasets, one epoch equals one pass over the training data.
+
+### Early Stopping
+
+By default, training stops early when a plateau is detected in the validation loss to prevent overfitting. You can disable this or set a fixed number of epochs:
+
+```yaml
+trainer_config:
+  max_epochs: 200
+  early_stopping:
+    enabled: false  # Disable early stopping
+```
+
+### Augmentation Strategy
+
+During training, augmentations are applied to raw images and poses to generate variants of labeled data. This promotes generalization.
+
+**Rotation recommendations:**
+
+- **Overhead/top-down view**: Use full rotation range (-180° to 180°)
+- **Side view**: Use limited rotation (-15° to 15°)
+
+```yaml
+data_config:
+  augmentation:
+    rotation:
+      min_angle: -180.0
+      max_angle: 180.0
+```
+
+---
+
 ## Best Practices
 
 1. **Start Simple**: Begin with default configurations
