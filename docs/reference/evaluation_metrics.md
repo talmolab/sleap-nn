@@ -22,9 +22,9 @@ These metrics provide insight into the distribution of how far off the predictio
 ## Object-keypoint similarity (OKS)
 
 This returns the mean OKS score between every pair of ground truth and
-predicted instance, ranging from 0 to 1.0 and 1.0 indicating a perfect match. OKS provides a measure of similarity between ground-truth and precicted pose by taking into account the instance size (scale) and node visibility.
+predicted instance, ranging from 0 to 1.0 and 1.0 indicating a perfect match. OKS provides a measure of similarity between ground-truth and predicted pose by taking into account the instance size (scale) and node visibility.
 
-OKS is computed by measuring the Euclidean distance between each predicted keypoint and its corresponding ground-truth keypoint. This distance is then normalized based on the scale of the object (bounding box area for the instance) and standard-deviation that defines the spread in the localization accuracy of each node. For each node, keypoint similarity is computed by taking the negative expoenent of the normalized distance. Mean OKS is the average of keypoint similarities across all visible nodes.
+OKS is computed by measuring the Euclidean distance between each predicted keypoint and its corresponding ground-truth keypoint. This distance is then normalized based on the scale of the object (bounding box area for the instance) and standard-deviation that defines the spread in the localization accuracy of each node. For each node, keypoint similarity is computed by taking the negative exponent of the normalized distance. Mean OKS is the average of keypoint similarities across all visible nodes.
 
 The implementation is based off of the descriptions in: [Ronch & Perona. "Benchmarking and Error Diagnosis in Multi-Instance Pose Estimation." ICCV (2017)](https://arxiv.org/abs/1707.05388).
 
@@ -51,7 +51,7 @@ The following statistics are computed across all matched instance pairs:
 
 ## VOC metrics
 
-The following VOC-style metrics are generated using either OKS or PCK as the matching scores and a set of thresholds where a predicted instance is considered as a True Postive if it's match score is greater than the threshold else it is counted as a False Positive.
+The following VOC-style metrics are generated using either OKS or PCK as the matching scores and a set of thresholds where a predicted instance is considered as a True Positive if its match score is greater than the threshold else it is counted as a False Positive.
 
 - *`Average Precision (AP)`*: Average of best precisions over fixed set of recall thresholds, at each match score threshold.
 - *`Average Recall (AR)`*: Maximum recall achieved at each match score threshold.
