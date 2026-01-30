@@ -136,6 +136,7 @@ nav:
       - Sample Configs: configuration/samples.md
     - CLI: reference/cli.md
     - Model Types: reference/models.md
+    - Evaluation Metrics: reference/evaluation_metrics.md
     - FAQ: help/faq.md
   - API Reference: api/
   - Changelog: changelog.md

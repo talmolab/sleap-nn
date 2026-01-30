@@ -51,6 +51,8 @@ sleap-nn track -i video.mp4 -m models/single_instance/
 
 **Two-stage: detect centers, then estimate pose.**
 
+![Top-down approach](../assets/images/topdown_approach.jpg)
+
 ```
 Stage 1: Image → Backbone → Centroid Map → Instance Centers
 Stage 2: Crop → Backbone → Confidence Maps → Keypoints
@@ -58,9 +60,23 @@ Stage 2: Crop → Backbone → Confidence Maps → Keypoints
 
 ### When to Use
 
-- Multiple animals
-- Animals not heavily overlapping
-- Need precise localization
+- Multiple animals that are clearly separated
+- Animals vary in size (centroid crops normalize scale)
+- Need precise localization per individual
+
+### Centroid Model Tips
+
+!!! tip "Sigma for centroid detection"
+    Increasing `sigma` makes centroid confidence maps coarser—easier to detect animals but less precise. This is often a good trade-off for the centroid stage.
+
+!!! tip "Use a specific anchor part"
+    Choosing a specific node as the centroid (e.g., thorax) leads to more consistent results than using the bounding box center, which often falls on different parts of the animal. This matters because the centered instance model depends on consistent positioning within the crop.
+
+!!! tip "Reduce resolution for centroid model"
+    Since centroids can be detected coarsely, you can reduce input image resolution (`preprocessing.scale`) to save computation. This is especially useful early in labeling when training data is limited.
+
+!!! tip "Crop size"
+    Set **crop size** large enough to include the whole animal in the centered instance crops.
 
 ### Configuration
 
@@ -109,15 +125,21 @@ sleap-nn track -i video.mp4 \
 
 **Detect all keypoints, then group into instances.**
 
+![Bottom-up approach](../assets/images/bottomup_approach.png)
+
 ```
 Image → Backbone → [Confidence Maps + Part Affinity Fields] → Grouping → Instances
 ```
 
 ### When to Use
 
-- Multiple animals
-- Heavy occlusion or overlap
+- Animals frequently occlude each other
+- Many animals in frame (more efficient than top-down)
 - Animals touching/interacting
+- Uniform animal sizes
+
+!!! tip "Try both approaches"
+    Top-down works better for some datasets while bottom-up works better for others. To maximize accuracy, try both and compare results.
 
 ### How It Works
 
@@ -262,6 +284,55 @@ Approximate training times on RTX 3090 (1000 labeled frames):
 | Single Instance | ~30 min | ~500 FPS |
 | Top-Down | ~1 hr (2 models) | ~100 FPS |
 | Bottom-Up | ~1 hr | ~80 FPS |
+
+---
+
+## Training Options
+
+Key hyperparameters to configure when training models.
+
+### Batch Size
+
+Number of examples per training step.
+
+| Setting | Effect |
+|---------|--------|
+| Higher | Better generalization, requires more GPU memory |
+| Lower | May overfit, useful when few varied examples |
+
+**Tip:** Reduce batch size if you run out of GPU memory.
+
+### Receptive Field
+
+Controls how much context the model sees around each pixel. Determined by **max stride** and **input scaling**.
+
+| Parameter | Description |
+|-----------|-------------|
+| `max_stride` | Larger stride = larger receptive field, but more parameters |
+| `input_scale` | Downsampling increases receptive field relative to original size |
+
+**Rule of thumb:** Receptive field should be approximately as large as your animal.
+
+For **top-down** models:
+
+- **Centroid model**: Use larger receptive field (more downsampling OK)
+- **Centered instance model**: Smaller receptive field to preserve details
+
+### Augmentation
+
+Data augmentation helps train more robust models.
+
+| Type | Recommended Settings |
+|------|---------------------|
+| **Rotation** | Side view: -15° to 15°, Top view: -180° to 180° |
+| **Brightness/Contrast** | Enable if test videos have different lighting |
+| **Scale** | Small variations (0.9-1.1) for size robustness |
+
+### Online Hard Keypoint Mining (OHKM)
+
+Enable for skeletons with many joints. Makes "hard" joints contribute more to the loss, improving accuracy on difficult keypoints.
+
+See [Shrivastava et al., 2016](https://arxiv.org/abs/1604.03540) for details.
 
 ---
 

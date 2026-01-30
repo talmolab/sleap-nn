@@ -43,6 +43,12 @@ SLEAP-NN uses [**uv**](https://docs.astral.sh/uv/) for installation and environm
 
     **Step 2: Install sleap-nn**
 
+    !!! warning "Python 3.14 not supported"
+        If you don't have Python installed, uv will automatically download the latest version (Python 3.14), which is not yet supported. Add `--python 3.13` to specify a compatible version:
+        ```bash
+        uv tool install --python 3.13 sleap-nn[torch] --torch-backend auto
+        ```
+
     ```bash
     uv tool install sleap-nn[torch] --torch-backend auto
     ```
@@ -62,6 +68,12 @@ SLEAP-NN uses [**uv**](https://docs.astral.sh/uv/) for installation and environm
     ```
 
     **Step 2: Install sleap-nn**
+
+    !!! warning "Python 3.14 not supported"
+        If you don't have Python installed, uv will automatically download the latest version (Python 3.14), which is not yet supported. Add `--python 3.13` to specify a compatible version:
+        ```bash
+        uv tool install --python 3.13 "sleap-nn[torch]"
+        ```
 
     ```bash
     uv tool install "sleap-nn[torch]"
@@ -85,6 +97,12 @@ SLEAP-NN uses [**uv**](https://docs.astral.sh/uv/) for installation and environm
     ```
 
     **Step 2: Install sleap-nn**
+
+    !!! warning "Python 3.14 not supported"
+        If you don't have Python installed, uv will automatically download the latest version (Python 3.14), which is not yet supported. Add `--python 3.13` to specify a compatible version:
+        ```bash
+        uv tool install --python 3.13 sleap-nn[torch] --torch-backend cpu
+        ```
 
     ```bash
     uv tool install sleap-nn[torch] --torch-backend cpu

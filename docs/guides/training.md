@@ -2,6 +2,9 @@
 
 Train pose estimation models with SLEAP-NN.
 
+!!! tip "New to SLEAP-NN?"
+    See [Model Types](../reference/models.md) to understand the different model architectures (single instance, top-down, bottom-up) and when to use each.
+
 !!! info "Using uv workflow"
     - If using `uvx`, no installation needed
     - If using `uv sync`, prefix commands with `uv run`:
@@ -24,6 +27,8 @@ Or with separate config directory and name:
 ```bash
 sleap-nn train --config-dir /path/to/configs --config-name my_config
 ```
+
+See the [CLI Reference](../reference/cli.md) for all available parameters.
 
 ### Using Python API
 
@@ -135,7 +140,7 @@ train(
 
 ## Top-Down Training
 
-Top-down models need two separate training runs:
+Top-down models need two separate training runs. See [Model Types](../reference/models.md#top-down) for details on when to use top-down vs bottom-up.
 
 ```bash
 # Train centroid model
@@ -284,6 +289,47 @@ trainer_config:
 
 !!! warning "Workers without caching"
     Keep `num_workers: 0` when not using caching.
+
+---
+
+## Understanding Training
+
+### Epochs and Batches
+
+Training occurs in **epochs**, where one epoch consists of the larger of:
+
+- (number of training images) / (batch size), or
+- 200 batches
+
+With larger datasets, one epoch equals one pass over the training data.
+
+### Early Stopping
+
+By default, training stops early when a plateau is detected in the validation loss to prevent overfitting. You can disable this or set a fixed number of epochs:
+
+```yaml
+trainer_config:
+  max_epochs: 200
+  early_stopping:
+    enabled: false  # Disable early stopping
+```
+
+### Augmentation Strategy
+
+During training, augmentations are applied to raw images and poses to generate variants of labeled data. This promotes generalization.
+
+**Rotation recommendations:**
+
+- **Overhead/top-down view**: Use full rotation range (-180° to 180°)
+- **Side view**: Use limited rotation (-15° to 15°)
+
+```yaml
+data_config:
+  augmentation:
+    rotation:
+      min_angle: -180.0
+      max_angle: 180.0
+```
 
 ---
 

@@ -19,11 +19,11 @@ sleap-nn track --data_path video.mp4 --model_paths models/my_model/
 
 Output: `video.mp4.predictions.slp`
 
+See the [CLI Reference](../reference/cli.md) for all available parameters.
+
 ---
 
-## CLI Arguments
-
-### Essential Parameters
+## Essential Parameters
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
@@ -38,33 +38,7 @@ Output: `video.mp4.predictions.slp`
 
 *Not required for track-only mode.
 
-### Image Pre-processing
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `--max_height` | Pad to this height | From training |
-| `--max_width` | Pad to this width | From training |
-| `--input_scale` | Scale factor | From training |
-| `--ensure_rgb` | Force 3 channels | `False` |
-| `--ensure_grayscale` | Force 1 channel | `False` |
-| `--crop_size` | Crop size (original coords) | From training |
-| `--anchor_part` | Centroid anchor node | From training |
-
-!!! warning "Breaking Change in v0.1.0: crop_size"
-    `crop_size` now represents size in **original image coordinates** (crop-first-then-resize).
-
-    Migration: If using `crop_size=128` with `input_scale=0.5`, use `crop_size=256`.
-
-### Data Selection
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `--frames` | Frame indices (e.g., `0-100,200-300`) | All |
-| `--video_index` | Video index in multi-video .slp | `None` |
-| `--only_labeled_frames` | Only labeled frames | `False` |
-| `--only_suggested_frames` | Only suggested frames | `False` |
-| `--exclude_user_labeled` | Skip user-labeled | `False` |
-| `--no_empty_frames` | Remove empty frames | `False` |
+For all parameters including image pre-processing and data selection options, see the [CLI Reference](../reference/cli.md).
 
 ---
 
