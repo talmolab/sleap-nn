@@ -1,0 +1,17 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "\U0001F914 Ask questions about sleap-nn"
+    url: https://github.com/talmolab/sleap-nn/discussions
+    about: Ask general questions or get help with sleap-nn.
+  - name: "\U0001F4A1 Propose new features or enhancements"
+    url: https://github.com/talmolab/sleap-nn/discussions/categories/ideas
+    about: Propose new features or enhancements for sleap-nn.
+  - name: "\U0001F4DD See the sleap-nn documentation"
+    url: https://nn.sleap.ai
+    about: See the sleap-nn documentation.
+  - name: "\U0001F3E0 SLEAP website"
+    url: https://sleap.ai
+    about: Visit the main SLEAP website.
+  - name: "\U0001F41B Report SLEAP GUI issues"
+    url: https://github.com/talmolab/sleap/issues
+    about: For issues with the SLEAP GUI application, report them in the main SLEAP repository.
