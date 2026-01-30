@@ -25,6 +25,8 @@ Or with separate config directory and name:
 sleap-nn train --config-dir /path/to/configs --config-name my_config
 ```
 
+See the [CLI Reference](../reference/cli.md) for all available parameters.
+
 ### Using Python API
 
 ```python

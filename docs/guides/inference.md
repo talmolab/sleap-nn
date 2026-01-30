@@ -19,6 +19,8 @@ sleap-nn track --data_path video.mp4 --model_paths models/my_model/
 
 Output: `video.mp4.predictions.slp`
 
+See the [CLI Reference](../reference/cli.md) for all available parameters.
+
 ---
 
 ## CLI Arguments
