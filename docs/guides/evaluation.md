@@ -61,6 +61,8 @@ for node, oks in metrics['per_node_oks'].items():
 
 ## Metrics Reference
 
+For a detailed explanation of all evaluation metrics, see the [Evaluation Metrics Reference](../reference/evaluation_metrics.md).
+
 ### OKS (Object Keypoint Similarity)
 
 Measures pose similarity accounting for keypoint visibility and scale:
@@ -117,5 +119,6 @@ print(metrics.keys())
 
 ## Next Steps
 
+- [:octicons-arrow-right-24: Evaluation Metrics Reference](../reference/evaluation_metrics.md) - Deep dive into OKS, PCK, and other metrics
 - [:octicons-arrow-right-24: Tracking](tracking.md) - Assign IDs across frames
 - [:octicons-arrow-right-24: Export](export.md) - Deploy models
