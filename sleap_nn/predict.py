@@ -67,7 +67,7 @@ def run_inference(
     only_predicted_frames: bool = False,
     no_empty_frames: bool = False,
     batch_size: int = 4,
-    queue_maxsize: int = 8,
+    queue_maxsize: int = 32,
     video_index: Optional[int] = None,
     video_dataset: Optional[str] = None,
     video_input_format: str = "channels_last",
@@ -151,7 +151,7 @@ def run_inference(
         only_predicted_frames: (bool) `True` to run inference only on frames that already have predictions. Default: `False`.
         no_empty_frames: (bool) `True` if empty frames that did not have predictions should be cleared before saving to output. Default: `False`.
         batch_size: (int) Number of samples per batch. Default: 4.
-        queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
+        queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 32.
         video_index: (int) Integer index of video in .slp file to predict on. To be used with
                 an .slp path as an alternative to specifying the video path.
         video_dataset: (str) The dataset for HDF5 videos.

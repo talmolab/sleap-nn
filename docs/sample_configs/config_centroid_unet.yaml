@@ -149,5 +149,3 @@ trainer_config:
     publish_port: 9001
 name: ''
 description: ''
-sleap_nn_version: 0.0.1
-filename: ''

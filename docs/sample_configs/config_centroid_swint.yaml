@@ -36,8 +36,8 @@ data_config:
     geometric:
       rotation_min: -15.0
       rotation_max: 15.0
-      scale_min: 1.0
-      scale_max: 1.0
+      scale_min: 0.9
+      scale_max: 1.1
       translate_width: 0.0
       translate_height: 0.0
       affine_p: 1.0
@@ -148,5 +148,3 @@ trainer_config:
     controller_polling_timeout: 10
 name: ''
 description: ''
-sleap_nn_version: 0.0.1
-filename: ''

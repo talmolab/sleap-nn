@@ -360,7 +360,7 @@ class Predictor(ABC):
     def make_pipeline(
         self,
         data_path: str,
-        queue_maxsize: int = 8,
+        queue_maxsize: int = 32,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
@@ -1214,7 +1214,7 @@ class TopDownPredictor(Predictor):
     def make_pipeline(
         self,
         inference_object: Union[str, Path, sio.Labels, sio.Video],
-        queue_maxsize: int = 8,
+        queue_maxsize: int = 32,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
@@ -1228,7 +1228,7 @@ class TopDownPredictor(Predictor):
 
         Args:
             inference_object: (str) Path to `.slp` file or `.mp4` or sio.Labels or sio.Video to run inference on.
-            queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
+            queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 32.
             frames: (list) List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
             only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
@@ -1644,7 +1644,7 @@ class SingleInstancePredictor(Predictor):
     def make_pipeline(
         self,
         inference_object: Union[str, Path, sio.Labels, sio.Video],
-        queue_maxsize: int = 8,
+        queue_maxsize: int = 32,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
@@ -1658,7 +1658,7 @@ class SingleInstancePredictor(Predictor):
 
         Args:
             inference_object: (str) Path to `.slp` file or `.mp4` or sio.Labels or sio.Video to run inference on.
-            queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
+            queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 32.
             frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
             only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
@@ -2094,7 +2094,7 @@ class BottomUpPredictor(Predictor):
     def make_pipeline(
         self,
         inference_object: Union[str, Path, sio.Labels, sio.Video],
-        queue_maxsize: int = 8,
+        queue_maxsize: int = 32,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
@@ -2108,7 +2108,7 @@ class BottomUpPredictor(Predictor):
 
         Args:
             inference_object: (str) Path to `.slp` file or `.mp4` or sio.Labels or sio.Video to run inference on.
-            queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
+            queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 32.
             frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
             only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
@@ -2541,7 +2541,7 @@ class BottomUpMultiClassPredictor(Predictor):
     def make_pipeline(
         self,
         inference_object: Union[str, Path, sio.Labels, sio.Video],
-        queue_maxsize: int = 8,
+        queue_maxsize: int = 32,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
@@ -2555,7 +2555,7 @@ class BottomUpMultiClassPredictor(Predictor):
 
         Args:
             inference_object: (str) Path to `.slp` file or `.mp4` or sio.Labels or sio.Video to run inference on.
-            queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
+            queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 32.
             frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
             only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
@@ -3296,7 +3296,7 @@ class TopDownMultiClassPredictor(Predictor):
     def make_pipeline(
         self,
         inference_object: Union[str, Path, sio.Labels, sio.Video],
-        queue_maxsize: int = 8,
+        queue_maxsize: int = 32,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
@@ -3310,7 +3310,7 @@ class TopDownMultiClassPredictor(Predictor):
 
         Args:
             inference_object: (str) Path to `.slp` file or `.mp4` or sio.Labels or sio.Video to run inference on.
-            queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
+            queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 32.
             frames: (list) List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
             only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
