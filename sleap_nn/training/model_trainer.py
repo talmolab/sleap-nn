@@ -56,6 +56,7 @@ from sleap_nn.training.callbacks import (
     CSVLoggerCallback,
     SleapProgressBar,
     EpochEndEvaluationCallback,
+    CentroidEvaluationCallback,
     UnifiedVizCallback,
 )
 from sleap_nn import RANK
@@ -1069,15 +1070,26 @@ class ModelTrainer:
 
         # Add epoch-end evaluation callback if enabled
         if self.config.trainer_config.eval.enabled:
-            callbacks.append(
-                EpochEndEvaluationCallback(
-                    skeleton=self.skeletons[0],
-                    videos=self.val_labels[0].videos,
-                    eval_frequency=self.config.trainer_config.eval.frequency,
-                    oks_stddev=self.config.trainer_config.eval.oks_stddev,
-                    oks_scale=self.config.trainer_config.eval.oks_scale,
+            if self.model_type == "centroid":
+                # Use centroid-specific evaluation with distance-based metrics
+                callbacks.append(
+                    CentroidEvaluationCallback(
+                        videos=self.val_labels[0].videos,
+                        eval_frequency=self.config.trainer_config.eval.frequency,
+                        match_threshold=self.config.trainer_config.eval.match_threshold,
+                    )
                 )
-            )
+            else:
+                # Use standard OKS/PCK evaluation for pose models
+                callbacks.append(
+                    EpochEndEvaluationCallback(
+                        skeleton=self.skeletons[0],
+                        videos=self.val_labels[0].videos,
+                        eval_frequency=self.config.trainer_config.eval.frequency,
+                        oks_stddev=self.config.trainer_config.eval.oks_stddev,
+                        oks_scale=self.config.trainer_config.eval.oks_scale,
+                    )
+                )
 
         return loggers, callbacks
 

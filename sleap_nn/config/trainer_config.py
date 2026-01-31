@@ -267,12 +267,15 @@ class EvalConfig:
         frequency: (int) Evaluate every N epochs. *Default*: `1`.
         oks_stddev: (float) OKS standard deviation for evaluation. *Default*: `0.025`.
         oks_scale: (float) OKS scale override. If None, uses default. *Default*: `None`.
+        match_threshold: (float) Maximum distance in pixels for centroid matching.
+            Only used for centroid model evaluation. *Default*: `50.0`.
     """
 
     enabled: bool = False
     frequency: int = field(default=1, validator=validators.ge(1))
     oks_stddev: float = field(default=0.025, validator=validators.gt(0))
     oks_scale: Optional[float] = None
+    match_threshold: float = field(default=50.0, validator=validators.gt(0))
 
 
 @define

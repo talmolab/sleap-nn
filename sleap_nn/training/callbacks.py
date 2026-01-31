@@ -1282,3 +1282,324 @@ class EpochEndEvaluationCallback(Callback):
                 wandb_logger.experiment.summary[summary_key] = value
             elif not is_distance and value > current_best:
                 wandb_logger.experiment.summary[summary_key] = value
+
+
+def match_centroids(
+    pred_centroids: "np.ndarray",
+    gt_centroids: "np.ndarray",
+    max_distance: float = 50.0,
+) -> tuple:
+    """Match predicted centroids to ground truth using Hungarian algorithm.
+
+    Args:
+        pred_centroids: Predicted centroid locations, shape (n_pred, 2).
+        gt_centroids: Ground truth centroid locations, shape (n_gt, 2).
+        max_distance: Maximum distance threshold for valid matches (in pixels).
+
+    Returns:
+        Tuple of:
+            - matched_pred_indices: Indices of matched predictions
+            - matched_gt_indices: Indices of matched ground truth
+            - unmatched_pred_indices: Indices of unmatched predictions (false positives)
+            - unmatched_gt_indices: Indices of unmatched ground truth (false negatives)
+    """
+    import numpy as np
+    from scipy.optimize import linear_sum_assignment
+    from scipy.spatial.distance import cdist
+
+    n_pred = len(pred_centroids)
+    n_gt = len(gt_centroids)
+
+    # Handle edge cases
+    if n_pred == 0 and n_gt == 0:
+        return np.array([]), np.array([]), np.array([]), np.array([])
+    if n_pred == 0:
+        return np.array([]), np.array([]), np.array([]), np.arange(n_gt)
+    if n_gt == 0:
+        return np.array([]), np.array([]), np.arange(n_pred), np.array([])
+
+    # Compute pairwise distances
+    cost_matrix = cdist(pred_centroids, gt_centroids)
+
+    # Run Hungarian algorithm for optimal matching
+    pred_indices, gt_indices = linear_sum_assignment(cost_matrix)
+
+    # Filter matches that exceed max_distance
+    matched_pred = []
+    matched_gt = []
+    for p_idx, g_idx in zip(pred_indices, gt_indices):
+        if cost_matrix[p_idx, g_idx] <= max_distance:
+            matched_pred.append(p_idx)
+            matched_gt.append(g_idx)
+
+    matched_pred = np.array(matched_pred)
+    matched_gt = np.array(matched_gt)
+
+    # Find unmatched indices
+    all_pred = set(range(n_pred))
+    all_gt = set(range(n_gt))
+    unmatched_pred = np.array(list(all_pred - set(matched_pred)))
+    unmatched_gt = np.array(list(all_gt - set(matched_gt)))
+
+    return matched_pred, matched_gt, unmatched_pred, unmatched_gt
+
+
+class CentroidEvaluationCallback(Callback):
+    """Callback to run centroid-specific evaluation metrics at end of validation epochs.
+
+    This callback is designed specifically for centroid models, which predict a single
+    point (centroid) per instance rather than full pose skeletons. It computes
+    distance-based metrics and detection metrics that are more appropriate for
+    point detection tasks than OKS/PCK metrics.
+
+    Metrics computed:
+        - Distance metrics: mean, median, p90, p95, max Euclidean distance
+        - Detection metrics: precision, recall, F1 score
+        - Counts: true positives, false positives, false negatives
+
+    Attributes:
+        videos: List of sio.Video objects.
+        eval_frequency: Run evaluation every N epochs (default: 1).
+        match_threshold: Maximum distance (pixels) for matching pred to GT (default: 50.0).
+    """
+
+    def __init__(
+        self,
+        videos: list,
+        eval_frequency: int = 1,
+        match_threshold: float = 50.0,
+    ):
+        """Initialize the callback.
+
+        Args:
+            videos: List of sio.Video objects.
+            eval_frequency: Run evaluation every N epochs (default: 1).
+            match_threshold: Maximum distance in pixels for a prediction to be
+                considered a match to a ground truth centroid (default: 50.0).
+        """
+        super().__init__()
+        self.videos = videos
+        self.eval_frequency = eval_frequency
+        self.match_threshold = match_threshold
+
+    def on_validation_epoch_start(self, trainer, pl_module):
+        """Enable prediction collection at the start of validation.
+
+        Skip during sanity check to avoid inference issues.
+        """
+        if trainer.sanity_checking:
+            return
+        pl_module._collect_val_predictions = True
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """Run centroid evaluation and log metrics at end of validation epoch."""
+        import numpy as np
+        from lightning.pytorch.loggers import WandbLogger
+
+        # Determine if we should run evaluation this epoch (only on rank 0)
+        should_evaluate = (
+            trainer.current_epoch + 1
+        ) % self.eval_frequency == 0 and trainer.is_global_zero
+
+        if should_evaluate:
+            # Check if we have predictions
+            if not pl_module.val_predictions or not pl_module.val_ground_truth:
+                logger.warning(
+                    "No predictions collected for centroid epoch-end evaluation"
+                )
+            else:
+                try:
+                    metrics = self._compute_metrics(
+                        pl_module.val_predictions, pl_module.val_ground_truth, np
+                    )
+
+                    # Log to WandB
+                    self._log_metrics(trainer, metrics, trainer.current_epoch)
+
+                    logger.info(
+                        f"Epoch {trainer.current_epoch} centroid evaluation: "
+                        f"precision={metrics['precision']:.4f}, "
+                        f"recall={metrics['recall']:.4f}, "
+                        f"dist_avg={metrics['dist_avg']:.2f}px"
+                    )
+
+                except Exception as e:
+                    logger.warning(f"Centroid epoch-end evaluation failed: {e}")
+
+        # Cleanup - all ranks reset the flag, rank 0 clears the lists
+        pl_module._collect_val_predictions = False
+        if trainer.is_global_zero:
+            pl_module.val_predictions = []
+            pl_module.val_ground_truth = []
+
+        # Sync all processes - barrier must be reached by ALL ranks
+        trainer.strategy.barrier()
+
+    def _compute_metrics(self, predictions: list, ground_truth: list, np) -> dict:
+        """Compute centroid-specific metrics.
+
+        Args:
+            predictions: List of prediction dicts with "pred_peaks" key.
+            ground_truth: List of ground truth dicts with "gt_instances" key.
+            np: NumPy module.
+
+        Returns:
+            Dictionary of computed metrics.
+        """
+        all_distances = []
+        total_tp = 0
+        total_fp = 0
+        total_fn = 0
+
+        # Group predictions and GT by frame
+        pred_by_frame = {}
+        for pred in predictions:
+            key = (pred["video_idx"], pred["frame_idx"])
+            if key not in pred_by_frame:
+                pred_by_frame[key] = []
+            # pred_peaks shape: (n_inst, 1, 2) -> extract centroids as (n_inst, 2)
+            centroids = pred["pred_peaks"].reshape(-1, 2)
+            # Filter out NaN centroids
+            valid_mask = ~np.isnan(centroids).any(axis=1)
+            pred_by_frame[key].append(centroids[valid_mask])
+
+        gt_by_frame = {}
+        for gt in ground_truth:
+            key = (gt["video_idx"], gt["frame_idx"])
+            if key not in gt_by_frame:
+                gt_by_frame[key] = []
+            # gt_instances shape: (n_inst, 1, 2) -> extract centroids as (n_inst, 2)
+            centroids = gt["gt_instances"].reshape(-1, 2)
+            # Filter out NaN centroids
+            valid_mask = ~np.isnan(centroids).any(axis=1)
+            gt_by_frame[key].append(centroids[valid_mask])
+
+        # Process each frame
+        all_frames = set(pred_by_frame.keys()) | set(gt_by_frame.keys())
+        for frame_key in all_frames:
+            # Concatenate all predictions for this frame
+            if frame_key in pred_by_frame:
+                frame_preds = np.concatenate(pred_by_frame[frame_key], axis=0)
+            else:
+                frame_preds = np.zeros((0, 2))
+
+            # Concatenate all GT for this frame
+            if frame_key in gt_by_frame:
+                frame_gt = np.concatenate(gt_by_frame[frame_key], axis=0)
+            else:
+                frame_gt = np.zeros((0, 2))
+
+            # Match predictions to ground truth
+            matched_pred, matched_gt, unmatched_pred, unmatched_gt = match_centroids(
+                frame_preds, frame_gt, max_distance=self.match_threshold
+            )
+
+            # Compute distances for matched pairs
+            if len(matched_pred) > 0:
+                matched_pred_points = frame_preds[matched_pred]
+                matched_gt_points = frame_gt[matched_gt]
+                distances = np.linalg.norm(
+                    matched_pred_points - matched_gt_points, axis=1
+                )
+                all_distances.extend(distances.tolist())
+
+            # Update counts
+            total_tp += len(matched_pred)
+            total_fp += len(unmatched_pred)
+            total_fn += len(unmatched_gt)
+
+        # Compute aggregate metrics
+        all_distances = np.array(all_distances)
+
+        # Distance metrics (only if we have matches)
+        if len(all_distances) > 0:
+            dist_avg = float(np.mean(all_distances))
+            dist_median = float(np.median(all_distances))
+            dist_p90 = float(np.percentile(all_distances, 90))
+            dist_p95 = float(np.percentile(all_distances, 95))
+            dist_max = float(np.max(all_distances))
+        else:
+            dist_avg = dist_median = dist_p90 = dist_p95 = dist_max = float("nan")
+
+        # Detection metrics
+        precision = (
+            total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0.0
+        )
+        recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0.0
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall) > 0
+            else 0.0
+        )
+
+        return {
+            "dist_avg": dist_avg,
+            "dist_median": dist_median,
+            "dist_p90": dist_p90,
+            "dist_p95": dist_p95,
+            "dist_max": dist_max,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "n_true_positives": total_tp,
+            "n_false_positives": total_fp,
+            "n_false_negatives": total_fn,
+            "n_total_predictions": total_tp + total_fp,
+            "n_total_ground_truth": total_tp + total_fn,
+        }
+
+    def _log_metrics(self, trainer, metrics: dict, epoch: int):
+        """Log centroid evaluation metrics to WandB."""
+        import numpy as np
+        from lightning.pytorch.loggers import WandbLogger
+
+        # Get WandB logger
+        wandb_logger = None
+        for log in trainer.loggers:
+            if isinstance(log, WandbLogger):
+                wandb_logger = log
+                break
+
+        if wandb_logger is None:
+            return
+
+        log_dict = {"epoch": epoch}
+
+        # Distance metrics (with NaN handling)
+        if not np.isnan(metrics["dist_avg"]):
+            log_dict["eval/val/centroid_dist_avg"] = metrics["dist_avg"]
+        if not np.isnan(metrics["dist_median"]):
+            log_dict["eval/val/centroid_dist_median"] = metrics["dist_median"]
+        if not np.isnan(metrics["dist_p90"]):
+            log_dict["eval/val/centroid_dist_p90"] = metrics["dist_p90"]
+        if not np.isnan(metrics["dist_p95"]):
+            log_dict["eval/val/centroid_dist_p95"] = metrics["dist_p95"]
+        if not np.isnan(metrics["dist_max"]):
+            log_dict["eval/val/centroid_dist_max"] = metrics["dist_max"]
+
+        # Detection metrics
+        log_dict["eval/val/centroid_precision"] = metrics["precision"]
+        log_dict["eval/val/centroid_recall"] = metrics["recall"]
+        log_dict["eval/val/centroid_f1"] = metrics["f1"]
+
+        # Counts
+        log_dict["eval/val/centroid_n_tp"] = metrics["n_true_positives"]
+        log_dict["eval/val/centroid_n_fp"] = metrics["n_false_positives"]
+        log_dict["eval/val/centroid_n_fn"] = metrics["n_false_negatives"]
+
+        wandb_logger.experiment.log(log_dict, commit=False)
+
+        # Update best metrics in summary
+        for key, value in log_dict.items():
+            if key == "epoch":
+                continue
+            summary_key = f"best/{key}"
+            current_best = wandb_logger.experiment.summary.get(summary_key)
+            # For distance metrics, lower is better; for others, higher is better
+            is_distance = "dist" in key
+            if current_best is None:
+                wandb_logger.experiment.summary[summary_key] = value
+            elif is_distance and value < current_best:
+                wandb_logger.experiment.summary[summary_key] = value
+            elif not is_distance and value > current_best:
+                wandb_logger.experiment.summary[summary_key] = value
