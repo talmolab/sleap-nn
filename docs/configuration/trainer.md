@@ -384,8 +384,17 @@ Only one scheduler should be set at a time.
 |--------|------|---------|-------------|
 | `enabled` | bool | `false` | Enable epoch-end evaluation metrics |
 | `frequency` | int | `1` | Evaluate every N epochs |
-| `oks_stddev` | float | `0.025` | OKS standard deviation |
-| `oks_scale` | float | `null` | OKS scale override |
+| `oks_stddev` | float | `0.025` | OKS standard deviation (pose models only) |
+| `oks_scale` | float | `null` | OKS scale override (pose models only) |
+| `match_threshold` | float | `50.0` | Max distance (px) for centroid matching (centroid models only) |
+
+!!! info "Model-Type-Dependent Evaluation"
+    SLEAP-NN automatically selects the appropriate evaluation callback based on model type:
+
+    - **Pose models** (single instance, bottom-up, centered instance): Uses OKS/PCK metrics with `oks_stddev` and `oks_scale`
+    - **Centroid models**: Uses distance-based metrics with `match_threshold` for prediction-to-GT matching
+
+    See the [Monitoring Guide](../guides/monitoring.md#epoch-end-evaluation) for details.
 
 ### ZMQConfig
 

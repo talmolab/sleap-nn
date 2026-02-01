@@ -156,9 +156,7 @@ sleap-nn train -d /path/to/configs -c centered_instance_unet \
 
 ## Monitoring Training
 
-### Weights & Biases Integration
-
-Enable WandB logging:
+Track training progress with WandB logging, visualizations, and evaluation metrics.
 
 ```yaml
 trainer_config:
@@ -166,47 +164,23 @@ trainer_config:
   wandb:
     entity: your-username
     project: your-project
+    viz_enabled: true   # Log prediction visualizations
+
+  eval:
+    enabled: true       # Compute evaluation metrics during training
+    frequency: 1        # Evaluate every epoch
 ```
 
-#### Visualization Options
+For detailed configuration options including:
 
-```yaml
-trainer_config:
-  wandb:
-    viz_enabled: true         # Pre-rendered matplotlib images
-    viz_boxes: false          # Interactive keypoint boxes with epoch slider
-    viz_masks: false          # Confidence map overlay masks
-    viz_box_size: 5.0         # Size of keypoint boxes in pixels
-    viz_confmap_threshold: 0.1  # Threshold for confmap masks
-```
+- WandB visualization settings (interactive boxes, confidence map masks)
+- Epoch-end evaluation metrics (OKS, PCK, centroid metrics)
+- Local visualization output
+- Per-head loss monitoring
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `viz_enabled` | Log pre-rendered images | `True` |
-| `viz_boxes` | Interactive keypoint boxes (epoch slider) | `False` |
-| `viz_masks` | Confidence map overlay masks | `False` |
+See the dedicated guide:
 
-!!! tip "Interactive Epoch Slider"
-    Enable `viz_boxes: true` to scrub through epochs and see predictions improve.
-
-### Per-Head Loss Monitoring
-
-Multi-head models log individual losses:
-
-- `train_confmap_loss` / `val_confmap_loss`
-- `train_paf_loss` / `val_paf_loss` (bottom-up only)
-
-This helps diagnose when individual heads aren't learning effectively.
-
-### Training Visualizations
-
-Enable prediction visualizations during training:
-
-```yaml
-trainer_config:
-  visualize_preds_during_training: true
-  keep_viz: false  # Set true to keep viz folder after training
-```
+[:octicons-arrow-right-24: Monitoring & Visualization Guide](monitoring.md)
 
 ---
 

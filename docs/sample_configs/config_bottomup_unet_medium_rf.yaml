@@ -153,5 +153,10 @@ trainer_config:
     controller_port: 9000
     controller_polling_timeout: 10
     publish_port: 9001
+  eval:
+    enabled: true
+    frequency: 1
+    oks_stddev: 0.025  # OKS standard deviation for pose evaluation
+    oks_scale: null    # OKS scale override (null = auto)
 name: ''
 description: ''
