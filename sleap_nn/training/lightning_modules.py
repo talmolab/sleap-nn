@@ -1240,6 +1240,9 @@ class CentroidLightningModule(LightningModel):
 
         # Collect predictions for epoch-end evaluation if enabled
         if self._collect_val_predictions:
+            # Save GT centroids before inference (inference overwrites batch["centroids"])
+            batch["gt_centroids"] = batch["centroids"].clone()
+
             with torch.no_grad():
                 inference_output = self.centroid_inf_layer(batch)
 
@@ -1255,8 +1258,9 @@ class CentroidLightningModule(LightningModel):
                 pred_vals = inference_output["centroid_vals"][i].cpu().numpy()
 
                 # Transform GT centroids from preprocessed to original image space
+                # Use "gt_centroids" since inference overwrites "centroids" with predictions
                 gt_centroids_prep = (
-                    batch["centroids"][i].cpu().numpy()
+                    batch["gt_centroids"][i].cpu().numpy()
                 )  # (n_samples=1, max_inst, 2)
                 gt_centroids_orig = gt_centroids_prep.squeeze(0) / eff  # (max_inst, 2)
                 num_inst = batch["num_instances"][i].item()

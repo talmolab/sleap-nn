@@ -17,6 +17,8 @@ from sleap_nn.training.callbacks import (
     TrainingControllerZMQ,
     ProgressReporterZMQ,
     EpochEndEvaluationCallback,
+    CentroidEvaluationCallback,
+    match_centroids,
     UnifiedVizCallback,
 )
 from sleap_nn.training.utils import VisualizationData
@@ -1823,3 +1825,557 @@ class TestUnifiedVizCallback:
 
         result = callback._get_wandb_logger(mock_trainer)
         assert result is None
+
+
+class TestMatchCentroids:
+    """Tests for match_centroids function."""
+
+    def test_perfect_match(self):
+        """Matches when predictions exactly equal ground truth."""
+        pred = np.array([[10.0, 20.0], [30.0, 40.0]])
+        gt = np.array([[10.0, 20.0], [30.0, 40.0]])
+
+        matched_pred, matched_gt, unmatched_pred, unmatched_gt = match_centroids(
+            pred, gt, max_distance=5.0
+        )
+
+        assert len(matched_pred) == 2
+        assert len(matched_gt) == 2
+        assert len(unmatched_pred) == 0
+        assert len(unmatched_gt) == 0
+
+    def test_close_match(self):
+        """Matches when predictions are within threshold."""
+        pred = np.array([[10.0, 20.0], [30.0, 40.0]])
+        gt = np.array([[12.0, 22.0], [32.0, 42.0]])  # ~2.8 pixels away
+
+        matched_pred, matched_gt, unmatched_pred, unmatched_gt = match_centroids(
+            pred, gt, max_distance=5.0
+        )
+
+        assert len(matched_pred) == 2
+        assert len(matched_gt) == 2
+        assert len(unmatched_pred) == 0
+        assert len(unmatched_gt) == 0
+
+    def test_no_match_beyond_threshold(self):
+        """No matches when predictions are beyond threshold."""
+        pred = np.array([[10.0, 20.0]])
+        gt = np.array([[100.0, 200.0]])  # Far away
+
+        matched_pred, matched_gt, unmatched_pred, unmatched_gt = match_centroids(
+            pred, gt, max_distance=5.0
+        )
+
+        assert len(matched_pred) == 0
+        assert len(matched_gt) == 0
+        assert len(unmatched_pred) == 1
+        assert len(unmatched_gt) == 1
+
+    def test_more_predictions_than_gt(self):
+        """Handles case with extra predictions (false positives)."""
+        pred = np.array([[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]])
+        gt = np.array([[10.0, 20.0]])
+
+        matched_pred, matched_gt, unmatched_pred, unmatched_gt = match_centroids(
+            pred, gt, max_distance=5.0
+        )
+
+        assert len(matched_pred) == 1
+        assert len(matched_gt) == 1
+        assert len(unmatched_pred) == 2  # 2 false positives
+        assert len(unmatched_gt) == 0
+
+    def test_more_gt_than_predictions(self):
+        """Handles case with missing predictions (false negatives)."""
+        pred = np.array([[10.0, 20.0]])
+        gt = np.array([[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]])
+
+        matched_pred, matched_gt, unmatched_pred, unmatched_gt = match_centroids(
+            pred, gt, max_distance=5.0
+        )
+
+        assert len(matched_pred) == 1
+        assert len(matched_gt) == 1
+        assert len(unmatched_pred) == 0
+        assert len(unmatched_gt) == 2  # 2 false negatives
+
+    def test_empty_predictions(self):
+        """Handles empty predictions array."""
+        pred = np.zeros((0, 2))
+        gt = np.array([[10.0, 20.0], [30.0, 40.0]])
+
+        matched_pred, matched_gt, unmatched_pred, unmatched_gt = match_centroids(
+            pred, gt, max_distance=5.0
+        )
+
+        assert len(matched_pred) == 0
+        assert len(matched_gt) == 0
+        assert len(unmatched_pred) == 0
+        assert len(unmatched_gt) == 2
+
+    def test_empty_gt(self):
+        """Handles empty ground truth array."""
+        pred = np.array([[10.0, 20.0], [30.0, 40.0]])
+        gt = np.zeros((0, 2))
+
+        matched_pred, matched_gt, unmatched_pred, unmatched_gt = match_centroids(
+            pred, gt, max_distance=5.0
+        )
+
+        assert len(matched_pred) == 0
+        assert len(matched_gt) == 0
+        assert len(unmatched_pred) == 2
+        assert len(unmatched_gt) == 0
+
+    def test_both_empty(self):
+        """Handles both arrays empty."""
+        pred = np.zeros((0, 2))
+        gt = np.zeros((0, 2))
+
+        matched_pred, matched_gt, unmatched_pred, unmatched_gt = match_centroids(
+            pred, gt, max_distance=5.0
+        )
+
+        assert len(matched_pred) == 0
+        assert len(matched_gt) == 0
+        assert len(unmatched_pred) == 0
+        assert len(unmatched_gt) == 0
+
+    def test_hungarian_optimal_matching(self):
+        """Verifies Hungarian algorithm finds optimal matching."""
+        # Setup where greedy matching would fail but Hungarian succeeds
+        pred = np.array([[0.0, 0.0], [10.0, 0.0]])
+        gt = np.array([[9.0, 0.0], [1.0, 0.0]])
+        # Greedy would match pred[0] to gt[1] (dist=1) leaving pred[1] to gt[0] (dist=1)
+        # But optimal matching should give same result
+
+        matched_pred, matched_gt, _, _ = match_centroids(pred, gt, max_distance=15.0)
+
+        assert len(matched_pred) == 2
+        # Total distance should be minimized
+
+
+class TestCentroidEvaluationCallback:
+    """Tests for CentroidEvaluationCallback."""
+
+    @pytest.fixture
+    def mock_videos(self):
+        """Create mock videos."""
+        video1 = MagicMock()
+        video1.backend = None
+        return [video1]
+
+    def test_init_default_params(self, mock_videos):
+        """Initializes with default parameters."""
+        callback = CentroidEvaluationCallback(videos=mock_videos)
+
+        assert callback.videos == mock_videos
+        assert callback.eval_frequency == 1
+        assert callback.match_threshold == 50.0
+
+    def test_init_custom_params(self, mock_videos):
+        """Initializes with custom parameters."""
+        callback = CentroidEvaluationCallback(
+            videos=mock_videos,
+            eval_frequency=5,
+            match_threshold=25.0,
+        )
+
+        assert callback.eval_frequency == 5
+        assert callback.match_threshold == 25.0
+
+    def test_on_validation_epoch_start_enables_collection(self, mock_videos):
+        """Enables prediction collection at validation start."""
+        callback = CentroidEvaluationCallback(videos=mock_videos)
+
+        mock_trainer = MagicMock()
+        mock_trainer.sanity_checking = False
+        mock_pl_module = MagicMock()
+        mock_pl_module._collect_val_predictions = False
+
+        callback.on_validation_epoch_start(mock_trainer, mock_pl_module)
+
+        assert mock_pl_module._collect_val_predictions is True
+
+    def test_on_validation_epoch_start_skips_during_sanity_check(self, mock_videos):
+        """Skips enabling prediction collection during sanity check."""
+        callback = CentroidEvaluationCallback(videos=mock_videos)
+
+        mock_trainer = MagicMock()
+        mock_trainer.sanity_checking = True
+        mock_pl_module = MagicMock()
+        mock_pl_module._collect_val_predictions = False
+
+        callback.on_validation_epoch_start(mock_trainer, mock_pl_module)
+
+        assert mock_pl_module._collect_val_predictions is False
+
+    def test_on_validation_epoch_end_skips_by_frequency(self, mock_videos):
+        """Skips evaluation if not at frequency interval."""
+        callback = CentroidEvaluationCallback(
+            videos=mock_videos,
+            eval_frequency=5,
+        )
+
+        mock_trainer = MagicMock()
+        mock_trainer.current_epoch = 2  # Epoch 3 (0-indexed), not divisible by 5
+        mock_trainer.is_global_zero = True
+        mock_pl_module = MagicMock()
+        mock_pl_module._collect_val_predictions = True
+
+        callback.on_validation_epoch_end(mock_trainer, mock_pl_module)
+
+        assert mock_pl_module._collect_val_predictions is False
+
+    def test_on_validation_epoch_end_skips_if_not_global_zero(self, mock_videos):
+        """Skips evaluation if not global rank zero."""
+        callback = CentroidEvaluationCallback(videos=mock_videos)
+
+        mock_trainer = MagicMock()
+        mock_trainer.current_epoch = 0
+        mock_trainer.is_global_zero = False
+        mock_pl_module = MagicMock()
+        mock_pl_module._collect_val_predictions = True
+
+        callback.on_validation_epoch_end(mock_trainer, mock_pl_module)
+
+        assert mock_pl_module._collect_val_predictions is False
+
+    def test_on_validation_epoch_end_skips_if_no_predictions(self, mock_videos):
+        """Skips evaluation if no predictions collected."""
+        callback = CentroidEvaluationCallback(videos=mock_videos)
+
+        mock_trainer = MagicMock()
+        mock_trainer.current_epoch = 0
+        mock_trainer.is_global_zero = True
+        mock_trainer.loggers = []
+        mock_pl_module = MagicMock()
+        mock_pl_module._collect_val_predictions = True
+        mock_pl_module.val_predictions = []
+        mock_pl_module.val_ground_truth = []
+
+        callback.on_validation_epoch_end(mock_trainer, mock_pl_module)
+
+        assert mock_pl_module._collect_val_predictions is False
+
+    def test_compute_metrics_perfect_detection(self, mock_videos):
+        """Computes correct metrics for perfect detection."""
+        callback = CentroidEvaluationCallback(
+            videos=mock_videos,
+            match_threshold=10.0,
+        )
+
+        predictions = [
+            {
+                "video_idx": 0,
+                "frame_idx": 0,
+                "pred_peaks": np.array([[[10.0, 20.0]], [[30.0, 40.0]]]),  # (2, 1, 2)
+                "pred_scores": np.array([[0.9], [0.8]]),
+            }
+        ]
+
+        ground_truth = [
+            {
+                "video_idx": 0,
+                "frame_idx": 0,
+                "gt_instances": np.array([[[10.0, 20.0]], [[30.0, 40.0]]]),  # (2, 1, 2)
+                "num_instances": 2,
+            }
+        ]
+
+        metrics = callback._compute_metrics(predictions, ground_truth, np)
+
+        assert metrics["precision"] == 1.0
+        assert metrics["recall"] == 1.0
+        assert metrics["f1"] == 1.0
+        assert metrics["n_true_positives"] == 2
+        assert metrics["n_false_positives"] == 0
+        assert metrics["n_false_negatives"] == 0
+        assert metrics["dist_avg"] == 0.0
+
+    def test_compute_metrics_with_false_positives(self, mock_videos):
+        """Computes correct metrics with extra predictions."""
+        callback = CentroidEvaluationCallback(
+            videos=mock_videos,
+            match_threshold=10.0,
+        )
+
+        predictions = [
+            {
+                "video_idx": 0,
+                "frame_idx": 0,
+                "pred_peaks": np.array(
+                    [[[10.0, 20.0]], [[30.0, 40.0]], [[100.0, 100.0]]]
+                ),  # 3 preds
+                "pred_scores": np.array([[0.9], [0.8], [0.7]]),
+            }
+        ]
+
+        ground_truth = [
+            {
+                "video_idx": 0,
+                "frame_idx": 0,
+                "gt_instances": np.array([[[10.0, 20.0]], [[30.0, 40.0]]]),  # 2 GT
+                "num_instances": 2,
+            }
+        ]
+
+        metrics = callback._compute_metrics(predictions, ground_truth, np)
+
+        assert metrics["n_true_positives"] == 2
+        assert metrics["n_false_positives"] == 1
+        assert metrics["n_false_negatives"] == 0
+        assert metrics["precision"] == 2 / 3
+        assert metrics["recall"] == 1.0
+
+    def test_compute_metrics_with_false_negatives(self, mock_videos):
+        """Computes correct metrics with missed detections."""
+        callback = CentroidEvaluationCallback(
+            videos=mock_videos,
+            match_threshold=10.0,
+        )
+
+        predictions = [
+            {
+                "video_idx": 0,
+                "frame_idx": 0,
+                "pred_peaks": np.array([[[10.0, 20.0]]]),  # 1 pred
+                "pred_scores": np.array([[0.9]]),
+            }
+        ]
+
+        ground_truth = [
+            {
+                "video_idx": 0,
+                "frame_idx": 0,
+                "gt_instances": np.array([[[10.0, 20.0]], [[30.0, 40.0]]]),  # 2 GT
+                "num_instances": 2,
+            }
+        ]
+
+        metrics = callback._compute_metrics(predictions, ground_truth, np)
+
+        assert metrics["n_true_positives"] == 1
+        assert metrics["n_false_positives"] == 0
+        assert metrics["n_false_negatives"] == 1
+        assert metrics["precision"] == 1.0
+        assert metrics["recall"] == 0.5
+
+    def test_compute_metrics_with_distance_offset(self, mock_videos):
+        """Computes correct distance metrics with offset predictions."""
+        callback = CentroidEvaluationCallback(
+            videos=mock_videos,
+            match_threshold=10.0,
+        )
+
+        predictions = [
+            {
+                "video_idx": 0,
+                "frame_idx": 0,
+                "pred_peaks": np.array([[[13.0, 24.0]]]),  # 5 pixels away
+                "pred_scores": np.array([[0.9]]),
+            }
+        ]
+
+        ground_truth = [
+            {
+                "video_idx": 0,
+                "frame_idx": 0,
+                "gt_instances": np.array([[[10.0, 20.0]]]),
+                "num_instances": 1,
+            }
+        ]
+
+        metrics = callback._compute_metrics(predictions, ground_truth, np)
+
+        assert metrics["n_true_positives"] == 1
+        assert np.isclose(metrics["dist_avg"], 5.0)
+        assert np.isclose(metrics["dist_median"], 5.0)
+
+    def test_compute_metrics_nan_handling(self, mock_videos):
+        """Handles NaN centroids in predictions."""
+        callback = CentroidEvaluationCallback(
+            videos=mock_videos,
+            match_threshold=10.0,
+        )
+
+        predictions = [
+            {
+                "video_idx": 0,
+                "frame_idx": 0,
+                "pred_peaks": np.array(
+                    [[[10.0, 20.0]], [[np.nan, np.nan]]]
+                ),  # One valid, one NaN
+                "pred_scores": np.array([[0.9], [0.1]]),
+            }
+        ]
+
+        ground_truth = [
+            {
+                "video_idx": 0,
+                "frame_idx": 0,
+                "gt_instances": np.array([[[10.0, 20.0]]]),
+                "num_instances": 1,
+            }
+        ]
+
+        metrics = callback._compute_metrics(predictions, ground_truth, np)
+
+        # NaN predictions should be filtered out
+        assert metrics["n_true_positives"] == 1
+        assert metrics["n_false_positives"] == 0
+
+    def test_compute_metrics_multi_frame(self, mock_videos):
+        """Computes correct metrics across multiple frames."""
+        callback = CentroidEvaluationCallback(
+            videos=mock_videos,
+            match_threshold=10.0,
+        )
+
+        predictions = [
+            {
+                "video_idx": 0,
+                "frame_idx": 0,
+                "pred_peaks": np.array([[[10.0, 20.0]]]),
+                "pred_scores": np.array([[0.9]]),
+            },
+            {
+                "video_idx": 0,
+                "frame_idx": 1,
+                "pred_peaks": np.array([[[30.0, 40.0]]]),
+                "pred_scores": np.array([[0.8]]),
+            },
+        ]
+
+        ground_truth = [
+            {
+                "video_idx": 0,
+                "frame_idx": 0,
+                "gt_instances": np.array([[[10.0, 20.0]]]),
+                "num_instances": 1,
+            },
+            {
+                "video_idx": 0,
+                "frame_idx": 1,
+                "gt_instances": np.array([[[30.0, 40.0]]]),
+                "num_instances": 1,
+            },
+        ]
+
+        metrics = callback._compute_metrics(predictions, ground_truth, np)
+
+        assert metrics["n_true_positives"] == 2
+        assert metrics["n_total_ground_truth"] == 2
+
+    def test_log_metrics_no_wandb_logger(self, mock_videos):
+        """Does nothing if no wandb logger found."""
+        callback = CentroidEvaluationCallback(videos=mock_videos)
+
+        mock_trainer = MagicMock()
+        mock_trainer.loggers = []
+
+        metrics = {
+            "dist_avg": 5.0,
+            "dist_median": 4.0,
+            "dist_p90": 8.0,
+            "dist_p95": 10.0,
+            "dist_max": 12.0,
+            "precision": 0.9,
+            "recall": 0.85,
+            "f1": 0.87,
+            "n_true_positives": 10,
+            "n_false_positives": 1,
+            "n_false_negatives": 2,
+            "n_total_predictions": 11,
+            "n_total_ground_truth": 12,
+        }
+
+        # Should not raise
+        callback._log_metrics(mock_trainer, metrics, epoch=5)
+
+    def test_log_metrics_with_wandb_logger(self, mock_videos):
+        """Logs metrics to wandb when logger present."""
+        from lightning.pytorch.loggers import WandbLogger
+
+        callback = CentroidEvaluationCallback(videos=mock_videos)
+
+        mock_wandb_logger = MagicMock(spec=WandbLogger)
+        mock_experiment = MagicMock()
+        mock_experiment.summary.get.return_value = None
+        mock_wandb_logger.experiment = mock_experiment
+
+        mock_trainer = MagicMock()
+        mock_trainer.loggers = [mock_wandb_logger]
+
+        metrics = {
+            "dist_avg": 5.0,
+            "dist_median": 4.0,
+            "dist_p90": 8.0,
+            "dist_p95": 10.0,
+            "dist_max": 12.0,
+            "precision": 0.9,
+            "recall": 0.85,
+            "f1": 0.87,
+            "n_true_positives": 10,
+            "n_false_positives": 1,
+            "n_false_negatives": 2,
+            "n_total_predictions": 11,
+            "n_total_ground_truth": 12,
+        }
+
+        callback._log_metrics(mock_trainer, metrics, epoch=5)
+
+        mock_experiment.log.assert_called_once()
+        log_call = mock_experiment.log.call_args
+        log_dict = log_call[0][0]
+
+        assert log_dict["epoch"] == 5
+        assert log_dict["eval/val/centroid_dist_avg"] == 5.0
+        assert log_dict["eval/val/centroid_precision"] == 0.9
+        assert log_dict["eval/val/centroid_recall"] == 0.85
+        assert log_dict["eval/val/centroid_f1"] == 0.87
+        assert log_call[1]["commit"] is False
+
+    def test_log_metrics_skips_nan_distances(self, mock_videos):
+        """Skips NaN distance values when logging."""
+        from lightning.pytorch.loggers import WandbLogger
+
+        callback = CentroidEvaluationCallback(videos=mock_videos)
+
+        mock_wandb_logger = MagicMock(spec=WandbLogger)
+        mock_experiment = MagicMock()
+        mock_experiment.summary.get.return_value = None
+        mock_wandb_logger.experiment = mock_experiment
+
+        mock_trainer = MagicMock()
+        mock_trainer.loggers = [mock_wandb_logger]
+
+        metrics = {
+            "dist_avg": float("nan"),
+            "dist_median": float("nan"),
+            "dist_p90": float("nan"),
+            "dist_p95": float("nan"),
+            "dist_max": float("nan"),
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "n_true_positives": 0,
+            "n_false_positives": 5,
+            "n_false_negatives": 3,
+            "n_total_predictions": 5,
+            "n_total_ground_truth": 3,
+        }
+
+        callback._log_metrics(mock_trainer, metrics, epoch=5)
+
+        log_call = mock_experiment.log.call_args
+        log_dict = log_call[0][0]
+
+        # NaN values should not be in the log dict
+        assert "eval/val/centroid_dist_avg" not in log_dict
+        assert "eval/val/centroid_dist_median" not in log_dict
+
+        # Non-NaN values should be present
+        assert log_dict["eval/val/centroid_precision"] == 0.0
+        assert log_dict["eval/val/centroid_recall"] == 0.0
