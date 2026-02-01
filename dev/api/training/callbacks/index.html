@@ -3961,6 +3961,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sleap_nn.training.callbacks.CentroidEvaluationCallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CentroidEvaluationCallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#sleap_nn.training.callbacks.EpochEndEvaluationCallback" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4053,6 +4064,17 @@
     <span class="md-ellipsis">
       
         WandBVizCallbackWithPAFs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sleap_nn.training.callbacks.match_centroids" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        match_centroids
       
     </span>
   </a>
@@ -4338,6 +4360,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sleap_nn.training.callbacks.CentroidEvaluationCallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CentroidEvaluationCallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#sleap_nn.training.callbacks.EpochEndEvaluationCallback" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4436,6 +4469,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#sleap_nn.training.callbacks.match_centroids" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        match_centroids
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -4500,6 +4544,14 @@
             <td>
               <div class="doc-md-description">
                 <p>Callback for logging metrics to csv.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;CentroidEvaluationCallback&lt;/code&gt; (&lt;code&gt;sleap_nn.training.callbacks.CentroidEvaluationCallback&lt;/code&gt;)" href="#sleap_nn.training.callbacks.CentroidEvaluationCallback">CentroidEvaluationCallback</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Callback to run centroid-specific evaluation metrics at end of validation epochs.</p>
               </div>
             </td>
           </tr>
@@ -4579,6 +4631,27 @@
     </table>
 
 
+
+
+<p><span class="doc-section-title">Functions:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;match_centroids&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;pred_centroids&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;gt_centroids&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_distance&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;50.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.training.callbacks.match_centroids&lt;/code&gt;)" href="#sleap_nn.training.callbacks.match_centroids">match_centroids</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Match predicted centroids to ground truth using Hungarian algorithm.</p>
+                </div>
+              </td>
+            </tr>
+      </tbody>
+    </table>
 
 
 
@@ -4961,6 +5034,940 @@
 </span><span id="__span-0-109"><a id="__codelineno-0-109" name="__codelineno-0-109"></a>
 </span><span id="__span-0-110"><a id="__codelineno-0-110" name="__codelineno-0-110"></a>    <span class="c1"># Sync all processes after file I/O</span>
 </span><span id="__span-0-111"><a id="__codelineno-0-111" name="__codelineno-0-111"></a>    <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="sleap_nn.training.callbacks.CentroidEvaluationCallback" class="doc doc-heading">
+            <code>CentroidEvaluationCallback</code>
+
+
+<a href="#sleap_nn.training.callbacks.CentroidEvaluationCallback" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="lightning.pytorch.callbacks.Callback">Callback</span></code></p>
+
+
+
+        <p>Callback to run centroid-specific evaluation metrics at end of validation epochs.</p>
+<p>This callback is designed specifically for centroid models, which predict a single
+point (centroid) per instance rather than full pose skeletons. It computes
+distance-based metrics and detection metrics that are more appropriate for
+point detection tasks than OKS/PCK metrics.</p>
+
+
+<details class="metrics-computed" open>
+  <summary>Metrics computed</summary>
+  <ul>
+<li>Distance metrics: mean, median, p90, p95, max Euclidean distance</li>
+<li>Detection metrics: precision, recall, F1 score</li>
+<li>Counts: true positives, false positives, false negatives</li>
+</ul>
+</details>
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="sleap_nn.training.callbacks.CentroidEvaluationCallback.videos">videos</span></code></td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of sio.Video objects.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="sleap_nn.training.callbacks.CentroidEvaluationCallback.eval_frequency">eval_frequency</span></code></td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Run evaluation every N epochs (default: 1).</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="sleap_nn.training.callbacks.CentroidEvaluationCallback.match_threshold">match_threshold</span></code></td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Maximum distance (pixels) for matching pred to GT (default: 50.0).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+<p><span class="doc-section-title">Methods:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;fm&quot;&gt;__init__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;videos&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;eval_frequency&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;match_threshold&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;50.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.training.callbacks.CentroidEvaluationCallback.__init__&lt;/code&gt;)" href="#sleap_nn.training.callbacks.CentroidEvaluationCallback.__init__">__init__</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Initialize the callback.</p>
+                </div>
+              </td>
+            </tr>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;on_validation_epoch_end&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;trainer&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pl_module&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.training.callbacks.CentroidEvaluationCallback.on_validation_epoch_end&lt;/code&gt;)" href="#sleap_nn.training.callbacks.CentroidEvaluationCallback.on_validation_epoch_end">on_validation_epoch_end</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Run centroid evaluation and log metrics at end of validation epoch.</p>
+                </div>
+              </td>
+            </tr>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;on_validation_epoch_start&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;trainer&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pl_module&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.training.callbacks.CentroidEvaluationCallback.on_validation_epoch_start&lt;/code&gt;)" href="#sleap_nn.training.callbacks.CentroidEvaluationCallback.on_validation_epoch_start">on_validation_epoch_start</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Enable prediction collection at the start of validation.</p>
+                </div>
+              </td>
+            </tr>
+      </tbody>
+    </table>
+
+
+
+              <details class="mkdocstrings-source">
+                <summary>Source code in <code>sleap_nn/training/callbacks.py</code></summary>
+                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1347">1347</a></span>
+<span class="normal"><a href="#__codelineno-0-1348">1348</a></span>
+<span class="normal"><a href="#__codelineno-0-1349">1349</a></span>
+<span class="normal"><a href="#__codelineno-0-1350">1350</a></span>
+<span class="normal"><a href="#__codelineno-0-1351">1351</a></span>
+<span class="normal"><a href="#__codelineno-0-1352">1352</a></span>
+<span class="normal"><a href="#__codelineno-0-1353">1353</a></span>
+<span class="normal"><a href="#__codelineno-0-1354">1354</a></span>
+<span class="normal"><a href="#__codelineno-0-1355">1355</a></span>
+<span class="normal"><a href="#__codelineno-0-1356">1356</a></span>
+<span class="normal"><a href="#__codelineno-0-1357">1357</a></span>
+<span class="normal"><a href="#__codelineno-0-1358">1358</a></span>
+<span class="normal"><a href="#__codelineno-0-1359">1359</a></span>
+<span class="normal"><a href="#__codelineno-0-1360">1360</a></span>
+<span class="normal"><a href="#__codelineno-0-1361">1361</a></span>
+<span class="normal"><a href="#__codelineno-0-1362">1362</a></span>
+<span class="normal"><a href="#__codelineno-0-1363">1363</a></span>
+<span class="normal"><a href="#__codelineno-0-1364">1364</a></span>
+<span class="normal"><a href="#__codelineno-0-1365">1365</a></span>
+<span class="normal"><a href="#__codelineno-0-1366">1366</a></span>
+<span class="normal"><a href="#__codelineno-0-1367">1367</a></span>
+<span class="normal"><a href="#__codelineno-0-1368">1368</a></span>
+<span class="normal"><a href="#__codelineno-0-1369">1369</a></span>
+<span class="normal"><a href="#__codelineno-0-1370">1370</a></span>
+<span class="normal"><a href="#__codelineno-0-1371">1371</a></span>
+<span class="normal"><a href="#__codelineno-0-1372">1372</a></span>
+<span class="normal"><a href="#__codelineno-0-1373">1373</a></span>
+<span class="normal"><a href="#__codelineno-0-1374">1374</a></span>
+<span class="normal"><a href="#__codelineno-0-1375">1375</a></span>
+<span class="normal"><a href="#__codelineno-0-1376">1376</a></span>
+<span class="normal"><a href="#__codelineno-0-1377">1377</a></span>
+<span class="normal"><a href="#__codelineno-0-1378">1378</a></span>
+<span class="normal"><a href="#__codelineno-0-1379">1379</a></span>
+<span class="normal"><a href="#__codelineno-0-1380">1380</a></span>
+<span class="normal"><a href="#__codelineno-0-1381">1381</a></span>
+<span class="normal"><a href="#__codelineno-0-1382">1382</a></span>
+<span class="normal"><a href="#__codelineno-0-1383">1383</a></span>
+<span class="normal"><a href="#__codelineno-0-1384">1384</a></span>
+<span class="normal"><a href="#__codelineno-0-1385">1385</a></span>
+<span class="normal"><a href="#__codelineno-0-1386">1386</a></span>
+<span class="normal"><a href="#__codelineno-0-1387">1387</a></span>
+<span class="normal"><a href="#__codelineno-0-1388">1388</a></span>
+<span class="normal"><a href="#__codelineno-0-1389">1389</a></span>
+<span class="normal"><a href="#__codelineno-0-1390">1390</a></span>
+<span class="normal"><a href="#__codelineno-0-1391">1391</a></span>
+<span class="normal"><a href="#__codelineno-0-1392">1392</a></span>
+<span class="normal"><a href="#__codelineno-0-1393">1393</a></span>
+<span class="normal"><a href="#__codelineno-0-1394">1394</a></span>
+<span class="normal"><a href="#__codelineno-0-1395">1395</a></span>
+<span class="normal"><a href="#__codelineno-0-1396">1396</a></span>
+<span class="normal"><a href="#__codelineno-0-1397">1397</a></span>
+<span class="normal"><a href="#__codelineno-0-1398">1398</a></span>
+<span class="normal"><a href="#__codelineno-0-1399">1399</a></span>
+<span class="normal"><a href="#__codelineno-0-1400">1400</a></span>
+<span class="normal"><a href="#__codelineno-0-1401">1401</a></span>
+<span class="normal"><a href="#__codelineno-0-1402">1402</a></span>
+<span class="normal"><a href="#__codelineno-0-1403">1403</a></span>
+<span class="normal"><a href="#__codelineno-0-1404">1404</a></span>
+<span class="normal"><a href="#__codelineno-0-1405">1405</a></span>
+<span class="normal"><a href="#__codelineno-0-1406">1406</a></span>
+<span class="normal"><a href="#__codelineno-0-1407">1407</a></span>
+<span class="normal"><a href="#__codelineno-0-1408">1408</a></span>
+<span class="normal"><a href="#__codelineno-0-1409">1409</a></span>
+<span class="normal"><a href="#__codelineno-0-1410">1410</a></span>
+<span class="normal"><a href="#__codelineno-0-1411">1411</a></span>
+<span class="normal"><a href="#__codelineno-0-1412">1412</a></span>
+<span class="normal"><a href="#__codelineno-0-1413">1413</a></span>
+<span class="normal"><a href="#__codelineno-0-1414">1414</a></span>
+<span class="normal"><a href="#__codelineno-0-1415">1415</a></span>
+<span class="normal"><a href="#__codelineno-0-1416">1416</a></span>
+<span class="normal"><a href="#__codelineno-0-1417">1417</a></span>
+<span class="normal"><a href="#__codelineno-0-1418">1418</a></span>
+<span class="normal"><a href="#__codelineno-0-1419">1419</a></span>
+<span class="normal"><a href="#__codelineno-0-1420">1420</a></span>
+<span class="normal"><a href="#__codelineno-0-1421">1421</a></span>
+<span class="normal"><a href="#__codelineno-0-1422">1422</a></span>
+<span class="normal"><a href="#__codelineno-0-1423">1423</a></span>
+<span class="normal"><a href="#__codelineno-0-1424">1424</a></span>
+<span class="normal"><a href="#__codelineno-0-1425">1425</a></span>
+<span class="normal"><a href="#__codelineno-0-1426">1426</a></span>
+<span class="normal"><a href="#__codelineno-0-1427">1427</a></span>
+<span class="normal"><a href="#__codelineno-0-1428">1428</a></span>
+<span class="normal"><a href="#__codelineno-0-1429">1429</a></span>
+<span class="normal"><a href="#__codelineno-0-1430">1430</a></span>
+<span class="normal"><a href="#__codelineno-0-1431">1431</a></span>
+<span class="normal"><a href="#__codelineno-0-1432">1432</a></span>
+<span class="normal"><a href="#__codelineno-0-1433">1433</a></span>
+<span class="normal"><a href="#__codelineno-0-1434">1434</a></span>
+<span class="normal"><a href="#__codelineno-0-1435">1435</a></span>
+<span class="normal"><a href="#__codelineno-0-1436">1436</a></span>
+<span class="normal"><a href="#__codelineno-0-1437">1437</a></span>
+<span class="normal"><a href="#__codelineno-0-1438">1438</a></span>
+<span class="normal"><a href="#__codelineno-0-1439">1439</a></span>
+<span class="normal"><a href="#__codelineno-0-1440">1440</a></span>
+<span class="normal"><a href="#__codelineno-0-1441">1441</a></span>
+<span class="normal"><a href="#__codelineno-0-1442">1442</a></span>
+<span class="normal"><a href="#__codelineno-0-1443">1443</a></span>
+<span class="normal"><a href="#__codelineno-0-1444">1444</a></span>
+<span class="normal"><a href="#__codelineno-0-1445">1445</a></span>
+<span class="normal"><a href="#__codelineno-0-1446">1446</a></span>
+<span class="normal"><a href="#__codelineno-0-1447">1447</a></span>
+<span class="normal"><a href="#__codelineno-0-1448">1448</a></span>
+<span class="normal"><a href="#__codelineno-0-1449">1449</a></span>
+<span class="normal"><a href="#__codelineno-0-1450">1450</a></span>
+<span class="normal"><a href="#__codelineno-0-1451">1451</a></span>
+<span class="normal"><a href="#__codelineno-0-1452">1452</a></span>
+<span class="normal"><a href="#__codelineno-0-1453">1453</a></span>
+<span class="normal"><a href="#__codelineno-0-1454">1454</a></span>
+<span class="normal"><a href="#__codelineno-0-1455">1455</a></span>
+<span class="normal"><a href="#__codelineno-0-1456">1456</a></span>
+<span class="normal"><a href="#__codelineno-0-1457">1457</a></span>
+<span class="normal"><a href="#__codelineno-0-1458">1458</a></span>
+<span class="normal"><a href="#__codelineno-0-1459">1459</a></span>
+<span class="normal"><a href="#__codelineno-0-1460">1460</a></span>
+<span class="normal"><a href="#__codelineno-0-1461">1461</a></span>
+<span class="normal"><a href="#__codelineno-0-1462">1462</a></span>
+<span class="normal"><a href="#__codelineno-0-1463">1463</a></span>
+<span class="normal"><a href="#__codelineno-0-1464">1464</a></span>
+<span class="normal"><a href="#__codelineno-0-1465">1465</a></span>
+<span class="normal"><a href="#__codelineno-0-1466">1466</a></span>
+<span class="normal"><a href="#__codelineno-0-1467">1467</a></span>
+<span class="normal"><a href="#__codelineno-0-1468">1468</a></span>
+<span class="normal"><a href="#__codelineno-0-1469">1469</a></span>
+<span class="normal"><a href="#__codelineno-0-1470">1470</a></span>
+<span class="normal"><a href="#__codelineno-0-1471">1471</a></span>
+<span class="normal"><a href="#__codelineno-0-1472">1472</a></span>
+<span class="normal"><a href="#__codelineno-0-1473">1473</a></span>
+<span class="normal"><a href="#__codelineno-0-1474">1474</a></span>
+<span class="normal"><a href="#__codelineno-0-1475">1475</a></span>
+<span class="normal"><a href="#__codelineno-0-1476">1476</a></span>
+<span class="normal"><a href="#__codelineno-0-1477">1477</a></span>
+<span class="normal"><a href="#__codelineno-0-1478">1478</a></span>
+<span class="normal"><a href="#__codelineno-0-1479">1479</a></span>
+<span class="normal"><a href="#__codelineno-0-1480">1480</a></span>
+<span class="normal"><a href="#__codelineno-0-1481">1481</a></span>
+<span class="normal"><a href="#__codelineno-0-1482">1482</a></span>
+<span class="normal"><a href="#__codelineno-0-1483">1483</a></span>
+<span class="normal"><a href="#__codelineno-0-1484">1484</a></span>
+<span class="normal"><a href="#__codelineno-0-1485">1485</a></span>
+<span class="normal"><a href="#__codelineno-0-1486">1486</a></span>
+<span class="normal"><a href="#__codelineno-0-1487">1487</a></span>
+<span class="normal"><a href="#__codelineno-0-1488">1488</a></span>
+<span class="normal"><a href="#__codelineno-0-1489">1489</a></span>
+<span class="normal"><a href="#__codelineno-0-1490">1490</a></span>
+<span class="normal"><a href="#__codelineno-0-1491">1491</a></span>
+<span class="normal"><a href="#__codelineno-0-1492">1492</a></span>
+<span class="normal"><a href="#__codelineno-0-1493">1493</a></span>
+<span class="normal"><a href="#__codelineno-0-1494">1494</a></span>
+<span class="normal"><a href="#__codelineno-0-1495">1495</a></span>
+<span class="normal"><a href="#__codelineno-0-1496">1496</a></span>
+<span class="normal"><a href="#__codelineno-0-1497">1497</a></span>
+<span class="normal"><a href="#__codelineno-0-1498">1498</a></span>
+<span class="normal"><a href="#__codelineno-0-1499">1499</a></span>
+<span class="normal"><a href="#__codelineno-0-1500">1500</a></span>
+<span class="normal"><a href="#__codelineno-0-1501">1501</a></span>
+<span class="normal"><a href="#__codelineno-0-1502">1502</a></span>
+<span class="normal"><a href="#__codelineno-0-1503">1503</a></span>
+<span class="normal"><a href="#__codelineno-0-1504">1504</a></span>
+<span class="normal"><a href="#__codelineno-0-1505">1505</a></span>
+<span class="normal"><a href="#__codelineno-0-1506">1506</a></span>
+<span class="normal"><a href="#__codelineno-0-1507">1507</a></span>
+<span class="normal"><a href="#__codelineno-0-1508">1508</a></span>
+<span class="normal"><a href="#__codelineno-0-1509">1509</a></span>
+<span class="normal"><a href="#__codelineno-0-1510">1510</a></span>
+<span class="normal"><a href="#__codelineno-0-1511">1511</a></span>
+<span class="normal"><a href="#__codelineno-0-1512">1512</a></span>
+<span class="normal"><a href="#__codelineno-0-1513">1513</a></span>
+<span class="normal"><a href="#__codelineno-0-1514">1514</a></span>
+<span class="normal"><a href="#__codelineno-0-1515">1515</a></span>
+<span class="normal"><a href="#__codelineno-0-1516">1516</a></span>
+<span class="normal"><a href="#__codelineno-0-1517">1517</a></span>
+<span class="normal"><a href="#__codelineno-0-1518">1518</a></span>
+<span class="normal"><a href="#__codelineno-0-1519">1519</a></span>
+<span class="normal"><a href="#__codelineno-0-1520">1520</a></span>
+<span class="normal"><a href="#__codelineno-0-1521">1521</a></span>
+<span class="normal"><a href="#__codelineno-0-1522">1522</a></span>
+<span class="normal"><a href="#__codelineno-0-1523">1523</a></span>
+<span class="normal"><a href="#__codelineno-0-1524">1524</a></span>
+<span class="normal"><a href="#__codelineno-0-1525">1525</a></span>
+<span class="normal"><a href="#__codelineno-0-1526">1526</a></span>
+<span class="normal"><a href="#__codelineno-0-1527">1527</a></span>
+<span class="normal"><a href="#__codelineno-0-1528">1528</a></span>
+<span class="normal"><a href="#__codelineno-0-1529">1529</a></span>
+<span class="normal"><a href="#__codelineno-0-1530">1530</a></span>
+<span class="normal"><a href="#__codelineno-0-1531">1531</a></span>
+<span class="normal"><a href="#__codelineno-0-1532">1532</a></span>
+<span class="normal"><a href="#__codelineno-0-1533">1533</a></span>
+<span class="normal"><a href="#__codelineno-0-1534">1534</a></span>
+<span class="normal"><a href="#__codelineno-0-1535">1535</a></span>
+<span class="normal"><a href="#__codelineno-0-1536">1536</a></span>
+<span class="normal"><a href="#__codelineno-0-1537">1537</a></span>
+<span class="normal"><a href="#__codelineno-0-1538">1538</a></span>
+<span class="normal"><a href="#__codelineno-0-1539">1539</a></span>
+<span class="normal"><a href="#__codelineno-0-1540">1540</a></span>
+<span class="normal"><a href="#__codelineno-0-1541">1541</a></span>
+<span class="normal"><a href="#__codelineno-0-1542">1542</a></span>
+<span class="normal"><a href="#__codelineno-0-1543">1543</a></span>
+<span class="normal"><a href="#__codelineno-0-1544">1544</a></span>
+<span class="normal"><a href="#__codelineno-0-1545">1545</a></span>
+<span class="normal"><a href="#__codelineno-0-1546">1546</a></span>
+<span class="normal"><a href="#__codelineno-0-1547">1547</a></span>
+<span class="normal"><a href="#__codelineno-0-1548">1548</a></span>
+<span class="normal"><a href="#__codelineno-0-1549">1549</a></span>
+<span class="normal"><a href="#__codelineno-0-1550">1550</a></span>
+<span class="normal"><a href="#__codelineno-0-1551">1551</a></span>
+<span class="normal"><a href="#__codelineno-0-1552">1552</a></span>
+<span class="normal"><a href="#__codelineno-0-1553">1553</a></span>
+<span class="normal"><a href="#__codelineno-0-1554">1554</a></span>
+<span class="normal"><a href="#__codelineno-0-1555">1555</a></span>
+<span class="normal"><a href="#__codelineno-0-1556">1556</a></span>
+<span class="normal"><a href="#__codelineno-0-1557">1557</a></span>
+<span class="normal"><a href="#__codelineno-0-1558">1558</a></span>
+<span class="normal"><a href="#__codelineno-0-1559">1559</a></span>
+<span class="normal"><a href="#__codelineno-0-1560">1560</a></span>
+<span class="normal"><a href="#__codelineno-0-1561">1561</a></span>
+<span class="normal"><a href="#__codelineno-0-1562">1562</a></span>
+<span class="normal"><a href="#__codelineno-0-1563">1563</a></span>
+<span class="normal"><a href="#__codelineno-0-1564">1564</a></span>
+<span class="normal"><a href="#__codelineno-0-1565">1565</a></span>
+<span class="normal"><a href="#__codelineno-0-1566">1566</a></span>
+<span class="normal"><a href="#__codelineno-0-1567">1567</a></span>
+<span class="normal"><a href="#__codelineno-0-1568">1568</a></span>
+<span class="normal"><a href="#__codelineno-0-1569">1569</a></span>
+<span class="normal"><a href="#__codelineno-0-1570">1570</a></span>
+<span class="normal"><a href="#__codelineno-0-1571">1571</a></span>
+<span class="normal"><a href="#__codelineno-0-1572">1572</a></span>
+<span class="normal"><a href="#__codelineno-0-1573">1573</a></span>
+<span class="normal"><a href="#__codelineno-0-1574">1574</a></span>
+<span class="normal"><a href="#__codelineno-0-1575">1575</a></span>
+<span class="normal"><a href="#__codelineno-0-1576">1576</a></span>
+<span class="normal"><a href="#__codelineno-0-1577">1577</a></span>
+<span class="normal"><a href="#__codelineno-0-1578">1578</a></span>
+<span class="normal"><a href="#__codelineno-0-1579">1579</a></span>
+<span class="normal"><a href="#__codelineno-0-1580">1580</a></span>
+<span class="normal"><a href="#__codelineno-0-1581">1581</a></span>
+<span class="normal"><a href="#__codelineno-0-1582">1582</a></span>
+<span class="normal"><a href="#__codelineno-0-1583">1583</a></span>
+<span class="normal"><a href="#__codelineno-0-1584">1584</a></span>
+<span class="normal"><a href="#__codelineno-0-1585">1585</a></span>
+<span class="normal"><a href="#__codelineno-0-1586">1586</a></span>
+<span class="normal"><a href="#__codelineno-0-1587">1587</a></span>
+<span class="normal"><a href="#__codelineno-0-1588">1588</a></span>
+<span class="normal"><a href="#__codelineno-0-1589">1589</a></span>
+<span class="normal"><a href="#__codelineno-0-1590">1590</a></span>
+<span class="normal"><a href="#__codelineno-0-1591">1591</a></span>
+<span class="normal"><a href="#__codelineno-0-1592">1592</a></span>
+<span class="normal"><a href="#__codelineno-0-1593">1593</a></span>
+<span class="normal"><a href="#__codelineno-0-1594">1594</a></span>
+<span class="normal"><a href="#__codelineno-0-1595">1595</a></span>
+<span class="normal"><a href="#__codelineno-0-1596">1596</a></span>
+<span class="normal"><a href="#__codelineno-0-1597">1597</a></span>
+<span class="normal"><a href="#__codelineno-0-1598">1598</a></span>
+<span class="normal"><a href="#__codelineno-0-1599">1599</a></span>
+<span class="normal"><a href="#__codelineno-0-1600">1600</a></span>
+<span class="normal"><a href="#__codelineno-0-1601">1601</a></span>
+<span class="normal"><a href="#__codelineno-0-1602">1602</a></span>
+<span class="normal"><a href="#__codelineno-0-1603">1603</a></span>
+<span class="normal"><a href="#__codelineno-0-1604">1604</a></span>
+<span class="normal"><a href="#__codelineno-0-1605">1605</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1347"><a id="__codelineno-0-1347" name="__codelineno-0-1347"></a><span class="k">class</span><span class="w"> </span><span class="nc">CentroidEvaluationCallback</span><span class="p">(</span><span class="n">Callback</span><span class="p">):</span>
+</span><span id="__span-0-1348"><a id="__codelineno-0-1348" name="__codelineno-0-1348"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Callback to run centroid-specific evaluation metrics at end of validation epochs.</span>
+</span><span id="__span-0-1349"><a id="__codelineno-0-1349" name="__codelineno-0-1349"></a>
+</span><span id="__span-0-1350"><a id="__codelineno-0-1350" name="__codelineno-0-1350"></a><span class="sd">    This callback is designed specifically for centroid models, which predict a single</span>
+</span><span id="__span-0-1351"><a id="__codelineno-0-1351" name="__codelineno-0-1351"></a><span class="sd">    point (centroid) per instance rather than full pose skeletons. It computes</span>
+</span><span id="__span-0-1352"><a id="__codelineno-0-1352" name="__codelineno-0-1352"></a><span class="sd">    distance-based metrics and detection metrics that are more appropriate for</span>
+</span><span id="__span-0-1353"><a id="__codelineno-0-1353" name="__codelineno-0-1353"></a><span class="sd">    point detection tasks than OKS/PCK metrics.</span>
+</span><span id="__span-0-1354"><a id="__codelineno-0-1354" name="__codelineno-0-1354"></a>
+</span><span id="__span-0-1355"><a id="__codelineno-0-1355" name="__codelineno-0-1355"></a><span class="sd">    Metrics computed:</span>
+</span><span id="__span-0-1356"><a id="__codelineno-0-1356" name="__codelineno-0-1356"></a><span class="sd">        - Distance metrics: mean, median, p90, p95, max Euclidean distance</span>
+</span><span id="__span-0-1357"><a id="__codelineno-0-1357" name="__codelineno-0-1357"></a><span class="sd">        - Detection metrics: precision, recall, F1 score</span>
+</span><span id="__span-0-1358"><a id="__codelineno-0-1358" name="__codelineno-0-1358"></a><span class="sd">        - Counts: true positives, false positives, false negatives</span>
+</span><span id="__span-0-1359"><a id="__codelineno-0-1359" name="__codelineno-0-1359"></a>
+</span><span id="__span-0-1360"><a id="__codelineno-0-1360" name="__codelineno-0-1360"></a><span class="sd">    Attributes:</span>
+</span><span id="__span-0-1361"><a id="__codelineno-0-1361" name="__codelineno-0-1361"></a><span class="sd">        videos: List of sio.Video objects.</span>
+</span><span id="__span-0-1362"><a id="__codelineno-0-1362" name="__codelineno-0-1362"></a><span class="sd">        eval_frequency: Run evaluation every N epochs (default: 1).</span>
+</span><span id="__span-0-1363"><a id="__codelineno-0-1363" name="__codelineno-0-1363"></a><span class="sd">        match_threshold: Maximum distance (pixels) for matching pred to GT (default: 50.0).</span>
+</span><span id="__span-0-1364"><a id="__codelineno-0-1364" name="__codelineno-0-1364"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-1365"><a id="__codelineno-0-1365" name="__codelineno-0-1365"></a>
+</span><span id="__span-0-1366"><a id="__codelineno-0-1366" name="__codelineno-0-1366"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+</span><span id="__span-0-1367"><a id="__codelineno-0-1367" name="__codelineno-0-1367"></a>        <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-0-1368"><a id="__codelineno-0-1368" name="__codelineno-0-1368"></a>        <span class="n">videos</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span>
+</span><span id="__span-0-1369"><a id="__codelineno-0-1369" name="__codelineno-0-1369"></a>        <span class="n">eval_frequency</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-0-1370"><a id="__codelineno-0-1370" name="__codelineno-0-1370"></a>        <span class="n">match_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">50.0</span><span class="p">,</span>
+</span><span id="__span-0-1371"><a id="__codelineno-0-1371" name="__codelineno-0-1371"></a>    <span class="p">):</span>
+</span><span id="__span-0-1372"><a id="__codelineno-0-1372" name="__codelineno-0-1372"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the callback.</span>
+</span><span id="__span-0-1373"><a id="__codelineno-0-1373" name="__codelineno-0-1373"></a>
+</span><span id="__span-0-1374"><a id="__codelineno-0-1374" name="__codelineno-0-1374"></a><span class="sd">        Args:</span>
+</span><span id="__span-0-1375"><a id="__codelineno-0-1375" name="__codelineno-0-1375"></a><span class="sd">            videos: List of sio.Video objects.</span>
+</span><span id="__span-0-1376"><a id="__codelineno-0-1376" name="__codelineno-0-1376"></a><span class="sd">            eval_frequency: Run evaluation every N epochs (default: 1).</span>
+</span><span id="__span-0-1377"><a id="__codelineno-0-1377" name="__codelineno-0-1377"></a><span class="sd">            match_threshold: Maximum distance in pixels for a prediction to be</span>
+</span><span id="__span-0-1378"><a id="__codelineno-0-1378" name="__codelineno-0-1378"></a><span class="sd">                considered a match to a ground truth centroid (default: 50.0).</span>
+</span><span id="__span-0-1379"><a id="__codelineno-0-1379" name="__codelineno-0-1379"></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="__span-0-1380"><a id="__codelineno-0-1380" name="__codelineno-0-1380"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+</span><span id="__span-0-1381"><a id="__codelineno-0-1381" name="__codelineno-0-1381"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">videos</span> <span class="o">=</span> <span class="n">videos</span>
+</span><span id="__span-0-1382"><a id="__codelineno-0-1382" name="__codelineno-0-1382"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">eval_frequency</span> <span class="o">=</span> <span class="n">eval_frequency</span>
+</span><span id="__span-0-1383"><a id="__codelineno-0-1383" name="__codelineno-0-1383"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">match_threshold</span> <span class="o">=</span> <span class="n">match_threshold</span>
+</span><span id="__span-0-1384"><a id="__codelineno-0-1384" name="__codelineno-0-1384"></a>
+</span><span id="__span-0-1385"><a id="__codelineno-0-1385" name="__codelineno-0-1385"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_validation_epoch_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+</span><span id="__span-0-1386"><a id="__codelineno-0-1386" name="__codelineno-0-1386"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Enable prediction collection at the start of validation.</span>
+</span><span id="__span-0-1387"><a id="__codelineno-0-1387" name="__codelineno-0-1387"></a>
+</span><span id="__span-0-1388"><a id="__codelineno-0-1388" name="__codelineno-0-1388"></a><span class="sd">        Skip during sanity check to avoid inference issues.</span>
+</span><span id="__span-0-1389"><a id="__codelineno-0-1389" name="__codelineno-0-1389"></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="__span-0-1390"><a id="__codelineno-0-1390" name="__codelineno-0-1390"></a>        <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">sanity_checking</span><span class="p">:</span>
+</span><span id="__span-0-1391"><a id="__codelineno-0-1391" name="__codelineno-0-1391"></a>            <span class="k">return</span>
+</span><span id="__span-0-1392"><a id="__codelineno-0-1392" name="__codelineno-0-1392"></a>        <span class="n">pl_module</span><span class="o">.</span><span class="n">_collect_val_predictions</span> <span class="o">=</span> <span class="kc">True</span>
+</span><span id="__span-0-1393"><a id="__codelineno-0-1393" name="__codelineno-0-1393"></a>
+</span><span id="__span-0-1394"><a id="__codelineno-0-1394" name="__codelineno-0-1394"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_validation_epoch_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+</span><span id="__span-0-1395"><a id="__codelineno-0-1395" name="__codelineno-0-1395"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Run centroid evaluation and log metrics at end of validation epoch.&quot;&quot;&quot;</span>
+</span><span id="__span-0-1396"><a id="__codelineno-0-1396" name="__codelineno-0-1396"></a>        <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+</span><span id="__span-0-1397"><a id="__codelineno-0-1397" name="__codelineno-0-1397"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">lightning.pytorch.loggers</span><span class="w"> </span><span class="kn">import</span> <span class="n">WandbLogger</span>
+</span><span id="__span-0-1398"><a id="__codelineno-0-1398" name="__codelineno-0-1398"></a>
+</span><span id="__span-0-1399"><a id="__codelineno-0-1399" name="__codelineno-0-1399"></a>        <span class="c1"># Determine if we should run evaluation this epoch (only on rank 0)</span>
+</span><span id="__span-0-1400"><a id="__codelineno-0-1400" name="__codelineno-0-1400"></a>        <span class="n">should_evaluate</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="__span-0-1401"><a id="__codelineno-0-1401" name="__codelineno-0-1401"></a>            <span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span> <span class="o">+</span> <span class="mi">1</span>
+</span><span id="__span-0-1402"><a id="__codelineno-0-1402" name="__codelineno-0-1402"></a>        <span class="p">)</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">eval_frequency</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span>
+</span><span id="__span-0-1403"><a id="__codelineno-0-1403" name="__codelineno-0-1403"></a>
+</span><span id="__span-0-1404"><a id="__codelineno-0-1404" name="__codelineno-0-1404"></a>        <span class="k">if</span> <span class="n">should_evaluate</span><span class="p">:</span>
+</span><span id="__span-0-1405"><a id="__codelineno-0-1405" name="__codelineno-0-1405"></a>            <span class="c1"># Check if we have predictions</span>
+</span><span id="__span-0-1406"><a id="__codelineno-0-1406" name="__codelineno-0-1406"></a>            <span class="k">if</span> <span class="ow">not</span> <span class="n">pl_module</span><span class="o">.</span><span class="n">val_predictions</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">pl_module</span><span class="o">.</span><span class="n">val_ground_truth</span><span class="p">:</span>
+</span><span id="__span-0-1407"><a id="__codelineno-0-1407" name="__codelineno-0-1407"></a>                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+</span><span id="__span-0-1408"><a id="__codelineno-0-1408" name="__codelineno-0-1408"></a>                    <span class="s2">&quot;No predictions collected for centroid epoch-end evaluation&quot;</span>
+</span><span id="__span-0-1409"><a id="__codelineno-0-1409" name="__codelineno-0-1409"></a>                <span class="p">)</span>
+</span><span id="__span-0-1410"><a id="__codelineno-0-1410" name="__codelineno-0-1410"></a>            <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-1411"><a id="__codelineno-0-1411" name="__codelineno-0-1411"></a>                <span class="k">try</span><span class="p">:</span>
+</span><span id="__span-0-1412"><a id="__codelineno-0-1412" name="__codelineno-0-1412"></a>                    <span class="n">metrics</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_compute_metrics</span><span class="p">(</span>
+</span><span id="__span-0-1413"><a id="__codelineno-0-1413" name="__codelineno-0-1413"></a>                        <span class="n">pl_module</span><span class="o">.</span><span class="n">val_predictions</span><span class="p">,</span> <span class="n">pl_module</span><span class="o">.</span><span class="n">val_ground_truth</span><span class="p">,</span> <span class="n">np</span>
+</span><span id="__span-0-1414"><a id="__codelineno-0-1414" name="__codelineno-0-1414"></a>                    <span class="p">)</span>
+</span><span id="__span-0-1415"><a id="__codelineno-0-1415" name="__codelineno-0-1415"></a>
+</span><span id="__span-0-1416"><a id="__codelineno-0-1416" name="__codelineno-0-1416"></a>                    <span class="c1"># Log to WandB</span>
+</span><span id="__span-0-1417"><a id="__codelineno-0-1417" name="__codelineno-0-1417"></a>                    <span class="bp">self</span><span class="o">.</span><span class="n">_log_metrics</span><span class="p">(</span><span class="n">trainer</span><span class="p">,</span> <span class="n">metrics</span><span class="p">,</span> <span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">)</span>
+</span><span id="__span-0-1418"><a id="__codelineno-0-1418" name="__codelineno-0-1418"></a>
+</span><span id="__span-0-1419"><a id="__codelineno-0-1419" name="__codelineno-0-1419"></a>                    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+</span><span id="__span-0-1420"><a id="__codelineno-0-1420" name="__codelineno-0-1420"></a>                        <span class="sa">f</span><span class="s2">&quot;Epoch </span><span class="si">{</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="si">}</span><span class="s2"> centroid evaluation: &quot;</span>
+</span><span id="__span-0-1421"><a id="__codelineno-0-1421" name="__codelineno-0-1421"></a>                        <span class="sa">f</span><span class="s2">&quot;precision=</span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;precision&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">, &quot;</span>
+</span><span id="__span-0-1422"><a id="__codelineno-0-1422" name="__codelineno-0-1422"></a>                        <span class="sa">f</span><span class="s2">&quot;recall=</span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;recall&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">, &quot;</span>
+</span><span id="__span-0-1423"><a id="__codelineno-0-1423" name="__codelineno-0-1423"></a>                        <span class="sa">f</span><span class="s2">&quot;dist_avg=</span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;dist_avg&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">px&quot;</span>
+</span><span id="__span-0-1424"><a id="__codelineno-0-1424" name="__codelineno-0-1424"></a>                    <span class="p">)</span>
+</span><span id="__span-0-1425"><a id="__codelineno-0-1425" name="__codelineno-0-1425"></a>
+</span><span id="__span-0-1426"><a id="__codelineno-0-1426" name="__codelineno-0-1426"></a>                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+</span><span id="__span-0-1427"><a id="__codelineno-0-1427" name="__codelineno-0-1427"></a>                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Centroid epoch-end evaluation failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-1428"><a id="__codelineno-0-1428" name="__codelineno-0-1428"></a>
+</span><span id="__span-0-1429"><a id="__codelineno-0-1429" name="__codelineno-0-1429"></a>        <span class="c1"># Cleanup - all ranks reset the flag, rank 0 clears the lists</span>
+</span><span id="__span-0-1430"><a id="__codelineno-0-1430" name="__codelineno-0-1430"></a>        <span class="n">pl_module</span><span class="o">.</span><span class="n">_collect_val_predictions</span> <span class="o">=</span> <span class="kc">False</span>
+</span><span id="__span-0-1431"><a id="__codelineno-0-1431" name="__codelineno-0-1431"></a>        <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
+</span><span id="__span-0-1432"><a id="__codelineno-0-1432" name="__codelineno-0-1432"></a>            <span class="n">pl_module</span><span class="o">.</span><span class="n">val_predictions</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-1433"><a id="__codelineno-0-1433" name="__codelineno-0-1433"></a>            <span class="n">pl_module</span><span class="o">.</span><span class="n">val_ground_truth</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-1434"><a id="__codelineno-0-1434" name="__codelineno-0-1434"></a>
+</span><span id="__span-0-1435"><a id="__codelineno-0-1435" name="__codelineno-0-1435"></a>        <span class="c1"># Sync all processes - barrier must be reached by ALL ranks</span>
+</span><span id="__span-0-1436"><a id="__codelineno-0-1436" name="__codelineno-0-1436"></a>        <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+</span><span id="__span-0-1437"><a id="__codelineno-0-1437" name="__codelineno-0-1437"></a>
+</span><span id="__span-0-1438"><a id="__codelineno-0-1438" name="__codelineno-0-1438"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_compute_metrics</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">predictions</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span> <span class="n">ground_truth</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span> <span class="n">np</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+</span><span id="__span-0-1439"><a id="__codelineno-0-1439" name="__codelineno-0-1439"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Compute centroid-specific metrics.</span>
+</span><span id="__span-0-1440"><a id="__codelineno-0-1440" name="__codelineno-0-1440"></a>
+</span><span id="__span-0-1441"><a id="__codelineno-0-1441" name="__codelineno-0-1441"></a><span class="sd">        Args:</span>
+</span><span id="__span-0-1442"><a id="__codelineno-0-1442" name="__codelineno-0-1442"></a><span class="sd">            predictions: List of prediction dicts with &quot;pred_peaks&quot; key.</span>
+</span><span id="__span-0-1443"><a id="__codelineno-0-1443" name="__codelineno-0-1443"></a><span class="sd">            ground_truth: List of ground truth dicts with &quot;gt_instances&quot; key.</span>
+</span><span id="__span-0-1444"><a id="__codelineno-0-1444" name="__codelineno-0-1444"></a><span class="sd">            np: NumPy module.</span>
+</span><span id="__span-0-1445"><a id="__codelineno-0-1445" name="__codelineno-0-1445"></a>
+</span><span id="__span-0-1446"><a id="__codelineno-0-1446" name="__codelineno-0-1446"></a><span class="sd">        Returns:</span>
+</span><span id="__span-0-1447"><a id="__codelineno-0-1447" name="__codelineno-0-1447"></a><span class="sd">            Dictionary of computed metrics.</span>
+</span><span id="__span-0-1448"><a id="__codelineno-0-1448" name="__codelineno-0-1448"></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="__span-0-1449"><a id="__codelineno-0-1449" name="__codelineno-0-1449"></a>        <span class="n">all_distances</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-1450"><a id="__codelineno-0-1450" name="__codelineno-0-1450"></a>        <span class="n">total_tp</span> <span class="o">=</span> <span class="mi">0</span>
+</span><span id="__span-0-1451"><a id="__codelineno-0-1451" name="__codelineno-0-1451"></a>        <span class="n">total_fp</span> <span class="o">=</span> <span class="mi">0</span>
+</span><span id="__span-0-1452"><a id="__codelineno-0-1452" name="__codelineno-0-1452"></a>        <span class="n">total_fn</span> <span class="o">=</span> <span class="mi">0</span>
+</span><span id="__span-0-1453"><a id="__codelineno-0-1453" name="__codelineno-0-1453"></a>
+</span><span id="__span-0-1454"><a id="__codelineno-0-1454" name="__codelineno-0-1454"></a>        <span class="c1"># Group predictions and GT by frame</span>
+</span><span id="__span-0-1455"><a id="__codelineno-0-1455" name="__codelineno-0-1455"></a>        <span class="n">pred_by_frame</span> <span class="o">=</span> <span class="p">{}</span>
+</span><span id="__span-0-1456"><a id="__codelineno-0-1456" name="__codelineno-0-1456"></a>        <span class="k">for</span> <span class="n">pred</span> <span class="ow">in</span> <span class="n">predictions</span><span class="p">:</span>
+</span><span id="__span-0-1457"><a id="__codelineno-0-1457" name="__codelineno-0-1457"></a>            <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="n">pred</span><span class="p">[</span><span class="s2">&quot;video_idx&quot;</span><span class="p">],</span> <span class="n">pred</span><span class="p">[</span><span class="s2">&quot;frame_idx&quot;</span><span class="p">])</span>
+</span><span id="__span-0-1458"><a id="__codelineno-0-1458" name="__codelineno-0-1458"></a>            <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">pred_by_frame</span><span class="p">:</span>
+</span><span id="__span-0-1459"><a id="__codelineno-0-1459" name="__codelineno-0-1459"></a>                <span class="n">pred_by_frame</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-1460"><a id="__codelineno-0-1460" name="__codelineno-0-1460"></a>            <span class="c1"># pred_peaks shape: (n_inst, 1, 2) -&gt; extract centroids as (n_inst, 2)</span>
+</span><span id="__span-0-1461"><a id="__codelineno-0-1461" name="__codelineno-0-1461"></a>            <span class="n">centroids</span> <span class="o">=</span> <span class="n">pred</span><span class="p">[</span><span class="s2">&quot;pred_peaks&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+</span><span id="__span-0-1462"><a id="__codelineno-0-1462" name="__codelineno-0-1462"></a>            <span class="c1"># Filter out NaN centroids</span>
+</span><span id="__span-0-1463"><a id="__codelineno-0-1463" name="__codelineno-0-1463"></a>            <span class="n">valid_mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">centroids</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-1464"><a id="__codelineno-0-1464" name="__codelineno-0-1464"></a>            <span class="n">pred_by_frame</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">centroids</span><span class="p">[</span><span class="n">valid_mask</span><span class="p">])</span>
+</span><span id="__span-0-1465"><a id="__codelineno-0-1465" name="__codelineno-0-1465"></a>
+</span><span id="__span-0-1466"><a id="__codelineno-0-1466" name="__codelineno-0-1466"></a>        <span class="n">gt_by_frame</span> <span class="o">=</span> <span class="p">{}</span>
+</span><span id="__span-0-1467"><a id="__codelineno-0-1467" name="__codelineno-0-1467"></a>        <span class="k">for</span> <span class="n">gt</span> <span class="ow">in</span> <span class="n">ground_truth</span><span class="p">:</span>
+</span><span id="__span-0-1468"><a id="__codelineno-0-1468" name="__codelineno-0-1468"></a>            <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="n">gt</span><span class="p">[</span><span class="s2">&quot;video_idx&quot;</span><span class="p">],</span> <span class="n">gt</span><span class="p">[</span><span class="s2">&quot;frame_idx&quot;</span><span class="p">])</span>
+</span><span id="__span-0-1469"><a id="__codelineno-0-1469" name="__codelineno-0-1469"></a>            <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">gt_by_frame</span><span class="p">:</span>
+</span><span id="__span-0-1470"><a id="__codelineno-0-1470" name="__codelineno-0-1470"></a>                <span class="n">gt_by_frame</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-1471"><a id="__codelineno-0-1471" name="__codelineno-0-1471"></a>            <span class="c1"># gt_instances shape: (n_inst, 1, 2) -&gt; extract centroids as (n_inst, 2)</span>
+</span><span id="__span-0-1472"><a id="__codelineno-0-1472" name="__codelineno-0-1472"></a>            <span class="n">centroids</span> <span class="o">=</span> <span class="n">gt</span><span class="p">[</span><span class="s2">&quot;gt_instances&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+</span><span id="__span-0-1473"><a id="__codelineno-0-1473" name="__codelineno-0-1473"></a>            <span class="c1"># Filter out NaN centroids</span>
+</span><span id="__span-0-1474"><a id="__codelineno-0-1474" name="__codelineno-0-1474"></a>            <span class="n">valid_mask</span> <span class="o">=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">centroids</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-1475"><a id="__codelineno-0-1475" name="__codelineno-0-1475"></a>            <span class="n">gt_by_frame</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">centroids</span><span class="p">[</span><span class="n">valid_mask</span><span class="p">])</span>
+</span><span id="__span-0-1476"><a id="__codelineno-0-1476" name="__codelineno-0-1476"></a>
+</span><span id="__span-0-1477"><a id="__codelineno-0-1477" name="__codelineno-0-1477"></a>        <span class="c1"># Process each frame</span>
+</span><span id="__span-0-1478"><a id="__codelineno-0-1478" name="__codelineno-0-1478"></a>        <span class="n">all_frames</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">pred_by_frame</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span> <span class="o">|</span> <span class="nb">set</span><span class="p">(</span><span class="n">gt_by_frame</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+</span><span id="__span-0-1479"><a id="__codelineno-0-1479" name="__codelineno-0-1479"></a>        <span class="k">for</span> <span class="n">frame_key</span> <span class="ow">in</span> <span class="n">all_frames</span><span class="p">:</span>
+</span><span id="__span-0-1480"><a id="__codelineno-0-1480" name="__codelineno-0-1480"></a>            <span class="c1"># Concatenate all predictions for this frame</span>
+</span><span id="__span-0-1481"><a id="__codelineno-0-1481" name="__codelineno-0-1481"></a>            <span class="k">if</span> <span class="n">frame_key</span> <span class="ow">in</span> <span class="n">pred_by_frame</span><span class="p">:</span>
+</span><span id="__span-0-1482"><a id="__codelineno-0-1482" name="__codelineno-0-1482"></a>                <span class="n">frame_preds</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">(</span><span class="n">pred_by_frame</span><span class="p">[</span><span class="n">frame_key</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</span><span id="__span-0-1483"><a id="__codelineno-0-1483" name="__codelineno-0-1483"></a>            <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-1484"><a id="__codelineno-0-1484" name="__codelineno-0-1484"></a>                <span class="n">frame_preds</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">))</span>
+</span><span id="__span-0-1485"><a id="__codelineno-0-1485" name="__codelineno-0-1485"></a>
+</span><span id="__span-0-1486"><a id="__codelineno-0-1486" name="__codelineno-0-1486"></a>            <span class="c1"># Concatenate all GT for this frame</span>
+</span><span id="__span-0-1487"><a id="__codelineno-0-1487" name="__codelineno-0-1487"></a>            <span class="k">if</span> <span class="n">frame_key</span> <span class="ow">in</span> <span class="n">gt_by_frame</span><span class="p">:</span>
+</span><span id="__span-0-1488"><a id="__codelineno-0-1488" name="__codelineno-0-1488"></a>                <span class="n">frame_gt</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">(</span><span class="n">gt_by_frame</span><span class="p">[</span><span class="n">frame_key</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</span><span id="__span-0-1489"><a id="__codelineno-0-1489" name="__codelineno-0-1489"></a>            <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-1490"><a id="__codelineno-0-1490" name="__codelineno-0-1490"></a>                <span class="n">frame_gt</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">))</span>
+</span><span id="__span-0-1491"><a id="__codelineno-0-1491" name="__codelineno-0-1491"></a>
+</span><span id="__span-0-1492"><a id="__codelineno-0-1492" name="__codelineno-0-1492"></a>            <span class="c1"># Match predictions to ground truth</span>
+</span><span id="__span-0-1493"><a id="__codelineno-0-1493" name="__codelineno-0-1493"></a>            <span class="n">matched_pred</span><span class="p">,</span> <span class="n">matched_gt</span><span class="p">,</span> <span class="n">unmatched_pred</span><span class="p">,</span> <span class="n">unmatched_gt</span> <span class="o">=</span> <span class="n">match_centroids</span><span class="p">(</span>
+</span><span id="__span-0-1494"><a id="__codelineno-0-1494" name="__codelineno-0-1494"></a>                <span class="n">frame_preds</span><span class="p">,</span> <span class="n">frame_gt</span><span class="p">,</span> <span class="n">max_distance</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">match_threshold</span>
+</span><span id="__span-0-1495"><a id="__codelineno-0-1495" name="__codelineno-0-1495"></a>            <span class="p">)</span>
+</span><span id="__span-0-1496"><a id="__codelineno-0-1496" name="__codelineno-0-1496"></a>
+</span><span id="__span-0-1497"><a id="__codelineno-0-1497" name="__codelineno-0-1497"></a>            <span class="c1"># Compute distances for matched pairs</span>
+</span><span id="__span-0-1498"><a id="__codelineno-0-1498" name="__codelineno-0-1498"></a>            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">matched_pred</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+</span><span id="__span-0-1499"><a id="__codelineno-0-1499" name="__codelineno-0-1499"></a>                <span class="n">matched_pred_points</span> <span class="o">=</span> <span class="n">frame_preds</span><span class="p">[</span><span class="n">matched_pred</span><span class="p">]</span>
+</span><span id="__span-0-1500"><a id="__codelineno-0-1500" name="__codelineno-0-1500"></a>                <span class="n">matched_gt_points</span> <span class="o">=</span> <span class="n">frame_gt</span><span class="p">[</span><span class="n">matched_gt</span><span class="p">]</span>
+</span><span id="__span-0-1501"><a id="__codelineno-0-1501" name="__codelineno-0-1501"></a>                <span class="n">distances</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span>
+</span><span id="__span-0-1502"><a id="__codelineno-0-1502" name="__codelineno-0-1502"></a>                    <span class="n">matched_pred_points</span> <span class="o">-</span> <span class="n">matched_gt_points</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span>
+</span><span id="__span-0-1503"><a id="__codelineno-0-1503" name="__codelineno-0-1503"></a>                <span class="p">)</span>
+</span><span id="__span-0-1504"><a id="__codelineno-0-1504" name="__codelineno-0-1504"></a>                <span class="n">all_distances</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">distances</span><span class="o">.</span><span class="n">tolist</span><span class="p">())</span>
+</span><span id="__span-0-1505"><a id="__codelineno-0-1505" name="__codelineno-0-1505"></a>
+</span><span id="__span-0-1506"><a id="__codelineno-0-1506" name="__codelineno-0-1506"></a>            <span class="c1"># Update counts</span>
+</span><span id="__span-0-1507"><a id="__codelineno-0-1507" name="__codelineno-0-1507"></a>            <span class="n">total_tp</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">matched_pred</span><span class="p">)</span>
+</span><span id="__span-0-1508"><a id="__codelineno-0-1508" name="__codelineno-0-1508"></a>            <span class="n">total_fp</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">unmatched_pred</span><span class="p">)</span>
+</span><span id="__span-0-1509"><a id="__codelineno-0-1509" name="__codelineno-0-1509"></a>            <span class="n">total_fn</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">unmatched_gt</span><span class="p">)</span>
+</span><span id="__span-0-1510"><a id="__codelineno-0-1510" name="__codelineno-0-1510"></a>
+</span><span id="__span-0-1511"><a id="__codelineno-0-1511" name="__codelineno-0-1511"></a>        <span class="c1"># Compute aggregate metrics</span>
+</span><span id="__span-0-1512"><a id="__codelineno-0-1512" name="__codelineno-0-1512"></a>        <span class="n">all_distances</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">all_distances</span><span class="p">)</span>
+</span><span id="__span-0-1513"><a id="__codelineno-0-1513" name="__codelineno-0-1513"></a>
+</span><span id="__span-0-1514"><a id="__codelineno-0-1514" name="__codelineno-0-1514"></a>        <span class="c1"># Distance metrics (only if we have matches)</span>
+</span><span id="__span-0-1515"><a id="__codelineno-0-1515" name="__codelineno-0-1515"></a>        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_distances</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+</span><span id="__span-0-1516"><a id="__codelineno-0-1516" name="__codelineno-0-1516"></a>            <span class="n">dist_avg</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">all_distances</span><span class="p">))</span>
+</span><span id="__span-0-1517"><a id="__codelineno-0-1517" name="__codelineno-0-1517"></a>            <span class="n">dist_median</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">median</span><span class="p">(</span><span class="n">all_distances</span><span class="p">))</span>
+</span><span id="__span-0-1518"><a id="__codelineno-0-1518" name="__codelineno-0-1518"></a>            <span class="n">dist_p90</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">all_distances</span><span class="p">,</span> <span class="mi">90</span><span class="p">))</span>
+</span><span id="__span-0-1519"><a id="__codelineno-0-1519" name="__codelineno-0-1519"></a>            <span class="n">dist_p95</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">percentile</span><span class="p">(</span><span class="n">all_distances</span><span class="p">,</span> <span class="mi">95</span><span class="p">))</span>
+</span><span id="__span-0-1520"><a id="__codelineno-0-1520" name="__codelineno-0-1520"></a>            <span class="n">dist_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">all_distances</span><span class="p">))</span>
+</span><span id="__span-0-1521"><a id="__codelineno-0-1521" name="__codelineno-0-1521"></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-1522"><a id="__codelineno-0-1522" name="__codelineno-0-1522"></a>            <span class="n">dist_avg</span> <span class="o">=</span> <span class="n">dist_median</span> <span class="o">=</span> <span class="n">dist_p90</span> <span class="o">=</span> <span class="n">dist_p95</span> <span class="o">=</span> <span class="n">dist_max</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s2">&quot;nan&quot;</span><span class="p">)</span>
+</span><span id="__span-0-1523"><a id="__codelineno-0-1523" name="__codelineno-0-1523"></a>
+</span><span id="__span-0-1524"><a id="__codelineno-0-1524" name="__codelineno-0-1524"></a>        <span class="c1"># Detection metrics</span>
+</span><span id="__span-0-1525"><a id="__codelineno-0-1525" name="__codelineno-0-1525"></a>        <span class="n">precision</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="__span-0-1526"><a id="__codelineno-0-1526" name="__codelineno-0-1526"></a>            <span class="n">total_tp</span> <span class="o">/</span> <span class="p">(</span><span class="n">total_tp</span> <span class="o">+</span> <span class="n">total_fp</span><span class="p">)</span> <span class="k">if</span> <span class="p">(</span><span class="n">total_tp</span> <span class="o">+</span> <span class="n">total_fp</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
+</span><span id="__span-0-1527"><a id="__codelineno-0-1527" name="__codelineno-0-1527"></a>        <span class="p">)</span>
+</span><span id="__span-0-1528"><a id="__codelineno-0-1528" name="__codelineno-0-1528"></a>        <span class="n">recall</span> <span class="o">=</span> <span class="n">total_tp</span> <span class="o">/</span> <span class="p">(</span><span class="n">total_tp</span> <span class="o">+</span> <span class="n">total_fn</span><span class="p">)</span> <span class="k">if</span> <span class="p">(</span><span class="n">total_tp</span> <span class="o">+</span> <span class="n">total_fn</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
+</span><span id="__span-0-1529"><a id="__codelineno-0-1529" name="__codelineno-0-1529"></a>        <span class="n">f1</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="__span-0-1530"><a id="__codelineno-0-1530" name="__codelineno-0-1530"></a>            <span class="mi">2</span> <span class="o">*</span> <span class="n">precision</span> <span class="o">*</span> <span class="n">recall</span> <span class="o">/</span> <span class="p">(</span><span class="n">precision</span> <span class="o">+</span> <span class="n">recall</span><span class="p">)</span>
+</span><span id="__span-0-1531"><a id="__codelineno-0-1531" name="__codelineno-0-1531"></a>            <span class="k">if</span> <span class="p">(</span><span class="n">precision</span> <span class="o">+</span> <span class="n">recall</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span>
+</span><span id="__span-0-1532"><a id="__codelineno-0-1532" name="__codelineno-0-1532"></a>            <span class="k">else</span> <span class="mf">0.0</span>
+</span><span id="__span-0-1533"><a id="__codelineno-0-1533" name="__codelineno-0-1533"></a>        <span class="p">)</span>
+</span><span id="__span-0-1534"><a id="__codelineno-0-1534" name="__codelineno-0-1534"></a>
+</span><span id="__span-0-1535"><a id="__codelineno-0-1535" name="__codelineno-0-1535"></a>        <span class="k">return</span> <span class="p">{</span>
+</span><span id="__span-0-1536"><a id="__codelineno-0-1536" name="__codelineno-0-1536"></a>            <span class="s2">&quot;dist_avg&quot;</span><span class="p">:</span> <span class="n">dist_avg</span><span class="p">,</span>
+</span><span id="__span-0-1537"><a id="__codelineno-0-1537" name="__codelineno-0-1537"></a>            <span class="s2">&quot;dist_median&quot;</span><span class="p">:</span> <span class="n">dist_median</span><span class="p">,</span>
+</span><span id="__span-0-1538"><a id="__codelineno-0-1538" name="__codelineno-0-1538"></a>            <span class="s2">&quot;dist_p90&quot;</span><span class="p">:</span> <span class="n">dist_p90</span><span class="p">,</span>
+</span><span id="__span-0-1539"><a id="__codelineno-0-1539" name="__codelineno-0-1539"></a>            <span class="s2">&quot;dist_p95&quot;</span><span class="p">:</span> <span class="n">dist_p95</span><span class="p">,</span>
+</span><span id="__span-0-1540"><a id="__codelineno-0-1540" name="__codelineno-0-1540"></a>            <span class="s2">&quot;dist_max&quot;</span><span class="p">:</span> <span class="n">dist_max</span><span class="p">,</span>
+</span><span id="__span-0-1541"><a id="__codelineno-0-1541" name="__codelineno-0-1541"></a>            <span class="s2">&quot;precision&quot;</span><span class="p">:</span> <span class="n">precision</span><span class="p">,</span>
+</span><span id="__span-0-1542"><a id="__codelineno-0-1542" name="__codelineno-0-1542"></a>            <span class="s2">&quot;recall&quot;</span><span class="p">:</span> <span class="n">recall</span><span class="p">,</span>
+</span><span id="__span-0-1543"><a id="__codelineno-0-1543" name="__codelineno-0-1543"></a>            <span class="s2">&quot;f1&quot;</span><span class="p">:</span> <span class="n">f1</span><span class="p">,</span>
+</span><span id="__span-0-1544"><a id="__codelineno-0-1544" name="__codelineno-0-1544"></a>            <span class="s2">&quot;n_true_positives&quot;</span><span class="p">:</span> <span class="n">total_tp</span><span class="p">,</span>
+</span><span id="__span-0-1545"><a id="__codelineno-0-1545" name="__codelineno-0-1545"></a>            <span class="s2">&quot;n_false_positives&quot;</span><span class="p">:</span> <span class="n">total_fp</span><span class="p">,</span>
+</span><span id="__span-0-1546"><a id="__codelineno-0-1546" name="__codelineno-0-1546"></a>            <span class="s2">&quot;n_false_negatives&quot;</span><span class="p">:</span> <span class="n">total_fn</span><span class="p">,</span>
+</span><span id="__span-0-1547"><a id="__codelineno-0-1547" name="__codelineno-0-1547"></a>            <span class="s2">&quot;n_total_predictions&quot;</span><span class="p">:</span> <span class="n">total_tp</span> <span class="o">+</span> <span class="n">total_fp</span><span class="p">,</span>
+</span><span id="__span-0-1548"><a id="__codelineno-0-1548" name="__codelineno-0-1548"></a>            <span class="s2">&quot;n_total_ground_truth&quot;</span><span class="p">:</span> <span class="n">total_tp</span> <span class="o">+</span> <span class="n">total_fn</span><span class="p">,</span>
+</span><span id="__span-0-1549"><a id="__codelineno-0-1549" name="__codelineno-0-1549"></a>        <span class="p">}</span>
+</span><span id="__span-0-1550"><a id="__codelineno-0-1550" name="__codelineno-0-1550"></a>
+</span><span id="__span-0-1551"><a id="__codelineno-0-1551" name="__codelineno-0-1551"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_log_metrics</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">metrics</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span> <span class="n">epoch</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+</span><span id="__span-0-1552"><a id="__codelineno-0-1552" name="__codelineno-0-1552"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Log centroid evaluation metrics to WandB.&quot;&quot;&quot;</span>
+</span><span id="__span-0-1553"><a id="__codelineno-0-1553" name="__codelineno-0-1553"></a>        <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+</span><span id="__span-0-1554"><a id="__codelineno-0-1554" name="__codelineno-0-1554"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">lightning.pytorch.loggers</span><span class="w"> </span><span class="kn">import</span> <span class="n">WandbLogger</span>
+</span><span id="__span-0-1555"><a id="__codelineno-0-1555" name="__codelineno-0-1555"></a>
+</span><span id="__span-0-1556"><a id="__codelineno-0-1556" name="__codelineno-0-1556"></a>        <span class="c1"># Get WandB logger</span>
+</span><span id="__span-0-1557"><a id="__codelineno-0-1557" name="__codelineno-0-1557"></a>        <span class="n">wandb_logger</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-1558"><a id="__codelineno-0-1558" name="__codelineno-0-1558"></a>        <span class="k">for</span> <span class="n">log</span> <span class="ow">in</span> <span class="n">trainer</span><span class="o">.</span><span class="n">loggers</span><span class="p">:</span>
+</span><span id="__span-0-1559"><a id="__codelineno-0-1559" name="__codelineno-0-1559"></a>            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">log</span><span class="p">,</span> <span class="n">WandbLogger</span><span class="p">):</span>
+</span><span id="__span-0-1560"><a id="__codelineno-0-1560" name="__codelineno-0-1560"></a>                <span class="n">wandb_logger</span> <span class="o">=</span> <span class="n">log</span>
+</span><span id="__span-0-1561"><a id="__codelineno-0-1561" name="__codelineno-0-1561"></a>                <span class="k">break</span>
+</span><span id="__span-0-1562"><a id="__codelineno-0-1562" name="__codelineno-0-1562"></a>
+</span><span id="__span-0-1563"><a id="__codelineno-0-1563" name="__codelineno-0-1563"></a>        <span class="k">if</span> <span class="n">wandb_logger</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-1564"><a id="__codelineno-0-1564" name="__codelineno-0-1564"></a>            <span class="k">return</span>
+</span><span id="__span-0-1565"><a id="__codelineno-0-1565" name="__codelineno-0-1565"></a>
+</span><span id="__span-0-1566"><a id="__codelineno-0-1566" name="__codelineno-0-1566"></a>        <span class="n">log_dict</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;epoch&quot;</span><span class="p">:</span> <span class="n">epoch</span><span class="p">}</span>
+</span><span id="__span-0-1567"><a id="__codelineno-0-1567" name="__codelineno-0-1567"></a>
+</span><span id="__span-0-1568"><a id="__codelineno-0-1568" name="__codelineno-0-1568"></a>        <span class="c1"># Distance metrics (with NaN handling)</span>
+</span><span id="__span-0-1569"><a id="__codelineno-0-1569" name="__codelineno-0-1569"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;dist_avg&quot;</span><span class="p">]):</span>
+</span><span id="__span-0-1570"><a id="__codelineno-0-1570" name="__codelineno-0-1570"></a>            <span class="n">log_dict</span><span class="p">[</span><span class="s2">&quot;eval/val/centroid_dist_avg&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;dist_avg&quot;</span><span class="p">]</span>
+</span><span id="__span-0-1571"><a id="__codelineno-0-1571" name="__codelineno-0-1571"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;dist_median&quot;</span><span class="p">]):</span>
+</span><span id="__span-0-1572"><a id="__codelineno-0-1572" name="__codelineno-0-1572"></a>            <span class="n">log_dict</span><span class="p">[</span><span class="s2">&quot;eval/val/centroid_dist_median&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;dist_median&quot;</span><span class="p">]</span>
+</span><span id="__span-0-1573"><a id="__codelineno-0-1573" name="__codelineno-0-1573"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;dist_p90&quot;</span><span class="p">]):</span>
+</span><span id="__span-0-1574"><a id="__codelineno-0-1574" name="__codelineno-0-1574"></a>            <span class="n">log_dict</span><span class="p">[</span><span class="s2">&quot;eval/val/centroid_dist_p90&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;dist_p90&quot;</span><span class="p">]</span>
+</span><span id="__span-0-1575"><a id="__codelineno-0-1575" name="__codelineno-0-1575"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;dist_p95&quot;</span><span class="p">]):</span>
+</span><span id="__span-0-1576"><a id="__codelineno-0-1576" name="__codelineno-0-1576"></a>            <span class="n">log_dict</span><span class="p">[</span><span class="s2">&quot;eval/val/centroid_dist_p95&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;dist_p95&quot;</span><span class="p">]</span>
+</span><span id="__span-0-1577"><a id="__codelineno-0-1577" name="__codelineno-0-1577"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;dist_max&quot;</span><span class="p">]):</span>
+</span><span id="__span-0-1578"><a id="__codelineno-0-1578" name="__codelineno-0-1578"></a>            <span class="n">log_dict</span><span class="p">[</span><span class="s2">&quot;eval/val/centroid_dist_max&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;dist_max&quot;</span><span class="p">]</span>
+</span><span id="__span-0-1579"><a id="__codelineno-0-1579" name="__codelineno-0-1579"></a>
+</span><span id="__span-0-1580"><a id="__codelineno-0-1580" name="__codelineno-0-1580"></a>        <span class="c1"># Detection metrics</span>
+</span><span id="__span-0-1581"><a id="__codelineno-0-1581" name="__codelineno-0-1581"></a>        <span class="n">log_dict</span><span class="p">[</span><span class="s2">&quot;eval/val/centroid_precision&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;precision&quot;</span><span class="p">]</span>
+</span><span id="__span-0-1582"><a id="__codelineno-0-1582" name="__codelineno-0-1582"></a>        <span class="n">log_dict</span><span class="p">[</span><span class="s2">&quot;eval/val/centroid_recall&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;recall&quot;</span><span class="p">]</span>
+</span><span id="__span-0-1583"><a id="__codelineno-0-1583" name="__codelineno-0-1583"></a>        <span class="n">log_dict</span><span class="p">[</span><span class="s2">&quot;eval/val/centroid_f1&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;f1&quot;</span><span class="p">]</span>
+</span><span id="__span-0-1584"><a id="__codelineno-0-1584" name="__codelineno-0-1584"></a>
+</span><span id="__span-0-1585"><a id="__codelineno-0-1585" name="__codelineno-0-1585"></a>        <span class="c1"># Counts</span>
+</span><span id="__span-0-1586"><a id="__codelineno-0-1586" name="__codelineno-0-1586"></a>        <span class="n">log_dict</span><span class="p">[</span><span class="s2">&quot;eval/val/centroid_n_tp&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;n_true_positives&quot;</span><span class="p">]</span>
+</span><span id="__span-0-1587"><a id="__codelineno-0-1587" name="__codelineno-0-1587"></a>        <span class="n">log_dict</span><span class="p">[</span><span class="s2">&quot;eval/val/centroid_n_fp&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;n_false_positives&quot;</span><span class="p">]</span>
+</span><span id="__span-0-1588"><a id="__codelineno-0-1588" name="__codelineno-0-1588"></a>        <span class="n">log_dict</span><span class="p">[</span><span class="s2">&quot;eval/val/centroid_n_fn&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;n_false_negatives&quot;</span><span class="p">]</span>
+</span><span id="__span-0-1589"><a id="__codelineno-0-1589" name="__codelineno-0-1589"></a>
+</span><span id="__span-0-1590"><a id="__codelineno-0-1590" name="__codelineno-0-1590"></a>        <span class="n">wandb_logger</span><span class="o">.</span><span class="n">experiment</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">log_dict</span><span class="p">,</span> <span class="n">commit</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</span><span id="__span-0-1591"><a id="__codelineno-0-1591" name="__codelineno-0-1591"></a>
+</span><span id="__span-0-1592"><a id="__codelineno-0-1592" name="__codelineno-0-1592"></a>        <span class="c1"># Update best metrics in summary</span>
+</span><span id="__span-0-1593"><a id="__codelineno-0-1593" name="__codelineno-0-1593"></a>        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">log_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+</span><span id="__span-0-1594"><a id="__codelineno-0-1594" name="__codelineno-0-1594"></a>            <span class="k">if</span> <span class="n">key</span> <span class="o">==</span> <span class="s2">&quot;epoch&quot;</span><span class="p">:</span>
+</span><span id="__span-0-1595"><a id="__codelineno-0-1595" name="__codelineno-0-1595"></a>                <span class="k">continue</span>
+</span><span id="__span-0-1596"><a id="__codelineno-0-1596" name="__codelineno-0-1596"></a>            <span class="n">summary_key</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;best/</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span id="__span-0-1597"><a id="__codelineno-0-1597" name="__codelineno-0-1597"></a>            <span class="n">current_best</span> <span class="o">=</span> <span class="n">wandb_logger</span><span class="o">.</span><span class="n">experiment</span><span class="o">.</span><span class="n">summary</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">summary_key</span><span class="p">)</span>
+</span><span id="__span-0-1598"><a id="__codelineno-0-1598" name="__codelineno-0-1598"></a>            <span class="c1"># For distance metrics, lower is better; for others, higher is better</span>
+</span><span id="__span-0-1599"><a id="__codelineno-0-1599" name="__codelineno-0-1599"></a>            <span class="n">is_distance</span> <span class="o">=</span> <span class="s2">&quot;dist&quot;</span> <span class="ow">in</span> <span class="n">key</span>
+</span><span id="__span-0-1600"><a id="__codelineno-0-1600" name="__codelineno-0-1600"></a>            <span class="k">if</span> <span class="n">current_best</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-1601"><a id="__codelineno-0-1601" name="__codelineno-0-1601"></a>                <span class="n">wandb_logger</span><span class="o">.</span><span class="n">experiment</span><span class="o">.</span><span class="n">summary</span><span class="p">[</span><span class="n">summary_key</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+</span><span id="__span-0-1602"><a id="__codelineno-0-1602" name="__codelineno-0-1602"></a>            <span class="k">elif</span> <span class="n">is_distance</span> <span class="ow">and</span> <span class="n">value</span> <span class="o">&lt;</span> <span class="n">current_best</span><span class="p">:</span>
+</span><span id="__span-0-1603"><a id="__codelineno-0-1603" name="__codelineno-0-1603"></a>                <span class="n">wandb_logger</span><span class="o">.</span><span class="n">experiment</span><span class="o">.</span><span class="n">summary</span><span class="p">[</span><span class="n">summary_key</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+</span><span id="__span-0-1604"><a id="__codelineno-0-1604" name="__codelineno-0-1604"></a>            <span class="k">elif</span> <span class="ow">not</span> <span class="n">is_distance</span> <span class="ow">and</span> <span class="n">value</span> <span class="o">&gt;</span> <span class="n">current_best</span><span class="p">:</span>
+</span><span id="__span-0-1605"><a id="__codelineno-0-1605" name="__codelineno-0-1605"></a>                <span class="n">wandb_logger</span><span class="o">.</span><span class="n">experiment</span><span class="o">.</span><span class="n">summary</span><span class="p">[</span><span class="n">summary_key</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+</span></code></pre></div></td></tr></table></div>
+              </details>
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="sleap_nn.training.callbacks.CentroidEvaluationCallback.__init__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">videos</span><span class="p">,</span> <span class="n">eval_frequency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">match_threshold</span><span class="o">=</span><span class="mf">50.0</span><span class="p">)</span></code>
+
+<a href="#sleap_nn.training.callbacks.CentroidEvaluationCallback.__init__" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Initialize the callback.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>videos</code>
+            </td>
+            <td>
+                  <code><span title="list">list</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of sio.Video objects.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>eval_frequency</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Run evaluation every N epochs (default: 1).</p>
+              </div>
+            </td>
+            <td>
+                  <code>1</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>match_threshold</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Maximum distance in pixels for a prediction to be
+considered a match to a ground truth centroid (default: 50.0).</p>
+              </div>
+            </td>
+            <td>
+                  <code>50.0</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>sleap_nn/training/callbacks.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1366">1366</a></span>
+<span class="normal"><a href="#__codelineno-0-1367">1367</a></span>
+<span class="normal"><a href="#__codelineno-0-1368">1368</a></span>
+<span class="normal"><a href="#__codelineno-0-1369">1369</a></span>
+<span class="normal"><a href="#__codelineno-0-1370">1370</a></span>
+<span class="normal"><a href="#__codelineno-0-1371">1371</a></span>
+<span class="normal"><a href="#__codelineno-0-1372">1372</a></span>
+<span class="normal"><a href="#__codelineno-0-1373">1373</a></span>
+<span class="normal"><a href="#__codelineno-0-1374">1374</a></span>
+<span class="normal"><a href="#__codelineno-0-1375">1375</a></span>
+<span class="normal"><a href="#__codelineno-0-1376">1376</a></span>
+<span class="normal"><a href="#__codelineno-0-1377">1377</a></span>
+<span class="normal"><a href="#__codelineno-0-1378">1378</a></span>
+<span class="normal"><a href="#__codelineno-0-1379">1379</a></span>
+<span class="normal"><a href="#__codelineno-0-1380">1380</a></span>
+<span class="normal"><a href="#__codelineno-0-1381">1381</a></span>
+<span class="normal"><a href="#__codelineno-0-1382">1382</a></span>
+<span class="normal"><a href="#__codelineno-0-1383">1383</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1366"><a id="__codelineno-0-1366" name="__codelineno-0-1366"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+</span><span id="__span-0-1367"><a id="__codelineno-0-1367" name="__codelineno-0-1367"></a>    <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-0-1368"><a id="__codelineno-0-1368" name="__codelineno-0-1368"></a>    <span class="n">videos</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span>
+</span><span id="__span-0-1369"><a id="__codelineno-0-1369" name="__codelineno-0-1369"></a>    <span class="n">eval_frequency</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-0-1370"><a id="__codelineno-0-1370" name="__codelineno-0-1370"></a>    <span class="n">match_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">50.0</span><span class="p">,</span>
+</span><span id="__span-0-1371"><a id="__codelineno-0-1371" name="__codelineno-0-1371"></a><span class="p">):</span>
+</span><span id="__span-0-1372"><a id="__codelineno-0-1372" name="__codelineno-0-1372"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the callback.</span>
+</span><span id="__span-0-1373"><a id="__codelineno-0-1373" name="__codelineno-0-1373"></a>
+</span><span id="__span-0-1374"><a id="__codelineno-0-1374" name="__codelineno-0-1374"></a><span class="sd">    Args:</span>
+</span><span id="__span-0-1375"><a id="__codelineno-0-1375" name="__codelineno-0-1375"></a><span class="sd">        videos: List of sio.Video objects.</span>
+</span><span id="__span-0-1376"><a id="__codelineno-0-1376" name="__codelineno-0-1376"></a><span class="sd">        eval_frequency: Run evaluation every N epochs (default: 1).</span>
+</span><span id="__span-0-1377"><a id="__codelineno-0-1377" name="__codelineno-0-1377"></a><span class="sd">        match_threshold: Maximum distance in pixels for a prediction to be</span>
+</span><span id="__span-0-1378"><a id="__codelineno-0-1378" name="__codelineno-0-1378"></a><span class="sd">            considered a match to a ground truth centroid (default: 50.0).</span>
+</span><span id="__span-0-1379"><a id="__codelineno-0-1379" name="__codelineno-0-1379"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-1380"><a id="__codelineno-0-1380" name="__codelineno-0-1380"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+</span><span id="__span-0-1381"><a id="__codelineno-0-1381" name="__codelineno-0-1381"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">videos</span> <span class="o">=</span> <span class="n">videos</span>
+</span><span id="__span-0-1382"><a id="__codelineno-0-1382" name="__codelineno-0-1382"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">eval_frequency</span> <span class="o">=</span> <span class="n">eval_frequency</span>
+</span><span id="__span-0-1383"><a id="__codelineno-0-1383" name="__codelineno-0-1383"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">match_threshold</span> <span class="o">=</span> <span class="n">match_threshold</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="sleap_nn.training.callbacks.CentroidEvaluationCallback.on_validation_epoch_end" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">on_validation_epoch_end</span><span class="p">(</span><span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">)</span></code>
+
+<a href="#sleap_nn.training.callbacks.CentroidEvaluationCallback.on_validation_epoch_end" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Run centroid evaluation and log metrics at end of validation epoch.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>sleap_nn/training/callbacks.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1394">1394</a></span>
+<span class="normal"><a href="#__codelineno-0-1395">1395</a></span>
+<span class="normal"><a href="#__codelineno-0-1396">1396</a></span>
+<span class="normal"><a href="#__codelineno-0-1397">1397</a></span>
+<span class="normal"><a href="#__codelineno-0-1398">1398</a></span>
+<span class="normal"><a href="#__codelineno-0-1399">1399</a></span>
+<span class="normal"><a href="#__codelineno-0-1400">1400</a></span>
+<span class="normal"><a href="#__codelineno-0-1401">1401</a></span>
+<span class="normal"><a href="#__codelineno-0-1402">1402</a></span>
+<span class="normal"><a href="#__codelineno-0-1403">1403</a></span>
+<span class="normal"><a href="#__codelineno-0-1404">1404</a></span>
+<span class="normal"><a href="#__codelineno-0-1405">1405</a></span>
+<span class="normal"><a href="#__codelineno-0-1406">1406</a></span>
+<span class="normal"><a href="#__codelineno-0-1407">1407</a></span>
+<span class="normal"><a href="#__codelineno-0-1408">1408</a></span>
+<span class="normal"><a href="#__codelineno-0-1409">1409</a></span>
+<span class="normal"><a href="#__codelineno-0-1410">1410</a></span>
+<span class="normal"><a href="#__codelineno-0-1411">1411</a></span>
+<span class="normal"><a href="#__codelineno-0-1412">1412</a></span>
+<span class="normal"><a href="#__codelineno-0-1413">1413</a></span>
+<span class="normal"><a href="#__codelineno-0-1414">1414</a></span>
+<span class="normal"><a href="#__codelineno-0-1415">1415</a></span>
+<span class="normal"><a href="#__codelineno-0-1416">1416</a></span>
+<span class="normal"><a href="#__codelineno-0-1417">1417</a></span>
+<span class="normal"><a href="#__codelineno-0-1418">1418</a></span>
+<span class="normal"><a href="#__codelineno-0-1419">1419</a></span>
+<span class="normal"><a href="#__codelineno-0-1420">1420</a></span>
+<span class="normal"><a href="#__codelineno-0-1421">1421</a></span>
+<span class="normal"><a href="#__codelineno-0-1422">1422</a></span>
+<span class="normal"><a href="#__codelineno-0-1423">1423</a></span>
+<span class="normal"><a href="#__codelineno-0-1424">1424</a></span>
+<span class="normal"><a href="#__codelineno-0-1425">1425</a></span>
+<span class="normal"><a href="#__codelineno-0-1426">1426</a></span>
+<span class="normal"><a href="#__codelineno-0-1427">1427</a></span>
+<span class="normal"><a href="#__codelineno-0-1428">1428</a></span>
+<span class="normal"><a href="#__codelineno-0-1429">1429</a></span>
+<span class="normal"><a href="#__codelineno-0-1430">1430</a></span>
+<span class="normal"><a href="#__codelineno-0-1431">1431</a></span>
+<span class="normal"><a href="#__codelineno-0-1432">1432</a></span>
+<span class="normal"><a href="#__codelineno-0-1433">1433</a></span>
+<span class="normal"><a href="#__codelineno-0-1434">1434</a></span>
+<span class="normal"><a href="#__codelineno-0-1435">1435</a></span>
+<span class="normal"><a href="#__codelineno-0-1436">1436</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1394"><a id="__codelineno-0-1394" name="__codelineno-0-1394"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_validation_epoch_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+</span><span id="__span-0-1395"><a id="__codelineno-0-1395" name="__codelineno-0-1395"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run centroid evaluation and log metrics at end of validation epoch.&quot;&quot;&quot;</span>
+</span><span id="__span-0-1396"><a id="__codelineno-0-1396" name="__codelineno-0-1396"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+</span><span id="__span-0-1397"><a id="__codelineno-0-1397" name="__codelineno-0-1397"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">lightning.pytorch.loggers</span><span class="w"> </span><span class="kn">import</span> <span class="n">WandbLogger</span>
+</span><span id="__span-0-1398"><a id="__codelineno-0-1398" name="__codelineno-0-1398"></a>
+</span><span id="__span-0-1399"><a id="__codelineno-0-1399" name="__codelineno-0-1399"></a>    <span class="c1"># Determine if we should run evaluation this epoch (only on rank 0)</span>
+</span><span id="__span-0-1400"><a id="__codelineno-0-1400" name="__codelineno-0-1400"></a>    <span class="n">should_evaluate</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="__span-0-1401"><a id="__codelineno-0-1401" name="__codelineno-0-1401"></a>        <span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span> <span class="o">+</span> <span class="mi">1</span>
+</span><span id="__span-0-1402"><a id="__codelineno-0-1402" name="__codelineno-0-1402"></a>    <span class="p">)</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">eval_frequency</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span>
+</span><span id="__span-0-1403"><a id="__codelineno-0-1403" name="__codelineno-0-1403"></a>
+</span><span id="__span-0-1404"><a id="__codelineno-0-1404" name="__codelineno-0-1404"></a>    <span class="k">if</span> <span class="n">should_evaluate</span><span class="p">:</span>
+</span><span id="__span-0-1405"><a id="__codelineno-0-1405" name="__codelineno-0-1405"></a>        <span class="c1"># Check if we have predictions</span>
+</span><span id="__span-0-1406"><a id="__codelineno-0-1406" name="__codelineno-0-1406"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">pl_module</span><span class="o">.</span><span class="n">val_predictions</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">pl_module</span><span class="o">.</span><span class="n">val_ground_truth</span><span class="p">:</span>
+</span><span id="__span-0-1407"><a id="__codelineno-0-1407" name="__codelineno-0-1407"></a>            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+</span><span id="__span-0-1408"><a id="__codelineno-0-1408" name="__codelineno-0-1408"></a>                <span class="s2">&quot;No predictions collected for centroid epoch-end evaluation&quot;</span>
+</span><span id="__span-0-1409"><a id="__codelineno-0-1409" name="__codelineno-0-1409"></a>            <span class="p">)</span>
+</span><span id="__span-0-1410"><a id="__codelineno-0-1410" name="__codelineno-0-1410"></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-1411"><a id="__codelineno-0-1411" name="__codelineno-0-1411"></a>            <span class="k">try</span><span class="p">:</span>
+</span><span id="__span-0-1412"><a id="__codelineno-0-1412" name="__codelineno-0-1412"></a>                <span class="n">metrics</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_compute_metrics</span><span class="p">(</span>
+</span><span id="__span-0-1413"><a id="__codelineno-0-1413" name="__codelineno-0-1413"></a>                    <span class="n">pl_module</span><span class="o">.</span><span class="n">val_predictions</span><span class="p">,</span> <span class="n">pl_module</span><span class="o">.</span><span class="n">val_ground_truth</span><span class="p">,</span> <span class="n">np</span>
+</span><span id="__span-0-1414"><a id="__codelineno-0-1414" name="__codelineno-0-1414"></a>                <span class="p">)</span>
+</span><span id="__span-0-1415"><a id="__codelineno-0-1415" name="__codelineno-0-1415"></a>
+</span><span id="__span-0-1416"><a id="__codelineno-0-1416" name="__codelineno-0-1416"></a>                <span class="c1"># Log to WandB</span>
+</span><span id="__span-0-1417"><a id="__codelineno-0-1417" name="__codelineno-0-1417"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">_log_metrics</span><span class="p">(</span><span class="n">trainer</span><span class="p">,</span> <span class="n">metrics</span><span class="p">,</span> <span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">)</span>
+</span><span id="__span-0-1418"><a id="__codelineno-0-1418" name="__codelineno-0-1418"></a>
+</span><span id="__span-0-1419"><a id="__codelineno-0-1419" name="__codelineno-0-1419"></a>                <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+</span><span id="__span-0-1420"><a id="__codelineno-0-1420" name="__codelineno-0-1420"></a>                    <span class="sa">f</span><span class="s2">&quot;Epoch </span><span class="si">{</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="si">}</span><span class="s2"> centroid evaluation: &quot;</span>
+</span><span id="__span-0-1421"><a id="__codelineno-0-1421" name="__codelineno-0-1421"></a>                    <span class="sa">f</span><span class="s2">&quot;precision=</span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;precision&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">, &quot;</span>
+</span><span id="__span-0-1422"><a id="__codelineno-0-1422" name="__codelineno-0-1422"></a>                    <span class="sa">f</span><span class="s2">&quot;recall=</span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;recall&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">, &quot;</span>
+</span><span id="__span-0-1423"><a id="__codelineno-0-1423" name="__codelineno-0-1423"></a>                    <span class="sa">f</span><span class="s2">&quot;dist_avg=</span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;dist_avg&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">px&quot;</span>
+</span><span id="__span-0-1424"><a id="__codelineno-0-1424" name="__codelineno-0-1424"></a>                <span class="p">)</span>
+</span><span id="__span-0-1425"><a id="__codelineno-0-1425" name="__codelineno-0-1425"></a>
+</span><span id="__span-0-1426"><a id="__codelineno-0-1426" name="__codelineno-0-1426"></a>            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+</span><span id="__span-0-1427"><a id="__codelineno-0-1427" name="__codelineno-0-1427"></a>                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Centroid epoch-end evaluation failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-1428"><a id="__codelineno-0-1428" name="__codelineno-0-1428"></a>
+</span><span id="__span-0-1429"><a id="__codelineno-0-1429" name="__codelineno-0-1429"></a>    <span class="c1"># Cleanup - all ranks reset the flag, rank 0 clears the lists</span>
+</span><span id="__span-0-1430"><a id="__codelineno-0-1430" name="__codelineno-0-1430"></a>    <span class="n">pl_module</span><span class="o">.</span><span class="n">_collect_val_predictions</span> <span class="o">=</span> <span class="kc">False</span>
+</span><span id="__span-0-1431"><a id="__codelineno-0-1431" name="__codelineno-0-1431"></a>    <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
+</span><span id="__span-0-1432"><a id="__codelineno-0-1432" name="__codelineno-0-1432"></a>        <span class="n">pl_module</span><span class="o">.</span><span class="n">val_predictions</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-1433"><a id="__codelineno-0-1433" name="__codelineno-0-1433"></a>        <span class="n">pl_module</span><span class="o">.</span><span class="n">val_ground_truth</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-1434"><a id="__codelineno-0-1434" name="__codelineno-0-1434"></a>
+</span><span id="__span-0-1435"><a id="__codelineno-0-1435" name="__codelineno-0-1435"></a>    <span class="c1"># Sync all processes - barrier must be reached by ALL ranks</span>
+</span><span id="__span-0-1436"><a id="__codelineno-0-1436" name="__codelineno-0-1436"></a>    <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="sleap_nn.training.callbacks.CentroidEvaluationCallback.on_validation_epoch_start" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">on_validation_epoch_start</span><span class="p">(</span><span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">)</span></code>
+
+<a href="#sleap_nn.training.callbacks.CentroidEvaluationCallback.on_validation_epoch_start" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Enable prediction collection at the start of validation.</p>
+<p>Skip during sanity check to avoid inference issues.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>sleap_nn/training/callbacks.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1385">1385</a></span>
+<span class="normal"><a href="#__codelineno-0-1386">1386</a></span>
+<span class="normal"><a href="#__codelineno-0-1387">1387</a></span>
+<span class="normal"><a href="#__codelineno-0-1388">1388</a></span>
+<span class="normal"><a href="#__codelineno-0-1389">1389</a></span>
+<span class="normal"><a href="#__codelineno-0-1390">1390</a></span>
+<span class="normal"><a href="#__codelineno-0-1391">1391</a></span>
+<span class="normal"><a href="#__codelineno-0-1392">1392</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1385"><a id="__codelineno-0-1385" name="__codelineno-0-1385"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_validation_epoch_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+</span><span id="__span-0-1386"><a id="__codelineno-0-1386" name="__codelineno-0-1386"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Enable prediction collection at the start of validation.</span>
+</span><span id="__span-0-1387"><a id="__codelineno-0-1387" name="__codelineno-0-1387"></a>
+</span><span id="__span-0-1388"><a id="__codelineno-0-1388" name="__codelineno-0-1388"></a><span class="sd">    Skip during sanity check to avoid inference issues.</span>
+</span><span id="__span-0-1389"><a id="__codelineno-0-1389" name="__codelineno-0-1389"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-1390"><a id="__codelineno-0-1390" name="__codelineno-0-1390"></a>    <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">sanity_checking</span><span class="p">:</span>
+</span><span id="__span-0-1391"><a id="__codelineno-0-1391" name="__codelineno-0-1391"></a>        <span class="k">return</span>
+</span><span id="__span-0-1392"><a id="__codelineno-0-1392" name="__codelineno-0-1392"></a>    <span class="n">pl_module</span><span class="o">.</span><span class="n">_collect_val_predictions</span> <span class="o">=</span> <span class="kc">True</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -11171,6 +12178,233 @@ in the wandb UI. Multiple visualization modes can be enabled simultaneously:
 
 </div>
 
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="sleap_nn.training.callbacks.match_centroids" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">match_centroids</span><span class="p">(</span><span class="n">pred_centroids</span><span class="p">,</span> <span class="n">gt_centroids</span><span class="p">,</span> <span class="n">max_distance</span><span class="o">=</span><span class="mf">50.0</span><span class="p">)</span></code>
+
+<a href="#sleap_nn.training.callbacks.match_centroids" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Match predicted centroids to ground truth using Hungarian algorithm.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>pred_centroids</code>
+            </td>
+            <td>
+                  <code><span title="np.ndarray">ndarray</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Predicted centroid locations, shape (n_pred, 2).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>gt_centroids</code>
+            </td>
+            <td>
+                  <code><span title="np.ndarray">ndarray</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Ground truth centroid locations, shape (n_gt, 2).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>max_distance</code>
+            </td>
+            <td>
+                  <code><span title="float">float</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Maximum distance threshold for valid matches (in pixels).</p>
+              </div>
+            </td>
+            <td>
+                  <code>50.0</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="tuple">tuple</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Tuple of:
+    - matched_pred_indices: Indices of matched predictions
+    - matched_gt_indices: Indices of matched ground truth
+    - unmatched_pred_indices: Indices of unmatched predictions (false positives)
+    - unmatched_gt_indices: Indices of unmatched ground truth (false negatives)</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>sleap_nn/training/callbacks.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1287">1287</a></span>
+<span class="normal"><a href="#__codelineno-0-1288">1288</a></span>
+<span class="normal"><a href="#__codelineno-0-1289">1289</a></span>
+<span class="normal"><a href="#__codelineno-0-1290">1290</a></span>
+<span class="normal"><a href="#__codelineno-0-1291">1291</a></span>
+<span class="normal"><a href="#__codelineno-0-1292">1292</a></span>
+<span class="normal"><a href="#__codelineno-0-1293">1293</a></span>
+<span class="normal"><a href="#__codelineno-0-1294">1294</a></span>
+<span class="normal"><a href="#__codelineno-0-1295">1295</a></span>
+<span class="normal"><a href="#__codelineno-0-1296">1296</a></span>
+<span class="normal"><a href="#__codelineno-0-1297">1297</a></span>
+<span class="normal"><a href="#__codelineno-0-1298">1298</a></span>
+<span class="normal"><a href="#__codelineno-0-1299">1299</a></span>
+<span class="normal"><a href="#__codelineno-0-1300">1300</a></span>
+<span class="normal"><a href="#__codelineno-0-1301">1301</a></span>
+<span class="normal"><a href="#__codelineno-0-1302">1302</a></span>
+<span class="normal"><a href="#__codelineno-0-1303">1303</a></span>
+<span class="normal"><a href="#__codelineno-0-1304">1304</a></span>
+<span class="normal"><a href="#__codelineno-0-1305">1305</a></span>
+<span class="normal"><a href="#__codelineno-0-1306">1306</a></span>
+<span class="normal"><a href="#__codelineno-0-1307">1307</a></span>
+<span class="normal"><a href="#__codelineno-0-1308">1308</a></span>
+<span class="normal"><a href="#__codelineno-0-1309">1309</a></span>
+<span class="normal"><a href="#__codelineno-0-1310">1310</a></span>
+<span class="normal"><a href="#__codelineno-0-1311">1311</a></span>
+<span class="normal"><a href="#__codelineno-0-1312">1312</a></span>
+<span class="normal"><a href="#__codelineno-0-1313">1313</a></span>
+<span class="normal"><a href="#__codelineno-0-1314">1314</a></span>
+<span class="normal"><a href="#__codelineno-0-1315">1315</a></span>
+<span class="normal"><a href="#__codelineno-0-1316">1316</a></span>
+<span class="normal"><a href="#__codelineno-0-1317">1317</a></span>
+<span class="normal"><a href="#__codelineno-0-1318">1318</a></span>
+<span class="normal"><a href="#__codelineno-0-1319">1319</a></span>
+<span class="normal"><a href="#__codelineno-0-1320">1320</a></span>
+<span class="normal"><a href="#__codelineno-0-1321">1321</a></span>
+<span class="normal"><a href="#__codelineno-0-1322">1322</a></span>
+<span class="normal"><a href="#__codelineno-0-1323">1323</a></span>
+<span class="normal"><a href="#__codelineno-0-1324">1324</a></span>
+<span class="normal"><a href="#__codelineno-0-1325">1325</a></span>
+<span class="normal"><a href="#__codelineno-0-1326">1326</a></span>
+<span class="normal"><a href="#__codelineno-0-1327">1327</a></span>
+<span class="normal"><a href="#__codelineno-0-1328">1328</a></span>
+<span class="normal"><a href="#__codelineno-0-1329">1329</a></span>
+<span class="normal"><a href="#__codelineno-0-1330">1330</a></span>
+<span class="normal"><a href="#__codelineno-0-1331">1331</a></span>
+<span class="normal"><a href="#__codelineno-0-1332">1332</a></span>
+<span class="normal"><a href="#__codelineno-0-1333">1333</a></span>
+<span class="normal"><a href="#__codelineno-0-1334">1334</a></span>
+<span class="normal"><a href="#__codelineno-0-1335">1335</a></span>
+<span class="normal"><a href="#__codelineno-0-1336">1336</a></span>
+<span class="normal"><a href="#__codelineno-0-1337">1337</a></span>
+<span class="normal"><a href="#__codelineno-0-1338">1338</a></span>
+<span class="normal"><a href="#__codelineno-0-1339">1339</a></span>
+<span class="normal"><a href="#__codelineno-0-1340">1340</a></span>
+<span class="normal"><a href="#__codelineno-0-1341">1341</a></span>
+<span class="normal"><a href="#__codelineno-0-1342">1342</a></span>
+<span class="normal"><a href="#__codelineno-0-1343">1343</a></span>
+<span class="normal"><a href="#__codelineno-0-1344">1344</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1287"><a id="__codelineno-0-1287" name="__codelineno-0-1287"></a><span class="k">def</span><span class="w"> </span><span class="nf">match_centroids</span><span class="p">(</span>
+</span><span id="__span-0-1288"><a id="__codelineno-0-1288" name="__codelineno-0-1288"></a>    <span class="n">pred_centroids</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span>
+</span><span id="__span-0-1289"><a id="__codelineno-0-1289" name="__codelineno-0-1289"></a>    <span class="n">gt_centroids</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span>
+</span><span id="__span-0-1290"><a id="__codelineno-0-1290" name="__codelineno-0-1290"></a>    <span class="n">max_distance</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">50.0</span><span class="p">,</span>
+</span><span id="__span-0-1291"><a id="__codelineno-0-1291" name="__codelineno-0-1291"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">:</span>
+</span><span id="__span-0-1292"><a id="__codelineno-0-1292" name="__codelineno-0-1292"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Match predicted centroids to ground truth using Hungarian algorithm.</span>
+</span><span id="__span-0-1293"><a id="__codelineno-0-1293" name="__codelineno-0-1293"></a>
+</span><span id="__span-0-1294"><a id="__codelineno-0-1294" name="__codelineno-0-1294"></a><span class="sd">    Args:</span>
+</span><span id="__span-0-1295"><a id="__codelineno-0-1295" name="__codelineno-0-1295"></a><span class="sd">        pred_centroids: Predicted centroid locations, shape (n_pred, 2).</span>
+</span><span id="__span-0-1296"><a id="__codelineno-0-1296" name="__codelineno-0-1296"></a><span class="sd">        gt_centroids: Ground truth centroid locations, shape (n_gt, 2).</span>
+</span><span id="__span-0-1297"><a id="__codelineno-0-1297" name="__codelineno-0-1297"></a><span class="sd">        max_distance: Maximum distance threshold for valid matches (in pixels).</span>
+</span><span id="__span-0-1298"><a id="__codelineno-0-1298" name="__codelineno-0-1298"></a>
+</span><span id="__span-0-1299"><a id="__codelineno-0-1299" name="__codelineno-0-1299"></a><span class="sd">    Returns:</span>
+</span><span id="__span-0-1300"><a id="__codelineno-0-1300" name="__codelineno-0-1300"></a><span class="sd">        Tuple of:</span>
+</span><span id="__span-0-1301"><a id="__codelineno-0-1301" name="__codelineno-0-1301"></a><span class="sd">            - matched_pred_indices: Indices of matched predictions</span>
+</span><span id="__span-0-1302"><a id="__codelineno-0-1302" name="__codelineno-0-1302"></a><span class="sd">            - matched_gt_indices: Indices of matched ground truth</span>
+</span><span id="__span-0-1303"><a id="__codelineno-0-1303" name="__codelineno-0-1303"></a><span class="sd">            - unmatched_pred_indices: Indices of unmatched predictions (false positives)</span>
+</span><span id="__span-0-1304"><a id="__codelineno-0-1304" name="__codelineno-0-1304"></a><span class="sd">            - unmatched_gt_indices: Indices of unmatched ground truth (false negatives)</span>
+</span><span id="__span-0-1305"><a id="__codelineno-0-1305" name="__codelineno-0-1305"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-1306"><a id="__codelineno-0-1306" name="__codelineno-0-1306"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+</span><span id="__span-0-1307"><a id="__codelineno-0-1307" name="__codelineno-0-1307"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">scipy.optimize</span><span class="w"> </span><span class="kn">import</span> <span class="n">linear_sum_assignment</span>
+</span><span id="__span-0-1308"><a id="__codelineno-0-1308" name="__codelineno-0-1308"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">scipy.spatial.distance</span><span class="w"> </span><span class="kn">import</span> <span class="n">cdist</span>
+</span><span id="__span-0-1309"><a id="__codelineno-0-1309" name="__codelineno-0-1309"></a>
+</span><span id="__span-0-1310"><a id="__codelineno-0-1310" name="__codelineno-0-1310"></a>    <span class="n">n_pred</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">pred_centroids</span><span class="p">)</span>
+</span><span id="__span-0-1311"><a id="__codelineno-0-1311" name="__codelineno-0-1311"></a>    <span class="n">n_gt</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">gt_centroids</span><span class="p">)</span>
+</span><span id="__span-0-1312"><a id="__codelineno-0-1312" name="__codelineno-0-1312"></a>
+</span><span id="__span-0-1313"><a id="__codelineno-0-1313" name="__codelineno-0-1313"></a>    <span class="c1"># Handle edge cases</span>
+</span><span id="__span-0-1314"><a id="__codelineno-0-1314" name="__codelineno-0-1314"></a>    <span class="k">if</span> <span class="n">n_pred</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">n_gt</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+</span><span id="__span-0-1315"><a id="__codelineno-0-1315" name="__codelineno-0-1315"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([]),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([]),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([]),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([])</span>
+</span><span id="__span-0-1316"><a id="__codelineno-0-1316" name="__codelineno-0-1316"></a>    <span class="k">if</span> <span class="n">n_pred</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+</span><span id="__span-0-1317"><a id="__codelineno-0-1317" name="__codelineno-0-1317"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([]),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([]),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([]),</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">n_gt</span><span class="p">)</span>
+</span><span id="__span-0-1318"><a id="__codelineno-0-1318" name="__codelineno-0-1318"></a>    <span class="k">if</span> <span class="n">n_gt</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+</span><span id="__span-0-1319"><a id="__codelineno-0-1319" name="__codelineno-0-1319"></a>        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([]),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([]),</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">n_pred</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([])</span>
+</span><span id="__span-0-1320"><a id="__codelineno-0-1320" name="__codelineno-0-1320"></a>
+</span><span id="__span-0-1321"><a id="__codelineno-0-1321" name="__codelineno-0-1321"></a>    <span class="c1"># Compute pairwise distances</span>
+</span><span id="__span-0-1322"><a id="__codelineno-0-1322" name="__codelineno-0-1322"></a>    <span class="n">cost_matrix</span> <span class="o">=</span> <span class="n">cdist</span><span class="p">(</span><span class="n">pred_centroids</span><span class="p">,</span> <span class="n">gt_centroids</span><span class="p">)</span>
+</span><span id="__span-0-1323"><a id="__codelineno-0-1323" name="__codelineno-0-1323"></a>
+</span><span id="__span-0-1324"><a id="__codelineno-0-1324" name="__codelineno-0-1324"></a>    <span class="c1"># Run Hungarian algorithm for optimal matching</span>
+</span><span id="__span-0-1325"><a id="__codelineno-0-1325" name="__codelineno-0-1325"></a>    <span class="n">pred_indices</span><span class="p">,</span> <span class="n">gt_indices</span> <span class="o">=</span> <span class="n">linear_sum_assignment</span><span class="p">(</span><span class="n">cost_matrix</span><span class="p">)</span>
+</span><span id="__span-0-1326"><a id="__codelineno-0-1326" name="__codelineno-0-1326"></a>
+</span><span id="__span-0-1327"><a id="__codelineno-0-1327" name="__codelineno-0-1327"></a>    <span class="c1"># Filter matches that exceed max_distance</span>
+</span><span id="__span-0-1328"><a id="__codelineno-0-1328" name="__codelineno-0-1328"></a>    <span class="n">matched_pred</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-1329"><a id="__codelineno-0-1329" name="__codelineno-0-1329"></a>    <span class="n">matched_gt</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-1330"><a id="__codelineno-0-1330" name="__codelineno-0-1330"></a>    <span class="k">for</span> <span class="n">p_idx</span><span class="p">,</span> <span class="n">g_idx</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">pred_indices</span><span class="p">,</span> <span class="n">gt_indices</span><span class="p">):</span>
+</span><span id="__span-0-1331"><a id="__codelineno-0-1331" name="__codelineno-0-1331"></a>        <span class="k">if</span> <span class="n">cost_matrix</span><span class="p">[</span><span class="n">p_idx</span><span class="p">,</span> <span class="n">g_idx</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">max_distance</span><span class="p">:</span>
+</span><span id="__span-0-1332"><a id="__codelineno-0-1332" name="__codelineno-0-1332"></a>            <span class="n">matched_pred</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">p_idx</span><span class="p">)</span>
+</span><span id="__span-0-1333"><a id="__codelineno-0-1333" name="__codelineno-0-1333"></a>            <span class="n">matched_gt</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">g_idx</span><span class="p">)</span>
+</span><span id="__span-0-1334"><a id="__codelineno-0-1334" name="__codelineno-0-1334"></a>
+</span><span id="__span-0-1335"><a id="__codelineno-0-1335" name="__codelineno-0-1335"></a>    <span class="n">matched_pred</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">matched_pred</span><span class="p">)</span>
+</span><span id="__span-0-1336"><a id="__codelineno-0-1336" name="__codelineno-0-1336"></a>    <span class="n">matched_gt</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">matched_gt</span><span class="p">)</span>
+</span><span id="__span-0-1337"><a id="__codelineno-0-1337" name="__codelineno-0-1337"></a>
+</span><span id="__span-0-1338"><a id="__codelineno-0-1338" name="__codelineno-0-1338"></a>    <span class="c1"># Find unmatched indices</span>
+</span><span id="__span-0-1339"><a id="__codelineno-0-1339" name="__codelineno-0-1339"></a>    <span class="n">all_pred</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">n_pred</span><span class="p">))</span>
+</span><span id="__span-0-1340"><a id="__codelineno-0-1340" name="__codelineno-0-1340"></a>    <span class="n">all_gt</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">n_gt</span><span class="p">))</span>
+</span><span id="__span-0-1341"><a id="__codelineno-0-1341" name="__codelineno-0-1341"></a>    <span class="n">unmatched_pred</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">all_pred</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">matched_pred</span><span class="p">)))</span>
+</span><span id="__span-0-1342"><a id="__codelineno-0-1342" name="__codelineno-0-1342"></a>    <span class="n">unmatched_gt</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">all_gt</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">matched_gt</span><span class="p">)))</span>
+</span><span id="__span-0-1343"><a id="__codelineno-0-1343" name="__codelineno-0-1343"></a>
+</span><span id="__span-0-1344"><a id="__codelineno-0-1344" name="__codelineno-0-1344"></a>    <span class="k">return</span> <span class="n">matched_pred</span><span class="p">,</span> <span class="n">matched_gt</span><span class="p">,</span> <span class="n">unmatched_pred</span><span class="p">,</span> <span class="n">unmatched_gt</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
 
 
 
