@@ -1,12 +1,13 @@
 # Evaluation Metrics
 
-Here, we explain the various evaluation metrics we output at the end of running inference with a trained SLEAP model. We report 5 broad categories of metrics:
+Here, we explain the various evaluation metrics we output at the end of running inference with a trained SLEAP model. We report 6 broad categories of metrics:
 
 - [Distance metrics](#distance-metrics)
 - [Object Keypoint similarity (OKS)](#object-keypoint-similarity-oks)
 - [Percentage of Correct Keypoints (PCK) metrics](#percentage-of-correct-keypoints-pck-metrics)
 - [Visibility metrics](#visibility-metrics)
 - [VOC metrics](#voc-metrics)
+- [Centroid metrics](#centroid-metrics) (centroid models only)
 
 ## Distance Metrics
 
@@ -59,3 +60,57 @@ The following VOC-style metrics are generated using either OKS or PCK as the mat
 - *`Mean Average Recall (mAR)`*: Mean of average recalls across match thresholds.
 
 To learn how to generate these metrics using sleap-nn, see the [Evaluation guide](../guides/evaluation.md).
+
+## Centroid Metrics
+
+Centroid models predict a single point (centroid) per instance rather than full pose skeletons. These models use specialized distance-based metrics that are more appropriate for point detection tasks than OKS/PCK metrics.
+
+### Prediction Matching
+
+Predictions are matched to ground truth using the **Hungarian algorithm** (optimal bipartite matching) to minimize total distance. A `match_threshold` parameter (default: 50 pixels) determines the maximum distance for a valid match:
+
+- **True Positive (TP)**: Prediction matched to GT within threshold
+- **False Positive (FP)**: Prediction with no GT match within threshold
+- **False Negative (FN)**: GT with no prediction match within threshold
+
+### Distance Metrics
+
+For matched prediction-GT pairs, the following distance statistics are computed:
+
+| Metric | Description |
+|--------|-------------|
+| `centroid_dist_avg` | Mean Euclidean distance (pixels) |
+| `centroid_dist_median` | Median distance |
+| `centroid_dist_p90` | 90th percentile distance |
+| `centroid_dist_p95` | 95th percentile distance |
+| `centroid_dist_max` | Maximum distance |
+
+### Detection Metrics
+
+These metrics evaluate how well the model detects instances:
+
+| Metric | Formula | Description |
+|--------|---------|-------------|
+| `centroid_precision` | TP / (TP + FP) | Proportion of predictions that are correct |
+| `centroid_recall` | TP / (TP + FN) | Proportion of GT instances that were detected |
+| `centroid_f1` | 2 * P * R / (P + R) | Harmonic mean of precision and recall |
+
+### Count Metrics
+
+| Metric | Description |
+|--------|-------------|
+| `centroid_n_tp` | Number of true positives |
+| `centroid_n_fp` | Number of false positives |
+| `centroid_n_fn` | Number of false negatives |
+
+### When to Use
+
+Centroid metrics are automatically used during epoch-end evaluation when training centroid models. They can also be used for post-training evaluation of centroid model predictions.
+
+!!! tip "Adjusting match_threshold"
+    The `match_threshold` parameter should be set based on your expected centroid accuracy:
+
+    - **Smaller threshold** (e.g., 20px): Stricter matching, may undercount true positives
+    - **Larger threshold** (e.g., 100px): More lenient, may incorrectly match distant predictions
+
+    For most applications, the default of 50 pixels works well.

@@ -121,6 +121,7 @@ nav:
     - guides/index.md
     - Training:
       - guides/training.md
+      - Monitoring: guides/monitoring.md
       - Multi-GPU: guides/multi-gpu.md
     - Inference: guides/inference.md
     - Evaluation: guides/evaluation.md
