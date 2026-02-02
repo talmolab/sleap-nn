@@ -754,6 +754,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../guides/monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../guides/multi-gpu/" class="md-nav__link">
         
   
@@ -5566,16 +5594,31 @@
 <td><code>oks_stddev</code></td>
 <td>float</td>
 <td><code>0.025</code></td>
-<td>OKS standard deviation</td>
+<td>OKS standard deviation (pose models only)</td>
 </tr>
 <tr>
 <td><code>oks_scale</code></td>
 <td>float</td>
 <td><code>null</code></td>
-<td>OKS scale override</td>
+<td>OKS scale override (pose models only)</td>
+</tr>
+<tr>
+<td><code>match_threshold</code></td>
+<td>float</td>
+<td><code>50.0</code></td>
+<td>Max distance (px) for centroid matching (centroid models only)</td>
 </tr>
 </tbody>
 </table>
+<div class="admonition info">
+<p class="admonition-title">Model-Type-Dependent Evaluation</p>
+<p>SLEAP-NN automatically selects the appropriate evaluation callback based on model type:</p>
+<ul>
+<li><strong>Pose models</strong> (single instance, bottom-up, centered instance): Uses OKS/PCK metrics with <code>oks_stddev</code> and <code>oks_scale</code></li>
+<li><strong>Centroid models</strong>: Uses distance-based metrics with <code>match_threshold</code> for prediction-to-GT matching</li>
+</ul>
+<p>See the <a href="../../guides/monitoring/#epoch-end-evaluation">Monitoring Guide</a> for details.</p>
+</div>
 <h3 id="zmqconfig">ZMQConfig<a class="headerlink" href="#zmqconfig" title="Permanent link">&para;</a></h3>
 <table>
 <thead>

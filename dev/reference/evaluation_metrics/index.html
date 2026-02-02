@@ -754,6 +754,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../guides/monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../guides/multi-gpu/" class="md-nav__link">
         
   
@@ -1322,6 +1350,78 @@
       
     </span>
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#centroid-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Centroid Metrics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Centroid Metrics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prediction-matching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prediction Matching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#distance-metrics_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distance Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detection-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detection Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#count-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Count Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-to-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to Use
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -4299,6 +4399,78 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#centroid-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Centroid Metrics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Centroid Metrics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prediction-matching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prediction Matching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#distance-metrics_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distance Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detection-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detection Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#count-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Count Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-to-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to Use
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -4320,13 +4492,14 @@
 
 
 <h1 id="evaluation-metrics">Evaluation Metrics<a class="headerlink" href="#evaluation-metrics" title="Permanent link">&para;</a></h1>
-<p>Here, we explain the various evaluation metrics we output at the end of running inference with a trained SLEAP model. We report 5 broad categories of metrics:</p>
+<p>Here, we explain the various evaluation metrics we output at the end of running inference with a trained SLEAP model. We report 6 broad categories of metrics:</p>
 <ul>
 <li><a href="#distance-metrics">Distance metrics</a></li>
 <li><a href="#object-keypoint-similarity-oks">Object Keypoint similarity (OKS)</a></li>
 <li><a href="#percentage-of-correct-keypoints-pck-metrics">Percentage of Correct Keypoints (PCK) metrics</a></li>
 <li><a href="#visibility-metrics">Visibility metrics</a></li>
 <li><a href="#voc-metrics">VOC metrics</a></li>
+<li><a href="#centroid-metrics">Centroid metrics</a> (centroid models only)</li>
 </ul>
 <h2 id="distance-metrics">Distance Metrics<a class="headerlink" href="#distance-metrics" title="Permanent link">&para;</a></h2>
 <p>This metric computes the Euclidean distance between pairs of predicted and ground-truth (gt) instances. For each instance pair, we calculate the L2 norm of the difference between the predicted and corresponding ground-truth keypoints. The following statistics are reported:</p>
@@ -4371,6 +4544,109 @@ predicted instance, ranging from 0 to 1.0 and 1.0 indicating a perfect match. OK
 <li><em><code>Mean Average Recall (mAR)</code></em>: Mean of average recalls across match thresholds.</li>
 </ul>
 <p>To learn how to generate these metrics using sleap-nn, see the <a href="../../guides/evaluation/">Evaluation guide</a>.</p>
+<h2 id="centroid-metrics">Centroid Metrics<a class="headerlink" href="#centroid-metrics" title="Permanent link">&para;</a></h2>
+<p>Centroid models predict a single point (centroid) per instance rather than full pose skeletons. These models use specialized distance-based metrics that are more appropriate for point detection tasks than OKS/PCK metrics.</p>
+<h3 id="prediction-matching">Prediction Matching<a class="headerlink" href="#prediction-matching" title="Permanent link">&para;</a></h3>
+<p>Predictions are matched to ground truth using the <strong>Hungarian algorithm</strong> (optimal bipartite matching) to minimize total distance. A <code>match_threshold</code> parameter (default: 50 pixels) determines the maximum distance for a valid match:</p>
+<ul>
+<li><strong>True Positive (TP)</strong>: Prediction matched to GT within threshold</li>
+<li><strong>False Positive (FP)</strong>: Prediction with no GT match within threshold</li>
+<li><strong>False Negative (FN)</strong>: GT with no prediction match within threshold</li>
+</ul>
+<h3 id="distance-metrics_1">Distance Metrics<a class="headerlink" href="#distance-metrics_1" title="Permanent link">&para;</a></h3>
+<p>For matched prediction-GT pairs, the following distance statistics are computed:</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>centroid_dist_avg</code></td>
+<td>Mean Euclidean distance (pixels)</td>
+</tr>
+<tr>
+<td><code>centroid_dist_median</code></td>
+<td>Median distance</td>
+</tr>
+<tr>
+<td><code>centroid_dist_p90</code></td>
+<td>90<sup>th</sup> percentile distance</td>
+</tr>
+<tr>
+<td><code>centroid_dist_p95</code></td>
+<td>95<sup>th</sup> percentile distance</td>
+</tr>
+<tr>
+<td><code>centroid_dist_max</code></td>
+<td>Maximum distance</td>
+</tr>
+</tbody>
+</table>
+<h3 id="detection-metrics">Detection Metrics<a class="headerlink" href="#detection-metrics" title="Permanent link">&para;</a></h3>
+<p>These metrics evaluate how well the model detects instances:</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Formula</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>centroid_precision</code></td>
+<td>TP / (TP + FP)</td>
+<td>Proportion of predictions that are correct</td>
+</tr>
+<tr>
+<td><code>centroid_recall</code></td>
+<td>TP / (TP + FN)</td>
+<td>Proportion of GT instances that were detected</td>
+</tr>
+<tr>
+<td><code>centroid_f1</code></td>
+<td>2 * P * R / (P + R)</td>
+<td>Harmonic mean of precision and recall</td>
+</tr>
+</tbody>
+</table>
+<h3 id="count-metrics">Count Metrics<a class="headerlink" href="#count-metrics" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>centroid_n_tp</code></td>
+<td>Number of true positives</td>
+</tr>
+<tr>
+<td><code>centroid_n_fp</code></td>
+<td>Number of false positives</td>
+</tr>
+<tr>
+<td><code>centroid_n_fn</code></td>
+<td>Number of false negatives</td>
+</tr>
+</tbody>
+</table>
+<h3 id="when-to-use">When to Use<a class="headerlink" href="#when-to-use" title="Permanent link">&para;</a></h3>
+<p>Centroid metrics are automatically used during epoch-end evaluation when training centroid models. They can also be used for post-training evaluation of centroid model predictions.</p>
+<div class="admonition tip">
+<p class="admonition-title">Adjusting match_threshold</p>
+<p>The <code>match_threshold</code> parameter should be set based on your expected centroid accuracy:</p>
+<ul>
+<li><strong>Smaller threshold</strong> (e.g., 20px): Stricter matching, may undercount true positives</li>
+<li><strong>Larger threshold</strong> (e.g., 100px): More lenient, may incorrectly match distant predictions</li>
+</ul>
+<p>For most applications, the default of 50 pixels works well.</p>
+</div>
 
 
 
