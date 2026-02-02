@@ -11,6 +11,7 @@ from sleap_nn.evaluation import run_evaluation
 from sleap_nn.export.cli import export as export_command
 from sleap_nn.export.cli import predict as predict_command
 from sleap_nn.train import run_training
+from sleap_nn.launcher import launch_training
 from sleap_nn import __version__
 import hydra
 import sys
@@ -87,8 +88,8 @@ def cli():
 
     Use subcommands to run different workflows:
 
-    train    - Run training workflow
-    track    - Run inference/ tracking workflow
+    train    - Run training workflow (auto-detects multi-GPU)
+    track    - Run inference/tracking workflow
     eval     - Run evaluation workflow
     system   - Display system information and GPU status
     """
@@ -117,14 +118,19 @@ sleap-nn train --config <path/to/config.yaml> [overrides]
 |----------|-------------|
 | `trainer_config.max_epochs=100` | Set maximum training epochs |
 | `trainer_config.batch_size=32` | Set batch size |
-| `trainer_config.save_ckpt=true` | Enable checkpoint saving |
+| `trainer_config.trainer_devices=4` | Use 4 GPUs |
+| `trainer_config.trainer_device_indices=[0,1]` | Use specific GPUs |
 
 ## Examples
 
 **Start a new training run:**
 ```bash
 sleap-nn train path/to/config.yaml
-sleap-nn train --config path/to/config.yaml
+```
+
+**Multi-GPU training (auto-detected):**
+```bash
+sleap-nn train config.yaml trainer_config.trainer_devices=4
 ```
 
 **With overrides:**
@@ -137,25 +143,69 @@ sleap-nn train config.yaml trainer_config.max_epochs=100
 sleap-nn train config.yaml trainer_config.resume_ckpt_path=/path/to/ckpt
 ```
 
-**Legacy usage (still supported):**
-```bash
-sleap-nn train --config-dir /path/to/dir --config-name myrun
-```
+## Multi-GPU
+
+Multi-GPU is automatically detected and uses distributed training via torchrun.
+The `run_name` is synchronized across all workers to prevent cache conflicts.
 
 ## Tips
 
-- Use `-m/--multirun` for sweeps; outputs go under `hydra.sweep.dir`
-- For Hydra flags and completion, use `--hydra-help`
 - Config documentation: https://nn.sleap.ai/config/
 """
     console.print(
         Panel(
             Markdown(help_md),
             title="[bold cyan]sleap-nn train[/bold cyan]",
-            subtitle="Train SLEAP models from a config YAML file",
+            subtitle="Train SLEAP models (auto-detects multi-GPU)",
             border_style="cyan",
         )
     )
+
+
+
+
+def _get_num_devices_from_config(cfg: DictConfig) -> int:
+    """Determine the number of devices from config.
+
+    User preferences take precedence over auto-detection:
+    - trainer_device_indices=[0] → 1 device (user choice)
+    - trainer_devices=1 → 1 device (user choice)
+    - trainer_devices="auto" or unset → auto-detect available GPUs
+
+    Returns:
+        Number of devices to use for training.
+    """
+    import torch
+
+    # User preference: explicit device indices (highest priority)
+    device_indices = OmegaConf.select(
+        cfg, "trainer_config.trainer_device_indices", default=None
+    )
+    if device_indices is not None and len(device_indices) > 0:
+        return len(device_indices)
+
+    # User preference: explicit device count
+    devices = OmegaConf.select(cfg, "trainer_config.trainer_devices", default="auto")
+
+    if isinstance(devices, int):
+        return devices
+
+    # Auto-detect only when user hasn't specified (devices is "auto" or None)
+    if devices in ("auto", None, "None"):
+        accelerator = OmegaConf.select(
+            cfg, "trainer_config.trainer_accelerator", default="auto"
+        )
+
+        if accelerator == "cpu":
+            return 1
+        elif torch.cuda.is_available():
+            return torch.cuda.device_count()
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return 1
+        else:
+            return 1
+
+    return 1
 
 
 @cli.command(cls=TrainCommand)
@@ -185,7 +235,7 @@ sleap-nn train --config-dir /path/to/dir --config-name myrun
     metavar="OLD NEW",
     help="Map old video path to new path. Takes two arguments: old path and new path. "
     "Can be specified multiple times. "
-    'Example: --video-path-map "/old/vid.mp`4" "/new/vid.mp4"',
+    'Example: --video-path-map "/old/vid.mp4" "/new/vid.mp4"',
 )
 @click.option(
     "--prefix-map",
@@ -204,10 +254,13 @@ def train(
 ):
     """Run training workflow with Hydra config overrides.
 
+    Automatically detects multi-GPU setups and launches distributed training
+    via torchrun when multiple devices are available.
+
     Examples:
         sleap-nn train path/to/config.yaml
         sleap-nn train --config path/to/config.yaml trainer_config.max_epochs=100
-        sleap-nn train -c myconfig -d /path/to/config_dir/ trainer_config.max_epochs=100
+        sleap-nn train config.yaml trainer_config.trainer_devices=4
     """
     # Convert overrides to a mutable list
     overrides = list(overrides)
@@ -232,9 +285,20 @@ def train(
         show_training_help()
         return
 
-    # Initialize Hydra manually (config_dir is already an absolute path)
+    # Check that only one replacement option is used
+    has_video_paths = len(video_paths) > 0
+    has_video_path_map = video_path_map is not None
+    has_prefix_map = prefix_map is not None
+    options_used = sum([has_video_paths, has_video_path_map, has_prefix_map])
+
+    if options_used > 1:
+        raise click.UsageError(
+            "Cannot use multiple path replacement options. "
+            "Choose one of: --video-paths, --video-path-map, or --prefix-map."
+        )
+
+    # Load config to detect device count and validate
     with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
-        # Compose config with overrides
         cfg = hydra.compose(config_name=config_name, overrides=overrides)
 
         # Validate config
@@ -244,25 +308,38 @@ def train(
             )
             raise click.Abort()
 
+        num_devices = _get_num_devices_from_config(cfg)
+
+    # Route based on device count
+    if num_devices > 1:
+        # Multi-GPU: use launcher for synchronized run_name
+        # Clear Hydra global state so launcher can re-initialize
+        from hydra.core.global_hydra import GlobalHydra
+
+        GlobalHydra.instance().clear()
+
+        logger.info(f"Detected {num_devices} devices, using distributed training...")
+        launch_training(
+            config_dir=config_dir,
+            config_name=config_name,
+            overrides=overrides,
+            video_paths=video_paths if has_video_paths else None,
+            video_path_map=video_path_map,
+            prefix_map=prefix_map,
+        )
+        return  # Exit after launch_training completes
+
+    # Single GPU: run directly
+    # Need to re-initialize Hydra since context exited above
+    with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
+        cfg = hydra.compose(config_name=config_name, overrides=overrides)
+
         logger.info("Input config:")
         logger.info("\n" + OmegaConf.to_yaml(cfg))
 
-        # Handle video path replacement options
+        # Handle video path replacement
         train_labels = None
         val_labels = None
-
-        # Check that only one replacement option is used
-        # video_paths is a tuple (empty if not used), others are None or dict
-        has_video_paths = len(video_paths) > 0
-        has_video_path_map = video_path_map is not None
-        has_prefix_map = prefix_map is not None
-        options_used = sum([has_video_paths, has_video_path_map, has_prefix_map])
-
-        if options_used > 1:
-            raise click.UsageError(
-                "Cannot use multiple path replacement options. "
-                "Choose one of: --video-paths, --video-path-map, or --prefix-map."
-            )
 
         if options_used == 1:
             # Load train labels
@@ -281,15 +358,12 @@ def train(
 
             # Build replacement arguments based on option used
             if has_video_paths:
-                # List of paths (order must match videos in labels file)
                 replace_kwargs = {
                     "new_filenames": [Path(p).as_posix() for p in video_paths]
                 }
             elif has_video_path_map:
-                # Dictionary mapping old filenames to new filenames
                 replace_kwargs = {"filename_map": video_path_map}
             else:  # has_prefix_map
-                # Dictionary mapping old prefixes to new prefixes
                 replace_kwargs = {"prefix_map": prefix_map}
 
             # Apply replacement to train labels

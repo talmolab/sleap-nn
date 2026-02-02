@@ -863,11 +863,13 @@ class ModelTrainer:
             if self.config.data_config.cache_img_path is None:
                 self.config.data_config.cache_img_path = base_cache_img_path
 
+        # Use RANK from environment (set by torchrun) since trainer.global_rank
+        # may not be correctly initialized before fit() is called
         return get_train_val_datasets(
             train_labels=self.train_labels,
             val_labels=self.val_labels,
             config=self.config,
-            rank=self.trainer.global_rank,
+            rank=RANK,
         )
 
     def _setup_loggers_callbacks(self, viz_train_dataset, viz_val_dataset):
@@ -1204,6 +1206,10 @@ class ModelTrainer:
 
         # setup datasets
         train_dataset, val_dataset = self._setup_datasets()
+
+        # Barrier after dataset creation to ensure all workers wait for disk caching
+        # (rank 0 caches, others must wait before accessing cached files)
+        self.trainer.strategy.barrier()
 
         # set-up steps per epoch
         train_steps_per_epoch = self.config.trainer_config.train_steps_per_epoch
