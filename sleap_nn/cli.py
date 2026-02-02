@@ -1,5 +1,10 @@
 """Unified CLI for SLEAP-NN using rich-click for styled output."""
 
+import subprocess
+import tempfile
+import shutil
+from datetime import datetime
+
 import rich_click as click
 from click import Command
 from loguru import logger
@@ -12,6 +17,7 @@ from sleap_nn.export.cli import export as export_command
 from sleap_nn.export.cli import predict as predict_command
 from sleap_nn.train import run_training
 from sleap_nn import __version__
+from sleap_nn.config.utils import get_model_type_from_cfg
 import hydra
 import sys
 
@@ -87,12 +93,91 @@ def cli():
 
     Use subcommands to run different workflows:
 
-    train    - Run training workflow
-    track    - Run inference/ tracking workflow
+    train    - Run training workflow (auto-handles multi-GPU)
+    track    - Run inference/tracking workflow
     eval     - Run evaluation workflow
     system   - Display system information and GPU status
     """
     pass
+
+
+def _get_num_devices_from_config(cfg: DictConfig) -> int:
+    """Determine the number of devices from config.
+
+    User preferences take precedence over auto-detection:
+    - trainer_device_indices=[0] → 1 device (user choice)
+    - trainer_devices=1 → 1 device (user choice)
+    - trainer_devices="auto" or unset → auto-detect available GPUs
+
+    Returns:
+        Number of devices to use for training.
+    """
+    import torch
+
+    # User preference: explicit device indices (highest priority)
+    device_indices = OmegaConf.select(
+        cfg, "trainer_config.trainer_device_indices", default=None
+    )
+    if device_indices is not None and len(device_indices) > 0:
+        return len(device_indices)
+
+    # User preference: explicit device count
+    devices = OmegaConf.select(cfg, "trainer_config.trainer_devices", default="auto")
+
+    if isinstance(devices, int):
+        return devices
+
+    # Auto-detect only when user hasn't specified (devices is "auto" or None)
+    if devices in ("auto", None, "None"):
+        accelerator = OmegaConf.select(
+            cfg, "trainer_config.trainer_accelerator", default="auto"
+        )
+
+        if accelerator == "cpu":
+            return 1
+        elif torch.cuda.is_available():
+            return torch.cuda.device_count()
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return 1
+        else:
+            return 1
+
+    return 1
+
+
+def _finalize_config(cfg: DictConfig) -> DictConfig:
+    """Finalize configuration by generating run_name if not provided.
+
+    This runs ONCE before subprocess, ensuring all workers get the same run_name.
+    """
+    # Resolve ckpt_dir first
+    ckpt_dir = OmegaConf.select(cfg, "trainer_config.ckpt_dir", default=None)
+    if ckpt_dir is None or ckpt_dir == "" or ckpt_dir == "None":
+        cfg.trainer_config.ckpt_dir = "."
+
+    # Generate run_name if not provided
+    run_name = OmegaConf.select(cfg, "trainer_config.run_name", default=None)
+    if run_name is None or run_name == "" or run_name == "None":
+        # Get model type from config
+        model_type = get_model_type_from_cfg(cfg)
+
+        # Count frames from labels
+        train_paths = cfg.data_config.train_labels_path
+        val_paths = OmegaConf.select(cfg, "data_config.val_labels_path", default=None)
+
+        train_count = sum(len(sio.load_slp(p)) for p in train_paths)
+        val_count = 0
+        if val_paths:
+            val_count = sum(len(sio.load_slp(p)) for p in val_paths)
+
+        # Generate full run_name with timestamp
+        timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
+        run_name = f"{timestamp}.{model_type}.n={train_count + val_count}"
+        cfg.trainer_config.run_name = run_name
+
+        logger.info(f"Generated run_name: {run_name}")
+
+    return cfg
 
 
 def show_training_help():
@@ -198,16 +283,25 @@ sleap-nn train --config-dir /path/to/dir --config-name myrun
     "Can be specified multiple times. "
     'Example: --prefix-map "/old/server/path" "/new/local/path"',
 )
+@click.option(
+    "--video-config",
+    type=str,
+    hidden=True,
+    help="Path to video replacement config YAML (internal use for multi-GPU).",
+)
 @click.argument("overrides", nargs=-1, type=click.UNPROCESSED)
 def train(
-    config, config_name, config_dir, video_paths, video_path_map, prefix_map, overrides
+    config, config_name, config_dir, video_paths, video_path_map, prefix_map, video_config, overrides
 ):
     """Run training workflow with Hydra config overrides.
+
+    Automatically detects multi-GPU setups and handles run_name synchronization
+    by spawning training in a subprocess with a pre-generated config.
 
     Examples:
         sleap-nn train path/to/config.yaml
         sleap-nn train --config path/to/config.yaml trainer_config.max_epochs=100
-        sleap-nn train -c myconfig -d /path/to/config_dir/ trainer_config.max_epochs=100
+        sleap-nn train config.yaml trainer_config.trainer_devices=4
     """
     # Convert overrides to a mutable list
     overrides = list(overrides)
@@ -232,9 +326,27 @@ def train(
         show_training_help()
         return
 
-    # Initialize Hydra manually (config_dir is already an absolute path)
+    # Check video path options early
+    # If --video-config is provided (from subprocess), load from file
+    if video_config:
+        video_cfg = OmegaConf.load(video_config)
+        video_paths = tuple(video_cfg.video_paths) if video_cfg.video_paths else ()
+        video_path_map = dict(video_cfg.video_path_map) if video_cfg.video_path_map else None
+        prefix_map = dict(video_cfg.prefix_map) if video_cfg.prefix_map else None
+
+    has_video_paths = len(video_paths) > 0
+    has_video_path_map = video_path_map is not None
+    has_prefix_map = prefix_map is not None
+    options_used = sum([has_video_paths, has_video_path_map, has_prefix_map])
+
+    if options_used > 1:
+        raise click.UsageError(
+            "Cannot use multiple path replacement options. "
+            "Choose one of: --video-paths, --video-path-map, or --prefix-map."
+        )
+
+    # Load config to detect device count
     with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
-        # Compose config with overrides
         cfg = hydra.compose(config_name=config_name, overrides=overrides)
 
         # Validate config
@@ -244,25 +356,78 @@ def train(
             )
             raise click.Abort()
 
+        num_devices = _get_num_devices_from_config(cfg)
+
+        # Check if run_name is already set (means we're a subprocess or user provided it)
+        run_name = OmegaConf.select(cfg, "trainer_config.run_name", default=None)
+        run_name_is_set = run_name is not None and run_name != "" and run_name != "None"
+
+    # Multi-GPU path: spawn subprocess with finalized config
+    # Only do this if run_name is NOT set (otherwise we'd loop infinitely or user set it)
+    if num_devices > 1 and not run_name_is_set:
+        logger.info(f"Detected {num_devices} devices, using subprocess for run_name sync...")
+
+        # Load and finalize config (generate run_name, apply overrides)
+        with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
+            cfg = hydra.compose(config_name=config_name, overrides=overrides)
+            cfg = _finalize_config(cfg)
+
+        # Save finalized config to temp file
+        temp_dir = tempfile.mkdtemp(prefix="sleap_nn_train_")
+        temp_config_path = Path(temp_dir) / "training_config.yaml"
+        OmegaConf.save(cfg, temp_config_path)
+        logger.info(f"Saved finalized config to: {temp_config_path}")
+
+        # Save video replacement config if needed (so subprocess doesn't need CLI args)
+        temp_video_config_path = None
+        if options_used == 1:
+            video_replacement_config = {
+                "video_paths": list(video_paths) if has_video_paths else None,
+                "video_path_map": dict(video_path_map) if has_video_path_map else None,
+                "prefix_map": dict(prefix_map) if has_prefix_map else None,
+            }
+            temp_video_config_path = Path(temp_dir) / "video_replacement.yaml"
+            OmegaConf.save(OmegaConf.create(video_replacement_config), temp_video_config_path)
+            logger.info(f"Saved video replacement config to: {temp_video_config_path}")
+
+        # Build subprocess command (no video args - they're in the temp file)
+        cmd = [sys.executable, "-m", "sleap_nn.cli", "train", str(temp_config_path)]
+        if temp_video_config_path:
+            cmd.extend(["--video-config", str(temp_video_config_path)])
+
+        logger.info(f"Launching subprocess: {' '.join(cmd)}")
+
+        try:
+            process = subprocess.Popen(cmd)
+            result = process.wait()
+            if result != 0:
+                logger.error(f"Training failed with exit code {result}")
+                sys.exit(result)
+        except KeyboardInterrupt:
+            logger.info("Training interrupted, terminating subprocess...")
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            sys.exit(1)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            logger.info("Cleaned up temporary files")
+
+        return
+
+    # Single GPU (or subprocess worker): run directly
+    with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
+        cfg = hydra.compose(config_name=config_name, overrides=overrides)
+
         logger.info("Input config:")
         logger.info("\n" + OmegaConf.to_yaml(cfg))
 
         # Handle video path replacement options
         train_labels = None
         val_labels = None
-
-        # Check that only one replacement option is used
-        # video_paths is a tuple (empty if not used), others are None or dict
-        has_video_paths = len(video_paths) > 0
-        has_video_path_map = video_path_map is not None
-        has_prefix_map = prefix_map is not None
-        options_used = sum([has_video_paths, has_video_path_map, has_prefix_map])
-
-        if options_used > 1:
-            raise click.UsageError(
-                "Cannot use multiple path replacement options. "
-                "Choose one of: --video-paths, --video-path-map, or --prefix-map."
-            )
 
         if options_used == 1:
             # Load train labels
@@ -281,15 +446,12 @@ def train(
 
             # Build replacement arguments based on option used
             if has_video_paths:
-                # List of paths (order must match videos in labels file)
                 replace_kwargs = {
                     "new_filenames": [Path(p).as_posix() for p in video_paths]
                 }
             elif has_video_path_map:
-                # Dictionary mapping old filenames to new filenames
                 replace_kwargs = {"filename_map": video_path_map}
             else:  # has_prefix_map
-                # Dictionary mapping old prefixes to new prefixes
                 replace_kwargs = {"prefix_map": prefix_map}
 
             # Apply replacement to train labels

@@ -1205,6 +1205,10 @@ class ModelTrainer:
         # setup datasets
         train_dataset, val_dataset = self._setup_datasets()
 
+        # Barrier after dataset creation to ensure all workers wait for disk caching
+        # (rank 0 caches to disk, others must wait before reading cached files)
+        self.trainer.strategy.barrier()
+
         # set-up steps per epoch
         train_steps_per_epoch = self.config.trainer_config.train_steps_per_epoch
         if train_steps_per_epoch is None:
