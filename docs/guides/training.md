@@ -285,7 +285,7 @@ By default, training stops early when a plateau is detected in the validation lo
 trainer_config:
   max_epochs: 200
   early_stopping:
-    enabled: false  # Disable early stopping
+    stop_training_on_plateau: false  # Disable early stopping
 ```
 
 ### Augmentation Strategy
@@ -299,10 +299,10 @@ During training, augmentations are applied to raw images and poses to generate v
 
 ```yaml
 data_config:
-  augmentation:
-    rotation:
-      min_angle: -180.0
-      max_angle: 180.0
+  augmentation_config:
+    geometric:
+      rotation_min: -180.0
+      rotation_max: 180.0
 ```
 
 ---

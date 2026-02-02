@@ -50,7 +50,7 @@ def test_topdown_predictor(
     assert len(pred_labels[0].instances) == 2
     lf = pred_labels[0]
 
-    assert Path(f"{tmp_path}/test.pkg.slp").exists
+    assert Path(f"{tmp_path}/test.pkg.slp").exists()
 
     # check if the predicted labels have same video and skeleton as the ground truth labels
     gt_labels = sio.load_slp(minimal_instance)
@@ -360,7 +360,7 @@ def test_multiclass_topdown_predictor(
     lf = pred_labels[0]
     assert lf.instances[0].track is not None
 
-    assert Path(f"{tmp_path}/test.pkg.slp").exists
+    assert Path(f"{tmp_path}/test.pkg.slp").exists()
 
     # check if the predicted labels have same video and skeleton as the ground truth labels
     gt_labels = sio.load_slp(minimal_instance)

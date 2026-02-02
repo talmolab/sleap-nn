@@ -469,7 +469,9 @@ def load_legacy_model_weights(
                 ).item()
                 diff = abs(keras_mean - torch_mean)
                 if diff > 1e-6:
-                    message = f"Weight verification failed for {pytorch_name} linear): keras={keras_mean:.6f}, torch={torch_mean:.6f}, diff={diff:.6e}"
+                    message = f"Weight verification failed for {pytorch_name} (linear): keras={keras_mean:.6f}, torch={torch_mean:.6f}, diff={diff:.6e}"
+                    logger.error(message)
+                    verification_errors.append(message)
             else:
                 # Bias : just compare all values
                 keras_mean = np.mean(original_weight)
@@ -478,7 +480,7 @@ def load_legacy_model_weights(
                 ).item()
                 diff = abs(keras_mean - torch_mean)
                 if diff > 1e-6:
-                    message = f"Weight verification failed for {pytorch_name} bias): keras={keras_mean:.6f}, torch={torch_mean:.6f}, diff={diff:.6e}"
+                    message = f"Weight verification failed for {pytorch_name} (bias): keras={keras_mean:.6f}, torch={torch_mean:.6f}, diff={diff:.6e}"
                     logger.error(message)
                     verification_errors.append(message)
 
