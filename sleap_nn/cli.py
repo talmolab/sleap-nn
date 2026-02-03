@@ -291,7 +291,14 @@ sleap-nn train --config-dir /path/to/dir --config-name myrun
 )
 @click.argument("overrides", nargs=-1, type=click.UNPROCESSED)
 def train(
-    config, config_name, config_dir, video_paths, video_path_map, prefix_map, video_config, overrides
+    config,
+    config_name,
+    config_dir,
+    video_paths,
+    video_path_map,
+    prefix_map,
+    video_config,
+    overrides,
 ):
     """Run training workflow with Hydra config overrides.
 
@@ -331,7 +338,9 @@ def train(
     if video_config:
         video_cfg = OmegaConf.load(video_config)
         video_paths = tuple(video_cfg.video_paths) if video_cfg.video_paths else ()
-        video_path_map = dict(video_cfg.video_path_map) if video_cfg.video_path_map else None
+        video_path_map = (
+            dict(video_cfg.video_path_map) if video_cfg.video_path_map else None
+        )
         prefix_map = dict(video_cfg.prefix_map) if video_cfg.prefix_map else None
 
     has_video_paths = len(video_paths) > 0
@@ -365,7 +374,9 @@ def train(
     # Multi-GPU path: spawn subprocess with finalized config
     # Only do this if run_name is NOT set (otherwise we'd loop infinitely or user set it)
     if num_devices > 1 and not run_name_is_set:
-        logger.info(f"Detected {num_devices} devices, using subprocess for run_name sync...")
+        logger.info(
+            f"Detected {num_devices} devices, using subprocess for run_name sync..."
+        )
 
         # Load and finalize config (generate run_name, apply overrides)
         with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
@@ -387,7 +398,9 @@ def train(
                 "prefix_map": dict(prefix_map) if has_prefix_map else None,
             }
             temp_video_config_path = Path(temp_dir) / "video_replacement.yaml"
-            OmegaConf.save(OmegaConf.create(video_replacement_config), temp_video_config_path)
+            OmegaConf.save(
+                OmegaConf.create(video_replacement_config), temp_video_config_path
+            )
             logger.info(f"Saved video replacement config to: {temp_video_config_path}")
 
         # Build subprocess command (no video args - they're in the temp file)
