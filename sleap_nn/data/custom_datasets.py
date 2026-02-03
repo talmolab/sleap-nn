@@ -3,7 +3,6 @@
 from sleap_nn.data.skia_augmentation import crop_and_resize_skia as crop_and_resize
 
 import os
-import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
@@ -46,7 +45,6 @@ from sleap_nn.data.edge_maps import generate_pafs
 from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.training.utils import is_distributed_initialized
 from sleap_nn.config.get_config import get_aug_config
-
 
 # Minimum number of samples to use parallel caching (overhead not worth it for smaller)
 MIN_SAMPLES_FOR_PARALLEL_CACHING = 20
@@ -430,15 +428,17 @@ class BaseDataset(Dataset):
         total_samples = len(self.lf_idx_list)
         cache_type = "disk" if self.cache_img == "disk" else "memory"
 
-        # Check for NO_COLOR env var or non-interactive terminal
+        # Check for NO_COLOR env var to disable progress bar
         no_color = (
             os.environ.get("NO_COLOR") is not None
             or os.environ.get("FORCE_COLOR") == "0"
         )
-        use_progress = sys.stdout.isatty() and not no_color
+        use_progress = not no_color
 
         # Use parallel caching for larger datasets
         use_parallel = parallel and total_samples >= MIN_SAMPLES_FOR_PARALLEL_CACHING
+
+        logger.info(f"Caching {total_samples} images to {cache_type}...")
 
         if use_parallel:
             self._fill_cache_parallel(
@@ -446,6 +446,8 @@ class BaseDataset(Dataset):
             )
         else:
             self._fill_cache_sequential(labels, total_samples, cache_type, use_progress)
+
+        logger.info(f"Caching complete.")
 
     def _fill_cache_sequential(
         self,
@@ -493,7 +495,6 @@ class BaseDataset(Dataset):
                 )
                 process_samples(progress, task)
         else:
-            logger.info(f"Caching {total_samples} images to {cache_type}...")
             process_samples()
 
     def _fill_cache_parallel(
