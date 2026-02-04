@@ -1,0 +1,442 @@
+/* SLEAP-NN Config Generator TUI Styles */
+
+/* Global layout - use dock for sidebar */
+#sidebar {
+    dock: right;
+    width: 40;
+    height: 100%;
+    padding: 1;
+    overflow-y: auto;
+}
+
+#tabs {
+    width: 100%;
+    height: 100%;
+}
+
+/* Fix TabbedContent internal layout */
+ContentSwitcher {
+    width: 100%;
+    height: 1fr;
+}
+
+TabPane {
+    width: 100%;
+    height: 100%;
+}
+
+/* Typography */
+.section-title {
+    text-style: bold;
+    padding: 1 0;
+    color: $text;
+}
+
+.subsection-title {
+    text-style: bold;
+    padding: 0 0 1 0;
+    color: $text-muted;
+}
+
+.description-text {
+    color: $text-muted;
+    padding: 0 0 1 0;
+}
+
+/* Form elements */
+.form-group {
+    height: auto;
+    padding: 1 0;
+}
+
+.form-group-inline {
+    height: auto;
+    padding: 0;
+    layout: horizontal;
+}
+
+.form-label {
+    padding: 0 1 0 0;
+    min-width: 16;
+}
+
+.form-label-wide {
+    padding: 0 1 0 0;
+    min-width: 24;
+}
+
+.form-input {
+    width: 1fr;
+}
+
+.form-input-small {
+    width: 10;
+}
+
+/* Stats display */
+#stats-display {
+    height: auto;
+    padding: 1;
+    border: solid $primary;
+}
+
+/* YAML preview */
+#yaml-preview {
+    height: 100%;
+}
+
+/* Button styling */
+.button-row {
+    height: auto;
+    padding: 1;
+    align: center middle;
+}
+
+Button {
+    margin: 0 1;
+}
+
+Button.primary {
+    background: $primary;
+}
+
+Button.success {
+    background: $success;
+}
+
+Button.warning {
+    background: $warning;
+}
+
+Button.danger {
+    background: $error;
+}
+
+/* Info boxes */
+.info-box {
+    height: auto;
+    padding: 1;
+    margin: 1 0;
+    border-left: thick $accent;
+    background: $surface;
+}
+
+.info-box.warning {
+    border-left: thick $warning;
+}
+
+.info-box.success {
+    border-left: thick $success;
+}
+
+.info-box.error {
+    border-left: thick $error;
+}
+
+/* Collapsible sections */
+.collapsible {
+    height: auto;
+    margin: 1 0;
+}
+
+.collapsible-header {
+    height: auto;
+    padding: 1;
+    background: $surface-lighten-1;
+    border: solid $surface-lighten-2;
+}
+
+.collapsible-header:hover {
+    background: $surface-lighten-2;
+}
+
+.collapsible-header.expanded {
+    border-bottom: none;
+}
+
+.collapsible-content {
+    padding: 1;
+    border: solid $surface-lighten-2;
+    border-top: none;
+}
+
+.collapsible-content.collapsed {
+    display: none;
+}
+
+/* Custom slider */
+.slider-container {
+    height: auto;
+    padding: 1 0;
+}
+
+.slider-header {
+    height: auto;
+    layout: horizontal;
+}
+
+.slider-label {
+    width: 1fr;
+}
+
+.slider-value {
+    width: auto;
+    color: $primary;
+    text-style: bold;
+}
+
+.slider-track {
+    height: 1;
+    background: $surface-lighten-2;
+    margin: 1 0;
+}
+
+.slider-fill {
+    height: 1;
+    background: $primary;
+}
+
+/* Size display */
+.size-display {
+    height: auto;
+    padding: 1;
+    border: solid $surface-lighten-2;
+    margin: 1 0;
+}
+
+.size-arrow {
+    color: $text-muted;
+}
+
+.size-value {
+    color: $primary;
+    text-style: bold;
+}
+
+.size-label {
+    color: $text-muted;
+}
+
+/* Model info */
+.model-info {
+    height: auto;
+    padding: 1;
+    border: solid $surface-lighten-2;
+    margin: 1 0;
+}
+
+.model-info-row {
+    height: auto;
+    layout: horizontal;
+    padding: 0 0 1 0;
+}
+
+.model-info-label {
+    width: 1fr;
+    color: $text-muted;
+}
+
+.model-info-value {
+    width: auto;
+    color: $text;
+}
+
+/* Sigma visualization */
+.sigma-viz {
+    height: auto;
+    padding: 1;
+    border: solid $surface-lighten-2;
+    margin: 1 0;
+}
+
+.sigma-preview {
+    height: 5;
+    width: 100%;
+    background: $surface;
+}
+
+/* Anchor selector */
+.anchor-selector {
+    height: auto;
+}
+
+/* RadioSet styling */
+RadioSet {
+    border: none;
+    padding: 0;
+    height: auto;
+}
+
+RadioButton {
+    height: auto;
+    padding: 0 1 0 0;
+}
+
+/* Switch styling */
+Switch {
+    height: auto;
+}
+
+/* Select styling */
+Select {
+    height: auto;
+    min-width: 20;
+}
+
+/* Input styling */
+Input {
+    height: auto;
+    min-width: 10;
+}
+
+Input.-invalid {
+    border: solid $error;
+}
+
+/* Tabbed content */
+TabbedContent {
+    width: 100%;
+    height: 100%;
+}
+
+TabPane {
+    padding: 1;
+    width: 100%;
+    height: 100%;
+}
+
+/* Screen containers inside TabPane */
+DataScreen, ModelScreen, TrainingScreen, TopDownScreen, ExportScreen {
+    width: 100%;
+    height: 100%;
+}
+
+/* Scrollable content inside screens */
+VerticalScroll {
+    width: 100%;
+    height: 100%;
+}
+
+/* Grid layouts */
+.grid-2 {
+    layout: grid;
+    grid-size: 2;
+    grid-gutter: 1;
+}
+
+.grid-3 {
+    layout: grid;
+    grid-size: 3;
+    grid-gutter: 1;
+}
+
+.grid-4 {
+    layout: grid;
+    grid-size: 4;
+    grid-gutter: 1;
+}
+
+/* Status indicators */
+.status-ok {
+    color: $success;
+}
+
+.status-warning {
+    color: $warning;
+}
+
+.status-error {
+    color: $error;
+}
+
+/* Top-down dual config tabs */
+.topdown-tabs {
+    height: 100%;
+}
+
+.config-tab {
+    padding: 1;
+}
+
+/* Export tab */
+.export-preview {
+    height: 1fr;
+}
+
+.export-actions {
+    height: auto;
+    padding: 1;
+}
+
+/* CLI command box */
+.cli-command {
+    background: $surface;
+    border: solid $surface-lighten-2;
+    padding: 1;
+    margin: 1 0;
+    color: $success;
+}
+
+/* Augmentation preview */
+.aug-preview {
+    height: auto;
+    padding: 1;
+    border: solid $surface-lighten-2;
+    margin: 1 0;
+}
+
+.aug-preview-pair {
+    layout: horizontal;
+    height: auto;
+}
+
+.aug-preview-box {
+    width: 1fr;
+    height: auto;
+    padding: 1;
+    text-align: center;
+}
+
+/* Progress bar styling for sliders */
+ProgressBar {
+    height: 1;
+    padding: 0;
+    margin: 0 1;
+}
+
+ProgressBar > .bar--bar {
+    background: $surface-lighten-2;
+}
+
+ProgressBar > .bar--complete {
+    background: $primary;
+}
+
+/* Rule styling */
+Rule {
+    margin: 1 0;
+    color: $surface-lighten-2;
+}
+
+/* Help text */
+.help-text {
+    color: $text-muted;
+    padding: 1 0 0 0;
+}
+
+/* Error message */
+.error-message {
+    color: $error;
+    padding: 1 0;
+}
+
+/* Success message */
+.success-message {
+    color: $success;
+    padding: 1 0;
+}
+
+/* Hidden class */
+.hidden {
+    display: none;
+}

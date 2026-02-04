@@ -90,10 +90,12 @@ def recommend_pipeline(stats: DatasetStats) -> PipelineRecommendation:
 
     Decision tree:
     1. Single animal per frame -> single_instance
-    2. Multiple animals with tracks -> multi_class variants
-    3. Multiple small animals (<15% frame area) -> top-down (centroid)
-    4. Multiple large animals with edges -> bottomup
-    5. Multiple large animals without edges -> top-down (centroid)
+    2. Multiple small animals (<20% frame area) -> top-down (centroid)
+    3. Multiple large animals with edges -> bottomup
+    4. Multiple large animals without edges -> top-down (centroid)
+
+    Note: Multi-class models are available as alternatives when tracks exist,
+    but are not recommended by default.
 
     Args:
         stats: DatasetStats from analyze_slp().
@@ -118,64 +120,46 @@ def recommend_pipeline(stats: DatasetStats) -> PipelineRecommendation:
             requires_second_model=False,
         )
 
-    # Multi-instance with identity
-    if stats.has_identity:
-        if stats.animal_to_frame_ratio < 0.15:
-            return PipelineRecommendation(
-                recommended="multi_class_topdown",
-                reason="Multiple small animals with track IDs",
-                alternatives=["multi_class_bottomup"],
-                warnings=[
-                    "Top-down requires training two models (centroid + centered_instance)"
-                ],
-                requires_second_model=True,
-                second_model_type="centered_instance",
-            )
-        else:
-            if stats.num_edges == 0:
-                warnings.append("No edges in skeleton - cannot use bottom-up")
-                return PipelineRecommendation(
-                    recommended="multi_class_topdown",
-                    reason="No skeleton edges available for bottom-up PAFs",
-                    alternatives=[],
-                    warnings=warnings,
-                    requires_second_model=True,
-                    second_model_type="centered_instance",
-                )
-            return PipelineRecommendation(
-                recommended="multi_class_bottomup",
-                reason="Multiple larger animals with track IDs",
-                alternatives=["multi_class_topdown"],
-                warnings=[],
-                requires_second_model=False,
-            )
-
-    # Multi-instance without identity
-    if stats.animal_to_frame_ratio < 0.15:
+    # Multi-instance: small animals -> top-down
+    if stats.animal_to_frame_ratio < 0.20:
+        # Small animals - recommend top-down
+        alternatives: List[PipelineType] = ["bottomup"]
+        if stats.has_identity:
+            alternatives.append("multi_class_topdown")
         return PipelineRecommendation(
             recommended="centroid",
-            reason="Animals are small relative to frame (<15% area) - "
+            reason=f"Animals are small relative to frame (~{int(stats.animal_to_frame_ratio * 100)}% area) - "
             "top-down approach recommended",
-            alternatives=["bottomup"],
+            alternatives=alternatives,
             warnings=["You'll need to train a centered_instance model as well"],
             requires_second_model=True,
             second_model_type="centered_instance",
         )
     else:
+        # Large animals
         if stats.num_edges == 0:
+            # No edges - can't use bottom-up
             warnings.append("No edges in skeleton - bottom-up requires edges for PAFs")
+            alternatives = []
+            if stats.has_identity:
+                alternatives.append("multi_class_topdown")
             return PipelineRecommendation(
                 recommended="centroid",
                 reason="No skeleton edges available for bottom-up",
-                alternatives=[],
+                alternatives=alternatives,
                 warnings=warnings,
                 requires_second_model=True,
                 second_model_type="centered_instance",
             )
+        # Has edges - recommend bottom-up
+        alternatives = ["centroid"]
+        if stats.has_identity:
+            alternatives.append("multi_class_bottomup")
         return PipelineRecommendation(
             recommended="bottomup",
-            reason="Multiple larger animals - bottom-up handles occlusions well",
-            alternatives=["centroid"],
+            reason=f"Larger animals (~{int(stats.animal_to_frame_ratio * 100)}% of frame) - "
+            "bottom-up handles occlusions well",
+            alternatives=alternatives,
             warnings=[],
             requires_second_model=False,
         )
