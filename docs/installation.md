@@ -114,9 +114,6 @@ SLEAP-NN uses [**uv**](https://docs.astral.sh/uv/) for installation and environm
     sleap-nn system
     ```
 
-!!! success "Done!"
-    Run `sleap-nn system` to see your GPU status and library versions.
-
 ---
 
 ## Updating

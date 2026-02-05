@@ -4,9 +4,18 @@ Train a model and run inference in under 5 minutes.
 
 ---
 
+## Installation
+
+```bash
+uv tool install sleap-nn[torch] --torch-backend auto
+```
+
+See [full installation guide](../installation.md) for other methods and troubleshooting.
+
+---
+
 ## Prerequisites
 
-- [SLEAP-NN installed](../installation.md)
 - A training dataset (`.slp` or `.pkg.slp` file)
 
 !!! tip "Sample Data"
