@@ -4734,27 +4734,49 @@
 </table>
 <hr />
 <h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># ONNX export</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pip<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>export<span class="o">]</span>
+<p>Export requires additional dependencies. Install them with your preferred method:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">uv (recommended)</label><label for="__tabbed_1_2">pip</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># ONNX export (CPU)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;sleap-nn[torch,export]&quot;</span><span class="w"> </span>--torch-backend<span class="w"> </span>auto
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># TensorRT export (NVIDIA GPUs)</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>pip<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>export-gpu,tensorrt<span class="o">]</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># ONNX export (GPU runtime)</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;sleap-nn[torch,export-gpu]&quot;</span><span class="w"> </span>--torch-backend<span class="w"> </span>auto
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># TensorRT export (Linux/Windows with NVIDIA GPU)</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;sleap-nn[torch,export-gpu,tensorrt]&quot;</span><span class="w"> </span>--torch-backend<span class="w"> </span>auto
 </span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># ONNX export (CPU)</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>pip<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch,export<span class="o">]</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># TensorRT export (NVIDIA GPUs)</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>pip<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch,export-gpu,tensorrt<span class="o">]</span>
+</span></code></pre></div>
+</div>
+</div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">TensorRT availability</p>
+<p>TensorRT is only available on Linux and Windows with NVIDIA GPUs.</p>
+</div>
 <hr />
 <h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
 <h3 id="export">Export<a class="headerlink" href="#export" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># ONNX only</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/my_model<span class="w"> </span>-o<span class="w"> </span>exports/<span class="w"> </span>--format<span class="w"> </span>onnx
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Both ONNX and TensorRT</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/my_model<span class="w"> </span>-o<span class="w"> </span>exports/<span class="w"> </span>--format<span class="w"> </span>both
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># ONNX only</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/my_model<span class="w"> </span>-o<span class="w"> </span>exports/<span class="w"> </span>--format<span class="w"> </span>onnx
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># Both ONNX and TensorRT</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/my_model<span class="w"> </span>-o<span class="w"> </span>exports/<span class="w"> </span>--format<span class="w"> </span>both
 </span></code></pre></div>
 <h3 id="run-inference">Run Inference<a class="headerlink" href="#run-inference" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>exports/my_model<span class="w"> </span>video.mp4<span class="w"> </span>-o<span class="w"> </span>predictions.slp
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>exports/my_model<span class="w"> </span>video.mp4<span class="w"> </span>-o<span class="w"> </span>predictions.slp
 </span></code></pre></div>
 <hr />
 <h2 id="export-options">Export Options<a class="headerlink" href="#export-options" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>MODEL_PATH<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>MODEL_PATH<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
 </span></code></pre></div>
 <table>
 <thead>
@@ -4795,20 +4817,20 @@
 <hr />
 <h2 id="model-types">Model Types<a class="headerlink" href="#model-types" title="Permanent link">&para;</a></h2>
 <h3 id="single-instance-bottom-up">Single Instance / Bottom-Up<a class="headerlink" href="#single-instance-bottom-up" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/bottomup<span class="w"> </span>-o<span class="w"> </span>exports/bottomup<span class="w"> </span>--format<span class="w"> </span>both
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/bottomup<span class="w"> </span>-o<span class="w"> </span>exports/bottomup<span class="w"> </span>--format<span class="w"> </span>both
 </span></code></pre></div>
 <h3 id="top-down">Top-Down<a class="headerlink" href="#top-down" title="Permanent link">&para;</a></h3>
 <p>Export both models together:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/centroid<span class="w"> </span>models/centered_instance<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span>-o<span class="w"> </span>exports/topdown<span class="w"> </span>--format<span class="w"> </span>both
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/centroid<span class="w"> </span>models/centered_instance<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span>-o<span class="w"> </span>exports/topdown<span class="w"> </span>--format<span class="w"> </span>both
 </span></code></pre></div>
 <h3 id="multi-class">Multi-Class<a class="headerlink" href="#multi-class" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/multi_class_bottomup<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span>-o<span class="w"> </span>exports/multiclass<span class="w"> </span>--format<span class="w"> </span>onnx
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/multi_class_bottomup<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span>-o<span class="w"> </span>exports/multiclass<span class="w"> </span>--format<span class="w"> </span>onnx
 </span></code></pre></div>
 <hr />
 <h2 id="inference-options">Inference Options<a class="headerlink" href="#inference-options" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>EXPORT_DIR<span class="w"> </span>VIDEO<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>EXPORT_DIR<span class="w"> </span>VIDEO<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
 </span></code></pre></div>
 <table>
 <thead>
@@ -4842,14 +4864,14 @@
 </tbody>
 </table>
 <h3 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Maximum speed with TensorRT</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>exports/model<span class="w"> </span>video.mp4<span class="w"> </span>--runtime<span class="w"> </span>tensorrt<span class="w"> </span>--batch-size<span class="w"> </span><span class="m">8</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># CPU inference</span>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>exports/model<span class="w"> </span>video.mp4<span class="w"> </span>--runtime<span class="w"> </span>onnx<span class="w"> </span>--device<span class="w"> </span>cpu
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="c1"># First 1000 frames</span>
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>exports/model<span class="w"> </span>video.mp4<span class="w"> </span>--n-frames<span class="w"> </span><span class="m">1000</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Maximum speed with TensorRT</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>exports/model<span class="w"> </span>video.mp4<span class="w"> </span>--runtime<span class="w"> </span>tensorrt<span class="w"> </span>--batch-size<span class="w"> </span><span class="m">8</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># CPU inference</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>exports/model<span class="w"> </span>video.mp4<span class="w"> </span>--runtime<span class="w"> </span>onnx<span class="w"> </span>--device<span class="w"> </span>cpu
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1"># First 1000 frames</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>exports/model<span class="w"> </span>video.mp4<span class="w"> </span>--n-frames<span class="w"> </span><span class="m">1000</span>
 </span></code></pre></div>
 <hr />
 <h2 id="performance">Performance<a class="headerlink" href="#performance" title="Permanent link">&para;</a></h2>
@@ -4891,26 +4913,26 @@
 <hr />
 <h2 id="python-api">Python API<a class="headerlink" href="#python-api" title="Permanent link">&para;</a></h2>
 <h3 id="export_1">Export<a class="headerlink" href="#export_1" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.export</span><span class="w"> </span><span class="kn">import</span> <span class="n">export_to_onnx</span><span class="p">,</span> <span class="n">export_to_tensorrt</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">export_to_onnx</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;model.onnx&quot;</span><span class="p">,</span> <span class="n">input_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">192</span><span class="p">,</span> <span class="mi">192</span><span class="p">))</span>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="n">export_to_tensorrt</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;model.trt&quot;</span><span class="p">,</span> <span class="n">input_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">192</span><span class="p">,</span> <span class="mi">192</span><span class="p">))</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.export</span><span class="w"> </span><span class="kn">import</span> <span class="n">export_to_onnx</span><span class="p">,</span> <span class="n">export_to_tensorrt</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">export_to_onnx</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;model.onnx&quot;</span><span class="p">,</span> <span class="n">input_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">192</span><span class="p">,</span> <span class="mi">192</span><span class="p">))</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">export_to_tensorrt</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;model.trt&quot;</span><span class="p">,</span> <span class="n">input_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">192</span><span class="p">,</span> <span class="mi">192</span><span class="p">))</span>
 </span></code></pre></div>
 <h3 id="inference">Inference<a class="headerlink" href="#inference" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.export.predictors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ONNXPredictor</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">ONNXPredictor</span><span class="p">(</span><span class="s2">&quot;model.onnx&quot;</span><span class="p">)</span>
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="n">frames</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">256</span><span class="p">,</span> <span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">192</span><span class="p">,</span> <span class="mi">192</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
-</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="n">outputs</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">frames</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.export.predictors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ONNXPredictor</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">ONNXPredictor</span><span class="p">(</span><span class="s2">&quot;model.onnx&quot;</span><span class="p">)</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="n">frames</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">256</span><span class="p">,</span> <span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">192</span><span class="p">,</span> <span class="mi">192</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="n">outputs</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">frames</span><span class="p">)</span>
 </span></code></pre></div>
 <hr />
 <h2 id="output-files">Output Files<a class="headerlink" href="#output-files" title="Permanent link">&para;</a></h2>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>exports/my_model/
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>├── model.onnx
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>├── model.onnx.metadata.json
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>├── model.trt                   # If TensorRT
-</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>└── model.trt.metadata.json     # If TensorRT
+<div class="language-text highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>exports/my_model/
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>├── model.onnx
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>├── model.onnx.metadata.json
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>├── model.trt                   # If TensorRT
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>└── model.trt.metadata.json     # If TensorRT
 </span></code></pre></div>
 <hr />
 <h2 id="limitations">Limitations<a class="headerlink" href="#limitations" title="Permanent link">&para;</a></h2>
@@ -4924,11 +4946,11 @@
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <details class="question">
 <summary>ONNX Runtime falls back to CPU</summary>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Check available providers</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import onnxruntime as ort; print(ort.get_available_providers())&quot;</span>
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="c1"># Install GPU support</span>
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>pip<span class="w"> </span>install<span class="w"> </span>onnxruntime-gpu
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Check available providers</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import onnxruntime as ort; print(ort.get_available_providers())&quot;</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="c1"># Install GPU support</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>pip<span class="w"> </span>install<span class="w"> </span>onnxruntime-gpu
 </span></code></pre></div>
 </details>
 <details class="question">
