@@ -20,7 +20,7 @@ sleap-nn eval \
 | `-g` / `--ground_truth_path` | Ground truth labels file | Required |
 | `-p` / `--predicted_path` | Predicted labels file | Required |
 | `-s` / `--save_metrics` | Save metrics to .npz file | None |
-| `--oks_stddev` | OKS standard deviation | `0.025` |
+| `--oks_stddev` | OKS standard deviation | `0.05` |
 | `--user_labels_only` | Only evaluate user-labeled frames | `False` |
 
 ---

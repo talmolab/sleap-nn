@@ -171,7 +171,7 @@ Once training completes, run on `val.pkg.slp` (or a video):
 ```bash
 sleap-nn track \
     --data_path val.pkg.slp \
-    --model_paths models/fly_single_instance/
+    --model_paths models/fly_single_instance/ \
     -o predictions.slp
 ```
 

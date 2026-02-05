@@ -18,13 +18,33 @@ Export models for high-performance production inference.
 
 ## Installation
 
-```bash
-# ONNX export
-pip install sleap-nn[export]
+Export requires additional dependencies. Install them with your preferred method:
 
-# TensorRT export (NVIDIA GPUs)
-pip install sleap-nn[export-gpu,tensorrt]
-```
+=== "uv (recommended)"
+
+    ```bash
+    # ONNX export (CPU)
+    uv tool install "sleap-nn[torch,export]" --torch-backend auto
+
+    # ONNX export (GPU runtime)
+    uv tool install "sleap-nn[torch,export-gpu]" --torch-backend auto
+
+    # TensorRT export (Linux/Windows with NVIDIA GPU)
+    uv tool install "sleap-nn[torch,export-gpu,tensorrt]" --torch-backend auto
+    ```
+
+=== "pip"
+
+    ```bash
+    # ONNX export (CPU)
+    pip install sleap-nn[torch,export]
+
+    # TensorRT export (NVIDIA GPUs)
+    pip install sleap-nn[torch,export-gpu,tensorrt]
+    ```
+
+!!! note "TensorRT availability"
+    TensorRT is only available on Linux and Windows with NVIDIA GPUs.
 
 ---
 
