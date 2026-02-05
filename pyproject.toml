@@ -67,7 +67,10 @@ torch-cuda128 = ["torch", "torchvision>=0.20.0"]
 torch-cuda130 = ["torch", "torchvision>=0.20.0"]
 export = ["onnx>=1.15.0", "onnxruntime>=1.16.0", "onnxscript>=0.1.0"]
 export-gpu = ["onnx>=1.15.0", "onnxruntime-gpu>=1.16.0", "onnxscript>=0.1.0"]
-tensorrt = ["tensorrt>=10.0.0", "torch-tensorrt>=2.0.0"]
+tensorrt = [
+    "tensorrt>=10.13.0; sys_platform == 'linux' or sys_platform == 'win32'",
+    "torch-tensorrt>=2.5.0; sys_platform == 'linux' or sys_platform == 'win32'",
+]
 
 [dependency-groups]
 # PEP 735: Dev-only dependencies (`dev` is installed automatically by `uv sync`)
@@ -160,6 +163,51 @@ name = "testpypi"
 url = "https://test.pypi.org/simple/"
 publish-url = "https://test.pypi.org/legacy/"
 explicit = true
+
+# Static metadata for TensorRT packages to avoid running their stub setup.py
+# during cross-platform lockfile generation (stubs fail on macOS).
+# See: https://github.com/astral-sh/uv/issues/13942
+#
+# We provide metadata for both cu12 and cu13 variants since:
+#   - Older torch-tensorrt versions depend directly on tensorrt-cu12
+#   - Newer torch-tensorrt versions use the tensorrt metapackage which depends on cu13
+#
+# The tensorrt metapackage metadata assumes cu13 (for tensorrt >=10.13).
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt"
+requires-dist = ["tensorrt-cu13"]
+
+# CUDA 12 variant packages (for older torch-tensorrt direct dependencies)
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12"
+requires-dist = ["tensorrt-cu12-bindings", "tensorrt-cu12-libs"]
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12-bindings"
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12-libs"
+requires-dist = ["nvidia-cuda-runtime-cu12"]
+
+# CUDA 13 variant packages (for tensorrt >=10.13)
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu13"
+requires-dist = ["tensorrt-cu13-bindings", "tensorrt-cu13-libs"]
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu13-bindings"
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu13-libs"
+requires-dist = ["nvidia-cuda-runtime-cu12"]
+
+# Common CUDA runtime dependency
+[[tool.uv.dependency-metadata]]
+name = "nvidia-cuda-runtime-cu12"
+
+[[tool.uv.dependency-metadata]]
+name = "nvidia-cuda-runtime"
 
 [tool.black]
 line-length = 88
