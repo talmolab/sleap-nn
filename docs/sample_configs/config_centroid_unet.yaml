@@ -147,7 +147,9 @@ trainer_config:
     controller_port: 9000
     controller_polling_timeout: 10
     publish_port: 9001
+  eval:
+    enabled: true
+    frequency: 1
+    match_threshold: 50.0  # Max distance (px) for centroid matching
 name: ''
 description: ''
-sleap_nn_version: 0.0.1
-filename: ''

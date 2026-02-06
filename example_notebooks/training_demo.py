@@ -21,7 +21,7 @@
 
 import marimo
 
-__generated_with = "0.15.3"
+__generated_with = "0.19.7"
 app = marimo.App(width="medium")
 
 
@@ -95,28 +95,26 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
+    mo.md(r"""
     This tutorial notebook walks through creating a config file, run training, inference, and evaluation worlflows in sleap-nn using higher-level APIs. (See docs for details on how to use our CLI).
 
     **_Note_**: This tutorial runs on CPU by default (or MPS on macOS). CUDA libraries are intentionally not included in the notebook’s dependencies.
-    """
-    )
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
+    mo.md(r"""
     **_Tips on using marimo:
     _**
 
     Marimo notebooks are designed for a seamless, automated workflow. After you select the model type, all cells will execute automatically—no need to run them one by one. However, training and inference will start only when you click the **Run Training**/ **Run Inference** button, giving you full control over when to begin model training or run inference.
 
+    (If the run button in the bottom right corner is highlighted in yellow, click on the run button to start)
+
     If you want to tweak values in a specific cell, edit the cell and click its yellow highlighted Run button on the right of the cell block; that cell will execute, and Marimo will automatically re-run only the downstream cells that depend on it, leaving unrelated cells unchanged. If you need a full refresh, use highlighted `Run all` button in the bottom right corner!
-    """
-    )
+    """)
     return
 
 
@@ -149,12 +147,10 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
+    mo.md(r"""
     If you already have `.slp` files to work with, modify
     the paths below.
-    """
-    )
+    """)
     return
 
 
@@ -167,9 +163,9 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""#### Choose the model type you want to train! (To start simple, you could choose single-instance)"""
-    )
+    mo.md(r"""
+    #### Choose the model type you want to train! (To start simple, you could choose single-instance)
+    """)
     return
 
 
@@ -185,23 +181,25 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""### Set-up config""")
+    mo.md(r"""
+    ### Set-up config
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""The first step in training is setting up the configuration. You can either start from one of the sample YAMLs in the repo and edit it, or build the config programmatically. In this tutorial, we’ll take the functional route: compose each section (`data_config`, `model_config`, `trainer_config`) using handy functions and then create an Omegaconf config."""
-    )
+    mo.md(r"""
+    The first step in training is setting up the configuration. You can either start from one of the sample YAMLs in the repo and edit it, or build the config programmatically. In this tutorial, we’ll take the functional route: compose each section (`data_config`, `model_config`, `trainer_config`) using handy functions and then create an Omegaconf config.
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""First, we set-up the data config using `get_data_config()` function which has a set of defaults, and could be modified if required."""
-    )
+    mo.md(r"""
+    First, we set-up the data config using `get_data_config()` function which has a set of defaults, and could be modified if required.
+    """)
     return
 
 
@@ -220,7 +218,9 @@ def _(get_data_config, path_to_train_slp_file, path_to_val_slp_file):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""Let's see how the `data_config` section looks like:""")
+    mo.md(r"""
+    Let's see how the `data_config` section looks like:
+    """)
     return
 
 
@@ -234,7 +234,9 @@ def _(OmegaConf, data_config):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""If required, we could also modify the default values as given below:""")
+    mo.md(r"""
+    If required, we could also modify the default values as given below:
+    """)
     return
 
 
@@ -247,9 +249,9 @@ def _(data_config):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""Next, we set-up the model config using `get_model_config()` function which sets up the parameters for building the model. We will be using the `unet` model as the backbone here and head config would be updated based on the model type you chose before!"""
-    )
+    mo.md(r"""
+    Next, we set-up the model config using `get_model_config()` function which sets up the parameters for building the model. We will be using the `unet` model as the backbone here and head config would be updated based on the model type you chose before!
+    """)
     return
 
 
@@ -263,7 +265,9 @@ def _(get_model_config, model_type):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""Let's print and see how the `model_config` looks like:""")
+    mo.md(r"""
+    Let's print and see how the `model_config` looks like:
+    """)
     return
 
 
@@ -277,7 +281,9 @@ def _(OmegaConf, model_config):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""If required, we could modify the default values as given below:""")
+    mo.md(r"""
+    If required, we could modify the default values as given below:
+    """)
     return
 
 
@@ -289,9 +295,9 @@ def _(model_config):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""Next, we set-up the trainer config using `get_trainer_config()` function which has a set of defaults for setting up the hyperparameters for training, which could be modified if needed."""
-    )
+    mo.md(r"""
+    Next, we set-up the trainer config using `get_trainer_config()` function which has a set of defaults for setting up the hyperparameters for training, which could be modified if needed.
+    """)
     return
 
 
@@ -314,9 +320,9 @@ def _(get_trainer_config, model_type):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""**_Note_**: If you want to visualize the model training in [WandB](https://wandb.ai), set the following parameters:"""
-    )
+    mo.md(r"""
+    **_Note_**: If you want to visualize the model training in [WandB](https://wandb.ai), set the following parameters:
+    """)
     return
 
 
@@ -334,15 +340,17 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""**_Note_**: If you’re not using caching (memory/disk; see `data_config.data_pipeline_fw`) and your dataset/transforms aren’t picklable, set num_workers=0 on Windows/macOS (they use `spawn`). On Linux (default `fork`), multiple workers are typically safe."""
-    )
+    mo.md(r"""
+    **_Note_**: If you’re not using caching (memory/disk; see `data_config.data_pipeline_fw`) and your dataset/transforms aren’t picklable, set num_workers=0 on Windows/macOS (they use `spawn`). On Linux (default `fork`), multiple workers are typically safe.
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""Let's look into the generated `trainer_config`:""")
+    mo.md(r"""
+    Let's look into the generated `trainer_config`:
+    """)
     return
 
 
@@ -356,9 +364,9 @@ def _(OmegaConf, trainer_config):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""Using the above initialized config classes, create a `TrainingJobConfig` instance, which could then be converted to a `OmegaConf` object."""
-    )
+    mo.md(r"""
+    Using the above initialized config classes, create a `TrainingJobConfig` instance, which could then be converted to a `OmegaConf` object.
+    """)
     return
 
 
@@ -379,9 +387,9 @@ def _(TrainingJobConfig, data_config, model_config, trainer_config):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""The entire configuration that would be given as input to the training modules:"""
-    )
+    mo.md(r"""
+    The entire configuration that would be given as input to the training modules:
+    """)
     return
 
 
@@ -395,15 +403,17 @@ def _(OmegaConf, sleap_nn_cfg):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""### Run training""")
+    mo.md(r"""
+    ### Run training
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""Create an instance of the `ModelTrainer` class by passing the config to the `get_model_trainer_from_config` method."""
-    )
+    mo.md(r"""
+    Create an instance of the `ModelTrainer` class by passing the config to the `get_model_trainer_from_config` method.
+    """)
     return
 
 
@@ -415,17 +425,17 @@ def _(ModelTrainer, sleap_nn_cfg):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""The `get_model_trainer_from_config` method does the training setup by calling dataset preparation methods to establish training and validation labels (automatically splitting training data for validation if needed) and then invoking `setup_config()` to process the loaded labels and automatically populate all configuration fields that were initially `None`. This includes computing `max_height` and `max_width` from actual image dimensions in the `sio.Labels` files, extracting skeletons from the labels data structure, and calculating other derived parameters based on the actual data characteristics. The method essentially transforms a minimal configuration into a complete configuration and ensures all required fields are populated and consistent before training begins, allowing users to start with basic parameters while the system automatically handles the complex configuration details."""
-    )
+    mo.md(r"""
+    The `get_model_trainer_from_config` method does the training setup by calling dataset preparation methods to establish training and validation labels (automatically splitting training data for validation if needed) and then invoking `setup_config()` to process the loaded labels and automatically populate all configuration fields that were initially `None`. This includes computing `max_height` and `max_width` from actual image dimensions in the `sio.Labels` files, extracting skeletons from the labels data structure, and calculating other derived parameters based on the actual data characteristics. The method essentially transforms a minimal configuration into a complete configuration and ensures all required fields are populated and consistent before training begins, allowing users to start with basic parameters while the system automatically handles the complex configuration details.
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""Let's take a look at the config now, which now has all fields set (esp. `data_config.preprocessing.max_width`, `data_config.preprocessing.max_width` and `data_config.skeletons`)"""
-    )
+    mo.md(r"""
+    Let's take a look at the config now, which now has all fields set (esp. `data_config.preprocessing.max_width`, `data_config.preprocessing.max_width` and `data_config.skeletons`)
+    """)
     return
 
 
@@ -439,9 +449,9 @@ def _(OmegaConf, model_trainer):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""Let's create the training and validation dataloaders using `model_trainer.train_labels`, `model_trainer.val_labels`, and `model_trainer.config`. These attributes are initialized when you call `get_model_trainer_from_config()`."""
-    )
+    mo.md(r"""
+    Let's create the training and validation dataloaders using `model_trainer.train_labels`, `model_trainer.val_labels`, and `model_trainer.config`. These attributes are initialized when you call `get_model_trainer_from_config()`.
+    """)
     return
 
 
@@ -465,7 +475,9 @@ def _(get_train_val_dataloaders, get_train_val_datasets, model_trainer):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""Let's visualize some of the sample images from the training labels!""")
+    mo.md(r"""
+    Let's visualize some of the sample images from the training labels!
+    """)
     return
 
 
@@ -565,9 +577,9 @@ def _(model_type, plt, torch, train_dataloader):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""We can instantiate the `LightningModule` from the config by calling `get_lightning_model_from_config`."""
-    )
+    mo.md(r"""
+    We can instantiate the `LightningModule` from the config by calling `get_lightning_model_from_config`.
+    """)
     return
 
 
@@ -583,7 +595,9 @@ def _(LightningModel, model_trainer):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""Let's take a look at the model created from our config:""")
+    mo.md(r"""
+    Let's take a look at the model created from our config:
+    """)
     return
 
 
@@ -595,17 +609,17 @@ def _(lightning_model):
 
 @app.cell(hide_code=True)
 def _(lightning_model, mo):
-    mo.md(
-        f"""#### Total number of parameters: {sum(p.numel() for p in lightning_model.parameters())}"""
-    )
+    mo.md(f"""
+    #### Total number of parameters: {sum(p.numel() for p in lightning_model.parameters())}
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""Next to start the training process, we call the `train()` method of the `ModelTrainer` class. The `train()` method internally handles the complete training pipeline by automatically creating and configuring all necessary components, including dataloaders and Lightning modules. After creating a ModelTrainer instance using the `get_model_trainer_from_config` function, directly call this `train` method to initiate the entire training process without needing to manually set up individual components."""
-    )
+    mo.md(r"""
+    Next to start the training process, we call the `train()` method of the `ModelTrainer` class. The `train()` method internally handles the complete training pipeline by automatically creating and configuring all necessary components, including dataloaders and Lightning modules. After creating a ModelTrainer instance using the `get_model_trainer_from_config` function, directly call this `train` method to initiate the entire training process without needing to manually set up individual components.
+    """)
     return
 
 
@@ -628,15 +642,17 @@ def _(mo, model_trainer, run_train):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""### Run inference / Get evaluation metrics""")
+    mo.md(r"""
+    ### Run inference / Get evaluation metrics
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""Once we have the checkpoints, we can run inference on either a `.slp` file or a `.mp4` with the trained model."""
-    )
+    mo.md(r"""
+    Once we have the checkpoints, we can run inference on either a `.slp` file or a `.mp4` with the trained model.
+    """)
     return
 
 
@@ -677,9 +693,9 @@ def _(
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""Evaluate the model against ground truth and compute metrics. (Make sure gt_labels contains ground-truth annotations.)"""
-    )
+    mo.md(r"""
+    Evaluate the model against ground truth and compute metrics. (Make sure gt_labels contains ground-truth annotations.)
+    """)
     return
 
 
@@ -703,15 +719,17 @@ def _(Evaluator, path_to_val_slp_file, pred_labels, sio):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""**_Note (for centroid-only inference)_**: The centroid model is essentially the first stage of TopDown model workflow, which only predicts centers, not keypoints. In centroid-only inference, each predicted centroid is matched (by Euclidean distance) to the nearest ground-truth instance, and the ground-truth keypoints are copied for display. Therefore, an OKS mAP of 1.0 just means all instances were detected—it does not reflect pose/keypoint accuracy. To evaluate keypoints, run the second stage (the pose model) rather than centroid-only inference."""
-    )
+    mo.md(r"""
+    **_Note (for centroid-only inference)_**: The centroid model is essentially the first stage of TopDown model workflow, which only predicts centers, not keypoints. In centroid-only inference, each predicted centroid is matched (by Euclidean distance) to the nearest ground-truth instance, and the ground-truth keypoints are copied for display. Therefore, an OKS mAP of 1.0 just means all instances were detected—it does not reflect pose/keypoint accuracy. To evaluate keypoints, run the second stage (the pose model) rather than centroid-only inference.
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""Sample predictions:""")
+    mo.md(r"""
+    Sample predictions:
+    """)
     return
 
 
@@ -839,7 +857,6 @@ def _(cv2, mo, np, plt, random):
     **Saved as:** `{output_path}`
     """
         )
-
     return (plot_preds_video,)
 
 
@@ -882,7 +899,9 @@ def _(mo, pred_labels):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""To view predictions of a certain frame:""")
+    mo.md(r"""
+    To view predictions of a certain frame:
+    """)
     return
 
 

@@ -50,7 +50,7 @@ logger.add(
     colorize=False,
 )
 
-__version__ = "0.1.0a4"
+__version__ = "0.1.0"
 
 # Public API
 from sleap_nn.evaluation import load_metrics

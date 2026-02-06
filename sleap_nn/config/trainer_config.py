@@ -179,18 +179,68 @@ class ReduceLROnPlateauConfig:
 
 
 @define
+class CosineAnnealingWarmupConfig:
+    """Configuration for Cosine Annealing with Linear Warmup scheduler.
+
+    The learning rate increases linearly during warmup, then decreases following
+    a cosine curve to the minimum value.
+
+    Attributes:
+        warmup_epochs: (int) Number of epochs for linear warmup phase. *Default*: `5`.
+        max_epochs: (int) Total number of training epochs. Will be overridden by
+            trainer's max_epochs if not specified. *Default*: `None`.
+        warmup_start_lr: (float) Learning rate at start of warmup. *Default*: `0.0`.
+        eta_min: (float) Minimum learning rate at end of cosine decay. *Default*: `0.0`.
+    """
+
+    warmup_epochs: int = field(default=5, validator=validators.ge(0))
+    max_epochs: Optional[int] = None
+    warmup_start_lr: float = field(default=0.0, validator=validators.ge(0))
+    eta_min: float = field(default=0.0, validator=validators.ge(0))
+
+
+@define
+class LinearWarmupLinearDecayConfig:
+    """Configuration for Linear Warmup + Linear Decay scheduler.
+
+    The learning rate increases linearly during warmup, then decreases linearly
+    to the end learning rate.
+
+    Attributes:
+        warmup_epochs: (int) Number of epochs for linear warmup phase. *Default*: `5`.
+        max_epochs: (int) Total number of training epochs. Will be overridden by
+            trainer's max_epochs if not specified. *Default*: `None`.
+        warmup_start_lr: (float) Learning rate at start of warmup. *Default*: `0.0`.
+        end_lr: (float) Learning rate at end of training. *Default*: `0.0`.
+    """
+
+    warmup_epochs: int = field(default=5, validator=validators.ge(0))
+    max_epochs: Optional[int] = None
+    warmup_start_lr: float = field(default=0.0, validator=validators.ge(0))
+    end_lr: float = field(default=0.0, validator=validators.ge(0))
+
+
+@define
 class LRSchedulerConfig:
     """Configuration for lr_scheduler.
+
+    Only one scheduler should be configured at a time. If multiple are set,
+    priority order is: cosine_annealing_warmup > linear_warmup_linear_decay >
+    step_lr > reduce_lr_on_plateau.
 
     Attributes:
         step_lr: Configuration for StepLR scheduler.
         reduce_lr_on_plateau: Configuration for ReduceLROnPlateau scheduler.
+        cosine_annealing_warmup: Configuration for Cosine Annealing with Linear Warmup scheduler.
+        linear_warmup_linear_decay: Configuration for Linear Warmup + Linear Decay scheduler.
     """
 
     step_lr: Optional[StepLRConfig] = None
     reduce_lr_on_plateau: Optional[ReduceLROnPlateauConfig] = field(
         factory=ReduceLROnPlateauConfig
     )
+    cosine_annealing_warmup: Optional[CosineAnnealingWarmupConfig] = None
+    linear_warmup_linear_decay: Optional[LinearWarmupLinearDecayConfig] = None
 
 
 @define
@@ -217,12 +267,15 @@ class EvalConfig:
         frequency: (int) Evaluate every N epochs. *Default*: `1`.
         oks_stddev: (float) OKS standard deviation for evaluation. *Default*: `0.025`.
         oks_scale: (float) OKS scale override. If None, uses default. *Default*: `None`.
+        match_threshold: (float) Maximum distance in pixels for centroid matching.
+            Only used for centroid model evaluation. *Default*: `50.0`.
     """
 
     enabled: bool = False
     frequency: int = field(default=1, validator=validators.ge(1))
     oks_stddev: float = field(default=0.025, validator=validators.gt(0))
     oks_scale: Optional[float] = None
+    match_threshold: float = field(default=50.0, validator=validators.gt(0))
 
 
 @define
