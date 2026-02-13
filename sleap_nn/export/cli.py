@@ -852,14 +852,14 @@ def export(
 @click.option(
     "--min-line-scores",
     type=float,
-    default=-0.5,
+    default=0.25,
     show_default=True,
     help="Bottom-up: minimum line score threshold.",
 )
 @click.option(
     "--peak-conf-threshold",
     type=float,
-    default=0.1,
+    default=0.2,
     show_default=True,
     help="Bottom-up: peak confidence threshold for filtering candidates.",
 )
@@ -1340,7 +1340,7 @@ def _predict_bottomup_frames(
     paf_scorer,
     candidate_template,
     input_scale,
-    peak_conf_threshold=0.1,
+    peak_conf_threshold=0.2,
     max_instances=None,
 ):
     """Convert bottom-up model outputs to LabeledFrames."""
@@ -1584,7 +1584,7 @@ def _predict_multiclass_bottomup_frames(
     skeleton,
     class_names: list,
     input_scale: float = 1.0,
-    peak_conf_threshold: float = 0.1,
+    peak_conf_threshold: float = 0.2,
     max_instances: int = None,
 ):
     """Convert bottom-up multiclass model outputs to LabeledFrames.
