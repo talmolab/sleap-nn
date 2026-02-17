@@ -654,7 +654,11 @@ class SingleInstanceLightningModule(LightningModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1).to(self.device)
+        # Only squeeze n_samples dim if 5D (batch, n_samples, C, H, W) -> (batch, C, H, W)
+        # Avoid double-squeezing when called from validation_step which already squeezes
+        if img.ndim == 5:
+            img = img.squeeze(1)
+        img = img.to(self.device)
         img = normalize_on_gpu(img)
         return self.model(img)["SingleInstanceConfmapsHead"]
 
