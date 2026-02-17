@@ -917,5 +917,142 @@ cli.add_command(export_command)
 cli.add_command(predict_command)
 
 
+@cli.command()
+@click.argument("slp_path", type=str, required=False, default=None)
+@click.option(
+    "--output",
+    "-o",
+    type=str,
+    default=None,
+    help="Output path for the generated config file(s).",
+)
+@click.option(
+    "--auto",
+    is_flag=True,
+    default=False,
+    help="Auto-generate config without interactive TUI.",
+)
+@click.option(
+    "--view",
+    type=click.Choice(["side", "top"]),
+    default=None,
+    help="Camera view type for augmentation defaults.",
+)
+@click.option(
+    "--pipeline",
+    type=click.Choice([
+        "single_instance", "centroid", "centered_instance",
+        "bottomup", "multi_class_bottomup", "multi_class_topdown"
+    ]),
+    default=None,
+    help="Override model pipeline type.",
+)
+@click.option(
+    "--batch-size",
+    type=int,
+    default=None,
+    help="Override batch size.",
+)
+@click.option(
+    "--max-epochs",
+    type=int,
+    default=None,
+    help="Override max epochs.",
+)
+@click.option(
+    "--show-yaml",
+    is_flag=True,
+    default=False,
+    help="Print generated YAML to stdout.",
+)
+@click.option(
+    "--analyze-only",
+    is_flag=True,
+    default=False,
+    help="Only analyze the SLP file and show statistics.",
+)
+def config(
+    slp_path,
+    output,
+    auto,
+    view,
+    pipeline,
+    batch_size,
+    max_epochs,
+    show_yaml,
+    analyze_only,
+):
+    """Generate training configuration for a SLEAP file.
+
+    Launch an interactive TUI to configure training, or use --auto to
+    generate a config with smart defaults based on your data.
+
+    Examples:
+
+        # Interactive TUI
+        sleap-nn config labels.slp
+
+        # Auto-generate config
+        sleap-nn config labels.slp --auto -o config.yaml
+
+        # Auto-generate with overrides
+        sleap-nn config labels.slp --auto --pipeline bottomup --batch-size 8
+
+        # Analyze only (no config generation)
+        sleap-nn config labels.slp --analyze-only
+    """
+    from sleap_nn.config_generator.analyzer import analyze_slp
+    from sleap_nn.config_generator.generator import ConfigGenerator
+
+    # Analyze-only mode
+    if analyze_only:
+        if not slp_path:
+            click.echo("Error: SLP_PATH is required for --analyze-only", err=True)
+            raise SystemExit(1)
+
+        stats = analyze_slp(slp_path)
+        click.echo(stats)
+        return
+
+    # Auto mode (non-interactive)
+    if auto:
+        if not slp_path:
+            click.echo("Error: SLP_PATH is required for --auto mode", err=True)
+            raise SystemExit(1)
+
+        gen = ConfigGenerator.from_slp(slp_path)
+        gen.auto(view=view)
+
+        # Apply overrides
+        if pipeline:
+            gen.pipeline(pipeline)
+        if batch_size:
+            gen.batch_size(batch_size)
+        if max_epochs:
+            gen.max_epochs(max_epochs)
+
+        if show_yaml:
+            click.echo(gen.to_yaml())
+        elif output:
+            gen.save(output)
+            click.echo(f"Saved config to: {output}")
+        else:
+            # Default output path
+            slp_stem = Path(slp_path).stem
+            output_path = Path(slp_path).parent / f"{slp_stem}_config.yaml"
+            gen.save(str(output_path))
+            click.echo(f"Saved config to: {output_path}")
+        return
+
+    # Interactive TUI mode
+    try:
+        from sleap_nn.config_generator.tui.app import launch_tui
+        launch_tui(slp_path)
+    except ImportError as e:
+        click.echo(f"Error: TUI dependencies not available: {e}", err=True)
+        click.echo("Install with: pip install textual", err=True)
+        raise SystemExit(1)
+
+
 if __name__ == "__main__":
     cli()
