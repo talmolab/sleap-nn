@@ -4147,6 +4147,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v010" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v010a4" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4318,6 +4329,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v010" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v010a4" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -4445,6 +4467,584 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h2 id="v010"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.1.0">v0.1.0</a><a class="headerlink" href="#v010" title="Permanent link">&para;</a></h2>
+<h1>SLEAP-NN v0.1.0 Release Notes</h1>
+<h2>Summary</h2>
+<p>We are excited to announce <strong>SLEAP-NN v0.1.0</strong>, the first stable release of the v0.1.x series! This major release brings significant improvements across the entire stack: simplified installation, faster data pipelines, multi-GPU training support, ONNX/TensorRT export, and comprehensive documentation.</p>
+<p><strong>Key highlights:</strong></p>
+<ul>
+<li><strong>Simplified Installation</strong>: One-command install with automatic GPU detection via <code>--torch-backend auto</code></li>
+<li><strong>2x Faster Data Pipeline</strong>: New Skia-based augmentation backend replaces Kornia</li>
+<li><strong>Multi-GPU Training</strong>: Full DDP support with synchronized caching and callbacks</li>
+<li><strong>ONNX/TensorRT Export</strong>: 3-6x faster inference with optimized model formats</li>
+<li><strong>51x Faster Peak Refinement</strong>: Optimized tensor indexing for centroid/instance finding</li>
+<li><strong>Parallel Image Caching</strong>: Multi-threaded caching for faster training startup</li>
+<li><strong>Real-time Evaluation</strong>: Epoch-end metrics logged directly to WandB</li>
+<li><strong>Revamped Documentation</strong>: Comprehensive guides, tutorials, and API reference</li>
+</ul>
+<hr>
+<h2>Installation</h2>
+<h3>Install with uv (Recommended)</h3>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="# Automatic GPU detection (CUDA, MPS or CPU)
+uv tool install sleap-nn[torch] --torch-backend auto"><pre><span class="pl-c"><span class="pl-c">#</span> Automatic GPU detection (CUDA, MPS or CPU)</span>
+uv tool install sleap-nn[torch] --torch-backend auto</pre></div>
+<h3>Verify Installation</h3>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="sleap-nn --version
+# Expected output: 0.1.0
+
+sleap-nn system
+# Shows full system diagnostics including GPU info"><pre>sleap-nn --version
+<span class="pl-c"><span class="pl-c">#</span> Expected output: 0.1.0</span>
+
+sleap-nn system
+<span class="pl-c"><span class="pl-c">#</span> Shows full system diagnostics including GPU info</span></pre></div>
+<h3>Optional Dependencies</h3>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="# ONNX export (CPU inference)
+uv tool install &quot;sleap-nn[torch,export]&quot; --torch-backend auto
+
+# ONNX export (GPU inference)
+uv tool install &quot;sleap-nn[torch,export-gpu]&quot; --torch-backend auto
+
+# TensorRT support (Linux/Windows only)
+uv tool install &quot;sleap-nn[torch,tensorrt]&quot; --torch-backend auto"><pre><span class="pl-c"><span class="pl-c">#</span> ONNX export (CPU inference)</span>
+uv tool install <span class="pl-s"><span class="pl-pds">"</span>sleap-nn[torch,export]<span class="pl-pds">"</span></span> --torch-backend auto
+
+<span class="pl-c"><span class="pl-c">#</span> ONNX export (GPU inference)</span>
+uv tool install <span class="pl-s"><span class="pl-pds">"</span>sleap-nn[torch,export-gpu]<span class="pl-pds">"</span></span> --torch-backend auto
+
+<span class="pl-c"><span class="pl-c">#</span> TensorRT support (Linux/Windows only)</span>
+uv tool install <span class="pl-s"><span class="pl-pds">"</span>sleap-nn[torch,tensorrt]<span class="pl-pds">"</span></span> --torch-backend auto</pre></div>
+<hr>
+<h2>Breaking Changes</h2>
+<h3>1. Crop Size Semantics for Top-Down Models</h3>
+<p>The scaling behavior for top-down (centered-instance) models has changed:</p>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>Old Behavior</th>
+<th>New Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Order</td>
+<td>Resize full image first, then crop</td>
+<td>Crop first, then resize</td>
+</tr>
+<tr>
+<td><code>crop_size</code> meaning</td>
+<td>Region size in scaled coordinates</td>
+<td>Region size in original image coordinates</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Migration:</strong> Review your <code>crop_size</code> configuration values. Previously trained models may produce different results.</p>
+<h3>2. Model Run Folder File Naming</h3>
+<p>File naming conventions have been standardized:</p>
+<table>
+<thead>
+<tr>
+<th>Old Pattern</th>
+<th>New Pattern</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>labels_train_gt_0.slp</code></td>
+<td><code>labels_gt.train.0.slp</code></td>
+</tr>
+<tr>
+<td><code>labels_val_gt_0.slp</code></td>
+<td><code>labels_gt.val.0.slp</code></td>
+</tr>
+<tr>
+<td><code>pred_train_0.slp</code></td>
+<td><code>labels_pr.train.0.slp</code></td>
+</tr>
+<tr>
+<td><code>pred_val_0.slp</code></td>
+<td><code>labels_pr.val.0.slp</code></td>
+</tr>
+<tr>
+<td><code>train_0_pred_metrics.npz</code></td>
+<td><code>metrics.train.0.npz</code></td>
+</tr>
+<tr>
+<td><code>val_0_pred_metrics.npz</code></td>
+<td><code>metrics.val.0.npz</code></td>
+</tr>
+</tbody>
+</table>
+<h3>3. <code>load_metrics()</code> API Changes</h3>
+<table>
+<thead>
+<tr>
+<th>Change</th>
+<th>Old</th>
+<th>New</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Parameter name</td>
+<td><code>model_path</code></td>
+<td><code>path</code></td>
+</tr>
+<tr>
+<td>Default split</td>
+<td><code>"val"</code></td>
+<td><code>"test"</code></td>
+</tr>
+</tbody>
+</table>
+<h3>4. Video Path Mapping CLI Syntax</h3>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="# Old syntax (no longer works)
+sleap-nn train -c config --video-path-map &quot;/old/path-&gt;/new/path&quot;
+
+# New syntax
+sleap-nn train -c config --video-path-map /old/path /new/path"><pre><span class="pl-c"><span class="pl-c">#</span> Old syntax (no longer works)</span>
+sleap-nn train -c config --video-path-map <span class="pl-s"><span class="pl-pds">"</span>/old/path-&gt;/new/path<span class="pl-pds">"</span></span>
+
+<span class="pl-c"><span class="pl-c">#</span> New syntax</span>
+sleap-nn train -c config --video-path-map /old/path /new/path</pre></div>
+<hr>
+<h2>New Features</h2>
+<h3>Simplified Installation (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3799717807" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/405" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/405/hovercard" href="https://github.com/talmolab/sleap-nn/pull/405">#405</a>)</h3>
+<p>Install with automatic GPU detection:</p>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="uv tool install sleap-nn[torch] --torch-backend auto"><pre>uv tool install sleap-nn[torch] --torch-backend auto</pre></div>
+<p>Supports CUDA 11.8, 12.8, 13.0, Apple Silicon (MPS), and CPU-only installations.</p>
+<h3>Skia-Based Augmentation Backend (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3839587698" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/431" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/431/hovercard" href="https://github.com/talmolab/sleap-nn/pull/431">#431</a>, <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3845074878" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/434" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/434/hovercard" href="https://github.com/talmolab/sleap-nn/pull/434">#434</a>)</h3>
+<p>Replaced Kornia with Skia-python for 2x faster augmentation:</p>
+<table>
+<thead>
+<tr>
+<th>Backend</th>
+<th>Throughput</th>
+<th>Relative</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Kornia</td>
+<td>142 samples/sec</td>
+<td>1.0x</td>
+</tr>
+<tr>
+<td>Skia</td>
+<td>285 samples/sec</td>
+<td><strong>2.0x</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The new pipeline also maintains uint8 images until GPU transfer, achieving <strong>4x bandwidth savings</strong>.</p>
+<h3>Multi-GPU Training Support (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3845461600" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/435" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/435/hovercard" href="https://github.com/talmolab/sleap-nn/pull/435">#435</a>, <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3848424781" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/436" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/436/hovercard" href="https://github.com/talmolab/sleap-nn/pull/436">#436</a>, <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3848613969" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/437" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/437/hovercard" href="https://github.com/talmolab/sleap-nn/pull/437">#437</a>, <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3887677654" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/453" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/453/hovercard" href="https://github.com/talmolab/sleap-nn/pull/453">#453</a>)</h3>
+<p>Full DDP (Distributed Data Parallel) support:</p>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="# Train on multiple GPUs
+sleap-nn train config.yaml trainer_config.devices=4 trainer_config.strategy=ddp"><pre><span class="pl-c"><span class="pl-c">#</span> Train on multiple GPUs</span>
+sleap-nn train config.yaml trainer_config.devices=4 trainer_config.strategy=ddp</pre></div>
+<p>Features:</p>
+<ul>
+<li>Synchronized run_name generation across workers</li>
+<li>Proper GPU device ordering to prevent NCCL errors</li>
+<li>DDP-compatible callbacks with barrier synchronization</li>
+<li>Subprocess-based launcher for reliable multi-GPU caching</li>
+</ul>
+<h3>ONNX/TensorRT Export (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3827466398" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/418" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/418/hovercard" href="https://github.com/talmolab/sleap-nn/pull/418">#418</a>, <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3903903261" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/456" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/456/hovercard" href="https://github.com/talmolab/sleap-nn/pull/456">#456</a>)</h3>
+<p>Export trained models for optimized inference:</p>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="# Export to ONNX
+sleap-nn export /path/to/model -o exports/my_model --format onnx
+
+# Export to TensorRT FP16
+sleap-nn export /path/to/model -o exports/my_model --format both
+
+# Run inference on exported model
+sleap-nn predict exports/my_model video.mp4 -o predictions.slp"><pre><span class="pl-c"><span class="pl-c">#</span> Export to ONNX</span>
+sleap-nn <span class="pl-k">export</span> /path/to/model -o exports/my_model --format onnx
+
+<span class="pl-c"><span class="pl-c">#</span> Export to TensorRT FP16</span>
+sleap-nn <span class="pl-k">export</span> /path/to/model -o exports/my_model --format both
+
+<span class="pl-c"><span class="pl-c">#</span> Run inference on exported model</span>
+sleap-nn predict exports/my_model video.mp4 -o predictions.slp</pre></div>
+<p><strong>Performance (NVIDIA RTX A6000, batch size 8):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>PyTorch</th>
+<th>TensorRT FP16</th>
+<th>Speedup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>single_instance</td>
+<td>3,111 FPS</td>
+<td>11,039 FPS</td>
+<td><strong>3.5x</strong></td>
+</tr>
+<tr>
+<td>topdown</td>
+<td>94 FPS</td>
+<td>525 FPS</td>
+<td><strong>5.6x</strong></td>
+</tr>
+<tr>
+<td>bottomup</td>
+<td>113 FPS</td>
+<td>524 FPS</td>
+<td><strong>4.6x</strong></td>
+</tr>
+</tbody>
+</table>
+<h3>Parallel Image Caching (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3839997445" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/432" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/432/hovercard" href="https://github.com/talmolab/sleap-nn/pull/432">#432</a>)</h3>
+<p>Multi-threaded caching for faster training startup:</p>
+<div class="highlight highlight-source-yaml notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="data_config:
+  preprocessing:
+    parallel_caching: true
+    cache_workers: 4  # Number of parallel caching threads"><pre><span class="pl-ent">data_config</span>:
+  <span class="pl-ent">preprocessing</span>:
+    <span class="pl-ent">parallel_caching</span>: <span class="pl-c1">true</span>
+    <span class="pl-ent">cache_workers</span>: <span class="pl-c1">4</span>  <span class="pl-c"><span class="pl-c">#</span> Number of parallel caching threads</span></pre></div>
+<h3>Epoch-End Evaluation Metrics (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3818435086" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/414" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/414/hovercard" href="https://github.com/talmolab/sleap-nn/pull/414">#414</a>, <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3880366845" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/449" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/449/hovercard" href="https://github.com/talmolab/sleap-nn/pull/449">#449</a>)</h3>
+<p>Real-time evaluation metrics logged to WandB during training:</p>
+<div class="highlight highlight-source-yaml notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="trainer_config:
+  eval:
+    enabled: true
+    frequency: 1  # Evaluate every epoch"><pre><span class="pl-ent">trainer_config</span>:
+  <span class="pl-ent">eval</span>:
+    <span class="pl-ent">enabled</span>: <span class="pl-c1">true</span>
+    <span class="pl-ent">frequency</span>: <span class="pl-c1">1</span>  <span class="pl-c"><span class="pl-c">#</span> Evaluate every epoch</span></pre></div>
+<p>Metrics include: mOKS, mAP, mAR, PCK@5, PCK@10, distance percentiles, and visibility precision/recall.</p>
+<h3>Post-Inference Filtering (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3827827268" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/420" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/420/hovercard" href="https://github.com/talmolab/sleap-nn/pull/420">#420</a>)</h3>
+<p>Remove overlapping/duplicate predictions:</p>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="sleap-nn track -i video.mp4 -m model/ \
+    --filter_overlapping \
+    --filter_overlapping_method oks \
+    --filter_overlapping_threshold 0.5"><pre>sleap-nn track -i video.mp4 -m model/ \
+    --filter_overlapping \
+    --filter_overlapping_method oks \
+    --filter_overlapping_threshold 0.5</pre></div>
+<h3>Simplified Train CLI (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3834114596" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/429" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/429/hovercard" href="https://github.com/talmolab/sleap-nn/pull/429">#429</a>)</h3>
+<p>Training can now be started with a single config file path:</p>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="# Simple usage
+sleap-nn train path/to/config.yaml
+
+# With overrides
+sleap-nn train config.yaml trainer_config.max_epochs=100"><pre><span class="pl-c"><span class="pl-c">#</span> Simple usage</span>
+sleap-nn train path/to/config.yaml
+
+<span class="pl-c"><span class="pl-c">#</span> With overrides</span>
+sleap-nn train config.yaml trainer_config.max_epochs=100</pre></div>
+<h3>GUI Integration (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3831549796" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/424" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/424/hovercard" href="https://github.com/talmolab/sleap-nn/pull/424">#424</a>)</h3>
+<p>New <code>--gui</code> flag for JSON progress output:</p>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="sleap-nn track --data_path video.mp4 --model_paths model/ --gui"><pre>sleap-nn track --data_path video.mp4 --model_paths model/ --gui</pre></div>
+<h3>Warmup Learning Rate Schedulers (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3866854070" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/442" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/442/hovercard" href="https://github.com/talmolab/sleap-nn/pull/442">#442</a>)</h3>
+<p>New scheduler options:</p>
+<ul>
+<li><code>linear_warmup_cosine_annealing</code>: Linear warmup followed by cosine decay</li>
+<li><code>linear_warmup_linear_decay</code>: Linear warmup followed by linear decay</li>
+</ul>
+<h3>System Diagnostics (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3752536553" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/391" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/391/hovercard" href="https://github.com/talmolab/sleap-nn/pull/391">#391</a>)</h3>
+<p>New diagnostic commands:</p>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="sleap-nn --version  # Show version
+sleap-nn system     # Full system diagnostics"><pre>sleap-nn --version  <span class="pl-c"><span class="pl-c">#</span> Show version</span>
+sleap-nn system     <span class="pl-c"><span class="pl-c">#</span> Full system diagnostics</span></pre></div>
+<h3>Provenance Metadata (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3800705180" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/407" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/407/hovercard" href="https://github.com/talmolab/sleap-nn/pull/407">#407</a>)</h3>
+<p>Inference outputs now include full reproducibility metadata in SLP files.</p>
+<hr>
+<h2>Performance Improvements</h2>
+<h3>51x Faster Peak Refinement (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3832013146" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/426" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/426/hovercard" href="https://github.com/talmolab/sleap-nn/pull/426">#426</a>)</h3>
+<p>Replaced kornia's <code>crop_and_resize</code> with fast tensor indexing:</p>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>Before</th>
+<th>After</th>
+<th>Speedup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MPS (Apple Silicon)</td>
+<td>21.45 ms</td>
+<td>0.42 ms</td>
+<td><strong>51x</strong></td>
+</tr>
+<tr>
+<td>CUDA (RTX A6000)</td>
+<td>2.64 ms</td>
+<td>0.15 ms</td>
+<td><strong>17x</strong></td>
+</tr>
+</tbody>
+</table>
+<h3>GPU-Accelerated Normalization (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3800596614" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/406" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/406/hovercard" href="https://github.com/talmolab/sleap-nn/pull/406">#406</a>)</h3>
+<p>Image normalization now runs on GPU, reducing PCIe bandwidth by 4x:</p>
+<table>
+<thead>
+<tr>
+<th>Image Size</th>
+<th>Before</th>
+<th>After</th>
+<th>Speedup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1024x1280 grayscale</td>
+<td>55.2 FPS</td>
+<td>64.7 FPS</td>
+<td><strong>17%</strong></td>
+</tr>
+<tr>
+<td>3307x3304 RGB</td>
+<td>6.7 FPS</td>
+<td>10.1 FPS</td>
+<td><strong>50%</strong></td>
+</tr>
+</tbody>
+</table>
+<h3>Default Augmentations (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3874055127" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/445" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/445/hovercard" href="https://github.com/talmolab/sleap-nn/pull/445">#445</a>, <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3874149765" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/447" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/447/hovercard" href="https://github.com/talmolab/sleap-nn/pull/447">#447</a>)</h3>
+<p>Augmentations are now enabled by default with sensible presets:</p>
+<ul>
+<li>Rotation: -15 to +15 degrees</li>
+<li>Scale: 0.9 to 1.1</li>
+</ul>
+<hr>
+<h2>Bug Fixes</h2>
+<ul>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3832355298" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/428" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/428/hovercard" href="https://github.com/talmolab/sleap-nn/pull/428">#428</a></strong>: Fixed skip connection channel mismatch in ConvNext/SwinT decoders</li>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3834114596" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/429" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/429/hovercard" href="https://github.com/talmolab/sleap-nn/pull/429">#429</a></strong>: Fixed crop device mismatch during top-down inference</li>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3830653204" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/423" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/423/hovercard" href="https://github.com/talmolab/sleap-nn/pull/423">#423</a></strong>: Fixed CSV logger not capturing learning_rate</li>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3848424781" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/436" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/436/hovercard" href="https://github.com/talmolab/sleap-nn/pull/436">#436</a></strong>: Fixed multi-GPU DDP duplicate GPU detection error</li>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3848613969" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/437" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/437/hovercard" href="https://github.com/talmolab/sleap-nn/pull/437">#437</a></strong>: Fixed DDP synchronization in training callbacks</li>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3858024868" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/439" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/439/hovercard" href="https://github.com/talmolab/sleap-nn/pull/439">#439</a></strong>: Fixed confusing weight loading logging for legacy models</li>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3862794949" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/440" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/440/hovercard" href="https://github.com/talmolab/sleap-nn/pull/440">#440</a></strong>: Fixed cache memory estimation to account for DataLoader workers</li>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3862953853" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/441" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/441/hovercard" href="https://github.com/talmolab/sleap-nn/pull/441">#441</a></strong>: Fixed self.log warnings when no logger is configured</li>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3887013945" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/451" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/451/hovercard" href="https://github.com/talmolab/sleap-nn/pull/451">#451</a></strong>: Fixed critical bugs in weight verification</li>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3889170583" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/454" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/454/hovercard" href="https://github.com/talmolab/sleap-nn/pull/454">#454</a></strong>: Fixed caching progress bar not showing in subprocess</li>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3708553114" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/382" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/382/hovercard" href="https://github.com/talmolab/sleap-nn/pull/382">#382</a></strong>: Fixed max_instances handling in centroid-only inference</li>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3731617892" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/385" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/385/hovercard" href="https://github.com/talmolab/sleap-nn/pull/385">#385</a></strong>: Fixed crash on frames with empty instances</li>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3752537299" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/392" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/392/hovercard" href="https://github.com/talmolab/sleap-nn/pull/392">#392</a></strong>: Clean up run folder when training canceled via GUI</li>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3755750393" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/395" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/395/hovercard" href="https://github.com/talmolab/sleap-nn/pull/395">#395</a>, <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3778647685" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/401" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/401/hovercard" href="https://github.com/talmolab/sleap-nn/pull/401">#401</a>, <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3778723094" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/402" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/402/hovercard" href="https://github.com/talmolab/sleap-nn/pull/402">#402</a></strong>: Various WandB visualization fixes</li>
+</ul>
+<hr>
+<h2>Documentation</h2>
+<h3>Revamped Documentation (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3873890209" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/444" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/444/hovercard" href="https://github.com/talmolab/sleap-nn/pull/444">#444</a>, <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3903150692" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/455" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/455/hovercard" href="https://github.com/talmolab/sleap-nn/pull/455">#455</a>)</h3>
+<p>Completely restructured documentation at <a href="https://nn.sleap.ai" rel="nofollow">nn.sleap.ai</a>:</p>
+<ul>
+<li><strong>Tutorials</strong>: Quick Start guide, Your First Model walkthrough</li>
+<li><strong>Guides</strong>: Training, Inference, Evaluation, Tracking, Export, Multi-GPU</li>
+<li><strong>Configuration Reference</strong>: Detailed docs for data, model, and trainer configs</li>
+<li><strong>API Reference</strong>: Auto-generated from docstrings</li>
+<li><strong>Evaluation Metrics Reference</strong> (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3877041896" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/448" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/448/hovercard" href="https://github.com/talmolab/sleap-nn/pull/448">#448</a>): Comprehensive guide to all metrics</li>
+</ul>
+<hr>
+<h2>Changelog</h2>
+<h3>Features</h3>
+<table>
+<thead>
+<tr>
+<th>PR</th>
+<th>Title</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3799717807" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/405" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/405/hovercard" href="https://github.com/talmolab/sleap-nn/pull/405">#405</a></td>
+<td>Add CUDA 13 support and simplify installation with --torch-backend</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3827466398" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/418" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/418/hovercard" href="https://github.com/talmolab/sleap-nn/pull/418">#418</a></td>
+<td>Add ONNX/TensorRT export module</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3827827268" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/420" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/420/hovercard" href="https://github.com/talmolab/sleap-nn/pull/420">#420</a></td>
+<td>Add post-inference filtering for overlapping instances</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3831549796" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/424" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/424/hovercard" href="https://github.com/talmolab/sleap-nn/pull/424">#424</a></td>
+<td>Add --gui flag for JSON progress output in inference</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3834114596" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/429" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/429/hovercard" href="https://github.com/talmolab/sleap-nn/pull/429">#429</a></td>
+<td>Add --config flag for simpler train CLI</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3839587698" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/431" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/431/hovercard" href="https://github.com/talmolab/sleap-nn/pull/431">#431</a></td>
+<td>Add Skia-based augmentation backend for faster data pipeline</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3839997445" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/432" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/432/hovercard" href="https://github.com/talmolab/sleap-nn/pull/432">#432</a></td>
+<td>Add parallel image caching for faster dataset preparation</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3844946945" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/433" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/433/hovercard" href="https://github.com/talmolab/sleap-nn/pull/433">#433</a></td>
+<td>Add UnifiedVizCallback for consolidated visualization outputs</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3866854070" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/442" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/442/hovercard" href="https://github.com/talmolab/sleap-nn/pull/442">#442</a></td>
+<td>Add warmup learning rate schedulers</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3874055127" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/445" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/445/hovercard" href="https://github.com/talmolab/sleap-nn/pull/445">#445</a></td>
+<td>Enable default augmentations with rotation and scale</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3880366845" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/449" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/449/hovercard" href="https://github.com/talmolab/sleap-nn/pull/449">#449</a></td>
+<td>Add centroid-specific evaluation callback with distance-based metrics</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3887677654" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/453" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/453/hovercard" href="https://github.com/talmolab/sleap-nn/pull/453">#453</a></td>
+<td>Add multi-GPU training support with subprocess-based run_name sync</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3903903261" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/456" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/456/hovercard" href="https://github.com/talmolab/sleap-nn/pull/456">#456</a></td>
+<td>Add TensorRT as uv-managed optional dependency</td>
+</tr>
+</tbody>
+</table>
+<h3>Performance</h3>
+<table>
+<thead>
+<tr>
+<th>PR</th>
+<th>Title</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3800596614" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/406" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/406/hovercard" href="https://github.com/talmolab/sleap-nn/pull/406">#406</a></td>
+<td>Optimize inference by deferring normalization to GPU</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3832013146" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/426" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/426/hovercard" href="https://github.com/talmolab/sleap-nn/pull/426">#426</a></td>
+<td>Replace kornia crop_and_resize with fast tensor indexing (17-51x speedup)</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3845074878" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/434" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/434/hovercard" href="https://github.com/talmolab/sleap-nn/pull/434">#434</a></td>
+<td>Fix uint8 pipeline to achieve 4x GPU bandwidth savings</td>
+</tr>
+</tbody>
+</table>
+<h3>Bug Fixes</h3>
+<table>
+<thead>
+<tr>
+<th>PR</th>
+<th>Title</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3830653204" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/423" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/423/hovercard" href="https://github.com/talmolab/sleap-nn/pull/423">#423</a></td>
+<td>Fix CSV logger not capturing learning_rate</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3832355298" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/428" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/428/hovercard" href="https://github.com/talmolab/sleap-nn/pull/428">#428</a></td>
+<td>Fix skip connection channel mismatch in ConvNext/SwinT decoders</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3845461600" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/435" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/435/hovercard" href="https://github.com/talmolab/sleap-nn/pull/435">#435</a></td>
+<td>Fix multi-GPU disk caching run_name synchronization issue</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3848424781" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/436" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/436/hovercard" href="https://github.com/talmolab/sleap-nn/pull/436">#436</a></td>
+<td>Fix multi-GPU DDP duplicate GPU detection error</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3848613969" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/437" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/437/hovercard" href="https://github.com/talmolab/sleap-nn/pull/437">#437</a></td>
+<td>Fix DDP synchronization in training callbacks</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3858024868" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/439" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/439/hovercard" href="https://github.com/talmolab/sleap-nn/pull/439">#439</a></td>
+<td>Fix confusing weight loading logging for legacy models</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3862794949" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/440" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/440/hovercard" href="https://github.com/talmolab/sleap-nn/pull/440">#440</a></td>
+<td>Fix cache memory estimation to account for DataLoader workers</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3862953853" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/441" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/441/hovercard" href="https://github.com/talmolab/sleap-nn/pull/441">#441</a></td>
+<td>Fix self.log warnings when no logger is configured</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3887013945" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/451" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/451/hovercard" href="https://github.com/talmolab/sleap-nn/pull/451">#451</a></td>
+<td>Fix critical bugs in weight verification, docs, and tests</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3889170583" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/454" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/454/hovercard" href="https://github.com/talmolab/sleap-nn/pull/454">#454</a></td>
+<td>Fix caching progress bar not showing in subprocess</td>
+</tr>
+</tbody>
+</table>
+<h3>Documentation</h3>
+<table>
+<thead>
+<tr>
+<th>PR</th>
+<th>Title</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3748689739" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/390" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/390/hovercard" href="https://github.com/talmolab/sleap-nn/pull/390">#390</a></td>
+<td>Add CLI reference page and Colab notebooks</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3827802096" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/419" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/419/hovercard" href="https://github.com/talmolab/sleap-nn/pull/419">#419</a></td>
+<td>Add Exporting guide to How-to guides section</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3831655564" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/425" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/425/hovercard" href="https://github.com/talmolab/sleap-nn/pull/425">#425</a></td>
+<td>Add prerelease alias to docs deployment</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3873890209" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/444" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/444/hovercard" href="https://github.com/talmolab/sleap-nn/pull/444">#444</a></td>
+<td>Revamp documentation structure and content</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3877041896" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/448" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/448/hovercard" href="https://github.com/talmolab/sleap-nn/pull/448">#448</a></td>
+<td>Add evaluation metrics reference page to docs</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3903150692" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/455" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/455/hovercard" href="https://github.com/talmolab/sleap-nn/pull/455">#455</a></td>
+<td>Fix docs issues and add installation instructions</td>
+</tr>
+</tbody>
+</table>
+<h3>Breaking Changes</h3>
+<table>
+<thead>
+<tr>
+<th>PR</th>
+<th>Title</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3691713667" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/381" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/381/hovercard" href="https://github.com/talmolab/sleap-nn/pull/381">#381</a></td>
+<td>Fix crop size behavior for top-down models</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3745568726" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/389" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/389/hovercard" href="https://github.com/talmolab/sleap-nn/pull/389">#389</a></td>
+<td>Fix train CLI path replacement syntax</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3800808387" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/408" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/408/hovercard" href="https://github.com/talmolab/sleap-nn/pull/408">#408</a></td>
+<td>Standardize model run folder file naming conventions</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3800867293" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/409" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/409/hovercard" href="https://github.com/talmolab/sleap-nn/pull/409">#409</a></td>
+<td>Improve load_metrics with format compatibility and flexible paths</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<p><strong>Full Changelog</strong>: <a class="commit-link" href="https://github.com/talmolab/sleap-nn/compare/v0.0.5...v0.1.0"><tt>v0.0.5...v0.1.0</tt></a></p>
 <h2 id="v010a4"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.1.0a4">v0.1.0a4</a><a class="headerlink" href="#v010a4" title="Permanent link">&para;</a></h2>
 <h1>v0.1.0a4 Release Notes</h1>
 <h2>Summary</h2>
