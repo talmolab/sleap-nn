@@ -667,3 +667,50 @@ def test_load_trained_keras_weights(
         )
         _ = LightningModel.get_lightning_model_from_config(config=trainer.config)
     assert "Unsupported file extension for pretrained head weights." in caplog.text
+
+
+def test_single_instance_forward_handles_4d_and_5d_inputs(config, tmp_path: str):
+    """Test SingleInstanceLightningModule.forward() handles both 4D and 5D inputs.
+
+    This is a regression test for GitHub issue #2615 where double squeezing
+    caused channel mismatch errors during validation.
+
+    The bug occurred because:
+    1. validation_step() squeezes 5D->4D (removes n_samples dim)
+    2. forward() was unconditionally squeezing dim=1 again, removing the channel dim
+
+    The fix makes forward() only squeeze 5D inputs.
+    """
+    head_config = config.model_config.head_configs.centered_instance
+    del config.model_config.head_configs.centered_instance
+    OmegaConf.update(config, "model_config.head_configs.single_instance", head_config)
+    del config.model_config.head_configs.single_instance.confmaps.anchor_part
+
+    model = SingleInstanceLightningModule(
+        model_type="single_instance",
+        backbone_config="unet_medium_rf",
+        backbone_type="unet",
+        head_configs=config.model_config.head_configs,
+        lr_scheduler=None,
+    )
+
+    # Create test inputs with different dimensionalities
+    batch_size = 4
+    n_samples = 1
+    channels = 1
+    height, width = 64, 64
+
+    # 5D input: (batch, n_samples, C, H, W) - typical from dataloader
+    img_5d = torch.randn(batch_size, n_samples, channels, height, width)
+    output_5d = model(img_5d)
+    assert output_5d.ndim == 4  # (batch, nodes, H', W')
+    assert output_5d.shape[0] == batch_size
+
+    # 4D input: (batch, C, H, W) - after pre-squeezing in validation_step
+    img_4d = torch.randn(batch_size, channels, height, width)
+    output_4d = model(img_4d)
+    assert output_4d.ndim == 4  # (batch, nodes, H', W')
+    assert output_4d.shape[0] == batch_size
+
+    # Both should produce consistent output shapes
+    assert output_5d.shape == output_4d.shape
