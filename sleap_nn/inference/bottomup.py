@@ -1,7 +1,7 @@
 """Inference modules for BottomUp models."""
 
 import logging
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 import torch
 import lightning as L
 from sleap_nn.inference.peak_finding import find_local_peaks
@@ -123,21 +123,28 @@ class BottomUpInferenceModel(L.LightningModule):
         # cms_peaks: [(#nodes, 2), ...]
         return cms_peaks, cms_peak_vals, cms_peak_channel_inds
 
-    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """Predict confidence maps and infer peak coordinates.
+    def forward_gpu(
+        self, inputs: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
+        """Run the GPU portion: network forward pass + peak extraction.
+
+        This performs the torch model forward pass and confidence map peak finding,
+        but stops before PAF scoring (which is CPU-bound). This split enables
+        pipelined inference where GPU and CPU work can overlap.
 
         Args:
-            inputs: Dictionary with "image" as one of the keys.
+            inputs: Dictionary with "image" and "eff_scale" as keys.
 
         Returns:
-            A dictionary of outputs with keys:
-
-            `"pred_instance_peaks"`: The predicted peaks for each instance in the batch
-                as a `torch.Tensor` of shape `(samples, nodes, 2)`.
-            `"pred_peak_vals"`: The value of the confidence maps at the predicted
-                peaks for each instance in the batch as a `torch.Tensor` of shape
-                `(samples, nodes)`.
-
+            A dictionary containing the GPU outputs needed for CPU post-processing:
+            - All keys from inputs (image, frame_idx, video_idx, etc.)
+            - "cms": Confidence maps tensor.
+            - "pafs": Part affinity fields tensor (batch, h, w, 2*edges).
+            - "cms_peaks": List of peak coordinates per sample.
+            - "cms_peak_vals": List of peak values per sample.
+            - "cms_peak_channel_inds": List of peak channel indices per sample.
+            - "skip_paf_scoring": Whether to skip PAF scoring.
+            - "n_nodes": Number of nodes in the confidence maps.
         """
         # Network forward pass.
         self.batch_size = inputs["image"].shape[0]
@@ -166,14 +173,50 @@ class BottomUpInferenceModel(L.LightningModule):
                 if skip_paf_scoring:
                     break
 
+        gpu_output = dict(inputs)
+        gpu_output["cms"] = cms
+        gpu_output["pafs"] = pafs
+        gpu_output["cms_peaks"] = cms_peaks
+        gpu_output["cms_peak_vals"] = cms_peak_vals
+        gpu_output["cms_peak_channel_inds"] = cms_peak_channel_inds
+        gpu_output["skip_paf_scoring"] = skip_paf_scoring
+        gpu_output["n_nodes"] = cms.shape[1]
+        return gpu_output
+
+    def postprocess_cpu(
+        self, gpu_output: Dict[str, torch.Tensor]
+    ) -> List[Dict[str, torch.Tensor]]:
+        """Run CPU post-processing: PAF scoring, matching, and instance grouping.
+
+        Takes the output from forward_gpu() and performs PAF-based instance grouping,
+        scale adjustments, and assembles the final output dictionary.
+
+        Args:
+            gpu_output: Dictionary returned by forward_gpu().
+
+        Returns:
+            A list containing one dictionary of outputs with keys:
+            - "pred_instance_peaks": Predicted peaks per instance.
+            - "pred_peak_values": Confidence values per peak.
+            - "instance_scores": Instance grouping scores.
+            Plus optional confmaps/pafs/paf_graph keys.
+        """
+        cms = gpu_output["cms"]
+        pafs = gpu_output["pafs"]
+        cms_peaks = gpu_output["cms_peaks"]
+        cms_peak_vals = gpu_output["cms_peak_vals"]
+        cms_peak_channel_inds = gpu_output["cms_peak_channel_inds"]
+        skip_paf_scoring = gpu_output["skip_paf_scoring"]
+        n_nodes = gpu_output["n_nodes"]
+        batch_size = cms.shape[0]
+
         if skip_paf_scoring:
             # Return empty predictions for each sample
             device = cms.device
-            n_nodes = cms.shape[1]
             predicted_instances_adjusted = []
             predicted_peak_scores = []
             predicted_instance_scores = []
-            for _ in range(self.batch_size):
+            for _ in range(batch_size):
                 predicted_instances_adjusted.append(
                     torch.full((0, n_nodes, 2), float("nan"), device=device)
                 )
@@ -183,11 +226,11 @@ class BottomUpInferenceModel(L.LightningModule):
                 predicted_instance_scores.append(torch.tensor([], device=device))
             edge_inds = [
                 torch.tensor([], dtype=torch.int32, device=device)
-            ] * self.batch_size
+            ] * batch_size
             edge_peak_inds = [
                 torch.tensor([], dtype=torch.int32, device=device).reshape(0, 2)
-            ] * self.batch_size
-            line_scores = [torch.tensor([], device=device)] * self.batch_size
+            ] * batch_size
+            line_scores = [torch.tensor([], device=device)] * batch_size
         else:
             (
                 predicted_instances,
@@ -207,7 +250,7 @@ class BottomUpInferenceModel(L.LightningModule):
             predicted_instances_adjusted = []
             for idx, p in enumerate(predicted_instances):
                 predicted_instances_adjusted.append(
-                    p / inputs["eff_scale"][idx].to(p.device)
+                    p / gpu_output["eff_scale"][idx].to(p.device)
                 )
 
         out = {
@@ -228,8 +271,35 @@ class BottomUpInferenceModel(L.LightningModule):
             out["edge_peak_inds"] = edge_peak_inds
             out["line_scores"] = line_scores
 
-        inputs.update(out)
-        return [inputs]
+        # Merge with input metadata
+        result = dict(gpu_output)
+        # Remove intermediate GPU-stage keys
+        for key in ("cms", "pafs", "cms_peaks", "cms_peak_vals",
+                     "cms_peak_channel_inds", "skip_paf_scoring", "n_nodes"):
+            result.pop(key, None)
+        result.update(out)
+        return [result]
+
+    def forward(self, inputs: Dict[str, torch.Tensor]) -> List[Dict[str, torch.Tensor]]:
+        """Predict confidence maps and infer peak coordinates.
+
+        This composes forward_gpu() and postprocess_cpu() for the standard
+        sequential inference path.
+
+        Args:
+            inputs: Dictionary with "image" as one of the keys.
+
+        Returns:
+            A list containing one dictionary of outputs with keys:
+
+            `"pred_instance_peaks"`: The predicted peaks for each instance in the batch
+                as a `torch.Tensor` of shape `(samples, nodes, 2)`.
+            `"pred_peak_vals"`: The value of the confidence maps at the predicted
+                peaks for each instance in the batch as a `torch.Tensor` of shape
+                `(samples, nodes)`.
+        """
+        gpu_output = self.forward_gpu(inputs)
+        return self.postprocess_cpu(gpu_output)
 
 
 class BottomUpMultiClassInferenceModel(L.LightningModule):

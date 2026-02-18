@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 import json
+import multiprocessing
 import shutil
 
 import click
@@ -869,6 +870,15 @@ def export(
     default=None,
     help="Maximum instances to output per frame.",
 )
+@click.option(
+    "--cpu-workers",
+    type=int,
+    default=0,
+    show_default=True,
+    help="Number of CPU worker processes for parallel post-processing (bottom-up only). "
+    "When > 0, inference and PAF grouping run in a producer-consumer pipeline. "
+    "0 = sequential (legacy) mode.",
+)
 def predict(
     export_dir: Path,
     video_path: Path,
@@ -884,6 +894,7 @@ def predict(
     min_line_scores: float,
     peak_conf_threshold: float,
     max_instances: Optional[int],
+    cpu_workers: int,
 ) -> None:
     """Run inference on exported models and save predictions to SLP.
 
@@ -1013,97 +1024,120 @@ def predict(
     infer_time = 0.0
     post_time = 0.0
 
-    for start in range(0, len(frame_indices), batch_size):
-        batch_indices = frame_indices[start : start + batch_size]
-        batch = _load_video_batch(video, batch_indices)
-
-        infer_start = time.perf_counter()
-        outputs = predictor.predict(batch)
-        infer_time += time.perf_counter() - infer_start
-
-        post_start = time.perf_counter()
-        if metadata.model_type == "topdown":
-            labeled_frames.extend(
-                _predict_topdown_frames(
-                    outputs,
-                    batch_indices,
-                    video,
-                    skeleton,
-                    max_instances=max_instances,
-                )
-            )
-        elif metadata.model_type == "bottomup":
-            labeled_frames.extend(
-                _predict_bottomup_frames(
-                    outputs,
-                    batch_indices,
-                    video,
-                    skeleton,
-                    paf_scorer,
-                    candidate_template,
-                    input_scale=metadata.input_scale,
-                    peak_conf_threshold=peak_conf_threshold,
-                    max_instances=max_instances,
-                )
-            )
-        elif metadata.model_type == "single_instance":
-            labeled_frames.extend(
-                _predict_single_instance_frames(
-                    outputs,
-                    batch_indices,
-                    video,
-                    skeleton,
-                )
-            )
-        elif metadata.model_type == "centroid":
-            labeled_frames.extend(
-                _predict_centroid_frames(
-                    outputs,
-                    batch_indices,
-                    video,
-                    skeleton,
-                    anchor_node_idx=anchor_node_idx,
-                    max_instances=max_instances,
-                )
-            )
-        elif metadata.model_type == "multi_class_bottomup":
-            labeled_frames.extend(
-                _predict_multiclass_bottomup_frames(
-                    outputs,
-                    batch_indices,
-                    video,
-                    skeleton,
-                    class_names=metadata.class_names or [],
-                    input_scale=metadata.input_scale,
-                    peak_conf_threshold=peak_conf_threshold,
-                    max_instances=max_instances,
-                )
-            )
-        elif metadata.model_type == "multi_class_topdown_combined":
-            labeled_frames.extend(
-                _predict_multiclass_topdown_combined_frames(
-                    outputs,
-                    batch_indices,
-                    video,
-                    skeleton,
-                    class_names=metadata.class_names or [],
-                    max_instances=max_instances,
-                )
-            )
-        else:
-            raise click.ClickException(
-                f"Unsupported model_type for predict: {metadata.model_type}"
-            )
-        post_time += time.perf_counter() - post_start
-
-        # Progress update
-        processed = min(start + batch_size, len(frame_indices))
-        click.echo(
-            f"\r  Processed {processed}/{len(frame_indices)} frames...",
-            nl=False,
+    # Use pipelined path for bottom-up when cpu_workers > 0
+    if cpu_workers > 0 and metadata.model_type == "bottomup":
+        click.echo(f"  Using pipelined inference with {cpu_workers} CPU workers")
+        labeled_frames, infer_time, post_time = _run_bottomup_pipelined(
+            predictor=predictor,
+            video=video,
+            skeleton=skeleton,
+            frame_indices=frame_indices,
+            batch_size=batch_size,
+            paf_scorer=paf_scorer,
+            candidate_template=candidate_template,
+            input_scale=metadata.input_scale,
+            peak_conf_threshold=peak_conf_threshold,
+            max_instances=max_instances,
+            cpu_workers=cpu_workers,
         )
+    else:
+        if cpu_workers > 0 and metadata.model_type != "bottomup":
+            click.echo(
+                f"  Warning: --cpu-workers is only supported for bottom-up models, "
+                f"ignoring for {metadata.model_type}"
+            )
 
-    click.echo()  # Newline after progress
+        for start in range(0, len(frame_indices), batch_size):
+            batch_indices = frame_indices[start : start + batch_size]
+            batch = _load_video_batch(video, batch_indices)
+
+            infer_start = time.perf_counter()
+            outputs = predictor.predict(batch)
+            infer_time += time.perf_counter() - infer_start
+
+            post_start = time.perf_counter()
+            if metadata.model_type == "topdown":
+                labeled_frames.extend(
+                    _predict_topdown_frames(
+                        outputs,
+                        batch_indices,
+                        video,
+                        skeleton,
+                        max_instances=max_instances,
+                    )
+                )
+            elif metadata.model_type == "bottomup":
+                labeled_frames.extend(
+                    _predict_bottomup_frames(
+                        outputs,
+                        batch_indices,
+                        video,
+                        skeleton,
+                        paf_scorer,
+                        candidate_template,
+                        input_scale=metadata.input_scale,
+                        peak_conf_threshold=peak_conf_threshold,
+                        max_instances=max_instances,
+                    )
+                )
+            elif metadata.model_type == "single_instance":
+                labeled_frames.extend(
+                    _predict_single_instance_frames(
+                        outputs,
+                        batch_indices,
+                        video,
+                        skeleton,
+                    )
+                )
+            elif metadata.model_type == "centroid":
+                labeled_frames.extend(
+                    _predict_centroid_frames(
+                        outputs,
+                        batch_indices,
+                        video,
+                        skeleton,
+                        anchor_node_idx=anchor_node_idx,
+                        max_instances=max_instances,
+                    )
+                )
+            elif metadata.model_type == "multi_class_bottomup":
+                labeled_frames.extend(
+                    _predict_multiclass_bottomup_frames(
+                        outputs,
+                        batch_indices,
+                        video,
+                        skeleton,
+                        class_names=metadata.class_names or [],
+                        input_scale=metadata.input_scale,
+                        peak_conf_threshold=peak_conf_threshold,
+                        max_instances=max_instances,
+                    )
+                )
+            elif metadata.model_type == "multi_class_topdown_combined":
+                labeled_frames.extend(
+                    _predict_multiclass_topdown_combined_frames(
+                        outputs,
+                        batch_indices,
+                        video,
+                        skeleton,
+                        class_names=metadata.class_names or [],
+                        max_instances=max_instances,
+                    )
+                )
+            else:
+                raise click.ClickException(
+                    f"Unsupported model_type for predict: {metadata.model_type}"
+                )
+            post_time += time.perf_counter() - post_start
+
+            # Progress update
+            processed = min(start + batch_size, len(frame_indices))
+            click.echo(
+                f"\r  Processed {processed}/{len(frame_indices)} frames...",
+                nl=False,
+            )
+
+        click.echo()  # Newline after progress
 
     total_time = time.perf_counter() - total_start
     fps = len(frame_indices) / total_time if total_time > 0 else 0
@@ -1776,3 +1810,374 @@ def _load_lightning_model(
         map_location=device,
         weights_only=False,
     )
+
+
+def _predict_bottomup_raw(
+    outputs,
+    frame_indices,
+    paf_scorer,
+    candidate_template,
+    input_scale,
+    peak_conf_threshold=0.2,
+    max_instances=None,
+):
+    """Run bottom-up PAF grouping and return raw numpy arrays.
+
+    This is the CPU-heavy core of bottom-up post-processing, factored out so it
+    can run in a worker process without needing unpicklable sio objects.
+
+    Returns:
+        List of dicts, one per frame that has predictions:
+        {"frame_idx": int,
+         "instance_peaks": np.ndarray (n_inst, n_nodes, 2),
+         "instance_peak_scores": np.ndarray (n_inst, n_nodes),
+         "instance_scores": np.ndarray (n_inst,)}
+    """
+    import numpy as np
+    import torch
+
+    peaks = torch.from_numpy(outputs["peaks"]).to(torch.float32)
+    peak_vals = torch.from_numpy(outputs["peak_vals"]).to(torch.float32)
+    line_scores = torch.from_numpy(outputs["line_scores"]).to(torch.float32)
+    candidate_mask = torch.from_numpy(outputs["candidate_mask"]).to(torch.bool)
+
+    batch_size, n_nodes, k, _ = peaks.shape
+    peaks_flat = peaks.reshape(batch_size, n_nodes * k, 2)
+    peak_vals_flat = peak_vals.reshape(batch_size, n_nodes * k)
+
+    peak_channel_inds_base = candidate_template["peak_channel_inds"]
+    edge_inds_base = candidate_template["edge_inds"]
+    edge_peak_inds_base = candidate_template["edge_peak_inds"]
+
+    peaks_list = []
+    peak_vals_list = []
+    peak_channel_inds_list = []
+    edge_inds_list = []
+    edge_peak_inds_list = []
+    line_scores_list = []
+
+    for b in range(batch_size):
+        peaks_list.append(peaks_flat[b])
+        peak_vals_list.append(peak_vals_flat[b])
+        peak_channel_inds_list.append(peak_channel_inds_base)
+
+        candidate_mask_flat = candidate_mask[b].reshape(-1)
+        line_scores_flat = line_scores[b].reshape(-1)
+
+        if candidate_mask_flat.numel() == 0:
+            edge_inds_list.append(torch.empty((0,), dtype=torch.int32))
+            edge_peak_inds_list.append(torch.empty((0, 2), dtype=torch.int32))
+            line_scores_list.append(torch.empty((0,), dtype=torch.float32))
+            continue
+
+        peak_vals_b = peak_vals_flat[b]
+        peak_conf_valid = peak_vals_b > peak_conf_threshold
+        src_valid = peak_conf_valid[edge_peak_inds_base[:, 0].long()]
+        dst_valid = peak_conf_valid[edge_peak_inds_base[:, 1].long()]
+        valid = candidate_mask_flat & src_valid & dst_valid
+
+        edge_inds_list.append(edge_inds_base[valid])
+        edge_peak_inds_list.append(edge_peak_inds_base[valid])
+        line_scores_list.append(line_scores_flat[valid])
+
+    (
+        match_edge_inds,
+        match_src_peak_inds,
+        match_dst_peak_inds,
+        match_line_scores,
+    ) = paf_scorer.match_candidates(
+        edge_inds_list,
+        edge_peak_inds_list,
+        line_scores_list,
+    )
+
+    (
+        predicted_instances,
+        predicted_peak_scores,
+        predicted_instance_scores,
+    ) = paf_scorer.group_instances(
+        peaks_list,
+        peak_vals_list,
+        peak_channel_inds_list,
+        match_edge_inds,
+        match_src_peak_inds,
+        match_dst_peak_inds,
+        match_line_scores,
+    )
+
+    predicted_instances = [p / input_scale for p in predicted_instances]
+
+    results = []
+    for batch_idx, frame_idx in enumerate(frame_indices):
+        frame_peaks = []
+        frame_scores = []
+        frame_instance_scores = []
+        for pts, confs, score in zip(
+            predicted_instances[batch_idx],
+            predicted_peak_scores[batch_idx],
+            predicted_instance_scores[batch_idx],
+        ):
+            pts_np = pts.cpu().numpy()
+            if np.isnan(pts_np).all():
+                continue
+            frame_peaks.append(pts_np)
+            frame_scores.append(confs.cpu().numpy())
+            frame_instance_scores.append(float(score))
+
+        if not frame_peaks:
+            continue
+
+        instance_peaks = np.stack(frame_peaks, axis=0)
+        instance_peak_scores = np.stack(frame_scores, axis=0)
+        instance_scores = np.array(frame_instance_scores, dtype=np.float32)
+
+        if max_instances is not None and len(instance_scores) > max_instances:
+            top_k = np.argsort(instance_scores)[::-1][:max_instances]
+            instance_peaks = instance_peaks[top_k]
+            instance_peak_scores = instance_peak_scores[top_k]
+            instance_scores = instance_scores[top_k]
+
+        results.append(
+            {
+                "frame_idx": int(frame_idx),
+                "instance_peaks": instance_peaks,
+                "instance_peak_scores": instance_peak_scores,
+                "instance_scores": instance_scores,
+            }
+        )
+
+    return results
+
+
+def _bottomup_postprocess_worker(
+    gpu_output_queue,
+    result_queue,
+    paf_scorer_kwargs,
+    candidate_template_data,
+    input_scale,
+    peak_conf_threshold,
+    max_instances,
+):
+    """Worker process for CPU-bound bottom-up post-processing.
+
+    Reconstructs PAFScorer from config, then loops pulling inference outputs
+    from gpu_output_queue and pushing processed results to result_queue.
+    Exits when it receives None (sentinel).
+
+    Args:
+        gpu_output_queue: Queue of (seq_id, outputs_dict, batch_indices) or None.
+        result_queue: Queue of (seq_id, results_list).
+        paf_scorer_kwargs: Dict of kwargs to construct PAFScorer directly.
+        candidate_template_data: Dict with numpy arrays for candidate template.
+        input_scale: Float scale factor.
+        peak_conf_threshold: Float confidence threshold.
+        max_instances: Optional int max instances per frame.
+    """
+    import torch
+    from sleap_nn.inference.paf_grouping import PAFScorer
+
+    paf_scorer = PAFScorer(**paf_scorer_kwargs)
+
+    # Convert candidate template numpy arrays back to tensors
+    candidate_template = {
+        "peak_channel_inds": torch.from_numpy(candidate_template_data["peak_channel_inds"]),
+        "edge_inds": torch.from_numpy(candidate_template_data["edge_inds"]),
+        "edge_peak_inds": torch.from_numpy(candidate_template_data["edge_peak_inds"]),
+    }
+
+    while True:
+        item = gpu_output_queue.get()
+        if item is None:
+            break
+
+        seq_id, outputs, batch_indices = item
+        results = _predict_bottomup_raw(
+            outputs,
+            batch_indices,
+            paf_scorer,
+            candidate_template,
+            input_scale,
+            peak_conf_threshold,
+            max_instances,
+        )
+        result_queue.put((seq_id, results))
+
+
+def _raw_results_to_labeled_frames(raw_results, video, skeleton):
+    """Convert raw numpy result dicts to sio.LabeledFrame objects.
+
+    Args:
+        raw_results: List of dicts from _predict_bottomup_raw.
+        video: sio.Video object.
+        skeleton: sio.Skeleton object.
+
+    Returns:
+        List of sio.LabeledFrame objects.
+    """
+    import numpy as np
+    import sleap_io as sio
+
+    labeled_frames = []
+    for r in raw_results:
+        instances = []
+        for pts, confs, score in zip(
+            r["instance_peaks"],
+            r["instance_peak_scores"],
+            r["instance_scores"],
+        ):
+            instances.append(
+                sio.PredictedInstance.from_numpy(
+                    points_data=pts,
+                    point_scores=confs,
+                    score=float(score),
+                    skeleton=skeleton,
+                )
+            )
+        if instances:
+            labeled_frames.append(
+                sio.LabeledFrame(
+                    video=video,
+                    frame_idx=r["frame_idx"],
+                    instances=instances,
+                )
+            )
+    return labeled_frames
+
+
+def _run_bottomup_pipelined(
+    predictor,
+    video,
+    skeleton,
+    frame_indices,
+    batch_size,
+    paf_scorer,
+    candidate_template,
+    input_scale,
+    peak_conf_threshold,
+    max_instances,
+    cpu_workers,
+):
+    """Run bottom-up inference with pipelined GPU producer + CPU consumer workers.
+
+    The main thread acts as the inference producer: it loads batches, runs
+    ONNX/TensorRT inference, and puts raw outputs on a queue. CPU worker
+    processes pull from that queue, run PAF matching/grouping, and put results
+    on a result queue. The main thread collects results in frame order using
+    a reorder buffer.
+
+    Args:
+        predictor: Loaded ONNX/TRT model predictor.
+        video: sio.Video object.
+        skeleton: sio.Skeleton object.
+        frame_indices: List of frame indices to process.
+        batch_size: Number of frames per batch.
+        paf_scorer: PAFScorer instance (used to extract config for workers).
+        candidate_template: Dict with torch tensors for candidate template.
+        input_scale: Float scale factor.
+        peak_conf_threshold: Float confidence threshold.
+        max_instances: Optional int max instances per frame.
+        cpu_workers: Number of CPU worker processes.
+
+    Returns:
+        Tuple of (labeled_frames, infer_time, post_time).
+    """
+    import time
+    import numpy as np
+
+    queue_maxsize = 2 * cpu_workers
+
+    ctx = multiprocessing.get_context("spawn")
+    gpu_output_queue = ctx.Queue(maxsize=queue_maxsize)
+    result_queue = ctx.Queue(maxsize=queue_maxsize)
+
+    # Serialize PAFScorer config for workers (all simple types)
+    paf_scorer_kwargs = {
+        "part_names": list(paf_scorer.part_names),
+        "edges": [tuple(e) for e in paf_scorer.edges],
+        "pafs_stride": paf_scorer.pafs_stride,
+        "max_edge_length_ratio": paf_scorer.max_edge_length_ratio,
+        "dist_penalty_weight": paf_scorer.dist_penalty_weight,
+        "n_points": paf_scorer.n_points,
+        "min_instance_peaks": paf_scorer.min_instance_peaks,
+        "min_line_scores": paf_scorer.min_line_scores,
+    }
+
+    # Serialize candidate template as numpy arrays
+    candidate_template_data = {
+        "peak_channel_inds": candidate_template["peak_channel_inds"].numpy(),
+        "edge_inds": candidate_template["edge_inds"].numpy(),
+        "edge_peak_inds": candidate_template["edge_peak_inds"].numpy(),
+    }
+
+    # Start workers
+    workers = []
+    for _ in range(cpu_workers):
+        p = ctx.Process(
+            target=_bottomup_postprocess_worker,
+            args=(
+                gpu_output_queue,
+                result_queue,
+                paf_scorer_kwargs,
+                candidate_template_data,
+                input_scale,
+                peak_conf_threshold,
+                max_instances,
+            ),
+        )
+        p.start()
+        workers.append(p)
+
+    # Producer: run inference and enqueue outputs
+    infer_time = 0.0
+    total_batches = 0
+    try:
+        for start in range(0, len(frame_indices), batch_size):
+            batch_indices = frame_indices[start : start + batch_size]
+            batch = _load_video_batch(video, batch_indices)
+
+            infer_start = time.perf_counter()
+            outputs = predictor.predict(batch)
+            infer_time += time.perf_counter() - infer_start
+
+            gpu_output_queue.put((total_batches, outputs, batch_indices))
+            total_batches += 1
+
+            processed = min(start + batch_size, len(frame_indices))
+            click.echo(
+                f"\r  Inference: {processed}/{len(frame_indices)} frames...",
+                nl=False,
+            )
+    finally:
+        # Send sentinels to shut down workers
+        for _ in workers:
+            gpu_output_queue.put(None)
+
+    click.echo()
+
+    # Collector: gather results in order using reorder buffer
+    labeled_frames = []
+    reorder_buffer = {}
+    next_seq_id = 0
+    collected = 0
+    post_start = time.perf_counter()
+
+    while collected < total_batches:
+        seq_id, raw_results = result_queue.get()
+        reorder_buffer[seq_id] = raw_results
+        collected += 1
+
+        # Drain buffer in order
+        while next_seq_id in reorder_buffer:
+            raw = reorder_buffer.pop(next_seq_id)
+            labeled_frames.extend(
+                _raw_results_to_labeled_frames(raw, video, skeleton)
+            )
+            next_seq_id += 1
+
+    post_time = time.perf_counter() - post_start
+
+    # Wait for workers to exit
+    for p in workers:
+        p.join()
+
+    return labeled_frames, infer_time, post_time
