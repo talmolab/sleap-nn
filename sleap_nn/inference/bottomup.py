@@ -123,9 +123,7 @@ class BottomUpInferenceModel(L.LightningModule):
         # cms_peaks: [(#nodes, 2), ...]
         return cms_peaks, cms_peak_vals, cms_peak_channel_inds
 
-    def forward_gpu(
-        self, inputs: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+    def forward_gpu(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Run the GPU portion: network forward pass + peak extraction.
 
         This performs the torch model forward pass and confidence map peak finding,
@@ -274,8 +272,15 @@ class BottomUpInferenceModel(L.LightningModule):
         # Merge with input metadata
         result = dict(gpu_output)
         # Remove intermediate GPU-stage keys
-        for key in ("cms", "pafs", "cms_peaks", "cms_peak_vals",
-                     "cms_peak_channel_inds", "skip_paf_scoring", "n_nodes"):
+        for key in (
+            "cms",
+            "pafs",
+            "cms_peaks",
+            "cms_peak_vals",
+            "cms_peak_channel_inds",
+            "skip_paf_scoring",
+            "n_nodes",
+        ):
             result.pop(key, None)
         result.update(out)
         return [result]

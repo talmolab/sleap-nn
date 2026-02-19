@@ -573,8 +573,12 @@ def match_candidates_sample(
         # Update cost matrix with line scores (vectorized).
         # torch.unique() returns sorted values, so searchsorted maps each
         # candidate's flat peak index to its row/col in the cost matrix.
-        src_rows = torch.searchsorted(src_peak_inds_k, edge_peak_inds_k[:, 0].contiguous())
-        dst_cols = torch.searchsorted(dst_peak_inds_k, edge_peak_inds_k[:, 1].contiguous())
+        src_rows = torch.searchsorted(
+            src_peak_inds_k, edge_peak_inds_k[:, 0].contiguous()
+        )
+        dst_cols = torch.searchsorted(
+            dst_peak_inds_k, edge_peak_inds_k[:, 1].contiguous()
+        )
         cost_matrix[src_rows, dst_cols] = -line_scores_k
 
         # Convert cost matrix to numpy for use with scipy's linear_sum_assignment.
