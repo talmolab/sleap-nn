@@ -214,13 +214,14 @@ class MemoryBreakdownCard(Static):
         lines.append(f"  {'Total':<16} {est.total_gpu_gb:.1f} GB")
 
         # Status line
-        status_color = {
-            "green": "[green]",
-            "yellow": "[yellow]",
-            "red": "[red]",
-        }.get(est.gpu_status, "")
+        status_tags = {
+            "green": ("[green]", "[/green]"),
+            "yellow": ("[yellow]", "[/yellow]"),
+            "red": ("[red]", "[/red]"),
+        }
+        open_tag, close_tag = status_tags.get(est.gpu_status, ("", ""))
         lines.append("")
-        lines.append(f"{status_color}{est.gpu_message}")
+        lines.append(f"{open_tag}{est.gpu_message}{close_tag}")
 
         return "\n".join(lines)
 

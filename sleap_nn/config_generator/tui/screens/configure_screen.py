@@ -396,13 +396,17 @@ class ConfigureScreen(Widget):
             yield Static("[bold]Anchor Point[/bold]", classes="section-header")
 
             nodes = self._state.skeleton_nodes if self._state else []
-            options = [(n, n) for n in nodes]
+            # Add auto option at the start for when no specific anchor is selected
+            options = [("(auto - centroid)", "")] + [(n, n) for n in nodes]
+
+            # Use empty string for None to match the auto option
+            current_value = self._state._anchor_part if self._state and self._state._anchor_part else ""
 
             with Horizontal(classes="param-row"):
                 yield Label("Anchor Part:", classes="param-label")
                 yield Select(
-                    options if options else [("None", None)],
-                    value=self._state._anchor_part if self._state else None,
+                    options,
+                    value=current_value,
                     id="anchor-part-select",
                     classes="param-input",
                 )
@@ -479,7 +483,8 @@ class ConfigureScreen(Widget):
             return
 
         mem = self._state.memory_estimate()
-        status_color = "green" if mem.gpu_status == "ok" else "yellow" if mem.gpu_status == "warning" else "red"
+        # gpu_status is already "green", "yellow", or "red"
+        status_color = mem.gpu_status
 
         with Container(id="memory-estimate"):
             yield Static(
@@ -584,8 +589,9 @@ class ConfigureScreen(Widget):
     @on(Select.Changed, "#anchor-part-select")
     def handle_anchor_change(self, event: Select.Changed) -> None:
         """Handle anchor part selection."""
-        if self._state and event.value:
-            self._state._anchor_part = event.value
+        if self._state:
+            # Empty string means auto/centroid (no specific anchor)
+            self._state._anchor_part = event.value if event.value else None
 
     @on(Input.Changed, "#crop-size-input")
     def handle_crop_size_change(self, event: Input.Changed) -> None:

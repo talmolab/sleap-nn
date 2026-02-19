@@ -24,7 +24,7 @@ class ModelTypeOption(Static):
         title: str,
         description: str,
         is_recommended: bool = False,
-        is_disabled: bool = False,
+        option_disabled: bool = False,
         disabled_reason: str = "",
         is_two_stage: bool = False,
         **kwargs
@@ -35,7 +35,7 @@ class ModelTypeOption(Static):
         self.title = title
         self.description = description
         self.is_recommended = is_recommended
-        self.is_disabled = is_disabled
+        self.option_disabled = option_disabled
         self.disabled_reason = disabled_reason
         self.is_two_stage = is_two_stage
         self._selected = False
@@ -53,7 +53,7 @@ class ModelTypeOption(Static):
 
     def render(self) -> str:
         """Render the model type option."""
-        if self.is_disabled:
+        if self.option_disabled:
             indicator = "[dim][ ][/dim]"
             title_style = "dim strike"
             desc_style = "dim"
@@ -78,9 +78,12 @@ class ModelTypeOption(Static):
         if badges:
             lines[0] += "  " + " ".join(badges)
 
-        lines.append(f"    [{desc_style}]{self.description}[/{desc_style}]")
+        if desc_style:
+            lines.append(f"    [{desc_style}]{self.description}[/{desc_style}]")
+        else:
+            lines.append(f"    {self.description}")
 
-        if self.is_disabled and self.disabled_reason:
+        if self.option_disabled and self.disabled_reason:
             lines.append(f"    [dim italic]{self.disabled_reason}[/dim italic]")
 
         return "\n".join(lines)
@@ -194,14 +197,14 @@ class ModelSelectScreen(Widget):
         rec = self._state.recommendation
 
         # Single Instance
-        is_disabled = stats.max_instances_per_frame > 1
+        single_disabled = stats.max_instances_per_frame > 1
         yield ModelTypeOption(
             pipeline_type="single_instance",
             title="Single Instance",
             description="One animal per frame - simplest and fastest",
             is_recommended=rec.pipeline.recommended == "single_instance",
-            is_disabled=is_disabled,
-            disabled_reason="Multiple instances detected in data" if is_disabled else "",
+            option_disabled=single_disabled,
+            disabled_reason="Multiple instances detected in data" if single_disabled else "",
             classes="model-option",
             id="opt-single",
         )
@@ -219,15 +222,15 @@ class ModelSelectScreen(Widget):
         )
 
         # Bottom-Up
-        no_edges = stats.num_edges == 0
+        bottomup_disabled = stats.num_edges == 0
         is_bottomup_rec = rec.pipeline.recommended == "bottomup"
         yield ModelTypeOption(
             pipeline_type="bottomup",
             title="Bottom-Up",
             description="Best for overlapping animals. Detects all keypoints and links them.",
             is_recommended=is_bottomup_rec,
-            is_disabled=no_edges,
-            disabled_reason="Requires skeleton edges for Part Affinity Fields" if no_edges else "",
+            option_disabled=bottomup_disabled,
+            disabled_reason="Requires skeleton edges for Part Affinity Fields" if bottomup_disabled else "",
             classes="model-option",
             id="opt-bottomup",
         )
@@ -291,6 +294,6 @@ class ModelSelectScreen(Widget):
             if isinstance(opt, ModelTypeOption):
                 # Check if click was within this widget
                 if opt.region.contains(event.x, event.y):
-                    if not opt.is_disabled:
+                    if not opt.option_disabled:
                         self._select_type(opt.pipeline_type)
                     break
