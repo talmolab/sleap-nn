@@ -936,97 +936,7 @@ def predict(
     except (FileNotFoundError, ValueError) as e:
         raise click.ClickException(str(e))
 
-        for start in range(0, len(frame_indices), batch_size):
-            batch_indices = frame_indices[start : start + batch_size]
-            batch = _load_video_batch(video, batch_indices)
-
-            infer_start = time.perf_counter()
-            outputs = predictor.predict(batch)
-            infer_time += time.perf_counter() - infer_start
-
-            post_start = time.perf_counter()
-            if metadata.model_type == "topdown":
-                labeled_frames.extend(
-                    _predict_topdown_frames(
-                        outputs,
-                        batch_indices,
-                        video,
-                        skeleton,
-                        max_instances=max_instances,
-                    )
-                )
-            elif metadata.model_type == "bottomup":
-                labeled_frames.extend(
-                    _predict_bottomup_frames(
-                        outputs,
-                        batch_indices,
-                        video,
-                        skeleton,
-                        paf_scorer,
-                        candidate_template,
-                        input_scale=metadata.input_scale,
-                        peak_conf_threshold=peak_conf_threshold,
-                        max_instances=max_instances,
-                    )
-                )
-            elif metadata.model_type == "single_instance":
-                labeled_frames.extend(
-                    _predict_single_instance_frames(
-                        outputs,
-                        batch_indices,
-                        video,
-                        skeleton,
-                    )
-                )
-            elif metadata.model_type == "centroid":
-                labeled_frames.extend(
-                    _predict_centroid_frames(
-                        outputs,
-                        batch_indices,
-                        video,
-                        skeleton,
-                        anchor_node_idx=anchor_node_idx,
-                        max_instances=max_instances,
-                    )
-                )
-            elif metadata.model_type == "multi_class_bottomup":
-                labeled_frames.extend(
-                    _predict_multiclass_bottomup_frames(
-                        outputs,
-                        batch_indices,
-                        video,
-                        skeleton,
-                        class_names=metadata.class_names or [],
-                        input_scale=metadata.input_scale,
-                        peak_conf_threshold=peak_conf_threshold,
-                        max_instances=max_instances,
-                    )
-                )
-            elif metadata.model_type == "multi_class_topdown_combined":
-                labeled_frames.extend(
-                    _predict_multiclass_topdown_combined_frames(
-                        outputs,
-                        batch_indices,
-                        video,
-                        skeleton,
-                        class_names=metadata.class_names or [],
-                        max_instances=max_instances,
-                    )
-                )
-            else:
-                raise click.ClickException(
-                    f"Unsupported model_type for predict: {metadata.model_type}"
-                )
-            post_time += time.perf_counter() - post_start
-
-            # Progress update
-            processed = min(start + batch_size, len(frame_indices))
-            click.echo(
-                f"\r  Processed {processed}/{len(frame_indices)} frames...",
-                nl=False,
-            )
-
-        click.echo()  # Newline after progress
+    click.echo()  # Newline after progress
 
     # Save predictions
     output_path = output or video_path.with_suffix(".predictions.slp")
@@ -1387,7 +1297,7 @@ def _run_bottomup_pipelined(
 
     ctx = multiprocessing.get_context("spawn")
     gpu_output_queue = ctx.Queue(maxsize=queue_maxsize)
-    result_queue = ctx.Queue(maxsize=queue_maxsize)
+    result_queue = ctx.Queue()  # unbounded: avoids deadlock since producer+collector are sequential
 
     # Serialize PAFScorer config for workers (all simple types)
     paf_scorer_kwargs = {
@@ -1426,13 +1336,26 @@ def _run_bottomup_pipelined(
         p.start()
         workers.append(p)
 
-    # Producer: run inference and enqueue outputs
+    # Producer: prefetch video batches in a background thread, run inference
+    import queue
+    from threading import Thread
+
+    prefetch_queue = queue.Queue(maxsize=2)
+    prefetch_thread = Thread(
+        target=_prefetch_video_batches,
+        args=(video, frame_indices, batch_size, prefetch_queue),
+        daemon=True,
+    )
+    prefetch_thread.start()
+
     infer_time = 0.0
     total_batches = 0
     try:
-        for start in range(0, len(frame_indices), batch_size):
-            batch_indices = frame_indices[start : start + batch_size]
-            batch = _load_video_batch(video, batch_indices)
+        while True:
+            item = prefetch_queue.get()
+            if item is None:
+                break
+            batch, batch_indices = item
 
             infer_start = time.perf_counter()
             outputs = predictor.predict(batch)
@@ -1441,7 +1364,9 @@ def _run_bottomup_pipelined(
             gpu_output_queue.put((total_batches, outputs, batch_indices))
             total_batches += 1
 
-            processed = min(start + batch_size, len(frame_indices))
+            processed = min(
+                (total_batches) * batch_size, len(frame_indices)
+            )
             click.echo(
                 f"\r  Inference: {processed}/{len(frame_indices)} frames...",
                 nl=False,
@@ -1450,6 +1375,7 @@ def _run_bottomup_pipelined(
         # Send sentinels to shut down workers
         for _ in workers:
             gpu_output_queue.put(None)
+        prefetch_thread.join()
 
     click.echo()
 
