@@ -5,7 +5,6 @@ import torch
 import numpy as np
 from pathlib import Path
 
-
 # =============================================================================
 # Dependency Detection Helpers
 # =============================================================================
@@ -385,6 +384,70 @@ def deterministic_single_instance_wrapper():
 
     backbone = DeterministicBackbone()
     return SingleInstanceONNXWrapper(backbone, output_stride=4)
+
+
+# =============================================================================
+# Inference Test Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def simple_skeleton():
+    """A simple 3-node skeleton for inference tests."""
+    import sleap_io as sio
+
+    skeleton = sio.Skeleton(name="test")
+    skeleton.add_nodes(["head", "thorax", "abdomen"])
+    skeleton.add_edge("head", "thorax")
+    skeleton.add_edge("thorax", "abdomen")
+    return skeleton
+
+
+@pytest.fixture
+def simple_video():
+    """A mock sio.Video that returns synthetic frames without a real file."""
+    from unittest.mock import MagicMock
+
+    video = MagicMock(spec=["__getitem__", "__len__"])
+    video.__len__ = MagicMock(return_value=10)
+
+    def _getitem(idx):
+        return np.random.randint(0, 256, (64, 64, 1), dtype=np.uint8)
+
+    video.__getitem__ = MagicMock(side_effect=_getitem)
+    return video
+
+
+def _make_export_metadata(model_type="single_instance", **overrides):
+    """Factory for ExportMetadata with sensible defaults."""
+    from sleap_nn.export.metadata import ExportMetadata
+
+    defaults = dict(
+        sleap_nn_version="0.1.0",
+        export_timestamp="2024-01-01T00:00:00",
+        export_format="onnx",
+        model_type=model_type,
+        model_name="test_model",
+        checkpoint_path="/tmp/model.ckpt",
+        backbone="unet",
+        n_nodes=3,
+        n_edges=2,
+        node_names=["head", "thorax", "abdomen"],
+        edge_inds=[(0, 1), (1, 2)],
+        input_scale=1.0,
+        input_channels=1,
+        output_stride=2,
+        max_instances=10,
+        max_peaks_per_node=20,
+    )
+    defaults.update(overrides)
+    return ExportMetadata(**defaults)
+
+
+@pytest.fixture
+def simple_metadata():
+    """Return a factory for ExportMetadata with sensible defaults."""
+    return _make_export_metadata
 
 
 @pytest.fixture

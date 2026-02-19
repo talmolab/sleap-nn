@@ -7,6 +7,7 @@ from sleap_nn.export.predictors import (
     ONNXPredictor,
     TensorRTPredictor,
 )
+from sleap_nn.export.inference import predict
 from sleap_nn.export.utils import build_bottomup_candidate_template
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "TensorRTPredictor",
     "ExportMetadata",
     "build_bottomup_candidate_template",
+    "predict",
 ]

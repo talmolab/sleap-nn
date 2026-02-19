@@ -570,18 +570,16 @@ def match_candidates_sample(
         # Initialize cost matrix with infinite cost.
         cost_matrix = torch.full((n_src, n_dst), np.inf)
 
-        # Update cost matrix with line scores.
-        for i, src_ind in enumerate(src_peak_inds_k):
-            for j, dst_ind in enumerate(dst_peak_inds_k):
-                mask = (edge_peak_inds_k[:, 0] == src_ind) & (
-                    edge_peak_inds_k[:, 1] == dst_ind
-                )
-                if mask.any():
-                    # `line_scores_k` is already on CPU; `.item()` does not trigger
-                    # a device synchronization and matches the original behaviour.
-                    cost_matrix[i, j] = -line_scores_k[
-                        mask
-                    ].item()  # Flip sign for maximization.
+        # Update cost matrix with line scores (vectorized).
+        # torch.unique() returns sorted values, so searchsorted maps each
+        # candidate's flat peak index to its row/col in the cost matrix.
+        src_rows = torch.searchsorted(
+            src_peak_inds_k, edge_peak_inds_k[:, 0].contiguous()
+        )
+        dst_cols = torch.searchsorted(
+            dst_peak_inds_k, edge_peak_inds_k[:, 1].contiguous()
+        )
+        cost_matrix[src_rows, dst_cols] = -line_scores_k
 
         # Convert cost matrix to numpy for use with scipy's linear_sum_assignment.
         cost_matrix_np = cost_matrix.numpy()
