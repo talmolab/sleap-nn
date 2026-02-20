@@ -44,6 +44,7 @@ class ExportMetadata:
     max_peaks_per_node: Optional[int] = None
     max_batch_size: int = 1
     precision: str = "fp32"
+    peak_threshold: Optional[float] = None
 
     # Preprocessing - input is uint8 [0,255], normalized internally to float32 [0,1]
     input_dtype: str = "uint8"
@@ -96,6 +97,7 @@ class ExportMetadata:
             normalization=data.get("normalization", "0_to_1"),
             n_classes=data.get("n_classes"),
             class_names=data.get("class_names"),
+            peak_threshold=data.get("peak_threshold"),
             training_config_embedded=bool(data.get("training_config_embedded", False)),
             training_config_hash=data.get("training_config_hash", ""),
         )
@@ -153,6 +155,7 @@ def build_base_metadata(
     normalization: str = "0_to_1",
     n_classes: Optional[int] = None,
     class_names: Optional[List[str]] = None,
+    peak_threshold: Optional[float] = None,
 ) -> ExportMetadata:
     """Create an ExportMetadata instance with standard defaults."""
     return ExportMetadata(
@@ -179,6 +182,7 @@ def build_base_metadata(
         normalization=normalization,
         n_classes=n_classes,
         class_names=class_names,
+        peak_threshold=peak_threshold,
         training_config_embedded=training_config_embedded,
         training_config_hash=training_config_hash,
     )

@@ -39,13 +39,46 @@ class BaseExportWrapper(nn.Module):
         return output
 
     @staticmethod
+    def _neighbor_max(x: torch.Tensor) -> torch.Tensor:
+        """Compute max of 8 neighbors excluding center pixel.
+
+        Uses -inf padding to match PyTorch dilation semantics (confmap heads
+        are identity-activated, so negative values are possible).
+
+        All ops (F.pad, slicing, torch.max) export cleanly to ONNX.
+        """
+        p = F.pad(x, [1, 1, 1, 1], mode="constant", value=float("-inf"))
+        # 8 shifted views (excluding center)
+        tl = p[:, :, :-2, :-2]  # top-left
+        tc = p[:, :, :-2, 1:-1]  # top-center
+        tr = p[:, :, :-2, 2:]  # top-right
+        ml = p[:, :, 1:-1, :-2]  # middle-left
+        mr = p[:, :, 1:-1, 2:]  # middle-right
+        bl = p[:, :, 2:, :-2]  # bottom-left
+        bc = p[:, :, 2:, 1:-1]  # bottom-center
+        br = p[:, :, 2:, 2:]  # bottom-right
+        return torch.max(
+            torch.max(
+                torch.max(
+                    torch.max(torch.max(torch.max(torch.max(tl, tc), tr), ml), mr), bl
+                ),
+                bc,
+            ),
+            br,
+        )
+
+    @staticmethod
     def _find_topk_peaks(
-        confmaps: torch.Tensor, k: int
+        confmaps: torch.Tensor, k: int, peak_threshold: float = 0.2
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Top-K peak finding with NMS via max pooling."""
+        """Top-K peak finding with center-excluded neighbor-max NMS.
+
+        Matches PyTorch path semantics: strict inequality (center > all
+        neighbors) and configurable confidence threshold.
+        """
         batch_size, _, height, width = confmaps.shape
-        pooled = F.max_pool2d(confmaps, kernel_size=3, stride=1, padding=1)
-        is_peak = (confmaps == pooled) & (confmaps > 0)
+        neighbor_max = BaseExportWrapper._neighbor_max(confmaps)
+        is_peak = (confmaps > neighbor_max) & (confmaps > peak_threshold)
 
         confmaps_flat = confmaps.reshape(batch_size, height * width)
         is_peak_flat = is_peak.reshape(batch_size, height * width)
@@ -57,17 +90,21 @@ class BaseExportWrapper(nn.Module):
         y = indices // width
         x = indices % width
         peaks = torch.stack([x.float(), y.float()], dim=-1)
-        valid = values > 0
+        valid = values > peak_threshold
         return peaks, values, valid
 
     @staticmethod
     def _find_topk_peaks_per_node(
-        confmaps: torch.Tensor, k: int
+        confmaps: torch.Tensor, k: int, peak_threshold: float = 0.2
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Top-K peak finding per channel with NMS via max pooling."""
+        """Top-K peak finding per channel with center-excluded neighbor-max NMS.
+
+        Matches PyTorch path semantics: strict inequality (center > all
+        neighbors) and configurable confidence threshold.
+        """
         batch_size, n_nodes, height, width = confmaps.shape
-        pooled = F.max_pool2d(confmaps, kernel_size=3, stride=1, padding=1)
-        is_peak = (confmaps == pooled) & (confmaps > 0)
+        neighbor_max = BaseExportWrapper._neighbor_max(confmaps)
+        is_peak = (confmaps > neighbor_max) & (confmaps > peak_threshold)
 
         confmaps_flat = confmaps.reshape(batch_size, n_nodes, height * width)
         is_peak_flat = is_peak.reshape(batch_size, n_nodes, height * width)
@@ -79,18 +116,28 @@ class BaseExportWrapper(nn.Module):
         y = indices // width
         x = indices % width
         peaks = torch.stack([x.float(), y.float()], dim=-1)
-        valid = values > 0
+        valid = values > peak_threshold
         return peaks, values, valid
 
     @staticmethod
     def _find_global_peaks(
-        confmaps: torch.Tensor,
+        confmaps: torch.Tensor, peak_threshold: float = 0.2
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Find global maxima per channel."""
+        """Find global maxima per channel with threshold.
+
+        Peaks with confidence below threshold are set to NaN coordinates and
+        zero confidence, matching ``find_global_peaks_rough`` in the PyTorch
+        path.
+        """
         batch_size, channels, height, width = confmaps.shape
         flat = confmaps.reshape(batch_size, channels, height * width)
         values, indices = flat.max(dim=-1)
         y = indices // width
         x = indices % width
         peaks = torch.stack([x.float(), y.float()], dim=-1)
+
+        below = values < peak_threshold
+        peaks = peaks.masked_fill(below.unsqueeze(-1), float("nan"))
+        values = values.masked_fill(below, 0.0)
+
         return peaks, values

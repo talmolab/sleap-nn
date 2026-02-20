@@ -185,6 +185,14 @@ def _export_tensorrt_onnx(
         else:
             if verbose:
                 print("  WARNING: Platform does not have fast FP16, using FP32")
+    elif precision == "fp32":
+        # Explicitly disable TF32 to ensure strict IEEE FP32 arithmetic.
+        # TensorRT enables TF32 by default which uses 10-bit mantissa vs
+        # 23-bit for IEEE FP32, introducing small numerical differences.
+        if hasattr(trt.BuilderFlag, "TF32"):
+            config.clear_flag(trt.BuilderFlag.TF32)
+        if verbose:
+            print("  Using strict FP32 mode (TF32 disabled)")
 
     # Set up optimization profile for dynamic shapes
     profile = builder.create_optimization_profile()
@@ -269,14 +277,25 @@ def _export_tensorrt_jit(
     if verbose:
         print("  Compiling with TensorRT...")
 
-    # Compile with TensorRT
-    trt_model = torch_tensorrt.compile(
-        traced_model,
+    # Build compile kwargs
+    compile_kwargs = dict(
         inputs=trt_inputs,
         enabled_precisions=enabled_precisions,
         workspace_size=workspace_size,
         truncate_long_and_double=True,
     )
+
+    # Disable TF32 for strict FP32 mode in the JIT path
+    if precision == "fp32":
+        compile_kwargs["require_full_compilation"] = True
+        # torch_tensorrt uses torch.backends.cudnn/cuda settings for TF32
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+        if verbose:
+            print("  Using strict FP32 mode (TF32 disabled)")
+
+    # Compile with TensorRT
+    trt_model = torch_tensorrt.compile(traced_model, **compile_kwargs)
 
     # Save as TorchScript
     ts_path = save_path.with_suffix(".ts")

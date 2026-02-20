@@ -43,6 +43,7 @@ class BottomUpMultiClassONNXWrapper(BaseExportWrapper):
         cms_output_stride: int = 4,
         class_maps_output_stride: int = 8,
         input_scale: float = 1.0,
+        peak_threshold: float = 0.2,
     ):
         """Initialize the wrapper.
 
@@ -54,6 +55,7 @@ class BottomUpMultiClassONNXWrapper(BaseExportWrapper):
             cms_output_stride: Output stride of confidence maps.
             class_maps_output_stride: Output stride of class maps.
             input_scale: Scale factor for input images.
+            peak_threshold: Minimum confidence for a peak to be considered valid.
         """
         super().__init__(model)
         self.n_nodes = n_nodes
@@ -62,6 +64,7 @@ class BottomUpMultiClassONNXWrapper(BaseExportWrapper):
         self.cms_output_stride = cms_output_stride
         self.class_maps_output_stride = class_maps_output_stride
         self.input_scale = input_scale
+        self.peak_threshold = peak_threshold
 
     def forward(self, image: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Run bottom-up multiclass inference.
@@ -105,7 +108,7 @@ class BottomUpMultiClassONNXWrapper(BaseExportWrapper):
 
         # Find top-k peaks per node
         peaks, peak_vals, peak_mask = self._find_topk_peaks_per_node(
-            confmaps, self.max_peaks_per_node
+            confmaps, self.max_peaks_per_node, self.peak_threshold
         )
 
         # Scale peaks to input image space

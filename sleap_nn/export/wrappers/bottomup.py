@@ -29,6 +29,7 @@ class BottomUpONNXWrapper(BaseExportWrapper):
         max_edge_length_ratio: float = 0.25,
         dist_penalty_weight: float = 1.0,
         input_scale: float = 1.0,
+        peak_threshold: float = 0.2,
     ) -> None:
         """Initialize bottom-up ONNX wrapper.
 
@@ -43,6 +44,7 @@ class BottomUpONNXWrapper(BaseExportWrapper):
             max_edge_length_ratio: Maximum edge length as ratio of image size.
             dist_penalty_weight: Weight for distance penalty in scoring.
             input_scale: Input scaling factor.
+            peak_threshold: Minimum confidence for a peak to be considered valid.
         """
         super().__init__(model)
         self.n_nodes = n_nodes
@@ -54,6 +56,7 @@ class BottomUpONNXWrapper(BaseExportWrapper):
         self.max_edge_length_ratio = max_edge_length_ratio
         self.dist_penalty_weight = dist_penalty_weight
         self.input_scale = input_scale
+        self.peak_threshold = peak_threshold
 
         edge_src = torch.tensor([e[0] for e in skeleton_edges], dtype=torch.long)
         edge_dst = torch.tensor([e[1] for e in skeleton_edges], dtype=torch.long)
@@ -87,7 +90,7 @@ class BottomUpONNXWrapper(BaseExportWrapper):
             confmaps, pafs = out[:2]
 
         peaks, peak_vals, peak_mask = self._find_topk_peaks_per_node(
-            confmaps, self.max_peaks_per_node
+            confmaps, self.max_peaks_per_node, self.peak_threshold
         )
 
         peaks = peaks * self.cms_output_stride

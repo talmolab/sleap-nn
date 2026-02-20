@@ -100,6 +100,7 @@ class TestExportMetadata:
             "normalization",
             "n_classes",
             "class_names",
+            "peak_threshold",
             "training_config_embedded",
             "training_config_hash",
         }

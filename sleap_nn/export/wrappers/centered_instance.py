@@ -22,6 +22,7 @@ class CenteredInstanceONNXWrapper(BaseExportWrapper):
         model: nn.Module,
         output_stride: int = 4,
         input_scale: float = 1.0,
+        peak_threshold: float = 0.2,
     ):
         """Initialize centered instance ONNX wrapper.
 
@@ -29,10 +30,12 @@ class CenteredInstanceONNXWrapper(BaseExportWrapper):
             model: Centered instance model for pose estimation.
             output_stride: Output stride for confidence maps.
             input_scale: Input scaling factor.
+            peak_threshold: Minimum confidence for a peak to be considered valid.
         """
         super().__init__(model)
         self.output_stride = output_stride
         self.input_scale = input_scale
+        self.peak_threshold = peak_threshold
 
     def forward(self, image: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Run centered-instance inference on crops."""
@@ -47,7 +50,7 @@ class CenteredInstanceONNXWrapper(BaseExportWrapper):
         confmaps = self._extract_tensor(
             self.model(image), ["centered", "instance", "confmap"]
         )
-        peaks, values = self._find_global_peaks(confmaps)
+        peaks, values = self._find_global_peaks(confmaps, self.peak_threshold)
         peaks = peaks * (self.output_stride / self.input_scale)
 
         return {

@@ -31,6 +31,7 @@ class SingleInstanceONNXWrapper(BaseExportWrapper):
         model: nn.Module,
         output_stride: int = 4,
         input_scale: float = 1.0,
+        peak_threshold: float = 0.2,
     ):
         """Initialize the single-instance wrapper.
 
@@ -38,10 +39,12 @@ class SingleInstanceONNXWrapper(BaseExportWrapper):
             model: The trained backbone model.
             output_stride: Output stride of the model. Default: 4.
             input_scale: Factor to scale input images. Default: 1.0.
+            peak_threshold: Minimum confidence for a peak to be considered valid.
         """
         super().__init__(model)
         self.output_stride = output_stride
         self.input_scale = input_scale
+        self.peak_threshold = peak_threshold
 
     def forward(self, image: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Run single-instance inference.
@@ -72,7 +75,7 @@ class SingleInstanceONNXWrapper(BaseExportWrapper):
         )
 
         # Find global peak for each channel: (batch, n_nodes, 2), (batch, n_nodes)
-        peaks, values = self._find_global_peaks(confmaps)
+        peaks, values = self._find_global_peaks(confmaps, self.peak_threshold)
 
         # Scale peaks from confmap coordinates to image coordinates
         peaks = peaks * (self.output_stride / self.input_scale)
