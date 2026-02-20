@@ -28,6 +28,8 @@ class TopDownONNXWrapper(BaseExportWrapper):
         centroid_input_scale: float = 1.0,
         instance_input_scale: float = 1.0,
         n_nodes: int = 1,
+        centroid_peak_threshold: float = 0.2,
+        instance_peak_threshold: float = 0.2,
     ) -> None:
         """Initialize top-down ONNX wrapper.
 
@@ -41,6 +43,8 @@ class TopDownONNXWrapper(BaseExportWrapper):
             centroid_input_scale: Centroid input scaling factor.
             instance_input_scale: Instance input scaling factor.
             n_nodes: Number of skeleton nodes.
+            centroid_peak_threshold: Minimum confidence for centroid peaks.
+            instance_peak_threshold: Minimum confidence for instance peaks.
         """
         super().__init__(centroid_model)
         self.centroid_model = centroid_model
@@ -52,6 +56,8 @@ class TopDownONNXWrapper(BaseExportWrapper):
         self.centroid_input_scale = centroid_input_scale
         self.instance_input_scale = instance_input_scale
         self.n_nodes = n_nodes
+        self.centroid_peak_threshold = centroid_peak_threshold
+        self.instance_peak_threshold = instance_peak_threshold
 
         crop_h, crop_w = crop_size
         y_crop = torch.linspace(-1, 1, crop_h, dtype=torch.float32)
@@ -80,7 +86,7 @@ class TopDownONNXWrapper(BaseExportWrapper):
         centroid_cms = self._extract_tensor(centroid_out, ["centroid", "confmap"])
 
         centroids, centroid_vals, instance_valid = self._find_topk_peaks(
-            centroid_cms, self.max_instances
+            centroid_cms, self.max_instances, self.centroid_peak_threshold
         )
         centroids = centroids * (
             self.centroid_output_stride / self.centroid_input_scale
@@ -109,7 +115,9 @@ class TopDownONNXWrapper(BaseExportWrapper):
             instance_out, ["centered", "instance", "confmap"]
         )
 
-        crop_peaks, crop_peak_vals = self._find_global_peaks(instance_cms)
+        crop_peaks, crop_peak_vals = self._find_global_peaks(
+            instance_cms, self.instance_peak_threshold
+        )
         crop_peaks = crop_peaks * (
             self.instance_output_stride / self.instance_input_scale
         )
