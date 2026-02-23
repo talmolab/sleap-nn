@@ -585,3 +585,100 @@ def test_post_clean_up(
         tracking_clean_instance_count=1,
     )
     assert len(tracked_lfs[0].instances) == 1
+
+
+# Tests for connect_single_breaks fix (GitHub issue: sleap#2618)
+from sleap_nn.tracking.tracker import connect_single_breaks
+
+
+def _create_test_skeleton():
+    """Create a simple skeleton for testing."""
+    return sio.Skeleton(nodes=["head", "tail"])
+
+
+def _create_instance(skeleton, points, track):
+    """Create a PredictedInstance for testing."""
+    return sio.PredictedInstance.from_numpy(
+        points_data=np.array(points, dtype=np.float32),
+        skeleton=skeleton,
+        track=track,
+        score=1.0,
+    )
+
+
+def test_connect_single_breaks_stale_reference():
+    """Test that connect_single_breaks updates last_good_frame_tracks correctly.
+
+    This tests the fix for the bug where last_good_frame_tracks would never update
+    when max_instances doesn't match the actual instance count, causing incorrect
+    track swaps.
+
+    Bug scenario:
+    - Frame 0: Only Mouse A detected → last_good_frame_tracks = {track_0}
+    - Frame 1: Both mice detected, but last_good_frame_tracks doesn't update
+    - Frame 2: Only Mouse B → swap occurs because track_1 is "extra"
+    - Result: Mouse B steals Mouse A's track
+
+    The fix ensures last_good_frame_tracks updates when len(frame_tracks) >=
+    len(last_good_frame_tracks), not just when len == max_instances.
+    """
+    skeleton = _create_test_skeleton()
+    video = sio.Video(filename="test.mp4")
+    track_0 = sio.Track(name="track_0")
+    track_1 = sio.Track(name="track_1")
+
+    # Scenario: First frame has only one instance
+    frames = [
+        sio.LabeledFrame(
+            video=video,
+            frame_idx=0,
+            instances=[
+                _create_instance(skeleton, [[100.0, 100.0], [110.0, 110.0]], track_0),
+            ],
+        ),
+        sio.LabeledFrame(
+            video=video,
+            frame_idx=1,
+            instances=[
+                _create_instance(skeleton, [[101, 101], [111, 111]], track_0),
+                _create_instance(skeleton, [[201, 201], [211, 211]], track_1),
+            ],
+        ),
+        sio.LabeledFrame(
+            video=video,
+            frame_idx=2,
+            instances=[
+                _create_instance(skeleton, [[202, 202], [212, 212]], track_1),  # Only B
+            ],
+        ),
+        sio.LabeledFrame(
+            video=video,
+            frame_idx=3,
+            instances=[
+                _create_instance(skeleton, [[103, 103], [113, 113]], track_0),
+                _create_instance(skeleton, [[203, 203], [213, 213]], track_1),
+            ],
+        ),
+    ]
+
+    # With mismatched max_instances (previously buggy)
+    import copy
+
+    frames_test = copy.deepcopy(frames)
+    connect_single_breaks(frames_test, max_instances=10)
+
+    # Verify all tracks are correct
+    for lf in frames_test:
+        for inst in lf.instances:
+            pos = inst.numpy()[0, 0]
+            expected_track = "track_0" if pos < 150 else "track_1"
+            assert inst.track.name == expected_track, (
+                f"Frame {lf.frame_idx}: Instance at ({pos},...) has {inst.track.name}, "
+                f"expected {expected_track}"
+            )
+
+
+def test_connect_single_breaks_empty_frames():
+    """Test that connect_single_breaks handles empty frame list."""
+    result = connect_single_breaks([], max_instances=2)
+    assert result == []
