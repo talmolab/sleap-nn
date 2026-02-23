@@ -648,9 +648,7 @@ def test_connect_single_breaks_stale_reference():
             video=video,
             frame_idx=2,
             instances=[
-                _create_instance(
-                    skeleton, [[202, 202], [212, 212]], track_1
-                ),  # Only B
+                _create_instance(skeleton, [[202, 202], [212, 212]], track_1),  # Only B
             ],
         ),
         sio.LabeledFrame(
