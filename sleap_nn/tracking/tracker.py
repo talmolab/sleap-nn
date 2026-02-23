@@ -718,7 +718,10 @@ def connect_single_breaks(
 
                     break
         else:
-            if len(frame_tracks) == max_instances:
+            # Update last_good_frame_tracks when we have at least as many instances
+            # as before. This prevents stale reference when max_instances doesn't
+            # match actual count or when first frame has fewer instances.
+            if len(frame_tracks) >= len(last_good_frame_tracks):
                 last_good_frame_tracks = frame_tracks
 
     return lfs
