@@ -66,6 +66,7 @@ class DatasetStats:
     has_tracks: bool
     num_tracks: int
     estimated_total_bytes: int
+    total_instances: int = 0
     overlap_frequency: float = 0.0
 
     @property
@@ -389,6 +390,12 @@ def analyze_slp(
     avg_bbox, min_bbox = _compute_bbox_stats(labels, user_instances_only)
     avg_instances = _compute_avg_instances(labels, user_instances_only)
 
+    # Count total instances
+    total_instances = 0
+    for lf in labels.labeled_frames:
+        instances = lf.user_instances if user_instances_only else lf.instances
+        total_instances += len([inst for inst in instances if not inst.is_empty])
+
     # Compute overlap frequency (only for multi-instance datasets)
     if max_instances > 1:
         overlap_freq = _compute_overlap_frequency(labels, user_instances_only)
@@ -430,5 +437,6 @@ def analyze_slp(
         has_tracks=has_tracks,
         num_tracks=num_tracks,
         estimated_total_bytes=estimated_total_bytes,
+        total_instances=total_instances,
         overlap_frequency=overlap_freq,
     )

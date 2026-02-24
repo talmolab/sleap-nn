@@ -10,7 +10,7 @@ from textual import on
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical, Horizontal
 from textual.message import Message
-from textual.widgets import Button, Input, Label, Static
+from textual.widgets import Input, Label, Static
 from textual.widget import Widget
 
 from sleap_nn.config_generator.tui.state import ConfigState
@@ -40,6 +40,7 @@ class DatasetSummary(Static):
             "",
             f"[bold]File:[/bold] {Path(stats.slp_path).name}",
             f"[bold]Labeled frames:[/bold] {stats.num_labeled_frames:,}",
+            f"[bold]Total instances:[/bold] {stats.total_instances:,}",
             f"[bold]Videos:[/bold] {stats.num_videos}",
             "",
             f"[bold]Image size:[/bold] {stats.max_width}x{stats.max_height} "
@@ -67,6 +68,54 @@ class DatasetSummary(Static):
             else:
                 lines.append(f"[yellow]Large animals (~{animal_pct:.0f}% of frame)[/yellow]")
             lines.append(f"[yellow]Overlap frequency: {overlap_pct:.1f}%[/yellow]")
+
+        return "\n".join(lines)
+
+
+class RecommendationBox(Static):
+    """Widget to display model recommendation."""
+
+    def __init__(self, state: Optional[ConfigState] = None, **kwargs):
+        """Initialize with optional state."""
+        super().__init__(**kwargs)
+        self._state = state
+
+    def update_state(self, state: ConfigState) -> None:
+        """Update with new state."""
+        self._state = state
+        self.refresh()
+
+    def render(self) -> str:
+        """Render the recommendation."""
+        if self._state is None:
+            return "[dim]Load data to see recommendation[/dim]"
+
+        rec = self._state.recommendation
+
+        # Map internal pipeline types to user-friendly names
+        pipeline_display_names = {
+            "single_instance": "Single Instance",
+            "centroid": "Top-Down",
+            "centered_instance": "Top-Down",
+            "bottomup": "Bottom-Up",
+            "multi_class_bottomup": "Bottom-Up",
+            "multi_class_topdown": "Top-Down",
+        }
+        pipeline_name = pipeline_display_names.get(
+            rec.pipeline.recommended, rec.pipeline.recommended
+        )
+
+        lines = [
+            "[bold green]Model Recommendation[/bold green]",
+            "",
+            f"[bold]Recommended: {pipeline_name}[/bold]",
+            f"[dim]{rec.pipeline.reason}[/dim]",
+            "",
+            "[bold cyan]Model Types:[/bold cyan]",
+            "• [bold]Single Instance[/bold] - One animal per frame. Fastest and simplest.",
+            "• [bold]Top-Down[/bold] - Multiple animals, well-separated. Detects each animal, then finds keypoints.",
+            "• [bold]Bottom-Up[/bold] - Multiple animals with overlap. Finds all keypoints, then groups them.",
+        ]
 
         return "\n".join(lines)
 
@@ -101,11 +150,6 @@ class LoadScreen(Widget):
         margin-left: 1;
     }
 
-    #load-btn {
-        min-width: 12;
-        margin-left: 1;
-    }
-
     #summary-container {
         width: 100%;
         height: auto;
@@ -117,6 +161,14 @@ class LoadScreen(Widget):
         border: solid $primary;
         padding: 1 2;
         min-height: 15;
+    }
+
+    #recommendation-box {
+        background: $success-darken-3;
+        border: solid $success;
+        padding: 1 2;
+        margin-top: 1;
+        min-height: 5;
     }
     """
 
@@ -140,32 +192,43 @@ class LoadScreen(Widget):
     def compose(self) -> ComposeResult:
         """Compose the screen layout."""
         with Vertical(id="load-container"):
-            yield Label("[bold]Step 1: Load Your Data[/bold]", classes="section-title")
-            yield Label(
-                "Enter the path to your .slp file (SLEAP labels file)",
-                classes="hint"
-            )
+            yield Label("[bold]Step 1: Dataset Overview[/bold]", classes="section-title")
+
+            if self._state:
+                # File already loaded via CLI
+                yield Label(
+                    "Review your dataset statistics and model recommendation below.",
+                    classes="hint"
+                )
+            else:
+                # No file provided, show input
+                yield Label(
+                    "Enter the path to your .slp file (SLEAP labels file)",
+                    classes="hint"
+                )
 
             with Horizontal(id="file-input-group"):
                 yield Input(
-                    placeholder="Path to .slp file...",
+                    placeholder="Path to .slp file... (press Enter to load)",
                     id="file-input",
                     value=str(self._state.slp_path) if self._state else "",
                 )
-                yield Button("Load", id="load-btn", variant="primary")
 
             with Container(id="summary-container"):
                 yield DatasetSummary(self._state, id="dataset-summary")
+                yield RecommendationBox(self._state, id="recommendation-box")
 
     def on_mount(self) -> None:
         """Handle mount - update summary if state exists."""
         if self._state is not None:
             summary = self.query_one("#dataset-summary", DatasetSummary)
             summary.update_state(self._state)
+            recommendation = self.query_one("#recommendation-box", RecommendationBox)
+            recommendation.update_state(self._state)
 
-    @on(Button.Pressed, "#load-btn")
-    async def handle_load(self) -> None:
-        """Handle load button press."""
+    @on(Input.Submitted, "#file-input")
+    async def handle_input_submit(self, event: Input.Submitted) -> None:
+        """Handle Enter key in input field."""
         file_input = self.query_one("#file-input", Input)
         path = file_input.value.strip()
 
@@ -194,6 +257,10 @@ class LoadScreen(Widget):
             summary = self.query_one("#dataset-summary", DatasetSummary)
             summary.update_state(self._state)
 
+            # Update recommendation display
+            recommendation = self.query_one("#recommendation-box", RecommendationBox)
+            recommendation.update_state(self._state)
+
             # Auto-configure with defaults
             self._state.auto_configure()
 
@@ -202,8 +269,3 @@ class LoadScreen(Widget):
 
         except Exception as e:
             self.app.notify(f"Error loading file: {e}", severity="error")
-
-    @on(Input.Submitted, "#file-input")
-    async def handle_input_submit(self, event: Input.Submitted) -> None:
-        """Handle Enter key in input field."""
-        await self.handle_load()

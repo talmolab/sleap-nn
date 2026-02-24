@@ -8,6 +8,7 @@ from typing import Optional
 from textual import on
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical, Horizontal
+from textual.message import Message
 from textual.widgets import Button, Checkbox, Label, RadioButton, RadioSet, Static
 from textual.widget import Widget
 
@@ -18,11 +19,19 @@ from sleap_nn.config_generator.recommender import PipelineType
 class ModelTypeOption(Static):
     """Widget representing a model type option."""
 
+    class Selected(Message):
+        """Message sent when this option is selected."""
+
+        def __init__(self, pipeline_type: PipelineType):
+            super().__init__()
+            self.pipeline_type = pipeline_type
+
     def __init__(
         self,
         pipeline_type: PipelineType,
         title: str,
         description: str,
+        details: str = "",
         is_recommended: bool = False,
         option_disabled: bool = False,
         disabled_reason: str = "",
@@ -34,11 +43,17 @@ class ModelTypeOption(Static):
         self.pipeline_type = pipeline_type
         self.title = title
         self.description = description
+        self.details = details
         self.is_recommended = is_recommended
         self.option_disabled = option_disabled
         self.disabled_reason = disabled_reason
         self.is_two_stage = is_two_stage
         self._selected = False
+
+    def on_click(self) -> None:
+        """Handle click on this option."""
+        if not self.option_disabled:
+            self.post_message(self.Selected(self.pipeline_type))
 
     @property
     def selected(self) -> bool:
@@ -57,14 +72,17 @@ class ModelTypeOption(Static):
             indicator = "[dim][ ][/dim]"
             title_style = "dim strike"
             desc_style = "dim"
+            details_style = "dim"
         elif self._selected:
-            indicator = "[bold green][\u2713][/bold green]"
+            indicator = "[bold green][✓][/bold green]"
             title_style = "bold green"
             desc_style = ""
+            details_style = "dim cyan"
         else:
             indicator = "[ ]"
             title_style = "bold"
             desc_style = ""
+            details_style = "dim cyan"
 
         lines = [f"{indicator} [{title_style}]{self.title}[/{title_style}]"]
 
@@ -78,13 +96,18 @@ class ModelTypeOption(Static):
         if badges:
             lines[0] += "  " + " ".join(badges)
 
+        # Description
         if desc_style:
             lines.append(f"    [{desc_style}]{self.description}[/{desc_style}]")
         else:
             lines.append(f"    {self.description}")
 
+        # Details (best for / when to use)
+        if self.details:
+            lines.append(f"    [{details_style}]{self.details}[/{details_style}]")
+
         if self.option_disabled and self.disabled_reason:
-            lines.append(f"    [dim italic]{self.disabled_reason}[/dim italic]")
+            lines.append(f"    [red italic]{self.disabled_reason}[/red italic]")
 
         return "\n".join(lines)
 
@@ -102,13 +125,6 @@ class ModelSelectScreen(Widget):
     #model-container {
         width: 100%;
         height: auto;
-    }
-
-    #recommendation-box {
-        background: $success-darken-3;
-        border: solid $success;
-        padding: 1;
-        margin: 1 0;
     }
 
     #model-options {
@@ -143,6 +159,14 @@ class ModelSelectScreen(Widget):
         margin-top: 2;
         padding: 1;
     }
+
+    #pipeline-info-box {
+        background: $primary-darken-3;
+        border: solid $primary;
+        padding: 1;
+        margin-top: 1;
+        min-height: 3;
+    }
     """
 
     def __init__(self, state: Optional[ConfigState] = None, **kwargs):
@@ -161,20 +185,15 @@ class ModelSelectScreen(Widget):
         with Vertical(id="model-container"):
             yield Label("[bold]Step 2: Select Model Type[/bold]", classes="section-title")
 
-            # Recommendation box
-            if self._state:
-                rec = self._state.recommendation
-                with Container(id="recommendation-box"):
-                    yield Static(
-                        f"[bold]Recommendation:[/bold] {rec.pipeline.recommended.upper()}\n"
-                        f"[dim]{rec.pipeline.reason}[/dim]"
-                    )
-
             yield Label("Choose the model architecture:", classes="hint")
 
             # Model type options
             with Vertical(id="model-options"):
                 yield from self._create_model_options()
+
+            # Pipeline info box (shows details about selected pipeline)
+            with Container(id="pipeline-info-box"):
+                yield Static(id="pipeline-info")
 
             # Identity tracking option
             with Horizontal(id="identity-option"):
@@ -201,7 +220,8 @@ class ModelSelectScreen(Widget):
         yield ModelTypeOption(
             pipeline_type="single_instance",
             title="Single Instance",
-            description="One animal per frame - simplest and fastest",
+            description="For videos with exactly one animal per frame.",
+            details="Best for: Single-animal experiments, isolated subjects.",
             is_recommended=rec.pipeline.recommended == "single_instance",
             option_disabled=single_disabled,
             disabled_reason="Multiple instances detected in data" if single_disabled else "",
@@ -210,11 +230,14 @@ class ModelSelectScreen(Widget):
         )
 
         # Top-Down
-        is_topdown_rec = rec.pipeline.recommended in ["centroid", "centered_instance"]
+        is_topdown_rec = rec.pipeline.recommended in [
+            "centroid", "centered_instance", "multi_class_topdown"
+        ]
         yield ModelTypeOption(
             pipeline_type="centroid",
             title="Top-Down",
-            description="Best for small, well-separated animals. Crops around each animal.",
+            description="Detect centroids first, then find keypoints in cropped regions.",
+            details="Best for: Multiple well-separated animals that are small relative to frame.",
             is_recommended=is_topdown_rec,
             is_two_stage=True,
             classes="model-option",
@@ -223,11 +246,12 @@ class ModelSelectScreen(Widget):
 
         # Bottom-Up
         bottomup_disabled = stats.num_edges == 0
-        is_bottomup_rec = rec.pipeline.recommended == "bottomup"
+        is_bottomup_rec = rec.pipeline.recommended in ["bottomup", "multi_class_bottomup"]
         yield ModelTypeOption(
             pipeline_type="bottomup",
             title="Bottom-Up",
-            description="Best for overlapping animals. Detects all keypoints and links them.",
+            description="Multi-animal detection using Part Affinity Fields (PAFs).",
+            details="Best for: Crowded/overlapping animals. Detects all parts, then groups into instances.",
             is_recommended=is_bottomup_rec,
             option_disabled=bottomup_disabled,
             disabled_reason="Requires skeleton edges for Part Affinity Fields" if bottomup_disabled else "",
@@ -237,15 +261,20 @@ class ModelSelectScreen(Widget):
 
     def on_mount(self) -> None:
         """Handle mount - pre-select recommended option."""
+        selected_type = None
+
         if self._state and self._state._pipeline:
-            self._select_type(self._state._pipeline)
+            selected_type = self._state._pipeline
         elif self._state:
             rec = self._state.recommendation
             # Map to base type (not multi-class variant)
             base_type = rec.pipeline.recommended
             if base_type in ["multi_class_bottomup", "multi_class_topdown"]:
                 base_type = "bottomup" if "bottomup" in base_type else "centroid"
-            self._select_type(base_type)
+            selected_type = base_type
+
+        if selected_type:
+            self._select_type(selected_type)
 
         # Disable identity checkbox if no tracks
         if self._state and not self._state.stats.has_tracks:
@@ -265,6 +294,9 @@ class ModelSelectScreen(Widget):
                 else:
                     opt.remove_class("selected")
 
+        # Update pipeline info box
+        self._update_pipeline_info(pipeline_type)
+
         # Update state
         if self._state:
             # Check if identity is enabled
@@ -279,6 +311,31 @@ class ModelSelectScreen(Widget):
             else:
                 self._state._pipeline = pipeline_type
 
+    def _update_pipeline_info(self, pipeline_type: PipelineType) -> None:
+        """Update the pipeline info box based on selected type."""
+        info_widget = self.query_one("#pipeline-info", Static)
+
+        if pipeline_type == "single_instance":
+            info_widget.update(
+                "[bold cyan]Single Instance Pipeline[/bold cyan]\n"
+                "Trains one model that detects all keypoints in full-frame images.\n"
+                "You'll get [bold]1 YAML config[/bold] file."
+            )
+        elif pipeline_type == "centroid":
+            info_widget.update(
+                "[bold cyan]Top-Down Pipeline[/bold cyan]\n"
+                "This requires training [bold]two models[/bold] sequentially:\n"
+                "  [yellow]1. Centroid Model[/yellow] - Detects animal centers in full images\n"
+                "  [yellow]2. Centered Instance Model[/yellow] - Detects keypoints in cropped regions\n"
+                "You'll configure both models and get [bold]2 YAML configs[/bold]."
+            )
+        elif pipeline_type == "bottomup":
+            info_widget.update(
+                "[bold cyan]Bottom-Up Pipeline[/bold cyan]\n"
+                "Trains one model that detects all keypoints and uses Part Affinity Fields\n"
+                "to group them into animal instances. You'll get [bold]1 YAML config[/bold] file."
+            )
+
     @on(Checkbox.Changed, "#identity-checkbox")
     def handle_identity_change(self, event: Checkbox.Changed) -> None:
         """Handle identity checkbox change."""
@@ -287,13 +344,7 @@ class ModelSelectScreen(Widget):
         if self._selected_type:
             self._select_type(self._selected_type)
 
-    def on_click(self, event) -> None:
-        """Handle click on model options."""
-        # Find which option was clicked
-        for opt in self.query(".model-option"):
-            if isinstance(opt, ModelTypeOption):
-                # Check if click was within this widget
-                if opt.region.contains(event.x, event.y):
-                    if not opt.option_disabled:
-                        self._select_type(opt.pipeline_type)
-                    break
+    @on(ModelTypeOption.Selected)
+    def handle_model_selected(self, event: ModelTypeOption.Selected) -> None:
+        """Handle model type selection."""
+        self._select_type(event.pipeline_type)
