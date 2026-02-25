@@ -977,6 +977,8 @@ def config(
 ):
     """Generate training configuration for a SLEAP file.
 
+    **[Experimental]** This feature is experimental and may change in future releases.
+
     Launch an interactive TUI to configure training, or use --auto to
     generate a config with smart defaults based on your data.
 
