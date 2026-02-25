@@ -203,17 +203,36 @@ class ConfigGenerator:
 
         # Set backbone-specific parameters
         if "large_rf" in self._backbone:
-            self._max_stride = 32
+            base_max_stride = 32
             self._filters = 24
             self._filters_rate = 1.5
         else:
-            self._max_stride = 16
+            base_max_stride = 16
             self._filters = 32
-            self._filters_rate = 2.0
+            self._filters_rate = 1.5  # Web app default
 
         # Set channel configuration
         self._ensure_rgb = self.stats.is_rgb
         self._ensure_grayscale = self.stats.is_grayscale
+
+        # Set top-down specific parameters (affects input_scale used for max_stride)
+        if self._pipeline in ("centroid", "multi_class_topdown"):
+            self._input_scale = 0.5  # Lower scale for centroid
+            self._sigma = 5.0
+            self._output_stride = 2
+
+        # Auto-adjust max_stride if RF < animal size (scaled by input_scale)
+        # RF map: {8: 36, 16: 76, 32: 156, 64: 316}
+        rf_map = {8: 36, 16: 76, 32: 156, 64: 316}
+        scaled_animal_size = self.stats.max_bbox_size * self._input_scale
+        required_stride = base_max_stride
+        for stride in [8, 16, 32, 64]:
+            if rf_map[stride] >= scaled_animal_size:
+                required_stride = stride
+                break
+        else:
+            required_stride = 64
+        self._max_stride = max(base_max_stride, required_stride)
 
         self._recommendation = rec
         return self
@@ -231,7 +250,42 @@ class ConfigGenerator:
             self for method chaining.
         """
         self._pipeline = pipeline
+
+        # Update defaults based on pipeline type (web app behavior)
+        if pipeline in ("centroid", "multi_class_topdown"):
+            self._input_scale = 0.5  # Lower scale for centroid
+            self._sigma = 5.0
+            self._output_stride = 2
+        else:
+            # For non-centroid, use defaults
+            if self._input_scale == 0.5:  # Reset if was set for centroid
+                self._input_scale = 1.0
+
+        # Recalculate max_stride based on new input_scale
+        self._recalculate_max_stride()
+
         return self
+
+    def _recalculate_max_stride(self) -> None:
+        """Recalculate max_stride based on animal size vs receptive field."""
+        # RF map: {8: 36, 16: 76, 32: 156, 64: 316}
+        rf_map = {8: 36, 16: 76, 32: 156, 64: 316}
+
+        # Base stride depends on backbone
+        if "large_rf" in self._backbone:
+            base_max_stride = 32
+        else:
+            base_max_stride = 16
+
+        scaled_animal_size = self.stats.max_bbox_size * self._input_scale
+        required_stride = base_max_stride
+        for stride in [8, 16, 32, 64]:
+            if rf_map[stride] >= scaled_animal_size:
+                required_stride = stride
+                break
+        else:
+            required_stride = 64
+        self._max_stride = max(base_max_stride, required_stride)
 
     def backbone(self, backbone: BackboneType) -> "ConfigGenerator":
         """Set the backbone architecture.
@@ -603,9 +657,14 @@ class ConfigGenerator:
             "max_epochs": self._max_epochs,
             "trainer_accelerator": "auto",
             "trainer_devices": "auto",
+            "enable_progress_bar": True,
+            "visualize_preds_during_training": False,
+            "keep_viz": False,
+            "min_steps_per_epoch": 200,  # Web app default
             "optimizer_name": "Adam",
             "optimizer": {
                 "lr": self._learning_rate,
+                "amsgrad": False,
             },
             "early_stopping": {
                 "stop_training_on_plateau": self._early_stopping,

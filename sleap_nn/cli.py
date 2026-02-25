@@ -965,12 +965,6 @@ cli.add_command(predict_command)
     default=False,
     help="Print generated YAML to stdout.",
 )
-@click.option(
-    "--analyze-only",
-    is_flag=True,
-    default=False,
-    help="Only analyze the SLP file and show statistics.",
-)
 def config(
     slp_path,
     output,
@@ -980,7 +974,6 @@ def config(
     batch_size,
     max_epochs,
     show_yaml,
-    analyze_only,
 ):
     """Generate training configuration for a SLEAP file.
 
@@ -997,22 +990,8 @@ def config(
 
         # Auto-generate with overrides
         sleap-nn config labels.slp --auto --pipeline bottomup --batch-size 8
-
-        # Analyze only (no config generation)
-        sleap-nn config labels.slp --analyze-only
     """
-    from sleap_nn.config_generator.analyzer import analyze_slp
     from sleap_nn.config_generator.generator import ConfigGenerator
-
-    # Analyze-only mode
-    if analyze_only:
-        if not slp_path:
-            click.echo("Error: SLP_PATH is required for --analyze-only", err=True)
-            raise SystemExit(1)
-
-        stats = analyze_slp(slp_path)
-        click.echo(stats)
-        return
 
     # Auto mode (non-interactive)
     if auto:

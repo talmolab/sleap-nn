@@ -42,20 +42,23 @@ class DataPipelineType(str, Enum):
 class SchedulerConfig:
     """Configuration for learning rate scheduler."""
 
-    type: SchedulerType = SchedulerType.NONE
+    type: SchedulerType = SchedulerType.REDUCE_ON_PLATEAU  # Web app default
     # ReduceLROnPlateau params
     factor: float = 0.5
     plateau_patience: int = 5
     min_lr: float = 1e-8
+    cooldown: int = 3  # Web app default
     # StepLR params
-    step_size: int = 50
+    step_size: int = 10  # Web app default
     gamma: float = 0.1
     # CosineAnnealingWarmup params
-    warmup_epochs: int = 10
-    min_lr_ratio: float = 0.01
+    warmup_epochs: int = 5  # Web app default
+    warmup_start_lr: float = 0.0  # Web app default
+    eta_min: float = 0.0  # Web app default
     # LinearWarmupLinearDecay params
-    warmup_ratio: float = 0.1
-    decay_ratio: float = 0.9
+    linear_warmup_epochs: int = 5  # Web app default
+    linear_warmup_start_lr: float = 0.0  # Web app default
+    end_lr: float = 0.0  # Web app default
 
 
 @dataclass
@@ -64,9 +67,9 @@ class OHKMConfig:
 
     enabled: bool = False
     hard_to_easy_ratio: float = 2.0
-    loss_scale: float = 1.0
+    loss_scale: float = 5.0  # Web app default
     min_hard_keypoints: int = 2
-    max_hard_keypoints: int = 8
+    max_hard_keypoints: Optional[int] = None  # Web app default is null
 
 
 @dataclass
@@ -75,10 +78,12 @@ class WandBConfig:
 
     enabled: bool = False
     entity: str = ""
-    project: str = "sleap-nn"
+    project: str = "sleap-training"  # Web app default
     name: str = ""
     api_key: str = ""
     mode: str = "online"  # online, offline, disabled
+    viz_enabled: bool = True  # Log visualizations to wandb
+    save_viz_imgs: bool = False  # Upload local viz images to wandb
 
 
 @dataclass
@@ -91,13 +96,25 @@ class EvaluationConfig:
 
 
 @dataclass
+class CacheConfig:
+    """Data caching configuration for disk/memory caching pipelines."""
+
+    cache_img_path: str = ""  # Path to cache directory (for disk caching)
+    use_existing_imgs: bool = False  # Reuse existing cached images
+    delete_cache_after_training: bool = True  # Delete cache after training
+    parallel_caching: bool = True  # Enable parallel caching
+    cache_workers: int = 0  # Number of workers for caching (0 = main process)
+
+
+@dataclass
 class CheckpointConfig:
     """Checkpoint saving configuration."""
 
+    enabled: bool = True  # Master toggle (save_ckpt)
     run_name: str = ""
     checkpoint_dir: str = ""
     save_top_k: int = 1
-    save_last: bool = True
+    save_last: bool = False  # Web app default is null/false
     resume_from: str = ""
 
 
@@ -115,8 +132,8 @@ class AugmentationConfig:
     scale_min: float = 0.9
     scale_max: float = 1.1
     # Geometric - translate
-    translate_x: float = 0.0
-    translate_y: float = 0.0
+    translate_enabled: bool = False
+    translate: float = 0.0  # Percentage (0-50), applied to both x and y
     # Intensity - brightness
     brightness_enabled: bool = False
     brightness_limit: float = 0.2
@@ -130,8 +147,9 @@ class PAFConfig:
     """Part Affinity Field configuration for bottom-up models."""
 
     sigma: float = 15.0
-    output_stride: int = 4
+    output_stride: int = 4  # Web app default (usually 2× confmaps stride)
     loss_weight: float = 1.0
+    confmaps_loss_weight: float = 1.0  # Web app default - loss weight for confmaps in bottom-up
 
 
 @dataclass
@@ -178,6 +196,10 @@ class ConfigState:
         self._data_pipeline: DataPipelineType = DataPipelineType.TORCH_DATASET
         self._num_workers: int = 0
         self._validation_fraction: float = 0.1
+        self._user_instances_only: bool = True  # Web app default
+
+        # Cache config (for disk/memory caching)
+        self._cache_config: CacheConfig = CacheConfig()
 
         # Augmentation config
         self._augmentation: AugmentationConfig = AugmentationConfig()
@@ -189,13 +211,14 @@ class ConfigState:
         self._backbone: BackboneType = "unet_medium_rf"
         self._max_stride: int = 16
         self._filters: int = 32
-        self._filters_rate: float = 2.0
-        self._sigma: float = 5.0
+        self._filters_rate: float = 1.5  # Web app default
+        self._sigma: float = 2.5  # Web app default
         self._output_stride: int = 1
         self._anchor_part: Optional[str] = None
         self._crop_size: Optional[int] = None
         self._pretrained_backbone: str = ""
         self._pretrained_head: str = ""
+        self._use_imagenet_pretrained: bool = True  # Web app default - for ConvNeXt/SwinT
 
         # For top-down, separate model config for centered instance
         self._ci_backbone: BackboneType = "unet_medium_rf"
@@ -222,8 +245,12 @@ class ConfigState:
         self._learning_rate: float = 1e-4
         self._optimizer: str = "Adam"
         self._accelerator: str = "auto"
-        self._min_steps_per_epoch: int = 50
+        self._devices: str = "auto"  # Number of GPUs: "auto", "1", "2", etc.
+        self._min_steps_per_epoch: int = 200  # Web app default
         self._random_seed: Optional[int] = None
+        self._enable_progress_bar: bool = True  # Web app default
+        self._visualize_preds: bool = False  # Web app default
+        self._keep_viz: bool = False  # Web app default
 
         # For top-down, separate training config for centered instance
         self._ci_batch_size: int = 4
@@ -334,12 +361,13 @@ class ConfigState:
             self._backbone, self._filters, self._filters_rate, self._max_stride
         )
 
+    # RF map: max_stride -> receptive field size (for UNet)
+    RF_MAP = {8: 36, 16: 76, 32: 156, 64: 316}
+
     @property
     def receptive_field(self) -> int:
         """Estimate receptive field based on max_stride."""
-        # Approximate RF for UNet based on stride
-        rf_map = {8: 36, 16: 76, 32: 156, 64: 316}
-        return rf_map.get(self._max_stride, 76)
+        return self.RF_MAP.get(self._max_stride, 76)
 
     @property
     def encoder_blocks(self) -> int:
@@ -347,6 +375,22 @@ class ConfigState:
         import math
 
         return int(math.log2(self._max_stride))
+
+    def _compute_max_stride_for_animal_size(self, animal_size: float) -> int:
+        """Compute the minimum max_stride needed for RF to cover animal size.
+
+        Args:
+            animal_size: Maximum animal bounding box size in pixels.
+
+        Returns:
+            The smallest max_stride where RF >= animal_size.
+        """
+        # Find smallest stride where RF >= animal_size
+        for stride in [8, 16, 32, 64]:
+            if self.RF_MAP[stride] >= animal_size:
+                return stride
+        # If animal is very large, use max stride
+        return 64
 
     def _estimate_params(
         self, backbone: str, filters: int, filters_rate: float, max_stride: int
@@ -401,13 +445,19 @@ class ConfigState:
             callback()
 
     def auto_configure(self, view: Optional[str] = None) -> None:
-        """Auto-configure all parameters based on data analysis."""
+        """Auto-configure all parameters based on data analysis.
+
+        If pipeline is already set, it will not be overwritten.
+        """
         if view:
             self._view_type = ViewType(view)
 
         rec = self.recommendation
 
-        self._pipeline = rec.pipeline.recommended
+        # Only set pipeline if not already set (allows user to override)
+        if self._pipeline is None:
+            self._pipeline = rec.pipeline.recommended
+
         self._backbone = rec.backbone
         self._sigma = rec.sigma
         self._input_scale = rec.input_scale
@@ -420,13 +470,18 @@ class ConfigState:
 
         # Set backbone-specific parameters
         if "large_rf" in self._backbone:
-            self._max_stride = 32
+            base_max_stride = 32
             self._filters = 24
             self._filters_rate = 1.5
         else:
-            self._max_stride = 16
+            base_max_stride = 16
             self._filters = 32
             self._filters_rate = 2.0
+
+        # Adjust max_stride if RF < animal size (scaled by input_scale)
+        scaled_animal_size = self.stats.max_bbox_size * self._input_scale
+        required_stride = self._compute_max_stride_for_animal_size(scaled_animal_size)
+        self._max_stride = max(base_max_stride, required_stride)
 
         # Set channel configuration
         self._ensure_rgb = self.stats.is_rgb
@@ -439,7 +494,13 @@ class ConfigState:
             self._sigma = 5.0
             self._output_stride = 2
 
+            # Adjust centroid max_stride if RF < scaled animal size
+            scaled_animal_size = self.stats.max_bbox_size * self._input_scale
+            centroid_required_stride = self._compute_max_stride_for_animal_size(scaled_animal_size)
+            self._max_stride = max(16, centroid_required_stride)
+
             # Centered instance model defaults
+            # Always use max_stride=16 for instance - crops are sized appropriately
             self._ci_backbone = "unet_medium_rf"
             self._ci_max_stride = 16
             self._ci_filters = 32
@@ -447,6 +508,7 @@ class ConfigState:
             self._ci_sigma = 2.5
             self._ci_output_stride = 2
             self._ci_input_scale = 1.0  # Full resolution for keypoint detection
+
             self._ci_augmentation = AugmentationConfig(
                 rotation_min=rec.rotation_range[0],
                 rotation_max=rec.rotation_range[1],
@@ -462,6 +524,10 @@ class ConfigState:
             self._batch_size,
             self._input_scale,
             self._output_stride,
+            filters=self._filters,
+            filters_rate=self._filters_rate,
+            max_stride=self._max_stride,
+            num_keypoints=len(self.skeleton_nodes),
         )
 
     def build_config(self) -> Dict[str, Any]:
@@ -505,7 +571,7 @@ class ConfigState:
             "train_labels_path": [str(self.slp_path)],
             "val_labels_path": [],
             "validation_fraction": self._validation_fraction,
-            "user_instances_only": True,
+            "user_instances_only": self._user_instances_only,
             "data_pipeline_fw": self._data_pipeline.value,
             "preprocessing": {
                 "ensure_rgb": self._ensure_rgb,
@@ -523,6 +589,17 @@ class ConfigState:
         if self._crop_size:
             config["preprocessing"]["crop_size"] = self._crop_size
 
+        # Add caching config when not using default torch_dataset
+        if self._data_pipeline != DataPipelineType.TORCH_DATASET:
+            if self._data_pipeline == DataPipelineType.DISK_CACHE:
+                # Disk caching options
+                if self._cache_config.cache_img_path:
+                    config["cache_img_path"] = self._cache_config.cache_img_path
+                config["use_existing_imgs"] = self._cache_config.use_existing_imgs
+                config["delete_cache_imgs_after_training"] = self._cache_config.delete_cache_after_training
+            config["parallel_caching"] = self._cache_config.parallel_caching
+            config["cache_workers"] = self._cache_config.cache_workers
+
         return config
 
     def _build_ci_data_config(self) -> Dict[str, Any]:
@@ -531,7 +608,7 @@ class ConfigState:
             "train_labels_path": [str(self.slp_path)],
             "val_labels_path": [],
             "validation_fraction": self._validation_fraction,
-            "user_instances_only": True,
+            "user_instances_only": self._user_instances_only,
             "data_pipeline_fw": self._data_pipeline.value,
             "preprocessing": {
                 "ensure_rgb": self._ensure_rgb,
@@ -548,6 +625,16 @@ class ConfigState:
 
         if self._ci_crop_padding is not None:
             config["preprocessing"]["crop_padding"] = self._ci_crop_padding
+
+        # Add caching config when not using default torch_dataset
+        if self._data_pipeline != DataPipelineType.TORCH_DATASET:
+            if self._data_pipeline == DataPipelineType.DISK_CACHE:
+                if self._cache_config.cache_img_path:
+                    config["cache_img_path"] = self._cache_config.cache_img_path
+                config["use_existing_imgs"] = self._cache_config.use_existing_imgs
+                config["delete_cache_imgs_after_training"] = self._cache_config.delete_cache_after_training
+            config["parallel_caching"] = self._cache_config.parallel_caching
+            config["cache_workers"] = self._cache_config.cache_workers
 
         return config
 
@@ -569,9 +656,10 @@ class ConfigState:
         rotation_max = aug.rotation_max if aug.rotation_enabled else 0.0
         scale_min = aug.scale_min if aug.scale_enabled else 1.0
         scale_max = aug.scale_max if aug.scale_enabled else 1.0
+        translate = aug.translate / 100.0 if aug.translate_enabled else 0.0  # Convert % to fraction
 
         # Geometric augmentations are applied if any geometric aug is enabled
-        any_geometric = aug.rotation_enabled or aug.scale_enabled
+        any_geometric = aug.rotation_enabled or aug.scale_enabled or aug.translate_enabled
         affine_p = 1.0 if (aug.enabled and any_geometric) else 0.0
 
         return {
@@ -580,8 +668,8 @@ class ConfigState:
                 "rotation_max": rotation_max,
                 "scale_min": scale_min,
                 "scale_max": scale_max,
-                "translate_x": aug.translate_x,
-                "translate_y": aug.translate_y,
+                "translate_width": translate,
+                "translate_height": translate,
                 "affine_p": affine_p,
             },
             "intensity": {
@@ -734,7 +822,7 @@ class ConfigState:
 
         elif self._pipeline == "bottomup":
             head_configs["bottomup"] = {
-                "confmaps": {**base_confmap, "loss_weight": 1.0},
+                "confmaps": {**base_confmap, "loss_weight": self._paf_config.confmaps_loss_weight},
                 "pafs": {
                     "sigma": self._paf_config.sigma,
                     "output_stride": self._paf_config.output_stride,
@@ -744,7 +832,7 @@ class ConfigState:
 
         elif self._pipeline == "multi_class_bottomup":
             head_configs["multi_class_bottomup"] = {
-                "confmaps": {**base_confmap, "loss_weight": 1.0},
+                "confmaps": {**base_confmap, "loss_weight": self._paf_config.confmaps_loss_weight},
                 "pafs": {
                     "sigma": self._paf_config.sigma,
                     "output_stride": self._paf_config.output_stride,
@@ -782,17 +870,21 @@ class ConfigState:
             },
             "max_epochs": self._max_epochs,
             "trainer_accelerator": self._accelerator,
-            "trainer_devices": "auto",
+            "trainer_devices": self._devices,
+            "enable_progress_bar": self._enable_progress_bar,
+            "visualize_preds_during_training": self._visualize_preds,
+            "keep_viz": self._keep_viz,
             "optimizer_name": self._optimizer,
             "optimizer": {
                 "lr": self._learning_rate,
+                "amsgrad": False,
             },
             "early_stopping": {
                 "stop_training_on_plateau": self._early_stopping,
                 "patience": self._early_stopping_patience,
                 "min_delta": self._early_stopping_min_delta,
             },
-            "save_ckpt": True,
+            "save_ckpt": self._checkpoint.enabled,
             "min_steps_per_epoch": self._min_steps_per_epoch,
         }
 
@@ -831,6 +923,8 @@ class ConfigState:
                 "project": self._wandb.project,
                 "name": self._wandb.name,
                 "mode": self._wandb.mode,
+                "viz_enabled": self._wandb.viz_enabled,
+                "save_viz_imgs_wandb": self._wandb.save_viz_imgs,
             }
             if self._wandb.api_key:
                 config["wandb"]["api_key"] = self._wandb.api_key
@@ -860,7 +954,7 @@ class ConfigState:
             },
             "max_epochs": self._ci_max_epochs,
             "trainer_accelerator": self._accelerator,
-            "trainer_devices": "auto",
+            "trainer_devices": self._devices,
             "optimizer_name": self._ci_optimizer,
             "optimizer": {
                 "lr": self._ci_learning_rate,
@@ -870,7 +964,7 @@ class ConfigState:
                 "patience": self._ci_early_stopping_patience,
                 "min_delta": self._ci_early_stopping_min_delta,
             },
-            "save_ckpt": True,
+            "save_ckpt": self._checkpoint.enabled,
             "min_steps_per_epoch": self._min_steps_per_epoch,
         }
 
@@ -893,6 +987,7 @@ class ConfigState:
                     "factor": scheduler.factor,
                     "patience": scheduler.plateau_patience,
                     "min_lr": scheduler.min_lr,
+                    "cooldown": scheduler.cooldown,
                 }
             )
         elif scheduler.type == SchedulerType.STEP_LR:
@@ -906,14 +1001,16 @@ class ConfigState:
             config.update(
                 {
                     "warmup_epochs": scheduler.warmup_epochs,
-                    "min_lr_ratio": scheduler.min_lr_ratio,
+                    "warmup_start_lr": scheduler.warmup_start_lr,
+                    "eta_min": scheduler.eta_min,
                 }
             )
         elif scheduler.type == SchedulerType.LINEAR_WARMUP_LINEAR_DECAY:
             config.update(
                 {
-                    "warmup_ratio": scheduler.warmup_ratio,
-                    "decay_ratio": scheduler.decay_ratio,
+                    "warmup_epochs": scheduler.linear_warmup_epochs,
+                    "warmup_start_lr": scheduler.linear_warmup_start_lr,
+                    "end_lr": scheduler.end_lr,
                 }
             )
 

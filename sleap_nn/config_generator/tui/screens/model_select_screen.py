@@ -318,6 +318,27 @@ class ModelSelectScreen(Widget):
             else:
                 self._state._pipeline = pipeline_type
 
+            # Update input scale based on pipeline type (web app behavior)
+            # Top-down centroid uses lower scale (0.5), others use full scale (1.0)
+            is_topdown = self._state._pipeline in ["centroid", "centered_instance", "multi_class_topdown"]
+            if is_topdown:
+                self._state._input_scale = 0.5  # Lower scale for centroid
+                self._state._sigma = 5.0  # Larger sigma for centroid
+                self._state._output_stride = 2
+            else:
+                self._state._input_scale = 1.0  # Full scale for other models
+
+            # Auto-adjust max_stride based on animal size vs receptive field
+            scaled_animal_size = self._state.stats.max_bbox_size * self._state._input_scale
+            required_stride = self._state._compute_max_stride_for_animal_size(scaled_animal_size)
+
+            # Use at least the base stride (16 for medium_rf, 32 for large_rf)
+            if "large_rf" in self._state._backbone:
+                base_stride = 32
+            else:
+                base_stride = 16
+            self._state._max_stride = max(base_stride, required_stride)
+
     def _update_pipeline_info(self, pipeline_type: PipelineType) -> None:
         """Update the pipeline info box based on selected type."""
         info_widget = self.query_one("#pipeline-info", Static)

@@ -166,6 +166,12 @@ class ConfigGeneratorApp(App):
         Binding("left", "prev_step", "Previous", show=False),
         Binding("right", "next_step", "Next", show=False),
         Binding("f1", "help", "Help"),
+        # Tab navigation for top-down models
+        Binding("bracketleft", "prev_tab", "Prev Tab", show=False),
+        Binding("bracketright", "next_tab", "Next Tab", show=False),
+        Binding("1", "goto_tab_1", "Tab 1", show=False),
+        Binding("2", "goto_tab_2", "Tab 2", show=False),
+        Binding("3", "goto_tab_3", "Tab 3", show=False),
     ]
 
     current_step: reactive[int] = reactive(1)
@@ -322,6 +328,56 @@ class ConfigGeneratorApp(App):
         """Navigate to next step."""
         await self.handle_next()
 
+    def action_prev_tab(self) -> None:
+        """Switch to the previous tab in ConfigureScreen."""
+        if self.current_step == 3:  # Configure step
+            try:
+                from sleap_nn.config_generator.tui.screens.configure_screen import ConfigureScreen
+                config_screen = self.query_one(ConfigureScreen)
+                config_screen.action_prev_tab()
+            except Exception:
+                pass
+
+    def action_next_tab(self) -> None:
+        """Switch to the next tab in ConfigureScreen."""
+        if self.current_step == 3:  # Configure step
+            try:
+                from sleap_nn.config_generator.tui.screens.configure_screen import ConfigureScreen
+                config_screen = self.query_one(ConfigureScreen)
+                config_screen.action_next_tab()
+            except Exception:
+                pass
+
+    def action_goto_tab_1(self) -> None:
+        """Switch to tab 1 in ConfigureScreen."""
+        if self.current_step == 3:
+            try:
+                from sleap_nn.config_generator.tui.screens.configure_screen import ConfigureScreen
+                config_screen = self.query_one(ConfigureScreen)
+                config_screen.action_goto_tab_1()
+            except Exception:
+                pass
+
+    def action_goto_tab_2(self) -> None:
+        """Switch to tab 2 in ConfigureScreen."""
+        if self.current_step == 3:
+            try:
+                from sleap_nn.config_generator.tui.screens.configure_screen import ConfigureScreen
+                config_screen = self.query_one(ConfigureScreen)
+                config_screen.action_goto_tab_2()
+            except Exception:
+                pass
+
+    def action_goto_tab_3(self) -> None:
+        """Switch to tab 3 in ConfigureScreen."""
+        if self.current_step == 3:
+            try:
+                from sleap_nn.config_generator.tui.screens.configure_screen import ConfigureScreen
+                config_screen = self.query_one(ConfigureScreen)
+                config_screen.action_goto_tab_3()
+            except Exception:
+                pass
+
     def action_help(self) -> None:
         """Show help information."""
         help_text = """
@@ -338,6 +394,8 @@ class ConfigGeneratorApp(App):
   Left/Right  - Navigate steps
   Ctrl+S      - Save configuration
   F1          - Show this help
+  [ / ]       - Switch tabs (top-down models)
+  1 / 2 / 3   - Jump to tab (top-down models)
 
 [cyan]Tips:[/cyan]
   - Follow the recommended model type for best results

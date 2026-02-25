@@ -4,6 +4,7 @@ This module provides tools for estimating GPU and CPU memory requirements
 based on training configuration parameters.
 """
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
@@ -20,24 +21,28 @@ class MemoryEstimate:
         batch_images_mb: Estimated batch images memory in MB.
         activations_mb: Estimated activations memory in MB.
         gradients_mb: Estimated gradients memory in MB.
+        confmaps_mb: Estimated confidence maps memory in MB.
         total_gpu_mb: Total estimated GPU memory in MB.
         cache_memory_mb: Estimated CPU cache memory in MB.
         gpu_status: Status indicator (green, yellow, red).
         gpu_message: Human-readable GPU memory message.
         cpu_fits_in_memory: Whether cache fits in available RAM.
         cpu_message: Human-readable CPU memory message.
+        params_count: Estimated number of model parameters.
     """
 
     model_weights_mb: float
     batch_images_mb: float
     activations_mb: float
     gradients_mb: float
+    confmaps_mb: float
     total_gpu_mb: float
     cache_memory_mb: float
     gpu_status: Literal["green", "yellow", "red"]
     gpu_message: str
     cpu_fits_in_memory: bool
     cpu_message: str
+    params_count: int = 0
 
     @property
     def total_gpu_gb(self) -> float:
@@ -68,18 +73,61 @@ class MemoryEstimate:
         return "\n".join(lines)
 
 
-# Approximate parameter counts for different backbones
-_PARAM_ESTIMATES = {
-    "unet_medium_rf": 1_500_000,
-    "unet_large_rf": 3_000_000,
-    "convnext_tiny": 28_000_000,
-    "convnext_small": 50_000_000,
-    "convnext_base": 89_000_000,
-    "convnext_large": 198_000_000,
-    "swint_tiny": 28_000_000,
-    "swint_small": 50_000_000,
-    "swint_base": 88_000_000,
-}
+def _estimate_params_accurate(
+    filters: int,
+    max_stride: int,
+    output_stride: int,
+    in_channels: int,
+    num_keypoints: int,
+    filters_rate: float = 1.5,
+) -> int:
+    """Estimate model parameters based on architecture (matches web app formula).
+
+    Args:
+        filters: Base number of filters in first encoder block.
+        max_stride: Maximum stride (determines encoder depth).
+        output_stride: Output stride for decoder depth.
+        in_channels: Number of input channels.
+        num_keypoints: Number of output keypoints.
+        filters_rate: Multiplier for filters per encoder block.
+
+    Returns:
+        Estimated total parameter count.
+    """
+    down_blocks = int(math.log2(max_stride))
+    up_blocks = int(math.log2(max_stride / output_stride)) if output_stride > 0 else down_blocks
+
+    total_params = 0
+    ch = in_channels
+    f = filters
+
+    # Encoder blocks: 2 convs per block (3x3 kernel)
+    for i in range(down_blocks):
+        total_params += ch * f * 9 + f  # First conv + bias
+        total_params += f * f * 9 + f   # Second conv + bias
+        ch = f
+        f = int(f * filters_rate)
+
+    # Middle block
+    total_params += ch * f * 9 + f
+    total_params += f * f * 9 + f
+    middle_filters = f
+
+    # Decoder blocks
+    f = middle_filters
+    for i in range(up_blocks):
+        next_f = int(f / filters_rate)
+        # Skip connection doubles input channels
+        skip_f = int(filters * (filters_rate ** (down_blocks - 1 - i))) if i < down_blocks else 0
+        decoder_input = f + skip_f
+        total_params += decoder_input * next_f * 9 + next_f
+        total_params += next_f * next_f * 9 + next_f
+        f = next_f
+
+    # Head: 1x1 conv to keypoints
+    total_params += f * num_keypoints * 1 + num_keypoints
+
+    return total_params
 
 
 def estimate_memory(
@@ -88,8 +136,12 @@ def estimate_memory(
     batch_size: int = 4,
     input_scale: float = 1.0,
     output_stride: int = 1,
+    filters: int = 32,
+    filters_rate: float = 1.5,
+    max_stride: int = 16,
+    num_keypoints: int = None,
 ) -> MemoryEstimate:
-    """Estimate GPU and CPU memory requirements.
+    """Estimate GPU and CPU memory requirements (matches web app formula).
 
     Args:
         stats: DatasetStats from analyze_slp().
@@ -97,48 +149,91 @@ def estimate_memory(
         batch_size: Training batch size.
         input_scale: Input image scaling factor.
         output_stride: Output stride for confidence maps.
+        filters: Base number of filters (for UNet).
+        filters_rate: Filter multiplier per block (for UNet).
+        max_stride: Maximum stride (determines encoder depth).
+        num_keypoints: Number of keypoints (defaults to stats.num_nodes).
 
     Returns:
         MemoryEstimate with breakdown and recommendations.
-
-    Example:
-        >>> stats = analyze_slp("labels.slp")
-        >>> mem = estimate_memory(stats, batch_size=4)
-        >>> print(f"GPU: {mem.total_gpu_gb:.1f} GB ({mem.gpu_status})")
     """
+    # Get number of keypoints
+    if num_keypoints is None:
+        if hasattr(stats, 'num_nodes'):
+            num_keypoints = stats.num_nodes
+        elif hasattr(stats, 'node_names'):
+            num_keypoints = len(stats.node_names)
+        else:
+            num_keypoints = 24
+
     # Scaled dimensions
     h = int(stats.max_height * input_scale)
     w = int(stats.max_width * input_scale)
 
-    # Pad to stride 32 for safety
-    h_padded = ((h + 31) // 32) * 32
-    w_padded = ((w + 31) // 32) * 32
+    # Pad to max_stride for UNet (dimensions must be divisible by 2^num_blocks)
+    h_padded = ((h + max_stride - 1) // max_stride) * max_stride
+    w_padded = ((w + max_stride - 1) // max_stride) * max_stride
 
-    # Model parameters estimate
-    num_params = _PARAM_ESTIMATES.get(backbone, 2_000_000)
+    in_channels = stats.num_channels
 
-    # Memory calculations (in MB)
-    # Model weights in FP32
-    model_weights = (num_params * 4) / 1e6
+    # Estimate parameters based on backbone type
+    if "convnext" in backbone or "swint" in backbone:
+        # Pretrained backbones have fixed param counts
+        param_estimates = {
+            "convnext_tiny": 28_000_000,
+            "convnext_small": 50_000_000,
+            "convnext_base": 89_000_000,
+            "swint_tiny": 28_000_000,
+            "swint_small": 50_000_000,
+        }
+        num_params = param_estimates.get(backbone, 28_000_000)
+    else:
+        # UNet: compute params based on architecture
+        num_params = _estimate_params_accurate(
+            filters, max_stride, output_stride, in_channels, num_keypoints, filters_rate
+        )
+
+    # Memory calculations (in bytes, fp32 = 4 bytes)
+    weights_bytes = num_params * 4
 
     # Batch images (FP32)
-    batch_images = (batch_size * h_padded * w_padded * stats.num_channels * 4) / 1e6
+    batch_img_bytes = batch_size * h_padded * w_padded * in_channels * 4
 
-    # Activations estimate
-    # Rough heuristic: ~0.5x model params per batch element for intermediate activations
-    activations = (batch_size * num_params * 4 * 0.5) / 1e6
+    # Confidence map outputs
+    confmap_h = h_padded // output_stride
+    confmap_w = w_padded // output_stride
+    confmap_bytes = batch_size * confmap_h * confmap_w * num_keypoints * 4
+
+    # Activations: sum of feature map sizes through encoder layers
+    act_bytes = 0
+    h_act, w_act = h_padded, w_padded
+    f = filters
+    down_blocks = int(math.log2(max_stride))
+    for i in range(down_blocks + 1):
+        act_bytes += batch_size * h_act * w_act * f * 4
+        h_act = max(1, h_act // 2)
+        w_act = max(1, w_act // 2)
+        f = int(f * filters_rate)
+    act_bytes *= 2  # Encoder + decoder
 
     # Gradients roughly equal to activations
-    gradients = activations
+    gradient_bytes = act_bytes
 
-    # Total with safety factor
-    total_gpu = (model_weights + batch_images + activations + gradients) * 1.3
+    # Total in MB
+    total_bytes = weights_bytes + batch_img_bytes + confmap_bytes + act_bytes + gradient_bytes
+    total_mb = total_bytes / 1e6
+
+    model_weights_mb = weights_bytes / 1e6
+    batch_images_mb = batch_img_bytes / 1e6
+    confmaps_mb = confmap_bytes / 1e6
+    activations_mb = act_bytes / 1e6
+    gradients_mb = gradient_bytes / 1e6
 
     # GPU status thresholds
-    if total_gpu < 4000:
+    if total_mb < 4000:
         gpu_status: Literal["green", "yellow", "red"] = "green"
         gpu_message = "Should fit on most GPUs (8GB+)"
-    elif total_gpu < 8000:
+    elif total_mb < 8000:
         gpu_status = "yellow"
         gpu_message = "May require 12GB+ GPU"
     else:
@@ -165,14 +260,16 @@ def estimate_memory(
     )
 
     return MemoryEstimate(
-        model_weights_mb=model_weights,
-        batch_images_mb=batch_images,
-        activations_mb=activations,
-        gradients_mb=gradients,
-        total_gpu_mb=total_gpu,
+        model_weights_mb=model_weights_mb,
+        batch_images_mb=batch_images_mb,
+        activations_mb=activations_mb,
+        gradients_mb=gradients_mb,
+        confmaps_mb=confmaps_mb,
+        total_gpu_mb=total_mb,
         cache_memory_mb=cache_mb,
         gpu_status=gpu_status,
         gpu_message=gpu_message,
         cpu_fits_in_memory=cpu_fits,
         cpu_message=cpu_message,
+        params_count=num_params,
     )
