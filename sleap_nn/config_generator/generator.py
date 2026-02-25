@@ -522,11 +522,15 @@ class ConfigGenerator:
                     "rotation_max": self._rotation_range[1],
                     "scale_min": self._scale_range[0],
                     "scale_max": self._scale_range[1],
+                    "translate_width": 0.0,
+                    "translate_height": 0.0,
                     "affine_p": 1.0 if self._use_augmentations else 0.0,
                 },
                 "intensity": {
-                    "contrast_p": 0.0,
+                    "brightness_limit": 0.0,
                     "brightness_p": 0.0,
+                    "contrast_limit": 0.0,
+                    "contrast_p": 0.0,
                 },
             },
         }
@@ -676,7 +680,16 @@ class ConfigGenerator:
                 "patience": self._early_stopping_patience,
                 "min_delta": 1e-8,
             },
+            "lr_scheduler": {
+                "type": "ReduceLROnPlateau",
+                "factor": 0.5,
+                "patience": 5,
+                "min_lr": 1e-8,
+                "cooldown": 3,
+            },
             "save_ckpt": True,
+            "save_top_k": 1,
+            "save_last": False,
         }
 
     def build_centered_instance(self) -> DictConfig:
