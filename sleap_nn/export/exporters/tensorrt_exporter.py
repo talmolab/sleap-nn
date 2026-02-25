@@ -185,6 +185,11 @@ def _export_tensorrt_onnx(
         else:
             if verbose:
                 print("  WARNING: Platform does not have fast FP16, using FP32")
+    elif precision == "tf32":
+        # TF32 mode: leave TF32 enabled (TRT default on Ampere+).
+        # Uses 10-bit mantissa vs 23-bit for IEEE FP32.
+        if verbose:
+            print("  Using TF32 mode (TensorRT default)")
     elif precision == "fp32":
         # Explicitly disable TF32 to ensure strict IEEE FP32 arithmetic.
         # TensorRT enables TF32 by default which uses 10-bit mantissa vs

@@ -87,7 +87,7 @@ from sleap_nn.training.lightning_modules import (
 @click.option("--device", type=str, default="cpu", show_default=True)
 @click.option(
     "--precision",
-    type=click.Choice(["fp32", "fp16"], case_sensitive=False),
+    type=click.Choice(["fp32", "fp16", "tf32"], case_sensitive=False),
     default="fp16",
     show_default=True,
     help="TensorRT precision mode.",
