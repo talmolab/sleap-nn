@@ -178,7 +178,10 @@ class ModelSelectScreen(Widget):
         super().__init__(**kwargs)
         self._state = state
         self._selected_type: Optional[PipelineType] = None
+        # Restore identity state from pipeline type
         self._use_identity = False
+        if state and state._pipeline:
+            self._use_identity = "multi_class" in str(state._pipeline)
 
     def compose(self) -> ComposeResult:
         """Compose the screen layout."""
@@ -195,12 +198,16 @@ class ModelSelectScreen(Widget):
             with Container(id="pipeline-info-box"):
                 yield Static(id="pipeline-info")
 
-            # Identity tracking option
+            # Identity tracking option - restore from state
+            identity_enabled = False
+            if self._state and self._state._pipeline:
+                identity_enabled = "multi_class" in str(self._state._pipeline)
+
             with Horizontal(id="identity-option"):
                 yield Checkbox(
                     "Enable identity tracking",
                     id="identity-checkbox",
-                    value=False,
+                    value=identity_enabled,
                 )
                 yield Label(
                     "(requires track annotations in your data)",

@@ -7,7 +7,7 @@ to inform automatic configuration of training parameters.
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import sleap_io as sio
@@ -47,6 +47,7 @@ class DatasetStats:
         num_tracks: Number of unique tracks.
         estimated_total_bytes: Estimated memory for all images.
         overlap_frequency: Fraction of frames with overlapping instances (IoU > 0.2).
+        node_visibility: Dict mapping node names to visibility percentage (0-100).
     """
 
     slp_path: str
@@ -68,6 +69,7 @@ class DatasetStats:
     estimated_total_bytes: int
     total_instances: int = 0
     overlap_frequency: float = 0.0
+    node_visibility: Optional[Dict[str, float]] = None
 
     @property
     def frame_area(self) -> int:
@@ -194,6 +196,9 @@ def _compute_bbox_stats(
 
     for lf in labels.labeled_frames:
         instances = lf.user_instances if user_instances_only else lf.instances
+        # If user_instances is empty but there are instances, use all instances
+        if not instances and user_instances_only:
+            instances = lf.instances
         for instance in instances:
             if instance.is_empty:
                 continue
@@ -237,6 +242,9 @@ def _compute_avg_instances(
         instances = lf.user_instances if user_instances_only else lf.instances
         # Filter out empty instances
         non_empty = [inst for inst in instances if not inst.is_empty]
+        # If user_instances is empty but there are instances, count all instances
+        if not non_empty and user_instances_only:
+            non_empty = [inst for inst in lf.instances if not inst.is_empty]
         counts.append(len(non_empty))
 
     return float(np.mean(counts)) if counts else 0.0
@@ -302,6 +310,56 @@ def _get_instance_bbox(instance) -> Optional[Tuple[float, float, float, float]]:
     return (float(x_min), float(y_min), float(x_max), float(y_max))
 
 
+def _compute_node_visibility(
+    labels: sio.Labels,
+    node_names: List[str],
+    user_instances_only: bool = True,
+) -> Dict[str, float]:
+    """Compute visibility percentage for each skeleton node.
+
+    Args:
+        labels: sleap_io Labels object.
+        node_names: List of node names from skeleton.
+        user_instances_only: If True, only consider user-labeled instances.
+
+    Returns:
+        Dict mapping node names to visibility percentage (0-100).
+    """
+    if not node_names:
+        return {}
+
+    visibility_counts = {name: {"visible": 0, "total": 0} for name in node_names}
+
+    for lf in labels.labeled_frames:
+        instances = lf.user_instances if user_instances_only else lf.instances
+        # If user_instances is empty but there are instances, use all instances
+        if not instances and user_instances_only:
+            instances = lf.instances
+
+        for inst in instances:
+            if inst.is_empty:
+                continue
+            pts = inst.numpy()  # Shape: (num_nodes, 2)
+            for i, name in enumerate(node_names):
+                if i >= len(pts):
+                    continue
+                visibility_counts[name]["total"] += 1
+                # Check if point is not NaN
+                if not np.isnan(pts[i]).any():
+                    visibility_counts[name]["visible"] += 1
+
+    # Convert to percentages
+    result = {}
+    for name in node_names:
+        counts = visibility_counts[name]
+        if counts["total"] > 0:
+            result[name] = (counts["visible"] / counts["total"]) * 100
+        else:
+            result[name] = 0.0
+
+    return result
+
+
 def _compute_overlap_frequency(
     labels: sio.Labels,
     user_instances_only: bool = True,
@@ -324,6 +382,9 @@ def _compute_overlap_frequency(
 
     for lf in labels.labeled_frames:
         instances = lf.user_instances if user_instances_only else lf.instances
+        # If user_instances is empty but there are instances, use all instances
+        if not instances and user_instances_only:
+            instances = lf.instances
         # Get bboxes for all non-empty instances
         bboxes = []
         for inst in instances:
@@ -378,7 +439,7 @@ def analyze_slp(
     max_height, max_width = get_max_height_width(labels)
     num_channels = _detect_channels(labels)
 
-    # Instance statistics
+    # Instance statistics - use all instances for max count (consistent with get_max_instances)
     max_instances = get_max_instances(labels)
 
     # Get bbox statistics
@@ -390,11 +451,17 @@ def analyze_slp(
     avg_bbox, min_bbox = _compute_bbox_stats(labels, user_instances_only)
     avg_instances = _compute_avg_instances(labels, user_instances_only)
 
-    # Count total instances
+    # Count total instances - count all instances to be consistent with max_instances
+    # (user_instances may be empty if all instances are from predictions/imports)
     total_instances = 0
     for lf in labels.labeled_frames:
+        # First try user instances, fall back to all instances if empty
         instances = lf.user_instances if user_instances_only else lf.instances
-        total_instances += len([inst for inst in instances if not inst.is_empty])
+        non_empty = [inst for inst in instances if not inst.is_empty]
+        # If user_instances is empty but there are instances, count all instances
+        if not non_empty and user_instances_only:
+            non_empty = [inst for inst in lf.instances if not inst.is_empty]
+        total_instances += len(non_empty)
 
     # Compute overlap frequency (only for multi-instance datasets)
     if max_instances > 1:
@@ -410,6 +477,9 @@ def analyze_slp(
         if skeleton
         else []
     )
+
+    # Compute node visibility percentages
+    node_visibility = _compute_node_visibility(labels, node_names, user_instances_only)
 
     # Track info
     has_tracks = len(labels.tracks) > 0
@@ -439,4 +509,5 @@ def analyze_slp(
         estimated_total_bytes=estimated_total_bytes,
         total_instances=total_instances,
         overlap_frequency=overlap_freq,
+        node_visibility=node_visibility,
     )

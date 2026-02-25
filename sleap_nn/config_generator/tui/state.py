@@ -106,16 +106,23 @@ class AugmentationConfig:
     """Data augmentation configuration."""
 
     enabled: bool = True
-    # Geometric
+    # Geometric - rotation
+    rotation_enabled: bool = True
     rotation_min: float = -15.0
     rotation_max: float = 15.0
+    # Geometric - scale
+    scale_enabled: bool = True
     scale_min: float = 0.9
     scale_max: float = 1.1
+    # Geometric - translate
     translate_x: float = 0.0
     translate_y: float = 0.0
-    # Intensity
-    brightness_limit: float = 0.0
-    contrast_limit: float = 0.0
+    # Intensity - brightness
+    brightness_enabled: bool = False
+    brightness_limit: float = 0.2
+    # Intensity - contrast
+    contrast_enabled: bool = False
+    contrast_limit: float = 0.2
 
 
 @dataclass
@@ -240,6 +247,9 @@ class ConfigState:
 
         # Checkpoint config
         self._checkpoint: CheckpointConfig = CheckpointConfig()
+        # For top-down, separate checkpoint config for centered instance
+        self._ci_checkpoint_dir: str = ""
+        self._ci_run_name: str = ""
 
         # OHKM config
         self._ohkm: OHKMConfig = OHKMConfig()
@@ -422,14 +432,21 @@ class ConfigState:
         self._ensure_rgb = self.stats.is_rgb
         self._ensure_grayscale = self.stats.is_grayscale
 
-        # Set centered instance defaults for top-down
+        # Set defaults for top-down models
         if self.is_topdown:
+            # Centroid model defaults - lower scale is OK for detecting centers
+            self._input_scale = 0.5
+            self._sigma = 5.0
+            self._output_stride = 2
+
+            # Centered instance model defaults
             self._ci_backbone = "unet_medium_rf"
             self._ci_max_stride = 16
             self._ci_filters = 32
             self._ci_filters_rate = 1.5
             self._ci_sigma = 2.5
             self._ci_output_stride = 2
+            self._ci_input_scale = 1.0  # Full resolution for keypoint detection
             self._ci_augmentation = AugmentationConfig(
                 rotation_min=rec.rotation_range[0],
                 rotation_max=rec.rotation_range[1],
@@ -547,21 +564,31 @@ class ConfigState:
 
     def _build_augmentation_config(self, aug: AugmentationConfig) -> Dict[str, Any]:
         """Build augmentation configuration section."""
+        # Only include enabled augmentations
+        rotation_min = aug.rotation_min if aug.rotation_enabled else 0.0
+        rotation_max = aug.rotation_max if aug.rotation_enabled else 0.0
+        scale_min = aug.scale_min if aug.scale_enabled else 1.0
+        scale_max = aug.scale_max if aug.scale_enabled else 1.0
+
+        # Geometric augmentations are applied if any geometric aug is enabled
+        any_geometric = aug.rotation_enabled or aug.scale_enabled
+        affine_p = 1.0 if (aug.enabled and any_geometric) else 0.0
+
         return {
             "geometric": {
-                "rotation_min": aug.rotation_min,
-                "rotation_max": aug.rotation_max,
-                "scale_min": aug.scale_min,
-                "scale_max": aug.scale_max,
+                "rotation_min": rotation_min,
+                "rotation_max": rotation_max,
+                "scale_min": scale_min,
+                "scale_max": scale_max,
                 "translate_x": aug.translate_x,
                 "translate_y": aug.translate_y,
-                "affine_p": 1.0 if aug.enabled else 0.0,
+                "affine_p": affine_p,
             },
             "intensity": {
-                "brightness_limit": aug.brightness_limit,
-                "brightness_p": 0.5 if aug.brightness_limit > 0 else 0.0,
-                "contrast_limit": aug.contrast_limit,
-                "contrast_p": 0.5 if aug.contrast_limit > 0 else 0.0,
+                "brightness_limit": aug.brightness_limit if aug.brightness_enabled else 0.0,
+                "brightness_p": 0.5 if aug.brightness_enabled else 0.0,
+                "contrast_limit": aug.contrast_limit if aug.contrast_enabled else 0.0,
+                "contrast_p": 0.5 if aug.contrast_enabled else 0.0,
             },
         }
 
