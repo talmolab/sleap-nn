@@ -475,6 +475,11 @@ class ConfigGenerator:
         self._crop_size = size
         return self
 
+    @property
+    def is_topdown(self) -> bool:
+        """Check if current pipeline is top-down (requires 2 models)."""
+        return self._pipeline in ("centroid", "multi_class_topdown")
+
     def build(self) -> DictConfig:
         """Build the configuration as an OmegaConf DictConfig.
 
@@ -674,25 +679,86 @@ class ConfigGenerator:
             "save_ckpt": True,
         }
 
+    def build_centered_instance(self) -> DictConfig:
+        """Build centered_instance config for top-down models.
+
+        This creates a separate config for the centered_instance model
+        that is paired with the centroid model in top-down pipelines.
+
+        Returns:
+            Centered instance configuration.
+        """
+        # Save current state
+        orig_pipeline = self._pipeline
+        orig_scale = self._input_scale
+        orig_sigma = self._sigma
+        orig_output_stride = self._output_stride
+
+        # Switch to centered_instance settings
+        self._pipeline = "centered_instance"
+        self._input_scale = 1.0  # Full resolution for instance
+        self._sigma = 2.5  # Tighter sigma for instance
+        self._output_stride = 2
+
+        # Build the config
+        config = self.build()
+
+        # Restore original state
+        self._pipeline = orig_pipeline
+        self._input_scale = orig_scale
+        self._sigma = orig_sigma
+        self._output_stride = orig_output_stride
+
+        return config
+
     def save(self, path: str) -> "ConfigGenerator":
-        """Save configuration to YAML file.
+        """Save configuration to YAML file(s).
+
+        For top-down models (centroid, multi_class_topdown), saves TWO files:
+        - {path}_centroid.yaml
+        - {path}_centered_instance.yaml
+
+        For other models, saves a single file.
 
         Args:
-            path: Output path for YAML file.
+            path: Output path for YAML file (extension will be adjusted for top-down).
 
         Returns:
             self for method chaining.
         """
-        config = self.build()
-        OmegaConf.save(config, path)
+        path_obj = Path(path)
+        stem = path_obj.stem
+        suffix = path_obj.suffix or ".yaml"
+        parent = path_obj.parent
+
+        if self.is_topdown:
+            # Save centroid config
+            centroid_path = parent / f"{stem}_centroid{suffix}"
+            centroid_config = self.build()
+            OmegaConf.save(centroid_config, centroid_path)
+
+            # Save centered_instance config
+            instance_path = parent / f"{stem}_centered_instance{suffix}"
+            instance_config = self.build_centered_instance()
+            OmegaConf.save(instance_config, instance_path)
+        else:
+            config = self.build()
+            OmegaConf.save(config, path)
+
         return self
 
     def to_yaml(self) -> str:
         """Convert configuration to YAML string.
 
+        For top-down models, returns both centroid and centered_instance configs.
+
         Returns:
             YAML string representation.
         """
+        if self.is_topdown:
+            centroid_yaml = OmegaConf.to_yaml(self.build())
+            instance_yaml = OmegaConf.to_yaml(self.build_centered_instance())
+            return f"# === CENTROID CONFIG ===\n{centroid_yaml}\n\n# === CENTERED INSTANCE CONFIG ===\n{instance_yaml}"
         return OmegaConf.to_yaml(self.build())
 
     def memory_estimate(self) -> MemoryEstimate:

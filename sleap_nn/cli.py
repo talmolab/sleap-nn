@@ -1014,13 +1014,25 @@ def config(
             click.echo(gen.to_yaml())
         elif output:
             gen.save(output)
-            click.echo(f"Saved config to: {output}")
+            if gen.is_topdown:
+                path_obj = Path(output)
+                stem = path_obj.stem
+                suffix = path_obj.suffix or ".yaml"
+                parent = path_obj.parent
+                click.echo(f"Saved centroid config to: {parent / f'{stem}_centroid{suffix}'}")
+                click.echo(f"Saved instance config to: {parent / f'{stem}_centered_instance{suffix}'}")
+            else:
+                click.echo(f"Saved config to: {output}")
         else:
             # Default output path
             slp_stem = Path(slp_path).stem
             output_path = Path(slp_path).parent / f"{slp_stem}_config.yaml"
             gen.save(str(output_path))
-            click.echo(f"Saved config to: {output_path}")
+            if gen.is_topdown:
+                click.echo(f"Saved centroid config to: {output_path.parent / f'{slp_stem}_config_centroid.yaml'}")
+                click.echo(f"Saved instance config to: {output_path.parent / f'{slp_stem}_config_centered_instance.yaml'}")
+            else:
+                click.echo(f"Saved config to: {output_path}")
         return
 
     # Interactive TUI mode
