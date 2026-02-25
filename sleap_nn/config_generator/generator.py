@@ -220,8 +220,6 @@ class ConfigGenerator:
             self._input_scale = 0.5  # Lower scale for centroid
             self._sigma = 5.0
             self._output_stride = 2
-            # Auto-select anchor part (node with highest visibility)
-            self._anchor_part = self._select_best_anchor()
 
         # Auto-adjust max_stride if RF < animal size (scaled by input_scale)
         # RF map: {8: 36, 16: 76, 32: 156, 64: 316}
@@ -476,24 +474,6 @@ class ConfigGenerator:
         """
         self._crop_size = size
         return self
-
-    def _select_best_anchor(self) -> Optional[str]:
-        """Select the best anchor part based on node visibility.
-
-        For top-down models, the anchor part should be a node that is:
-        1. Consistently visible (high percentage of labeled instances)
-        2. Ideally central to the animal body
-
-        Returns:
-            Name of the best anchor node, or None if no visibility data.
-        """
-        visibility = self.stats.node_visibility
-        if not visibility:
-            return None
-
-        # Find node with highest visibility
-        best_node = max(visibility.keys(), key=lambda n: visibility[n])
-        return best_node
 
     @property
     def is_topdown(self) -> bool:
