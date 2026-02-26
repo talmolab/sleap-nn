@@ -17,10 +17,10 @@ Don't want to write YAML by hand? Use these tools to generate configs:
 
 | Tool | Description |
 |------|-------------|
+| [Config Picker](config-picker/index.md) | Interactive web app (runs in browser) |
 | [`sleap-nn config`](../reference/cli.md#sleap-nn-config) | CLI with interactive TUI or auto mode |
-| [SLEAP Config Picker](https://vibes.tlab.sh/sleap-config-picker/) | Web app for generating configs |
 
-See the [Config Generator Guide](../guides/config-generator.md) for detailed usage.
+See the [Config Generator Guide](../guides/config-generator.md) for detailed CLI usage.
 
 ---
 

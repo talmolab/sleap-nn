@@ -132,6 +132,7 @@ nav:
     - reference/index.md
     - Configuration:
       - configuration/index.md
+      - Config Picker: configuration/config-picker/index.md
       - Data Config: configuration/data.md
       - Model Config: configuration/model.md
       - Trainer Config: configuration/trainer.md
