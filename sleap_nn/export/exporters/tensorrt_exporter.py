@@ -260,10 +260,13 @@ def _export_tensorrt_jit(
     # Map precision to torch dtype
     precision_map = {
         "fp32": torch.float32,
+        "tf32": torch.float32,
         "fp16": torch.float16,
     }
     if precision not in precision_map:
-        raise ValueError(f"Unknown precision: {precision}. Use 'fp32' or 'fp16'")
+        raise ValueError(
+            f"Unknown precision: {precision}. Use 'fp32', 'tf32', or 'fp16'"
+        )
 
     enabled_precisions = {precision_map[precision]}
     if precision == "fp16":

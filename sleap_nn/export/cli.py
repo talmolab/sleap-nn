@@ -949,8 +949,15 @@ def predict(
                 f"    export OMP_NUM_THREADS={suggested}\n"
             )
         else:
-            omp_val = int(omp_threads)
-            if omp_val * cpu_workers > (os.cpu_count() or 1) * 2:
+            try:
+                omp_val = int(omp_threads)
+            except (ValueError, TypeError):
+                omp_val = None
+
+            if (
+                omp_val is not None
+                and omp_val * cpu_workers > (os.cpu_count() or 1) * 2
+            ):
                 click.echo(
                     f"\n  WARNING: OMP_NUM_THREADS={omp_val} x {cpu_workers} "
                     f"workers = {omp_val * cpu_workers} threads, which exceeds "

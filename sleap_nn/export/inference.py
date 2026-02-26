@@ -15,6 +15,7 @@ Example usage::
 
 from __future__ import annotations
 
+import logging
 import multiprocessing
 import time
 from pathlib import Path
@@ -854,69 +855,101 @@ def _bottomup_postprocess_worker(
     if profile_path:
         _csv_file = open(profile_path, "w", newline="")
         _csv_writer = _csv.writer(_csv_file)
-        _csv_writer.writerow([
-            "worker_pid", "seq_id", "queue_get_ms", "process_ms",
-            "result_put_ms", "payload_bytes", "n_instances",
-            "filter_ms", "match_candidates_ms", "group_instances_ms",
-            "assemble_ms", "total_candidates", "candidate_mask_true",
-            "conf_peaks", "valid_edges",
-        ])
-
-    while True:
-        t_get_start = time.perf_counter()
-        item = gpu_output_queue.get()
-        t_get_end = time.perf_counter()
-        if item is None:
-            break
-
-        seq_id, outputs, batch_indices = item
-
-        # Measure payload size (bytes pickled through mp.Queue)
-        payload_bytes = sum(v.nbytes for v in outputs.values())
-
-        t_proc_start = time.perf_counter()
-        results = _predict_bottomup_raw(
-            outputs,
-            batch_indices,
-            paf_scorer,
-            candidate_template,
-            input_scale,
-            peak_conf_threshold,
-            max_instances,
+        _csv_writer.writerow(
+            [
+                "worker_pid",
+                "seq_id",
+                "queue_get_ms",
+                "process_ms",
+                "result_put_ms",
+                "payload_bytes",
+                "n_instances",
+                "filter_ms",
+                "match_candidates_ms",
+                "group_instances_ms",
+                "assemble_ms",
+                "total_candidates",
+                "candidate_mask_true",
+                "conf_peaks",
+                "valid_edges",
+            ]
         )
-        t_proc_end = time.perf_counter()
 
-        t_put_start = time.perf_counter()
-        result_queue.put((seq_id, results))
-        t_put_end = time.perf_counter()
+    try:
+        while True:
+            t_get_start = time.perf_counter()
+            item = gpu_output_queue.get()
+            t_get_end = time.perf_counter()
+            if item is None:
+                break
 
-        # Always extract profile metadata appended by _predict_bottomup_raw
-        _pmeta = {}
-        if results and isinstance(results[-1], dict) and results[-1].get("_profile"):
-            _pmeta = results.pop()
+            try:
+                seq_id, outputs, batch_indices = item
 
-        if _csv_writer is not None:
-            n_instances = sum(
-                len(r.get("instance_scores", [])) for r in results
-            )
-            _csv_writer.writerow([
-                worker_pid, seq_id,
-                f"{(t_get_end - t_get_start) * 1000:.3f}",
-                f"{(t_proc_end - t_proc_start) * 1000:.3f}",
-                f"{(t_put_end - t_put_start) * 1000:.3f}",
-                payload_bytes, n_instances,
-                f"{_pmeta.get('filter_ms', 0):.3f}",
-                f"{_pmeta.get('match_candidates_ms', 0):.3f}",
-                f"{_pmeta.get('group_instances_ms', 0):.3f}",
-                f"{_pmeta.get('assemble_ms', 0):.3f}",
-                _pmeta.get('total_candidates', 0),
-                _pmeta.get('candidate_mask_true', 0),
-                _pmeta.get('conf_peaks', 0),
-                _pmeta.get('valid_edges', 0),
-            ])
+                # Measure payload size (bytes pickled through mp.Queue)
+                payload_bytes = sum(v.nbytes for v in outputs.values())
 
-    if _csv_file is not None:
-        _csv_file.close()
+                t_proc_start = time.perf_counter()
+                results = _predict_bottomup_raw(
+                    outputs,
+                    batch_indices,
+                    paf_scorer,
+                    candidate_template,
+                    input_scale,
+                    peak_conf_threshold,
+                    max_instances,
+                )
+                t_proc_end = time.perf_counter()
+
+                # Extract profile metadata BEFORE queueing to avoid corrupting
+                # results (_predict_bottomup_raw appends a _profile dict that
+                # would cause KeyError in _raw_results_to_labeled_frames if
+                # left in the results list)
+                _pmeta = {}
+                if (
+                    results
+                    and isinstance(results[-1], dict)
+                    and results[-1].get("_profile")
+                ):
+                    _pmeta = results.pop()
+
+                t_put_start = time.perf_counter()
+                result_queue.put((seq_id, results))
+                t_put_end = time.perf_counter()
+
+                if _csv_writer is not None:
+                    n_instances = sum(
+                        len(r.get("instance_scores", [])) for r in results
+                    )
+                    _csv_writer.writerow(
+                        [
+                            worker_pid,
+                            seq_id,
+                            f"{(t_get_end - t_get_start) * 1000:.3f}",
+                            f"{(t_proc_end - t_proc_start) * 1000:.3f}",
+                            f"{(t_put_end - t_put_start) * 1000:.3f}",
+                            payload_bytes,
+                            n_instances,
+                            f"{_pmeta.get('filter_ms', 0):.3f}",
+                            f"{_pmeta.get('match_candidates_ms', 0):.3f}",
+                            f"{_pmeta.get('group_instances_ms', 0):.3f}",
+                            f"{_pmeta.get('assemble_ms', 0):.3f}",
+                            _pmeta.get("total_candidates", 0),
+                            _pmeta.get("candidate_mask_true", 0),
+                            _pmeta.get("conf_peaks", 0),
+                            _pmeta.get("valid_edges", 0),
+                        ]
+                    )
+            except Exception:
+                import traceback
+
+                traceback.print_exc()
+                # Exit the loop — the worker will terminate with a non-zero
+                # exitcode, and the collector's liveness check will detect it.
+                break
+    finally:
+        if _csv_file is not None:
+            _csv_file.close()
 
 
 def _raw_results_to_labeled_frames(raw_results, video, skeleton):
@@ -1028,6 +1061,7 @@ def _run_bottomup_pipelined(
 
     # Determine per-worker profile paths
     import os as _os
+
     _profile_dir = _os.environ.get("SLEAP_PROFILE_DIR", "")
     if _profile_dir:
         _os.makedirs(_profile_dir, exist_ok=True)
@@ -1084,14 +1118,16 @@ def _run_bottomup_pipelined(
             gpu_output_queue.put((total_batches, outputs, batch_indices))
             t_put_end = time.perf_counter()
 
-            producer_profile.append({
-                "source": "producer",
-                "seq_id": total_batches,
-                "prefetch_get_ms": (t_fetch_end - t_fetch_start) * 1000,
-                "predict_ms": (infer_end - infer_start) * 1000,
-                "queue_put_ms": (t_put_end - t_put_start) * 1000,
-                "total_ms": (t_put_end - t_fetch_start) * 1000,
-            })
+            producer_profile.append(
+                {
+                    "source": "producer",
+                    "seq_id": total_batches,
+                    "prefetch_get_ms": (t_fetch_end - t_fetch_start) * 1000,
+                    "predict_ms": (infer_end - infer_start) * 1000,
+                    "queue_put_ms": (t_put_end - t_put_start) * 1000,
+                    "total_ms": (t_put_end - t_fetch_start) * 1000,
+                }
+            )
 
             total_batches += 1
 
@@ -1102,7 +1138,13 @@ def _run_bottomup_pipelined(
         # Send sentinels to shut down workers
         for _ in workers:
             gpu_output_queue.put(None)
-        prefetch_thread.join()
+        # Drain prefetch queue to unblock the thread if it's stuck on put()
+        while not prefetch_queue.empty():
+            try:
+                prefetch_queue.get_nowait()
+            except queue.Empty:
+                break
+        prefetch_thread.join(timeout=5.0)
 
     # Collector: gather results in order using reorder buffer
     labeled_frames = []
@@ -1114,7 +1156,14 @@ def _run_bottomup_pipelined(
 
     while collected < total_batches:
         t_cget_start = time.perf_counter()
-        seq_id, raw_results = result_queue.get()
+        try:
+            seq_id, raw_results = result_queue.get(timeout=5.0)
+        except queue.Empty:
+            # Check if any worker has died
+            dead = [p for p in workers if not p.is_alive() and p.exitcode != 0]
+            if dead:
+                raise RuntimeError(f"Worker process(es) died: {[p.pid for p in dead]}")
+            continue
         t_cget_end = time.perf_counter()
         reorder_buffer[seq_id] = raw_results
         collected += 1
@@ -1127,12 +1176,14 @@ def _run_bottomup_pipelined(
             next_seq_id += 1
         t_convert_end = time.perf_counter()
 
-        collector_profile.append({
-            "source": "collector",
-            "seq_id": seq_id,
-            "result_get_ms": (t_cget_end - t_cget_start) * 1000,
-            "convert_ms": (t_convert_end - t_convert_start) * 1000,
-        })
+        collector_profile.append(
+            {
+                "source": "collector",
+                "seq_id": seq_id,
+                "result_get_ms": (t_cget_end - t_cget_start) * 1000,
+                "convert_ms": (t_convert_end - t_convert_start) * 1000,
+            }
+        )
 
     post_time = time.perf_counter() - post_start
 
@@ -1146,18 +1197,22 @@ def _run_bottomup_pipelined(
 
     if _profile_dir:
         if producer_profile:
-            with open(_os.path.join(_profile_dir, "producer.csv"), "w", newline="") as f:
+            with open(
+                _os.path.join(_profile_dir, "producer.csv"), "w", newline=""
+            ) as f:
                 w = csv.DictWriter(f, fieldnames=list(producer_profile[0].keys()))
                 w.writeheader()
                 w.writerows(producer_profile)
 
         if collector_profile:
-            with open(_os.path.join(_profile_dir, "collector.csv"), "w", newline="") as f:
+            with open(
+                _os.path.join(_profile_dir, "collector.csv"), "w", newline=""
+            ) as f:
                 w = csv.DictWriter(f, fieldnames=list(collector_profile[0].keys()))
                 w.writeheader()
                 w.writerows(collector_profile)
 
-        print(f"  Profile data written to {_profile_dir}/")
+        logging.info(f"Profile data written to {_profile_dir}/")
 
     return labeled_frames, infer_time, post_time
 
