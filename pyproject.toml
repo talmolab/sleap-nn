@@ -41,6 +41,7 @@ dependencies = [
     "matplotlib",
     "seaborn",
     "rich",
+    "textual>=0.40.0",
     "loguru",
     "psutil",
     "opencv-python",
