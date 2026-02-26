@@ -12,7 +12,6 @@ from sleap_nn import __version__
 import sleap_io as sio
 import torch
 
-
 # =============================================================================
 # CliRunner-based tests (in-process, tracked by coverage)
 # =============================================================================

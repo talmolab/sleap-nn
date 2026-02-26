@@ -217,6 +217,7 @@ class ConfigureScreen(Widget):
 
         Args:
             state: ConfigState with current configuration.
+            **kwargs: Additional keyword arguments passed to parent.
         """
         super().__init__(**kwargs)
         self._state = state
@@ -224,12 +225,14 @@ class ConfigureScreen(Widget):
     def compose(self) -> ComposeResult:
         """Compose the screen layout."""
         with Vertical(id="config-container"):
-            yield Label("[bold]Step 3: Configure Training[/bold]", classes="section-title")
+            yield Label(
+                "[bold]Step 3: Configure Training[/bold]", classes="section-title"
+            )
 
             if self._state and self._state.is_topdown:
                 yield Label(
                     "[yellow]Top-down model selected - configuring 2 models[/yellow]",
-                    classes="hint"
+                    classes="hint",
                 )
 
             with VerticalScroll(id="config-scroll"):
@@ -379,7 +382,11 @@ class ConfigureScreen(Widget):
         rf_pixels = rf_table.get(self._state._max_stride, 76)
 
         # Scale RF by input scale to get effective RF in original image space
-        effective_rf = rf_pixels / self._state._input_scale if self._state._input_scale > 0 else rf_pixels
+        effective_rf = (
+            rf_pixels / self._state._input_scale
+            if self._state._input_scale > 0
+            else rf_pixels
+        )
 
         # Get parameter estimate
         params = self._state.model_params_estimate
@@ -387,7 +394,11 @@ class ConfigureScreen(Widget):
 
         # Get encoder/decoder blocks
         encoder_blocks = int(math.log2(self._state._max_stride))
-        decoder_blocks = int(math.log2(self._state._max_stride / self._state._output_stride)) if self._state._output_stride > 0 else encoder_blocks
+        decoder_blocks = (
+            int(math.log2(self._state._max_stride / self._state._output_stride))
+            if self._state._output_stride > 0
+            else encoder_blocks
+        )
 
         # Compute effective Gaussian radius: sigma * output_stride * 2
         effective_sigma_radius = self._state._sigma * self._state._output_stride * 2
@@ -428,7 +439,11 @@ class ConfigureScreen(Widget):
             return
 
         # Calculate cache memory
-        bytes_per_frame = self._state.stats.max_height * self._state.stats.max_width * self._state.stats.num_channels
+        bytes_per_frame = (
+            self._state.stats.max_height
+            * self._state.stats.max_width
+            * self._state.stats.num_channels
+        )
         raw_cache_mb = (bytes_per_frame * self._state.stats.num_labeled_frames) / 1e6
         cache_with_overhead = raw_cache_mb * 1.2
 
@@ -480,7 +495,10 @@ class ConfigureScreen(Widget):
         is_disk_cache = self._state._data_pipeline == DataPipelineType.DISK_CACHE
 
         # Cache options (shown when any caching is enabled)
-        cache_option_ids = ["centroid-parallel-caching-row", "centroid-cache-workers-row"]
+        cache_option_ids = [
+            "centroid-parallel-caching-row",
+            "centroid-cache-workers-row",
+        ]
         for widget_id in cache_option_ids:
             try:
                 widget = self.query_one(f"#{widget_id}")
@@ -492,7 +510,12 @@ class ConfigureScreen(Widget):
                 pass
 
         # Disk-specific options (shown only for disk cache)
-        disk_option_ids = ["centroid-disk-cache-header", "centroid-cache-path-row", "centroid-use-existing-row", "centroid-delete-cache-row"]
+        disk_option_ids = [
+            "centroid-disk-cache-header",
+            "centroid-cache-path-row",
+            "centroid-use-existing-row",
+            "centroid-delete-cache-row",
+        ]
         for widget_id in disk_option_ids:
             try:
                 widget = self.query_one(f"#{widget_id}")
@@ -527,7 +550,11 @@ class ConfigureScreen(Widget):
         if self._state.is_topdown:
             out_channels = 1  # Centroid outputs 1 channel
         elif self._state.is_bottomup:
-            num_edges = len(self._state.stats.edges) if hasattr(self._state.stats, 'edges') else 0
+            num_edges = (
+                len(self._state.stats.edges)
+                if hasattr(self._state.stats, "edges")
+                else 0
+            )
             out_channels = f"{num_keypoints} + {num_edges * 2}"  # confmaps + PAFs
         else:
             out_channels = num_keypoints
@@ -586,9 +613,14 @@ class ConfigureScreen(Widget):
 
         # Add cache memory estimate if caching is enabled
         from sleap_nn.config_generator.tui.state import DataPipelineType
+
         if self._state._data_pipeline != DataPipelineType.TORCH_DATASET:
             cache_gb = mem.cache_memory_gb
-            cache_type = "disk" if self._state._data_pipeline == DataPipelineType.DISK_CACHE else "RAM"
+            cache_type = (
+                "disk"
+                if self._state._data_pipeline == DataPipelineType.DISK_CACHE
+                else "RAM"
+            )
             # Status color for cache
             if cache_gb < 4:
                 cache_color = "green"
@@ -624,6 +656,7 @@ class ConfigureScreen(Widget):
         try:
             # Estimate for centroid model (uses main model params with centroid-specific settings)
             from sleap_nn.config_generator.memory import estimate_memory
+
             mem = estimate_memory(
                 self._state.stats,
                 self._state._backbone,  # Centroid uses main backbone
@@ -647,9 +680,14 @@ class ConfigureScreen(Widget):
 
         # Add cache memory estimate if caching is enabled
         from sleap_nn.config_generator.tui.state import DataPipelineType
+
         if self._state._data_pipeline != DataPipelineType.TORCH_DATASET:
             cache_gb = mem.cache_memory_gb
-            cache_type = "disk" if self._state._data_pipeline == DataPipelineType.DISK_CACHE else "RAM"
+            cache_type = (
+                "disk"
+                if self._state._data_pipeline == DataPipelineType.DISK_CACHE
+                else "RAM"
+            )
             if cache_gb < 4:
                 cache_color = "green"
             elif cache_gb < 8:
@@ -689,13 +727,13 @@ class ConfigureScreen(Widget):
                 crop_size = 256  # Fallback default
 
             # Get state attributes with defaults
-            ci_backbone = getattr(self._state, '_ci_backbone', 'unet_medium_rf')
-            ci_batch_size = getattr(self._state, '_ci_batch_size', 4)
-            ci_input_scale = getattr(self._state, '_ci_input_scale', 1.0)
-            ci_output_stride = getattr(self._state, '_ci_output_stride', 2)
-            ci_filters = getattr(self._state, '_ci_filters', 32)
-            ci_filters_rate = getattr(self._state, '_ci_filters_rate', 1.5)
-            ci_max_stride = getattr(self._state, '_ci_max_stride', 16)
+            ci_backbone = getattr(self._state, "_ci_backbone", "unet_medium_rf")
+            ci_batch_size = getattr(self._state, "_ci_batch_size", 4)
+            ci_input_scale = getattr(self._state, "_ci_input_scale", 1.0)
+            ci_output_stride = getattr(self._state, "_ci_output_stride", 2)
+            ci_filters = getattr(self._state, "_ci_filters", 32)
+            ci_filters_rate = getattr(self._state, "_ci_filters_rate", 1.5)
+            ci_max_stride = getattr(self._state, "_ci_max_stride", 16)
 
             # Get stats with validation
             stats = self._state.stats
@@ -708,19 +746,29 @@ class ConfigureScreen(Widget):
                 def __init__(self, orig_stats, crop_size):
                     self.max_width = crop_size
                     self.max_height = crop_size
-                    self.num_frames = getattr(orig_stats, 'num_frames', orig_stats.num_labeled_frames)
+                    self.num_frames = getattr(
+                        orig_stats, "num_frames", orig_stats.num_labeled_frames
+                    )
                     self.num_labeled_frames = orig_stats.num_labeled_frames
-                    self.is_rgb = getattr(orig_stats, 'is_rgb', orig_stats.num_channels == 3)
+                    self.is_rgb = getattr(
+                        orig_stats, "is_rgb", orig_stats.num_channels == 3
+                    )
                     self.num_channels = orig_stats.num_channels
-                    self.num_nodes = getattr(orig_stats, 'num_nodes', len(getattr(orig_stats, 'node_names', [])))
-                    self.node_names = getattr(orig_stats, 'node_names', [])
-                    self.nodes = getattr(orig_stats, 'nodes', self.node_names)
+                    self.num_nodes = getattr(
+                        orig_stats,
+                        "num_nodes",
+                        len(getattr(orig_stats, "node_names", [])),
+                    )
+                    self.node_names = getattr(orig_stats, "node_names", [])
+                    self.nodes = getattr(orig_stats, "nodes", self.node_names)
 
             crop_stats = CropStats(stats, crop_size)
 
             # Get num_keypoints safely
-            skeleton_nodes = getattr(self._state, 'skeleton_nodes', [])
-            num_keypoints = len(skeleton_nodes) if skeleton_nodes else crop_stats.num_nodes
+            skeleton_nodes = getattr(self._state, "skeleton_nodes", [])
+            num_keypoints = (
+                len(skeleton_nodes) if skeleton_nodes else crop_stats.num_nodes
+            )
             if num_keypoints == 0:
                 num_keypoints = 13  # Fallback default
 
@@ -750,11 +798,16 @@ class ConfigureScreen(Widget):
         # Add cache memory estimate if caching is enabled
         # Note: Instance model caches full-frame images, same as centroid
         from sleap_nn.config_generator.tui.state import DataPipelineType
+
         if self._state._data_pipeline != DataPipelineType.TORCH_DATASET:
             # Calculate cache based on original image size, not crop
             full_mem = self._state.memory_estimate()
             cache_gb = full_mem.cache_memory_gb
-            cache_type = "disk" if self._state._data_pipeline == DataPipelineType.DISK_CACHE else "RAM"
+            cache_type = (
+                "disk"
+                if self._state._data_pipeline == DataPipelineType.DISK_CACHE
+                else "RAM"
+            )
             if cache_gb < 4:
                 cache_color = "green"
             elif cache_gb < 8:
@@ -789,7 +842,11 @@ class ConfigureScreen(Widget):
             return
 
         # Calculate cache memory
-        bytes_per_frame = self._state.stats.max_height * self._state.stats.max_width * self._state.stats.num_channels
+        bytes_per_frame = (
+            self._state.stats.max_height
+            * self._state.stats.max_width
+            * self._state.stats.num_channels
+        )
         raw_cache_mb = (bytes_per_frame * self._state.stats.num_labeled_frames) / 1e6
         cache_with_overhead = raw_cache_mb * 1.2
 
@@ -853,7 +910,12 @@ class ConfigureScreen(Widget):
                 pass
 
         # Disk-specific options (shown only for disk cache)
-        disk_option_ids = ["disk-cache-header", "cache-path-row", "use-existing-row", "delete-cache-row"]
+        disk_option_ids = [
+            "disk-cache-header",
+            "cache-path-row",
+            "use-existing-row",
+            "delete-cache-row",
+        ]
         for widget_id in disk_option_ids:
             try:
                 widget = self.query_one(f"#{widget_id}")
@@ -875,7 +937,9 @@ class ConfigureScreen(Widget):
 
         # Check if backbone supports ImageNet pretrained weights
         backbone = self._state._backbone
-        is_pretrained_backbone = backbone.startswith("convnext") or backbone.startswith("swint")
+        is_pretrained_backbone = backbone.startswith("convnext") or backbone.startswith(
+            "swint"
+        )
 
         # Standard model ImageNet row
         try:
@@ -918,7 +982,10 @@ class ConfigureScreen(Widget):
         is_disk_cache = self._state._data_pipeline == DataPipelineType.DISK_CACHE
 
         # Cache options (shown when any caching is enabled)
-        cache_option_ids = ["instance-parallel-caching-row", "instance-cache-workers-row"]
+        cache_option_ids = [
+            "instance-parallel-caching-row",
+            "instance-cache-workers-row",
+        ]
         for widget_id in cache_option_ids:
             try:
                 widget = self.query_one(f"#{widget_id}")
@@ -930,7 +997,12 @@ class ConfigureScreen(Widget):
                 pass
 
         # Disk-specific options (shown only for disk cache)
-        disk_option_ids = ["instance-disk-cache-header", "instance-cache-path-row", "instance-use-existing-row", "instance-delete-cache-row"]
+        disk_option_ids = [
+            "instance-disk-cache-header",
+            "instance-cache-path-row",
+            "instance-use-existing-row",
+            "instance-delete-cache-row",
+        ]
         for widget_id in disk_option_ids:
             try:
                 widget = self.query_one(f"#{widget_id}")
@@ -964,7 +1036,11 @@ class ConfigureScreen(Widget):
             return
 
         # Cache is based on FULL FRAME size (same as centroid) - cropping happens after loading
-        bytes_per_frame = self._state.stats.max_height * self._state.stats.max_width * self._state.stats.num_channels
+        bytes_per_frame = (
+            self._state.stats.max_height
+            * self._state.stats.max_width
+            * self._state.stats.num_channels
+        )
         raw_cache_mb = (bytes_per_frame * self._state.stats.num_labeled_frames) / 1e6
         cache_with_overhead = raw_cache_mb * 1.2
 
@@ -1014,8 +1090,13 @@ class ConfigureScreen(Widget):
 
         # Standard model WandB options
         wandb_option_ids = [
-            "wandb-project-row", "wandb-entity-row", "wandb-name-row",
-            "wandb-api-key-row", "wandb-mode-row", "wandb-viz-row", "wandb-save-viz-row"
+            "wandb-project-row",
+            "wandb-entity-row",
+            "wandb-name-row",
+            "wandb-api-key-row",
+            "wandb-mode-row",
+            "wandb-viz-row",
+            "wandb-save-viz-row",
         ]
         for widget_id in wandb_option_ids:
             try:
@@ -1029,9 +1110,13 @@ class ConfigureScreen(Widget):
 
         # Centroid model WandB options
         centroid_wandb_ids = [
-            "centroid-wandb-project-row", "centroid-wandb-entity-row", "centroid-wandb-name-row",
-            "centroid-wandb-api-key-row", "centroid-wandb-mode-row", "centroid-wandb-viz-row",
-            "centroid-wandb-save-viz-row"
+            "centroid-wandb-project-row",
+            "centroid-wandb-entity-row",
+            "centroid-wandb-name-row",
+            "centroid-wandb-api-key-row",
+            "centroid-wandb-mode-row",
+            "centroid-wandb-viz-row",
+            "centroid-wandb-save-viz-row",
         ]
         for widget_id in centroid_wandb_ids:
             try:
@@ -1044,9 +1129,7 @@ class ConfigureScreen(Widget):
                 pass
 
         # Instance model WandB options
-        instance_wandb_ids = [
-            "instance-wandb-project-row", "instance-wandb-entity-row"
-        ]
+        instance_wandb_ids = ["instance-wandb-project-row", "instance-wandb-entity-row"]
         for widget_id in instance_wandb_ids:
             try:
                 widget = self.query_one(f"#{widget_id}")
@@ -1068,7 +1151,7 @@ class ConfigureScreen(Widget):
         viz_option_ids = [
             "viz-keep-folder-row",
             "centroid-viz-keep-folder-row",
-            "instance-viz-keep-folder-row"
+            "instance-viz-keep-folder-row",
         ]
         for widget_id in viz_option_ids:
             try:
@@ -1085,13 +1168,18 @@ class ConfigureScreen(Widget):
         if not self._state:
             return
 
-        eval_enabled = self._state._evaluation.enabled if self._state._evaluation else False
+        eval_enabled = (
+            self._state._evaluation.enabled if self._state._evaluation else False
+        )
 
         # All model eval options (standard, centroid, instance)
         eval_option_ids = [
-            "eval-frequency-row", "eval-oks-row",
-            "centroid-eval-frequency-row", "centroid-eval-oks-row",
-            "instance-eval-frequency-row", "instance-eval-oks-row"
+            "eval-frequency-row",
+            "eval-oks-row",
+            "centroid-eval-frequency-row",
+            "centroid-eval-oks-row",
+            "instance-eval-frequency-row",
+            "instance-eval-oks-row",
         ]
         for widget_id in eval_option_ids:
             try:
@@ -1126,7 +1214,11 @@ class ConfigureScreen(Widget):
         rf_pixels = rf_table.get(self._state._max_stride, 76)
 
         # Scale RF by input scale to get effective RF in original image space
-        effective_rf = rf_pixels / self._state._input_scale if self._state._input_scale > 0 else rf_pixels
+        effective_rf = (
+            rf_pixels / self._state._input_scale
+            if self._state._input_scale > 0
+            else rf_pixels
+        )
 
         # Get parameter estimate
         params = self._state.model_params_estimate
@@ -1134,7 +1226,11 @@ class ConfigureScreen(Widget):
 
         # Get encoder/decoder blocks
         encoder_blocks = int(math.log2(self._state._max_stride))
-        decoder_blocks = int(math.log2(self._state._max_stride / self._state._output_stride)) if self._state._output_stride > 0 else encoder_blocks
+        decoder_blocks = (
+            int(math.log2(self._state._max_stride / self._state._output_stride))
+            if self._state._output_stride > 0
+            else encoder_blocks
+        )
 
         # Compute effective Gaussian radius: sigma * output_stride * 2
         effective_sigma_radius = self._state._sigma * self._state._output_stride * 2
@@ -1174,7 +1270,9 @@ class ConfigureScreen(Widget):
             yield from self._compose_data_pipeline_section()
 
         # Additional Data Parameters (collapsible)
-        with Collapsible(title="Additional Data Parameters", classes="collapsible-section"):
+        with Collapsible(
+            title="Additional Data Parameters", classes="collapsible-section"
+        ):
             yield from self._compose_additional_data_params()
 
         # Model section
@@ -1185,12 +1283,16 @@ class ConfigureScreen(Widget):
         # Model-specific sections (PAF for bottom-up, class vector for multi-class)
         if self._state and self._state.is_bottomup:
             with Container(classes="model-specific-section"):
-                yield Static("[bold]Part Affinity Fields (PAF)[/bold]", classes="section-header")
+                yield Static(
+                    "[bold]Part Affinity Fields (PAF)[/bold]", classes="section-header"
+                )
                 yield from self._compose_paf_params()
 
         if self._state and self._state.is_multiclass:
             with Container(classes="model-specific-section"):
-                yield Static("[bold]Identity Classification[/bold]", classes="section-header")
+                yield Static(
+                    "[bold]Identity Classification[/bold]", classes="section-header"
+                )
                 yield from self._compose_class_vector_params()
 
         # Training section
@@ -1231,14 +1333,14 @@ class ConfigureScreen(Widget):
                 classes="param-input",
                 type="number",
             )
-            yield Label("Resize factor (0.125-1.0) - lower = faster training", classes="param-hint")
+            yield Label(
+                "Resize factor (0.125-1.0) - lower = faster training",
+                classes="param-hint",
+            )
 
         # Show shape pipeline info
         if self._state:
-            yield Static(
-                id="shape-info-display",
-                classes="shape-info"
-            )
+            yield Static(id="shape-info-display", classes="shape-info")
             # Initial content will be set by _update_shape_display()
 
     def _compose_data_augmentation_params(self) -> ComposeResult:
@@ -1360,7 +1462,9 @@ class ConfigureScreen(Widget):
                 classes="param-input",
             )
 
-        current_pipeline = self._state._data_pipeline.value if self._state else "torch_dataset"
+        current_pipeline = (
+            self._state._data_pipeline.value if self._state else "torch_dataset"
+        )
         with Horizontal(classes="param-row"):
             yield Label("Data Pipeline:", classes="param-label")
             yield Select(
@@ -1403,7 +1507,11 @@ class ConfigureScreen(Widget):
             yield Label("Workers for caching (0 = main process)", classes="param-hint")
 
         # Disk cache specific options
-        yield Static("[dim]Disk Cache Options[/dim]", classes="subsection-header", id="disk-cache-header")
+        yield Static(
+            "[dim]Disk Cache Options[/dim]",
+            classes="subsection-header",
+            id="disk-cache-header",
+        )
 
         # Cache Image Path
         with Horizontal(classes="param-row", id="cache-path-row"):
@@ -1456,7 +1564,9 @@ class ConfigureScreen(Widget):
                 classes="param-input",
                 type="number",
             )
-            yield Label("Fraction held out for validation (0.05-0.3)", classes="param-hint")
+            yield Label(
+                "Fraction held out for validation (0.05-0.3)", classes="param-hint"
+            )
 
         # Input Channels
         current_channels = "grayscale"
@@ -1483,7 +1593,11 @@ class ConfigureScreen(Widget):
         with Horizontal(classes="param-row"):
             yield Label("Max Height:", classes="param-label")
             yield Input(
-                value=str(self._state._max_height) if self._state and self._state._max_height else "",
+                value=(
+                    str(self._state._max_height)
+                    if self._state and self._state._max_height
+                    else ""
+                ),
                 id="max-height-input",
                 classes="param-input",
                 type="integer",
@@ -1491,7 +1605,11 @@ class ConfigureScreen(Widget):
             )
             yield Label("Max Width:", classes="param-label")
             yield Input(
-                value=str(self._state._max_width) if self._state and self._state._max_width else "",
+                value=(
+                    str(self._state._max_width)
+                    if self._state and self._state._max_width
+                    else ""
+                ),
                 id="max-width-input",
                 classes="param-input",
                 type="integer",
@@ -1630,7 +1748,9 @@ class ConfigureScreen(Widget):
                 classes="param-input",
                 type="number",
             )
-            yield Label("Vector field width (10-20 precise, 15 default)", classes="param-hint")
+            yield Label(
+                "Vector field width (10-20 precise, 15 default)", classes="param-hint"
+            )
 
         # PAF Output Stride
         with Horizontal(classes="param-row"):
@@ -1658,7 +1778,9 @@ class ConfigureScreen(Widget):
                 classes="param-input",
                 type="number",
             )
-            yield Label("Loss weight for keypoint heatmaps (1.0 default)", classes="param-hint")
+            yield Label(
+                "Loss weight for keypoint heatmaps (1.0 default)", classes="param-hint"
+            )
 
         # PAF Loss Weight
         with Horizontal(classes="param-row"):
@@ -1669,7 +1791,10 @@ class ConfigureScreen(Widget):
                 classes="param-input",
                 type="number",
             )
-            yield Label("Increase to emphasize limb grouping (1.0 default)", classes="param-hint")
+            yield Label(
+                "Increase to emphasize limb grouping (1.0 default)",
+                classes="param-hint",
+            )
 
     # ==================== CLASS VECTOR PARAMETERS (Multi-Class) ====================
 
@@ -1686,7 +1811,9 @@ class ConfigureScreen(Widget):
                 id="fc-layers-select",
                 classes="param-input",
             )
-            yield Label("Fully-connected layers for classification", classes="param-hint")
+            yield Label(
+                "Fully-connected layers for classification", classes="param-hint"
+            )
 
         # FC Units
         with Horizontal(classes="param-row"):
@@ -1719,7 +1846,14 @@ class ConfigureScreen(Widget):
         with Horizontal(classes="param-row"):
             yield Label("Batch Size:", classes="param-label")
             yield Select(
-                [("1", "1"), ("2", "2"), ("4", "4"), ("8", "8"), ("16", "16"), ("32", "32")],
+                [
+                    ("1", "1"),
+                    ("2", "2"),
+                    ("4", "4"),
+                    ("8", "8"),
+                    ("16", "16"),
+                    ("32", "32"),
+                ],
                 value=str(self._state._batch_size if self._state else 4),
                 id="batch-size-select",
                 classes="param-input",
@@ -1746,7 +1880,10 @@ class ConfigureScreen(Widget):
                 classes="param-input",
                 type="number",
             )
-            yield Label("Initial optimizer step size (1e-4 is good default)", classes="param-hint")
+            yield Label(
+                "Initial optimizer step size (1e-4 is good default)",
+                classes="param-hint",
+            )
 
         # Advanced training params in collapsible
         with Collapsible(title="Advanced Training", classes="collapsible-section"):
@@ -1792,7 +1929,9 @@ class ConfigureScreen(Widget):
             with Horizontal(classes="param-row", id="es-patience-row"):
                 yield Label("Patience:", classes="param-label")
                 yield Input(
-                    value=str(self._state._early_stopping_patience if self._state else 10),
+                    value=str(
+                        self._state._early_stopping_patience if self._state else 10
+                    ),
                     id="es-patience-input",
                     classes="param-input",
                     type="integer",
@@ -1803,7 +1942,9 @@ class ConfigureScreen(Widget):
             with Horizontal(classes="param-row", id="es-min-delta-row"):
                 yield Label("Min Delta:", classes="param-label")
                 yield Input(
-                    value=str(self._state._early_stopping_min_delta if self._state else 1e-8),
+                    value=str(
+                        self._state._early_stopping_min_delta if self._state else 1e-8
+                    ),
                     id="es-min-delta-input",
                     classes="param-input",
                     type="number",
@@ -1825,7 +1966,11 @@ class ConfigureScreen(Widget):
             with Horizontal(classes="param-row"):
                 yield Label("Random Seed:", classes="param-label")
                 yield Input(
-                    value=str(self._state._random_seed) if self._state and self._state._random_seed else "",
+                    value=(
+                        str(self._state._random_seed)
+                        if self._state and self._state._random_seed
+                        else ""
+                    ),
                     id="random-seed-input",
                     classes="param-input",
                     type="integer",
@@ -1833,10 +1978,14 @@ class ConfigureScreen(Widget):
                 )
                 yield Label("For reproducibility", classes="param-hint")
 
-            yield Static("[dim]Learning Rate Scheduler[/dim]", classes="subsection-header")
+            yield Static(
+                "[dim]Learning Rate Scheduler[/dim]", classes="subsection-header"
+            )
 
             # LR Scheduler
-            scheduler_type = self._state._scheduler.type.value if self._state else "none"
+            scheduler_type = (
+                self._state._scheduler.type.value if self._state else "none"
+            )
             with Horizontal(classes="param-row"):
                 yield Label("Scheduler:", classes="param-label")
                 yield Select(
@@ -1847,7 +1996,11 @@ class ConfigureScreen(Widget):
                         ("Step LR", "StepLR"),
                         ("None (Constant)", "none"),
                     ],
-                    value=scheduler_type if scheduler_type != "none" else "ReduceLROnPlateau",
+                    value=(
+                        scheduler_type
+                        if scheduler_type != "none"
+                        else "ReduceLROnPlateau"
+                    ),
                     id="scheduler-select",
                     classes="param-input",
                 )
@@ -1862,7 +2015,12 @@ class ConfigureScreen(Widget):
         scheduler_type = scheduler.type if scheduler else SchedulerType.NONE
 
         # ReduceLROnPlateau params
-        with Container(id="scheduler-reduce-params", classes="hidden" if scheduler_type != SchedulerType.REDUCE_ON_PLATEAU else ""):
+        with Container(
+            id="scheduler-reduce-params",
+            classes=(
+                "hidden" if scheduler_type != SchedulerType.REDUCE_ON_PLATEAU else ""
+            ),
+        ):
             with Horizontal(classes="param-row"):
                 yield Label("Factor:", classes="param-label")
                 yield Input(
@@ -1904,7 +2062,10 @@ class ConfigureScreen(Widget):
                 yield Label("Epochs to wait after LR reduction", classes="param-hint")
 
         # StepLR params
-        with Container(id="scheduler-step-params", classes="hidden" if scheduler_type != SchedulerType.STEP_LR else ""):
+        with Container(
+            id="scheduler-step-params",
+            classes="hidden" if scheduler_type != SchedulerType.STEP_LR else "",
+        ):
             with Horizontal(classes="param-row"):
                 yield Label("Step Size:", classes="param-label")
                 yield Input(
@@ -1926,7 +2087,14 @@ class ConfigureScreen(Widget):
                 yield Label("LR decay multiplier", classes="param-hint")
 
         # CosineAnnealingWarmup params
-        with Container(id="scheduler-cosine-params", classes="hidden" if scheduler_type != SchedulerType.COSINE_ANNEALING_WARMUP else ""):
+        with Container(
+            id="scheduler-cosine-params",
+            classes=(
+                "hidden"
+                if scheduler_type != SchedulerType.COSINE_ANNEALING_WARMUP
+                else ""
+            ),
+        ):
             with Horizontal(classes="param-row"):
                 yield Label("Warmup Epochs:", classes="param-label")
                 yield Input(
@@ -1958,7 +2126,14 @@ class ConfigureScreen(Widget):
                 yield Label("Minimum LR after cosine decay", classes="param-hint")
 
         # LinearWarmupLinearDecay params
-        with Container(id="scheduler-linear-params", classes="hidden" if scheduler_type != SchedulerType.LINEAR_WARMUP_LINEAR_DECAY else ""):
+        with Container(
+            id="scheduler-linear-params",
+            classes=(
+                "hidden"
+                if scheduler_type != SchedulerType.LINEAR_WARMUP_LINEAR_DECAY
+                else ""
+            ),
+        ):
             with Horizontal(classes="param-row"):
                 yield Label("Warmup Epochs:", classes="param-label")
                 yield Input(
@@ -2163,7 +2338,9 @@ class ConfigureScreen(Widget):
                 value=self._state._keep_viz if self._state else False,
                 id="viz-keep-folder-checkbox",
             )
-            yield Label("Keep visualization folder after training", classes="param-hint")
+            yield Label(
+                "Keep visualization folder after training", classes="param-hint"
+            )
 
         yield Static("[dim]Evaluation[/dim]", classes="subsection-header")
 
@@ -2230,7 +2407,9 @@ class ConfigureScreen(Widget):
             )
             yield Label("Show progress during training", classes="param-hint")
 
-        yield Static("[dim]Online Hard Keypoint Mining (OHKM)[/dim]", classes="subsection-header")
+        yield Static(
+            "[dim]Online Hard Keypoint Mining (OHKM)[/dim]", classes="subsection-header"
+        )
 
         ohkm = self._state._ohkm if self._state else None
         with Horizontal(classes="param-row"):
@@ -2275,7 +2454,11 @@ class ConfigureScreen(Widget):
         with Horizontal(classes="param-row"):
             yield Label("Max Hard Keypoints:", classes="param-label")
             yield Input(
-                value=str(ohkm.max_hard_keypoints) if ohkm and ohkm.max_hard_keypoints else "",
+                value=(
+                    str(ohkm.max_hard_keypoints)
+                    if ohkm and ohkm.max_hard_keypoints
+                    else ""
+                ),
                 id="ohkm-max-hard-input",
                 classes="param-input",
                 type="integer",
@@ -2313,7 +2496,11 @@ class ConfigureScreen(Widget):
                 label = f"{node} ([{color}]{pct:.0f}%[/{color}])"
                 options.append((label, node))
 
-            current_value = self._state._anchor_part if self._state and self._state._anchor_part else ""
+            current_value = (
+                self._state._anchor_part
+                if self._state and self._state._anchor_part
+                else ""
+            )
 
             with Horizontal(classes="param-row"):
                 yield Label("Anchor Part:", classes="param-label")
@@ -2339,7 +2526,9 @@ class ConfigureScreen(Widget):
                     classes="param-input",
                     type="number",
                 )
-                yield Label("Lower scale OK for centroids (0.5 typical)", classes="param-hint")
+                yield Label(
+                    "Lower scale OK for centroids (0.5 typical)", classes="param-hint"
+                )
 
             # Shape info display
             yield Static(id="centroid-shape-info-display", classes="shape-info")
@@ -2463,7 +2652,9 @@ class ConfigureScreen(Widget):
                 yield Label("Data loader workers (0 for video)", classes="param-hint")
 
             # Data Pipeline
-            current_pipeline = self._state._data_pipeline.value if self._state else "torch_dataset"
+            current_pipeline = (
+                self._state._data_pipeline.value if self._state else "torch_dataset"
+            )
             with Horizontal(classes="param-row"):
                 yield Label("Data Pipeline:", classes="param-label")
                 yield Select(
@@ -2503,10 +2694,16 @@ class ConfigureScreen(Widget):
                     classes="param-input",
                     type="integer",
                 )
-                yield Label("Workers for caching (0 = main process)", classes="param-hint")
+                yield Label(
+                    "Workers for caching (0 = main process)", classes="param-hint"
+                )
 
             # Disk cache specific options
-            yield Static("[dim]Disk Cache Options[/dim]", classes="subsection-header", id="centroid-disk-cache-header")
+            yield Static(
+                "[dim]Disk Cache Options[/dim]",
+                classes="subsection-header",
+                id="centroid-disk-cache-header",
+            )
 
             # Cache Image Path
             with Horizontal(classes="param-row", id="centroid-cache-path-row"):
@@ -2539,7 +2736,9 @@ class ConfigureScreen(Widget):
                 yield Label("Clean up disk space", classes="param-hint")
 
         # Additional Data Parameters (collapsible)
-        with Collapsible(title="Additional Data Parameters", classes="collapsible-section"):
+        with Collapsible(
+            title="Additional Data Parameters", classes="collapsible-section"
+        ):
             # Validation Fraction
             with Horizontal(classes="param-row"):
                 yield Label("Val Fraction:", classes="param-label")
@@ -2549,7 +2748,9 @@ class ConfigureScreen(Widget):
                     classes="param-input",
                     type="number",
                 )
-                yield Label("Fraction held out for validation (0.05-0.3)", classes="param-hint")
+                yield Label(
+                    "Fraction held out for validation (0.05-0.3)", classes="param-hint"
+                )
 
             # Input Channels
             current_channels = "grayscale"
@@ -2575,7 +2776,11 @@ class ConfigureScreen(Widget):
             with Horizontal(classes="param-row"):
                 yield Label("Max Height:", classes="param-label")
                 yield Input(
-                    value=str(self._state._max_height) if self._state and self._state._max_height else "",
+                    value=(
+                        str(self._state._max_height)
+                        if self._state and self._state._max_height
+                        else ""
+                    ),
                     id="centroid-max-height-input",
                     classes="param-input",
                     type="integer",
@@ -2583,7 +2788,11 @@ class ConfigureScreen(Widget):
                 )
                 yield Label("Max Width:", classes="param-label")
                 yield Input(
-                    value=str(self._state._max_width) if self._state and self._state._max_width else "",
+                    value=(
+                        str(self._state._max_width)
+                        if self._state and self._state._max_width
+                        else ""
+                    ),
                     id="centroid-max-width-input",
                     classes="param-input",
                     type="integer",
@@ -2624,7 +2833,9 @@ class ConfigureScreen(Widget):
                     id="centroid-max-stride-select",
                     classes="param-input",
                 )
-                yield Label("Receptive field (larger = more context)", classes="param-hint")
+                yield Label(
+                    "Receptive field (larger = more context)", classes="param-hint"
+                )
 
             # Base Filters
             with Horizontal(classes="param-row"):
@@ -2741,7 +2952,10 @@ class ConfigureScreen(Widget):
                     classes="param-input",
                     type="number",
                 )
-                yield Label("Initial optimizer step size (1e-4 is good default)", classes="param-hint")
+                yield Label(
+                    "Initial optimizer step size (1e-4 is good default)",
+                    classes="param-hint",
+                )
 
         # Checkpoint & Logging
         with Collapsible(title="Checkpoints & Logging", classes="collapsible-section"):
@@ -2809,7 +3023,9 @@ class ConfigureScreen(Widget):
                 yield Label("Log to Weights & Biases", classes="param-hint")
 
             # WandB Project (hidden until WandB enabled)
-            with Horizontal(classes="param-row hidden", id="centroid-wandb-project-row"):
+            with Horizontal(
+                classes="param-row hidden", id="centroid-wandb-project-row"
+            ):
                 yield Label("WandB Project:", classes="param-label")
                 yield Input(
                     value=wandb.project if wandb else "sleap-training",
@@ -2838,7 +3054,9 @@ class ConfigureScreen(Widget):
                 )
 
             # WandB API Key (hidden until WandB enabled)
-            with Horizontal(classes="param-row hidden", id="centroid-wandb-api-key-row"):
+            with Horizontal(
+                classes="param-row hidden", id="centroid-wandb-api-key-row"
+            ):
                 yield Label("WandB API Key:", classes="param-label")
                 yield Input(
                     value=wandb.api_key if wandb else "",
@@ -2871,9 +3089,13 @@ class ConfigureScreen(Widget):
                     value=wandb.viz_enabled if wandb else True,
                     id="centroid-wandb-viz-checkbox",
                 )
-                yield Label("Log prediction visualizations to WandB", classes="param-hint")
+                yield Label(
+                    "Log prediction visualizations to WandB", classes="param-hint"
+                )
 
-            with Horizontal(classes="param-row hidden", id="centroid-wandb-save-viz-row"):
+            with Horizontal(
+                classes="param-row hidden", id="centroid-wandb-save-viz-row"
+            ):
                 yield Label("Upload Local Viz:", classes="param-label")
                 yield Checkbox(
                     "Enabled",
@@ -2892,17 +3114,23 @@ class ConfigureScreen(Widget):
                     value=self._state._visualize_preds if self._state else False,
                     id="centroid-save-viz-checkbox",
                 )
-                yield Label("Save prediction visualizations locally", classes="param-hint")
+                yield Label(
+                    "Save prediction visualizations locally", classes="param-hint"
+                )
 
             # Keep Viz Folder (hidden until Save Viz enabled)
-            with Horizontal(classes="param-row hidden", id="centroid-viz-keep-folder-row"):
+            with Horizontal(
+                classes="param-row hidden", id="centroid-viz-keep-folder-row"
+            ):
                 yield Label("Keep Viz Folder:", classes="param-label")
                 yield Checkbox(
                     "Enabled",
                     value=self._state._keep_viz if self._state else False,
                     id="centroid-viz-keep-folder-checkbox",
                 )
-                yield Label("Keep visualization folder after training", classes="param-hint")
+                yield Label(
+                    "Keep visualization folder after training", classes="param-hint"
+                )
 
             yield Static("[dim]Evaluation[/dim]", classes="subsection-header")
 
@@ -2918,7 +3146,9 @@ class ConfigureScreen(Widget):
                 yield Label("Run OKS evaluation during training", classes="param-hint")
 
             # Eval options (hidden until Enable Eval is checked)
-            with Horizontal(classes="param-row hidden", id="centroid-eval-frequency-row"):
+            with Horizontal(
+                classes="param-row hidden", id="centroid-eval-frequency-row"
+            ):
                 yield Label("Eval Frequency:", classes="param-label")
                 yield Input(
                     value=str(evaluation.frequency if evaluation else 1),
@@ -2959,13 +3189,17 @@ class ConfigureScreen(Widget):
                     value=self._state._early_stopping if self._state else True,
                     id="centroid-early-stopping-checkbox",
                 )
-                yield Label("Stop when validation loss stops improving", classes="param-hint")
+                yield Label(
+                    "Stop when validation loss stops improving", classes="param-hint"
+                )
 
             # ES Patience
             with Horizontal(classes="param-row"):
                 yield Label("ES Patience:", classes="param-label")
                 yield Input(
-                    value=str(self._state._early_stopping_patience if self._state else 10),
+                    value=str(
+                        self._state._early_stopping_patience if self._state else 10
+                    ),
                     id="centroid-es-patience-input",
                     classes="param-input",
                     type="integer",
@@ -2976,14 +3210,20 @@ class ConfigureScreen(Widget):
             with Horizontal(classes="param-row"):
                 yield Label("ES Min Delta:", classes="param-label")
                 yield Input(
-                    value=str(self._state._early_stopping_min_delta if self._state else 1e-6),
+                    value=str(
+                        self._state._early_stopping_min_delta if self._state else 1e-6
+                    ),
                     id="centroid-es-min-delta-input",
                     classes="param-input",
                     type="number",
                 )
-                yield Label("Minimum change to qualify as improvement", classes="param-hint")
+                yield Label(
+                    "Minimum change to qualify as improvement", classes="param-hint"
+                )
 
-            yield Static("[dim]Learning Rate Scheduler[/dim]", classes="subsection-header")
+            yield Static(
+                "[dim]Learning Rate Scheduler[/dim]", classes="subsection-header"
+            )
 
             # LR Scheduler
             scheduler = self._state._scheduler if self._state else None
@@ -3021,7 +3261,9 @@ class ConfigureScreen(Widget):
                     classes="param-input",
                     type="number",
                 )
-                yield Label("Factor to reduce LR by (0.5 = halve)", classes="param-hint")
+                yield Label(
+                    "Factor to reduce LR by (0.5 = halve)", classes="param-hint"
+                )
 
             yield Static("[dim]Hardware[/dim]", classes="subsection-header")
 
@@ -3067,7 +3309,11 @@ class ConfigureScreen(Widget):
             with Horizontal(classes="param-row"):
                 yield Label("Random Seed:", classes="param-label")
                 yield Input(
-                    value=str(self._state._random_seed) if self._state and self._state._random_seed else "",
+                    value=(
+                        str(self._state._random_seed)
+                        if self._state and self._state._random_seed
+                        else ""
+                    ),
                     id="centroid-random-seed-input",
                     classes="param-input",
                     type="integer",
@@ -3108,7 +3354,9 @@ class ConfigureScreen(Widget):
                     classes="param-input",
                     type="number",
                 )
-                yield Label("Crop resize factor (1.0 = no resize)", classes="param-hint")
+                yield Label(
+                    "Crop resize factor (1.0 = no resize)", classes="param-hint"
+                )
 
         # Data Augmentation section
         with Container(classes="section-box"):
@@ -3215,7 +3463,9 @@ class ConfigureScreen(Widget):
                 yield Label("Data loader workers (0 for video)", classes="param-hint")
 
             # Data Pipeline
-            current_pipeline = self._state._data_pipeline.value if self._state else "torch_dataset"
+            current_pipeline = (
+                self._state._data_pipeline.value if self._state else "torch_dataset"
+            )
             with Horizontal(classes="param-row"):
                 yield Label("Data Pipeline:", classes="param-label")
                 yield Select(
@@ -3255,10 +3505,16 @@ class ConfigureScreen(Widget):
                     classes="param-input",
                     type="integer",
                 )
-                yield Label("Workers for caching (0 = main process)", classes="param-hint")
+                yield Label(
+                    "Workers for caching (0 = main process)", classes="param-hint"
+                )
 
             # Disk cache options
-            yield Static("[dim]Disk Cache Options[/dim]", classes="subsection-header", id="instance-disk-cache-header")
+            yield Static(
+                "[dim]Disk Cache Options[/dim]",
+                classes="subsection-header",
+                id="instance-disk-cache-header",
+            )
 
             with Horizontal(classes="param-row", id="instance-cache-path-row"):
                 yield Label("Cache Path:", classes="param-label")
@@ -3288,7 +3544,9 @@ class ConfigureScreen(Widget):
                 yield Label("Clean up disk space", classes="param-hint")
 
         # Additional Data Parameters (collapsible)
-        with Collapsible(title="Additional Data Parameters", classes="collapsible-section"):
+        with Collapsible(
+            title="Additional Data Parameters", classes="collapsible-section"
+        ):
             # Input Channels
             current_channels = "grayscale"
             if self._state:
@@ -3323,13 +3581,19 @@ class ConfigureScreen(Widget):
             with Horizontal(classes="param-row"):
                 yield Label("Crop Padding:", classes="param-label")
                 yield Input(
-                    value=str(self._state._ci_crop_padding) if self._state and self._state._ci_crop_padding is not None else "",
+                    value=(
+                        str(self._state._ci_crop_padding)
+                        if self._state and self._state._ci_crop_padding is not None
+                        else ""
+                    ),
                     id="crop-padding-input",
                     classes="param-input",
                     type="integer",
                     placeholder="auto",
                 )
-                yield Label("Extra padding around crops (empty = auto)", classes="param-hint")
+                yield Label(
+                    "Extra padding around crops (empty = auto)", classes="param-hint"
+                )
 
         # Model configuration
         with Container(classes="section-box"):
@@ -3372,7 +3636,9 @@ class ConfigureScreen(Widget):
                     classes="param-input",
                     type="number",
                 )
-                yield Label("Tighter sigma for crops (2.5 typical)", classes="param-hint")
+                yield Label(
+                    "Tighter sigma for crops (2.5 typical)", classes="param-hint"
+                )
 
             # Instance output stride
             with Horizontal(classes="param-row"):
@@ -3400,7 +3666,9 @@ class ConfigureScreen(Widget):
                     classes="param-input",
                     type="integer",
                 )
-                yield Label("First encoder block filters (32 typical)", classes="param-hint")
+                yield Label(
+                    "First encoder block filters (32 typical)", classes="param-hint"
+                )
 
             # Filters Rate
             with Horizontal(classes="param-row"):
@@ -3459,7 +3727,9 @@ class ConfigureScreen(Widget):
                     id="instance-batch-size-select",
                     classes="param-input",
                 )
-                yield Label("Crops per batch (more = faster, more memory)", classes="param-hint")
+                yield Label(
+                    "Crops per batch (more = faster, more memory)", classes="param-hint"
+                )
 
             # Max epochs
             with Horizontal(classes="param-row"):
@@ -3470,7 +3740,9 @@ class ConfigureScreen(Widget):
                     classes="param-input",
                     type="integer",
                 )
-                yield Label("Training stops after this many epochs", classes="param-hint")
+                yield Label(
+                    "Training stops after this many epochs", classes="param-hint"
+                )
 
             # Learning rate
             with Horizontal(classes="param-row"):
@@ -3482,7 +3754,9 @@ class ConfigureScreen(Widget):
                         ("1e-3", "0.001"),
                         ("5e-5", "0.00005"),
                     ],
-                    value=str(self._state._ci_learning_rate if self._state else "0.0001"),
+                    value=str(
+                        self._state._ci_learning_rate if self._state else "0.0001"
+                    ),
                     id="instance-lr-select",
                     classes="param-input",
                 )
@@ -3502,7 +3776,9 @@ class ConfigureScreen(Widget):
                     value=ckpt.enabled if ckpt else True,
                     id="instance-save-ckpt-checkbox",
                 )
-                yield Label("Save model checkpoints during training", classes="param-hint")
+                yield Label(
+                    "Save model checkpoints during training", classes="param-hint"
+                )
 
             with Horizontal(classes="param-row"):
                 yield Label("Checkpoint Dir:", classes="param-label")
@@ -3555,7 +3831,9 @@ class ConfigureScreen(Widget):
                 yield Label("Log to Weights & Biases", classes="param-hint")
 
             # WandB Project (hidden until WandB enabled)
-            with Horizontal(classes="param-row hidden", id="instance-wandb-project-row"):
+            with Horizontal(
+                classes="param-row hidden", id="instance-wandb-project-row"
+            ):
                 yield Label("WandB Project:", classes="param-label")
                 yield Input(
                     value=wandb.project if wandb else "sleap-training",
@@ -3583,17 +3861,23 @@ class ConfigureScreen(Widget):
                     value=self._state._visualize_preds if self._state else False,
                     id="instance-save-viz-checkbox",
                 )
-                yield Label("Save prediction visualizations locally", classes="param-hint")
+                yield Label(
+                    "Save prediction visualizations locally", classes="param-hint"
+                )
 
             # Keep Viz Folder (hidden until Save Viz enabled)
-            with Horizontal(classes="param-row hidden", id="instance-viz-keep-folder-row"):
+            with Horizontal(
+                classes="param-row hidden", id="instance-viz-keep-folder-row"
+            ):
                 yield Label("Keep Viz Folder:", classes="param-label")
                 yield Checkbox(
                     "Enabled",
                     value=self._state._keep_viz if self._state else False,
                     id="instance-viz-keep-folder-checkbox",
                 )
-                yield Label("Keep visualization folder after training", classes="param-hint")
+                yield Label(
+                    "Keep visualization folder after training", classes="param-hint"
+                )
 
             yield Static("[dim]Evaluation[/dim]", classes="subsection-header")
 
@@ -3609,7 +3893,9 @@ class ConfigureScreen(Widget):
                 yield Label("Run OKS evaluation during training", classes="param-hint")
 
             # Eval options (hidden until Enable Eval is checked)
-            with Horizontal(classes="param-row hidden", id="instance-eval-frequency-row"):
+            with Horizontal(
+                classes="param-row hidden", id="instance-eval-frequency-row"
+            ):
                 yield Label("Eval Frequency:", classes="param-label")
                 yield Input(
                     value=str(evaluation.frequency if evaluation else 1),
@@ -3650,13 +3936,17 @@ class ConfigureScreen(Widget):
                     value=self._state._ci_early_stopping if self._state else True,
                     id="instance-early-stopping-checkbox",
                 )
-                yield Label("Stop when validation loss stops improving", classes="param-hint")
+                yield Label(
+                    "Stop when validation loss stops improving", classes="param-hint"
+                )
 
             # ES Patience
             with Horizontal(classes="param-row"):
                 yield Label("ES Patience:", classes="param-label")
                 yield Input(
-                    value=str(self._state._ci_early_stopping_patience if self._state else 5),
+                    value=str(
+                        self._state._ci_early_stopping_patience if self._state else 5
+                    ),
                     id="instance-es-patience-input",
                     classes="param-input",
                     type="integer",
@@ -3667,14 +3957,22 @@ class ConfigureScreen(Widget):
             with Horizontal(classes="param-row"):
                 yield Label("ES Min Delta:", classes="param-label")
                 yield Input(
-                    value=str(self._state._ci_early_stopping_min_delta if self._state else 1e-6),
+                    value=str(
+                        self._state._ci_early_stopping_min_delta
+                        if self._state
+                        else 1e-6
+                    ),
                     id="instance-es-min-delta-input",
                     classes="param-input",
                     type="number",
                 )
-                yield Label("Minimum change to qualify as improvement", classes="param-hint")
+                yield Label(
+                    "Minimum change to qualify as improvement", classes="param-hint"
+                )
 
-            yield Static("[dim]Learning Rate Scheduler[/dim]", classes="subsection-header")
+            yield Static(
+                "[dim]Learning Rate Scheduler[/dim]", classes="subsection-header"
+            )
 
             # LR Scheduler
             scheduler = self._state._ci_scheduler if self._state else None
@@ -3712,9 +4010,14 @@ class ConfigureScreen(Widget):
                     classes="param-input",
                     type="number",
                 )
-                yield Label("Factor to reduce LR by (0.5 = halve)", classes="param-hint")
+                yield Label(
+                    "Factor to reduce LR by (0.5 = halve)", classes="param-hint"
+                )
 
-            yield Static("[dim]Online Hard Keypoint Mining (OHKM)[/dim]", classes="subsection-header")
+            yield Static(
+                "[dim]Online Hard Keypoint Mining (OHKM)[/dim]",
+                classes="subsection-header",
+            )
 
             ohkm = self._state._ohkm if self._state else None
             with Horizontal(classes="param-row"):
@@ -3724,7 +4027,9 @@ class ConfigureScreen(Widget):
                     value=ohkm.enabled if ohkm else False,
                     id="instance-ohkm-checkbox",
                 )
-                yield Label("Focus training on difficult keypoints", classes="param-hint")
+                yield Label(
+                    "Focus training on difficult keypoints", classes="param-hint"
+                )
 
             with Horizontal(classes="param-row"):
                 yield Label("Hard-to-Easy Ratio:", classes="param-label")
@@ -3744,7 +4049,9 @@ class ConfigureScreen(Widget):
                     classes="param-input",
                     type="number",
                 )
-                yield Label("Scale factor for hard keypoint losses", classes="param-hint")
+                yield Label(
+                    "Scale factor for hard keypoint losses", classes="param-hint"
+                )
 
             with Horizontal(classes="param-row"):
                 yield Label("Min Hard Keypoints:", classes="param-label")
@@ -3754,12 +4061,18 @@ class ConfigureScreen(Widget):
                     classes="param-input",
                     type="integer",
                 )
-                yield Label("Minimum keypoints to classify as hard", classes="param-hint")
+                yield Label(
+                    "Minimum keypoints to classify as hard", classes="param-hint"
+                )
 
             with Horizontal(classes="param-row"):
                 yield Label("Max Hard Keypoints:", classes="param-label")
                 yield Input(
-                    value=str(ohkm.max_hard_keypoints) if ohkm and ohkm.max_hard_keypoints else "",
+                    value=(
+                        str(ohkm.max_hard_keypoints)
+                        if ohkm and ohkm.max_hard_keypoints
+                        else ""
+                    ),
                     id="instance-ohkm-max-input",
                     classes="param-input",
                     type="integer",
@@ -3811,7 +4124,11 @@ class ConfigureScreen(Widget):
             with Horizontal(classes="param-row"):
                 yield Label("Random Seed:", classes="param-label")
                 yield Input(
-                    value=str(self._state._random_seed) if self._state and self._state._random_seed else "",
+                    value=(
+                        str(self._state._random_seed)
+                        if self._state and self._state._random_seed
+                        else ""
+                    ),
                     id="instance-random-seed-input",
                     classes="param-input",
                     type="integer",
@@ -3836,6 +4153,7 @@ class ConfigureScreen(Widget):
     # Data handlers
     @on(Input.Changed, "#scale-input")
     def handle_scale_change(self, event: Input.Changed) -> None:
+        """Handle scale changes."""
         if self._state and event.value:
             try:
                 self._state._input_scale = float(event.value)
@@ -3846,6 +4164,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#max-height-input")
     def handle_max_height_change(self, event: Input.Changed) -> None:
+        """Handle max height changes."""
         if self._state:
             self._state._max_height = int(event.value) if event.value else None
             self._update_shape_display()
@@ -3853,6 +4172,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#max-width-input")
     def handle_max_width_change(self, event: Input.Changed) -> None:
+        """Handle max width changes."""
         if self._state:
             self._state._max_width = int(event.value) if event.value else None
             self._update_shape_display()
@@ -3860,6 +4180,7 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#channels-select")
     def handle_channels_change(self, event: Select.Changed) -> None:
+        """Handle channels changes."""
         if self._state and event.value:
             self._state._ensure_rgb = event.value == "rgb"
             self._state._ensure_grayscale = event.value == "grayscale"
@@ -3869,6 +4190,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#val-fraction-input")
     def handle_val_fraction_change(self, event: Input.Changed) -> None:
+        """Handle val fraction changes."""
         if self._state and event.value:
             try:
                 self._state._validation_fraction = float(event.value)
@@ -3877,12 +4199,14 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#num-workers-select")
     def handle_num_workers_select_change(self, event: Select.Changed) -> None:
+        """Handle num workers changes."""
         if self._state and event.value:
             self._state._num_workers = int(event.value)
             self._update_cache_memory_display()
 
     @on(Select.Changed, "#data-pipeline-select")
     def handle_data_pipeline_change(self, event: Select.Changed) -> None:
+        """Handle data pipeline changes."""
         if self._state and event.value:
             self._state._data_pipeline = DataPipelineType(event.value)
             self._update_memory_display()
@@ -3892,6 +4216,7 @@ class ConfigureScreen(Widget):
     # Model handlers
     @on(Select.Changed, "#backbone-select")
     def handle_backbone_change(self, event: Select.Changed) -> None:
+        """Handle backbone changes."""
         if self._state and event.value:
             self._state._backbone = event.value
             if "convnext" in event.value or "swint" in event.value:
@@ -3907,6 +4232,7 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#max-stride-select")
     def handle_stride_change(self, event: Select.Changed) -> None:
+        """Handle stride changes."""
         if self._state and event.value:
             self._state._max_stride = int(event.value)
             self._update_model_info_display()
@@ -3914,6 +4240,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#filters-input")
     def handle_filters_change(self, event: Input.Changed) -> None:
+        """Handle filters changes."""
         if self._state and event.value:
             try:
                 self._state._filters = int(event.value)
@@ -3924,6 +4251,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#filters-rate-input")
     def handle_filters_rate_change(self, event: Input.Changed) -> None:
+        """Handle filters rate changes."""
         if self._state and event.value:
             try:
                 self._state._filters_rate = float(event.value)
@@ -3934,6 +4262,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#sigma-input")
     def handle_sigma_change(self, event: Input.Changed) -> None:
+        """Handle sigma changes."""
         if self._state and event.value:
             try:
                 self._state._sigma = float(event.value)
@@ -3943,6 +4272,7 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#output-stride-select")
     def handle_output_stride_change(self, event: Select.Changed) -> None:
+        """Handle output stride changes."""
         if self._state and event.value:
             self._state._output_stride = int(event.value)
             self._update_shape_display()
@@ -3951,17 +4281,20 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#pretrained-backbone-input")
     def handle_pretrained_backbone_change(self, event: Input.Changed) -> None:
+        """Handle pretrained backbone changes."""
         if self._state:
             self._state._pretrained_backbone = event.value or ""
 
     @on(Input.Changed, "#pretrained-head-input")
     def handle_pretrained_head_change(self, event: Input.Changed) -> None:
+        """Handle pretrained head changes."""
         if self._state:
             self._state._pretrained_head = event.value or ""
 
     # PAF handlers
     @on(Input.Changed, "#paf-sigma-input")
     def handle_paf_sigma_change(self, event: Input.Changed) -> None:
+        """Handle paf sigma changes."""
         if self._state and event.value:
             try:
                 self._state._paf_config.sigma = float(event.value)
@@ -3970,11 +4303,13 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#paf-output-stride-select")
     def handle_paf_output_stride_change(self, event: Select.Changed) -> None:
+        """Handle paf output stride changes."""
         if self._state and event.value:
             self._state._paf_config.output_stride = int(event.value)
 
     @on(Input.Changed, "#paf-loss-weight-input")
     def handle_paf_loss_weight_change(self, event: Input.Changed) -> None:
+        """Handle paf loss weight changes."""
         if self._state and event.value:
             try:
                 self._state._paf_config.loss_weight = float(event.value)
@@ -3984,11 +4319,13 @@ class ConfigureScreen(Widget):
     # Class vector handlers
     @on(Select.Changed, "#fc-layers-select")
     def handle_fc_layers_change(self, event: Select.Changed) -> None:
+        """Handle fc layers changes."""
         if self._state and event.value:
             self._state._class_vector_config.num_fc_layers = int(event.value)
 
     @on(Input.Changed, "#fc-units-input")
     def handle_fc_units_change(self, event: Input.Changed) -> None:
+        """Handle fc units changes."""
         if self._state and event.value:
             try:
                 self._state._class_vector_config.num_fc_units = int(event.value)
@@ -3997,6 +4334,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#class-loss-weight-input")
     def handle_class_loss_weight_change(self, event: Input.Changed) -> None:
+        """Handle class loss weight changes."""
         if self._state and event.value:
             try:
                 self._state._class_vector_config.loss_weight = float(event.value)
@@ -4006,12 +4344,14 @@ class ConfigureScreen(Widget):
     # Training handlers
     @on(Select.Changed, "#batch-size-select")
     def handle_batch_change(self, event: Select.Changed) -> None:
+        """Handle batch changes."""
         if self._state and event.value:
             self._state._batch_size = int(event.value)
             self._update_memory_display()
 
     @on(Input.Changed, "#max-epochs-input")
     def handle_epochs_change(self, event: Input.Changed) -> None:
+        """Handle epochs changes."""
         if self._state and event.value:
             try:
                 self._state._max_epochs = int(event.value)
@@ -4020,6 +4360,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#lr-input")
     def handle_lr_change(self, event: Input.Changed) -> None:
+        """Handle lr changes."""
         if self._state and event.value:
             try:
                 self._state._learning_rate = float(event.value)
@@ -4028,16 +4369,19 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#optimizer-select")
     def handle_optimizer_change(self, event: Select.Changed) -> None:
+        """Handle optimizer changes."""
         if self._state and event.value:
             self._state._optimizer = event.value
 
     @on(Checkbox.Changed, "#early-stopping-checkbox")
     def handle_early_stopping_change(self, event: Checkbox.Changed) -> None:
+        """Handle early stopping changes."""
         if self._state:
             self._state._early_stopping = event.value
 
     @on(Input.Changed, "#es-patience-input")
     def handle_es_patience_change(self, event: Input.Changed) -> None:
+        """Handle es patience changes."""
         if self._state and event.value:
             try:
                 self._state._early_stopping_patience = int(event.value)
@@ -4046,6 +4390,7 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#scheduler-select")
     def handle_scheduler_change(self, event: Select.Changed) -> None:
+        """Handle scheduler changes."""
         if self._state and event.value:
             self._state._scheduler.type = SchedulerType(event.value)
             # Show/hide scheduler param containers
@@ -4054,26 +4399,31 @@ class ConfigureScreen(Widget):
     # Augmentation checkbox handlers (standard config)
     @on(Checkbox.Changed, "#rotation-checkbox")
     def handle_rotation_checkbox_change(self, event: Checkbox.Changed) -> None:
+        """Handle rotation changes."""
         if self._state:
             self._state._augmentation.rotation_enabled = event.value
 
     @on(Checkbox.Changed, "#scale-checkbox")
     def handle_scale_checkbox_change(self, event: Checkbox.Changed) -> None:
+        """Handle scale changes."""
         if self._state:
             self._state._augmentation.scale_enabled = event.value
 
     @on(Checkbox.Changed, "#brightness-checkbox")
     def handle_brightness_checkbox_change(self, event: Checkbox.Changed) -> None:
+        """Handle brightness changes."""
         if self._state:
             self._state._augmentation.brightness_enabled = event.value
 
     @on(Checkbox.Changed, "#contrast-checkbox")
     def handle_contrast_checkbox_change(self, event: Checkbox.Changed) -> None:
+        """Handle contrast changes."""
         if self._state:
             self._state._augmentation.contrast_enabled = event.value
 
     @on(Input.Changed, "#rotation-input")
     def handle_rotation_change(self, event: Input.Changed) -> None:
+        """Handle rotation changes."""
         if self._state and event.value:
             try:
                 val = float(event.value)
@@ -4084,6 +4434,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#scale-min-input")
     def handle_scale_min_change(self, event: Input.Changed) -> None:
+        """Handle scale min changes."""
         if self._state and event.value:
             try:
                 self._state._augmentation.scale_min = float(event.value)
@@ -4092,6 +4443,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#scale-max-input")
     def handle_scale_max_change(self, event: Input.Changed) -> None:
+        """Handle scale max changes."""
         if self._state and event.value:
             try:
                 self._state._augmentation.scale_max = float(event.value)
@@ -4100,6 +4452,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#brightness-limit-input")
     def handle_brightness_change(self, event: Input.Changed) -> None:
+        """Handle brightness changes."""
         if self._state and event.value:
             try:
                 self._state._augmentation.brightness_limit = float(event.value)
@@ -4108,6 +4461,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#contrast-limit-input")
     def handle_contrast_change(self, event: Input.Changed) -> None:
+        """Handle contrast changes."""
         if self._state and event.value:
             try:
                 self._state._augmentation.contrast_limit = float(event.value)
@@ -4117,21 +4471,25 @@ class ConfigureScreen(Widget):
     # Checkpoint handlers
     @on(Input.Changed, "#ckpt-dir-input")
     def handle_ckpt_dir_change(self, event: Input.Changed) -> None:
+        """Handle ckpt dir changes."""
         if self._state:
             self._state._checkpoint.checkpoint_dir = event.value or ""
 
     @on(Input.Changed, "#run-name-input")
     def handle_run_name_change(self, event: Input.Changed) -> None:
+        """Handle run name changes."""
         if self._state:
             self._state._checkpoint.run_name = event.value or ""
 
     @on(Input.Changed, "#resume-ckpt-input")
     def handle_resume_ckpt_change(self, event: Input.Changed) -> None:
+        """Handle resume ckpt changes."""
         if self._state:
             self._state._checkpoint.resume_from = event.value or ""
 
     @on(Input.Changed, "#save-top-k-input")
     def handle_save_top_k_change(self, event: Input.Changed) -> None:
+        """Handle save top k changes."""
         if self._state and event.value:
             try:
                 self._state._checkpoint.save_top_k = int(event.value)
@@ -4140,33 +4498,39 @@ class ConfigureScreen(Widget):
 
     @on(Checkbox.Changed, "#save-last-checkbox")
     def handle_save_last_change(self, event: Checkbox.Changed) -> None:
+        """Handle save last changes."""
         if self._state:
             self._state._checkpoint.save_last = event.value
 
     @on(Checkbox.Changed, "#wandb-checkbox")
     def handle_wandb_change(self, event: Checkbox.Changed) -> None:
+        """Handle wandb changes."""
         if self._state:
             self._state._wandb.enabled = event.value
             self._update_wandb_options_visibility()
 
     @on(Input.Changed, "#wandb-project-input")
     def handle_wandb_project_change(self, event: Input.Changed) -> None:
+        """Handle wandb project changes."""
         if self._state:
             self._state._wandb.project = event.value or "sleap-nn"
 
     @on(Input.Changed, "#wandb-entity-input")
     def handle_wandb_entity_change(self, event: Input.Changed) -> None:
+        """Handle wandb entity changes."""
         if self._state:
             self._state._wandb.entity = event.value or ""
 
     # Advanced handlers
     @on(Select.Changed, "#accelerator-select")
     def handle_accelerator_change(self, event: Select.Changed) -> None:
+        """Handle accelerator changes."""
         if self._state and event.value:
             self._state._accelerator = event.value
 
     @on(Input.Changed, "#min-steps-input")
     def handle_min_steps_change(self, event: Input.Changed) -> None:
+        """Handle min steps changes."""
         if self._state and event.value:
             try:
                 self._state._min_steps_per_epoch = int(event.value)
@@ -4175,28 +4539,33 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#random-seed-input")
     def handle_random_seed_change(self, event: Input.Changed) -> None:
+        """Handle random seed changes."""
         if self._state:
             self._state._random_seed = int(event.value) if event.value else None
 
     # Visualization handlers
     @on(Checkbox.Changed, "#progress-bar-checkbox")
     def handle_progress_bar_change(self, event: Checkbox.Changed) -> None:
+        """Handle progress bar changes."""
         if self._state:
             self._state._enable_progress_bar = event.value
 
     @on(Checkbox.Changed, "#save-viz-checkbox")
     def handle_save_viz_change(self, event: Checkbox.Changed) -> None:
+        """Handle save viz changes."""
         if self._state:
             self._state._visualize_preds = event.value
             self._update_viz_options_visibility()
 
     @on(Checkbox.Changed, "#viz-keep-folder-checkbox")
     def handle_viz_keep_folder_change(self, event: Checkbox.Changed) -> None:
+        """Handle viz keep folder changes."""
         if self._state:
             self._state._keep_viz = event.value
 
     @on(Checkbox.Changed, "#eval-checkbox")
     def handle_eval_checkbox_change(self, event: Checkbox.Changed) -> None:
+        """Handle eval changes."""
         if self._state:
             self._state._evaluation.enabled = event.value
             self._update_eval_options_visibility()
@@ -4204,23 +4573,27 @@ class ConfigureScreen(Widget):
     # Legacy handlers for backwards compatibility
     @on(Checkbox.Changed, "#visualize-preds-checkbox")
     def handle_visualize_preds_change(self, event: Checkbox.Changed) -> None:
+        """Handle visualize preds changes."""
         if self._state:
             self._state._visualize_preds = event.value
             self._update_viz_options_visibility()
 
     @on(Checkbox.Changed, "#keep-viz-checkbox")
     def handle_keep_viz_change(self, event: Checkbox.Changed) -> None:
+        """Handle keep viz changes."""
         if self._state:
             self._state._keep_viz = event.value
 
     # Cache config handlers
     @on(Checkbox.Changed, "#parallel-caching-checkbox")
     def handle_parallel_caching_change(self, event: Checkbox.Changed) -> None:
+        """Handle parallel caching changes."""
         if self._state:
             self._state._cache_config.parallel_caching = event.value
 
     @on(Input.Changed, "#cache-workers-input")
     def handle_cache_workers_change(self, event: Input.Changed) -> None:
+        """Handle cache workers changes."""
         if self._state and event.value:
             try:
                 self._state._cache_config.cache_workers = int(event.value)
@@ -4229,26 +4602,31 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#cache-path-input")
     def handle_cache_path_change(self, event: Input.Changed) -> None:
+        """Handle cache path changes."""
         if self._state:
             self._state._cache_config.cache_img_path = event.value or ""
 
     @on(Checkbox.Changed, "#use-existing-checkbox")
     def handle_use_existing_change(self, event: Checkbox.Changed) -> None:
+        """Handle use existing changes."""
         if self._state:
             self._state._cache_config.use_existing_imgs = event.value
 
     @on(Checkbox.Changed, "#delete-cache-checkbox")
     def handle_delete_cache_change(self, event: Checkbox.Changed) -> None:
+        """Handle delete cache changes."""
         if self._state:
             self._state._cache_config.delete_cache_after_training = event.value
 
     @on(Checkbox.Changed, "#ohkm-checkbox")
     def handle_ohkm_change(self, event: Checkbox.Changed) -> None:
+        """Handle ohkm changes."""
         if self._state:
             self._state._ohkm.enabled = event.value
 
     @on(Input.Changed, "#ohkm-ratio-input")
     def handle_ohkm_ratio_change(self, event: Input.Changed) -> None:
+        """Handle ohkm ratio changes."""
         if self._state and event.value:
             try:
                 self._state._ohkm.hard_to_easy_ratio = float(event.value)
@@ -4257,6 +4635,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#ohkm-scale-input")
     def handle_ohkm_scale_change(self, event: Input.Changed) -> None:
+        """Handle ohkm scale changes."""
         if self._state and event.value:
             try:
                 self._state._ohkm.loss_scale = float(event.value)
@@ -4266,11 +4645,13 @@ class ConfigureScreen(Widget):
     # Top-down specific handlers
     @on(Select.Changed, "#anchor-part-select")
     def handle_anchor_change(self, event: Select.Changed) -> None:
+        """Handle anchor changes."""
         if self._state:
             self._state._anchor_part = event.value if event.value else None
 
     @on(Input.Changed, "#centroid-scale-input")
     def handle_centroid_scale_change(self, event: Input.Changed) -> None:
+        """Handle centroid scale changes."""
         if self._state and event.value:
             try:
                 self._state._input_scale = float(event.value)
@@ -4282,6 +4663,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-sigma-input")
     def handle_centroid_sigma_change(self, event: Input.Changed) -> None:
+        """Handle centroid sigma changes."""
         if self._state and event.value:
             try:
                 self._state._sigma = float(event.value)
@@ -4291,6 +4673,7 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#centroid-backbone-select")
     def handle_centroid_backbone_change(self, event: Select.Changed) -> None:
+        """Handle centroid backbone changes."""
         if self._state and event.value:
             self._state._backbone = event.value
             self._update_centroid_model_info_display()
@@ -4299,6 +4682,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#crop-size-input")
     def handle_crop_size_change(self, event: Input.Changed) -> None:
+        """Handle crop size changes."""
         if self._state and event.value:
             try:
                 self._state._crop_size = int(event.value)
@@ -4307,6 +4691,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#min-crop-size-input")
     def handle_min_crop_size_change(self, event: Input.Changed) -> None:
+        """Handle min crop size changes."""
         if self._state and event.value:
             try:
                 self._state._ci_min_crop_size = int(event.value)
@@ -4315,6 +4700,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-scale-input")
     def handle_instance_scale_change(self, event: Input.Changed) -> None:
+        """Handle instance scale changes."""
         if self._state and event.value:
             try:
                 self._state._ci_input_scale = float(event.value)
@@ -4323,6 +4709,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-sigma-input")
     def handle_instance_sigma_change(self, event: Input.Changed) -> None:
+        """Handle instance sigma changes."""
         if self._state and event.value:
             try:
                 self._state._ci_sigma = float(event.value)
@@ -4331,33 +4718,39 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#instance-backbone-select")
     def handle_instance_backbone_change(self, event: Select.Changed) -> None:
+        """Handle instance backbone changes."""
         if self._state and event.value:
             self._state._ci_backbone = event.value
 
     @on(Select.Changed, "#instance-output-stride-select")
     def handle_instance_output_stride_change(self, event: Select.Changed) -> None:
+        """Handle instance output stride changes."""
         if self._state and event.value:
             self._state._ci_output_stride = int(event.value)
 
     # Additional top-down handlers
     @on(Input.Changed, "#centroid-max-height-input")
     def handle_centroid_max_height_change(self, event: Input.Changed) -> None:
+        """Handle centroid max height changes."""
         if self._state:
             self._state._max_height = int(event.value) if event.value else None
 
     @on(Input.Changed, "#centroid-max-width-input")
     def handle_centroid_max_width_change(self, event: Input.Changed) -> None:
+        """Handle centroid max width changes."""
         if self._state:
             self._state._max_width = int(event.value) if event.value else None
 
     @on(Select.Changed, "#centroid-max-stride-select")
     def handle_centroid_max_stride_change(self, event: Select.Changed) -> None:
+        """Handle centroid max stride changes."""
         if self._state and event.value:
             self._state._max_stride = int(event.value)
             self._update_centroid_model_info_display()
 
     @on(Select.Changed, "#centroid-output-stride-select")
     def handle_centroid_output_stride_change(self, event: Select.Changed) -> None:
+        """Handle centroid output stride changes."""
         if self._state and event.value:
             self._state._output_stride = int(event.value)
             self._update_centroid_shape_display()
@@ -4365,12 +4758,14 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#centroid-batch-size-select")
     def handle_centroid_batch_change(self, event: Select.Changed) -> None:
+        """Handle centroid batch changes."""
         if self._state and event.value:
             self._state._batch_size = int(event.value)
             self._update_centroid_memory_display()
 
     @on(Input.Changed, "#centroid-max-epochs-input")
     def handle_centroid_epochs_change(self, event: Input.Changed) -> None:
+        """Handle centroid epochs changes."""
         if self._state and event.value:
             try:
                 self._state._max_epochs = int(event.value)
@@ -4379,6 +4774,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-lr-input")
     def handle_centroid_lr_change(self, event: Input.Changed) -> None:
+        """Handle centroid lr changes."""
         if self._state and event.value:
             try:
                 self._state._learning_rate = float(event.value)
@@ -4388,26 +4784,33 @@ class ConfigureScreen(Widget):
     # Centroid augmentation checkbox handlers
     @on(Checkbox.Changed, "#centroid-rotation-checkbox")
     def handle_centroid_rotation_checkbox_change(self, event: Checkbox.Changed) -> None:
+        """Handle centroid rotation changes."""
         if self._state:
             self._state._augmentation.rotation_enabled = event.value
 
     @on(Checkbox.Changed, "#centroid-scale-checkbox")
     def handle_centroid_scale_checkbox_change(self, event: Checkbox.Changed) -> None:
+        """Handle centroid scale changes."""
         if self._state:
             self._state._augmentation.scale_enabled = event.value
 
     @on(Checkbox.Changed, "#centroid-brightness-checkbox")
-    def handle_centroid_brightness_checkbox_change(self, event: Checkbox.Changed) -> None:
+    def handle_centroid_brightness_checkbox_change(
+        self, event: Checkbox.Changed
+    ) -> None:
+        """Handle centroid brightness changes."""
         if self._state:
             self._state._augmentation.brightness_enabled = event.value
 
     @on(Checkbox.Changed, "#centroid-contrast-checkbox")
     def handle_centroid_contrast_checkbox_change(self, event: Checkbox.Changed) -> None:
+        """Handle centroid contrast changes."""
         if self._state:
             self._state._augmentation.contrast_enabled = event.value
 
     @on(Input.Changed, "#centroid-rotation-input")
     def handle_centroid_rotation_change(self, event: Input.Changed) -> None:
+        """Handle centroid rotation changes."""
         if self._state and event.value:
             try:
                 val = float(event.value)
@@ -4418,16 +4821,19 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#instance-max-stride-select")
     def handle_instance_max_stride_change(self, event: Select.Changed) -> None:
+        """Handle instance max stride changes."""
         if self._state and event.value:
             self._state._ci_max_stride = int(event.value)
 
     @on(Select.Changed, "#instance-batch-size-select")
     def handle_instance_batch_change(self, event: Select.Changed) -> None:
+        """Handle instance batch changes."""
         if self._state and event.value:
             self._state._ci_batch_size = int(event.value)
 
     @on(Input.Changed, "#instance-max-epochs-input")
     def handle_instance_epochs_change(self, event: Input.Changed) -> None:
+        """Handle instance epochs changes."""
         if self._state and event.value:
             try:
                 self._state._ci_max_epochs = int(event.value)
@@ -4436,6 +4842,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-lr-input")
     def handle_instance_lr_change(self, event: Input.Changed) -> None:
+        """Handle instance lr changes."""
         if self._state and event.value:
             try:
                 self._state._ci_learning_rate = float(event.value)
@@ -4445,26 +4852,33 @@ class ConfigureScreen(Widget):
     # Instance augmentation checkbox handlers
     @on(Checkbox.Changed, "#instance-rotation-checkbox")
     def handle_instance_rotation_checkbox_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance rotation changes."""
         if self._state:
             self._state._ci_augmentation.rotation_enabled = event.value
 
     @on(Checkbox.Changed, "#instance-scale-checkbox")
     def handle_instance_scale_checkbox_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance scale changes."""
         if self._state:
             self._state._ci_augmentation.scale_enabled = event.value
 
     @on(Checkbox.Changed, "#instance-brightness-checkbox")
-    def handle_instance_brightness_checkbox_change(self, event: Checkbox.Changed) -> None:
+    def handle_instance_brightness_checkbox_change(
+        self, event: Checkbox.Changed
+    ) -> None:
+        """Handle instance brightness changes."""
         if self._state:
             self._state._ci_augmentation.brightness_enabled = event.value
 
     @on(Checkbox.Changed, "#instance-contrast-checkbox")
     def handle_instance_contrast_checkbox_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance contrast changes."""
         if self._state:
             self._state._ci_augmentation.contrast_enabled = event.value
 
     @on(Input.Changed, "#instance-rotation-input")
     def handle_instance_rotation_change(self, event: Input.Changed) -> None:
+        """Handle instance rotation changes."""
         if self._state and event.value:
             try:
                 val = float(event.value)
@@ -4476,27 +4890,32 @@ class ConfigureScreen(Widget):
     # Checkpoint handlers for top-down models
     @on(Input.Changed, "#centroid-ckpt-dir-input")
     def handle_centroid_ckpt_dir_change(self, event: Input.Changed) -> None:
+        """Handle centroid ckpt dir changes."""
         if self._state:
             self._state._checkpoint.checkpoint_dir = event.value or ""
 
     @on(Input.Changed, "#centroid-run-name-input")
     def handle_centroid_run_name_change(self, event: Input.Changed) -> None:
+        """Handle centroid run name changes."""
         if self._state:
             self._state._checkpoint.run_name = event.value or ""
 
     @on(Input.Changed, "#instance-ckpt-dir-input")
     def handle_instance_ckpt_dir_change(self, event: Input.Changed) -> None:
+        """Handle instance ckpt dir changes."""
         if self._state:
             self._state._ci_checkpoint_dir = event.value or ""
 
     @on(Input.Changed, "#instance-run-name-input")
     def handle_instance_run_name_change(self, event: Input.Changed) -> None:
+        """Handle instance run name changes."""
         if self._state:
             self._state._ci_run_name = event.value or ""
 
     # Centroid augmentation handlers
     @on(Input.Changed, "#centroid-scale-min-input")
     def handle_centroid_scale_min_change(self, event: Input.Changed) -> None:
+        """Handle centroid scale min changes."""
         if self._state and event.value:
             try:
                 self._state._augmentation.scale_min = float(event.value)
@@ -4505,6 +4924,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-scale-max-input")
     def handle_centroid_scale_max_change(self, event: Input.Changed) -> None:
+        """Handle centroid scale max changes."""
         if self._state and event.value:
             try:
                 self._state._augmentation.scale_max = float(event.value)
@@ -4513,6 +4933,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-brightness-input")
     def handle_centroid_brightness_change(self, event: Input.Changed) -> None:
+        """Handle centroid brightness changes."""
         if self._state and event.value:
             try:
                 self._state._augmentation.brightness_limit = float(event.value)
@@ -4521,6 +4942,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-contrast-input")
     def handle_centroid_contrast_change(self, event: Input.Changed) -> None:
+        """Handle centroid contrast changes."""
         if self._state and event.value:
             try:
                 self._state._augmentation.contrast_limit = float(event.value)
@@ -4530,6 +4952,7 @@ class ConfigureScreen(Widget):
     # Instance augmentation handlers
     @on(Input.Changed, "#instance-scale-min-input")
     def handle_instance_scale_min_change(self, event: Input.Changed) -> None:
+        """Handle instance scale min changes."""
         if self._state and event.value:
             try:
                 self._state._ci_augmentation.scale_min = float(event.value)
@@ -4538,6 +4961,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-scale-max-input")
     def handle_instance_scale_max_change(self, event: Input.Changed) -> None:
+        """Handle instance scale max changes."""
         if self._state and event.value:
             try:
                 self._state._ci_augmentation.scale_max = float(event.value)
@@ -4546,6 +4970,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-brightness-input")
     def handle_instance_brightness_change(self, event: Input.Changed) -> None:
+        """Handle instance brightness changes."""
         if self._state and event.value:
             try:
                 self._state._ci_augmentation.brightness_limit = float(event.value)
@@ -4554,6 +4979,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-contrast-input")
     def handle_instance_contrast_change(self, event: Input.Changed) -> None:
+        """Handle instance contrast changes."""
         if self._state and event.value:
             try:
                 self._state._ci_augmentation.contrast_limit = float(event.value)
@@ -4563,11 +4989,13 @@ class ConfigureScreen(Widget):
     # Instance Checkpoint & Logging handlers
     @on(Checkbox.Changed, "#instance-save-ckpt-checkbox")
     def handle_instance_save_ckpt_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance save ckpt changes."""
         if self._state:
             self._state._checkpoint.enabled = event.value
 
     @on(Input.Changed, "#instance-save-top-k-input")
     def handle_instance_save_top_k_change(self, event: Input.Changed) -> None:
+        """Handle instance save top k changes."""
         if self._state and event.value:
             try:
                 self._state._checkpoint.save_top_k = int(event.value)
@@ -4576,44 +5004,52 @@ class ConfigureScreen(Widget):
 
     @on(Checkbox.Changed, "#instance-save-last-checkbox")
     def handle_instance_save_last_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance save last changes."""
         if self._state:
             self._state._checkpoint.save_last = event.value
 
     @on(Checkbox.Changed, "#instance-wandb-checkbox")
     def handle_instance_wandb_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance wandb changes."""
         if self._state:
             self._state._wandb.enabled = event.value
             self._update_wandb_options_visibility()
 
     @on(Input.Changed, "#instance-wandb-project-input")
     def handle_instance_wandb_project_change(self, event: Input.Changed) -> None:
+        """Handle instance wandb project changes."""
         if self._state:
             self._state._wandb.project = event.value or "sleap-training"
 
     @on(Input.Changed, "#instance-wandb-entity-input")
     def handle_instance_wandb_entity_change(self, event: Input.Changed) -> None:
+        """Handle instance wandb entity changes."""
         if self._state:
             self._state._wandb.entity = event.value or ""
 
     @on(Checkbox.Changed, "#instance-save-viz-checkbox")
     def handle_instance_save_viz_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance save viz changes."""
         if self._state:
             self._state._visualize_preds = event.value
             self._update_viz_options_visibility()
 
     @on(Checkbox.Changed, "#instance-viz-keep-folder-checkbox")
     def handle_instance_viz_keep_folder_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance viz keep folder changes."""
         if self._state:
             self._state._keep_viz = event.value
 
     @on(Checkbox.Changed, "#instance-eval-checkbox")
     def handle_instance_eval_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance eval changes."""
         if self._state:
             self._state._evaluation.enabled = event.value
             self._update_eval_options_visibility()
 
     @on(Input.Changed, "#instance-eval-frequency-input")
     def handle_instance_eval_frequency_change(self, event: Input.Changed) -> None:
+        """Handle instance eval frequency changes."""
         if self._state and event.value:
             try:
                 self._state._evaluation.frequency = int(event.value)
@@ -4622,6 +5058,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-eval-oks-input")
     def handle_instance_eval_oks_change(self, event: Input.Changed) -> None:
+        """Handle instance eval oks changes."""
         if self._state and event.value:
             try:
                 self._state._evaluation.oks_stddev = float(event.value)
@@ -4631,16 +5068,19 @@ class ConfigureScreen(Widget):
     # Instance Advanced params handlers
     @on(Select.Changed, "#instance-optimizer-select")
     def handle_instance_optimizer_change(self, event: Select.Changed) -> None:
+        """Handle instance optimizer changes."""
         if self._state and event.value:
             self._state._ci_optimizer = event.value
 
     @on(Checkbox.Changed, "#instance-early-stopping-checkbox")
     def handle_instance_early_stopping_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance early stopping changes."""
         if self._state:
             self._state._ci_early_stopping = event.value
 
     @on(Input.Changed, "#instance-es-patience-input")
     def handle_instance_es_patience_change(self, event: Input.Changed) -> None:
+        """Handle instance es patience changes."""
         if self._state and event.value:
             try:
                 self._state._ci_early_stopping_patience = int(event.value)
@@ -4649,6 +5089,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-es-min-delta-input")
     def handle_instance_es_min_delta_change(self, event: Input.Changed) -> None:
+        """Handle instance es min delta changes."""
         if self._state and event.value:
             try:
                 self._state._ci_early_stopping_min_delta = float(event.value)
@@ -4657,12 +5098,15 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#instance-scheduler-select")
     def handle_instance_scheduler_change(self, event: Select.Changed) -> None:
+        """Handle instance scheduler changes."""
         if self._state and event.value:
             from sleap_nn.config_generator.tui.state import SchedulerType
+
             self._state._ci_scheduler.type = SchedulerType(event.value)
 
     @on(Input.Changed, "#instance-lr-patience-input")
     def handle_instance_lr_patience_change(self, event: Input.Changed) -> None:
+        """Handle instance lr patience changes."""
         if self._state and event.value:
             try:
                 self._state._ci_scheduler.plateau_patience = int(event.value)
@@ -4671,6 +5115,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-lr-factor-input")
     def handle_instance_lr_factor_change(self, event: Input.Changed) -> None:
+        """Handle instance lr factor changes."""
         if self._state and event.value:
             try:
                 self._state._ci_scheduler.factor = float(event.value)
@@ -4679,16 +5124,19 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#instance-accelerator-select")
     def handle_instance_accelerator_change(self, event: Select.Changed) -> None:
+        """Handle instance accelerator changes."""
         if self._state and event.value:
             self._state._accelerator = event.value
 
     @on(Select.Changed, "#instance-devices-select")
     def handle_instance_devices_change(self, event: Select.Changed) -> None:
+        """Handle instance devices changes."""
         if self._state and event.value:
             self._state._devices = event.value
 
     @on(Input.Changed, "#instance-min-steps-input")
     def handle_instance_min_steps_change(self, event: Input.Changed) -> None:
+        """Handle instance min steps changes."""
         if self._state and event.value:
             try:
                 self._state._min_steps_per_epoch = int(event.value)
@@ -4697,36 +5145,43 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-random-seed-input")
     def handle_instance_random_seed_change(self, event: Input.Changed) -> None:
+        """Handle instance random seed changes."""
         if self._state:
             self._state._random_seed = int(event.value) if event.value else None
 
     @on(Select.Changed, "#instance-lr-select")
     def handle_instance_lr_select_change(self, event: Select.Changed) -> None:
+        """Handle instance lr changes."""
         if self._state and event.value:
             self._state._ci_learning_rate = float(event.value)
 
     # Instance Data Pipeline handlers
     @on(Select.Changed, "#instance-num-workers-select")
     def handle_instance_num_workers_select_change(self, event: Select.Changed) -> None:
+        """Handle instance num workers changes."""
         if self._state and event.value:
             self._state._num_workers = int(event.value)
             self._update_instance_cache_memory_display()
 
     @on(Select.Changed, "#instance-data-pipeline-select")
     def handle_instance_data_pipeline_change(self, event: Select.Changed) -> None:
+        """Handle instance data pipeline changes."""
         if self._state and event.value:
             from sleap_nn.config_generator.tui.state import DataPipelineType
+
             self._state._data_pipeline = DataPipelineType(event.value)
             self._update_instance_cache_memory_display()
             self._update_instance_cache_options_visibility()
 
     @on(Checkbox.Changed, "#instance-parallel-caching-checkbox")
     def handle_instance_parallel_caching_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance parallel caching changes."""
         if self._state:
             self._state._cache_config.parallel_caching = event.value
 
     @on(Input.Changed, "#instance-cache-workers-input")
     def handle_instance_cache_workers_change(self, event: Input.Changed) -> None:
+        """Handle instance cache workers changes."""
         if self._state and event.value:
             try:
                 self._state._cache_config.cache_workers = int(event.value)
@@ -4735,21 +5190,25 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-cache-path-input")
     def handle_instance_cache_path_change(self, event: Input.Changed) -> None:
+        """Handle instance cache path changes."""
         if self._state:
             self._state._cache_config.cache_img_path = event.value or ""
 
     @on(Checkbox.Changed, "#instance-use-existing-checkbox")
     def handle_instance_use_existing_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance use existing changes."""
         if self._state:
             self._state._cache_config.use_existing_imgs = event.value
 
     @on(Checkbox.Changed, "#instance-delete-cache-checkbox")
     def handle_instance_delete_cache_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance delete cache changes."""
         if self._state:
             self._state._cache_config.delete_cache_after_training = event.value
 
     @on(Select.Changed, "#instance-channels-select")
     def handle_instance_channels_change(self, event: Select.Changed) -> None:
+        """Handle instance channels changes."""
         if self._state and event.value:
             self._state._ensure_rgb = event.value == "rgb"
             self._state._ensure_grayscale = event.value == "grayscale"
@@ -4757,6 +5216,7 @@ class ConfigureScreen(Widget):
     # Instance Model handlers
     @on(Input.Changed, "#instance-filters-input")
     def handle_instance_filters_change(self, event: Input.Changed) -> None:
+        """Handle instance filters changes."""
         if self._state and event.value:
             try:
                 self._state._ci_filters = int(event.value)
@@ -4765,6 +5225,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-filters-rate-input")
     def handle_instance_filters_rate_change(self, event: Input.Changed) -> None:
+        """Handle instance filters rate changes."""
         if self._state and event.value:
             try:
                 self._state._ci_filters_rate = float(event.value)
@@ -4773,27 +5234,32 @@ class ConfigureScreen(Widget):
 
     @on(Checkbox.Changed, "#instance-imagenet-checkbox")
     def handle_instance_imagenet_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance imagenet changes."""
         if self._state:
             self._state._use_imagenet_pretrained = event.value
 
     @on(Input.Changed, "#instance-pretrained-backbone-input")
     def handle_instance_pretrained_backbone_change(self, event: Input.Changed) -> None:
+        """Handle instance pretrained backbone changes."""
         if self._state:
             self._state._ci_pretrained_backbone = event.value or ""
 
     @on(Input.Changed, "#instance-pretrained-head-input")
     def handle_instance_pretrained_head_change(self, event: Input.Changed) -> None:
+        """Handle instance pretrained head changes."""
         if self._state:
             self._state._ci_pretrained_head = event.value or ""
 
     # Instance OHKM handlers
     @on(Checkbox.Changed, "#instance-ohkm-checkbox")
     def handle_instance_ohkm_change(self, event: Checkbox.Changed) -> None:
+        """Handle instance ohkm changes."""
         if self._state:
             self._state._ohkm.enabled = event.value
 
     @on(Input.Changed, "#instance-ohkm-ratio-input")
     def handle_instance_ohkm_ratio_change(self, event: Input.Changed) -> None:
+        """Handle instance ohkm ratio changes."""
         if self._state and event.value:
             try:
                 self._state._ohkm.hard_to_easy_ratio = float(event.value)
@@ -4802,6 +5268,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-ohkm-scale-input")
     def handle_instance_ohkm_scale_change(self, event: Input.Changed) -> None:
+        """Handle instance ohkm scale changes."""
         if self._state and event.value:
             try:
                 self._state._ohkm.loss_scale = float(event.value)
@@ -4810,6 +5277,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-ohkm-min-input")
     def handle_instance_ohkm_min_change(self, event: Input.Changed) -> None:
+        """Handle instance ohkm min changes."""
         if self._state and event.value:
             try:
                 self._state._ohkm.min_hard_keypoints = int(event.value)
@@ -4818,18 +5286,23 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#instance-ohkm-max-input")
     def handle_instance_ohkm_max_change(self, event: Input.Changed) -> None:
+        """Handle instance ohkm max changes."""
         if self._state:
-            self._state._ohkm.max_hard_keypoints = int(event.value) if event.value else None
+            self._state._ohkm.max_hard_keypoints = (
+                int(event.value) if event.value else None
+            )
 
     # Evaluation handlers (legacy)
     @on(Checkbox.Changed, "#evaluation-checkbox")
     def handle_evaluation_change(self, event: Checkbox.Changed) -> None:
+        """Handle evaluation changes."""
         if self._state:
             self._state._evaluation.enabled = event.value
             self._update_eval_options_visibility()
 
     @on(Input.Changed, "#eval-frequency-input")
     def handle_eval_frequency_change(self, event: Input.Changed) -> None:
+        """Handle eval frequency changes."""
         if self._state and event.value:
             try:
                 self._state._evaluation.frequency = int(event.value)
@@ -4838,6 +5311,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#eval-oks-input")
     def handle_eval_oks_change(self, event: Input.Changed) -> None:
+        """Handle eval oks changes."""
         if self._state and event.value:
             try:
                 self._state._evaluation.oks_stddev = float(event.value)
@@ -4846,6 +5320,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#oks-stddev-input")
     def handle_oks_stddev_change(self, event: Input.Changed) -> None:
+        """Handle oks stddev changes."""
         if self._state and event.value:
             try:
                 self._state._evaluation.oks_stddev = float(event.value)
@@ -4874,6 +5349,7 @@ class ConfigureScreen(Widget):
     # Scheduler parameter handlers - ReduceLROnPlateau
     @on(Input.Changed, "#scheduler-factor-input")
     def handle_scheduler_factor_change(self, event: Input.Changed) -> None:
+        """Handle scheduler factor changes."""
         if self._state and event.value:
             try:
                 self._state._scheduler.factor = float(event.value)
@@ -4882,6 +5358,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#scheduler-patience-input")
     def handle_scheduler_patience_change(self, event: Input.Changed) -> None:
+        """Handle scheduler patience changes."""
         if self._state and event.value:
             try:
                 self._state._scheduler.plateau_patience = int(event.value)
@@ -4890,6 +5367,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#scheduler-min-lr-input")
     def handle_scheduler_min_lr_change(self, event: Input.Changed) -> None:
+        """Handle scheduler min lr changes."""
         if self._state and event.value:
             try:
                 self._state._scheduler.min_lr = float(event.value)
@@ -4898,6 +5376,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#scheduler-cooldown-input")
     def handle_scheduler_cooldown_change(self, event: Input.Changed) -> None:
+        """Handle scheduler cooldown changes."""
         if self._state and event.value:
             try:
                 self._state._scheduler.cooldown = int(event.value)
@@ -4907,6 +5386,7 @@ class ConfigureScreen(Widget):
     # Scheduler parameter handlers - StepLR
     @on(Input.Changed, "#scheduler-step-size-input")
     def handle_scheduler_step_size_change(self, event: Input.Changed) -> None:
+        """Handle scheduler step size changes."""
         if self._state and event.value:
             try:
                 self._state._scheduler.step_size = int(event.value)
@@ -4915,6 +5395,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#scheduler-gamma-input")
     def handle_scheduler_gamma_change(self, event: Input.Changed) -> None:
+        """Handle scheduler gamma changes."""
         if self._state and event.value:
             try:
                 self._state._scheduler.gamma = float(event.value)
@@ -4924,6 +5405,7 @@ class ConfigureScreen(Widget):
     # Scheduler parameter handlers - CosineAnnealingWarmup
     @on(Input.Changed, "#scheduler-warmup-epochs-input")
     def handle_scheduler_warmup_epochs_change(self, event: Input.Changed) -> None:
+        """Handle scheduler warmup epochs changes."""
         if self._state and event.value:
             try:
                 self._state._scheduler.warmup_epochs = int(event.value)
@@ -4932,6 +5414,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#scheduler-warmup-start-lr-input")
     def handle_scheduler_warmup_start_lr_change(self, event: Input.Changed) -> None:
+        """Handle scheduler warmup start lr changes."""
         if self._state and event.value:
             try:
                 self._state._scheduler.warmup_start_lr = float(event.value)
@@ -4940,6 +5423,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#scheduler-eta-min-input")
     def handle_scheduler_eta_min_change(self, event: Input.Changed) -> None:
+        """Handle scheduler eta min changes."""
         if self._state and event.value:
             try:
                 self._state._scheduler.eta_min = float(event.value)
@@ -4948,7 +5432,10 @@ class ConfigureScreen(Widget):
 
     # Scheduler parameter handlers - LinearWarmupLinearDecay
     @on(Input.Changed, "#scheduler-linear-warmup-epochs-input")
-    def handle_scheduler_linear_warmup_epochs_change(self, event: Input.Changed) -> None:
+    def handle_scheduler_linear_warmup_epochs_change(
+        self, event: Input.Changed
+    ) -> None:
+        """Handle scheduler linear warmup epochs changes."""
         if self._state and event.value:
             try:
                 self._state._scheduler.linear_warmup_epochs = int(event.value)
@@ -4956,7 +5443,10 @@ class ConfigureScreen(Widget):
                 pass
 
     @on(Input.Changed, "#scheduler-linear-warmup-start-lr-input")
-    def handle_scheduler_linear_warmup_start_lr_change(self, event: Input.Changed) -> None:
+    def handle_scheduler_linear_warmup_start_lr_change(
+        self, event: Input.Changed
+    ) -> None:
+        """Handle scheduler linear warmup start lr changes."""
         if self._state and event.value:
             try:
                 self._state._scheduler.linear_warmup_start_lr = float(event.value)
@@ -4965,6 +5455,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#scheduler-end-lr-input")
     def handle_scheduler_end_lr_change(self, event: Input.Changed) -> None:
+        """Handle scheduler end lr changes."""
         if self._state and event.value:
             try:
                 self._state._scheduler.end_lr = float(event.value)
@@ -4974,17 +5465,20 @@ class ConfigureScreen(Widget):
     # WandB visualization handlers
     @on(Checkbox.Changed, "#wandb-viz-checkbox")
     def handle_wandb_viz_change(self, event: Checkbox.Changed) -> None:
+        """Handle wandb viz changes."""
         if self._state:
             self._state._wandb.viz_enabled = event.value
 
     @on(Checkbox.Changed, "#wandb-save-viz-checkbox")
     def handle_wandb_save_viz_change(self, event: Checkbox.Changed) -> None:
+        """Handle wandb save viz changes."""
         if self._state:
             self._state._wandb.save_viz_imgs = event.value
 
     # Devices handler
     @on(Select.Changed, "#devices-select")
     def handle_devices_change(self, event: Select.Changed) -> None:
+        """Handle devices changes."""
         if self._state and event.value:
             self._state._devices = event.value
 
@@ -4992,12 +5486,16 @@ class ConfigureScreen(Widget):
     # These handle inputs specific to the centroid tab that aren't covered by standard handlers
 
     @on(Checkbox.Changed, "#centroid-translate-checkbox")
-    def handle_centroid_translate_checkbox_change(self, event: Checkbox.Changed) -> None:
+    def handle_centroid_translate_checkbox_change(
+        self, event: Checkbox.Changed
+    ) -> None:
+        """Handle centroid translate changes."""
         if self._state:
             self._state._augmentation.translate_enabled = event.value
 
     @on(Input.Changed, "#centroid-translate-input")
     def handle_centroid_translate_change(self, event: Input.Changed) -> None:
+        """Handle centroid translate changes."""
         if self._state and event.value:
             try:
                 self._state._augmentation.translate = float(event.value)
@@ -5006,6 +5504,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-val-fraction-input")
     def handle_centroid_val_fraction_change(self, event: Input.Changed) -> None:
+        """Handle centroid val fraction changes."""
         if self._state and event.value:
             try:
                 self._state._validation_fraction = float(event.value)
@@ -5014,6 +5513,7 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#centroid-channels-select")
     def handle_centroid_channels_change(self, event: Select.Changed) -> None:
+        """Handle centroid channels changes."""
         if self._state and event.value:
             self._state._ensure_rgb = event.value == "rgb"
             self._state._ensure_grayscale = event.value == "grayscale"
@@ -5023,6 +5523,7 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#centroid-data-pipeline-select")
     def handle_centroid_data_pipeline_change(self, event: Select.Changed) -> None:
+        """Handle centroid data pipeline changes."""
         if self._state and event.value:
             self._state._data_pipeline = DataPipelineType(event.value)
             self._update_cache_memory_display()
@@ -5031,6 +5532,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-filters-input")
     def handle_centroid_filters_change(self, event: Input.Changed) -> None:
+        """Handle centroid filters changes."""
         if self._state and event.value:
             try:
                 self._state._filters = int(event.value)
@@ -5041,6 +5543,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-filters-rate-input")
     def handle_centroid_filters_rate_change(self, event: Input.Changed) -> None:
+        """Handle centroid filters rate changes."""
         if self._state and event.value:
             try:
                 self._state._filters_rate = float(event.value)
@@ -5051,31 +5554,37 @@ class ConfigureScreen(Widget):
 
     @on(Checkbox.Changed, "#centroid-imagenet-checkbox")
     def handle_centroid_imagenet_change(self, event: Checkbox.Changed) -> None:
+        """Handle centroid imagenet changes."""
         if self._state:
             self._state._use_imagenet_pretrained = event.value
 
     @on(Input.Changed, "#centroid-pretrained-backbone-input")
     def handle_centroid_pretrained_backbone_change(self, event: Input.Changed) -> None:
+        """Handle centroid pretrained backbone changes."""
         if self._state:
             self._state._pretrained_backbone = event.value or ""
 
     @on(Input.Changed, "#centroid-pretrained-head-input")
     def handle_centroid_pretrained_head_change(self, event: Input.Changed) -> None:
+        """Handle centroid pretrained head changes."""
         if self._state:
             self._state._pretrained_head = event.value or ""
 
     @on(Select.Changed, "#centroid-optimizer-select")
     def handle_centroid_optimizer_change(self, event: Select.Changed) -> None:
+        """Handle centroid optimizer changes."""
         if self._state and event.value:
             self._state._optimizer = event.value
 
     @on(Checkbox.Changed, "#centroid-early-stopping-checkbox")
     def handle_centroid_early_stopping_change(self, event: Checkbox.Changed) -> None:
+        """Handle centroid early stopping changes."""
         if self._state:
             self._state._early_stopping = event.value
 
     @on(Input.Changed, "#centroid-es-patience-input")
     def handle_centroid_es_patience_change(self, event: Input.Changed) -> None:
+        """Handle centroid es patience changes."""
         if self._state and event.value:
             try:
                 self._state._early_stopping_patience = int(event.value)
@@ -5084,6 +5593,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-es-min-delta-input")
     def handle_centroid_es_min_delta_change(self, event: Input.Changed) -> None:
+        """Handle centroid es min delta changes."""
         if self._state and event.value:
             try:
                 self._state._early_stopping_min_delta = float(event.value)
@@ -5092,6 +5602,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-lr-patience-input")
     def handle_centroid_lr_patience_change(self, event: Input.Changed) -> None:
+        """Handle centroid lr patience changes."""
         if self._state and event.value:
             try:
                 self._state._scheduler.plateau_patience = int(event.value)
@@ -5100,6 +5611,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-lr-factor-input")
     def handle_centroid_lr_factor_change(self, event: Input.Changed) -> None:
+        """Handle centroid lr factor changes."""
         if self._state and event.value:
             try:
                 self._state._scheduler.factor = float(event.value)
@@ -5108,16 +5620,19 @@ class ConfigureScreen(Widget):
 
     @on(Select.Changed, "#centroid-scheduler-select")
     def handle_centroid_scheduler_change(self, event: Select.Changed) -> None:
+        """Handle centroid scheduler changes."""
         if self._state and event.value:
             self._state._scheduler.type = SchedulerType(event.value)
 
     @on(Checkbox.Changed, "#centroid-save-ckpt-checkbox")
     def handle_centroid_save_ckpt_change(self, event: Checkbox.Changed) -> None:
+        """Handle centroid save ckpt changes."""
         if self._state:
             self._state._checkpoint.enabled = event.value
 
     @on(Input.Changed, "#centroid-save-top-k-input")
     def handle_centroid_save_top_k_change(self, event: Input.Changed) -> None:
+        """Handle centroid save top k changes."""
         if self._state and event.value:
             try:
                 self._state._checkpoint.save_top_k = int(event.value)
@@ -5126,34 +5641,40 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-resume-ckpt-input")
     def handle_centroid_resume_ckpt_change(self, event: Input.Changed) -> None:
+        """Handle centroid resume ckpt changes."""
         if self._state:
             self._state._checkpoint.resume_from = event.value or ""
 
     @on(Checkbox.Changed, "#centroid-wandb-checkbox")
     def handle_centroid_wandb_change(self, event: Checkbox.Changed) -> None:
+        """Handle centroid wandb changes."""
         if self._state:
             self._state._wandb.enabled = event.value
             self._update_wandb_options_visibility()
 
     @on(Checkbox.Changed, "#centroid-save-viz-checkbox")
     def handle_centroid_save_viz_change(self, event: Checkbox.Changed) -> None:
+        """Handle centroid save viz changes."""
         if self._state:
             self._state._visualize_preds = event.value
             self._update_viz_options_visibility()
 
     @on(Checkbox.Changed, "#centroid-viz-keep-folder-checkbox")
     def handle_centroid_viz_keep_folder_change(self, event: Checkbox.Changed) -> None:
+        """Handle centroid viz keep folder changes."""
         if self._state:
             self._state._keep_viz = event.value
 
     @on(Checkbox.Changed, "#centroid-eval-checkbox")
     def handle_centroid_eval_change(self, event: Checkbox.Changed) -> None:
+        """Handle centroid eval changes."""
         if self._state:
             self._state._evaluation.enabled = event.value
             self._update_eval_options_visibility()
 
     @on(Input.Changed, "#centroid-eval-frequency-input")
     def handle_centroid_eval_frequency_change(self, event: Input.Changed) -> None:
+        """Handle centroid eval frequency changes."""
         if self._state and event.value:
             try:
                 self._state._evaluation.frequency = int(event.value)
@@ -5162,6 +5683,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-eval-oks-input")
     def handle_centroid_eval_oks_change(self, event: Input.Changed) -> None:
+        """Handle centroid eval oks changes."""
         if self._state and event.value:
             try:
                 self._state._evaluation.oks_stddev = float(event.value)
@@ -5170,21 +5692,25 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-wandb-project-input")
     def handle_centroid_wandb_project_change(self, event: Input.Changed) -> None:
+        """Handle centroid wandb project changes."""
         if self._state:
             self._state._wandb.project = event.value or "sleap-training"
 
     @on(Select.Changed, "#centroid-accelerator-select")
     def handle_centroid_accelerator_change(self, event: Select.Changed) -> None:
+        """Handle centroid accelerator changes."""
         if self._state and event.value:
             self._state._accelerator = event.value
 
     @on(Select.Changed, "#centroid-devices-select")
     def handle_centroid_devices_change(self, event: Select.Changed) -> None:
+        """Handle centroid devices changes."""
         if self._state and event.value:
             self._state._devices = event.value
 
     @on(Select.Changed, "#centroid-num-workers-select")
     def handle_centroid_num_workers_change(self, event: Select.Changed) -> None:
+        """Handle centroid num workers changes."""
         if self._state and event.value:
             self._state._num_workers = int(event.value)
             self._update_centroid_cache_memory_display()
@@ -5192,6 +5718,7 @@ class ConfigureScreen(Widget):
     # Legacy handler kept for compatibility (can be removed later)
     @on(Input.Changed, "#centroid-num-workers-input")
     def handle_centroid_num_workers_input_change(self, event: Input.Changed) -> None:
+        """Handle centroid num workers changes."""
         if self._state and event.value:
             try:
                 self._state._num_workers = int(event.value)
@@ -5200,6 +5727,7 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-min-steps-input")
     def handle_centroid_min_steps_change(self, event: Input.Changed) -> None:
+        """Handle centroid min steps changes."""
         if self._state and event.value:
             try:
                 self._state._min_steps_per_epoch = int(event.value)
@@ -5208,5 +5736,6 @@ class ConfigureScreen(Widget):
 
     @on(Input.Changed, "#centroid-random-seed-input")
     def handle_centroid_random_seed_change(self, event: Input.Changed) -> None:
+        """Handle centroid random seed changes."""
         if self._state:
             self._state._random_seed = int(event.value) if event.value else None

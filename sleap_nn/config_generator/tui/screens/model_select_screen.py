@@ -23,6 +23,7 @@ class ModelTypeOption(Static):
         """Message sent when this option is selected."""
 
         def __init__(self, pipeline_type: PipelineType):
+            """Initialize with selected pipeline type."""
             super().__init__()
             self.pipeline_type = pipeline_type
 
@@ -36,7 +37,7 @@ class ModelTypeOption(Static):
         option_disabled: bool = False,
         disabled_reason: str = "",
         is_two_stage: bool = False,
-        **kwargs
+        **kwargs,
     ):
         """Initialize the model type option."""
         super().__init__(**kwargs)
@@ -174,6 +175,7 @@ class ModelSelectScreen(Widget):
 
         Args:
             state: ConfigState with dataset statistics.
+            **kwargs: Additional keyword arguments passed to parent.
         """
         super().__init__(**kwargs)
         self._state = state
@@ -186,7 +188,9 @@ class ModelSelectScreen(Widget):
     def compose(self) -> ComposeResult:
         """Compose the screen layout."""
         with Vertical(id="model-container"):
-            yield Label("[bold]Step 2: Select Model Type[/bold]", classes="section-title")
+            yield Label(
+                "[bold]Step 2: Select Model Type[/bold]", classes="section-title"
+            )
 
             yield Label("Choose the model architecture:", classes="hint")
 
@@ -209,10 +213,7 @@ class ModelSelectScreen(Widget):
                     id="identity-checkbox",
                     value=identity_enabled,
                 )
-                yield Label(
-                    "(requires track annotations in your data)",
-                    classes="hint"
-                )
+                yield Label("(requires track annotations in your data)", classes="hint")
 
     def _create_model_options(self):
         """Create model type option widgets."""
@@ -231,14 +232,18 @@ class ModelSelectScreen(Widget):
             details="Best for: Single-animal experiments, isolated subjects.",
             is_recommended=rec.pipeline.recommended == "single_instance",
             option_disabled=single_disabled,
-            disabled_reason="Multiple instances detected in data" if single_disabled else "",
+            disabled_reason=(
+                "Multiple instances detected in data" if single_disabled else ""
+            ),
             classes="model-option",
             id="opt-single",
         )
 
         # Top-Down
         is_topdown_rec = rec.pipeline.recommended in [
-            "centroid", "centered_instance", "multi_class_topdown"
+            "centroid",
+            "centered_instance",
+            "multi_class_topdown",
         ]
         yield ModelTypeOption(
             pipeline_type="centroid",
@@ -253,7 +258,10 @@ class ModelSelectScreen(Widget):
 
         # Bottom-Up
         bottomup_disabled = stats.num_edges == 0
-        is_bottomup_rec = rec.pipeline.recommended in ["bottomup", "multi_class_bottomup"]
+        is_bottomup_rec = rec.pipeline.recommended in [
+            "bottomup",
+            "multi_class_bottomup",
+        ]
         yield ModelTypeOption(
             pipeline_type="bottomup",
             title="Bottom-Up",
@@ -261,7 +269,11 @@ class ModelSelectScreen(Widget):
             details="Best for: Crowded/overlapping animals. Detects all parts, then groups into instances.",
             is_recommended=is_bottomup_rec,
             option_disabled=bottomup_disabled,
-            disabled_reason="Requires skeleton edges for Part Affinity Fields" if bottomup_disabled else "",
+            disabled_reason=(
+                "Requires skeleton edges for Part Affinity Fields"
+                if bottomup_disabled
+                else ""
+            ),
             classes="model-option",
             id="opt-bottomup",
         )
@@ -320,7 +332,11 @@ class ModelSelectScreen(Widget):
 
             # Update input scale based on pipeline type (web app behavior)
             # Top-down centroid uses lower scale (0.5), others use full scale (1.0)
-            is_topdown = self._state._pipeline in ["centroid", "centered_instance", "multi_class_topdown"]
+            is_topdown = self._state._pipeline in [
+                "centroid",
+                "centered_instance",
+                "multi_class_topdown",
+            ]
             if is_topdown:
                 self._state._input_scale = 0.5  # Lower scale for centroid
                 self._state._sigma = 5.0  # Larger sigma for centroid
@@ -329,8 +345,12 @@ class ModelSelectScreen(Widget):
                 self._state._input_scale = 1.0  # Full scale for other models
 
             # Auto-adjust max_stride based on animal size vs receptive field
-            scaled_animal_size = self._state.stats.max_bbox_size * self._state._input_scale
-            required_stride = self._state._compute_max_stride_for_animal_size(scaled_animal_size)
+            scaled_animal_size = (
+                self._state.stats.max_bbox_size * self._state._input_scale
+            )
+            required_stride = self._state._compute_max_stride_for_animal_size(
+                scaled_animal_size
+            )
 
             # Use at least the base stride (16 for medium_rf, 32 for large_rf)
             if "large_rf" in self._state._backbone:

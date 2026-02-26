@@ -78,12 +78,14 @@ class Collapsible(Widget):
         """Posted when the collapsible is expanded or collapsed."""
 
         def __init__(self, collapsible: "Collapsible", expanded: bool) -> None:
+            """Initialize with collapsible widget and state."""
             super().__init__()
             self.collapsible = collapsible
             self.expanded = expanded
 
         @property
         def control(self) -> "Collapsible":
+            """Return the collapsible widget that sent this message."""
             return self.collapsible
 
     def __init__(
@@ -286,12 +288,14 @@ class ToggleSection(Widget):
         """Posted when the section is enabled/disabled."""
 
         def __init__(self, section: "ToggleSection", enabled: bool) -> None:
+            """Initialize with toggle section widget and state."""
             super().__init__()
             self.section = section
             self.enabled = enabled
 
         @property
         def control(self) -> "ToggleSection":
+            """Return the toggle section widget that sent this message."""
             return self.section
 
     def __init__(

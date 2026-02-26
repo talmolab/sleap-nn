@@ -47,7 +47,11 @@ class StepIndicator(Static):
                 parts.append(f"[dim][{i}][/dim]")
 
         step_line = "──".join(parts)
-        label = self.STEP_LABELS[self.current_step - 1] if self.current_step <= len(self.STEP_LABELS) else ""
+        label = (
+            self.STEP_LABELS[self.current_step - 1]
+            if self.current_step <= len(self.STEP_LABELS)
+            else ""
+        )
         return f"{step_line}\n[bold]{label}[/bold]"
 
 
@@ -234,7 +238,9 @@ class ConfigGeneratorApp(App):
 
         back_btn.disabled = step == 1
         next_btn.label = "Export" if step == 4 else "Next"
-        next_btn.disabled = step == 1 and self._state is None  # Can't proceed without data
+        next_btn.disabled = (
+            step == 1 and self._state is None
+        )  # Can't proceed without data
 
         # Clear and mount appropriate screen
         content_area = self.query_one("#content-area")
@@ -309,11 +315,19 @@ class ConfigGeneratorApp(App):
 
         try:
             if self._state.is_topdown:
-                base_path = str(self.slp_path.parent / self.slp_path.stem) if self.slp_path else "config"
+                base_path = (
+                    str(self.slp_path.parent / self.slp_path.stem)
+                    if self.slp_path
+                    else "config"
+                )
                 centroid_path, ci_path = self._state.save_dual(base_path)
                 self.notify(f"Saved: {centroid_path} and {ci_path}")
             else:
-                output_path = self.slp_path.parent / f"{self.slp_path.stem}_config.yaml" if self.slp_path else Path("config.yaml")
+                output_path = (
+                    self.slp_path.parent / f"{self.slp_path.stem}_config.yaml"
+                    if self.slp_path
+                    else Path("config.yaml")
+                )
                 self._state.save(str(output_path))
                 self.notify(f"Saved to: {output_path}")
         except Exception as e:
@@ -332,7 +346,10 @@ class ConfigGeneratorApp(App):
         """Switch to the previous tab in ConfigureScreen."""
         if self.current_step == 3:  # Configure step
             try:
-                from sleap_nn.config_generator.tui.screens.configure_screen import ConfigureScreen
+                from sleap_nn.config_generator.tui.screens.configure_screen import (
+                    ConfigureScreen,
+                )
+
                 config_screen = self.query_one(ConfigureScreen)
                 config_screen.action_prev_tab()
             except Exception:
@@ -342,7 +359,10 @@ class ConfigGeneratorApp(App):
         """Switch to the next tab in ConfigureScreen."""
         if self.current_step == 3:  # Configure step
             try:
-                from sleap_nn.config_generator.tui.screens.configure_screen import ConfigureScreen
+                from sleap_nn.config_generator.tui.screens.configure_screen import (
+                    ConfigureScreen,
+                )
+
                 config_screen = self.query_one(ConfigureScreen)
                 config_screen.action_next_tab()
             except Exception:
@@ -352,7 +372,10 @@ class ConfigGeneratorApp(App):
         """Switch to tab 1 in ConfigureScreen."""
         if self.current_step == 3:
             try:
-                from sleap_nn.config_generator.tui.screens.configure_screen import ConfigureScreen
+                from sleap_nn.config_generator.tui.screens.configure_screen import (
+                    ConfigureScreen,
+                )
+
                 config_screen = self.query_one(ConfigureScreen)
                 config_screen.action_goto_tab_1()
             except Exception:
@@ -362,7 +385,10 @@ class ConfigGeneratorApp(App):
         """Switch to tab 2 in ConfigureScreen."""
         if self.current_step == 3:
             try:
-                from sleap_nn.config_generator.tui.screens.configure_screen import ConfigureScreen
+                from sleap_nn.config_generator.tui.screens.configure_screen import (
+                    ConfigureScreen,
+                )
+
                 config_screen = self.query_one(ConfigureScreen)
                 config_screen.action_goto_tab_2()
             except Exception:
@@ -372,7 +398,10 @@ class ConfigGeneratorApp(App):
         """Switch to tab 3 in ConfigureScreen."""
         if self.current_step == 3:
             try:
-                from sleap_nn.config_generator.tui.screens.configure_screen import ConfigureScreen
+                from sleap_nn.config_generator.tui.screens.configure_screen import (
+                    ConfigureScreen,
+                )
+
                 config_screen = self.query_one(ConfigureScreen)
                 config_screen.action_goto_tab_3()
             except Exception:

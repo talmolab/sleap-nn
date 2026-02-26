@@ -149,7 +149,9 @@ class PAFConfig:
     sigma: float = 15.0
     output_stride: int = 4  # Web app default (usually 2× confmaps stride)
     loss_weight: float = 1.0
-    confmaps_loss_weight: float = 1.0  # Web app default - loss weight for confmaps in bottom-up
+    confmaps_loss_weight: float = (
+        1.0  # Web app default - loss weight for confmaps in bottom-up
+    )
 
 
 @dataclass
@@ -218,7 +220,9 @@ class ConfigState:
         self._crop_size: Optional[int] = None
         self._pretrained_backbone: str = ""
         self._pretrained_head: str = ""
-        self._use_imagenet_pretrained: bool = True  # Web app default - for ConvNeXt/SwinT
+        self._use_imagenet_pretrained: bool = (
+            True  # Web app default - for ConvNeXt/SwinT
+        )
 
         # For top-down, separate model config for centered instance
         self._ci_backbone: BackboneType = "unet_medium_rf"
@@ -496,7 +500,9 @@ class ConfigState:
 
             # Adjust centroid max_stride if RF < scaled animal size
             scaled_animal_size = self.stats.max_bbox_size * self._input_scale
-            centroid_required_stride = self._compute_max_stride_for_animal_size(scaled_animal_size)
+            centroid_required_stride = self._compute_max_stride_for_animal_size(
+                scaled_animal_size
+            )
             self._max_stride = max(16, centroid_required_stride)
 
             # Centered instance model defaults
@@ -596,7 +602,9 @@ class ConfigState:
                 if self._cache_config.cache_img_path:
                     config["cache_img_path"] = self._cache_config.cache_img_path
                 config["use_existing_imgs"] = self._cache_config.use_existing_imgs
-                config["delete_cache_imgs_after_training"] = self._cache_config.delete_cache_after_training
+                config["delete_cache_imgs_after_training"] = (
+                    self._cache_config.delete_cache_after_training
+                )
             config["parallel_caching"] = self._cache_config.parallel_caching
             config["cache_workers"] = self._cache_config.cache_workers
 
@@ -632,7 +640,9 @@ class ConfigState:
                 if self._cache_config.cache_img_path:
                     config["cache_img_path"] = self._cache_config.cache_img_path
                 config["use_existing_imgs"] = self._cache_config.use_existing_imgs
-                config["delete_cache_imgs_after_training"] = self._cache_config.delete_cache_after_training
+                config["delete_cache_imgs_after_training"] = (
+                    self._cache_config.delete_cache_after_training
+                )
             config["parallel_caching"] = self._cache_config.parallel_caching
             config["cache_workers"] = self._cache_config.cache_workers
 
@@ -656,10 +666,14 @@ class ConfigState:
         rotation_max = aug.rotation_max if aug.rotation_enabled else 0.0
         scale_min = aug.scale_min if aug.scale_enabled else 1.0
         scale_max = aug.scale_max if aug.scale_enabled else 1.0
-        translate = aug.translate / 100.0 if aug.translate_enabled else 0.0  # Convert % to fraction
+        translate = (
+            aug.translate / 100.0 if aug.translate_enabled else 0.0
+        )  # Convert % to fraction
 
         # Geometric augmentations are applied if any geometric aug is enabled
-        any_geometric = aug.rotation_enabled or aug.scale_enabled or aug.translate_enabled
+        any_geometric = (
+            aug.rotation_enabled or aug.scale_enabled or aug.translate_enabled
+        )
         affine_p = 1.0 if (aug.enabled and any_geometric) else 0.0
 
         return {
@@ -673,7 +687,9 @@ class ConfigState:
                 "affine_p": affine_p,
             },
             "intensity": {
-                "brightness_limit": aug.brightness_limit if aug.brightness_enabled else 0.0,
+                "brightness_limit": (
+                    aug.brightness_limit if aug.brightness_enabled else 0.0
+                ),
                 "brightness_p": 0.5 if aug.brightness_enabled else 0.0,
                 "contrast_limit": aug.contrast_limit if aug.contrast_enabled else 0.0,
                 "contrast_p": 0.5 if aug.contrast_enabled else 0.0,
@@ -822,7 +838,10 @@ class ConfigState:
 
         elif self._pipeline == "bottomup":
             head_configs["bottomup"] = {
-                "confmaps": {**base_confmap, "loss_weight": self._paf_config.confmaps_loss_weight},
+                "confmaps": {
+                    **base_confmap,
+                    "loss_weight": self._paf_config.confmaps_loss_weight,
+                },
                 "pafs": {
                     "sigma": self._paf_config.sigma,
                     "output_stride": self._paf_config.output_stride,
@@ -832,7 +851,10 @@ class ConfigState:
 
         elif self._pipeline == "multi_class_bottomup":
             head_configs["multi_class_bottomup"] = {
-                "confmaps": {**base_confmap, "loss_weight": self._paf_config.confmaps_loss_weight},
+                "confmaps": {
+                    **base_confmap,
+                    "loss_weight": self._paf_config.confmaps_loss_weight,
+                },
                 "pafs": {
                     "sigma": self._paf_config.sigma,
                     "output_stride": self._paf_config.output_stride,

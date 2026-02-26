@@ -940,10 +940,16 @@ cli.add_command(predict_command)
 )
 @click.option(
     "--pipeline",
-    type=click.Choice([
-        "single_instance", "centroid", "centered_instance",
-        "bottomup", "multi_class_bottomup", "multi_class_topdown"
-    ]),
+    type=click.Choice(
+        [
+            "single_instance",
+            "centroid",
+            "centered_instance",
+            "bottomup",
+            "multi_class_bottomup",
+            "multi_class_topdown",
+        ]
+    ),
     default=None,
     help="Override model pipeline type.",
 )
@@ -983,7 +989,6 @@ def config(
     generate a config with smart defaults based on your data.
 
     Examples:
-
         # Interactive TUI
         sleap-nn config labels.slp
 
@@ -1021,8 +1026,12 @@ def config(
                 stem = path_obj.stem
                 suffix = path_obj.suffix or ".yaml"
                 parent = path_obj.parent
-                click.echo(f"Saved centroid config to: {parent / f'{stem}_centroid{suffix}'}")
-                click.echo(f"Saved instance config to: {parent / f'{stem}_centered_instance{suffix}'}")
+                click.echo(
+                    f"Saved centroid config to: {parent / f'{stem}_centroid{suffix}'}"
+                )
+                click.echo(
+                    f"Saved instance config to: {parent / f'{stem}_centered_instance{suffix}'}"
+                )
             else:
                 click.echo(f"Saved config to: {output}")
         else:
@@ -1031,8 +1040,12 @@ def config(
             output_path = Path(slp_path).parent / f"{slp_stem}_config.yaml"
             gen.save(str(output_path))
             if gen.is_topdown:
-                click.echo(f"Saved centroid config to: {output_path.parent / f'{slp_stem}_config_centroid.yaml'}")
-                click.echo(f"Saved instance config to: {output_path.parent / f'{slp_stem}_config_centered_instance.yaml'}")
+                click.echo(
+                    f"Saved centroid config to: {output_path.parent / f'{slp_stem}_config_centroid.yaml'}"
+                )
+                click.echo(
+                    f"Saved instance config to: {output_path.parent / f'{slp_stem}_config_centered_instance.yaml'}"
+                )
             else:
                 click.echo(f"Saved config to: {output_path}")
         return
@@ -1040,6 +1053,7 @@ def config(
     # Interactive TUI mode
     try:
         from sleap_nn.config_generator.tui.app import launch_tui
+
         launch_tui(slp_path)
     except ImportError as e:
         click.echo(f"Error: TUI dependencies not available: {e}", err=True)

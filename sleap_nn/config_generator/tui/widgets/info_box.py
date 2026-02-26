@@ -152,6 +152,7 @@ class WarningBox(InfoBox):
         id: Optional[str] = None,
         classes: Optional[str] = None,
     ):
+        """Initialize a warning-styled info box."""
         super().__init__(
             message=message,
             box_type=InfoBoxType.WARNING,
@@ -171,6 +172,7 @@ class SuccessBox(InfoBox):
         id: Optional[str] = None,
         classes: Optional[str] = None,
     ):
+        """Initialize a success-styled info box."""
         super().__init__(
             message=message,
             box_type=InfoBoxType.SUCCESS,
@@ -190,6 +192,7 @@ class ErrorBox(InfoBox):
         id: Optional[str] = None,
         classes: Optional[str] = None,
     ):
+        """Initialize an error-styled info box."""
         super().__init__(
             message=message,
             box_type=InfoBoxType.ERROR,
@@ -209,6 +212,7 @@ class TipBox(InfoBox):
         id: Optional[str] = None,
         classes: Optional[str] = None,
     ):
+        """Initialize a tip-styled info box."""
         super().__init__(
             message=message,
             box_type=InfoBoxType.TIP,

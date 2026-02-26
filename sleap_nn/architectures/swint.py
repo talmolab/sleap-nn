@@ -25,7 +25,6 @@ from torchvision.models.swin_transformer import (
     SwinTransformerBlockV2,
 )
 
-
 torch.fx.wrap("_patch_merging_pad")
 torch.fx.wrap("_get_relative_position_bias")
 torch.fx.wrap("shifted_window_attention")

@@ -164,7 +164,8 @@ Closes #<issue-number> (if applicable)
 
 ---
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
+EOF
+)"
 ```
 
 ### If updating an existing PR

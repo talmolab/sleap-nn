@@ -64,9 +64,13 @@ class DatasetSummary(Static):
             animal_pct = stats.animal_to_frame_ratio * 100
             overlap_pct = stats.overlap_frequency * 100
             if animal_pct < 20:
-                lines.append(f"[yellow]Small animals (~{animal_pct:.0f}% of frame)[/yellow]")
+                lines.append(
+                    f"[yellow]Small animals (~{animal_pct:.0f}% of frame)[/yellow]"
+                )
             else:
-                lines.append(f"[yellow]Large animals (~{animal_pct:.0f}% of frame)[/yellow]")
+                lines.append(
+                    f"[yellow]Large animals (~{animal_pct:.0f}% of frame)[/yellow]"
+                )
             lines.append(f"[yellow]Overlap frequency: {overlap_pct:.1f}%[/yellow]")
 
         return "\n".join(lines)
@@ -185,6 +189,7 @@ class LoadScreen(Widget):
 
         Args:
             state: Optional existing ConfigState.
+            **kwargs: Additional keyword arguments passed to parent.
         """
         super().__init__(**kwargs)
         self._state = state
@@ -192,19 +197,21 @@ class LoadScreen(Widget):
     def compose(self) -> ComposeResult:
         """Compose the screen layout."""
         with Vertical(id="load-container"):
-            yield Label("[bold]Step 1: Dataset Overview[/bold]", classes="section-title")
+            yield Label(
+                "[bold]Step 1: Dataset Overview[/bold]", classes="section-title"
+            )
 
             if self._state:
                 # File already loaded via CLI
                 yield Label(
                     "Review your dataset statistics and model recommendation below.",
-                    classes="hint"
+                    classes="hint",
                 )
             else:
                 # No file provided, show input
                 yield Label(
                     "Enter the path to your .slp file (SLEAP labels file)",
-                    classes="hint"
+                    classes="hint",
                 )
 
             with Horizontal(id="file-input-group"):

@@ -250,8 +250,9 @@ def _compute_avg_instances(
     return float(np.mean(counts)) if counts else 0.0
 
 
-def _compute_bbox_iou(bbox1: Tuple[float, float, float, float],
-                      bbox2: Tuple[float, float, float, float]) -> float:
+def _compute_bbox_iou(
+    bbox1: Tuple[float, float, float, float], bbox2: Tuple[float, float, float, float]
+) -> float:
     """Compute IoU between two bounding boxes.
 
     Args:

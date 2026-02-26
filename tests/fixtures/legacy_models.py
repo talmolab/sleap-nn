@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Dict, Any
 import json
 
-
 # Base path for all legacy models
 LEGACY_MODELS_DIR = Path(__file__).parent.parent / "assets" / "legacy_models"
 

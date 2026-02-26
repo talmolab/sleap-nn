@@ -348,9 +348,7 @@ def test_find_local_peaks_rough(minimal_cms):
 def test_find_local_peaks(minimal_cms):
     cms = torch.load(minimal_cms).unsqueeze(0)  # (1, 13, 80, 80)
 
-    (peak_points, peak_vals, peak_sample_inds, peak_channel_inds) = find_local_peaks(
-        cms
-    )
+    peak_points, peak_vals, peak_sample_inds, peak_channel_inds = find_local_peaks(cms)
 
     gt_peak_points = torch.Tensor(
         [
@@ -399,7 +397,7 @@ def test_find_local_peaks(minimal_cms):
     assert torch.equal(gt_peak_sample_inds, peak_sample_inds)
     assert torch.equal(gt_peak_channel_inds, peak_channel_inds)
 
-    (peak_points, peak_vals, peak_sample_inds, peak_channel_inds) = find_local_peaks(
+    peak_points, peak_vals, peak_sample_inds, peak_channel_inds = find_local_peaks(
         cms, refinement="invalid_input"
     )
 
@@ -410,7 +408,7 @@ def test_find_local_peaks(minimal_cms):
     assert torch.equal(gt_peak_sample_inds, peak_sample_inds)
     assert torch.equal(gt_peak_channel_inds, peak_channel_inds)
 
-    (peak_points, peak_vals, peak_sample_inds, peak_channel_inds) = find_local_peaks(
+    peak_points, peak_vals, peak_sample_inds, peak_channel_inds = find_local_peaks(
         cms, refinement="integral"
     )
 

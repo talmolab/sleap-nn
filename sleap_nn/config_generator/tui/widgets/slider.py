@@ -94,12 +94,14 @@ class LabeledSlider(Widget):
         """Posted when the slider value changes."""
 
         def __init__(self, slider: "LabeledSlider", value: float) -> None:
+            """Initialize with slider widget and new value."""
             super().__init__()
             self.slider = slider
             self.value = value
 
         @property
         def control(self) -> "LabeledSlider":
+            """Return the slider widget that sent this message."""
             return self.slider
 
     def __init__(
@@ -320,6 +322,7 @@ class RangeSlider(Widget):
         def __init__(
             self, slider: "RangeSlider", min_val: float, max_val: float
         ) -> None:
+            """Initialize with slider widget and new range values."""
             super().__init__()
             self.slider = slider
             self.min_val = min_val
@@ -327,6 +330,7 @@ class RangeSlider(Widget):
 
         @property
         def control(self) -> "RangeSlider":
+            """Return the slider widget that sent this message."""
             return self.slider
 
     def __init__(

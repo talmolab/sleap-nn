@@ -95,7 +95,9 @@ def _estimate_params_accurate(
         Estimated total parameter count.
     """
     down_blocks = int(math.log2(max_stride))
-    up_blocks = int(math.log2(max_stride / output_stride)) if output_stride > 0 else down_blocks
+    up_blocks = (
+        int(math.log2(max_stride / output_stride)) if output_stride > 0 else down_blocks
+    )
 
     total_params = 0
     ch = in_channels
@@ -104,7 +106,7 @@ def _estimate_params_accurate(
     # Encoder blocks: 2 convs per block (3x3 kernel)
     for i in range(down_blocks):
         total_params += ch * f * 9 + f  # First conv + bias
-        total_params += f * f * 9 + f   # Second conv + bias
+        total_params += f * f * 9 + f  # Second conv + bias
         ch = f
         f = int(f * filters_rate)
 
@@ -118,7 +120,11 @@ def _estimate_params_accurate(
     for i in range(up_blocks):
         next_f = int(f / filters_rate)
         # Skip connection doubles input channels
-        skip_f = int(filters * (filters_rate ** (down_blocks - 1 - i))) if i < down_blocks else 0
+        skip_f = (
+            int(filters * (filters_rate ** (down_blocks - 1 - i)))
+            if i < down_blocks
+            else 0
+        )
         decoder_input = f + skip_f
         total_params += decoder_input * next_f * 9 + next_f
         total_params += next_f * next_f * 9 + next_f
@@ -159,9 +165,9 @@ def estimate_memory(
     """
     # Get number of keypoints
     if num_keypoints is None:
-        if hasattr(stats, 'num_nodes'):
+        if hasattr(stats, "num_nodes"):
             num_keypoints = stats.num_nodes
-        elif hasattr(stats, 'node_names'):
+        elif hasattr(stats, "node_names"):
             num_keypoints = len(stats.node_names)
         else:
             num_keypoints = 24
@@ -220,7 +226,9 @@ def estimate_memory(
     gradient_bytes = act_bytes
 
     # Total in MB
-    total_bytes = weights_bytes + batch_img_bytes + confmap_bytes + act_bytes + gradient_bytes
+    total_bytes = (
+        weights_bytes + batch_img_bytes + confmap_bytes + act_bytes + gradient_bytes
+    )
     total_mb = total_bytes / 1e6
 
     model_weights_mb = weights_bytes / 1e6
