@@ -55,7 +55,6 @@ For top-down pipelines, this creates two config files:
 |--------|-------|-------------|---------|
 | `--output` | `-o` | Output path for config file(s) | `<slp_name>_config.yaml` |
 | `--auto` | | Auto-generate without interactive TUI | `false` |
-| `--view` | | View type for skeleton: `side` or `front` | `side` |
 | `--pipeline` | | Pipeline: `single_instance`, `bottomup`, or `topdown` | Auto-detected |
 | `--batch-size` | | Override batch size | Auto-detected |
 | `--max-epochs` | | Override max epochs | `200` |
@@ -86,9 +85,6 @@ sleap-nn config labels.slp --auto --pipeline bottomup
 
 # Custom batch size and epochs
 sleap-nn config labels.slp --auto --batch-size 8 --max-epochs 100
-
-# Side-view animals (affects rotation augmentation)
-sleap-nn config labels.slp --auto --view side
 ```
 
 ### Train with Generated Config
@@ -140,7 +136,7 @@ config = (
 
 | Method | Description |
 |--------|-------------|
-| `.auto(view=None)` | Auto-configure all parameters |
+| `.auto()` | Auto-configure all parameters |
 | `.pipeline(type)` | Set pipeline type |
 | `.backbone(type)` | Set backbone architecture |
 | `.batch_size(n)` | Set batch size |
@@ -195,17 +191,6 @@ The recommendation is based on:
 - Number of instances per frame
 - Skeleton complexity
 - Image size and resolution
-
----
-
-## View Types
-
-The `--view` option affects rotation augmentation:
-
-| View | Rotation Range | Best For |
-|------|----------------|----------|
-| `side` | ±15° | Side-view cameras |
-| `front` | ±180° | Top-down/overhead cameras |
 
 ---
 

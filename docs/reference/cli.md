@@ -245,7 +245,6 @@ sleap-nn config SLP_PATH [OPTIONS]
 |--------|-------|-------------|--------|---------|
 | `--output` | `-o` | Output path for config file(s) | `PATH` | `<slp_name>_config.yaml` |
 | `--auto` | | Auto-generate without interactive TUI | Flag | `false` |
-| `--view` | | View type for skeleton | `side`, `front` | `side` |
 | `--pipeline` | | Model pipeline type | `single_instance`, `bottomup`, `topdown` | Auto-detected |
 | `--batch-size` | | Override batch size | `INT` | Auto-detected |
 | `--max-epochs` | | Override max epochs | `INT` | `200` |

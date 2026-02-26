@@ -933,12 +933,6 @@ cli.add_command(predict_command)
     help="Auto-generate config without interactive TUI.",
 )
 @click.option(
-    "--view",
-    type=click.Choice(["side", "top"]),
-    default=None,
-    help="Camera view type for augmentation defaults.",
-)
-@click.option(
     "--pipeline",
     type=click.Choice(
         [
@@ -975,7 +969,6 @@ def config(
     slp_path,
     output,
     auto,
-    view,
     pipeline,
     batch_size,
     max_epochs,
@@ -1007,7 +1000,7 @@ def config(
             raise SystemExit(1)
 
         gen = ConfigGenerator.from_slp(slp_path)
-        gen.auto(view=view)
+        gen.auto()
 
         # Apply overrides
         if pipeline:
