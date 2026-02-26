@@ -25,18 +25,30 @@ See the [CLI Reference](../reference/cli.md) for all available parameters.
 
 ## Essential Parameters
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `--data_path` / `-i` | Video or labels file | Required |
-| `--model_paths` / `-m` | Model directory (repeat for top-down) | Required* |
-| `--output_path` / `-o` | Output file path | `<input>.predictions.slp` |
-| `--device` / `-d` | Device (auto/cuda/cpu/mps) | `auto` |
-| `--batch_size` / `-b` | Frames per batch | `4` |
-| `--max_instances` / `-n` | Max instances per frame | `None` |
-| `--tracking` / `-t` | Enable tracking | `False` |
-| `--peak_threshold` | Min confidence for peaks | `0.2` |
+| Parameter | Description | Values | Default |
+|-----------|-------------|--------|---------|
+| `--data_path` / `-i` | Video or labels file | `PATH` | Required |
+| `--model_paths` / `-m` | Model directory (repeat for top-down) | `PATH` | Required* |
+| `--output_path` / `-o` | Output file path | `PATH` | `<input>.predictions.slp` |
+| `--device` / `-d` | Compute device | `auto`, `cuda`, `cuda:0`, `cpu`, `mps` | `auto` |
+| `--batch_size` / `-b` | Frames per batch | `INT` | `4` |
+| `--max_instances` / `-n` | Max instances per frame (forward pass only) | `INT` | `None` |
+| `--tracking` / `-t` | Enable tracking | Flag | `False` |
+| `--peak_threshold` | Min confidence for peaks | `FLOAT` | `0.2` |
 
 *Not required for track-only mode.
+
+!!! tip "Device selection"
+    The `--device` parameter accepts:
+
+    - `auto` - Automatically detect best available device
+    - `cuda` - Use default CUDA GPU
+    - `cuda:0`, `cuda:1`, etc. - Use a specific GPU by index
+    - `cpu` - Use CPU
+    - `mps` - Use Apple Metal (macOS)
+
+!!! note "Max instances"
+    The `--max_instances` / `-n` parameter is only applied during the model forward pass. When running in **track-only mode** (without model inference), this parameter has no effect since no peak detection is performed.
 
 For all parameters including image pre-processing and data selection options, see the [CLI Reference](../reference/cli.md).
 
@@ -87,6 +99,28 @@ sleap-nn track -i video.mp4 -m models/ \
 | 0.3 | Aggressive filtering |
 | 0.5 | Moderate |
 | 0.8 | Permissive (default) |
+
+!!! note "Inference only"
+    `--filter_overlapping` is only applied during inference. When running in **track-only mode** (without model paths), this parameter has no effect.
+
+---
+
+## Processing Order
+
+When running inference with tracking enabled, operations are applied in this order:
+
+```
+1. Model Forward Pass
+   └── --max_instances applied (limits detections during peak finding)
+
+2. Post-Processing
+   └── --filter_overlapping applied (removes duplicate instances)
+
+3. Tracking
+   └── Instance identity assignment across frames
+```
+
+In **track-only mode** (no model paths), only step 3 runs on existing predictions.
 
 ---
 

@@ -11,6 +11,19 @@ SLEAP-NN uses YAML configuration files with three main sections.
 
 ---
 
+## Generate Configs
+
+Don't want to write YAML by hand? Use these tools to generate configs:
+
+| Tool | Description |
+|------|-------------|
+| [Config Picker](config-picker/index.md) | Interactive web app (runs in browser) |
+| [`sleap-nn config`](../reference/cli.md#sleap-nn-config) | CLI with interactive TUI or auto mode |
+
+See the [Config Generator Guide](../guides/config-generator.md) for detailed CLI usage.
+
+---
+
 ## Config Structure
 
 ```yaml
