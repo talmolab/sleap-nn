@@ -762,6 +762,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../config-generator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config Generator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../monitoring/" class="md-nav__link">
         
   
@@ -1257,6 +1285,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/config-picker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config Picker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -5417,6 +5473,7 @@
 <tr>
 <th>Parameter</th>
 <th>Description</th>
+<th>Values</th>
 <th>Default</th>
 </tr>
 </thead>
@@ -5424,56 +5481,67 @@
 <tr>
 <td><code>--tracking</code> / <code>-t</code></td>
 <td>Enable tracking</td>
+<td>Flag</td>
 <td><code>False</code></td>
 </tr>
 <tr>
 <td><code>--tracking_window_size</code></td>
 <td>Frames to look back</td>
+<td><code>INT</code></td>
 <td><code>5</code></td>
 </tr>
 <tr>
 <td><code>--min_new_track_points</code></td>
 <td>Min points for new track</td>
+<td><code>INT</code></td>
 <td><code>0</code></td>
 </tr>
 <tr>
 <td><code>--candidates_method</code></td>
-<td><code>fixed_window</code> or <code>local_queues</code></td>
+<td>Candidate selection method</td>
+<td><code>fixed_window</code>, <code>local_queues</code></td>
 <td><code>fixed_window</code></td>
 </tr>
 <tr>
 <td><code>--min_match_points</code></td>
 <td>Min non-NaN points for matching</td>
+<td><code>INT</code></td>
 <td><code>0</code></td>
 </tr>
 <tr>
 <td><code>--features</code></td>
-<td><code>keypoints</code>/<code>centroids</code>/<code>bboxes</code>/<code>image</code></td>
+<td>Features for matching</td>
+<td><code>keypoints</code>, <code>centroids</code>, <code>bboxes</code>, <code>image</code></td>
 <td><code>keypoints</code></td>
 </tr>
 <tr>
 <td><code>--scoring_method</code></td>
-<td><code>oks</code>/<code>cosine_sim</code>/<code>iou</code>/<code>euclidean_dist</code></td>
+<td>Similarity scoring method</td>
+<td><code>oks</code>, <code>cosine_sim</code>, <code>iou</code>, <code>euclidean_dist</code></td>
 <td><code>oks</code></td>
 </tr>
 <tr>
 <td><code>--scoring_reduction</code></td>
-<td><code>mean</code>/<code>max</code>/<code>robust_quantile</code></td>
+<td>Score reduction method</td>
+<td><code>mean</code>, <code>max</code>, <code>robust_quantile</code></td>
 <td><code>mean</code></td>
 </tr>
 <tr>
 <td><code>--track_matching_method</code></td>
-<td><code>hungarian</code> or <code>greedy</code></td>
+<td>Assignment algorithm</td>
+<td><code>hungarian</code>, <code>greedy</code></td>
 <td><code>hungarian</code></td>
 </tr>
 <tr>
 <td><code>--max_tracks</code></td>
 <td>Maximum track count</td>
+<td><code>INT</code></td>
 <td><code>None</code></td>
 </tr>
 <tr>
 <td><code>--use_flow</code></td>
 <td>Enable optical flow</td>
+<td>Flag</td>
 <td><code>False</code></td>
 </tr>
 </tbody>
@@ -5509,6 +5577,7 @@
 <tr>
 <th>Parameter</th>
 <th>Description</th>
+<th>Values</th>
 <th>Default</th>
 </tr>
 </thead>
@@ -5516,16 +5585,19 @@
 <tr>
 <td><code>--of_img_scale</code></td>
 <td>Image scale (lower = faster)</td>
+<td><code>FLOAT</code></td>
 <td><code>1.0</code></td>
 </tr>
 <tr>
 <td><code>--of_window_size</code></td>
 <td>Window size per pyramid level</td>
+<td><code>INT</code></td>
 <td><code>21</code></td>
 </tr>
 <tr>
 <td><code>--of_max_levels</code></td>
 <td>Pyramid levels</td>
+<td><code>INT</code></td>
 <td><code>3</code></td>
 </tr>
 </tbody>

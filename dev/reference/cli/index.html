@@ -754,6 +754,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../guides/config-generator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config Generator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../guides/monitoring/" class="md-nav__link">
         
   
@@ -1055,6 +1083,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/config-picker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config Picker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -1481,6 +1537,67 @@
     <span class="md-ellipsis">
       
         Example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sleap-nn-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sleap-nn config
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="sleap-nn config">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#options_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output
       
     </span>
   </a>
@@ -5607,6 +5724,67 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sleap-nn-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sleap-nn config
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="sleap-nn config">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#options_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#sleap-nn-system" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5661,6 +5839,16 @@
 
 <h1 id="cli-reference">CLI Reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
 <p>Complete command-line interface documentation.</p>
+<div class="admonition tip">
+<p class="admonition-title">Reading the tables</p>
+<p>In the <strong>Values</strong> column:</p>
+<ul>
+<li><strong>Flag</strong> = No argument needed; presence enables the option (e.g., <code>--tracking</code>)</li>
+<li><strong><code>INT</code></strong> / <strong><code>FLOAT</code></strong> = Numeric value (e.g., <code>--batch_size 8</code>)</li>
+<li><strong><code>PATH</code></strong> = File or directory path</li>
+<li><strong>Comma-separated values</strong> = Choose one (e.g., <code>auto</code>, <code>cuda</code>, <code>cpu</code>)</li>
+</ul>
+</div>
 <hr />
 <h2 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">&para;</a></h2>
 <table>
@@ -5690,6 +5878,10 @@
 <tr>
 <td><a href="#sleap-nn-predict"><code>sleap-nn predict</code></a></td>
 <td>Inference on exported models</td>
+</tr>
+<tr>
+<td><a href="#sleap-nn-config"><code>sleap-nn config</code></a></td>
+<td>Generate training configs (experimental)</td>
 </tr>
 <tr>
 <td><a href="#sleap-nn-system"><code>sleap-nn system</code></a></td>
@@ -5769,6 +5961,7 @@
 <th>Option</th>
 <th>Short</th>
 <th>Description</th>
+<th>Values</th>
 <th>Default</th>
 </tr>
 </thead>
@@ -5777,36 +5970,42 @@
 <td><code>--data_path</code></td>
 <td><code>-i</code></td>
 <td>Video or labels file</td>
+<td><code>PATH</code></td>
 <td>Required</td>
 </tr>
 <tr>
 <td><code>--model_paths</code></td>
 <td><code>-m</code></td>
 <td>Model directory (multiple for top-down)</td>
+<td><code>PATH</code></td>
 <td>Required*</td>
 </tr>
 <tr>
 <td><code>--output_path</code></td>
 <td><code>-o</code></td>
 <td>Output file path</td>
+<td><code>PATH</code></td>
 <td><code>&lt;input&gt;.predictions.slp</code></td>
 </tr>
 <tr>
 <td><code>--device</code></td>
 <td><code>-d</code></td>
-<td>Device (auto/cuda/cpu/mps)</td>
+<td>Compute device</td>
+<td><code>auto</code>, <code>cuda</code>, <code>cuda:0</code>, <code>cuda:1</code>, <code>cpu</code>, <code>mps</code></td>
 <td><code>auto</code></td>
 </tr>
 <tr>
 <td><code>--batch_size</code></td>
 <td><code>-b</code></td>
 <td>Batch size</td>
+<td><code>INT</code></td>
 <td><code>4</code></td>
 </tr>
 <tr>
 <td><code>--tracking</code></td>
 <td><code>-t</code></td>
 <td>Enable tracking</td>
+<td>Flag</td>
 <td><code>false</code></td>
 </tr>
 </tbody>
@@ -5818,13 +6017,15 @@
 <tr>
 <th>Option</th>
 <th>Description</th>
+<th>Values</th>
 <th>Default</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>--gui</code></td>
-<td>Output JSON progress for GUI integration (instead of Rich progress bar)</td>
+<td>Output JSON progress for GUI integration</td>
+<td>Flag</td>
 <td><code>false</code></td>
 </tr>
 </tbody>
@@ -5835,32 +6036,46 @@
 <tr>
 <th>Option</th>
 <th>Description</th>
+<th>Values</th>
+<th>Default</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>--frames</code></td>
-<td>Frame indices (e.g., <code>0-100,200-300</code>)</td>
+<td>Frame indices to process</td>
+<td><code>0-100</code>, <code>0-100,200-300</code></td>
+<td>All frames</td>
 </tr>
 <tr>
 <td><code>--video_index</code></td>
 <td>Video index in multi-video .slp</td>
+<td><code>INT</code></td>
+<td><code>0</code></td>
 </tr>
 <tr>
 <td><code>--only_labeled_frames</code></td>
-<td>Only labeled frames</td>
+<td>Only process labeled frames</td>
+<td>Flag</td>
+<td><code>false</code></td>
 </tr>
 <tr>
 <td><code>--only_suggested_frames</code></td>
-<td>Only suggested frames</td>
+<td>Only process suggested frames</td>
+<td>Flag</td>
+<td><code>false</code></td>
 </tr>
 <tr>
 <td><code>--exclude_user_labeled</code></td>
 <td>Skip user-labeled frames</td>
+<td>Flag</td>
+<td><code>false</code></td>
 </tr>
 <tr>
 <td><code>--only_predicted_frames</code></td>
-<td>Only frames with predictions</td>
+<td>Only process frames with predictions</td>
+<td>Flag</td>
+<td><code>false</code></td>
 </tr>
 </tbody>
 </table>
@@ -5870,38 +6085,48 @@
 <tr>
 <th>Option</th>
 <th>Description</th>
+<th>Values</th>
 <th>Default</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>--filter_overlapping</code></td>
-<td>Remove duplicate instances</td>
+<td>Remove duplicate instances (inference only)</td>
+<td>Flag</td>
 <td><code>false</code></td>
 </tr>
 <tr>
 <td><code>--filter_overlapping_method</code></td>
-<td><code>iou</code> or <code>oks</code></td>
+<td>Overlap calculation method</td>
+<td><code>iou</code>, <code>oks</code></td>
 <td><code>iou</code></td>
 </tr>
 <tr>
 <td><code>--filter_overlapping_threshold</code></td>
-<td>Similarity threshold</td>
+<td>Similarity threshold for filtering</td>
+<td><code>FLOAT</code> (0.0-1.0)</td>
 <td><code>0.8</code></td>
 </tr>
 <tr>
 <td><code>--max_instances</code></td>
-<td>Maximum instances per frame</td>
+<td>Max instances per frame (forward pass only)</td>
+<td><code>INT</code></td>
 <td>None</td>
 </tr>
 </tbody>
 </table>
+<div class="admonition note">
+<p class="admonition-title">Processing order</p>
+<p>When running inference + tracking: <code>--max_instances</code> (forward pass) → <code>--filter_overlapping</code> (post-processing) → tracking. In track-only mode, only tracking runs on existing predictions.</p>
+</div>
 <h3 id="tracking">Tracking<a class="headerlink" href="#tracking" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
 <th>Option</th>
 <th>Description</th>
+<th>Values</th>
 <th>Default</th>
 </tr>
 </thead>
@@ -5909,31 +6134,37 @@
 <tr>
 <td><code>--tracking</code></td>
 <td>Enable tracking</td>
+<td>Flag</td>
 <td><code>false</code></td>
 </tr>
 <tr>
 <td><code>--tracking_window_size</code></td>
 <td>Frames to look back</td>
+<td><code>INT</code></td>
 <td><code>5</code></td>
 </tr>
 <tr>
 <td><code>--candidates_method</code></td>
-<td><code>fixed_window</code> or <code>local_queues</code></td>
+<td>Candidate selection method</td>
+<td><code>fixed_window</code>, <code>local_queues</code></td>
 <td><code>fixed_window</code></td>
 </tr>
 <tr>
 <td><code>--features</code></td>
-<td><code>keypoints</code>/<code>centroids</code>/<code>bboxes</code>/<code>image</code></td>
+<td>Features for matching</td>
+<td><code>keypoints</code>, <code>centroids</code>, <code>bboxes</code>, <code>image</code></td>
 <td><code>keypoints</code></td>
 </tr>
 <tr>
 <td><code>--scoring_method</code></td>
-<td><code>oks</code>/<code>cosine_sim</code>/<code>iou</code>/<code>euclidean_dist</code></td>
+<td>Similarity scoring method</td>
+<td><code>oks</code>, <code>cosine_sim</code>, <code>iou</code>, <code>euclidean_dist</code></td>
 <td><code>oks</code></td>
 </tr>
 <tr>
 <td><code>--use_flow</code></td>
 <td>Enable optical flow</td>
+<td>Flag</td>
 <td><code>false</code></td>
 </tr>
 </tbody>
@@ -5966,6 +6197,7 @@
 <th>Option</th>
 <th>Short</th>
 <th>Description</th>
+<th>Values</th>
 <th>Default</th>
 </tr>
 </thead>
@@ -5974,36 +6206,42 @@
 <td><code>--ground_truth_path</code></td>
 <td><code>-g</code></td>
 <td>Ground truth labels</td>
+<td><code>PATH</code></td>
 <td>Required</td>
 </tr>
 <tr>
 <td><code>--predicted_path</code></td>
 <td><code>-p</code></td>
 <td>Predicted labels</td>
+<td><code>PATH</code></td>
 <td>Required</td>
 </tr>
 <tr>
 <td><code>--save_metrics</code></td>
 <td><code>-s</code></td>
 <td>Save metrics to .npz</td>
+<td><code>PATH</code></td>
 <td>None</td>
 </tr>
 <tr>
 <td><code>--oks_stddev</code></td>
 <td></td>
 <td>OKS standard deviation</td>
+<td><code>FLOAT</code></td>
 <td><code>0.05</code></td>
 </tr>
 <tr>
 <td><code>--match_threshold</code></td>
 <td></td>
 <td>Instance matching threshold</td>
+<td><code>FLOAT</code></td>
 <td><code>0.0</code></td>
 </tr>
 <tr>
 <td><code>--user_labels_only</code></td>
 <td></td>
 <td>Only evaluate user-labeled</td>
+<td>Flag</td>
 <td><code>false</code></td>
 </tr>
 </tbody>
@@ -6023,6 +6261,7 @@
 <th>Option</th>
 <th>Short</th>
 <th>Description</th>
+<th>Values</th>
 <th>Default</th>
 </tr>
 </thead>
@@ -6031,30 +6270,35 @@
 <td><code>--output-dir</code></td>
 <td><code>-o</code></td>
 <td>Output directory</td>
+<td><code>PATH</code></td>
 <td>Required</td>
 </tr>
 <tr>
 <td><code>--format</code></td>
 <td><code>-f</code></td>
-<td><code>onnx</code>/<code>tensorrt</code>/<code>both</code></td>
+<td>Export format</td>
+<td><code>onnx</code>, <code>tensorrt</code>, <code>both</code></td>
 <td><code>onnx</code></td>
 </tr>
 <tr>
 <td><code>--precision</code></td>
 <td></td>
-<td>TensorRT: <code>fp32</code>/<code>fp16</code></td>
+<td>TensorRT precision</td>
+<td><code>fp32</code>, <code>fp16</code></td>
 <td><code>fp16</code></td>
 </tr>
 <tr>
 <td><code>--max-instances</code></td>
 <td><code>-n</code></td>
 <td>Max instances per frame</td>
+<td><code>INT</code></td>
 <td><code>20</code></td>
 </tr>
 <tr>
 <td><code>--max-batch-size</code></td>
 <td><code>-b</code></td>
 <td>Max batch size</td>
+<td><code>INT</code></td>
 <td><code>8</code></td>
 </tr>
 </tbody>
@@ -6081,6 +6325,7 @@
 <th>Option</th>
 <th>Short</th>
 <th>Description</th>
+<th>Values</th>
 <th>Default</th>
 </tr>
 </thead>
@@ -6089,30 +6334,35 @@
 <td><code>--output</code></td>
 <td><code>-o</code></td>
 <td>Output .slp path</td>
+<td><code>PATH</code></td>
 <td><code>&lt;input&gt;.predictions.slp</code></td>
 </tr>
 <tr>
 <td><code>--runtime</code></td>
 <td><code>-r</code></td>
-<td><code>auto</code>/<code>onnx</code>/<code>tensorrt</code></td>
+<td>Inference runtime</td>
+<td><code>auto</code>, <code>onnx</code>, <code>tensorrt</code></td>
 <td><code>auto</code></td>
 </tr>
 <tr>
 <td><code>--batch-size</code></td>
 <td><code>-b</code></td>
 <td>Batch size</td>
+<td><code>INT</code></td>
 <td><code>4</code></td>
 </tr>
 <tr>
 <td><code>--n-frames</code></td>
 <td><code>-n</code></td>
 <td>Frames to process (0=all)</td>
+<td><code>INT</code></td>
 <td><code>0</code></td>
 </tr>
 <tr>
 <td><code>--device</code></td>
 <td></td>
-<td><code>auto</code>/<code>cuda</code>/<code>cpu</code></td>
+<td>Compute device</td>
+<td><code>auto</code>, <code>cuda</code>, <code>cpu</code></td>
 <td><code>auto</code></td>
 </tr>
 </tbody>
@@ -6121,9 +6371,107 @@
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>exports/model<span class="w"> </span>video.mp4<span class="w"> </span>-o<span class="w"> </span>predictions.slp<span class="w"> </span>--runtime<span class="w"> </span>tensorrt
 </span></code></pre></div>
 <hr />
+<h2 id="sleap-nn-config"><code>sleap-nn config</code><a class="headerlink" href="#sleap-nn-config" title="Permanent link">&para;</a></h2>
+<div class="admonition warning">
+<p class="admonition-title">Experimental</p>
+<p>This feature is experimental and may change in future releases.</p>
+</div>
+<p>Generate training configuration files interactively or automatically.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>SLP_PATH<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</span></code></pre></div>
+<h3 id="options_4">Options<a class="headerlink" href="#options_4" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Short</th>
+<th>Description</th>
+<th>Values</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--output</code></td>
+<td><code>-o</code></td>
+<td>Output path for config file(s)</td>
+<td><code>PATH</code></td>
+<td><code>&lt;slp_name&gt;_config.yaml</code></td>
+</tr>
+<tr>
+<td><code>--auto</code></td>
+<td></td>
+<td>Auto-generate without interactive TUI</td>
+<td>Flag</td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>--pipeline</code></td>
+<td></td>
+<td>Model pipeline type</td>
+<td><code>single_instance</code>, <code>bottomup</code>, <code>topdown</code></td>
+<td>Auto-detected</td>
+</tr>
+<tr>
+<td><code>--batch-size</code></td>
+<td></td>
+<td>Override batch size</td>
+<td><code>INT</code></td>
+<td>Auto-detected</td>
+</tr>
+<tr>
+<td><code>--max-epochs</code></td>
+<td></td>
+<td>Override max epochs</td>
+<td><code>INT</code></td>
+<td><code>200</code></td>
+</tr>
+<tr>
+<td><code>--show-yaml</code></td>
+<td></td>
+<td>Print YAML to stdout instead of saving</td>
+<td>Flag</td>
+<td><code>false</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="modes">Modes<a class="headerlink" href="#modes" title="Permanent link">&para;</a></h3>
+<h4 id="interactive-tui">Interactive TUI<a class="headerlink" href="#interactive-tui" title="Permanent link">&para;</a></h4>
+<p>Launch an interactive terminal UI to configure training:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp
+</span></code></pre></div>
+<h4 id="auto-mode">Auto Mode<a class="headerlink" href="#auto-mode" title="Permanent link">&para;</a></h4>
+<p>Generate a config with smart defaults based on your data:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto<span class="w"> </span>-o<span class="w"> </span>config.yaml
+</span></code></pre></div>
+<h3 id="examples_3">Examples<a class="headerlink" href="#examples_3" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Interactive configuration</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="c1"># Auto-generate with defaults</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="c1"># Auto-generate with custom output</span>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto<span class="w"> </span>-o<span class="w"> </span>my_config.yaml
+</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>
+</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="c1"># Auto-generate with overrides</span>
+</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto<span class="w"> </span>--pipeline<span class="w"> </span>bottomup<span class="w"> </span>--batch-size<span class="w"> </span><span class="m">8</span>
+</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>
+</span><span id="__span-13-13"><a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a><span class="c1"># Preview YAML without saving</span>
+</span><span id="__span-13-14"><a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto<span class="w"> </span>--show-yaml
+</span></code></pre></div>
+<h3 id="output">Output<a class="headerlink" href="#output" title="Permanent link">&para;</a></h3>
+<p>For <strong>top-down</strong> pipelines, two config files are generated:</p>
+<ul>
+<li><code>&lt;name&gt;_centroid.yaml</code> - Centroid model config</li>
+<li><code>&lt;name&gt;_centered_instance.yaml</code> - Centered instance model config</li>
+</ul>
+<p>For other pipelines, a single config file is generated.</p>
+<p>See the <a href="../../guides/config-generator/">Config Generator Guide</a> for detailed usage.</p>
+<hr />
 <h2 id="sleap-nn-system"><code>sleap-nn system</code><a class="headerlink" href="#sleap-nn-system" title="Permanent link">&para;</a></h2>
 <p>Display system information and GPU diagnostics.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>sleap-nn<span class="w"> </span>system
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>sleap-nn<span class="w"> </span>system
 </span></code></pre></div>
 <p>Shows:
 - Python version
@@ -6154,8 +6502,8 @@
 </table>
 <hr />
 <h2 id="global-options">Global Options<a class="headerlink" href="#global-options" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>sleap-nn<span class="w"> </span>--version<span class="w">  </span><span class="c1"># Show version</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>sleap-nn<span class="w"> </span>--help<span class="w">     </span><span class="c1"># Show help</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>sleap-nn<span class="w"> </span>--version<span class="w">  </span><span class="c1"># Show version</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>sleap-nn<span class="w"> </span>--help<span class="w">     </span><span class="c1"># Show help</span>
 </span></code></pre></div>
 
 

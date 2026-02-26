@@ -762,6 +762,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../config-generator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config Generator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../monitoring/" class="md-nav__link">
         
   
@@ -1335,6 +1363,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/config-picker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config Picker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -5639,6 +5695,7 @@
 <tr>
 <th>Option</th>
 <th>Description</th>
+<th>Values</th>
 <th>Default</th>
 </tr>
 </thead>
@@ -5646,26 +5703,31 @@
 <tr>
 <td><code>-o</code>, <code>--output-dir</code></td>
 <td>Output directory</td>
+<td><code>PATH</code></td>
 <td>Required</td>
 </tr>
 <tr>
 <td><code>-f</code>, <code>--format</code></td>
+<td>Export format</td>
 <td><code>onnx</code>, <code>tensorrt</code>, <code>both</code></td>
 <td><code>onnx</code></td>
 </tr>
 <tr>
 <td><code>--precision</code></td>
-<td>TensorRT: <code>fp32</code>, <code>fp16</code></td>
+<td>TensorRT precision</td>
+<td><code>fp32</code>, <code>fp16</code></td>
 <td><code>fp16</code></td>
 </tr>
 <tr>
 <td><code>-n</code>, <code>--max-instances</code></td>
 <td>Max instances per frame</td>
+<td><code>INT</code></td>
 <td><code>20</code></td>
 </tr>
 <tr>
 <td><code>-b</code>, <code>--max-batch-size</code></td>
 <td>Max batch size</td>
+<td><code>INT</code></td>
 <td><code>8</code></td>
 </tr>
 </tbody>
@@ -5693,6 +5755,7 @@
 <tr>
 <th>Option</th>
 <th>Description</th>
+<th>Values</th>
 <th>Default</th>
 </tr>
 </thead>
@@ -5700,21 +5763,25 @@
 <tr>
 <td><code>-o</code>, <code>--output</code></td>
 <td>Output path</td>
+<td><code>PATH</code></td>
 <td><code>&lt;video&gt;.predictions.slp</code></td>
 </tr>
 <tr>
 <td><code>-r</code>, <code>--runtime</code></td>
+<td>Inference runtime</td>
 <td><code>auto</code>, <code>onnx</code>, <code>tensorrt</code></td>
 <td><code>auto</code></td>
 </tr>
 <tr>
 <td><code>-b</code>, <code>--batch-size</code></td>
 <td>Batch size</td>
+<td><code>INT</code></td>
 <td><code>4</code></td>
 </tr>
 <tr>
 <td><code>-n</code>, <code>--n-frames</code></td>
 <td>Frames to process (0=all)</td>
+<td><code>INT</code></td>
 <td><code>0</code></td>
 </tr>
 </tbody>
