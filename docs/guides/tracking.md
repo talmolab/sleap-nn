@@ -16,19 +16,19 @@ sleap-nn track -i video.mp4 -m models/bottomup/ --tracking
 
 ## Tracking Parameters
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `--tracking` / `-t` | Enable tracking | `False` |
-| `--tracking_window_size` | Frames to look back | `5` |
-| `--min_new_track_points` | Min points for new track | `0` |
-| `--candidates_method` | `fixed_window` or `local_queues` | `fixed_window` |
-| `--min_match_points` | Min non-NaN points for matching | `0` |
-| `--features` | `keypoints`/`centroids`/`bboxes`/`image` | `keypoints` |
-| `--scoring_method` | `oks`/`cosine_sim`/`iou`/`euclidean_dist` | `oks` |
-| `--scoring_reduction` | `mean`/`max`/`robust_quantile` | `mean` |
-| `--track_matching_method` | `hungarian` or `greedy` | `hungarian` |
-| `--max_tracks` | Maximum track count | `None` |
-| `--use_flow` | Enable optical flow | `False` |
+| Parameter | Description | Values | Default |
+|-----------|-------------|--------|---------|
+| `--tracking` / `-t` | Enable tracking | Flag | `False` |
+| `--tracking_window_size` | Frames to look back | `INT` | `5` |
+| `--min_new_track_points` | Min points for new track | `INT` | `0` |
+| `--candidates_method` | Candidate selection method | `fixed_window`, `local_queues` | `fixed_window` |
+| `--min_match_points` | Min non-NaN points for matching | `INT` | `0` |
+| `--features` | Features for matching | `keypoints`, `centroids`, `bboxes`, `image` | `keypoints` |
+| `--scoring_method` | Similarity scoring method | `oks`, `cosine_sim`, `iou`, `euclidean_dist` | `oks` |
+| `--scoring_reduction` | Score reduction method | `mean`, `max`, `robust_quantile` | `mean` |
+| `--track_matching_method` | Assignment algorithm | `hungarian`, `greedy` | `hungarian` |
+| `--max_tracks` | Maximum track count | `INT` | `None` |
+| `--use_flow` | Enable optical flow | Flag | `False` |
 
 ---
 
@@ -74,11 +74,11 @@ sleap-nn track -i video.mp4 -m models/ \
 
 #### Optical Flow Parameters
 
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `--of_img_scale` | Image scale (lower = faster) | `1.0` |
-| `--of_window_size` | Window size per pyramid level | `21` |
-| `--of_max_levels` | Pyramid levels | `3` |
+| Parameter | Description | Values | Default |
+|-----------|-------------|--------|---------|
+| `--of_img_scale` | Image scale (lower = faster) | `FLOAT` | `1.0` |
+| `--of_window_size` | Window size per pyramid level | `INT` | `21` |
+| `--of_max_levels` | Pyramid levels | `INT` | `3` |
 
 ---
 

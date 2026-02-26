@@ -28,13 +28,13 @@ trainer_config:
     viz_confmap_threshold: 0.1  # Threshold for confmap masks
 ```
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `viz_enabled` | Log pre-rendered prediction images | `true` |
-| `viz_boxes` | Interactive keypoint boxes (epoch slider) | `false` |
-| `viz_masks` | Confidence map overlay masks | `false` |
-| `viz_box_size` | Size of keypoint boxes in pixels | `5.0` |
-| `viz_confmap_threshold` | Threshold for confmap mask generation | `0.1` |
+| Option | Description | Values | Default |
+|--------|-------------|--------|---------|
+| `viz_enabled` | Log pre-rendered prediction images | `bool` | `true` |
+| `viz_boxes` | Interactive keypoint boxes (epoch slider) | `bool` | `false` |
+| `viz_masks` | Confidence map overlay masks | `bool` | `false` |
+| `viz_box_size` | Size of keypoint boxes in pixels | `float` | `5.0` |
+| `viz_confmap_threshold` | Threshold for confmap mask generation | `float` | `0.1` |
 
 !!! tip "Interactive Epoch Slider"
     Enable `viz_boxes: true` to scrub through epochs and see predictions improve over time.

@@ -74,13 +74,13 @@ sleap-nn predict exports/my_model video.mp4 -o predictions.slp
 sleap-nn export MODEL_PATH [options]
 ```
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-o`, `--output-dir` | Output directory | Required |
-| `-f`, `--format` | `onnx`, `tensorrt`, `both` | `onnx` |
-| `--precision` | TensorRT: `fp32`, `fp16` | `fp16` |
-| `-n`, `--max-instances` | Max instances per frame | `20` |
-| `-b`, `--max-batch-size` | Max batch size | `8` |
+| Option | Description | Values | Default |
+|--------|-------------|--------|---------|
+| `-o`, `--output-dir` | Output directory | `PATH` | Required |
+| `-f`, `--format` | Export format | `onnx`, `tensorrt`, `both` | `onnx` |
+| `--precision` | TensorRT precision | `fp32`, `fp16` | `fp16` |
+| `-n`, `--max-instances` | Max instances per frame | `INT` | `20` |
+| `-b`, `--max-batch-size` | Max batch size | `INT` | `8` |
 
 ---
 
@@ -116,12 +116,12 @@ sleap-nn export models/multi_class_bottomup \
 sleap-nn predict EXPORT_DIR VIDEO [options]
 ```
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-o`, `--output` | Output path | `<video>.predictions.slp` |
-| `-r`, `--runtime` | `auto`, `onnx`, `tensorrt` | `auto` |
-| `-b`, `--batch-size` | Batch size | `4` |
-| `-n`, `--n-frames` | Frames to process (0=all) | `0` |
+| Option | Description | Values | Default |
+|--------|-------------|--------|---------|
+| `-o`, `--output` | Output path | `PATH` | `<video>.predictions.slp` |
+| `-r`, `--runtime` | Inference runtime | `auto`, `onnx`, `tensorrt` | `auto` |
+| `-b`, `--batch-size` | Batch size | `INT` | `4` |
+| `-n`, `--n-frames` | Frames to process (0=all) | `INT` | `0` |
 
 ### Examples
 
