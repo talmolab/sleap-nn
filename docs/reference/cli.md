@@ -105,10 +105,13 @@ sleap-nn track --data_path INPUT --model_paths MODEL [OPTIONS]
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
-| `--filter_overlapping` | Remove duplicate instances | Flag | `false` |
+| `--filter_overlapping` | Remove duplicate instances (inference only) | Flag | `false` |
 | `--filter_overlapping_method` | Overlap calculation method | `iou`, `oks` | `iou` |
 | `--filter_overlapping_threshold` | Similarity threshold for filtering | `FLOAT` (0.0-1.0) | `0.8` |
 | `--max_instances` | Max instances per frame (forward pass only) | `INT` | None |
+
+!!! note "Processing order"
+    When running inference + tracking: `--max_instances` (forward pass) → `--filter_overlapping` (post-processing) → tracking. In track-only mode, only tracking runs on existing predictions.
 
 ### Tracking
 

@@ -100,6 +100,28 @@ sleap-nn track -i video.mp4 -m models/ \
 | 0.5 | Moderate |
 | 0.8 | Permissive (default) |
 
+!!! note "Inference only"
+    `--filter_overlapping` is only applied during inference. When running in **track-only mode** (without model paths), this parameter has no effect.
+
+---
+
+## Processing Order
+
+When running inference with tracking enabled, operations are applied in this order:
+
+```
+1. Model Forward Pass
+   └── --max_instances applied (limits detections during peak finding)
+
+2. Post-Processing
+   └── --filter_overlapping applied (removes duplicate instances)
+
+3. Tracking
+   └── Instance identity assignment across frames
+```
+
+In **track-only mode** (no model paths), only step 3 runs on existing predictions.
+
 ---
 
 ## Python API
