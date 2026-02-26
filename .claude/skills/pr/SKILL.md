@@ -99,9 +99,12 @@ git diff --name-only $(git merge-base origin/main HEAD)
 Review the `,cover` files for your changed modules to ensure adequate coverage.
 
 ### Coverage markers in annotated files
-- `>` - Line was executed
-- `!` - Line was NOT executed (needs test coverage)
-- `-` - Line is not executable (comments, blank lines)
+
+| Marker | Meaning |
+|--------|---------|
+| > | Line was executed |
+| ! | Line was NOT executed (needs test coverage) |
+| - | Line is not executable (comments, blank lines) |
 
 ## Step 7: Commit Changes
 
