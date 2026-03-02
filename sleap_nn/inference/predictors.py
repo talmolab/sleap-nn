@@ -173,6 +173,9 @@ class Predictor(ABC):
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
         anchor_part: Optional[str] = None,
+        filter_overlapping: bool = False,
+        filter_overlapping_threshold: float = 0.8,
+        filter_overlapping_method: str = "iou",
     ) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
@@ -205,6 +208,12 @@ class Predictor(ABC):
                 in the `data_config.preprocessing` section.
             anchor_part: (str) The name of the node to use as the anchor for the centroid. If not
                 provided, the anchor part in the `training_config.yaml` is used instead. Default: None.
+            filter_overlapping: (bool) If True, removes overlapping instances using greedy NMS.
+                Default: False.
+            filter_overlapping_threshold: (float) Similarity threshold for filtering overlapping
+                instances. Instances with similarity > threshold are removed. Default: 0.8.
+            filter_overlapping_method: (str) Similarity metric for filtering. One of "iou"
+                (bounding box) or "oks" (keypoint similarity). Default: "iou".
 
         Returns:
             A subclass of `Predictor`.
@@ -273,6 +282,9 @@ class Predictor(ABC):
                     device=device,
                     preprocess_config=preprocess_config,
                     anchor_part=anchor_part,
+                    filter_overlapping=filter_overlapping,
+                    filter_overlapping_threshold=filter_overlapping_threshold,
+                    filter_overlapping_method=filter_overlapping_method,
                 )
             if "centered_instance" in model_names:
                 confmap_ckpt_path = model_paths[model_names.index("centered_instance")]
@@ -291,6 +303,9 @@ class Predictor(ABC):
                     device=device,
                     preprocess_config=preprocess_config,
                     anchor_part=anchor_part,
+                    filter_overlapping=filter_overlapping,
+                    filter_overlapping_threshold=filter_overlapping_threshold,
+                    filter_overlapping_method=filter_overlapping_method,
                 )
             elif "multi_class_topdown" in model_names:
                 confmap_ckpt_path = model_paths[
@@ -327,6 +342,9 @@ class Predictor(ABC):
                 return_confmaps=return_confmaps,
                 device=device,
                 preprocess_config=preprocess_config,
+                filter_overlapping=filter_overlapping,
+                filter_overlapping_threshold=filter_overlapping_threshold,
+                filter_overlapping_method=filter_overlapping_method,
             )
 
         elif "multi_class_bottomup" in model_names:
@@ -732,6 +750,9 @@ class TopDownPredictor(Predictor):
     tracker: Optional[Tracker] = None
     anchor_part: Optional[str] = None
     max_stride: int = 16
+    filter_overlapping: bool = False
+    filter_overlapping_threshold: float = 0.8
+    filter_overlapping_method: str = "iou"
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -844,6 +865,9 @@ class TopDownPredictor(Predictor):
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
         anchor_part: Optional[str] = None,
+        filter_overlapping: bool = False,
+        filter_overlapping_threshold: float = 0.8,
+        filter_overlapping_method: str = "iou",
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
@@ -873,6 +897,12 @@ class TopDownPredictor(Predictor):
                 in the `data_config.preprocessing` section.
             anchor_part: (str) The name of the node to use as the anchor for the centroid. If not
                 provided, the anchor part in the `training_config.yaml` is used instead. Default: None.
+            filter_overlapping: (bool) If True, removes overlapping instances using greedy NMS.
+                Default: False.
+            filter_overlapping_threshold: (float) Similarity threshold for filtering overlapping
+                instances. Instances with similarity > threshold are removed. Default: 0.8.
+            filter_overlapping_method: (str) Similarity metric for filtering. One of "iou"
+                (bounding box) or "oks" (keypoint similarity). Default: "iou".
 
         Returns:
             An instance of `TopDownPredictor` with the loaded models.
@@ -1206,6 +1236,9 @@ class TopDownPredictor(Predictor):
                     f"{centered_instance_backbone_type}"
                 ]["max_stride"]
             ),
+            filter_overlapping=filter_overlapping,
+            filter_overlapping_threshold=filter_overlapping_threshold,
+            filter_overlapping_method=filter_overlapping_method,
         )
 
         obj._initialize_inference_model()
@@ -1367,9 +1400,34 @@ class TopDownPredictor(Predictor):
                         score=instance_score,
                     )
                 )
-        for key, inst in preds.items():
+        # Sort by (video_idx, frame_idx) to ensure frames are processed in order.
+        # This is critical for tracking: the tracker builds a temporal window of
+        # candidates, so frames must be processed sequentially for correct matching.
+        for key, inst in sorted(preds.items()):
             # Create list of LabeledFrames.
             video_idx, frame_idx = key
+
+            # Filter overlapping instances to remove duplicate detections.
+            if self.filter_overlapping and len(inst) > 1:
+                from sleap_nn.inference.postprocessing import (
+                    _nms_greedy_iou,
+                    _nms_greedy_oks,
+                    _instance_bbox,
+                )
+
+                scores = np.array([getattr(i, "score", 1.0) for i in inst])
+                if self.filter_overlapping_method == "iou":
+                    bboxes = np.array([_instance_bbox(i) for i in inst])
+                    keep_indices = _nms_greedy_iou(
+                        bboxes, scores, self.filter_overlapping_threshold
+                    )
+                else:  # oks
+                    points = [i.numpy() for i in inst]
+                    keep_indices = _nms_greedy_oks(
+                        points, scores, self.filter_overlapping_threshold
+                    )
+                inst = [inst[i] for i in keep_indices]
+
             lf = sio.LabeledFrame(
                 video=self.videos[video_idx],
                 frame_idx=frame_idx,
@@ -1871,6 +1929,9 @@ class BottomUpPredictor(Predictor):
     preprocess_config: Optional[OmegaConf] = None
     tracker: Optional[Tracker] = None
     max_stride: int = 16
+    filter_overlapping: bool = False
+    filter_overlapping_threshold: float = 0.8
+    filter_overlapping_method: str = "iou"
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -1921,6 +1982,9 @@ class BottomUpPredictor(Predictor):
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
         max_stride: int = 16,
+        filter_overlapping: bool = False,
+        filter_overlapping_threshold: float = 0.8,
+        filter_overlapping_method: str = "iou",
     ) -> "BottomUpPredictor":
         """Create predictor from saved models.
 
@@ -1951,6 +2015,12 @@ class BottomUpPredictor(Predictor):
                 `backbone_config`. This determines the downsampling factor applied by the backbone,
                 and is used to ensure that input images are padded or resized to be compatible
                 with the model's architecture. Default: 16.
+            filter_overlapping: (bool) If True, removes overlapping instances using greedy NMS.
+                Default: False.
+            filter_overlapping_threshold: (float) Similarity threshold for filtering overlapping
+                instances. Instances with similarity > threshold are removed. Default: 0.8.
+            filter_overlapping_method: (str) Similarity metric for filtering. One of "iou"
+                (bounding box) or "oks" (keypoint similarity). Default: "iou".
 
         Returns:
             An instance of `BottomUpPredictor` with the loaded models.
@@ -2086,6 +2156,9 @@ class BottomUpPredictor(Predictor):
             max_stride=bottomup_config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ],
+            filter_overlapping=filter_overlapping,
+            filter_overlapping_threshold=filter_overlapping_threshold,
+            filter_overlapping_method=filter_overlapping_method,
         )
 
         obj._initialize_inference_model()
@@ -2204,7 +2277,8 @@ class BottomUpPredictor(Predictor):
             if not video.open_backend:
                 video.open()
 
-        predicted_frames = []
+        # Collect all predictions first, keyed by (video_idx, frame_idx)
+        preds = defaultdict(list)
 
         skeleton_idx = 0
         for ex in generator:
@@ -2251,20 +2325,54 @@ class BottomUpPredictor(Predictor):
                         : min(max_instances, len(predicted_instances))
                     ]
 
-                lf = sio.LabeledFrame(
-                    video=self.videos[video_idx],
-                    frame_idx=frame_idx,
-                    instances=predicted_instances,
+                preds[(int(video_idx), int(frame_idx))].extend(predicted_instances)
+
+        # Sort by (video_idx, frame_idx) to ensure frames are processed in order.
+        # This is critical for tracking: the tracker builds a temporal window of
+        # candidates, so frames must be processed sequentially for correct matching.
+        predicted_frames = []
+        for key, predicted_instances in sorted(preds.items()):
+            video_idx, frame_idx = key
+
+            # Filter overlapping instances to remove duplicate detections.
+            if self.filter_overlapping and len(predicted_instances) > 1:
+                from sleap_nn.inference.postprocessing import (
+                    _nms_greedy_iou,
+                    _nms_greedy_oks,
+                    _instance_bbox,
                 )
 
-                if self.tracker:
-                    lf.instances = self.tracker.track(
-                        untracked_instances=predicted_instances,
-                        frame_idx=frame_idx,
-                        image=lf.image,
+                scores = np.array(
+                    [getattr(inst, "score", 1.0) for inst in predicted_instances]
+                )
+                if self.filter_overlapping_method == "iou":
+                    bboxes = np.array(
+                        [_instance_bbox(inst) for inst in predicted_instances]
                     )
+                    keep_indices = _nms_greedy_iou(
+                        bboxes, scores, self.filter_overlapping_threshold
+                    )
+                else:  # oks
+                    points = [inst.numpy() for inst in predicted_instances]
+                    keep_indices = _nms_greedy_oks(
+                        points, scores, self.filter_overlapping_threshold
+                    )
+                predicted_instances = [predicted_instances[i] for i in keep_indices]
 
-                predicted_frames.append(lf)
+            lf = sio.LabeledFrame(
+                video=self.videos[video_idx],
+                frame_idx=frame_idx,
+                instances=predicted_instances,
+            )
+
+            if self.tracker:
+                lf.instances = self.tracker.track(
+                    untracked_instances=predicted_instances,
+                    frame_idx=frame_idx,
+                    image=lf.image,
+                )
+
+            predicted_frames.append(lf)
 
         pred_labels = sio.Labels(
             videos=self.videos,

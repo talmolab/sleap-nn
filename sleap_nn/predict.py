@@ -3,6 +3,7 @@
 from loguru import logger
 from typing import Optional, List, Union
 import click
+import numpy as np
 from sleap_nn.inference.predictors import (
     Predictor,
     BottomUpPredictor,
@@ -369,6 +370,38 @@ def run_inference(
                 elif tracking_target_instance_count is None:
                     tracking_target_instance_count = max_instances
 
+            # Filter overlapping instances before tracking (track-only mode)
+            if filter_overlapping:
+                from sleap_nn.inference.postprocessing import (
+                    _nms_greedy_iou,
+                    _nms_greedy_oks,
+                    _instance_bbox,
+                )
+
+                for lf in lf_frames:
+                    if len(lf.instances) <= 1:
+                        continue
+                    instances = list(lf.instances)
+                    scores = np.array(
+                        [getattr(inst, "score", 1.0) for inst in instances]
+                    )
+                    if filter_overlapping_method == "iou":
+                        bboxes = np.array([_instance_bbox(inst) for inst in instances])
+                        keep_indices = _nms_greedy_iou(
+                            bboxes, scores, filter_overlapping_threshold
+                        )
+                    else:  # oks
+                        points = [inst.numpy() for inst in instances]
+                        keep_indices = _nms_greedy_oks(
+                            points, scores, filter_overlapping_threshold
+                        )
+                    lf.instances = [instances[i] for i in keep_indices]
+
+                logger.info(
+                    f"Filtered overlapping instances with {filter_overlapping_method.upper()} "
+                    f"threshold: {filter_overlapping_threshold}"
+                )
+
             tracked_frames = run_tracker(
                 untracked_frames=lf_frames,
                 window_size=tracking_window_size,
@@ -464,6 +497,9 @@ def run_inference(
             device=device,
             preprocess_config=OmegaConf.create(preprocess_config),
             anchor_part=anchor_part,
+            filter_overlapping=filter_overlapping,
+            filter_overlapping_threshold=filter_overlapping_threshold,
+            filter_overlapping_method=filter_overlapping_method,
         )
 
         # Set GUI mode for progress output
@@ -564,15 +600,23 @@ def run_inference(
             make_labels=make_labels,
         )
 
-        # Filter overlapping instances (independent of tracking)
+        # Filter overlapping instances if requested.
+        # Some predictors (TopDown, BottomUp) handle this internally, others don't.
         if filter_overlapping and make_labels:
-            from sleap_nn.inference.postprocessing import filter_overlapping_instances
-
-            output = filter_overlapping_instances(
-                output,
-                threshold=filter_overlapping_threshold,
-                method=filter_overlapping_method,
+            predictor_handled_filtering = getattr(
+                predictor, "filter_overlapping", False
             )
+            if not predictor_handled_filtering:
+                # Predictor didn't handle filtering, do it here
+                from sleap_nn.inference.postprocessing import (
+                    filter_overlapping_instances,
+                )
+
+                output = filter_overlapping_instances(
+                    output,
+                    threshold=filter_overlapping_threshold,
+                    method=filter_overlapping_method,
+                )
             logger.info(
                 f"Filtered overlapping instances with {filter_overlapping_method.upper()} "
                 f"threshold: {filter_overlapping_threshold}"
