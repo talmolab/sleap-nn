@@ -2,6 +2,9 @@
 
 Interactive tool to generate training configurations from your SLEAP label files.
 
+!!! warning "Experimental Feature"
+    This config picker is experimental. Feel free to try it out and [report any issues](https://github.com/talmolab/sleap-nn/issues) you encounter!
+
 <div style="position: relative; width: 100%; height: 85vh; border: 1px solid var(--md-default-fg-color--lightest); border-radius: 8px; overflow: hidden;">
     <iframe
         src="app.html"
