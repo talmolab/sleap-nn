@@ -860,8 +860,15 @@ class TrainingControllerZMQ(Callback):
                 if msg.get("command") == "stop":
                     trainer.should_stop = True
 
-        # Sync all processes after ZMQ operations
-        trainer.strategy.barrier()
+        # Propagate should_stop to all ranks via all_reduce so every rank
+        # exits the training loop together.  trainer.strategy.barrier()
+        # synchronises execution position but does not copy the value of
+        # should_stop; reduce_boolean_decision performs an all_reduce so
+        # every rank receives the same True/False decision.  For single-GPU
+        # training this is a no-op identical to the previous behaviour.
+        trainer.should_stop = trainer.strategy.reduce_boolean_decision(
+            trainer.should_stop, all=False
+        )
 
     #         # Adjust learning rate # TODO: check if we need lr
     #         elif msg.get("command") == "set_lr":
