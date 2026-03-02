@@ -6118,7 +6118,7 @@
 </table>
 <div class="admonition note">
 <p class="admonition-title">Processing order</p>
-<p>When running inference + tracking: <code>--max_instances</code> (forward pass) → <code>--filter_overlapping</code> (post-processing) → tracking. In track-only mode, only tracking runs on existing predictions.</p>
+<p>When running inference + tracking: <code>--max_instances</code> (forward pass) → <code>--filter_overlapping</code> (before tracking) → tracking. In track-only mode, filtering is applied before tracking on existing predictions.</p>
 </div>
 <h3 id="tracking">Tracking<a class="headerlink" href="#tracking" title="Permanent link">&para;</a></h3>
 <table>

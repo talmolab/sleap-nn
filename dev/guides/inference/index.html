@@ -5684,13 +5684,17 @@
 <div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>1. Model Forward Pass
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>   └── --max_instances applied (limits detections during peak finding)
 </span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>2. Post-Processing
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>2. Filtering (before tracking)
 </span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>   └── --filter_overlapping applied (removes duplicate instances)
 </span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
 </span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>3. Tracking
 </span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>   └── Instance identity assignment across frames
 </span></code></pre></div>
-<p>In <strong>track-only mode</strong> (no model paths), only step 3 runs on existing predictions.</p>
+<div class="admonition note">
+<p class="admonition-title">Why filtering happens before tracking</p>
+<p>Filtering is applied <strong>before</strong> tracking to prevent spurious track creation. If duplicates were removed after tracking, the tracker would assign IDs to instances that are later filtered out, causing track switches in subsequent frames.</p>
+</div>
+<p>In <strong>track-only mode</strong> (no model paths), filtering is still applied before tracking on existing predictions.</p>
 <hr />
 <h2 id="python-api">Python API<a class="headerlink" href="#python-api" title="Permanent link">&para;</a></h2>
 <h3 id="basic-usage">Basic Usage<a class="headerlink" href="#basic-usage" title="Permanent link">&para;</a></h3>
