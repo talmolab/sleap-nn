@@ -71,13 +71,13 @@
 
     [:octicons-arrow-right-24: Commands](reference/cli.md)
 
--   🔧 **API Reference**
+-   🎛️ **Config Picker**
 
     ---
 
-    Full Python API documentation.
+    Generate training configs interactively in your browser.
 
-    [:octicons-arrow-right-24: API Docs](api/)
+    [:octicons-arrow-right-24: Try it now](configuration/config-picker/index.md)
 
 </div>
 
