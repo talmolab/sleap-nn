@@ -810,6 +810,9 @@ class TestTrainingControllerZMQ:
             mock_trainer = MagicMock()
             mock_trainer.is_global_zero = True
             mock_trainer.should_stop = False
+            mock_trainer.strategy.reduce_boolean_decision.side_effect = (
+                lambda decision, all=False: decision
+            )
             mock_pl_module = MagicMock()
 
             # Simulate receiving stop command
@@ -834,6 +837,9 @@ class TestTrainingControllerZMQ:
             mock_trainer = MagicMock()
             mock_trainer.is_global_zero = True
             mock_trainer.should_stop = False
+            mock_trainer.strategy.reduce_boolean_decision.side_effect = (
+                lambda decision, all=False: decision
+            )
             mock_pl_module = MagicMock()
 
             # No message available
