@@ -5,6 +5,9 @@ Generate training configurations interactively or programmatically.
 !!! warning "Experimental"
     This feature is experimental and may change in future releases.
 
+!!! tip "Web-based Config Picker"
+    Prefer a browser-based interface? Try the [Config Picker](../configuration/config-picker/index.md) to generate configs interactively without installing anything.
+
 ---
 
 ## Overview
