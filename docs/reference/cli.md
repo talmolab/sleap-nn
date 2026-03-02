@@ -111,7 +111,7 @@ sleap-nn track --data_path INPUT --model_paths MODEL [OPTIONS]
 | `--max_instances` | Max instances per frame (forward pass only) | `INT` | None |
 
 !!! note "Processing order"
-    When running inference + tracking: `--max_instances` (forward pass) → `--filter_overlapping` (post-processing) → tracking. In track-only mode, only tracking runs on existing predictions.
+    When running inference + tracking: `--max_instances` (forward pass) → `--filter_overlapping` (before tracking) → tracking. In track-only mode, filtering is applied before tracking on existing predictions.
 
 ### Tracking
 

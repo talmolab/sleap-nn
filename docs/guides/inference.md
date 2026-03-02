@@ -113,14 +113,17 @@ When running inference with tracking enabled, operations are applied in this ord
 1. Model Forward Pass
    └── --max_instances applied (limits detections during peak finding)
 
-2. Post-Processing
+2. Filtering (before tracking)
    └── --filter_overlapping applied (removes duplicate instances)
 
 3. Tracking
    └── Instance identity assignment across frames
 ```
 
-In **track-only mode** (no model paths), only step 3 runs on existing predictions.
+!!! note "Why filtering happens before tracking"
+    Filtering is applied **before** tracking to prevent spurious track creation. If duplicates were removed after tracking, the tracker would assign IDs to instances that are later filtered out, causing track switches in subsequent frames.
+
+In **track-only mode** (no model paths), filtering is still applied before tracking on existing predictions.
 
 ---
 
