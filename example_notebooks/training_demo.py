@@ -845,8 +845,7 @@ def _(cv2, mo, np, plt, random):
         out.release()
 
         total_secs = (num_frames * frame_duration) / 1000.0
-        return mo.md(
-            f"""
+        return mo.md(f"""
     ## 🎬 Video Created!
 
     **Frames:** {num_frames} randomly selected  
@@ -855,8 +854,8 @@ def _(cv2, mo, np, plt, random):
     **Total Time:** {total_secs:.1f} s
 
     **Saved as:** `{output_path}`
-    """
-        )
+    """)
+
     return (plot_preds_video,)
 
 

@@ -164,9 +164,7 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    slider_scale = mo.ui.slider(
-        0.1, 3.0, value=1.0, step=0.01, label="Scale factor"
-    )
+    slider_scale = mo.ui.slider(0.1, 3.0, value=1.0, step=0.01, label="Scale factor")
     mo.vstack([slider_scale])
     return (slider_scale,)
 
@@ -460,7 +458,9 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    slider_contrast = mo.ui.slider(0.1, 3.0, value=1.0, step=0.01, label="Contrast factor")
+    slider_contrast = mo.ui.slider(
+        0.1, 3.0, value=1.0, step=0.01, label="Contrast factor"
+    )
     mo.vstack([slider_contrast])
     return (slider_contrast,)
 
@@ -473,7 +473,9 @@ def _(Image, file, io, mo, np, slider_contrast):
 
         # Apply contrast using lookup table (pure uint8)
         _lut = np.arange(256, dtype=np.float32)
-        _lut = np.clip((_lut - 127.5) * slider_contrast.value + 127.5, 0, 255).astype(np.uint8)
+        _lut = np.clip((_lut - 127.5) * slider_contrast.value + 127.5, 0, 255).astype(
+            np.uint8
+        )
         _aug_np = _lut[_img_np]
         _aug_image = Image.fromarray(_aug_np)
 
@@ -507,7 +509,9 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    slider_brightness = mo.ui.slider(0.1, 3.0, value=1.0, step=0.01, label="Brightness factor")
+    slider_brightness = mo.ui.slider(
+        0.1, 3.0, value=1.0, step=0.01, label="Brightness factor"
+    )
     mo.vstack([slider_brightness])
     return (slider_brightness,)
 
@@ -535,6 +539,18 @@ def _(Image, file, io, mo, np, slider_brightness):
 
 @app.cell(hide_code=True)
 def _(np, skia):
+    def _skia_surface_is_bgra() -> bool:
+        """Check if Skia surfaces use BGRA pixel format.
+
+        On Linux, Skia surfaces use kBGRA_8888, so toarray() returns BGRA.
+        On macOS, Skia surfaces use kRGBA_8888, so toarray() returns RGBA.
+        """
+        surface = skia.Surface(1, 1)
+        return surface.imageInfo().colorType() == skia.ColorType.kBGRA_8888_ColorType
+
+    # Cache at module load time since surface format is platform-specific
+    _SKIA_IS_BGRA = _skia_surface_is_bgra()
+
     def transform_image_skia(image: np.ndarray, matrix: skia.Matrix) -> np.ndarray:
         """Transform image using Skia matrix (uint8 in, uint8 out).
 
@@ -576,8 +592,13 @@ def _(np, skia):
         if channels == 1:
             return result[:, :, 0:1]
         elif channels == 3:
+            if _SKIA_IS_BGRA:
+                # Skia surfaces use kBGRA_8888 on Linux, so toarray() returns BGRA.
+                # Reverse the channel order to convert BGR -> RGB.
+                return np.ascontiguousarray(result[:, :, 2::-1])
             return result[:, :, :3]
         return result
+
     return (transform_image_skia,)
 
 
@@ -615,6 +636,7 @@ def _(np):
         result[y : y + erase_h, x : x + erase_w] = fill
 
         return result
+
     return (apply_random_erase,)
 
 
@@ -625,6 +647,7 @@ def _():
     import skia
     from PIL import Image
     import io
+
     return Image, io, mo, np, skia
 
 
