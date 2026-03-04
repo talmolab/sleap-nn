@@ -6091,6 +6091,36 @@
 </thead>
 <tbody>
 <tr>
+<td><code>--max_instances</code></td>
+<td>Max instances per frame (forward pass only)</td>
+<td><code>INT</code></td>
+<td>None</td>
+</tr>
+<tr>
+<td><code>--filter_min_visible_nodes</code></td>
+<td>Min visible keypoints required</td>
+<td><code>INT</code></td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>--filter_min_visible_node_fraction</code></td>
+<td>Min fraction of skeleton nodes visible</td>
+<td><code>FLOAT</code> (0.0-1.0)</td>
+<td><code>0.0</code></td>
+</tr>
+<tr>
+<td><code>--filter_min_mean_node_score</code></td>
+<td>Min mean confidence across visible nodes</td>
+<td><code>FLOAT</code> (0.0-1.0)</td>
+<td><code>0.0</code></td>
+</tr>
+<tr>
+<td><code>--filter_min_instance_score</code></td>
+<td>Min overall instance score</td>
+<td><code>FLOAT</code> (0.0-1.0)</td>
+<td><code>0.0</code></td>
+</tr>
+<tr>
 <td><code>--filter_overlapping</code></td>
 <td>Remove duplicate instances (inference only)</td>
 <td>Flag</td>
@@ -6108,17 +6138,11 @@
 <td><code>FLOAT</code> (0.0-1.0)</td>
 <td><code>0.8</code></td>
 </tr>
-<tr>
-<td><code>--max_instances</code></td>
-<td>Max instances per frame (forward pass only)</td>
-<td><code>INT</code></td>
-<td>None</td>
-</tr>
 </tbody>
 </table>
 <div class="admonition note">
 <p class="admonition-title">Processing order</p>
-<p>When running inference + tracking: <code>--max_instances</code> (forward pass) → <code>--filter_overlapping</code> (before tracking) → tracking. In track-only mode, filtering is applied before tracking on existing predictions.</p>
+<p>When running inference + tracking: <code>--max_instances</code> (forward pass) → node count filter → confidence filter → overlap filter → tracking. In track-only mode, filtering is applied before tracking on existing predictions.</p>
 </div>
 <h3 id="tracking">Tracking<a class="headerlink" href="#tracking" title="Permanent link">&para;</a></h3>
 <table>
