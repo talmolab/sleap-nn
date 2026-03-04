@@ -75,11 +75,13 @@ class CSVLoggerCallback(Callback):
 
     def on_validation_epoch_end(self, trainer, pl_module):
         """Log metrics to csv at the end of validation epoch."""
+        # Access callback_metrics BEFORE the is_global_zero guard so all
+        # ranks participate in the implicit all_reduce that fires when
+        # sync_dist=True metrics are first read.  Only rank 0 does I/O.
+        metrics = trainer.callback_metrics
         if trainer.is_global_zero:
             if not self.initialized:
                 self._init_file()
-
-            metrics = trainer.callback_metrics
             log_data = {}
             for key in self.keys:
                 if key == "epoch":
@@ -945,8 +947,11 @@ class ProgressReporterZMQ(Callback):
 
     def on_train_epoch_end(self, trainer, pl_module):
         """Called at the end of each epoch."""
+        # Access callback_metrics BEFORE the is_global_zero guard so all
+        # ranks participate in the implicit all_reduce that fires when
+        # sync_dist=True metrics are first read.  Only rank 0 sends ZMQ.
+        logs = trainer.callback_metrics
         if trainer.is_global_zero:
-            logs = trainer.callback_metrics
             self.send(
                 "epoch_end", epoch=trainer.current_epoch, logs=self._sanitize_logs(logs)
             )
@@ -960,8 +965,11 @@ class ProgressReporterZMQ(Callback):
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         """Called at the end of each training batch."""
+        # Access callback_metrics BEFORE the is_global_zero guard so all
+        # ranks participate in the implicit all_reduce that fires when
+        # sync_dist=True metrics are first read.  Only rank 0 sends ZMQ.
+        logs = trainer.callback_metrics
         if trainer.is_global_zero:
-            logs = trainer.callback_metrics
             self.send(
                 "batch_end",
                 epoch=trainer.current_epoch,
