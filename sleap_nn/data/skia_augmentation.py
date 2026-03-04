@@ -22,6 +22,20 @@ import torch
 import skia
 
 
+def _skia_surface_is_bgra() -> bool:
+    """Check if Skia surfaces use BGRA pixel format.
+
+    On Linux, Skia surfaces use kBGRA_8888, so toarray() returns BGRA.
+    On macOS, Skia surfaces use kRGBA_8888, so toarray() returns RGBA.
+    """
+    surface = skia.Surface(1, 1)
+    return surface.imageInfo().colorType() == skia.ColorType.kBGRA_8888_ColorType
+
+
+# Cache at module load time since surface format is platform-specific
+_SKIA_IS_BGRA = _skia_surface_is_bgra()
+
+
 def apply_intensity_augmentation_skia(
     image: torch.Tensor,
     instances: torch.Tensor,
@@ -274,6 +288,10 @@ def _transform_image_skia(image: np.ndarray, matrix: skia.Matrix) -> np.ndarray:
 
     if channels == 1:
         return result[:, :, 0:1]
+    if _SKIA_IS_BGRA:
+        # Skia surfaces use kBGRA_8888 on Linux, so toarray() returns BGRA.
+        # Reverse the channel order to convert BGR -> RGB.
+        return np.ascontiguousarray(result[:, :, 2::-1])
     return result[:, :, :channels]
 
 
@@ -404,6 +422,10 @@ def crop_and_resize_skia(
 
     if channels == 1:
         result = result[:, :, 0:1]
+    elif _SKIA_IS_BGRA:
+        # Skia surfaces use kBGRA_8888 on Linux, so toarray() returns BGRA.
+        # Reverse the channel order to convert BGR -> RGB.
+        result = np.ascontiguousarray(result[:, :, 2::-1])
     else:
         result = result[:, :, :channels]
 
