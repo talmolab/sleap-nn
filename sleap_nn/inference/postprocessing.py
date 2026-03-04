@@ -4,10 +4,221 @@ This module provides filters that run after model inference but before tracking.
 These filters are independent of tracking configuration and can be used standalone.
 """
 
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 import numpy as np
 import sleap_io as sio
+
+
+def filter_by_node_count(
+    labels: sio.Labels,
+    min_visible_nodes: int = 0,
+    min_visible_node_fraction: float = 0.0,
+) -> sio.Labels:
+    """Filter instances with insufficient visible keypoints.
+
+    Removes predicted instances that have too few detected/visible keypoints.
+    This is useful for cleaning up spurious detections that only have 1-2 nodes
+    or for requiring a minimum skeleton completeness.
+
+    This filter runs independently of tracking and can be used to clean up
+    model outputs before saving or further processing.
+
+    Args:
+        labels: Labels object with predicted instances to filter.
+        min_visible_nodes: Minimum number of visible (non-NaN) keypoints required.
+            Instances with fewer visible nodes are removed.
+            Default: 0 (no filtering by absolute count).
+        min_visible_node_fraction: Minimum fraction of skeleton nodes that must
+            be visible. Value should be in [0, 1]. For example, 0.5 requires at
+            least half of the skeleton's nodes to be detected.
+            Default: 0.0 (no filtering by fraction).
+
+    Returns:
+        The input Labels object with low-node-count instances removed.
+        Modification is done in place, but the object is also returned
+        for convenience.
+
+    Example:
+        >>> # Require at least 3 visible nodes
+        >>> labels = filter_by_node_count(labels, min_visible_nodes=3)
+        >>> # Require at least 50% of skeleton nodes
+        >>> labels = filter_by_node_count(labels, min_visible_node_fraction=0.5)
+        >>> # Combine both criteria (must pass both)
+        >>> labels = filter_by_node_count(
+        ...     labels, min_visible_nodes=2, min_visible_node_fraction=0.3
+        ... )
+
+    Note:
+        - Only affects predicted instances (preserves ground truth instances)
+        - An instance must pass ALL specified criteria to be kept
+        - A keypoint is "visible" if its coordinates are not NaN
+    """
+    # Early exit if no filtering requested
+    if min_visible_nodes <= 0 and min_visible_node_fraction <= 0.0:
+        return labels
+
+    for lf in labels.labeled_frames:
+        if len(lf.instances) == 0:
+            continue
+
+        kept_instances = []
+        for inst in lf.instances:
+            # Only filter predicted instances
+            if not isinstance(inst, sio.PredictedInstance):
+                kept_instances.append(inst)
+                continue
+
+            # Count visible nodes
+            n_visible = _count_visible_nodes(inst)
+            n_total = len(inst.skeleton.nodes)
+
+            # Check absolute count criterion
+            if min_visible_nodes > 0 and n_visible < min_visible_nodes:
+                continue
+
+            # Check fraction criterion
+            if min_visible_node_fraction > 0.0:
+                fraction = n_visible / n_total if n_total > 0 else 0.0
+                if fraction < min_visible_node_fraction:
+                    continue
+
+            # Instance passed all criteria
+            kept_instances.append(inst)
+
+        lf.instances = kept_instances
+
+    return labels
+
+
+def filter_by_node_confidence(
+    labels: sio.Labels,
+    min_mean_node_score: float = 0.0,
+    min_instance_score: float = 0.0,
+) -> sio.Labels:
+    """Filter instances with low confidence scores.
+
+    Removes predicted instances based on their per-node confidence scores
+    and/or overall instance score. This is useful for removing uncertain
+    predictions that may have passed the peak threshold but are still
+    low quality.
+
+    This filter runs independently of tracking and can be used to clean up
+    model outputs before saving or further processing.
+
+    Args:
+        labels: Labels object with predicted instances to filter.
+        min_mean_node_score: Minimum mean confidence score across visible nodes.
+            The mean is computed only over non-NaN keypoints.
+            Default: 0.0 (no filtering by mean node score).
+        min_instance_score: Minimum overall instance confidence score.
+            Default: 0.0 (no filtering by instance score).
+
+    Returns:
+        The input Labels object with low-confidence instances removed.
+        Modification is done in place, but the object is also returned
+        for convenience.
+
+    Example:
+        >>> # Require mean node confidence >= 0.5
+        >>> labels = filter_by_node_confidence(labels, min_mean_node_score=0.5)
+        >>> # Require instance score >= 0.3
+        >>> labels = filter_by_node_confidence(labels, min_instance_score=0.3)
+        >>> # Combine both criteria
+        >>> labels = filter_by_node_confidence(
+        ...     labels, min_mean_node_score=0.4, min_instance_score=0.2
+        ... )
+
+    Note:
+        - Only affects predicted instances (preserves ground truth instances)
+        - An instance must pass ALL specified criteria to be kept
+        - If point_scores is not available, mean node score check is skipped
+        - If instance score is not available, instance score check is skipped
+    """
+    # Early exit if no filtering requested
+    if min_mean_node_score <= 0.0 and min_instance_score <= 0.0:
+        return labels
+
+    for lf in labels.labeled_frames:
+        if len(lf.instances) == 0:
+            continue
+
+        kept_instances = []
+        for inst in lf.instances:
+            # Only filter predicted instances
+            if not isinstance(inst, sio.PredictedInstance):
+                kept_instances.append(inst)
+                continue
+
+            # Check instance score criterion
+            if min_instance_score > 0.0:
+                inst_score = _instance_score(inst)
+                if inst_score < min_instance_score:
+                    continue
+
+            # Check mean node score criterion
+            if min_mean_node_score > 0.0:
+                mean_score = _mean_node_score(inst)
+                if mean_score is not None and mean_score < min_mean_node_score:
+                    continue
+
+            # Instance passed all criteria
+            kept_instances.append(inst)
+
+        lf.instances = kept_instances
+
+    return labels
+
+
+def _count_visible_nodes(instance: sio.PredictedInstance) -> int:
+    """Count the number of visible (non-NaN) keypoints in an instance.
+
+    Args:
+        instance: Predicted instance.
+
+    Returns:
+        Number of keypoints with valid (non-NaN) coordinates.
+    """
+    pts = instance.numpy()  # (n_nodes, 2)
+    valid = ~np.isnan(pts).any(axis=1)
+    return int(valid.sum())
+
+
+def _mean_node_score(instance: sio.PredictedInstance) -> Optional[float]:
+    """Compute mean confidence score across visible nodes.
+
+    Args:
+        instance: Predicted instance.
+
+    Returns:
+        Mean confidence score, or None if point scores are not available.
+    """
+    # Point scores are stored in the structured points array as 'score' field
+    try:
+        point_scores = instance.points["score"]
+    except (KeyError, TypeError, IndexError):
+        return None
+
+    if point_scores is None or len(point_scores) == 0:
+        return None
+
+    point_scores = np.asarray(point_scores)
+
+    # Only consider scores for visible nodes
+    pts = instance.numpy()
+    valid = ~np.isnan(pts).any(axis=1)
+
+    if not valid.any():
+        return 0.0
+
+    valid_scores = point_scores[valid]
+    # Handle NaN scores
+    valid_scores = valid_scores[~np.isnan(valid_scores)]
+
+    if len(valid_scores) == 0:
+        return 0.0
+
+    return float(np.mean(valid_scores))
 
 
 def filter_overlapping_instances(

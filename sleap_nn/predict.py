@@ -78,6 +78,10 @@ def run_inference(
     filter_overlapping: bool = False,
     filter_overlapping_method: str = "iou",
     filter_overlapping_threshold: float = 0.8,
+    filter_min_visible_nodes: int = 0,
+    filter_min_visible_node_fraction: float = 0.0,
+    filter_min_mean_node_score: float = 0.0,
+    filter_min_instance_score: float = 0.0,
     integral_refinement: Optional[str] = "integral",
     integral_patch_size: int = 5,
     return_confmaps: bool = False,
@@ -174,6 +178,19 @@ def run_inference(
         filter_overlapping_threshold: (float) Similarity threshold for filtering.
                 Instances with similarity > threshold are removed (keeping higher-scoring).
                 Typical values: 0.3 (aggressive) to 0.8 (permissive). Default: 0.8.
+        filter_min_visible_nodes: (int) Minimum number of visible (non-NaN) keypoints
+                required. Instances with fewer visible nodes are removed. Default: 0
+                (no filtering by absolute count).
+        filter_min_visible_node_fraction: (float) Minimum fraction of skeleton nodes
+                that must be visible. Value should be in [0, 1]. For example, 0.5
+                requires at least half of the skeleton's nodes to be detected.
+                Default: 0.0 (no filtering by fraction).
+        filter_min_mean_node_score: (float) Minimum mean confidence score across
+                visible nodes. Instances with lower mean node scores are removed.
+                Default: 0.0 (no filtering by mean node score).
+        filter_min_instance_score: (float) Minimum overall instance confidence score.
+                Instances with lower scores are removed. Default: 0.0 (no filtering
+                by instance score).
         integral_refinement: (str) If `None`, returns the grid-aligned peaks with no refinement.
                 If `"integral"`, peaks will be refined with integral regression.
                 Default: `"integral"`.
@@ -500,6 +517,10 @@ def run_inference(
             filter_overlapping=filter_overlapping,
             filter_overlapping_threshold=filter_overlapping_threshold,
             filter_overlapping_method=filter_overlapping_method,
+            filter_min_visible_nodes=filter_min_visible_nodes,
+            filter_min_visible_node_fraction=filter_min_visible_node_fraction,
+            filter_min_mean_node_score=filter_min_mean_node_score,
+            filter_min_instance_score=filter_min_instance_score,
         )
 
         # Set GUI mode for progress output
@@ -600,6 +621,50 @@ def run_inference(
             make_labels=make_labels,
         )
 
+        # Apply node count filter if requested.
+        # Some predictors handle this internally, others don't.
+        if make_labels and (
+            filter_min_visible_nodes > 0 or filter_min_visible_node_fraction > 0.0
+        ):
+            predictor_handled_node_filtering = (
+                getattr(predictor, "filter_min_visible_nodes", 0) > 0
+                or getattr(predictor, "filter_min_visible_node_fraction", 0.0) > 0.0
+            )
+            if not predictor_handled_node_filtering:
+                from sleap_nn.inference.postprocessing import filter_by_node_count
+
+                output = filter_by_node_count(
+                    output,
+                    min_visible_nodes=filter_min_visible_nodes,
+                    min_visible_node_fraction=filter_min_visible_node_fraction,
+                )
+            logger.info(
+                f"Filtered instances by node count: min_visible_nodes={filter_min_visible_nodes}, "
+                f"min_visible_node_fraction={filter_min_visible_node_fraction}"
+            )
+
+        # Apply confidence score filter if requested.
+        # Some predictors handle this internally, others don't.
+        if make_labels and (
+            filter_min_mean_node_score > 0.0 or filter_min_instance_score > 0.0
+        ):
+            predictor_handled_confidence_filtering = (
+                getattr(predictor, "filter_min_mean_node_score", 0.0) > 0.0
+                or getattr(predictor, "filter_min_instance_score", 0.0) > 0.0
+            )
+            if not predictor_handled_confidence_filtering:
+                from sleap_nn.inference.postprocessing import filter_by_node_confidence
+
+                output = filter_by_node_confidence(
+                    output,
+                    min_mean_node_score=filter_min_mean_node_score,
+                    min_instance_score=filter_min_instance_score,
+                )
+            logger.info(
+                f"Filtered instances by confidence: min_mean_node_score={filter_min_mean_node_score}, "
+                f"min_instance_score={filter_min_instance_score}"
+            )
+
         # Filter overlapping instances if requested.
         # Some predictors (TopDown, BottomUp) handle this internally, others don't.
         if filter_overlapping and make_labels:
@@ -679,6 +744,10 @@ def run_inference(
             "filter_overlapping": filter_overlapping,
             "filter_overlapping_method": filter_overlapping_method,
             "filter_overlapping_threshold": filter_overlapping_threshold,
+            "filter_min_visible_nodes": filter_min_visible_nodes,
+            "filter_min_visible_node_fraction": filter_min_visible_node_fraction,
+            "filter_min_mean_node_score": filter_min_mean_node_score,
+            "filter_min_instance_score": filter_min_instance_score,
             "integral_refinement": integral_refinement,
             "integral_patch_size": integral_patch_size,
             "batch_size": batch_size,

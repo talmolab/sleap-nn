@@ -7,10 +7,14 @@ import sleap_io as sio
 from sleap_nn.inference.postprocessing import (
     _compute_iou_one_to_many,
     _compute_oks,
+    _count_visible_nodes,
     _instance_bbox,
     _instance_score,
+    _mean_node_score,
     _nms_greedy_iou,
     _nms_greedy_oks,
+    filter_by_node_confidence,
+    filter_by_node_count,
     filter_overlapping_instances,
 )
 
@@ -448,3 +452,408 @@ class TestFilterOverlappingInstances:
         )
         with pytest.raises(ValueError, match="Unknown method"):
             filter_overlapping_instances(labels, method="invalid")
+
+
+class TestCountVisibleNodes:
+    """Tests for _count_visible_nodes helper."""
+
+    def test_all_visible(self):
+        """All keypoints visible should return full count."""
+        skeleton = sio.Skeleton(nodes=["a", "b", "c"])
+        inst = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [10, 10], [20, 20]]),
+            skeleton=skeleton,
+            score=0.9,
+        )
+        assert _count_visible_nodes(inst) == 3
+
+    def test_some_nan(self):
+        """Some NaN keypoints should return correct count."""
+        skeleton = sio.Skeleton(nodes=["a", "b", "c", "d"])
+        inst = sio.PredictedInstance.from_numpy(
+            points_data=np.array(
+                [[0, 0], [np.nan, np.nan], [20, 20], [np.nan, np.nan]]
+            ),
+            skeleton=skeleton,
+            score=0.9,
+        )
+        assert _count_visible_nodes(inst) == 2
+
+    def test_all_nan(self):
+        """All NaN keypoints should return 0."""
+        skeleton = sio.Skeleton(nodes=["a", "b"])
+        inst = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[np.nan, np.nan], [np.nan, np.nan]]),
+            skeleton=skeleton,
+            score=0.9,
+        )
+        assert _count_visible_nodes(inst) == 0
+
+
+class TestMeanNodeScore:
+    """Tests for _mean_node_score helper."""
+
+    def test_all_visible_with_scores(self):
+        """All visible nodes with scores should return correct mean."""
+        skeleton = sio.Skeleton(nodes=["a", "b", "c"])
+        inst = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [10, 10], [20, 20]]),
+            skeleton=skeleton,
+            point_scores=np.array([0.8, 0.6, 0.4]),
+            score=0.6,
+        )
+        mean = _mean_node_score(inst)
+        assert np.isclose(mean, 0.6)  # (0.8 + 0.6 + 0.4) / 3
+
+    def test_some_nan_nodes(self):
+        """Mean should only consider visible nodes."""
+        skeleton = sio.Skeleton(nodes=["a", "b", "c"])
+        inst = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [np.nan, np.nan], [20, 20]]),
+            skeleton=skeleton,
+            point_scores=np.array([0.8, 0.5, 0.4]),
+            score=0.6,
+        )
+        mean = _mean_node_score(inst)
+        assert np.isclose(mean, 0.6)  # (0.8 + 0.4) / 2, ignoring middle node
+
+    def test_default_scores_are_nan(self):
+        """Instance without explicit point_scores should have NaN scores."""
+        skeleton = sio.Skeleton(nodes=["a", "b"])
+        inst = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [10, 10]]),
+            skeleton=skeleton,
+            score=0.9,
+        )
+        # Default point_scores are NaN, so mean should be 0.0
+        # (all valid_scores filtered out due to NaN)
+        mean = _mean_node_score(inst)
+        assert mean == 0.0
+
+    def test_all_nan_returns_zero(self):
+        """All NaN nodes should return 0."""
+        skeleton = sio.Skeleton(nodes=["a", "b"])
+        inst = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[np.nan, np.nan], [np.nan, np.nan]]),
+            skeleton=skeleton,
+            point_scores=np.array([0.8, 0.6]),
+            score=0.7,
+        )
+        assert _mean_node_score(inst) == 0.0
+
+
+class TestFilterByNodeCount:
+    """Integration tests for filter_by_node_count."""
+
+    @pytest.fixture
+    def skeleton(self):
+        """Create a skeleton with 4 nodes for testing."""
+        return sio.Skeleton(nodes=["head", "neck", "body", "tail"])
+
+    @pytest.fixture
+    def video(self):
+        """Create a dummy video for testing."""
+        return sio.Video(filename="test.mp4")
+
+    def test_empty_labels_unchanged(self, skeleton, video):
+        """Empty labels should be unchanged."""
+        labels = sio.Labels(videos=[video], skeletons=[skeleton])
+        result = filter_by_node_count(labels, min_visible_nodes=2)
+        assert len(result.labeled_frames) == 0
+
+    def test_no_filtering_when_disabled(self, skeleton, video):
+        """No filtering should occur with default parameters."""
+        inst = sio.PredictedInstance.from_numpy(
+            points_data=np.array(
+                [[0, 0], [np.nan, np.nan], [np.nan, np.nan], [10, 10]]
+            ),
+            skeleton=skeleton,
+            score=0.9,
+        )
+        lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[inst])
+        labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[lf])
+
+        result = filter_by_node_count(labels)  # defaults: 0, 0.0
+        assert len(result.labeled_frames[0].instances) == 1
+
+    def test_filters_by_min_visible_nodes(self, skeleton, video):
+        """Instances with fewer than min nodes should be removed."""
+        inst_few = sio.PredictedInstance.from_numpy(
+            points_data=np.array(
+                [[0, 0], [np.nan, np.nan], [np.nan, np.nan], [np.nan, np.nan]]
+            ),
+            skeleton=skeleton,
+            score=0.9,
+        )
+        inst_many = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [10, 10], [15, 15]]),
+            skeleton=skeleton,
+            score=0.8,
+        )
+        lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[inst_few, inst_many])
+        labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[lf])
+
+        result = filter_by_node_count(labels, min_visible_nodes=3)
+        assert len(result.labeled_frames[0].instances) == 1
+        assert result.labeled_frames[0].instances[0].score == 0.8
+
+    def test_filters_by_node_fraction(self, skeleton, video):
+        """Instances below fraction threshold should be removed."""
+        # 1 of 4 nodes = 25%
+        inst_low = sio.PredictedInstance.from_numpy(
+            points_data=np.array(
+                [[0, 0], [np.nan, np.nan], [np.nan, np.nan], [np.nan, np.nan]]
+            ),
+            skeleton=skeleton,
+            score=0.9,
+        )
+        # 3 of 4 nodes = 75%
+        inst_high = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [10, 10], [np.nan, np.nan]]),
+            skeleton=skeleton,
+            score=0.8,
+        )
+        lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[inst_low, inst_high])
+        labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[lf])
+
+        # Require at least 50% of nodes
+        result = filter_by_node_count(labels, min_visible_node_fraction=0.5)
+        assert len(result.labeled_frames[0].instances) == 1
+        assert result.labeled_frames[0].instances[0].score == 0.8
+
+    def test_combined_criteria(self, skeleton, video):
+        """Instance must pass both criteria."""
+        # 2 of 4 nodes = 50%
+        inst = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [np.nan, np.nan], [np.nan, np.nan]]),
+            skeleton=skeleton,
+            score=0.9,
+        )
+        lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[inst])
+        labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[lf])
+
+        # Passes fraction (50% >= 50%) but fails count (2 < 3)
+        result = filter_by_node_count(
+            labels, min_visible_nodes=3, min_visible_node_fraction=0.5
+        )
+        assert len(result.labeled_frames[0].instances) == 0
+
+    def test_preserves_non_predicted_instances(self, skeleton, video):
+        """Non-predicted instances (ground truth) should be preserved."""
+        pred_inst = sio.PredictedInstance.from_numpy(
+            points_data=np.array(
+                [[0, 0], [np.nan, np.nan], [np.nan, np.nan], [np.nan, np.nan]]
+            ),
+            skeleton=skeleton,
+            score=0.9,
+        )
+        gt_inst = sio.Instance.from_numpy(
+            points_data=np.array(
+                [[0, 0], [np.nan, np.nan], [np.nan, np.nan], [np.nan, np.nan]]
+            ),
+            skeleton=skeleton,
+        )
+        lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst, gt_inst])
+        labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[lf])
+
+        result = filter_by_node_count(labels, min_visible_nodes=3)
+        # GT should be preserved, predicted should be filtered
+        assert len(result.labeled_frames[0].instances) == 1
+        assert isinstance(result.labeled_frames[0].instances[0], sio.Instance)
+        assert not isinstance(
+            result.labeled_frames[0].instances[0], sio.PredictedInstance
+        )
+
+    def test_multiple_frames(self, skeleton, video):
+        """Test filtering across multiple frames."""
+        # Frame 0: instance with 1 node (should be filtered)
+        inst1 = sio.PredictedInstance.from_numpy(
+            points_data=np.array(
+                [[0, 0], [np.nan, np.nan], [np.nan, np.nan], [np.nan, np.nan]]
+            ),
+            skeleton=skeleton,
+            score=0.9,
+        )
+        lf0 = sio.LabeledFrame(video=video, frame_idx=0, instances=[inst1])
+
+        # Frame 1: instance with 4 nodes (should be kept)
+        inst2 = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [10, 10], [15, 15]]),
+            skeleton=skeleton,
+            score=0.8,
+        )
+        lf1 = sio.LabeledFrame(video=video, frame_idx=1, instances=[inst2])
+
+        labels = sio.Labels(
+            videos=[video], skeletons=[skeleton], labeled_frames=[lf0, lf1]
+        )
+
+        result = filter_by_node_count(labels, min_visible_nodes=2)
+        assert len(result.labeled_frames[0].instances) == 0
+        assert len(result.labeled_frames[1].instances) == 1
+
+
+class TestFilterByNodeConfidence:
+    """Integration tests for filter_by_node_confidence."""
+
+    @pytest.fixture
+    def skeleton(self):
+        """Create a skeleton with 3 nodes for testing."""
+        return sio.Skeleton(nodes=["head", "body", "tail"])
+
+    @pytest.fixture
+    def video(self):
+        """Create a dummy video for testing."""
+        return sio.Video(filename="test.mp4")
+
+    def test_empty_labels_unchanged(self, skeleton, video):
+        """Empty labels should be unchanged."""
+        labels = sio.Labels(videos=[video], skeletons=[skeleton])
+        result = filter_by_node_confidence(labels, min_mean_node_score=0.5)
+        assert len(result.labeled_frames) == 0
+
+    def test_no_filtering_when_disabled(self, skeleton, video):
+        """No filtering should occur with default parameters."""
+        inst = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [10, 10]]),
+            skeleton=skeleton,
+            point_scores=np.array([0.1, 0.1, 0.1]),
+            score=0.1,
+        )
+        lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[inst])
+        labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[lf])
+
+        result = filter_by_node_confidence(labels)  # defaults: 0.0, 0.0
+        assert len(result.labeled_frames[0].instances) == 1
+
+    def test_filters_by_mean_node_score(self, skeleton, video):
+        """Instances with low mean node score should be removed."""
+        inst_low = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [10, 10]]),
+            skeleton=skeleton,
+            point_scores=np.array([0.2, 0.2, 0.2]),
+            score=0.9,
+        )
+        inst_high = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [10, 10]]),
+            skeleton=skeleton,
+            point_scores=np.array([0.8, 0.8, 0.8]),
+            score=0.9,
+        )
+        lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[inst_low, inst_high])
+        labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[lf])
+
+        result = filter_by_node_confidence(labels, min_mean_node_score=0.5)
+        assert len(result.labeled_frames[0].instances) == 1
+        np.testing.assert_array_equal(
+            result.labeled_frames[0].instances[0].points["score"], [0.8, 0.8, 0.8]
+        )
+
+    def test_filters_by_instance_score(self, skeleton, video):
+        """Instances with low instance score should be removed."""
+        inst_low = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [10, 10]]),
+            skeleton=skeleton,
+            point_scores=np.array([0.9, 0.9, 0.9]),
+            score=0.2,
+        )
+        inst_high = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [10, 10]]),
+            skeleton=skeleton,
+            point_scores=np.array([0.9, 0.9, 0.9]),
+            score=0.8,
+        )
+        lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[inst_low, inst_high])
+        labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[lf])
+
+        result = filter_by_node_confidence(labels, min_instance_score=0.5)
+        assert len(result.labeled_frames[0].instances) == 1
+        assert result.labeled_frames[0].instances[0].score == 0.8
+
+    def test_combined_criteria(self, skeleton, video):
+        """Instance must pass both criteria."""
+        # High node scores but low instance score
+        inst = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [10, 10]]),
+            skeleton=skeleton,
+            point_scores=np.array([0.9, 0.9, 0.9]),
+            score=0.2,
+        )
+        lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[inst])
+        labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[lf])
+
+        # Passes mean node score but fails instance score
+        result = filter_by_node_confidence(
+            labels, min_mean_node_score=0.5, min_instance_score=0.5
+        )
+        assert len(result.labeled_frames[0].instances) == 0
+
+    def test_preserves_non_predicted_instances(self, skeleton, video):
+        """Non-predicted instances (ground truth) should be preserved."""
+        pred_inst = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [10, 10]]),
+            skeleton=skeleton,
+            point_scores=np.array([0.1, 0.1, 0.1]),
+            score=0.1,
+        )
+        gt_inst = sio.Instance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [10, 10]]),
+            skeleton=skeleton,
+        )
+        lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst, gt_inst])
+        labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[lf])
+
+        result = filter_by_node_confidence(
+            labels, min_mean_node_score=0.5, min_instance_score=0.5
+        )
+        # GT should be preserved, predicted should be filtered
+        assert len(result.labeled_frames[0].instances) == 1
+        assert isinstance(result.labeled_frames[0].instances[0], sio.Instance)
+        assert not isinstance(
+            result.labeled_frames[0].instances[0], sio.PredictedInstance
+        )
+
+    def test_handles_nan_point_scores(self, skeleton, video):
+        """Instances with NaN point_scores should be filtered (mean=0)."""
+        inst = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [10, 10]]),
+            skeleton=skeleton,
+            # No explicit point_scores = defaults to NaN
+            score=0.8,
+        )
+        lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[inst])
+        labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[lf])
+
+        # NaN point_scores result in mean=0, which is below threshold
+        result = filter_by_node_confidence(labels, min_mean_node_score=0.5)
+        assert len(result.labeled_frames[0].instances) == 0
+
+    def test_multiple_frames(self, skeleton, video):
+        """Test filtering across multiple frames."""
+        # Frame 0: low score instance
+        inst1 = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [10, 10]]),
+            skeleton=skeleton,
+            point_scores=np.array([0.1, 0.1, 0.1]),
+            score=0.1,
+        )
+        lf0 = sio.LabeledFrame(video=video, frame_idx=0, instances=[inst1])
+
+        # Frame 1: high score instance
+        inst2 = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[0, 0], [5, 5], [10, 10]]),
+            skeleton=skeleton,
+            point_scores=np.array([0.9, 0.9, 0.9]),
+            score=0.9,
+        )
+        lf1 = sio.LabeledFrame(video=video, frame_idx=1, instances=[inst2])
+
+        labels = sio.Labels(
+            videos=[video], skeletons=[skeleton], labeled_frames=[lf0, lf1]
+        )
+
+        result = filter_by_node_confidence(
+            labels, min_mean_node_score=0.5, min_instance_score=0.5
+        )
+        assert len(result.labeled_frames[0].instances) == 0
+        assert len(result.labeled_frames[1].instances) == 1
