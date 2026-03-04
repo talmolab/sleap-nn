@@ -164,9 +164,7 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    slider_scale = mo.ui.slider(
-        0.1, 3.0, value=1.0, step=0.01, label="Scale factor"
-    )
+    slider_scale = mo.ui.slider(0.1, 3.0, value=1.0, step=0.01, label="Scale factor")
     mo.vstack([slider_scale])
     return (slider_scale,)
 
@@ -460,7 +458,9 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    slider_contrast = mo.ui.slider(0.1, 3.0, value=1.0, step=0.01, label="Contrast factor")
+    slider_contrast = mo.ui.slider(
+        0.1, 3.0, value=1.0, step=0.01, label="Contrast factor"
+    )
     mo.vstack([slider_contrast])
     return (slider_contrast,)
 
@@ -473,7 +473,9 @@ def _(Image, file, io, mo, np, slider_contrast):
 
         # Apply contrast using lookup table (pure uint8)
         _lut = np.arange(256, dtype=np.float32)
-        _lut = np.clip((_lut - 127.5) * slider_contrast.value + 127.5, 0, 255).astype(np.uint8)
+        _lut = np.clip((_lut - 127.5) * slider_contrast.value + 127.5, 0, 255).astype(
+            np.uint8
+        )
         _aug_np = _lut[_img_np]
         _aug_image = Image.fromarray(_aug_np)
 
@@ -507,7 +509,9 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    slider_brightness = mo.ui.slider(0.1, 3.0, value=1.0, step=0.01, label="Brightness factor")
+    slider_brightness = mo.ui.slider(
+        0.1, 3.0, value=1.0, step=0.01, label="Brightness factor"
+    )
     mo.vstack([slider_brightness])
     return (slider_brightness,)
 
@@ -539,11 +543,13 @@ def _(np, skia):
         """Transform image using Skia matrix (uint8 in, uint8 out).
 
         This is the same approach used in sleap-nn for fast augmentations.
+        Uses array-backed Skia surface pattern from sleap-io to avoid
+        platform-specific BGR/RGBA issues.
         """
         h, w = image.shape[:2]
         channels = image.shape[2] if image.ndim == 3 else 1
 
-        # Skia needs RGBA format
+        # Prepare source image as RGBA for Skia
         if channels == 1:
             image_rgba = np.stack(
                 [image.squeeze()] * 3 + [np.full((h, w), 255, dtype=np.uint8)], axis=-1
@@ -561,7 +567,13 @@ def _(np, skia):
             image_rgba, colorType=skia.ColorType.kRGBA_8888_ColorType
         )
 
-        surface = skia.Surface(w, h)
+        # Create output array and array-backed surface
+        # This avoids the BGR/RGBA issue by writing directly to the numpy array
+        output_rgba = np.zeros((h, w, 4), dtype=np.uint8)
+        output_rgba[:, :, 3] = 255  # Set alpha to opaque
+        surface = skia.Surface(
+            output_rgba, colorType=skia.ColorType.kRGBA_8888_ColorType
+        )
         canvas = surface.getCanvas()
         canvas.clear(skia.Color4f(0, 0, 0, 1))
         canvas.setMatrix(matrix)
@@ -571,13 +583,16 @@ def _(np, skia):
         sampling = skia.SamplingOptions(skia.FilterMode.kLinear)
         canvas.drawImage(skia_image, 0, 0, sampling, paint)
 
-        result = surface.makeImageSnapshot().toarray()
+        # Flush to ensure drawing is complete
+        surface.flushAndSubmit()
 
+        # Return appropriate channels from output array
         if channels == 1:
-            return result[:, :, 0:1]
+            return output_rgba[:, :, 0:1]
         elif channels == 3:
-            return result[:, :, :3]
-        return result
+            return output_rgba[:, :, :3]
+        return output_rgba
+
     return (transform_image_skia,)
 
 
@@ -615,6 +630,7 @@ def _(np):
         result[y : y + erase_h, x : x + erase_w] = fill
 
         return result
+
     return (apply_random_erase,)
 
 
@@ -625,6 +641,7 @@ def _():
     import skia
     from PIL import Image
     import io
+
     return Image, io, mo, np, skia
 
 

@@ -328,6 +328,7 @@ def _(np, plt):
 
         # Show the plot
         plt.show()
+
     return (plot_receptive_field,)
 
 
@@ -366,6 +367,7 @@ def _():
 
     from PIL import Image
     import io
+
     return Image, io, mo, np, plt
 
 

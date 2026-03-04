@@ -5,6 +5,11 @@ This module provides augmentation functions using skia-python that:
 2. Operate on uint8 tensors throughout (avoiding float32 conversions)
 3. Provide ~1.5x faster augmentation compared to Kornia
 
+The implementation uses array-backed Skia surfaces (following the sleap-io pattern)
+which avoids platform-specific BGR/RGBA pixel format issues. By creating surfaces
+with an existing numpy array as the backing store, Skia writes directly to that
+array in the specified color format, eliminating the need for channel swapping.
+
 Usage:
     from sleap_nn.data.skia_augmentation import (
         apply_intensity_augmentation_skia,
@@ -240,11 +245,16 @@ def apply_geometric_augmentation_skia(
 
 
 def _transform_image_skia(image: np.ndarray, matrix: skia.Matrix) -> np.ndarray:
-    """Transform image using Skia matrix (uint8 in, uint8 out)."""
+    """Transform image using Skia matrix (uint8 in, uint8 out).
+
+    Uses array-backed Skia surface pattern from sleap-io to avoid platform-specific
+    BGR/RGBA issues. By creating the surface with an existing numpy array as backing
+    store, Skia writes directly to that array in RGBA format.
+    """
     h, w = image.shape[:2]
     channels = image.shape[2] if image.ndim == 3 else 1
 
-    # Skia needs RGBA
+    # Prepare source image as RGBA for Skia
     if channels == 1:
         image_rgba = np.stack(
             [image.squeeze()] * 3 + [np.full((h, w), 255, dtype=np.uint8)], axis=-1
@@ -260,7 +270,11 @@ def _transform_image_skia(image: np.ndarray, matrix: skia.Matrix) -> np.ndarray:
         image_rgba, colorType=skia.ColorType.kRGBA_8888_ColorType
     )
 
-    surface = skia.Surface(w, h)
+    # Create output array and array-backed surface
+    # This avoids the BGR/RGBA issue by writing directly to the numpy array
+    output_rgba = np.zeros((h, w, 4), dtype=np.uint8)
+    output_rgba[:, :, 3] = 255  # Set alpha to opaque
+    surface = skia.Surface(output_rgba, colorType=skia.ColorType.kRGBA_8888_ColorType)
     canvas = surface.getCanvas()
     canvas.clear(skia.Color4f(0, 0, 0, 1))
     canvas.setMatrix(matrix)
@@ -270,11 +284,13 @@ def _transform_image_skia(image: np.ndarray, matrix: skia.Matrix) -> np.ndarray:
     sampling = skia.SamplingOptions(skia.FilterMode.kLinear)
     canvas.drawImage(skia_image, 0, 0, sampling, paint)
 
-    result = surface.makeImageSnapshot().toarray()
+    # Flush to ensure drawing is complete
+    surface.flushAndSubmit()
 
+    # Return appropriate channels from the output array
     if channels == 1:
-        return result[:, :, 0:1]
-    return result[:, :, :channels]
+        return output_rgba[:, :, 0:1]
+    return output_rgba[:, :, :3]
 
 
 def _transform_keypoints_tensor(
@@ -340,6 +356,10 @@ def crop_and_resize_skia(
 
     Replacement for kornia.geometry.transform.crop_and_resize.
 
+    Uses array-backed Skia surface pattern from sleap-io to avoid platform-specific
+    BGR/RGBA issues. By creating the surface with an existing numpy array as backing
+    store, Skia writes directly to that array in RGBA format.
+
     Args:
         image: Input tensor of shape (1, C, H, W).
         boxes: Bounding boxes tensor of shape (1, 4, 2) with corners:
@@ -374,7 +394,7 @@ def crop_and_resize_skia(
     matrix.setScale(scale_x, scale_y)
     matrix.preTranslate(-x1, -y1)
 
-    # Skia needs RGBA
+    # Prepare source image as RGBA for Skia
     if channels == 1:
         image_rgba = np.stack(
             [img_np.squeeze()] * 3 + [np.full((h, w), 255, dtype=np.uint8)], axis=-1
@@ -390,7 +410,11 @@ def crop_and_resize_skia(
         image_rgba, colorType=skia.ColorType.kRGBA_8888_ColorType
     )
 
-    surface = skia.Surface(out_w, out_h)
+    # Create output array and array-backed surface
+    # This avoids the BGR/RGBA issue by writing directly to the numpy array
+    output_rgba = np.zeros((out_h, out_w, 4), dtype=np.uint8)
+    output_rgba[:, :, 3] = 255  # Set alpha to opaque
+    surface = skia.Surface(output_rgba, colorType=skia.ColorType.kRGBA_8888_ColorType)
     canvas = surface.getCanvas()
     canvas.clear(skia.Color4f(0, 0, 0, 1))
     canvas.setMatrix(matrix)
@@ -400,12 +424,14 @@ def crop_and_resize_skia(
     sampling = skia.SamplingOptions(skia.FilterMode.kLinear)
     canvas.drawImage(skia_image, 0, 0, sampling, paint)
 
-    result = surface.makeImageSnapshot().toarray()
+    # Flush to ensure drawing is complete
+    surface.flushAndSubmit()
 
+    # Extract appropriate channels from output array
     if channels == 1:
-        result = result[:, :, 0:1]
+        result = output_rgba[:, :, 0:1]
     else:
-        result = result[:, :, :channels]
+        result = output_rgba[:, :, :3]
 
     result_tensor = torch.from_numpy(result).permute(2, 0, 1).unsqueeze(0)
     if is_float:
