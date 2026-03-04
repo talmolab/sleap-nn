@@ -11,7 +11,6 @@ from sleap_nn.data.augmentation import (
 )
 from sleap_nn.data.skia_augmentation import (
     _transform_image_skia,
-    _SKIA_IS_BGRA,
     crop_and_resize_skia,
     apply_geometric_augmentation_skia,
 )
@@ -81,18 +80,10 @@ def test_apply_geometric_augmentation(minimal_instance):
 class TestSkiaChannelOrdering:
     """Test that Skia-based augmentation preserves RGB channel ordering.
 
-    Skia surfaces use kBGRA_8888 on Linux, so toarray() returns BGRA.
-    On macOS, surfaces use kRGBA_8888. These tests verify that channel
-    ordering is correct on all platforms.
+    The implementation uses array-backed Skia surfaces (following the sleap-io
+    pattern) which avoids platform-specific BGR/RGBA pixel format issues. These
+    tests verify that channel ordering is correct on all platforms.
     """
-
-    def test_skia_bgra_detection(self):
-        """Test that _SKIA_IS_BGRA correctly detects the surface format."""
-        surface = skia.Surface(1, 1)
-        expected_bgra = (
-            surface.imageInfo().colorType() == skia.ColorType.kBGRA_8888_ColorType
-        )
-        assert _SKIA_IS_BGRA == expected_bgra
 
     def test_transform_image_skia_preserves_rgb(self):
         """Test _transform_image_skia returns RGB, not BGR."""
@@ -127,17 +118,15 @@ class TestSkiaChannelOrdering:
         assert result.shape == (10, 10, 1)
         assert np.allclose(result, 128, atol=1)
 
-    def test_transform_image_skia_contiguous(self):
-        """Test that the output array is C-contiguous when BGR swap is applied."""
+    def test_transform_image_skia_output_shape(self):
+        """Test that the output array has correct shape and dtype."""
         img = np.zeros((10, 10, 3), dtype=np.uint8)
         img[:, :, 0] = 255
 
         result = _transform_image_skia(img, skia.Matrix())
 
-        # On BGRA platforms, result should be contiguous due to ascontiguousarray
-        # On RGBA platforms, it may or may not be depending on Skia internals
-        if _SKIA_IS_BGRA:
-            assert result.flags["C_CONTIGUOUS"]
+        assert result.shape == (10, 10, 3), f"Expected (10, 10, 3), got {result.shape}"
+        assert result.dtype == np.uint8, f"Expected uint8, got {result.dtype}"
 
     def test_crop_and_resize_skia_preserves_rgb(self):
         """Test crop_and_resize_skia returns RGB, not BGR."""

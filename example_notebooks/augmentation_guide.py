@@ -539,27 +539,17 @@ def _(Image, file, io, mo, np, slider_brightness):
 
 @app.cell(hide_code=True)
 def _(np, skia):
-    def _skia_surface_is_bgra() -> bool:
-        """Check if Skia surfaces use BGRA pixel format.
-
-        On Linux, Skia surfaces use kBGRA_8888, so toarray() returns BGRA.
-        On macOS, Skia surfaces use kRGBA_8888, so toarray() returns RGBA.
-        """
-        surface = skia.Surface(1, 1)
-        return surface.imageInfo().colorType() == skia.ColorType.kBGRA_8888_ColorType
-
-    # Cache at module load time since surface format is platform-specific
-    _SKIA_IS_BGRA = _skia_surface_is_bgra()
-
     def transform_image_skia(image: np.ndarray, matrix: skia.Matrix) -> np.ndarray:
         """Transform image using Skia matrix (uint8 in, uint8 out).
 
         This is the same approach used in sleap-nn for fast augmentations.
+        Uses array-backed Skia surface pattern from sleap-io to avoid
+        platform-specific BGR/RGBA issues.
         """
         h, w = image.shape[:2]
         channels = image.shape[2] if image.ndim == 3 else 1
 
-        # Skia needs RGBA format
+        # Prepare source image as RGBA for Skia
         if channels == 1:
             image_rgba = np.stack(
                 [image.squeeze()] * 3 + [np.full((h, w), 255, dtype=np.uint8)], axis=-1
@@ -577,7 +567,13 @@ def _(np, skia):
             image_rgba, colorType=skia.ColorType.kRGBA_8888_ColorType
         )
 
-        surface = skia.Surface(w, h)
+        # Create output array and array-backed surface
+        # This avoids the BGR/RGBA issue by writing directly to the numpy array
+        output_rgba = np.zeros((h, w, 4), dtype=np.uint8)
+        output_rgba[:, :, 3] = 255  # Set alpha to opaque
+        surface = skia.Surface(
+            output_rgba, colorType=skia.ColorType.kRGBA_8888_ColorType
+        )
         canvas = surface.getCanvas()
         canvas.clear(skia.Color4f(0, 0, 0, 1))
         canvas.setMatrix(matrix)
@@ -587,17 +583,15 @@ def _(np, skia):
         sampling = skia.SamplingOptions(skia.FilterMode.kLinear)
         canvas.drawImage(skia_image, 0, 0, sampling, paint)
 
-        result = surface.makeImageSnapshot().toarray()
+        # Flush to ensure drawing is complete
+        surface.flushAndSubmit()
 
+        # Return appropriate channels from output array
         if channels == 1:
-            return result[:, :, 0:1]
+            return output_rgba[:, :, 0:1]
         elif channels == 3:
-            if _SKIA_IS_BGRA:
-                # Skia surfaces use kBGRA_8888 on Linux, so toarray() returns BGRA.
-                # Reverse the channel order to convert BGR -> RGB.
-                return np.ascontiguousarray(result[:, :, 2::-1])
-            return result[:, :, :3]
-        return result
+            return output_rgba[:, :, :3]
+        return output_rgba
 
     return (transform_image_skia,)
 
