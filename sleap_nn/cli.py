@@ -712,6 +712,43 @@ def train(
     ),
 )
 @click.option(
+    "--filter_min_visible_nodes",
+    type=int,
+    default=0,
+    help=(
+        "Minimum number of visible (non-NaN) keypoints required. "
+        "Instances with fewer visible nodes are removed. (default: 0, no filtering)"
+    ),
+)
+@click.option(
+    "--filter_min_visible_node_fraction",
+    type=float,
+    default=0.0,
+    help=(
+        "Minimum fraction of skeleton nodes that must be visible. "
+        "Value should be in [0, 1]. For example, 0.5 requires at least half "
+        "of the skeleton's nodes to be detected. (default: 0.0, no filtering)"
+    ),
+)
+@click.option(
+    "--filter_min_mean_node_score",
+    type=float,
+    default=0.0,
+    help=(
+        "Minimum mean confidence score across visible nodes. "
+        "Instances with lower mean node scores are removed. (default: 0.0, no filtering)"
+    ),
+)
+@click.option(
+    "--filter_min_instance_score",
+    type=float,
+    default=0.0,
+    help=(
+        "Minimum overall instance confidence score. "
+        "Instances with lower scores are removed. (default: 0.0, no filtering)"
+    ),
+)
+@click.option(
     "--integral_refinement",
     type=str,
     default="integral",

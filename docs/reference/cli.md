@@ -105,13 +105,17 @@ sleap-nn track --data_path INPUT --model_paths MODEL [OPTIONS]
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
+| `--max_instances` | Max instances per frame (forward pass only) | `INT` | None |
+| `--filter_min_visible_nodes` | Min visible keypoints required | `INT` | `0` |
+| `--filter_min_visible_node_fraction` | Min fraction of skeleton nodes visible | `FLOAT` (0.0-1.0) | `0.0` |
+| `--filter_min_mean_node_score` | Min mean confidence across visible nodes | `FLOAT` (0.0-1.0) | `0.0` |
+| `--filter_min_instance_score` | Min overall instance score | `FLOAT` (0.0-1.0) | `0.0` |
 | `--filter_overlapping` | Remove duplicate instances (inference only) | Flag | `false` |
 | `--filter_overlapping_method` | Overlap calculation method | `iou`, `oks` | `iou` |
 | `--filter_overlapping_threshold` | Similarity threshold for filtering | `FLOAT` (0.0-1.0) | `0.8` |
-| `--max_instances` | Max instances per frame (forward pass only) | `INT` | None |
 
 !!! note "Processing order"
-    When running inference + tracking: `--max_instances` (forward pass) → `--filter_overlapping` (before tracking) → tracking. In track-only mode, filtering is applied before tracking on existing predictions.
+    When running inference + tracking: `--max_instances` (forward pass) → node count filter → confidence filter → overlap filter → tracking. In track-only mode, filtering is applied before tracking on existing predictions.
 
 ### Tracking
 

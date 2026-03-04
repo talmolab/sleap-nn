@@ -74,7 +74,45 @@ sleap-nn track -i video.mp4 \
 
 ---
 
-## Filtering Overlapping Instances
+## Filtering Instances
+
+Post-processing filters remove low-quality or duplicate predictions before tracking.
+
+### Node Count Filter
+
+Remove instances with too few detected keypoints:
+
+```bash
+# Require at least 3 visible nodes
+sleap-nn track -i video.mp4 -m models/ --filter_min_visible_nodes 3
+
+# Require at least 50% of skeleton nodes to be visible
+sleap-nn track -i video.mp4 -m models/ --filter_min_visible_node_fraction 0.5
+```
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--filter_min_visible_nodes` | Minimum number of visible keypoints | `0` (disabled) |
+| `--filter_min_visible_node_fraction` | Minimum fraction of skeleton nodes | `0.0` (disabled) |
+
+### Confidence Score Filter
+
+Remove instances with low confidence scores:
+
+```bash
+# Require mean node confidence >= 0.4
+sleap-nn track -i video.mp4 -m models/ --filter_min_mean_node_score 0.4
+
+# Require instance score >= 0.3
+sleap-nn track -i video.mp4 -m models/ --filter_min_instance_score 0.3
+```
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--filter_min_mean_node_score` | Minimum mean confidence across visible nodes | `0.0` (disabled) |
+| `--filter_min_instance_score` | Minimum overall instance score | `0.0` (disabled) |
+
+### Overlap Filter
 
 Remove duplicate detections with greedy NMS:
 
@@ -100,8 +138,21 @@ sleap-nn track -i video.mp4 -m models/ \
 | 0.5 | Moderate |
 | 0.8 | Permissive (default) |
 
+### Combining Filters
+
+All filters can be combined:
+
+```bash
+sleap-nn track -i video.mp4 -m models/ \
+    --filter_min_visible_nodes 2 \
+    --filter_min_visible_node_fraction 0.25 \
+    --filter_min_mean_node_score 0.3 \
+    --filter_overlapping \
+    --filter_overlapping_threshold 0.5
+```
+
 !!! note "Inference only"
-    `--filter_overlapping` is only applied during inference. When running in **track-only mode** (without model paths), this parameter has no effect.
+    Filters are only applied during inference. When running in **track-only mode** (without model paths), these parameters have no effect.
 
 ---
 
@@ -114,14 +165,16 @@ When running inference with tracking enabled, operations are applied in this ord
    └── --max_instances applied (limits detections during peak finding)
 
 2. Filtering (before tracking)
-   └── --filter_overlapping applied (removes duplicate instances)
+   ├── Node count filter (--filter_min_visible_nodes, --filter_min_visible_node_fraction)
+   ├── Confidence filter (--filter_min_mean_node_score, --filter_min_instance_score)
+   └── Overlap filter (--filter_overlapping)
 
 3. Tracking
    └── Instance identity assignment across frames
 ```
 
 !!! note "Why filtering happens before tracking"
-    Filtering is applied **before** tracking to prevent spurious track creation. If duplicates were removed after tracking, the tracker would assign IDs to instances that are later filtered out, causing track switches in subsequent frames.
+    Filtering is applied **before** tracking to prevent spurious track creation. If low-quality or duplicate instances were removed after tracking, the tracker would assign IDs to instances that are later filtered out, causing track switches in subsequent frames.
 
 In **track-only mode** (no model paths), filtering is still applied before tracking on existing predictions.
 

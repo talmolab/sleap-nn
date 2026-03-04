@@ -176,6 +176,10 @@ class Predictor(ABC):
         filter_overlapping: bool = False,
         filter_overlapping_threshold: float = 0.8,
         filter_overlapping_method: str = "iou",
+        filter_min_visible_nodes: int = 0,
+        filter_min_visible_node_fraction: float = 0.0,
+        filter_min_mean_node_score: float = 0.0,
+        filter_min_instance_score: float = 0.0,
     ) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
@@ -214,6 +218,14 @@ class Predictor(ABC):
                 instances. Instances with similarity > threshold are removed. Default: 0.8.
             filter_overlapping_method: (str) Similarity metric for filtering. One of "iou"
                 (bounding box) or "oks" (keypoint similarity). Default: "iou".
+            filter_min_visible_nodes: (int) Minimum number of visible (non-NaN) keypoints
+                required. Instances with fewer visible nodes are removed. Default: 0.
+            filter_min_visible_node_fraction: (float) Minimum fraction of skeleton nodes
+                that must be visible. Value in [0, 1]. Default: 0.0.
+            filter_min_mean_node_score: (float) Minimum mean confidence score across
+                visible nodes. Default: 0.0.
+            filter_min_instance_score: (float) Minimum overall instance confidence score.
+                Default: 0.0.
 
         Returns:
             A subclass of `Predictor`.
@@ -285,6 +297,10 @@ class Predictor(ABC):
                     filter_overlapping=filter_overlapping,
                     filter_overlapping_threshold=filter_overlapping_threshold,
                     filter_overlapping_method=filter_overlapping_method,
+                    filter_min_visible_nodes=filter_min_visible_nodes,
+                    filter_min_visible_node_fraction=filter_min_visible_node_fraction,
+                    filter_min_mean_node_score=filter_min_mean_node_score,
+                    filter_min_instance_score=filter_min_instance_score,
                 )
             if "centered_instance" in model_names:
                 confmap_ckpt_path = model_paths[model_names.index("centered_instance")]
@@ -306,6 +322,10 @@ class Predictor(ABC):
                     filter_overlapping=filter_overlapping,
                     filter_overlapping_threshold=filter_overlapping_threshold,
                     filter_overlapping_method=filter_overlapping_method,
+                    filter_min_visible_nodes=filter_min_visible_nodes,
+                    filter_min_visible_node_fraction=filter_min_visible_node_fraction,
+                    filter_min_mean_node_score=filter_min_mean_node_score,
+                    filter_min_instance_score=filter_min_instance_score,
                 )
             elif "multi_class_topdown" in model_names:
                 confmap_ckpt_path = model_paths[
@@ -326,6 +346,13 @@ class Predictor(ABC):
                     device=device,
                     preprocess_config=preprocess_config,
                     anchor_part=anchor_part,
+                    filter_overlapping=filter_overlapping,
+                    filter_overlapping_threshold=filter_overlapping_threshold,
+                    filter_overlapping_method=filter_overlapping_method,
+                    filter_min_visible_nodes=filter_min_visible_nodes,
+                    filter_min_visible_node_fraction=filter_min_visible_node_fraction,
+                    filter_min_mean_node_score=filter_min_mean_node_score,
+                    filter_min_instance_score=filter_min_instance_score,
                 )
 
         elif "bottomup" in model_names:
@@ -345,6 +372,10 @@ class Predictor(ABC):
                 filter_overlapping=filter_overlapping,
                 filter_overlapping_threshold=filter_overlapping_threshold,
                 filter_overlapping_method=filter_overlapping_method,
+                filter_min_visible_nodes=filter_min_visible_nodes,
+                filter_min_visible_node_fraction=filter_min_visible_node_fraction,
+                filter_min_mean_node_score=filter_min_mean_node_score,
+                filter_min_instance_score=filter_min_instance_score,
             )
 
         elif "multi_class_bottomup" in model_names:
@@ -361,6 +392,13 @@ class Predictor(ABC):
                 return_confmaps=return_confmaps,
                 device=device,
                 preprocess_config=preprocess_config,
+                filter_overlapping=filter_overlapping,
+                filter_overlapping_threshold=filter_overlapping_threshold,
+                filter_overlapping_method=filter_overlapping_method,
+                filter_min_visible_nodes=filter_min_visible_nodes,
+                filter_min_visible_node_fraction=filter_min_visible_node_fraction,
+                filter_min_mean_node_score=filter_min_mean_node_score,
+                filter_min_instance_score=filter_min_instance_score,
             )
 
         else:
@@ -753,6 +791,10 @@ class TopDownPredictor(Predictor):
     filter_overlapping: bool = False
     filter_overlapping_threshold: float = 0.8
     filter_overlapping_method: str = "iou"
+    filter_min_visible_nodes: int = 0
+    filter_min_visible_node_fraction: float = 0.0
+    filter_min_mean_node_score: float = 0.0
+    filter_min_instance_score: float = 0.0
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -868,6 +910,10 @@ class TopDownPredictor(Predictor):
         filter_overlapping: bool = False,
         filter_overlapping_threshold: float = 0.8,
         filter_overlapping_method: str = "iou",
+        filter_min_visible_nodes: int = 0,
+        filter_min_visible_node_fraction: float = 0.0,
+        filter_min_mean_node_score: float = 0.0,
+        filter_min_instance_score: float = 0.0,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
@@ -903,6 +949,14 @@ class TopDownPredictor(Predictor):
                 instances. Instances with similarity > threshold are removed. Default: 0.8.
             filter_overlapping_method: (str) Similarity metric for filtering. One of "iou"
                 (bounding box) or "oks" (keypoint similarity). Default: "iou".
+            filter_min_visible_nodes: (int) Minimum number of visible (non-NaN) keypoints
+                required. Instances with fewer visible nodes are removed. Default: 0.
+            filter_min_visible_node_fraction: (float) Minimum fraction of skeleton nodes
+                that must be visible. Value in [0, 1]. Default: 0.0.
+            filter_min_mean_node_score: (float) Minimum mean confidence score across
+                visible nodes. Default: 0.0.
+            filter_min_instance_score: (float) Minimum overall instance confidence score.
+                Default: 0.0.
 
         Returns:
             An instance of `TopDownPredictor` with the loaded models.
@@ -1239,6 +1293,10 @@ class TopDownPredictor(Predictor):
             filter_overlapping=filter_overlapping,
             filter_overlapping_threshold=filter_overlapping_threshold,
             filter_overlapping_method=filter_overlapping_method,
+            filter_min_visible_nodes=filter_min_visible_nodes,
+            filter_min_visible_node_fraction=filter_min_visible_node_fraction,
+            filter_min_mean_node_score=filter_min_mean_node_score,
+            filter_min_instance_score=filter_min_instance_score,
         )
 
         obj._initialize_inference_model()
@@ -1406,6 +1464,50 @@ class TopDownPredictor(Predictor):
         for key, inst in sorted(preds.items()):
             # Create list of LabeledFrames.
             video_idx, frame_idx = key
+
+            # Filter by node count to remove low-quality instances.
+            if (
+                self.filter_min_visible_nodes > 0
+                or self.filter_min_visible_node_fraction > 0.0
+            ) and len(inst) > 0:
+                from sleap_nn.inference.postprocessing import _count_visible_nodes
+
+                n_total = len(self.skeletons[0].nodes)
+                kept = []
+                for i in inst:
+                    n_visible = _count_visible_nodes(i)
+                    if self.filter_min_visible_nodes > 0:
+                        if n_visible < self.filter_min_visible_nodes:
+                            continue
+                    if self.filter_min_visible_node_fraction > 0.0:
+                        fraction = n_visible / n_total if n_total > 0 else 0.0
+                        if fraction < self.filter_min_visible_node_fraction:
+                            continue
+                    kept.append(i)
+                inst = kept
+
+            # Filter by confidence to remove low-quality instances.
+            if (
+                self.filter_min_mean_node_score > 0.0
+                or self.filter_min_instance_score > 0.0
+            ) and len(inst) > 0:
+                from sleap_nn.inference.postprocessing import (
+                    _instance_score,
+                    _mean_node_score,
+                )
+
+                kept = []
+                for i in inst:
+                    if self.filter_min_instance_score > 0.0:
+                        if _instance_score(i) < self.filter_min_instance_score:
+                            continue
+                    if self.filter_min_mean_node_score > 0.0:
+                        mean_score = _mean_node_score(i)
+                        if mean_score is not None:
+                            if mean_score < self.filter_min_mean_node_score:
+                                continue
+                    kept.append(i)
+                inst = kept
 
             # Filter overlapping instances to remove duplicate detections.
             if self.filter_overlapping and len(inst) > 1:
@@ -1932,6 +2034,10 @@ class BottomUpPredictor(Predictor):
     filter_overlapping: bool = False
     filter_overlapping_threshold: float = 0.8
     filter_overlapping_method: str = "iou"
+    filter_min_visible_nodes: int = 0
+    filter_min_visible_node_fraction: float = 0.0
+    filter_min_mean_node_score: float = 0.0
+    filter_min_instance_score: float = 0.0
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -1985,6 +2091,10 @@ class BottomUpPredictor(Predictor):
         filter_overlapping: bool = False,
         filter_overlapping_threshold: float = 0.8,
         filter_overlapping_method: str = "iou",
+        filter_min_visible_nodes: int = 0,
+        filter_min_visible_node_fraction: float = 0.0,
+        filter_min_mean_node_score: float = 0.0,
+        filter_min_instance_score: float = 0.0,
     ) -> "BottomUpPredictor":
         """Create predictor from saved models.
 
@@ -2021,6 +2131,14 @@ class BottomUpPredictor(Predictor):
                 instances. Instances with similarity > threshold are removed. Default: 0.8.
             filter_overlapping_method: (str) Similarity metric for filtering. One of "iou"
                 (bounding box) or "oks" (keypoint similarity). Default: "iou".
+            filter_min_visible_nodes: (int) Minimum number of visible (non-NaN) keypoints
+                required. Instances with fewer visible nodes are removed. Default: 0.
+            filter_min_visible_node_fraction: (float) Minimum fraction of skeleton nodes
+                that must be visible. Value in [0, 1]. Default: 0.0.
+            filter_min_mean_node_score: (float) Minimum mean confidence score across
+                visible nodes. Default: 0.0.
+            filter_min_instance_score: (float) Minimum overall instance confidence score.
+                Default: 0.0.
 
         Returns:
             An instance of `BottomUpPredictor` with the loaded models.
@@ -2159,6 +2277,10 @@ class BottomUpPredictor(Predictor):
             filter_overlapping=filter_overlapping,
             filter_overlapping_threshold=filter_overlapping_threshold,
             filter_overlapping_method=filter_overlapping_method,
+            filter_min_visible_nodes=filter_min_visible_nodes,
+            filter_min_visible_node_fraction=filter_min_visible_node_fraction,
+            filter_min_mean_node_score=filter_min_mean_node_score,
+            filter_min_instance_score=filter_min_instance_score,
         )
 
         obj._initialize_inference_model()
@@ -2334,6 +2456,50 @@ class BottomUpPredictor(Predictor):
         for key, predicted_instances in sorted(preds.items()):
             video_idx, frame_idx = key
 
+            # Filter by node count to remove low-quality instances.
+            if (
+                self.filter_min_visible_nodes > 0
+                or self.filter_min_visible_node_fraction > 0.0
+            ) and len(predicted_instances) > 0:
+                from sleap_nn.inference.postprocessing import _count_visible_nodes
+
+                n_total = len(self.skeletons[0].nodes)
+                kept = []
+                for inst in predicted_instances:
+                    n_visible = _count_visible_nodes(inst)
+                    if self.filter_min_visible_nodes > 0:
+                        if n_visible < self.filter_min_visible_nodes:
+                            continue
+                    if self.filter_min_visible_node_fraction > 0.0:
+                        fraction = n_visible / n_total if n_total > 0 else 0.0
+                        if fraction < self.filter_min_visible_node_fraction:
+                            continue
+                    kept.append(inst)
+                predicted_instances = kept
+
+            # Filter by confidence to remove low-quality instances.
+            if (
+                self.filter_min_mean_node_score > 0.0
+                or self.filter_min_instance_score > 0.0
+            ) and len(predicted_instances) > 0:
+                from sleap_nn.inference.postprocessing import (
+                    _instance_score,
+                    _mean_node_score,
+                )
+
+                kept = []
+                for inst in predicted_instances:
+                    if self.filter_min_instance_score > 0.0:
+                        if _instance_score(inst) < self.filter_min_instance_score:
+                            continue
+                    if self.filter_min_mean_node_score > 0.0:
+                        mean_score = _mean_node_score(inst)
+                        if mean_score is not None:
+                            if mean_score < self.filter_min_mean_node_score:
+                                continue
+                    kept.append(inst)
+                predicted_instances = kept
+
             # Filter overlapping instances to remove duplicate detections.
             if self.filter_overlapping and len(predicted_instances) > 1:
                 from sleap_nn.inference.postprocessing import (
@@ -2438,6 +2604,13 @@ class BottomUpMultiClassPredictor(Predictor):
     device: str = "cpu"
     preprocess_config: Optional[OmegaConf] = None
     max_stride: int = 16
+    filter_overlapping: bool = False
+    filter_overlapping_threshold: float = 0.8
+    filter_overlapping_method: str = "iou"
+    filter_min_visible_nodes: int = 0
+    filter_min_visible_node_fraction: float = 0.0
+    filter_min_mean_node_score: float = 0.0
+    filter_min_instance_score: float = 0.0
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -2468,6 +2641,13 @@ class BottomUpMultiClassPredictor(Predictor):
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
         max_stride: int = 16,
+        filter_overlapping: bool = False,
+        filter_overlapping_threshold: float = 0.8,
+        filter_overlapping_method: str = "iou",
+        filter_min_visible_nodes: int = 0,
+        filter_min_visible_node_fraction: float = 0.0,
+        filter_min_mean_node_score: float = 0.0,
+        filter_min_instance_score: float = 0.0,
     ) -> "BottomUpMultiClassPredictor":
         """Create predictor from saved models.
 
@@ -2498,6 +2678,20 @@ class BottomUpMultiClassPredictor(Predictor):
                 `backbone_config`. This determines the downsampling factor applied by the backbone,
                 and is used to ensure that input images are padded or resized to be compatible
                 with the model's architecture. Default: 16.
+            filter_overlapping: (bool) If True, removes overlapping instances using greedy NMS.
+                Default: False.
+            filter_overlapping_threshold: (float) Similarity threshold for filtering overlapping
+                instances. Instances with similarity > threshold are removed. Default: 0.8.
+            filter_overlapping_method: (str) Similarity metric for filtering. One of "iou"
+                (bounding box) or "oks" (keypoint similarity). Default: "iou".
+            filter_min_visible_nodes: (int) Minimum number of visible (non-NaN) keypoints
+                required. Instances with fewer visible nodes are removed. Default: 0.
+            filter_min_visible_node_fraction: (float) Minimum fraction of skeleton nodes
+                that must be visible. Value in [0, 1]. Default: 0.0.
+            filter_min_mean_node_score: (float) Minimum mean confidence score across
+                visible nodes. Default: 0.0.
+            filter_min_instance_score: (float) Minimum overall instance confidence score.
+                Default: 0.0.
 
         Returns:
             An instance of `BottomUpPredictor` with the loaded models.
@@ -2641,6 +2835,13 @@ class BottomUpMultiClassPredictor(Predictor):
             max_stride=bottomup_config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ],
+            filter_overlapping=filter_overlapping,
+            filter_overlapping_threshold=filter_overlapping_threshold,
+            filter_overlapping_method=filter_overlapping_method,
+            filter_min_visible_nodes=filter_min_visible_nodes,
+            filter_min_visible_node_fraction=filter_min_visible_node_fraction,
+            filter_min_mean_node_score=filter_min_mean_node_score,
+            filter_min_instance_score=filter_min_instance_score,
         )
 
         obj._initialize_inference_model()
@@ -2818,6 +3019,75 @@ class BottomUpMultiClassPredictor(Predictor):
                         : min(max_instances, len(predicted_instances))
                     ]
 
+                # Filter by node count to remove low-quality instances.
+                if (
+                    self.filter_min_visible_nodes > 0
+                    or self.filter_min_visible_node_fraction > 0.0
+                ) and len(predicted_instances) > 0:
+                    from sleap_nn.inference.postprocessing import _count_visible_nodes
+
+                    n_total = len(self.skeletons[0].nodes)
+                    kept = []
+                    for inst in predicted_instances:
+                        n_visible = _count_visible_nodes(inst)
+                        if self.filter_min_visible_nodes > 0:
+                            if n_visible < self.filter_min_visible_nodes:
+                                continue
+                        if self.filter_min_visible_node_fraction > 0.0:
+                            fraction = n_visible / n_total if n_total > 0 else 0.0
+                            if fraction < self.filter_min_visible_node_fraction:
+                                continue
+                        kept.append(inst)
+                    predicted_instances = kept
+
+                # Filter by confidence to remove low-quality instances.
+                if (
+                    self.filter_min_mean_node_score > 0.0
+                    or self.filter_min_instance_score > 0.0
+                ) and len(predicted_instances) > 0:
+                    from sleap_nn.inference.postprocessing import (
+                        _instance_score,
+                        _mean_node_score,
+                    )
+
+                    kept = []
+                    for inst in predicted_instances:
+                        if self.filter_min_instance_score > 0.0:
+                            if _instance_score(inst) < self.filter_min_instance_score:
+                                continue
+                        if self.filter_min_mean_node_score > 0.0:
+                            mean_score = _mean_node_score(inst)
+                            if mean_score is not None:
+                                if mean_score < self.filter_min_mean_node_score:
+                                    continue
+                        kept.append(inst)
+                    predicted_instances = kept
+
+                # Filter overlapping instances to remove duplicate detections.
+                if self.filter_overlapping and len(predicted_instances) > 1:
+                    from sleap_nn.inference.postprocessing import (
+                        _nms_greedy_iou,
+                        _nms_greedy_oks,
+                        _instance_bbox,
+                    )
+
+                    scores = np.array(
+                        [getattr(inst, "score", 1.0) for inst in predicted_instances]
+                    )
+                    if self.filter_overlapping_method == "iou":
+                        bboxes = np.array(
+                            [_instance_bbox(inst) for inst in predicted_instances]
+                        )
+                        keep_indices = _nms_greedy_iou(
+                            bboxes, scores, self.filter_overlapping_threshold
+                        )
+                    else:  # oks
+                        points = [inst.numpy() for inst in predicted_instances]
+                        keep_indices = _nms_greedy_oks(
+                            points, scores, self.filter_overlapping_threshold
+                        )
+                    predicted_instances = [predicted_instances[i] for i in keep_indices]
+
                 lf = sio.LabeledFrame(
                     video=self.videos[video_idx],
                     frame_idx=frame_idx,
@@ -2902,6 +3172,13 @@ class TopDownMultiClassPredictor(Predictor):
     preprocess_config: Optional[OmegaConf] = None
     anchor_part: Optional[str] = None
     max_stride: int = 16
+    filter_overlapping: bool = False
+    filter_overlapping_threshold: float = 0.8
+    filter_overlapping_method: str = "iou"
+    filter_min_visible_nodes: int = 0
+    filter_min_visible_node_fraction: float = 0.0
+    filter_min_mean_node_score: float = 0.0
+    filter_min_instance_score: float = 0.0
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -3010,6 +3287,13 @@ class TopDownMultiClassPredictor(Predictor):
         preprocess_config: Optional[OmegaConf] = None,
         anchor_part: Optional[str] = None,
         max_stride: int = 16,
+        filter_overlapping: bool = False,
+        filter_overlapping_threshold: float = 0.8,
+        filter_overlapping_method: str = "iou",
+        filter_min_visible_nodes: int = 0,
+        filter_min_visible_node_fraction: float = 0.0,
+        filter_min_mean_node_score: float = 0.0,
+        filter_min_instance_score: float = 0.0,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
@@ -3043,6 +3327,20 @@ class TopDownMultiClassPredictor(Predictor):
                 `backbone_config`. This determines the downsampling factor applied by the backbone,
                 and is used to ensure that input images are padded or resized to be compatible
                 with the model's architecture. Default: 16.
+            filter_overlapping: (bool) If True, removes overlapping instances using greedy NMS.
+                Default: False.
+            filter_overlapping_threshold: (float) Similarity threshold for filtering overlapping
+                instances. Instances with similarity > threshold are removed. Default: 0.8.
+            filter_overlapping_method: (str) Similarity metric for filtering. One of "iou"
+                (bounding box) or "oks" (keypoint similarity). Default: "iou".
+            filter_min_visible_nodes: (int) Minimum number of visible (non-NaN) keypoints
+                required. Instances with fewer visible nodes are removed. Default: 0.
+            filter_min_visible_node_fraction: (float) Minimum fraction of skeleton nodes
+                that must be visible. Value in [0, 1]. Default: 0.0.
+            filter_min_mean_node_score: (float) Minimum mean confidence score across
+                visible nodes. Default: 0.0.
+            filter_min_instance_score: (float) Minimum overall instance confidence score.
+                Default: 0.0.
 
         Returns:
             An instance of `TopDownPredictor` with the loaded models.
@@ -3396,6 +3694,13 @@ class TopDownMultiClassPredictor(Predictor):
                     f"{centered_instance_backbone_type}"
                 ]["max_stride"]
             ),
+            filter_overlapping=filter_overlapping,
+            filter_overlapping_threshold=filter_overlapping_threshold,
+            filter_overlapping_method=filter_overlapping_method,
+            filter_min_visible_nodes=filter_min_visible_nodes,
+            filter_min_visible_node_fraction=filter_min_visible_node_fraction,
+            filter_min_mean_node_score=filter_min_mean_node_score,
+            filter_min_instance_score=filter_min_instance_score,
         )
 
         obj._initialize_inference_model()
@@ -3577,6 +3882,72 @@ class TopDownMultiClassPredictor(Predictor):
         for key, inst in preds.items():
             # Create list of LabeledFrames.
             video_idx, frame_idx = key
+
+            # Filter by node count to remove low-quality instances.
+            if (
+                self.filter_min_visible_nodes > 0
+                or self.filter_min_visible_node_fraction > 0.0
+            ) and len(inst) > 0:
+                from sleap_nn.inference.postprocessing import _count_visible_nodes
+
+                n_total = len(self.skeletons[0].nodes)
+                kept = []
+                for i in inst:
+                    n_visible = _count_visible_nodes(i)
+                    if self.filter_min_visible_nodes > 0:
+                        if n_visible < self.filter_min_visible_nodes:
+                            continue
+                    if self.filter_min_visible_node_fraction > 0.0:
+                        fraction = n_visible / n_total if n_total > 0 else 0.0
+                        if fraction < self.filter_min_visible_node_fraction:
+                            continue
+                    kept.append(i)
+                inst = kept
+
+            # Filter by confidence to remove low-quality instances.
+            if (
+                self.filter_min_mean_node_score > 0.0
+                or self.filter_min_instance_score > 0.0
+            ) and len(inst) > 0:
+                from sleap_nn.inference.postprocessing import (
+                    _instance_score,
+                    _mean_node_score,
+                )
+
+                kept = []
+                for i in inst:
+                    if self.filter_min_instance_score > 0.0:
+                        if _instance_score(i) < self.filter_min_instance_score:
+                            continue
+                    if self.filter_min_mean_node_score > 0.0:
+                        mean_score = _mean_node_score(i)
+                        if mean_score is not None:
+                            if mean_score < self.filter_min_mean_node_score:
+                                continue
+                    kept.append(i)
+                inst = kept
+
+            # Filter overlapping instances to remove duplicate detections.
+            if self.filter_overlapping and len(inst) > 1:
+                from sleap_nn.inference.postprocessing import (
+                    _nms_greedy_iou,
+                    _nms_greedy_oks,
+                    _instance_bbox,
+                )
+
+                scores = np.array([getattr(i, "score", 1.0) for i in inst])
+                if self.filter_overlapping_method == "iou":
+                    bboxes = np.array([_instance_bbox(i) for i in inst])
+                    keep_indices = _nms_greedy_iou(
+                        bboxes, scores, self.filter_overlapping_threshold
+                    )
+                else:  # oks
+                    points = [i.numpy() for i in inst]
+                    keep_indices = _nms_greedy_oks(
+                        points, scores, self.filter_overlapping_threshold
+                    )
+                inst = [inst[i] for i in keep_indices]
+
             lf = sio.LabeledFrame(
                 video=self.videos[video_idx],
                 frame_idx=frame_idx,
