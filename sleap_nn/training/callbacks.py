@@ -522,6 +522,7 @@ class UnifiedVizCallback(Callback):
         wandb_box_size: float = 5.0,
         wandb_confmap_threshold: float = 0.1,
         log_wandb_table: bool = False,
+        wandb_prefix: Optional[str] = None,
     ):
         """Initialize the unified visualization callback.
 
@@ -537,6 +538,8 @@ class UnifiedVizCallback(Callback):
             wandb_box_size: Size of keypoint boxes in pixels.
             wandb_confmap_threshold: Threshold for confidence map masks.
             log_wandb_table: If True, also log to a wandb.Table.
+            wandb_prefix: Optional prefix for wandb log keys (e.g., "dataset_0").
+                Used for multi-head training to distinguish between datasets.
         """
         super().__init__()
         from itertools import cycle
@@ -556,6 +559,7 @@ class UnifiedVizCallback(Callback):
         self.wandb_box_size = wandb_box_size
         self.wandb_confmap_threshold = wandb_confmap_threshold
         self.log_wandb_table = log_wandb_table
+        self.wandb_prefix = wandb_prefix
 
         # Auto-enable model-specific visualizations
         self.viz_pafs = model_type == "bottomup"
@@ -679,11 +683,17 @@ class UnifiedVizCallback(Callback):
 
         log_dict = {}
 
+        # Build the base path with optional dataset prefix for multi-head
+        base_path = "viz"
+        if self.wandb_prefix:
+            base_path = f"viz/{self.wandb_prefix}"
+
         # Render confmaps for each enabled mode
         for mode_name, renderer in self._wandb_renderers.items():
             suffix = "" if mode_name == "direct" else f"_{mode_name}"
-            img = renderer.render(data, caption=f"{prefix.title()} Epoch {epoch}")
-            log_dict[f"viz/{prefix}/predictions{suffix}"] = img
+            caption_prefix = f"{self.wandb_prefix} " if self.wandb_prefix else ""
+            img = renderer.render(data, caption=f"{caption_prefix}{prefix.title()} Epoch {epoch}")
+            log_dict[f"{base_path}/{prefix}/predictions{suffix}"] = img
 
         # PAFs visualization (for bottomup models)
         if self.viz_pafs and data.pred_pafs is not None:
@@ -693,8 +703,9 @@ class UnifiedVizCallback(Callback):
             buf.seek(0)
             plt.close(pafs_fig)
             pafs_pil = PILImage.open(buf)
-            log_dict[f"viz/{prefix}/pafs"] = wandb.Image(
-                pafs_pil, caption=f"{prefix.title()} PAFs Epoch {epoch}"
+            caption_prefix = f"{self.wandb_prefix} " if self.wandb_prefix else ""
+            log_dict[f"{base_path}/{prefix}/pafs"] = wandb.Image(
+                pafs_pil, caption=f"{caption_prefix}{prefix.title()} PAFs Epoch {epoch}"
             )
 
         # Class maps visualization (for multi_class_bottomup models)
@@ -705,8 +716,9 @@ class UnifiedVizCallback(Callback):
             buf.seek(0)
             plt.close(class_fig)
             class_pil = PILImage.open(buf)
-            log_dict[f"viz/{prefix}/class_maps"] = wandb.Image(
-                class_pil, caption=f"{prefix.title()} Class Maps Epoch {epoch}"
+            caption_prefix = f"{self.wandb_prefix} " if self.wandb_prefix else ""
+            log_dict[f"{base_path}/{prefix}/class_maps"] = wandb.Image(
+                class_pil, caption=f"{caption_prefix}{prefix.title()} Class Maps Epoch {epoch}"
             )
 
         if log_dict:
@@ -715,23 +727,27 @@ class UnifiedVizCallback(Callback):
 
         # Optionally log to table for backwards compatibility
         if self.log_wandb_table and "direct" in self._wandb_renderers:
+            caption_prefix = f"{self.wandb_prefix} " if self.wandb_prefix else ""
             train_img = self._wandb_renderers["direct"].render(
-                data, caption=f"{prefix.title()} Epoch {epoch}"
+                data, caption=f"{caption_prefix}{prefix.title()} Epoch {epoch}"
             )
             table_data = [[epoch, train_img]]
             columns = ["Epoch", prefix.title()]
 
             if self.viz_pafs and data.pred_pafs is not None:
                 columns.append(f"{prefix.title()} PAFs")
-                table_data[0].append(log_dict.get(f"viz/{prefix}/pafs"))
+                table_data[0].append(log_dict.get(f"{base_path}/{prefix}/pafs"))
 
             if self.viz_class_maps and data.pred_class_maps is not None:
                 columns.append(f"{prefix.title()} Class Maps")
-                table_data[0].append(log_dict.get(f"viz/{prefix}/class_maps"))
+                table_data[0].append(log_dict.get(f"{base_path}/{prefix}/class_maps"))
 
             table = wandb.Table(columns=columns, data=table_data)
+            table_name = f"predictions_table_{prefix}"
+            if self.wandb_prefix:
+                table_name = f"predictions_table_{self.wandb_prefix}_{prefix}"
             wandb_logger.experiment.log(
-                {f"predictions_table_{prefix}": table}, commit=False
+                {table_name: table}, commit=False
             )
 
     def on_train_epoch_end(self, trainer, pl_module):
