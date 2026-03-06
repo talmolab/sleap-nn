@@ -1405,6 +1405,78 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#gpu-hardware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GPU &amp; Hardware
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="GPU &amp; Hardware">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#general-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        General Questions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nvidia-gpus-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NVIDIA GPUs (Recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#apple-silicon-m1m2m3m4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Apple Silicon (M1/M2/M3/M4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#amd-gpus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AMD GPUs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#installation" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1449,7 +1521,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
+  <a href="#troubleshooting_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Troubleshooting
@@ -5229,6 +5301,78 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#gpu-hardware" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GPU &amp; Hardware
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="GPU &amp; Hardware">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#general-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        General Questions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nvidia-gpus-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        NVIDIA GPUs (Recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#apple-silicon-m1m2m3m4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Apple Silicon (M1/M2/M3/M4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#amd-gpus" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AMD GPUs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#installation" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5273,7 +5417,7 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
+  <a href="#troubleshooting_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Troubleshooting
@@ -5352,26 +5496,240 @@ The directory should contain <code>best_model.h5</code> and <code>training_confi
 </ul>
 </details>
 <hr />
-<h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
-<details class="question">
-<summary>Which Python version should I use?</summary>
-<p>Python 3.11, 3.12, or 3.13. Python 3.14 is not yet supported.</p>
-</details>
+<h2 id="gpu-hardware">GPU &amp; Hardware<a class="headerlink" href="#gpu-hardware" title="Permanent link">&para;</a></h2>
+<p>SLEAP-NN uses PyTorch, so it runs on any system where PyTorch is supported. This includes NVIDIA CUDA GPUs, Apple Silicon via MPS, and AMD GPUs via ROCm (with caveats).</p>
+<h3 id="general-questions">General Questions<a class="headerlink" href="#general-questions" title="Permanent link">&para;</a></h3>
 <details class="question">
 <summary>Do I need a GPU?</summary>
-<p>GPUs significantly speed up training and inference but aren't required. CPU-only works but is slower.</p>
+<p>GPUs significantly speed up training and inference but aren't required. CPU-only works but is much slower.</p>
+<ul>
+<li><strong>Training</strong>: GPU strongly recommended (10-100x faster)</li>
+<li><strong>Inference</strong>: GPU recommended for real-time or large-scale processing</li>
+<li><strong>Labeling</strong>: CPU is fine for the labeling GUI</li>
+</ul>
+</details>
+<details class="question">
+<summary>How much VRAM do I need?</summary>
+<table>
+<thead>
+<tr>
+<th>VRAM</th>
+<th>Recommendation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>&lt; 6 GB</strong></td>
+<td>Generally insufficient; frequent out-of-memory errors</td>
+</tr>
+<tr>
+<td><strong>8–12 GB</strong></td>
+<td>Minimum recommended for smooth training</td>
+</tr>
+<tr>
+<td><strong>24–48 GB</strong></td>
+<td>Ideal for large models, multi-animal projects, or hyperparameter sweeps</td>
+</tr>
+</tbody>
+</table>
+<p>Tips for limited VRAM:</p>
+<ul>
+<li>Reduce batch size: <code>trainer_config.train_batch_size: 2</code></li>
+<li>Scale down images: <code>data_config.preprocessing.scale: 0.5</code></li>
+<li>Use smaller backbones: <code>model_config.backbone_config.unet.filters: 16</code></li>
+</ul>
+</details>
+<details class="question">
+<summary>Which GPU should I buy?</summary>
+<table>
+<thead>
+<tr>
+<th>Budget</th>
+<th>Recommendation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Budget</strong></td>
+<td>RTX 3060 12GB (~$300) - Great entry point</td>
+</tr>
+<tr>
+<td><strong>Mid-range</strong></td>
+<td>RTX 4070 Super 12GB, RTX 4080 16GB</td>
+</tr>
+<tr>
+<td><strong>High-end</strong></td>
+<td>RTX 4090 24GB, RTX 5090 32GB</td>
+</tr>
+<tr>
+<td><strong>Workstation</strong></td>
+<td>RTX A5000 24GB, A6000 48GB</td>
+</tr>
+</tbody>
+</table>
+<p>The RTX 3060 12GB is often recommended as a cost-effective option that handles most SLEAP workloads well.</p>
+</details>
+<h3 id="nvidia-gpus-recommended">NVIDIA GPUs (Recommended)<a class="headerlink" href="#nvidia-gpus-recommended" title="Permanent link">&para;</a></h3>
+<details class="question">
+<summary>Which NVIDIA GPUs are supported?</summary>
+<p>SLEAP-NN works with most NVIDIA GPUs that support CUDA. Here's our compatibility matrix:</p>
+<table>
+<thead>
+<tr>
+<th>GPU Series</th>
+<th>VRAM</th>
+<th>Status</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>RTX 50-series</strong> (5090, 5080, etc.)</td>
+<td>16-32 GB</td>
+<td>Tested ✓</td>
+<td>Requires CUDA 12.8+, PyTorch 2.6+</td>
+</tr>
+<tr>
+<td><strong>RTX 40-series</strong> (4090, 4080, 4070, etc.)</td>
+<td>8-24 GB</td>
+<td>Tested ✓</td>
+<td>Excellent performance</td>
+</tr>
+<tr>
+<td><strong>RTX 30-series</strong> (3090, 3080, 3070, 3060)</td>
+<td>8-24 GB</td>
+<td>Works</td>
+<td>Should work with standard installation</td>
+</tr>
+<tr>
+<td><strong>RTX 20-series</strong> (2080, 2070, 2060)</td>
+<td>6-11 GB</td>
+<td>Works</td>
+<td>VRAM may limit larger models</td>
+</tr>
+<tr>
+<td><strong>GTX 10-series</strong> (1080, 1070, etc.)</td>
+<td>4-11 GB</td>
+<td>Limited</td>
+<td>May need older PyTorch; limited VRAM</td>
+</tr>
+<tr>
+<td><strong>Workstation</strong> (A6000, A5000, RTX 6000)</td>
+<td>24-48 GB</td>
+<td>Tested ✓</td>
+<td>Excellent for large-scale training</td>
+</tr>
+<tr>
+<td><strong>Data center</strong> (A100, H100)</td>
+<td>40-80 GB</td>
+<td>Works</td>
+<td>Overkill for most users</td>
+</tr>
+</tbody>
+</table>
 </details>
 <details class="question">
 <summary>Which CUDA version do I need?</summary>
-<p>SLEAP-NN supports CUDA 11.8, 12.8, and 13.0. Use <code>--torch-backend auto</code> to auto-detect:
+<p>PyTorch 2.10 supports CUDA 12.6, 12.8, and 13.0. Use <code>--torch-backend auto</code> to auto-detect:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--torch-backend<span class="w"> </span>auto
-</span></code></pre></div></p>
+</span></code></pre></div>
+<p><strong>For RTX 50-series (Blackwell) GPUs</strong>: You need CUDA 12.8 or higher and driver R570+. These GPUs have compute capability 10.0/12.0 which requires the latest PyTorch builds.</p>
+<p><strong>For older GPUs</strong> (GTX 10-series, Quadro P-series): You may need to use older PyTorch versions or export to ONNX for CPU inference, as newer PyTorch versions have dropped support for Pascal architecture (compute capability 6.x).</p>
 </details>
 <details class="question">
 <summary>How do I check if my GPU is working?</summary>
 <p><div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn<span class="w"> </span>system
 </span></code></pre></div>
-This shows GPU details and runs diagnostic tests.</p>
+This shows GPU details and runs diagnostic tests. You should see your GPU listed with CUDA support enabled.</p>
+<p>You can also verify PyTorch GPU access:
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">())</span>  <span class="c1"># Should be True</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">get_device_name</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>  <span class="c1"># Should show your GPU</span>
+</span></code></pre></div></p>
+</details>
+<h3 id="apple-silicon-m1m2m3m4">Apple Silicon (M1/M2/M3/M4)<a class="headerlink" href="#apple-silicon-m1m2m3m4" title="Permanent link">&para;</a></h3>
+<details class="question">
+<summary>Does SLEAP-NN work on Apple Silicon Macs?</summary>
+<p>Yes, SLEAP-NN works on M1/M2/M3/M4 Macs using the MPS (Metal Performance Shaders) backend.</p>
+<p><strong>Performance notes:</strong></p>
+<ul>
+<li>MPS is slower than CUDA for training (expect 2-5x slower for large models)</li>
+<li>Inference works well for moderate workloads</li>
+<li>Good choice for users who don't need industrial-scale speed</li>
+<li>Unified memory helps avoid traditional VRAM limits</li>
+</ul>
+<p>To use MPS:
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--device<span class="w"> </span>mps
+</span></code></pre></div></p>
+</details>
+<details class="question">
+<summary>Why is training slow on my Mac?</summary>
+<p>Apple Silicon MPS is not as optimized as NVIDIA CUDA for deep learning. This is expected.</p>
+<p>Tips for better performance:</p>
+<ul>
+<li>Use smaller batch sizes (memory is shared with system)</li>
+<li>Consider using a smaller backbone (UNet instead of Swin Transformer)</li>
+<li>For production training, consider cloud GPU services (Colab, Lambda Labs, etc.)</li>
+</ul>
+</details>
+<h3 id="amd-gpus">AMD GPUs<a class="headerlink" href="#amd-gpus" title="Permanent link">&para;</a></h3>
+<details class="question">
+<summary>Can I use an AMD GPU?</summary>
+<p>PyTorch supports AMD GPUs via ROCm on Linux, but <strong>SLEAP-NN has not been tested on AMD hardware</strong>.</p>
+<p>If you want to try:</p>
+<ul>
+<li>ROCm is only available on Linux (not Windows or macOS)</li>
+<li>You'll need to install PyTorch with ROCm support manually</li>
+<li>Some CUDA-specific operations may not work</li>
+<li>We cannot provide support for ROCm-related issues</li>
+</ul>
+<p>We recommend NVIDIA GPUs for the most reliable experience.</p>
+</details>
+<h3 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h3>
+<details class="question">
+<summary>Out of GPU memory (CUDA OOM)</summary>
+<p>Common solutions:</p>
+<ol>
+<li><strong>Reduce batch size</strong>: <code>trainer_config.train_batch_size: 2</code></li>
+<li><strong>Scale down images</strong>: <code>data_config.preprocessing.scale: 0.5</code></li>
+<li><strong>Limit instances during inference</strong>: <code>--max_instances 5</code></li>
+<li><strong>Use disk caching</strong>: <code>data_config.data_pipeline_fw: torch_dataset</code></li>
+<li><strong>Close other GPU applications</strong></li>
+</ol>
+<p>Check current GPU memory usage:
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>nvidia-smi
+</span></code></pre></div></p>
+</details>
+<details class="question">
+<summary>GPU not detected</summary>
+<ol>
+<li>Verify NVIDIA drivers are installed: <code>nvidia-smi</code></li>
+<li>Check CUDA installation: <code>nvcc --version</code></li>
+<li>Verify PyTorch sees the GPU:
+   <div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">())</span>
+</span></code></pre></div></li>
+<li>Reinstall with correct CUDA version:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--torch-backend<span class="w"> </span>cu126<span class="w"> </span>--reinstall
+</span></code></pre></div></li>
+</ol>
+</details>
+<details class="question">
+<summary>CUDA kernel not compatible with compute capability</summary>
+<p>This error means your GPU architecture isn't supported by the installed PyTorch/CUDA version.</p>
+<p><strong>For very new GPUs</strong> (RTX 50-series): Update to PyTorch 2.6+ with CUDA 12.8+</p>
+<p><strong>For older GPUs</strong> (GTX 10-series, Quadro P-series): These GPUs use Pascal architecture (compute capability 6.x) which has been dropped from newer PyTorch versions. Options:</p>
+<ul>
+<li>Use an older PyTorch version</li>
+<li>Export model to ONNX and run inference on CPU</li>
+<li>Use a newer GPU</li>
+</ul>
+</details>
+<hr />
+<h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
+<details class="question">
+<summary>Which Python version should I use?</summary>
+<p>Python 3.11, 3.12, or 3.13. Python 3.14 is not yet supported.</p>
 </details>
 <hr />
 <h2 id="training">Training<a class="headerlink" href="#training" title="Permanent link">&para;</a></h2>
@@ -5395,15 +5753,15 @@ This shows GPU details and runs diagnostic tests.</p>
 <details class="question">
 <summary>Can I resume training?</summary>
 <p>Yes:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span>trainer_config.resume_ckpt_path<span class="o">=</span>/path/to/checkpoint.ckpt
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span>trainer_config.resume_ckpt_path<span class="o">=</span>/path/to/checkpoint.ckpt
 </span></code></pre></div></p>
 </details>
 <details class="question">
 <summary>How do I use multiple GPUs?</summary>
-<p><div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">trainer_config</span><span class="p">:</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">trainer_devices</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">trainer_strategy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ddp</span>
+<p><div class="language-yaml highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">trainer_config</span><span class="p">:</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">trainer_devices</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="nt">trainer_strategy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ddp</span>
 </span></code></pre></div>
 See the <a href="../../guides/multi-gpu/">Multi-GPU Training Guide</a> for detailed setup and troubleshooting.</p>
 </details>
@@ -5419,12 +5777,12 @@ See the <a href="../../guides/multi-gpu/">Multi-GPU Training Guide</a> for detai
 </details>
 <details class="question">
 <summary>How do I run on specific frames?</summary>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--frames<span class="w"> </span><span class="m">0</span>-100,500-600
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--frames<span class="w"> </span><span class="m">0</span>-100,500-600
 </span></code></pre></div>
 </details>
 <details class="question">
 <summary>How do I limit detected instances?</summary>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--max_instances<span class="w"> </span><span class="m">5</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--max_instances<span class="w"> </span><span class="m">5</span>
 </span></code></pre></div>
 </details>
 <hr />
@@ -5473,21 +5831,14 @@ See the <a href="../../guides/multi-gpu/">Multi-GPU Training Guide</a> for detai
 - Smaller (1-3): More precise, harder to learn</p>
 </details>
 <hr />
-<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<h2 id="troubleshooting_1">Troubleshooting<a class="headerlink" href="#troubleshooting_1" title="Permanent link">&para;</a></h2>
 <details class="question">
 <summary>Training is very slow</summary>
 <ul>
 <li>Enable caching: <code>data_config.data_pipeline_fw: torch_dataset_cache_img_memory</code></li>
 <li>Reduce image size: <code>data_config.preprocessing.scale: 0.5</code></li>
 <li>Check GPU is being used: <code>sleap-nn system</code></li>
-</ul>
-</details>
-<details class="question">
-<summary>Out of GPU memory</summary>
-<ul>
-<li>Reduce batch size</li>
-<li>Reduce model size (<code>filters: 16</code>)</li>
-<li>Reduce image resolution</li>
+<li>See <a href="#gpu-hardware">GPU &amp; Hardware</a> for more hardware-related troubleshooting</li>
 </ul>
 </details>
 <details class="question">
@@ -5496,6 +5847,7 @@ See the <a href="../../guides/multi-gpu/">Multi-GPU Training Guide</a> for detai
 <li>Check training loss - did it converge?</li>
 <li>Verify preprocessing matches training</li>
 <li>Add more training data</li>
+<li>See <a href="../../guides/inference/#filtering-instances">Inference guide</a> for post-processing filters</li>
 </ul>
 </details>
 
