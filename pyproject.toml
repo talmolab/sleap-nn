@@ -29,10 +29,10 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "sleap-io>=0.6.2,<0.7.0",
+    "sleap-io>=0.6.5,<0.7.0",
     "numpy",
     "lightning",
-    "skia-python>=87.0",
+    "skia-python>=87.0,<=138.0",  # pinned for Python 3.13 compatibility (see sleap-io#355)
     "jsonpickle",
     "scipy",
     "attrs",
