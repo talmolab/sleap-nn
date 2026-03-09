@@ -77,8 +77,8 @@ class IntensityConfig:
         uniform_noise_min: (float) Minimum value for uniform noise (uniform_noise_min >=0). *Default*: `0.0`.
         uniform_noise_max: (float) Maximum value for uniform noise (uniform_noise_max <>=1). *Default*: `1.0`.
         uniform_noise_p: (float) Probability of applying random uniform noise. *Default*: `0.0`.
-        gaussian_noise_mean: (float) The mean of the gaussian noise distribution. *Default*: `0.0`.
-        gaussian_noise_std: (float) The standard deviation of the gaussian noise distribution. *Default*: `1.0`.
+        gaussian_noise_mean: (float) The mean of the gaussian noise distribution (0-1 scale, multiplied by 255 internally). *Default*: `0.0`.
+        gaussian_noise_std: (float) The standard deviation of the gaussian noise distribution (0-1 scale, multiplied by 255 internally). *Default*: `0.02`.
         gaussian_noise_p: (float) Probability of applying random gaussian noise. *Default*: `0.0`.
         contrast_min: (float) Minimum contrast factor to apply. *Default*: `0.9`.
         contrast_max: (float) Maximum contrast factor to apply. *Default*: `1.1`.
@@ -92,7 +92,7 @@ class IntensityConfig:
     uniform_noise_max: float = field(default=1.0, validator=validators.le(1))
     uniform_noise_p: float = field(default=0.0, validator=validate_proportion)
     gaussian_noise_mean: float = 0.0
-    gaussian_noise_std: float = 1.0
+    gaussian_noise_std: float = 0.02
     gaussian_noise_p: float = field(default=0.0, validator=validate_proportion)
     contrast_min: float = field(default=0.9, validator=validators.ge(0))
     contrast_max: float = field(default=1.1, validator=validators.ge(0))

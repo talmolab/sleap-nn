@@ -108,7 +108,7 @@ augmentation_config:
     uniform_noise_p: 0.0
     gaussian_noise_p: 0.0
     gaussian_noise_mean: 0.0
-    gaussian_noise_std: 1.0
+    gaussian_noise_std: 0.02
 
     # Contrast
     contrast_min: 0.9
@@ -254,8 +254,8 @@ data_config:
 | `uniform_noise_min` | float | `0.0` | Minimum uniform noise value (0-1 scale) |
 | `uniform_noise_max` | float | `1.0` | Maximum uniform noise value (0-1 scale) |
 | `uniform_noise_p` | float | `0.0` | Probability of applying uniform noise |
-| `gaussian_noise_mean` | float | `0.0` | Mean of Gaussian noise distribution |
-| `gaussian_noise_std` | float | `1.0` | Standard deviation of Gaussian noise |
+| `gaussian_noise_mean` | float | `0.0` | Mean of Gaussian noise distribution (0-1 scale, multiplied by 255 internally) |
+| `gaussian_noise_std` | float | `0.02` | Standard deviation of Gaussian noise (0-1 scale, multiplied by 255 internally) |
 | `gaussian_noise_p` | float | `0.0` | Probability of applying Gaussian noise |
 | `contrast_min` | float | `0.9` | Minimum contrast factor |
 | `contrast_max` | float | `1.1` | Maximum contrast factor |
