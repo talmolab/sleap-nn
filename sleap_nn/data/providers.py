@@ -107,6 +107,49 @@ def process_lf(
     return ex
 
 
+def process_negative_lf(
+    img: np.ndarray,
+    frame_idx: int,
+    video_idx: int,
+    max_instances: int,
+    num_nodes: int,
+) -> Dict[str, Any]:
+    """Get sample dict for a negative frame (no instances).
+
+    Negative frames produce all-NaN instances and num_instances=0, resulting in
+    all-zero confidence maps when processed downstream. This teaches the model not
+    to hallucinate detections on backgrounds without animals.
+
+    Args:
+        img: Input image.
+        frame_idx: Frame index in the video.
+        video_idx: Video index.
+        max_instances: Maximum number of instances across the dataset (for padding).
+        num_nodes: Number of skeleton nodes.
+
+    Returns:
+        Dict with image, all-NaN instances, frame index, video index, original
+        image size, and num_instances=0.
+    """
+    image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+    image = np.expand_dims(image, axis=0)  # (1, C, H, W)
+
+    # All-NaN instances — will produce all-zero confidence maps
+    pad_count = max(max_instances, 1)
+    instances = torch.full((1, pad_count, num_nodes, 2), torch.nan)
+
+    img_height, img_width = image.shape[-2:]
+
+    return {
+        "image": torch.from_numpy(image.copy()),
+        "instances": instances,
+        "video_idx": torch.tensor(video_idx, dtype=torch.int32),
+        "frame_idx": torch.tensor(frame_idx, dtype=torch.int32),
+        "orig_size": torch.Tensor([img_height, img_width]).unsqueeze(0),
+        "num_instances": 0,
+    }
+
+
 class VideoReader(Thread):
     """Thread module for reading frames from sleap-io Video object.
 

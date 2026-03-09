@@ -203,6 +203,10 @@ class DataConfig:
         preprocessing: Configuration options related to data preprocessing.
         use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False. *Default*: `True`.
         augmentation_config: Configurations related to augmentation. (only if `use_augmentations_train` is `True`)
+        negative_sample_fraction: (float) Fraction of the training set that should consist of negative samples
+            (frames with no instances). These frames produce all-zero confidence maps, teaching the model not to
+            hallucinate detections on empty backgrounds. Frames are sourced from the labels' suggestions list or
+            randomly sampled unlabeled frames. Must be between 0.0 and 1.0. *Default*: `0.0`.
         skeletons: skeleton configuration for the `.slp` file. This will be pulled from the train dataset and saved to the `training_config.yaml`
     """
 
@@ -226,6 +230,7 @@ class DataConfig:
     augmentation_config: Optional[AugmentationConfig] = field(
         factory=lambda: AugmentationConfig(geometric=GeometricConfig())
     )
+    negative_sample_fraction: float = 0.0
     skeletons: Optional[list] = None
 
 
