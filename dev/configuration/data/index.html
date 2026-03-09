@@ -5712,7 +5712,7 @@
 </span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="nt">uniform_noise_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
 </span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="nt">gaussian_noise_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
 </span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="nt">gaussian_noise_mean</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="nt">gaussian_noise_std</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="nt">gaussian_noise_std</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.02</span>
 </span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>
 </span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="c1"># Contrast</span>
 </span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">    </span><span class="nt">contrast_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.9</span>
@@ -5720,8 +5720,8 @@
 </span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">    </span><span class="nt">contrast_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
 </span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>
 </span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">    </span><span class="c1"># Brightness</span>
-</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">    </span><span class="nt">brightness_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
-</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">    </span><span class="nt">brightness_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+</span><span id="__span-7-15"><a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">    </span><span class="nt">brightness_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.9</span>
+</span><span id="__span-7-16"><a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">    </span><span class="nt">brightness_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.1</span>
 </span><span id="__span-7-17"><a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a><span class="w">    </span><span class="nt">brightness_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
 </span></code></pre></div>
 <h3 id="geometric-augmentation">Geometric Augmentation<a class="headerlink" href="#geometric-augmentation" title="Permanent link">&para;</a></h3>
@@ -5972,13 +5972,13 @@
 <td><code>uniform_noise_min</code></td>
 <td>float</td>
 <td><code>0.0</code></td>
-<td>Minimum uniform noise value (0-1 scale)</td>
+<td>Minimum uniform noise value (0-1 scale, multiplied by 255 internally)</td>
 </tr>
 <tr>
 <td><code>uniform_noise_max</code></td>
 <td>float</td>
-<td><code>1.0</code></td>
-<td>Maximum uniform noise value (0-1 scale)</td>
+<td><code>0.04</code></td>
+<td>Maximum uniform noise value (0-1 scale, multiplied by 255 internally)</td>
 </tr>
 <tr>
 <td><code>uniform_noise_p</code></td>
@@ -5990,13 +5990,13 @@
 <td><code>gaussian_noise_mean</code></td>
 <td>float</td>
 <td><code>0.0</code></td>
-<td>Mean of Gaussian noise distribution</td>
+<td>Mean of Gaussian noise distribution (0-1 scale, multiplied by 255 internally)</td>
 </tr>
 <tr>
 <td><code>gaussian_noise_std</code></td>
 <td>float</td>
-<td><code>1.0</code></td>
-<td>Standard deviation of Gaussian noise</td>
+<td><code>0.02</code></td>
+<td>Standard deviation of Gaussian noise (0-1 scale, multiplied by 255 internally)</td>
 </tr>
 <tr>
 <td><code>gaussian_noise_p</code></td>
@@ -6025,13 +6025,13 @@
 <tr>
 <td><code>brightness_min</code></td>
 <td>float</td>
-<td><code>1.0</code></td>
+<td><code>0.9</code></td>
 <td>Minimum brightness factor</td>
 </tr>
 <tr>
 <td><code>brightness_max</code></td>
 <td>float</td>
-<td><code>1.0</code></td>
+<td><code>1.1</code></td>
 <td>Maximum brightness factor (max 2.0)</td>
 </tr>
 <tr>

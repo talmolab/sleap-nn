@@ -6333,7 +6333,7 @@ the parameters required to initialize the data config.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(float) Minimum value for uniform noise (uniform_noise_min &gt;=0). <em>Default</em>: <code>0.0</code>.</p>
+                <p>(float) Minimum value for uniform noise (0-1 scale, multiplied by 255 internally). <em>Default</em>: <code>0.0</code>.</p>
               </div>
             </td>
           </tr>
@@ -6344,7 +6344,7 @@ the parameters required to initialize the data config.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(float) Maximum value for uniform noise (uniform_noise_max &lt;&gt;=1). <em>Default</em>: <code>1.0</code>.</p>
+                <p>(float) Maximum value for uniform noise (0-1 scale, multiplied by 255 internally). <em>Default</em>: <code>0.04</code>.</p>
               </div>
             </td>
           </tr>
@@ -6366,7 +6366,7 @@ the parameters required to initialize the data config.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(float) The mean of the gaussian noise distribution. <em>Default</em>: <code>0.0</code>.</p>
+                <p>(float) The mean of the gaussian noise distribution (0-1 scale, multiplied by 255 internally). <em>Default</em>: <code>0.0</code>.</p>
               </div>
             </td>
           </tr>
@@ -6377,7 +6377,7 @@ the parameters required to initialize the data config.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(float) The standard deviation of the gaussian noise distribution. <em>Default</em>: <code>1.0</code>.</p>
+                <p>(float) The standard deviation of the gaussian noise distribution (0-1 scale, multiplied by 255 internally). <em>Default</em>: <code>0.02</code>.</p>
               </div>
             </td>
           </tr>
@@ -6432,7 +6432,7 @@ the parameters required to initialize the data config.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(float) Minimum brightness factor to apply. <em>Default</em>: <code>1.0</code>.</p>
+                <p>(float) Minimum brightness factor to apply. <em>Default</em>: <code>0.9</code>.</p>
               </div>
             </td>
           </tr>
@@ -6443,7 +6443,7 @@ the parameters required to initialize the data config.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(float) Maximum brightness factor to apply. <em>Default</em>: <code>1.0</code>.</p>
+                <p>(float) Maximum brightness factor to apply. <em>Default</em>: <code>1.1</code>.</p>
               </div>
             </td>
           </tr>
@@ -6510,31 +6510,31 @@ the parameters required to initialize the data config.</p>
 </span><span id="__span-0-74"><a id="__codelineno-0-74" name="__codelineno-0-74"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration of Intensity (Optional).</span>
 </span><span id="__span-0-75"><a id="__codelineno-0-75" name="__codelineno-0-75"></a>
 </span><span id="__span-0-76"><a id="__codelineno-0-76" name="__codelineno-0-76"></a><span class="sd">    Attributes:</span>
-</span><span id="__span-0-77"><a id="__codelineno-0-77" name="__codelineno-0-77"></a><span class="sd">        uniform_noise_min: (float) Minimum value for uniform noise (uniform_noise_min &gt;=0). *Default*: `0.0`.</span>
-</span><span id="__span-0-78"><a id="__codelineno-0-78" name="__codelineno-0-78"></a><span class="sd">        uniform_noise_max: (float) Maximum value for uniform noise (uniform_noise_max &lt;&gt;=1). *Default*: `1.0`.</span>
+</span><span id="__span-0-77"><a id="__codelineno-0-77" name="__codelineno-0-77"></a><span class="sd">        uniform_noise_min: (float) Minimum value for uniform noise (0-1 scale, multiplied by 255 internally). *Default*: `0.0`.</span>
+</span><span id="__span-0-78"><a id="__codelineno-0-78" name="__codelineno-0-78"></a><span class="sd">        uniform_noise_max: (float) Maximum value for uniform noise (0-1 scale, multiplied by 255 internally). *Default*: `0.04`.</span>
 </span><span id="__span-0-79"><a id="__codelineno-0-79" name="__codelineno-0-79"></a><span class="sd">        uniform_noise_p: (float) Probability of applying random uniform noise. *Default*: `0.0`.</span>
-</span><span id="__span-0-80"><a id="__codelineno-0-80" name="__codelineno-0-80"></a><span class="sd">        gaussian_noise_mean: (float) The mean of the gaussian noise distribution. *Default*: `0.0`.</span>
-</span><span id="__span-0-81"><a id="__codelineno-0-81" name="__codelineno-0-81"></a><span class="sd">        gaussian_noise_std: (float) The standard deviation of the gaussian noise distribution. *Default*: `1.0`.</span>
+</span><span id="__span-0-80"><a id="__codelineno-0-80" name="__codelineno-0-80"></a><span class="sd">        gaussian_noise_mean: (float) The mean of the gaussian noise distribution (0-1 scale, multiplied by 255 internally). *Default*: `0.0`.</span>
+</span><span id="__span-0-81"><a id="__codelineno-0-81" name="__codelineno-0-81"></a><span class="sd">        gaussian_noise_std: (float) The standard deviation of the gaussian noise distribution (0-1 scale, multiplied by 255 internally). *Default*: `0.02`.</span>
 </span><span id="__span-0-82"><a id="__codelineno-0-82" name="__codelineno-0-82"></a><span class="sd">        gaussian_noise_p: (float) Probability of applying random gaussian noise. *Default*: `0.0`.</span>
 </span><span id="__span-0-83"><a id="__codelineno-0-83" name="__codelineno-0-83"></a><span class="sd">        contrast_min: (float) Minimum contrast factor to apply. *Default*: `0.9`.</span>
 </span><span id="__span-0-84"><a id="__codelineno-0-84" name="__codelineno-0-84"></a><span class="sd">        contrast_max: (float) Maximum contrast factor to apply. *Default*: `1.1`.</span>
 </span><span id="__span-0-85"><a id="__codelineno-0-85" name="__codelineno-0-85"></a><span class="sd">        contrast_p: (float) Probability of applying random contrast. *Default*: `0.0`.</span>
-</span><span id="__span-0-86"><a id="__codelineno-0-86" name="__codelineno-0-86"></a><span class="sd">        brightness_min: (float) Minimum brightness factor to apply. *Default*: `1.0`.</span>
-</span><span id="__span-0-87"><a id="__codelineno-0-87" name="__codelineno-0-87"></a><span class="sd">        brightness_max: (float) Maximum brightness factor to apply. *Default*: `1.0`.</span>
+</span><span id="__span-0-86"><a id="__codelineno-0-86" name="__codelineno-0-86"></a><span class="sd">        brightness_min: (float) Minimum brightness factor to apply. *Default*: `0.9`.</span>
+</span><span id="__span-0-87"><a id="__codelineno-0-87" name="__codelineno-0-87"></a><span class="sd">        brightness_max: (float) Maximum brightness factor to apply. *Default*: `1.1`.</span>
 </span><span id="__span-0-88"><a id="__codelineno-0-88" name="__codelineno-0-88"></a><span class="sd">        brightness_p: (float) Probability of applying random brightness. *Default*: `0.0`.</span>
 </span><span id="__span-0-89"><a id="__codelineno-0-89" name="__codelineno-0-89"></a><span class="sd">    &quot;&quot;&quot;</span>
 </span><span id="__span-0-90"><a id="__codelineno-0-90" name="__codelineno-0-90"></a>
 </span><span id="__span-0-91"><a id="__codelineno-0-91" name="__codelineno-0-91"></a>    <span class="n">uniform_noise_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">validators</span><span class="o">.</span><span class="n">ge</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
-</span><span id="__span-0-92"><a id="__codelineno-0-92" name="__codelineno-0-92"></a>    <span class="n">uniform_noise_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">validators</span><span class="o">.</span><span class="n">le</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+</span><span id="__span-0-92"><a id="__codelineno-0-92" name="__codelineno-0-92"></a>    <span class="n">uniform_noise_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mf">0.04</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">validators</span><span class="o">.</span><span class="n">le</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
 </span><span id="__span-0-93"><a id="__codelineno-0-93" name="__codelineno-0-93"></a>    <span class="n">uniform_noise_p</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">validate_proportion</span><span class="p">)</span>
 </span><span id="__span-0-94"><a id="__codelineno-0-94" name="__codelineno-0-94"></a>    <span class="n">gaussian_noise_mean</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
-</span><span id="__span-0-95"><a id="__codelineno-0-95" name="__codelineno-0-95"></a>    <span class="n">gaussian_noise_std</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
+</span><span id="__span-0-95"><a id="__codelineno-0-95" name="__codelineno-0-95"></a>    <span class="n">gaussian_noise_std</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.02</span>
 </span><span id="__span-0-96"><a id="__codelineno-0-96" name="__codelineno-0-96"></a>    <span class="n">gaussian_noise_p</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">validate_proportion</span><span class="p">)</span>
 </span><span id="__span-0-97"><a id="__codelineno-0-97" name="__codelineno-0-97"></a>    <span class="n">contrast_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">validators</span><span class="o">.</span><span class="n">ge</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
 </span><span id="__span-0-98"><a id="__codelineno-0-98" name="__codelineno-0-98"></a>    <span class="n">contrast_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mf">1.1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">validators</span><span class="o">.</span><span class="n">ge</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
 </span><span id="__span-0-99"><a id="__codelineno-0-99" name="__codelineno-0-99"></a>    <span class="n">contrast_p</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">validate_proportion</span><span class="p">)</span>
-</span><span id="__span-0-100"><a id="__codelineno-0-100" name="__codelineno-0-100"></a>    <span class="n">brightness_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">validators</span><span class="o">.</span><span class="n">ge</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
-</span><span id="__span-0-101"><a id="__codelineno-0-101" name="__codelineno-0-101"></a>    <span class="n">brightness_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">validators</span><span class="o">.</span><span class="n">le</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+</span><span id="__span-0-100"><a id="__codelineno-0-100" name="__codelineno-0-100"></a>    <span class="n">brightness_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">validators</span><span class="o">.</span><span class="n">ge</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
+</span><span id="__span-0-101"><a id="__codelineno-0-101" name="__codelineno-0-101"></a>    <span class="n">brightness_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mf">1.1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">validators</span><span class="o">.</span><span class="n">le</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
 </span><span id="__span-0-102"><a id="__codelineno-0-102" name="__codelineno-0-102"></a>    <span class="n">brightness_p</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">validate_proportion</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
               </details>
