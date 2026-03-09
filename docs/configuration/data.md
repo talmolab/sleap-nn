@@ -116,8 +116,8 @@ augmentation_config:
     contrast_p: 0.0
 
     # Brightness
-    brightness_min: 1.0
-    brightness_max: 1.0
+    brightness_min: 0.9
+    brightness_max: 1.1
     brightness_p: 0.0
 ```
 
@@ -251,8 +251,8 @@ data_config:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `uniform_noise_min` | float | `0.0` | Minimum uniform noise value (0-1 scale) |
-| `uniform_noise_max` | float | `1.0` | Maximum uniform noise value (0-1 scale) |
+| `uniform_noise_min` | float | `0.0` | Minimum uniform noise value (0-1 scale, multiplied by 255 internally) |
+| `uniform_noise_max` | float | `0.04` | Maximum uniform noise value (0-1 scale, multiplied by 255 internally) |
 | `uniform_noise_p` | float | `0.0` | Probability of applying uniform noise |
 | `gaussian_noise_mean` | float | `0.0` | Mean of Gaussian noise distribution (0-1 scale, multiplied by 255 internally) |
 | `gaussian_noise_std` | float | `0.02` | Standard deviation of Gaussian noise (0-1 scale, multiplied by 255 internally) |
@@ -260,8 +260,8 @@ data_config:
 | `contrast_min` | float | `0.9` | Minimum contrast factor |
 | `contrast_max` | float | `1.1` | Maximum contrast factor |
 | `contrast_p` | float | `0.0` | Probability of applying contrast adjustment |
-| `brightness_min` | float | `1.0` | Minimum brightness factor |
-| `brightness_max` | float | `1.0` | Maximum brightness factor (max 2.0) |
+| `brightness_min` | float | `0.9` | Minimum brightness factor |
+| `brightness_max` | float | `1.1` | Maximum brightness factor (max 2.0) |
 | `brightness_p` | float | `0.0` | Probability of applying brightness adjustment |
 
 ### GeometricConfig (augmentation_config.geometric)

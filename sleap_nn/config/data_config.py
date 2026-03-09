@@ -74,8 +74,8 @@ class IntensityConfig:
     """Configuration of Intensity (Optional).
 
     Attributes:
-        uniform_noise_min: (float) Minimum value for uniform noise (uniform_noise_min >=0). *Default*: `0.0`.
-        uniform_noise_max: (float) Maximum value for uniform noise (uniform_noise_max <>=1). *Default*: `1.0`.
+        uniform_noise_min: (float) Minimum value for uniform noise (0-1 scale, multiplied by 255 internally). *Default*: `0.0`.
+        uniform_noise_max: (float) Maximum value for uniform noise (0-1 scale, multiplied by 255 internally). *Default*: `0.04`.
         uniform_noise_p: (float) Probability of applying random uniform noise. *Default*: `0.0`.
         gaussian_noise_mean: (float) The mean of the gaussian noise distribution (0-1 scale, multiplied by 255 internally). *Default*: `0.0`.
         gaussian_noise_std: (float) The standard deviation of the gaussian noise distribution (0-1 scale, multiplied by 255 internally). *Default*: `0.02`.
@@ -83,13 +83,13 @@ class IntensityConfig:
         contrast_min: (float) Minimum contrast factor to apply. *Default*: `0.9`.
         contrast_max: (float) Maximum contrast factor to apply. *Default*: `1.1`.
         contrast_p: (float) Probability of applying random contrast. *Default*: `0.0`.
-        brightness_min: (float) Minimum brightness factor to apply. *Default*: `1.0`.
-        brightness_max: (float) Maximum brightness factor to apply. *Default*: `1.0`.
+        brightness_min: (float) Minimum brightness factor to apply. *Default*: `0.9`.
+        brightness_max: (float) Maximum brightness factor to apply. *Default*: `1.1`.
         brightness_p: (float) Probability of applying random brightness. *Default*: `0.0`.
     """
 
     uniform_noise_min: float = field(default=0.0, validator=validators.ge(0))
-    uniform_noise_max: float = field(default=1.0, validator=validators.le(1))
+    uniform_noise_max: float = field(default=0.04, validator=validators.le(1))
     uniform_noise_p: float = field(default=0.0, validator=validate_proportion)
     gaussian_noise_mean: float = 0.0
     gaussian_noise_std: float = 0.02
@@ -97,8 +97,8 @@ class IntensityConfig:
     contrast_min: float = field(default=0.9, validator=validators.ge(0))
     contrast_max: float = field(default=1.1, validator=validators.ge(0))
     contrast_p: float = field(default=0.0, validator=validate_proportion)
-    brightness_min: float = field(default=1.0, validator=validators.ge(0))
-    brightness_max: float = field(default=1.0, validator=validators.le(2))
+    brightness_min: float = field(default=0.9, validator=validators.ge(0))
+    brightness_max: float = field(default=1.1, validator=validators.le(2))
     brightness_p: float = field(default=0.0, validator=validate_proportion)
 
 

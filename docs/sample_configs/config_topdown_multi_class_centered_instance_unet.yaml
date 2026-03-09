@@ -23,7 +23,7 @@ data_config:
   augmentation_config:
     intensity:
       uniform_noise_min: 0.0
-      uniform_noise_max: 1.0
+      uniform_noise_max: 0.04
       uniform_noise_p: 0.0
       gaussian_noise_mean: 0.0
       gaussian_noise_std: 0.02

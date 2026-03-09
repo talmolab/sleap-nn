@@ -36,11 +36,11 @@ def apply_intensity_augmentation_skia(
     gaussian_noise_mean: float = 0.0,
     gaussian_noise_std: float = 0.02,
     gaussian_noise_p: float = 0.0,
-    contrast_min: float = 0.5,
-    contrast_max: float = 2.0,
+    contrast_min: float = 0.9,
+    contrast_max: float = 1.1,
     contrast_p: float = 0.0,
-    brightness_min: float = 1.0,
-    brightness_max: float = 1.0,
+    brightness_min: float = 0.9,
+    brightness_max: float = 1.1,
     brightness_p: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Apply intensity augmentations on uint8 image tensor.
