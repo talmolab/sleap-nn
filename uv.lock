@@ -4489,7 +4489,7 @@ requires-dist = [
     { name = "rich-click", specifier = ">=1.9.5" },
     { name = "scipy" },
     { name = "seaborn" },
-    { name = "skia-python", specifier = ">=87.0" },
+    { name = "skia-python", specifier = ">=87.0,<=138.0" },
     { name = "sleap-io", specifier = ">=0.6.5,<0.7.0" },
     { name = "tensorrt", marker = "(sys_platform == 'linux' and extra == 'tensorrt') or (sys_platform == 'win32' and extra == 'tensorrt')", specifier = ">=10.13.0" },
     { name = "textual", specifier = ">=0.40.0" },
