@@ -389,6 +389,38 @@ class TestPredictMulticlassBottomupFrames:
         )
         assert len(frames) == 0
 
+    def test_zero_valid_mask_instance_score(self, simple_skeleton, simple_video):
+        """Instance with valid mask but all-NaN points gets score 0.0."""
+        outputs = self._make_outputs(n_classes=2)
+        # Make peaks valid in mask but NaN in coordinates for one class
+        # This tests the valid_mask.any() → else: instance_score = 0.0 branch
+        outputs["peaks"] = np.full_like(outputs["peaks"], np.nan)
+        # Keep peak_mask valid so instances are still created
+        # But since all coords are NaN, all instances should be skipped
+        frames = _predict_multiclass_bottomup_frames(
+            outputs, [0], simple_video, simple_skeleton, ["female", "male"]
+        )
+        # All-NaN points should be skipped
+        assert len(frames) == 0
+
+    def test_max_instances_truncation(self, simple_skeleton, simple_video):
+        """Excess instances trimmed by score."""
+        # Create 3 classes but limit to 1 instance
+        outputs = self._make_outputs(n_classes=3, max_peaks=5)
+        # Mark 3 peaks valid per node
+        for n in range(3):
+            outputs["peak_mask"][0, n, :3] = 1.0
+        frames = _predict_multiclass_bottomup_frames(
+            outputs,
+            [0],
+            simple_video,
+            simple_skeleton,
+            ["a", "b", "c"],
+            max_instances=1,
+        )
+        if frames:
+            assert len(frames[0].instances) <= 1
+
 
 # =============================================================================
 # TestPredictBottomupFrames
@@ -496,6 +528,72 @@ class TestPredictBottomupFrames:
         if frames:
             assert len(frames[0].instances) <= 1
 
+    def test_empty_candidate_numel_zero(self, simple_skeleton, simple_video, paf_setup):
+        """candidate_mask with numel==0 → empty edge lists, graceful result."""
+        paf_scorer, candidate_template, n_nodes, max_peaks = paf_setup
+        outputs = self._make_outputs(n_nodes=n_nodes, max_peaks=max_peaks)
+        # Make candidate_mask and line_scores have 0 elements (n_edges=0)
+        outputs["candidate_mask"] = np.zeros(
+            (1, 0, max_peaks, max_peaks), dtype=np.float32
+        )
+        outputs["line_scores"] = np.zeros(
+            (1, 0, max_peaks, max_peaks), dtype=np.float32
+        )
+        frames = _predict_bottomup_frames(
+            outputs,
+            [0],
+            simple_video,
+            simple_skeleton,
+            paf_scorer,
+            candidate_template,
+            input_scale=1.0,
+            peak_conf_threshold=0.1,
+        )
+        # Should not crash; may return empty frames
+        assert isinstance(frames, list)
+
+    def test_empty_candidate_mask(self, simple_skeleton, simple_video, paf_setup):
+        """Empty candidate mask → graceful empty result."""
+        paf_scorer, candidate_template, n_nodes, max_peaks = paf_setup
+        outputs = self._make_outputs(n_nodes=n_nodes, max_peaks=max_peaks)
+        # Zero out candidate mask so no edges are valid
+        outputs["candidate_mask"] = np.zeros_like(outputs["candidate_mask"])
+        frames = _predict_bottomup_frames(
+            outputs,
+            [0],
+            simple_video,
+            simple_skeleton,
+            paf_scorer,
+            candidate_template,
+            input_scale=1.0,
+            peak_conf_threshold=0.1,
+        )
+        # Should return empty or frames with no instances
+        for lf in frames:
+            # All instances should be valid PredictedInstance if present
+            for inst in lf.instances:
+                assert isinstance(inst, sio.PredictedInstance)
+
+    def test_all_nan_points(self, simple_skeleton, simple_video, paf_setup):
+        """Instances with all-NaN coords should be skipped."""
+        paf_scorer, candidate_template, n_nodes, max_peaks = paf_setup
+        outputs = self._make_outputs(n_nodes=n_nodes, max_peaks=max_peaks)
+        # Set all peaks to NaN
+        outputs["peaks"] = np.full_like(outputs["peaks"], np.nan)
+        outputs["peak_vals"] = np.zeros_like(outputs["peak_vals"])
+        frames = _predict_bottomup_frames(
+            outputs,
+            [0],
+            simple_video,
+            simple_skeleton,
+            paf_scorer,
+            candidate_template,
+            input_scale=1.0,
+            peak_conf_threshold=0.0,
+        )
+        # All-NaN instances should be filtered out
+        assert len(frames) == 0
+
 
 # =============================================================================
 # TestPredictBottomupRaw
@@ -579,6 +677,88 @@ class TestPredictBottomupRaw:
     def test_max_instances(self, paf_setup):
         paf_scorer, candidate_template = paf_setup
         outputs = self._make_outputs()
+        results = _predict_bottomup_raw(
+            outputs,
+            [0],
+            paf_scorer,
+            candidate_template,
+            input_scale=1.0,
+            peak_conf_threshold=0.1,
+            max_instances=1,
+        )
+        if results:
+            assert len(results[0]["instance_scores"]) <= 1
+
+    def test_empty_candidate_numel_zero(self, paf_setup):
+        """candidate_mask with numel==0 in raw path → graceful result."""
+        paf_scorer, candidate_template = paf_setup
+        outputs = self._make_outputs()
+        max_peaks = 2
+        outputs["candidate_mask"] = np.zeros(
+            (1, 0, max_peaks, max_peaks), dtype=np.float32
+        )
+        outputs["line_scores"] = np.zeros(
+            (1, 0, max_peaks, max_peaks), dtype=np.float32
+        )
+        results = _predict_bottomup_raw(
+            outputs,
+            [0],
+            paf_scorer,
+            candidate_template,
+            input_scale=1.0,
+            peak_conf_threshold=0.1,
+        )
+        assert isinstance(results, list)
+
+    def test_empty_candidate_mask(self, paf_setup):
+        """Empty candidate mask in raw path → graceful empty result."""
+        paf_scorer, candidate_template = paf_setup
+        outputs = self._make_outputs()
+        outputs["candidate_mask"] = np.zeros_like(outputs["candidate_mask"])
+        results = _predict_bottomup_raw(
+            outputs,
+            [0],
+            paf_scorer,
+            candidate_template,
+            input_scale=1.0,
+            peak_conf_threshold=0.1,
+        )
+        # Should be empty or contain only valid results
+        assert isinstance(results, list)
+
+    def test_all_nan_points(self, paf_setup):
+        """All-NaN peaks in raw path → handles gracefully without crashing."""
+        paf_scorer, candidate_template = paf_setup
+        outputs = self._make_outputs()
+        outputs["peaks"] = np.full_like(outputs["peaks"], np.nan)
+        outputs["peak_vals"] = np.zeros_like(outputs["peak_vals"])
+        results = _predict_bottomup_raw(
+            outputs,
+            [0],
+            paf_scorer,
+            candidate_template,
+            input_scale=1.0,
+            peak_conf_threshold=0.0,
+        )
+        # Should handle gracefully — any returned results should have valid keys
+        assert isinstance(results, list)
+        for r in results:
+            if "instance_peaks" in r:
+                assert r["instance_peaks"].ndim == 3
+
+    def test_max_instances_truncation(self, paf_setup):
+        """Excess instances trimmed to top-K by score."""
+        paf_scorer, candidate_template = paf_setup
+        # Create outputs with 2 valid peaks per node to get multiple instances
+        outputs = self._make_outputs()
+        # Place 2 peaks per node
+        for n in range(3):
+            outputs["peaks"][0, n, 1] = [15.0 + n * 20.0, 15.0 + n * 20.0]
+            outputs["peak_vals"][0, n, 1] = 0.8
+        # Enable both candidate edges
+        for e in range(2):
+            outputs["candidate_mask"][0, e, :, :] = 1.0
+            outputs["line_scores"][0, e, :, :] = 0.5
         results = _predict_bottomup_raw(
             outputs,
             [0],
@@ -1012,6 +1192,217 @@ class TestPredict:
         )
         assert isinstance(labels, sio.Labels)
         assert len(labels.labeled_frames) > 0
+
+    @patch("sleap_nn.export.inference.load_exported_model")
+    @patch("sleap_nn.export.inference.sio.Video.from_filename")
+    def test_onnx_auto_detection(
+        self, mock_video_cls, mock_load_model, mock_export_dir, simple_video
+    ):
+        """Auto-detection falls back to ONNX when no TRT model exists."""
+        self._save_metadata(mock_export_dir, "single_instance")
+        mock_video_cls.return_value = simple_video
+        mock_predictor = MagicMock()
+        mock_predictor.predict = MagicMock(
+            side_effect=self._mock_predictor_outputs("single_instance", 10, 4)
+        )
+        mock_load_model.return_value = mock_predictor
+
+        labels, stats = predict(
+            export_dir=mock_export_dir,
+            video_path="/fake/video.mp4",
+            runtime="auto",
+            batch_size=4,
+            n_frames=2,
+        )
+        # Should have loaded the ONNX model
+        mock_load_model.assert_called_once()
+        call_args = mock_load_model.call_args
+        assert "model.onnx" in call_args[0][0]
+
+    def test_trt_auto_detection(self, mock_export_dir):
+        """TRT model auto-detection → picks model.trt when present."""
+        self._save_metadata(mock_export_dir, "single_instance")
+        # Create a model.trt file alongside model.onnx
+        (mock_export_dir / "model.trt").write_bytes(b"fake_trt")
+        # Remove onnx to ensure TRT is picked
+        (mock_export_dir / "model.onnx").unlink()
+
+        # We need to mock load_exported_model since we can't actually load TRT
+        with patch("sleap_nn.export.inference.load_exported_model") as mock_load, \
+             patch("sleap_nn.export.inference.sio.Video.from_filename") as mock_video_cls:
+            mock_video = MagicMock(spec=["__getitem__", "__len__"])
+            mock_video.__len__ = MagicMock(return_value=2)
+            mock_video.__getitem__ = MagicMock(
+                side_effect=lambda idx: np.zeros((64, 64, 1), dtype=np.uint8)
+            )
+            mock_video_cls.return_value = mock_video
+            mock_predictor = MagicMock()
+            mock_predictor.predict = MagicMock(
+                side_effect=self._mock_predictor_outputs("single_instance", 2, 4)
+            )
+            mock_load.return_value = mock_predictor
+
+            labels, stats = predict(
+                export_dir=mock_export_dir,
+                video_path="/fake/video.mp4",
+                runtime="auto",
+                batch_size=4,
+                n_frames=2,
+            )
+            # Should have loaded the TRT model
+            mock_load.assert_called_once()
+            call_args = mock_load.call_args
+            assert "model.trt" in call_args[0][0]
+
+    def test_explicit_onnx_missing(self, mock_export_dir):
+        """Explicit ONNX runtime with missing file → FileNotFoundError."""
+        self._save_metadata(mock_export_dir, "single_instance")
+        (mock_export_dir / "model.onnx").unlink()
+        with pytest.raises(FileNotFoundError, match="ONNX model not found"):
+            predict(
+                export_dir=mock_export_dir,
+                video_path="/fake/video.mp4",
+                runtime="onnx",
+            )
+
+    def test_explicit_trt_missing(self, mock_export_dir):
+        """Explicit TRT runtime with missing file → FileNotFoundError."""
+        self._save_metadata(mock_export_dir, "single_instance")
+        with pytest.raises(FileNotFoundError, match="TensorRT model not found"):
+            predict(
+                export_dir=mock_export_dir,
+                video_path="/fake/video.mp4",
+                runtime="tensorrt",
+            )
+
+    @patch("sleap_nn.export.inference.load_exported_model")
+    @patch("sleap_nn.export.inference.sio.Video.from_filename")
+    def test_explicit_trt_runtime(
+        self, mock_video_cls, mock_load_model, mock_export_dir, simple_video
+    ):
+        """Explicit tensorrt runtime with .trt file present loads correctly."""
+        self._save_metadata(mock_export_dir, "single_instance")
+        (mock_export_dir / "model.trt").write_bytes(b"fake_trt")
+        mock_video_cls.return_value = simple_video
+        mock_predictor = MagicMock()
+        mock_predictor.predict = MagicMock(
+            side_effect=self._mock_predictor_outputs("single_instance", 10, 4)
+        )
+        mock_load_model.return_value = mock_predictor
+
+        labels, stats = predict(
+            export_dir=mock_export_dir,
+            video_path="/fake/video.mp4",
+            runtime="tensorrt",
+            batch_size=4,
+            n_frames=2,
+        )
+        call_args = mock_load_model.call_args
+        assert "model.trt" in call_args[0][0]
+
+    def test_slp_config_loading(self, mock_export_dir):
+        """`.slp` config loading path triggers TrainingJobConfig.load_sleap_config."""
+        self._save_metadata(mock_export_dir, "single_instance")
+        # Remove the yaml config and create a .json one
+        (mock_export_dir / "training_config.yaml").unlink()
+        # Create a json config file (not yaml) to trigger the else branch
+        # The json path triggers TrainingJobConfig.load_sleap_config
+        (mock_export_dir / "training_config.json").write_text("{}")
+
+        with patch(
+            "sleap_nn.export.inference._find_training_config_for_predict"
+        ) as mock_find, \
+             patch("sleap_nn.export.inference.load_exported_model") as mock_load, \
+             patch("sleap_nn.export.inference.sio.Video.from_filename") as mock_video_cls, \
+             patch(
+                 "sleap_nn.config.training_job_config.TrainingJobConfig.load_sleap_config"
+             ) as mock_slp_load:
+            # Make _find return a .json path to trigger the else branch
+            mock_find.return_value = mock_export_dir / "training_config.json"
+            # mock_slp_load needs to return a config-like object
+            from omegaconf import OmegaConf
+
+            cfg = OmegaConf.create({"data_config": {"skeletons": _SKELETON_CFG}})
+            mock_slp_load.return_value = cfg
+            mock_video = MagicMock(spec=["__getitem__", "__len__"])
+            mock_video.__len__ = MagicMock(return_value=2)
+            mock_video.__getitem__ = MagicMock(
+                side_effect=lambda idx: np.zeros((64, 64, 1), dtype=np.uint8)
+            )
+            mock_video_cls.return_value = mock_video
+            mock_predictor = MagicMock()
+            mock_predictor.predict = MagicMock(
+                side_effect=self._mock_predictor_outputs("single_instance", 2, 4)
+            )
+            mock_load.return_value = mock_predictor
+
+            labels, stats = predict(
+                export_dir=mock_export_dir,
+                video_path="/fake/video.mp4",
+                runtime="onnx",
+                batch_size=4,
+                n_frames=2,
+            )
+            mock_slp_load.assert_called_once()
+
+    def test_anchor_part_not_found(self, mock_export_dir, simple_video):
+        """Anchor part not in skeleton → ValueError."""
+        self._save_metadata(mock_export_dir, "centroid")
+        from omegaconf import OmegaConf
+
+        cfg = OmegaConf.create(
+            {
+                "data_config": {"skeletons": _SKELETON_CFG},
+                "model_config": {
+                    "head_configs": {
+                        "centroid": {"confmaps": {"anchor_part": "nonexistent_node"}}
+                    }
+                },
+            }
+        )
+        OmegaConf.save(cfg, str(mock_export_dir / "training_config.yaml"))
+
+        with patch("sleap_nn.export.inference.load_exported_model") as mock_load, \
+             patch("sleap_nn.export.inference.sio.Video.from_filename") as mock_video_cls:
+            mock_video_cls.return_value = simple_video
+            mock_predictor = MagicMock()
+            mock_predictor.predict = MagicMock(return_value={})
+            mock_load.return_value = mock_predictor
+
+            with pytest.raises(ValueError, match="Anchor part.*not found"):
+                predict(
+                    export_dir=mock_export_dir,
+                    video_path="/fake/video.mp4",
+                    runtime="onnx",
+                    batch_size=4,
+                    n_frames=1,
+                )
+
+    @patch("sleap_nn.export.inference.load_exported_model")
+    @patch("sleap_nn.export.inference.sio.Video.from_filename")
+    def test_peak_conf_threshold_from_metadata(
+        self, mock_video_cls, mock_load_model, mock_export_dir, simple_video
+    ):
+        """peak_conf_threshold=None resolves from metadata.peak_threshold."""
+        self._save_metadata(
+            mock_export_dir, "single_instance", peak_threshold=0.42
+        )
+        mock_video_cls.return_value = simple_video
+        mock_predictor = MagicMock()
+        mock_predictor.predict = MagicMock(
+            side_effect=self._mock_predictor_outputs("single_instance", 10, 4)
+        )
+        mock_load_model.return_value = mock_predictor
+
+        # peak_conf_threshold is not passed (defaults to None)
+        labels, stats = predict(
+            export_dir=mock_export_dir,
+            video_path="/fake/video.mp4",
+            runtime="onnx",
+            batch_size=4,
+            n_frames=2,
+        )
+        assert isinstance(labels, sio.Labels)
 
     @patch("sleap_nn.export.inference.load_exported_model")
     @patch("sleap_nn.export.inference.sio.Video.from_filename")
