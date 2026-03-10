@@ -1228,8 +1228,12 @@ class TestPredict:
         (mock_export_dir / "model.onnx").unlink()
 
         # We need to mock load_exported_model since we can't actually load TRT
-        with patch("sleap_nn.export.inference.load_exported_model") as mock_load, \
-             patch("sleap_nn.export.inference.sio.Video.from_filename") as mock_video_cls:
+        with (
+            patch("sleap_nn.export.inference.load_exported_model") as mock_load,
+            patch(
+                "sleap_nn.export.inference.sio.Video.from_filename"
+            ) as mock_video_cls,
+        ):
             mock_video = MagicMock(spec=["__getitem__", "__len__"])
             mock_video.__len__ = MagicMock(return_value=2)
             mock_video.__getitem__ = MagicMock(
@@ -1309,14 +1313,18 @@ class TestPredict:
         # The json path triggers TrainingJobConfig.load_sleap_config
         (mock_export_dir / "training_config.json").write_text("{}")
 
-        with patch(
-            "sleap_nn.export.inference._find_training_config_for_predict"
-        ) as mock_find, \
-             patch("sleap_nn.export.inference.load_exported_model") as mock_load, \
-             patch("sleap_nn.export.inference.sio.Video.from_filename") as mock_video_cls, \
-             patch(
-                 "sleap_nn.config.training_job_config.TrainingJobConfig.load_sleap_config"
-             ) as mock_slp_load:
+        with (
+            patch(
+                "sleap_nn.export.inference._find_training_config_for_predict"
+            ) as mock_find,
+            patch("sleap_nn.export.inference.load_exported_model") as mock_load,
+            patch(
+                "sleap_nn.export.inference.sio.Video.from_filename"
+            ) as mock_video_cls,
+            patch(
+                "sleap_nn.config.training_job_config.TrainingJobConfig.load_sleap_config"
+            ) as mock_slp_load,
+        ):
             # Make _find return a .json path to trigger the else branch
             mock_find.return_value = mock_export_dir / "training_config.json"
             # mock_slp_load needs to return a config-like object
@@ -1362,8 +1370,12 @@ class TestPredict:
         )
         OmegaConf.save(cfg, str(mock_export_dir / "training_config.yaml"))
 
-        with patch("sleap_nn.export.inference.load_exported_model") as mock_load, \
-             patch("sleap_nn.export.inference.sio.Video.from_filename") as mock_video_cls:
+        with (
+            patch("sleap_nn.export.inference.load_exported_model") as mock_load,
+            patch(
+                "sleap_nn.export.inference.sio.Video.from_filename"
+            ) as mock_video_cls,
+        ):
             mock_video_cls.return_value = simple_video
             mock_predictor = MagicMock()
             mock_predictor.predict = MagicMock(return_value={})
@@ -1384,9 +1396,7 @@ class TestPredict:
         self, mock_video_cls, mock_load_model, mock_export_dir, simple_video
     ):
         """peak_conf_threshold=None resolves from metadata.peak_threshold."""
-        self._save_metadata(
-            mock_export_dir, "single_instance", peak_threshold=0.42
-        )
+        self._save_metadata(mock_export_dir, "single_instance", peak_threshold=0.42)
         mock_video_cls.return_value = simple_video
         mock_predictor = MagicMock()
         mock_predictor.predict = MagicMock(
