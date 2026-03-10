@@ -293,17 +293,24 @@ def _export_tensorrt_jit(
         truncate_long_and_double=True,
     )
 
+    # Save TF32 flags so we can restore them after compilation
+    prev_cuda_tf32 = torch.backends.cuda.matmul.allow_tf32
+    prev_cudnn_tf32 = torch.backends.cudnn.allow_tf32
+
     # Disable TF32 for strict FP32 mode in the JIT path
     if precision == "fp32":
         compile_kwargs["require_full_compilation"] = True
-        # torch_tensorrt uses torch.backends.cudnn/cuda settings for TF32
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
         if verbose:
             print("  Using strict FP32 mode (TF32 disabled)")
 
     # Compile with TensorRT
-    trt_model = torch_tensorrt.compile(traced_model, **compile_kwargs)
+    try:
+        trt_model = torch_tensorrt.compile(traced_model, **compile_kwargs)
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = prev_cuda_tf32
+        torch.backends.cudnn.allow_tf32 = prev_cudnn_tf32
 
     # Save as TorchScript
     ts_path = save_path.with_suffix(".ts")
