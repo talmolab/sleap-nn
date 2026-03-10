@@ -944,9 +944,9 @@ def _bottomup_postprocess_worker(
                 import traceback
 
                 traceback.print_exc()
-                # Exit the loop — the worker will terminate with a non-zero
-                # exitcode, and the collector's liveness check will detect it.
-                break
+                # Re-raise so the worker exits with a non-zero exitcode,
+                # allowing the collector's liveness check to detect it.
+                raise
     finally:
         if _csv_file is not None:
             _csv_file.close()
@@ -1118,16 +1118,17 @@ def _run_bottomup_pipelined(
             gpu_output_queue.put((total_batches, outputs, batch_indices))
             t_put_end = time.perf_counter()
 
-            producer_profile.append(
-                {
-                    "source": "producer",
-                    "seq_id": total_batches,
-                    "prefetch_get_ms": (t_fetch_end - t_fetch_start) * 1000,
-                    "predict_ms": (infer_end - infer_start) * 1000,
-                    "queue_put_ms": (t_put_end - t_put_start) * 1000,
-                    "total_ms": (t_put_end - t_fetch_start) * 1000,
-                }
-            )
+            if _profile_dir:
+                producer_profile.append(
+                    {
+                        "source": "producer",
+                        "seq_id": total_batches,
+                        "prefetch_get_ms": (t_fetch_end - t_fetch_start) * 1000,
+                        "predict_ms": (infer_end - infer_start) * 1000,
+                        "queue_put_ms": (t_put_end - t_put_start) * 1000,
+                        "total_ms": (t_put_end - t_fetch_start) * 1000,
+                    }
+                )
 
             total_batches += 1
 
@@ -1176,14 +1177,15 @@ def _run_bottomup_pipelined(
             next_seq_id += 1
         t_convert_end = time.perf_counter()
 
-        collector_profile.append(
-            {
-                "source": "collector",
-                "seq_id": seq_id,
-                "result_get_ms": (t_cget_end - t_cget_start) * 1000,
-                "convert_ms": (t_convert_end - t_convert_start) * 1000,
-            }
-        )
+        if _profile_dir:
+            collector_profile.append(
+                {
+                    "source": "collector",
+                    "seq_id": seq_id,
+                    "result_get_ms": (t_cget_end - t_cget_start) * 1000,
+                    "convert_ms": (t_convert_end - t_convert_start) * 1000,
+                }
+            )
 
     post_time = time.perf_counter() - post_start
 
@@ -1234,7 +1236,7 @@ def predict(
     n_points: int = 10,
     min_instance_peaks: float = 0,
     min_line_scores: float = 0.25,
-    peak_conf_threshold: float = 0.2,
+    peak_conf_threshold: Optional[float] = None,
     max_instances: Optional[int] = None,
     cpu_workers: int = 0,
     progress_callback: Optional[Callable[[int, int], None]] = None,
@@ -1257,6 +1259,8 @@ def predict(
         min_instance_peaks: Bottom-up: minimum peaks required per instance.
         min_line_scores: Bottom-up: minimum line score threshold.
         peak_conf_threshold: Bottom-up: peak confidence threshold for filtering.
+            If ``None``, uses the threshold from export metadata (falls back to
+            0.2 if not set).
         max_instances: Maximum instances to output per frame.
         cpu_workers: Number of CPU worker processes for parallel bottom-up
             post-processing.  ``0`` = sequential mode.
@@ -1283,6 +1287,12 @@ def predict(
     if not metadata_path.exists():
         raise FileNotFoundError(f"Metadata not found: {metadata_path}")
     metadata = ExportMetadata.load(metadata_path)
+
+    # Resolve peak_conf_threshold from metadata if not explicitly provided
+    if peak_conf_threshold is None:
+        peak_conf_threshold = (
+            metadata.peak_threshold if metadata.peak_threshold is not None else 0.2
+        )
 
     # Find model file
     onnx_path = export_dir / "model.onnx"
