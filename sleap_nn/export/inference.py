@@ -15,6 +15,7 @@ Example usage::
 
 from __future__ import annotations
 
+import logging
 import multiprocessing
 import time
 from pathlib import Path
@@ -657,6 +658,8 @@ def _predict_bottomup_raw(
          "instance_peak_scores": np.ndarray (n_inst, n_nodes),
          "instance_scores": np.ndarray (n_inst,)}
     """
+    _t0 = time.perf_counter()
+
     peaks = torch.from_numpy(outputs["peaks"]).to(torch.float32)
     peak_vals = torch.from_numpy(outputs["peak_vals"]).to(torch.float32)
     line_scores = torch.from_numpy(outputs["line_scores"]).to(torch.float32)
@@ -677,6 +680,11 @@ def _predict_bottomup_raw(
     edge_peak_inds_list = []
     line_scores_list = []
 
+    _total_candidates = 0
+    _total_valid_edges = 0
+    _total_conf_peaks = 0
+    _total_candidate_mask_true = 0
+
     for b in range(batch_size):
         peaks_list.append(peaks_flat[b])
         peak_vals_list.append(peak_vals_flat[b])
@@ -684,6 +692,9 @@ def _predict_bottomup_raw(
 
         candidate_mask_flat = candidate_mask[b].reshape(-1)
         line_scores_flat = line_scores[b].reshape(-1)
+
+        _total_candidates += candidate_mask_flat.numel()
+        _total_candidate_mask_true += int(candidate_mask_flat.sum().item())
 
         if candidate_mask_flat.numel() == 0:
             edge_inds_list.append(torch.empty((0,), dtype=torch.int32))
@@ -693,13 +704,19 @@ def _predict_bottomup_raw(
 
         peak_vals_b = peak_vals_flat[b]
         peak_conf_valid = peak_vals_b > peak_conf_threshold
+        _total_conf_peaks += int(peak_conf_valid.sum().item())
         src_valid = peak_conf_valid[edge_peak_inds_base[:, 0].long()]
         dst_valid = peak_conf_valid[edge_peak_inds_base[:, 1].long()]
         valid = candidate_mask_flat & src_valid & dst_valid
 
+        n_valid = int(valid.sum().item())
+        _total_valid_edges += n_valid
+
         edge_inds_list.append(edge_inds_base[valid])
         edge_peak_inds_list.append(edge_peak_inds_base[valid])
         line_scores_list.append(line_scores_flat[valid])
+
+    _t1 = time.perf_counter()
 
     (
         match_edge_inds,
@@ -711,6 +728,8 @@ def _predict_bottomup_raw(
         edge_peak_inds_list,
         line_scores_list,
     )
+
+    _t2 = time.perf_counter()
 
     (
         predicted_instances,
@@ -725,6 +744,8 @@ def _predict_bottomup_raw(
         match_dst_peak_inds,
         match_line_scores,
     )
+
+    _t3 = time.perf_counter()
 
     predicted_instances = [p / input_scale for p in predicted_instances]
 
@@ -767,6 +788,22 @@ def _predict_bottomup_raw(
             }
         )
 
+    _t4 = time.perf_counter()
+
+    # Attach profiling metadata to results (worker will extract it)
+    _profile_meta = {
+        "_profile": True,
+        "filter_ms": (_t1 - _t0) * 1000,
+        "match_candidates_ms": (_t2 - _t1) * 1000,
+        "group_instances_ms": (_t3 - _t2) * 1000,
+        "assemble_ms": (_t4 - _t3) * 1000,
+        "total_candidates": _total_candidates,
+        "candidate_mask_true": _total_candidate_mask_true,
+        "conf_peaks": _total_conf_peaks,
+        "valid_edges": _total_valid_edges,
+    }
+    results.append(_profile_meta)
+
     return results
 
 
@@ -778,6 +815,7 @@ def _bottomup_postprocess_worker(
     input_scale,
     peak_conf_threshold,
     max_instances,
+    profile_path=None,
 ):
     """Worker process for CPU-bound bottom-up post-processing.
 
@@ -793,7 +831,13 @@ def _bottomup_postprocess_worker(
         input_scale: Float scale factor.
         peak_conf_threshold: Float confidence threshold.
         max_instances: Optional int max instances per frame.
+        profile_path: Optional file path — worker writes its own CSV directly.
     """
+    import csv as _csv
+    import os as _os
+
+    worker_pid = _os.getpid()
+
     paf_scorer = PAFScorer(**paf_scorer_kwargs)
 
     # Convert candidate template numpy arrays back to tensors
@@ -805,22 +849,107 @@ def _bottomup_postprocess_worker(
         "edge_peak_inds": torch.from_numpy(candidate_template_data["edge_peak_inds"]),
     }
 
-    while True:
-        item = gpu_output_queue.get()
-        if item is None:
-            break
-
-        seq_id, outputs, batch_indices = item
-        results = _predict_bottomup_raw(
-            outputs,
-            batch_indices,
-            paf_scorer,
-            candidate_template,
-            input_scale,
-            peak_conf_threshold,
-            max_instances,
+    # Open CSV file for this worker if profiling
+    _csv_file = None
+    _csv_writer = None
+    if profile_path:
+        _csv_file = open(profile_path, "w", newline="")
+        _csv_writer = _csv.writer(_csv_file)
+        _csv_writer.writerow(
+            [
+                "worker_pid",
+                "seq_id",
+                "queue_get_ms",
+                "process_ms",
+                "result_put_ms",
+                "payload_bytes",
+                "n_instances",
+                "filter_ms",
+                "match_candidates_ms",
+                "group_instances_ms",
+                "assemble_ms",
+                "total_candidates",
+                "candidate_mask_true",
+                "conf_peaks",
+                "valid_edges",
+            ]
         )
-        result_queue.put((seq_id, results))
+
+    try:
+        while True:
+            t_get_start = time.perf_counter()
+            item = gpu_output_queue.get()
+            t_get_end = time.perf_counter()
+            if item is None:
+                break
+
+            try:
+                seq_id, outputs, batch_indices = item
+
+                # Measure payload size (bytes pickled through mp.Queue)
+                payload_bytes = sum(v.nbytes for v in outputs.values())
+
+                t_proc_start = time.perf_counter()
+                results = _predict_bottomup_raw(
+                    outputs,
+                    batch_indices,
+                    paf_scorer,
+                    candidate_template,
+                    input_scale,
+                    peak_conf_threshold,
+                    max_instances,
+                )
+                t_proc_end = time.perf_counter()
+
+                # Extract profile metadata BEFORE queueing to avoid corrupting
+                # results (_predict_bottomup_raw appends a _profile dict that
+                # would cause KeyError in _raw_results_to_labeled_frames if
+                # left in the results list)
+                _pmeta = {}
+                if (
+                    results
+                    and isinstance(results[-1], dict)
+                    and results[-1].get("_profile")
+                ):
+                    _pmeta = results.pop()
+
+                t_put_start = time.perf_counter()
+                result_queue.put((seq_id, results))
+                t_put_end = time.perf_counter()
+
+                if _csv_writer is not None:
+                    n_instances = sum(
+                        len(r.get("instance_scores", [])) for r in results
+                    )
+                    _csv_writer.writerow(
+                        [
+                            worker_pid,
+                            seq_id,
+                            f"{(t_get_end - t_get_start) * 1000:.3f}",
+                            f"{(t_proc_end - t_proc_start) * 1000:.3f}",
+                            f"{(t_put_end - t_put_start) * 1000:.3f}",
+                            payload_bytes,
+                            n_instances,
+                            f"{_pmeta.get('filter_ms', 0):.3f}",
+                            f"{_pmeta.get('match_candidates_ms', 0):.3f}",
+                            f"{_pmeta.get('group_instances_ms', 0):.3f}",
+                            f"{_pmeta.get('assemble_ms', 0):.3f}",
+                            _pmeta.get("total_candidates", 0),
+                            _pmeta.get("candidate_mask_true", 0),
+                            _pmeta.get("conf_peaks", 0),
+                            _pmeta.get("valid_edges", 0),
+                        ]
+                    )
+            except Exception:
+                import traceback
+
+                traceback.print_exc()
+                # Re-raise so the worker exits with a non-zero exitcode,
+                # allowing the collector's liveness check to detect it.
+                raise
+    finally:
+        if _csv_file is not None:
+            _csv_file.close()
 
 
 def _raw_results_to_labeled_frames(raw_results, video, skeleton):
@@ -930,9 +1059,19 @@ def _run_bottomup_pipelined(
         "edge_peak_inds": candidate_template["edge_peak_inds"].numpy(),
     }
 
+    # Determine per-worker profile paths
+    import os as _os
+
+    _profile_dir = _os.environ.get("SLEAP_PROFILE_DIR", "")
+    if _profile_dir:
+        _os.makedirs(_profile_dir, exist_ok=True)
+
     # Start workers
     workers = []
-    for _ in range(cpu_workers):
+    for wi in range(cpu_workers):
+        worker_profile_path = (
+            _os.path.join(_profile_dir, f"worker_{wi}.csv") if _profile_dir else None
+        )
         p = ctx.Process(
             target=_bottomup_postprocess_worker,
             args=(
@@ -943,6 +1082,7 @@ def _run_bottomup_pipelined(
                 input_scale,
                 peak_conf_threshold,
                 max_instances,
+                worker_profile_path,
             ),
         )
         p.start()
@@ -959,18 +1099,37 @@ def _run_bottomup_pipelined(
 
     infer_time = 0.0
     total_batches = 0
+    producer_profile = []
     try:
         while True:
+            t_fetch_start = time.perf_counter()
             item = prefetch_queue.get()
+            t_fetch_end = time.perf_counter()
             if item is None:
                 break
             batch, batch_indices = item
 
             infer_start = time.perf_counter()
             outputs = predictor.predict(batch)
-            infer_time += time.perf_counter() - infer_start
+            infer_end = time.perf_counter()
+            infer_time += infer_end - infer_start
 
+            t_put_start = time.perf_counter()
             gpu_output_queue.put((total_batches, outputs, batch_indices))
+            t_put_end = time.perf_counter()
+
+            if _profile_dir:
+                producer_profile.append(
+                    {
+                        "source": "producer",
+                        "seq_id": total_batches,
+                        "prefetch_get_ms": (t_fetch_end - t_fetch_start) * 1000,
+                        "predict_ms": (infer_end - infer_start) * 1000,
+                        "queue_put_ms": (t_put_end - t_put_start) * 1000,
+                        "total_ms": (t_put_end - t_fetch_start) * 1000,
+                    }
+                )
+
             total_batches += 1
 
             if progress_callback is not None:
@@ -980,31 +1139,82 @@ def _run_bottomup_pipelined(
         # Send sentinels to shut down workers
         for _ in workers:
             gpu_output_queue.put(None)
-        prefetch_thread.join()
+        # Drain prefetch queue to unblock the thread if it's stuck on put()
+        while not prefetch_queue.empty():
+            try:
+                prefetch_queue.get_nowait()
+            except queue.Empty:
+                break
+        prefetch_thread.join(timeout=5.0)
 
     # Collector: gather results in order using reorder buffer
     labeled_frames = []
     reorder_buffer = {}
     next_seq_id = 0
     collected = 0
+    collector_profile = []
     post_start = time.perf_counter()
 
     while collected < total_batches:
-        seq_id, raw_results = result_queue.get()
+        t_cget_start = time.perf_counter()
+        try:
+            seq_id, raw_results = result_queue.get(timeout=5.0)
+        except queue.Empty:
+            # Check if any worker has died
+            dead = [p for p in workers if not p.is_alive() and p.exitcode != 0]
+            if dead:
+                raise RuntimeError(f"Worker process(es) died: {[p.pid for p in dead]}")
+            continue
+        t_cget_end = time.perf_counter()
         reorder_buffer[seq_id] = raw_results
         collected += 1
 
+        t_convert_start = time.perf_counter()
         # Drain buffer in order
         while next_seq_id in reorder_buffer:
             raw = reorder_buffer.pop(next_seq_id)
             labeled_frames.extend(_raw_results_to_labeled_frames(raw, video, skeleton))
             next_seq_id += 1
+        t_convert_end = time.perf_counter()
+
+        if _profile_dir:
+            collector_profile.append(
+                {
+                    "source": "collector",
+                    "seq_id": seq_id,
+                    "result_get_ms": (t_cget_end - t_cget_start) * 1000,
+                    "convert_ms": (t_convert_end - t_convert_start) * 1000,
+                }
+            )
 
     post_time = time.perf_counter() - post_start
 
     # Wait for workers to exit
     for p in workers:
         p.join()
+
+    # Worker CSVs are written directly by each worker process.
+    # Dump producer and collector profiling data.
+    import csv
+
+    if _profile_dir:
+        if producer_profile:
+            with open(
+                _os.path.join(_profile_dir, "producer.csv"), "w", newline=""
+            ) as f:
+                w = csv.DictWriter(f, fieldnames=list(producer_profile[0].keys()))
+                w.writeheader()
+                w.writerows(producer_profile)
+
+        if collector_profile:
+            with open(
+                _os.path.join(_profile_dir, "collector.csv"), "w", newline=""
+            ) as f:
+                w = csv.DictWriter(f, fieldnames=list(collector_profile[0].keys()))
+                w.writeheader()
+                w.writerows(collector_profile)
+
+        logging.info(f"Profile data written to {_profile_dir}/")
 
     return labeled_frames, infer_time, post_time
 
@@ -1026,7 +1236,7 @@ def predict(
     n_points: int = 10,
     min_instance_peaks: float = 0,
     min_line_scores: float = 0.25,
-    peak_conf_threshold: float = 0.2,
+    peak_conf_threshold: Optional[float] = None,
     max_instances: Optional[int] = None,
     cpu_workers: int = 0,
     progress_callback: Optional[Callable[[int, int], None]] = None,
@@ -1049,6 +1259,8 @@ def predict(
         min_instance_peaks: Bottom-up: minimum peaks required per instance.
         min_line_scores: Bottom-up: minimum line score threshold.
         peak_conf_threshold: Bottom-up: peak confidence threshold for filtering.
+            If ``None``, uses the threshold from export metadata (falls back to
+            0.2 if not set).
         max_instances: Maximum instances to output per frame.
         cpu_workers: Number of CPU worker processes for parallel bottom-up
             post-processing.  ``0`` = sequential mode.
@@ -1075,6 +1287,12 @@ def predict(
     if not metadata_path.exists():
         raise FileNotFoundError(f"Metadata not found: {metadata_path}")
     metadata = ExportMetadata.load(metadata_path)
+
+    # Resolve peak_conf_threshold from metadata if not explicitly provided
+    if peak_conf_threshold is None:
+        peak_conf_threshold = (
+            metadata.peak_threshold if metadata.peak_threshold is not None else 0.2
+        )
 
     # Find model file
     onnx_path = export_dir / "model.onnx"

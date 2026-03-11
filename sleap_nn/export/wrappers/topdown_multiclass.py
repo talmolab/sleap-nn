@@ -31,6 +31,7 @@ class TopDownMultiClassONNXWrapper(BaseExportWrapper):
         output_stride: int = 2,
         input_scale: float = 1.0,
         n_classes: int = 2,
+        peak_threshold: float = 0.2,
     ):
         """Initialize the wrapper.
 
@@ -39,11 +40,13 @@ class TopDownMultiClassONNXWrapper(BaseExportWrapper):
             output_stride: Output stride of the confidence maps.
             input_scale: Scale factor for input images.
             n_classes: Number of identity classes (e.g., 2 for male/female).
+            peak_threshold: Minimum confidence for a peak to be considered valid.
         """
         super().__init__(model)
         self.output_stride = output_stride
         self.input_scale = input_scale
         self.n_classes = n_classes
+        self.peak_threshold = peak_threshold
 
     def forward(self, image: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Run top-down multiclass inference on crops.
@@ -80,7 +83,7 @@ class TopDownMultiClassONNXWrapper(BaseExportWrapper):
         class_logits = self._extract_tensor(out, ["class", "vector"])
 
         # Find global peaks (one per node)
-        peaks, peak_vals = self._find_global_peaks(confmaps)
+        peaks, peak_vals = self._find_global_peaks(confmaps, self.peak_threshold)
 
         # Scale peaks back to input coordinates
         peaks = peaks * (self.output_stride / self.input_scale)
@@ -116,6 +119,8 @@ class TopDownMultiClassCombinedONNXWrapper(BaseExportWrapper):
         instance_input_scale: float = 1.0,
         n_nodes: int = 13,
         n_classes: int = 2,
+        centroid_peak_threshold: float = 0.2,
+        instance_peak_threshold: float = 0.2,
     ):
         """Initialize the combined wrapper.
 
@@ -130,6 +135,8 @@ class TopDownMultiClassCombinedONNXWrapper(BaseExportWrapper):
             instance_input_scale: Input scale for instance model.
             n_nodes: Number of keypoint nodes per instance.
             n_classes: Number of identity classes.
+            centroid_peak_threshold: Minimum confidence for centroid peaks.
+            instance_peak_threshold: Minimum confidence for instance peaks.
         """
         super().__init__(centroid_model)  # Primary model is centroid
         self.instance_model = instance_model
@@ -141,6 +148,8 @@ class TopDownMultiClassCombinedONNXWrapper(BaseExportWrapper):
         self.instance_input_scale = instance_input_scale
         self.n_nodes = n_nodes
         self.n_classes = n_classes
+        self.centroid_peak_threshold = centroid_peak_threshold
+        self.instance_peak_threshold = instance_peak_threshold
 
         # Pre-compute base grid for crop extraction (same as TopDownONNXWrapper)
         crop_h, crop_w = crop_size
@@ -186,7 +195,7 @@ class TopDownMultiClassCombinedONNXWrapper(BaseExportWrapper):
         centroid_out = self.model(scaled_image)
         centroid_cms = self._extract_tensor(centroid_out, ["centroid", "confmap"])
         centroids, centroid_vals, instance_valid = self._find_topk_peaks(
-            centroid_cms, self.max_instances
+            centroid_cms, self.max_instances, self.centroid_peak_threshold
         )
         centroids = centroids * (
             self.centroid_output_stride / self.centroid_input_scale
@@ -220,7 +229,9 @@ class TopDownMultiClassCombinedONNXWrapper(BaseExportWrapper):
         instance_class = self._extract_tensor(instance_out, ["class", "vector"])
 
         # Find peaks in all crops
-        crop_peaks, crop_peak_vals = self._find_global_peaks(instance_cms)
+        crop_peaks, crop_peak_vals = self._find_global_peaks(
+            instance_cms, self.instance_peak_threshold
+        )
         crop_peaks = crop_peaks * (
             self.instance_output_stride / self.instance_input_scale
         )

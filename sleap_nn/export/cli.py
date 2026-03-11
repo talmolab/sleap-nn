@@ -87,10 +87,17 @@ from sleap_nn.training.lightning_modules import (
 @click.option("--device", type=str, default="cpu", show_default=True)
 @click.option(
     "--precision",
-    type=click.Choice(["fp32", "fp16"], case_sensitive=False),
+    type=click.Choice(["fp32", "fp16", "tf32"], case_sensitive=False),
     default="fp16",
     show_default=True,
     help="TensorRT precision mode.",
+)
+@click.option(
+    "--peak-threshold",
+    type=float,
+    default=0.2,
+    show_default=True,
+    help="Minimum confidence threshold for peak detection (baked into ONNX graph).",
 )
 @click.option("--verify/--no-verify", default=True, show_default=True)
 def export(
@@ -110,6 +117,7 @@ def export(
     dist_penalty_weight: float,
     device: str,
     precision: str,
+    peak_threshold: float,
     verify: bool,
 ) -> None:
     """Export trained models to ONNX/TensorRT formats."""
@@ -178,6 +186,7 @@ def export(
                 max_instances=max_instances,
                 output_stride=output_stride,
                 input_scale=resolved_scale,
+                peak_threshold=peak_threshold,
             )
             output_names = ["centroids", "centroid_vals", "instance_valid"]
             metadata_max_instances = max_instances
@@ -188,6 +197,7 @@ def export(
                 torch_model,
                 output_stride=output_stride,
                 input_scale=resolved_scale,
+                peak_threshold=peak_threshold,
             )
             output_names = ["peaks", "peak_vals"]
             node_names = resolve_node_names(cfg, model_type)
@@ -207,6 +217,7 @@ def export(
                 max_edge_length_ratio=max_edge_length_ratio,
                 dist_penalty_weight=dist_penalty_weight,
                 input_scale=resolved_scale,
+                peak_threshold=peak_threshold,
             )
             output_names = [
                 "peaks",
@@ -221,6 +232,7 @@ def export(
                 torch_model,
                 output_stride=output_stride,
                 input_scale=resolved_scale,
+                peak_threshold=peak_threshold,
             )
             output_names = ["peaks", "peak_vals"]
             node_names = resolve_node_names(cfg, model_type)
@@ -233,6 +245,7 @@ def export(
                 output_stride=output_stride,
                 input_scale=resolved_scale,
                 n_classes=n_classes,
+                peak_threshold=peak_threshold,
             )
             output_names = ["peaks", "peak_vals", "class_logits"]
             node_names = resolve_node_names(cfg, model_type)
@@ -253,6 +266,7 @@ def export(
                 cms_output_stride=output_stride,
                 class_maps_output_stride=class_maps_output_stride,
                 input_scale=resolved_scale,
+                peak_threshold=peak_threshold,
             )
             output_names = ["peaks", "peak_vals", "peak_mask", "class_probs"]
             metadata_max_peaks = max_peaks_per_node
@@ -313,6 +327,7 @@ def export(
             normalization="0_to_1",
             n_classes=metadata_n_classes,
             class_names=metadata_class_names,
+            peak_threshold=peak_threshold,
         )
 
         metadata.save(export_dir / "export_metadata.json")
@@ -385,6 +400,7 @@ def export(
                 normalization="0_to_1",
                 n_classes=metadata_n_classes,
                 class_names=metadata_class_names,
+                peak_threshold=peak_threshold,
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
         return
@@ -468,6 +484,8 @@ def export(
             centroid_input_scale=centroid_scale,
             instance_input_scale=instance_scale,
             n_nodes=len(node_names),
+            centroid_peak_threshold=peak_threshold,
+            instance_peak_threshold=peak_threshold,
         )
         wrapper.eval()
         wrapper.to(device)
@@ -534,6 +552,7 @@ def export(
             training_config_embedded=training_config_text is not None,
             input_dtype="uint8",
             normalization="0_to_1",
+            peak_threshold=peak_threshold,
         )
 
         metadata.save(export_dir / "export_metadata.json")
@@ -583,6 +602,7 @@ def export(
                 training_config_embedded=training_config_text is not None,
                 input_dtype="uint8",
                 normalization="0_to_1",
+                peak_threshold=peak_threshold,
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
         return
@@ -670,6 +690,8 @@ def export(
             instance_input_scale=instance_scale,
             n_nodes=len(node_names),
             n_classes=n_classes,
+            centroid_peak_threshold=peak_threshold,
+            instance_peak_threshold=peak_threshold,
         )
         wrapper.eval()
         wrapper.to(device)
@@ -738,6 +760,7 @@ def export(
             normalization="0_to_1",
             n_classes=n_classes,
             class_names=class_names,
+            peak_threshold=peak_threshold,
         )
         metadata.save(export_dir / "export_metadata.json")
         click.echo(f"ONNX model exported to: {model_out_path}")
@@ -783,6 +806,7 @@ def export(
                 normalization="0_to_1",
                 n_classes=n_classes,
                 class_names=class_names,
+                peak_threshold=peak_threshold,
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
         return
@@ -910,6 +934,36 @@ def predict(
     click.echo(f"  Batch size: {batch_size}")
     if cpu_workers > 0:
         click.echo(f"  Using pipelined inference with {cpu_workers} CPU workers")
+
+        import os
+
+        omp_threads = os.environ.get("OMP_NUM_THREADS")
+        if omp_threads is None:
+            ncpus = os.cpu_count() or 1
+            suggested = max(1, ncpus // cpu_workers)
+            click.echo(
+                f"\n  WARNING: OMP_NUM_THREADS is not set. Each worker will "
+                f"spawn threads equal to the CPU count ({ncpus}), causing "
+                f"thread oversubscription with {cpu_workers} workers.\n"
+                f"  This can severely degrade performance. Consider setting:\n"
+                f"    export OMP_NUM_THREADS={suggested}\n"
+            )
+        else:
+            try:
+                omp_val = int(omp_threads)
+            except (ValueError, TypeError):
+                omp_val = None
+
+            if (
+                omp_val is not None
+                and omp_val * cpu_workers > (os.cpu_count() or 1) * 2
+            ):
+                click.echo(
+                    f"\n  WARNING: OMP_NUM_THREADS={omp_val} x {cpu_workers} "
+                    f"workers = {omp_val * cpu_workers} threads, which exceeds "
+                    f"available CPUs ({os.cpu_count()}). This may cause "
+                    f"performance degradation.\n"
+                )
 
     def _progress(processed, total):
         click.echo(f"\r  Processed {processed}/{total} frames...", nl=False)

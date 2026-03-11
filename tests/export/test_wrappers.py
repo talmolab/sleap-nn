@@ -158,6 +158,127 @@ class TestBaseExportWrapperPeakFinding:
         assert values[0, 2].item() == 0.5
 
 
+class TestNeighborMaxNMS:
+    """Regression tests for center-excluded neighbor-max NMS."""
+
+    def test_plateau_produces_no_peaks(self):
+        """Plateau of equal values should NOT produce peaks (strict inequality).
+
+        This is the key regression: the old max_pool2d + equality NMS would
+        mark every pixel on a plateau as a peak, while the correct behavior
+        (matching PyTorch path) is to require the center pixel to be strictly
+        greater than all neighbors.
+        """
+        confmaps = torch.zeros(1, 1, 16, 16)
+        # Create a 3x3 plateau of equal values
+        confmaps[0, 0, 5:8, 5:8] = 0.8
+        peaks, values, valid = BaseExportWrapper._find_topk_peaks(confmaps, k=5)
+        # No pixel on the plateau is strictly greater than its neighbors
+        assert not valid.any(), (
+            f"Plateau should produce no valid peaks, but got {valid.sum().item()} "
+            f"valid peaks with values {values[valid]}"
+        )
+
+    def test_single_pixel_peak_detected(self):
+        """An isolated single-pixel peak should be detected."""
+        confmaps = torch.zeros(1, 1, 16, 16)
+        confmaps[0, 0, 8, 8] = 0.9
+        peaks, values, valid = BaseExportWrapper._find_topk_peaks(confmaps, k=3)
+        assert valid[0, 0].item()
+        assert peaks[0, 0, 0].item() == 8.0  # x
+        assert peaks[0, 0, 1].item() == 8.0  # y
+        assert values[0, 0].item() == pytest.approx(0.9)
+
+    def test_peak_with_lower_neighbors(self):
+        """Peak surrounded by lower neighbors should be detected."""
+        confmaps = torch.zeros(1, 1, 16, 16)
+        confmaps[0, 0, 8, 8] = 1.0
+        confmaps[0, 0, 7, 8] = 0.5
+        confmaps[0, 0, 9, 8] = 0.5
+        confmaps[0, 0, 8, 7] = 0.5
+        confmaps[0, 0, 8, 9] = 0.5
+        peaks, values, valid = BaseExportWrapper._find_topk_peaks(confmaps, k=3)
+        assert valid[0, 0].item()
+        assert values[0, 0].item() == 1.0
+
+    def test_below_threshold_no_valid_peaks(self):
+        """Peaks below threshold should not be marked as valid."""
+        confmaps = torch.zeros(1, 1, 16, 16)
+        confmaps[0, 0, 8, 8] = 0.1  # Below default threshold of 0.2
+        peaks, values, valid = BaseExportWrapper._find_topk_peaks(
+            confmaps, k=3, peak_threshold=0.2
+        )
+        assert not valid.any()
+
+    def test_custom_threshold(self):
+        """Custom threshold should be respected."""
+        confmaps = torch.zeros(1, 1, 16, 16)
+        confmaps[0, 0, 8, 8] = 0.15
+
+        # With threshold=0.1, peak should be valid
+        _, _, valid_low = BaseExportWrapper._find_topk_peaks(
+            confmaps, k=3, peak_threshold=0.1
+        )
+        assert valid_low[0, 0].item()
+
+        # With threshold=0.2, peak should not be valid
+        _, _, valid_high = BaseExportWrapper._find_topk_peaks(
+            confmaps, k=3, peak_threshold=0.2
+        )
+        assert not valid_high.any()
+
+    def test_neighbor_max_per_node_plateau(self):
+        """Per-node peak finding also rejects plateaus."""
+        confmaps = torch.zeros(1, 2, 16, 16)
+        # Channel 0: plateau (should produce no peaks)
+        confmaps[0, 0, 5:8, 5:8] = 0.8
+        # Channel 1: single peak (should be detected)
+        confmaps[0, 1, 10, 10] = 0.9
+
+        peaks, values, valid = BaseExportWrapper._find_topk_peaks_per_node(
+            confmaps, k=3
+        )
+        # Channel 0: no valid peaks
+        assert not valid[0, 0].any()
+        # Channel 1: one valid peak
+        assert valid[0, 1, 0].item()
+        assert peaks[0, 1, 0, 0].item() == 10.0  # x
+        assert peaks[0, 1, 0, 1].item() == 10.0  # y
+
+    def test_global_peaks_threshold(self):
+        """Global peaks below threshold produce NaN coordinates and zero values."""
+        confmaps = torch.zeros(1, 3, 16, 16)
+        confmaps[0, 0, 5, 5] = 0.8  # Above threshold
+        confmaps[0, 1, 10, 10] = 0.1  # Below threshold
+        confmaps[0, 2, 12, 12] = 0.5  # Above threshold
+
+        peaks, values = BaseExportWrapper._find_global_peaks(
+            confmaps, peak_threshold=0.2
+        )
+
+        # Channel 0: valid
+        assert peaks[0, 0, 0].item() == 5.0
+        assert values[0, 0].item() == pytest.approx(0.8)
+
+        # Channel 1: below threshold -> NaN coords, 0.0 value
+        assert torch.isnan(peaks[0, 1, 0]).item()
+        assert torch.isnan(peaks[0, 1, 1]).item()
+        assert values[0, 1].item() == 0.0
+
+        # Channel 2: valid
+        assert peaks[0, 2, 0].item() == 12.0
+        assert values[0, 2].item() == pytest.approx(0.5)
+
+    def test_border_peak_detected(self):
+        """Peak at image border should be detected (padded with -inf)."""
+        confmaps = torch.zeros(1, 1, 16, 16)
+        confmaps[0, 0, 0, 0] = 0.7  # Corner pixel
+        peaks, values, valid = BaseExportWrapper._find_topk_peaks(confmaps, k=3)
+        assert valid[0, 0].item()
+        assert peaks[0, 0, 0].item() == 0.0  # x
+        assert peaks[0, 0, 1].item() == 0.0  # y
+
+
 class TestSingleInstanceONNXWrapper:
     """Tests for SingleInstanceONNXWrapper."""
 
