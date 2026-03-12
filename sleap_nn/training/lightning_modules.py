@@ -32,7 +32,7 @@ from sleap_nn.inference.bottomup import (
     BottomUpMultiClassInferenceModel,
 )
 from sleap_nn.inference.paf_grouping import PAFScorer
-from sleap_nn.architectures.model import Model
+from sleap_nn.architectures.model import Model, MultiHeadModel
 from sleap_nn.data.normalization import normalize_on_gpu
 from sleap_nn.training.losses import compute_ohkm_loss
 from loguru import logger
@@ -2541,3 +2541,1403 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                         "num_instances": 1,
                     }
                 )
+
+
+# =============================================================================
+# Multi-Head Models
+# =============================================================================
+
+
+class MultiHeadLightningModel(L.LightningModule):
+    """Base PyTorch Lightning Module for multi-head sleap-nn models.
+
+    This class enables training with multiple datasets, where each dataset has its own
+    head while sharing a common backbone. Uses manual optimization to control gradient
+    flow per head.
+
+    Args:
+        model_type: Type of the model. One of `single_instance`, `centered_instance`,
+            `centroid`, `bottomup`.
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
+        backbone_config: Backbone configuration (string preset, dict, or DictConfig).
+        head_configs: Head configuration dictionary with per-dataset configurations.
+        pretrained_backbone_weights: Path to checkpoint for backbone initialization.
+        pretrained_head_weights: Path to checkpoint for head initialization.
+        init_weights: Model weights initialization method ("default" or "xavier").
+        lr_scheduler: Learning rate scheduler configuration.
+        online_mining: If True, enable online hard keypoint mining.
+        hard_to_easy_ratio: Ratio threshold for hard keypoint detection.
+        min_hard_keypoints: Minimum number of hard keypoints.
+        max_hard_keypoints: Maximum number of hard keypoints.
+        loss_scale: Factor to scale hard keypoint losses.
+        optimizer: Optimizer name ("Adam" or "AdamW").
+        learning_rate: Learning rate for the optimizer.
+        amsgrad: Enable AMSGrad with the optimizer.
+        backbone_feats: If set, return backbone features ("last" or "all").
+    """
+
+    def __init__(
+        self,
+        model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
+        backbone_feats: Optional[str] = None,
+        dataset_loss_weights: Optional[Dict[int, float]] = None,
+        dataset_names: Optional[Dict[int, str]] = None,
+    ):
+        """Initialize the configs and the model.
+
+        Args:
+            dataset_loss_weights: Optional dict mapping dataset indices to loss weights.
+                If provided, overrides the per-head loss_weight values from config.
+                Example: {0: 1.0, 1: 0.5, 2: 2.0} to weight dataset 0 at 1.0, dataset 1 at 0.5.
+            dataset_names: Optional dict mapping dataset indices to human-readable names.
+                Example: {0: "mice", 1: "flies"}.  Falls back to ``"dataset_{d_num}"``.
+        """
+        super().__init__()
+        self.model_type = model_type
+        self.backbone_type = backbone_type
+
+        # Process backbone config
+        if not isinstance(backbone_config, DictConfig):
+            backbone_cfg = get_backbone_config(backbone_config)
+            config = OmegaConf.structured(backbone_cfg)
+            OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+            config = DictConfig(config)
+        else:
+            config = backbone_config
+        self.backbone_config = config
+        self.head_configs = head_configs
+        self.pretrained_backbone_weights = pretrained_backbone_weights
+        self.pretrained_head_weights = pretrained_head_weights
+        self.in_channels = self.backbone_config[f"{self.backbone_type}"]["in_channels"]
+        self.input_expand_channels = self.in_channels
+        self.init_weights = init_weights
+        self.lr_scheduler = lr_scheduler
+        self.online_mining = online_mining
+        self.hard_to_easy_ratio = hard_to_easy_ratio
+        self.min_hard_keypoints = min_hard_keypoints
+        self.max_hard_keypoints = max_hard_keypoints
+        self.loss_scale = loss_scale
+        self.optimizer = optimizer
+        self.lr = learning_rate
+        self.amsgrad = amsgrad
+        self.backbone_feats = backbone_feats
+        self.dataset_names = dataset_names
+
+        # Gradient logging config (set via config after init)
+        self.grad_logging_frequency: int = 0  # 0 = disabled, N = every N epochs
+        self._grad_logging_enabled: bool = False  # Set per-epoch in on_train_epoch_start
+
+        # Create multi-head model
+        self.model = MultiHeadModel(
+            backbone_type=self.backbone_type,
+            backbone_config=self.backbone_config[f"{self.backbone_type}"],
+            head_configs=self.head_configs[self.model_type],
+            model_type=self.model_type,
+        )
+
+        # Setup per-dataset loss weights
+        # Priority: dataset_loss_weights param > config loss_weight > default 1.0
+        self.dataset_loss_weights = {}
+        if hasattr(self.head_configs[self.model_type], "confmaps"):
+            for d_num in self.head_configs[self.model_type].confmaps:
+                if dataset_loss_weights is not None and d_num in dataset_loss_weights:
+                    # Use explicitly provided dataset loss weight
+                    self.dataset_loss_weights[d_num] = dataset_loss_weights[d_num]
+                else:
+                    # Fall back to config loss_weight or default
+                    cfg = self.head_configs[self.model_type].confmaps[d_num]
+                    self.dataset_loss_weights[d_num] = (
+                        cfg.loss_weight if hasattr(cfg, "loss_weight") and cfg.loss_weight is not None else 1.0
+                    )
+
+        # Alias for backward compatibility
+        self.loss_weights = self.dataset_loss_weights
+
+        self.training_loss = {}
+        self.val_loss = {}
+        self.learning_rate = {}
+
+        # For epoch-averaged loss tracking
+        self._epoch_loss_sum = 0.0
+        self._epoch_loss_count = 0
+        # Per-head loss accumulators for val-train gap
+        self._per_head_train_loss_sum: Dict[int, float] = {}
+        self._per_head_train_loss_count: Dict[int, int] = {}
+        self._per_head_val_loss_sum: Dict[int, float] = {}
+        self._per_head_val_loss_count: Dict[int, int] = {}
+
+        self.loss_func = nn.MSELoss()
+        self.automatic_optimization = False  # Manual optimization for multi-head
+
+        # Initialize weights
+        if self.init_weights == "xavier":
+            self.model.apply(xavier_init_weights)
+
+        # Pre-trained weights for the encoder stack - only for swint and convnext
+        if self.backbone_type == "convnext" or self.backbone_type == "swint":
+            if (
+                self.backbone_config[f"{self.backbone_type}"]["pre_trained_weights"]
+                is not None
+            ):
+                ckpt = MODEL_WEIGHTS[
+                    self.backbone_config[f"{self.backbone_type}"]["pre_trained_weights"]
+                ].DEFAULT.get_state_dict(progress=True, check_hash=True)
+                self.model.backbone.enc.load_state_dict(ckpt, strict=False)
+                logger.info(f"Loaded pretrained encoder weights from config")
+
+        # Load pretrained backbone weights from file
+        if self.pretrained_backbone_weights is not None:
+            logger.info(
+                f"Loading backbone weights from `{self.pretrained_backbone_weights}` ..."
+            )
+            if self.pretrained_backbone_weights.endswith(".ckpt"):
+                ckpt = torch.load(
+                    self.pretrained_backbone_weights,
+                    map_location="cpu",
+                    weights_only=False,
+                )
+                ckpt["state_dict"] = {
+                    k: ckpt["state_dict"][k]
+                    for k in ckpt["state_dict"].keys()
+                    if ".backbone" in k
+                }
+                self.load_state_dict(ckpt["state_dict"], strict=False)
+                logger.info(f"Loaded backbone weights from .ckpt file")
+
+            elif self.pretrained_backbone_weights.endswith(".h5"):
+                # load from sleap model weights
+                load_legacy_model_weights(
+                    self.model.backbone,
+                    self.pretrained_backbone_weights,
+                    component="backbone",
+                )
+                logger.info(f"Loaded backbone weights from .h5 file")
+
+            elif self.pretrained_backbone_weights in MODEL_WEIGHTS:
+                # ImageNet pretrained weights (convnext/swint)
+                self.model.backbone.encoder.load_state_dict(
+                    MODEL_WEIGHTS[self.pretrained_backbone_weights].IMAGENET1K_V1.get_state_dict(
+                        progress=True, check_hash=True
+                    )
+                )
+                logger.info(f"Loaded pretrained weights: {self.pretrained_backbone_weights}")
+
+            else:
+                message = f"Unsupported file extension for pretrained backbone weights. Please provide a .ckpt or .h5 file."
+                logger.error(message)
+                raise ValueError(message)
+
+        # Load pretrained head weights from file
+        if self.pretrained_head_weights is not None:
+            logger.info(
+                f"Loading head weights from `{self.pretrained_head_weights}` ..."
+            )
+            if self.pretrained_head_weights.endswith(".ckpt"):
+                ckpt = torch.load(
+                    self.pretrained_head_weights,
+                    map_location="cpu",
+                    weights_only=False,
+                )
+                ckpt["state_dict"] = {
+                    k: ckpt["state_dict"][k]
+                    for k in ckpt["state_dict"].keys()
+                    if ".head_layers" in k
+                }
+                self.load_state_dict(ckpt["state_dict"], strict=False)
+                logger.info(f"Loaded head weights from .ckpt file")
+
+            elif self.pretrained_head_weights.endswith(".h5"):
+                # load from sleap model weights
+                load_legacy_model_weights(
+                    self.model.head_layers,
+                    self.pretrained_head_weights,
+                    component="head",
+                )
+                logger.info(f"Loaded head weights from .h5 file")
+
+            else:
+                message = f"Unsupported file extension for pretrained head weights. Please provide a .ckpt or .h5 file."
+                logger.error(message)
+                raise ValueError(message)
+
+    def on_train_epoch_start(self):
+        """Configure the train timer at the beginning of each epoch."""
+        self.train_start_time = time.time()
+        # Reset epoch loss tracking
+        self._epoch_loss_sum = 0.0
+        self._epoch_loss_count = 0
+        # Reset per-head train loss accumulators (for val-train gap)
+        self._per_head_train_loss_sum: Dict[int, float] = {}
+        self._per_head_train_loss_count: Dict[int, int] = {}
+        # Check if gradient logging should be active this epoch
+        self._grad_logging_enabled = (
+            self.grad_logging_frequency > 0
+            and (self.current_epoch + 1) % self.grad_logging_frequency == 0
+        )
+
+    def _accumulate_loss(self, loss: torch.Tensor):
+        """Accumulate loss for epoch-averaged logging. Call this in training_step."""
+        self._epoch_loss_sum += loss.detach().item()
+        self._epoch_loss_count += 1
+
+    def on_train_epoch_end(self):
+        """Configure the train timer at the end of every epoch."""
+        train_time = time.time() - self.train_start_time
+        self.log(
+            "train/time",
+            train_time,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        # Log epoch explicitly for custom x-axis support in wandb
+        self.log(
+            "epoch",
+            float(self.current_epoch),
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        # Log epoch-averaged training loss
+        if self._epoch_loss_count > 0:
+            avg_loss = self._epoch_loss_sum / self._epoch_loss_count
+            self.log(
+                "train/loss",
+                avg_loss,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        # Log current learning rate
+        if self.trainer.optimizers:
+            lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+            self.log(
+                "train/lr",
+                lr,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+
+    def on_validation_epoch_start(self):
+        """Configure the val timer at the beginning of each epoch."""
+        self.val_start_time = time.time()
+        # Reset per-head val loss accumulators (for val-train gap)
+        self._per_head_val_loss_sum: Dict[int, float] = {}
+        self._per_head_val_loss_count: Dict[int, int] = {}
+
+    def on_validation_epoch_end(self):
+        """Configure the val timer at the end of every epoch."""
+        val_time = time.time() - self.val_start_time
+        self.log(
+            "val/time",
+            val_time,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        # Log epoch explicitly so val/* metrics can use it as x-axis in wandb
+        self.log(
+            "epoch",
+            float(self.current_epoch),
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+
+        # Log per-head val-train loss gap
+        for d_num in self._per_head_val_loss_sum:
+            if (
+                d_num in self._per_head_train_loss_sum
+                and self._per_head_val_loss_count.get(d_num, 0) > 0
+                and self._per_head_train_loss_count.get(d_num, 0) > 0
+            ):
+                avg_val = (
+                    self._per_head_val_loss_sum[d_num]
+                    / self._per_head_val_loss_count[d_num]
+                )
+                avg_train = (
+                    self._per_head_train_loss_sum[d_num]
+                    / self._per_head_train_loss_count[d_num]
+                )
+                gap = avg_val - avg_train
+                head_name = self._dataset_name(d_num)
+                self.log(
+                    f"gap/head_{head_name}",
+                    gap,
+                    prog_bar=False,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
+
+        # Manual LR scheduler stepping (needed with automatic_optimization=False)
+        sch = self.lr_schedulers()
+        if sch is not None:
+            if isinstance(sch, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                val_loss = self.trainer.callback_metrics.get("val_loss")
+                if val_loss is not None:
+                    sch.step(val_loss)
+            else:
+                sch.step()
+
+    def _dataset_name(self, d_num: int) -> str:
+        """Return a human-readable name for dataset index ``d_num``."""
+        if self.dataset_names and d_num in self.dataset_names:
+            return self.dataset_names[d_num]
+        return f"dataset_{d_num}"
+
+    @staticmethod
+    def get_lightning_model_from_config(
+        config: DictConfig,
+        dataset_loss_weights: Optional[Dict[int, float]] = None,
+        dataset_names: Optional[Dict[int, str]] = None,
+    ):
+        """Create the appropriate multi-head Lightning model based on config.
+
+        Args:
+            config: Training job configuration.
+            dataset_loss_weights: Optional dict mapping dataset indices to loss weights.
+                If provided, overrides the per-head loss_weight values from config.
+                Example: {0: 1.0, 1: 0.5, 2: 2.0} to weight dataset 0 at 1.0, dataset 1 at 0.5.
+            dataset_names: Optional dict mapping dataset indices to human-readable names.
+
+        Returns:
+            MultiHeadLightningModel: Instance of the appropriate Lightning module.
+        """
+        model_type = get_model_type_from_cfg(config)
+        backbone_type = get_backbone_type_from_cfg(config)
+
+        lightning_models = {
+            "single_instance": SingleInstanceMultiHeadLightningModule,
+            "centroid": CentroidMultiHeadLightningModule,
+            "centered_instance": TopDownCenteredInstanceMultiHeadLightningModule,
+        }
+
+        if model_type not in lightning_models:
+            message = f"Multi-head training not supported for model type: {model_type}. Supported: {list(lightning_models.keys())}"
+            logger.error(message)
+            raise ValueError(message)
+
+        lightning_model = lightning_models[model_type](
+            model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=config.model_config.backbone_config,
+            head_configs=config.model_config.head_configs,
+            pretrained_backbone_weights=config.model_config.pretrained_backbone_weights,
+            pretrained_head_weights=config.model_config.pretrained_head_weights,
+            init_weights=config.model_config.init_weights,
+            lr_scheduler=config.trainer_config.lr_scheduler,
+            online_mining=config.trainer_config.online_hard_keypoint_mining.online_mining,
+            hard_to_easy_ratio=config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+            min_hard_keypoints=config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+            max_hard_keypoints=config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+            loss_scale=config.trainer_config.online_hard_keypoint_mining.loss_scale,
+            optimizer=config.trainer_config.optimizer_name,
+            learning_rate=config.trainer_config.optimizer.lr,
+            amsgrad=config.trainer_config.optimizer.amsgrad,
+            dataset_loss_weights=dataset_loss_weights,
+            dataset_names=dataset_names,
+        )
+
+        return lightning_model
+
+    def configure_optimizers(self):
+        """Configure the optimizer and learning rate scheduler."""
+        if self.optimizer == "Adam":
+            optim = torch.optim.Adam(
+                self.parameters(),
+                lr=self.lr,
+                amsgrad=self.amsgrad,
+            )
+        elif self.optimizer == "AdamW":
+            optim = torch.optim.AdamW(
+                self.parameters(),
+                lr=self.lr,
+                amsgrad=self.amsgrad,
+            )
+        else:
+            message = f"Unknown optimizer: {self.optimizer}. Choose from ['Adam', 'AdamW']"
+            logger.error(message)
+            raise ValueError(message)
+
+        # Learning rate scheduler setup
+        if self.lr_scheduler is None:
+            return {"optimizer": optim}
+
+        # Handle different scheduler types
+        if isinstance(self.lr_scheduler, DictConfig):
+            # Warmup schedulers
+            if OmegaConf.select(self.lr_scheduler, "cosine_annealing_warmup", default=None) is not None:
+                cfg = self.lr_scheduler.cosine_annealing_warmup
+                # Use trainer's max_epochs if not specified in config
+                max_epochs = (
+                    cfg.max_epochs
+                    if cfg.max_epochs is not None
+                    else self.trainer.max_epochs
+                )
+                scheduler = LinearWarmupCosineAnnealingLR(
+                    optimizer=optim,
+                    warmup_epochs=cfg.warmup_epochs,
+                    max_epochs=max_epochs,
+                    warmup_start_lr=cfg.warmup_start_lr,
+                    eta_min=cfg.eta_min,
+                )
+                return {
+                    "optimizer": optim,
+                    "lr_scheduler": {
+                        "scheduler": scheduler,
+                        "interval": "epoch",
+                        "frequency": 1,
+                    },
+                }
+            elif OmegaConf.select(self.lr_scheduler, "linear_warmup_linear_decay", default=None) is not None:
+                cfg = self.lr_scheduler.linear_warmup_linear_decay
+                # Use trainer's max_epochs if not specified in config
+                max_epochs = (
+                    cfg.max_epochs
+                    if cfg.max_epochs is not None
+                    else self.trainer.max_epochs
+                )
+                scheduler = LinearWarmupLinearDecayLR(
+                    optimizer=optim,
+                    warmup_epochs=cfg.warmup_epochs,
+                    max_epochs=max_epochs,
+                    warmup_start_lr=cfg.warmup_start_lr,
+                    end_lr=cfg.end_lr,
+                )
+                return {
+                    "optimizer": optim,
+                    "lr_scheduler": {
+                        "scheduler": scheduler,
+                        "interval": "epoch",
+                        "frequency": 1,
+                    },
+                }
+            elif OmegaConf.select(self.lr_scheduler, "step_lr", default=None) is not None:
+                scheduler = torch.optim.lr_scheduler.StepLR(
+                    optim,
+                    step_size=self.lr_scheduler.step_lr.step_size,
+                    gamma=self.lr_scheduler.step_lr.gamma,
+                )
+                return {
+                    "optimizer": optim,
+                    "lr_scheduler": {
+                        "scheduler": scheduler,
+                        "interval": "epoch",
+                        "frequency": 1,
+                    },
+                }
+            elif OmegaConf.select(self.lr_scheduler, "reduce_lr_on_plateau", default=None) is not None:
+                scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    optim,
+                    mode="min",
+                    threshold=self.lr_scheduler.reduce_lr_on_plateau.threshold,
+                    threshold_mode=self.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
+                    cooldown=self.lr_scheduler.reduce_lr_on_plateau.cooldown,
+                    patience=self.lr_scheduler.reduce_lr_on_plateau.patience,
+                    factor=self.lr_scheduler.reduce_lr_on_plateau.factor,
+                    min_lr=self.lr_scheduler.reduce_lr_on_plateau.min_lr,
+                )
+                return {
+                    "optimizer": optim,
+                    "lr_scheduler": {
+                        "scheduler": scheduler,
+                        "interval": "epoch",
+                        "frequency": 1,
+                        "monitor": "val_loss",
+                    },
+                }
+
+        return {"optimizer": optim}
+
+
+class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
+    """Lightning Module for multi-head centroid detection.
+
+    Trains a shared backbone with multiple centroid detection heads, one per dataset.
+    """
+
+    def __init__(
+        self,
+        model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
+        backbone_feats: Optional[str] = None,
+        dataset_loss_weights: Optional[Dict[int, float]] = None,
+        dataset_names: Optional[Dict[int, str]] = None,
+    ):
+        """Initialize the centroid multi-head module."""
+        super().__init__(
+            model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
+            backbone_feats=backbone_feats,
+            dataset_loss_weights=dataset_loss_weights,
+            dataset_names=dataset_names,
+        )
+
+        # Inference layer for visualization
+        self.centroid_inf_layer = CentroidCrop(
+            torch_model=self.forward,
+            peak_threshold=0.2,
+            return_confmaps=True,
+            output_stride=self.head_configs.centroid.confmaps[0]["output_stride"],
+            input_scale=1.0,
+        )
+
+    def forward(self, img):
+        """Forward pass of the model."""
+        img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
+        output = self.model(
+            img,
+            include_backbone_features=self.backbone_feats is not None,
+            backbone_outputs=self.backbone_feats,
+        )
+        return {
+            "head": output["CentroidConfmapsHead"],
+            "backbone_features": output.get("backbone_features"),
+            "strides": output.get("backbone_features_strides"),
+        }
+
+    def visualize_example(self, sample, d_idx):
+        """Visualize predictions during training (used with callbacks)."""
+        ex = sample.copy()
+        ex["eff_scale"] = torch.tensor([1.0])
+        for k, v in ex.items():
+            if isinstance(v, torch.Tensor):
+                ex[k] = v.to(device=self.device)
+        ex["image"] = ex["image"].unsqueeze(dim=0)
+        gt_centroids = ex["centroids"].cpu().numpy()
+
+        self.centroid_inf_layer.output_stride = self.head_configs.centroid.confmaps[
+            d_idx
+        ]["output_stride"]
+        output = self.centroid_inf_layer(ex, output_head_skeleton_num=d_idx)
+
+        peaks = output["centroids"][0].cpu().numpy()
+        img = output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        confmaps = output["pred_centroid_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        plot_peaks(gt_centroids, peaks, paired=False)
+        return fig
+
+    def _forward_no_ddp(self, img):
+        """Forward pass bypassing DDP wrapper.
+
+        Used for visualization on rank 0 only, where calling the DDP-wrapped
+        model would corrupt reducer state (other ranks don't participate).
+        """
+        img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
+        raw_model = (
+            self.model.module
+            if hasattr(self.model, "module")
+            else self.model
+        )
+        output = raw_model(
+            img,
+            include_backbone_features=self.backbone_feats is not None,
+            backbone_outputs=self.backbone_feats,
+        )
+        return {
+            "head": output["CentroidConfmapsHead"],
+            "backbone_features": output.get("backbone_features"),
+            "strides": output.get("backbone_features_strides"),
+        }
+
+    def get_visualization_data(self, sample, dataset_idx: int = 0) -> VisualizationData:
+        """Extract visualization data from a sample for a specific dataset/head.
+
+        Args:
+            sample: A sample from the visualization dataset.
+            dataset_idx: Index of the dataset/head to use for inference.
+
+        Returns:
+            VisualizationData object with all needed fields for visualization.
+        """
+        ex = sample.copy()
+        ex["eff_scale"] = torch.tensor([1.0])
+        for k, v in ex.items():
+            if isinstance(v, torch.Tensor):
+                ex[k] = v.to(device=self.device)
+        ex["image"] = ex["image"].unsqueeze(dim=0)
+        gt_centroids = ex["centroids"].cpu().numpy()
+
+        viz_inf_layer = CentroidCrop(
+            torch_model=self._forward_no_ddp,
+            peak_threshold=self.centroid_inf_layer.peak_threshold,
+            return_confmaps=True,
+            output_stride=self.head_configs.centroid.confmaps[dataset_idx]["output_stride"],
+            input_scale=self.centroid_inf_layer.input_scale,
+        )
+        with torch.no_grad():
+            output = viz_inf_layer(ex, output_head_skeleton_num=dataset_idx)
+
+        peaks = output["centroids"][0].cpu().numpy()
+        img = output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        confmaps = output["pred_centroid_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+
+        return VisualizationData(
+            image=img,
+            pred_confmaps=confmaps,
+            pred_peaks=peaks,
+            pred_peak_values=None,
+            gt_instances=gt_centroids,
+            node_names=["centroid"],
+            output_scale=confmaps.shape[0] / img.shape[0],
+            is_paired=False,
+        )
+
+    def training_step(self, batch, batch_idx):
+        """Training step for multi-head centroid model."""
+        total_loss = 0
+        opt = self.optimizers()
+        opt.zero_grad()
+
+        # Get batch size from first dataset
+        first_key = list(batch.keys())[0]
+        batch_size = batch[first_key]["frame_idx"].shape[0]
+
+        for d_num in batch.keys():
+            batch_data = batch[d_num]
+            X = torch.squeeze(batch_data["image"], dim=1)
+            X = normalize_on_gpu(X)  # Normalize input
+            y = torch.squeeze(batch_data["centroids_confidence_maps"], dim=1)
+
+            # Forward pass through all heads
+            output = self.model(X)["CentroidConfmapsHead"]
+
+            # Detach gradients from non-matching heads
+            for h_num in batch.keys():
+                if d_num != h_num:
+                    with torch.no_grad():
+                        output[h_num] = output[h_num].detach()
+
+            # Get prediction for this dataset's head
+            y_preds = output[d_num]
+            loss_weight = self.loss_weights.get(d_num, 1.0)
+            curr_loss = loss_weight * self.loss_func(y_preds, y)
+            total_loss += curr_loss
+
+            self.manual_backward(curr_loss, retain_graph=True)
+
+            self.log(
+                f"train/head_{self._dataset_name(d_num)}_loss",
+                curr_loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+                batch_size=batch_size,
+            )
+
+        # Log step-level loss for progress bar
+        self.log(
+            "loss",
+            total_loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=False,
+            logger=False,
+            sync_dist=True,
+            batch_size=batch_size,
+        )
+
+        # Accumulate loss for epoch-averaged logging
+        self._accumulate_loss(total_loss)
+
+        opt.step()
+
+        return total_loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step for multi-head centroid model."""
+        total_loss = 0
+        first_key = list(batch.keys())[0]
+        batch_size = batch[first_key]["frame_idx"].shape[0]
+
+        for d_num in batch.keys():
+            X = torch.squeeze(batch[d_num]["image"], dim=1)
+            X = normalize_on_gpu(X)  # Normalize input
+            y = torch.squeeze(batch[d_num]["centroids_confidence_maps"], dim=1)
+
+            y_preds = self.model(X)["CentroidConfmapsHead"][d_num]
+            loss_weight = self.loss_weights.get(d_num, 1.0)
+            curr_loss = loss_weight * nn.MSELoss()(y_preds, y)
+            total_loss += curr_loss
+
+            self.log(
+                f"val/head_{self._dataset_name(d_num)}_loss",
+                curr_loss,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+                batch_size=batch_size,
+            )
+
+        self.log(
+            "val_loss",
+            total_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
+        )
+        # Also log with val/ prefix for consistency
+        self.log(
+            "val/loss",
+            total_loss,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
+        )
+
+
+class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
+    """Lightning Module for multi-head top-down centered instance pose estimation.
+
+    Trains a shared backbone with multiple instance pose estimation heads, one per dataset.
+    """
+
+    def __init__(
+        self,
+        model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
+        backbone_feats: Optional[str] = None,
+        dataset_loss_weights: Optional[Dict[int, float]] = None,
+        dataset_names: Optional[Dict[int, str]] = None,
+    ):
+        """Initialize the top-down centered instance multi-head module."""
+        super().__init__(
+            model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
+            backbone_feats=backbone_feats,
+            dataset_loss_weights=dataset_loss_weights,
+            dataset_names=dataset_names,
+        )
+
+        # Inference layer for visualization
+        self.instance_peaks_inf_layer = FindInstancePeaks(
+            torch_model=self.forward,
+            peak_threshold=0.2,
+            return_confmaps=True,
+            output_stride=self.head_configs.centered_instance.confmaps[0]["output_stride"],
+        )
+
+        # Store node names per head for logging
+        self.node_names = {}
+        for d_num in self.head_configs.centered_instance.confmaps:
+            self.node_names[d_num] = self.head_configs.centered_instance.confmaps[d_num].get(
+                "part_names", []
+            )
+
+    def forward(self, img):
+        """Forward pass of the model."""
+        img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
+        output = self.model(
+            img,
+            include_backbone_features=self.backbone_feats is not None,
+            backbone_outputs=self.backbone_feats,
+        )
+        return {
+            "head": output["CenteredInstanceConfmapsHead"],
+            "backbone_features": output.get("backbone_features"),
+            "strides": output.get("backbone_features_strides"),
+        }
+
+    def visualize_example(self, sample, d_idx):
+        """Visualize predictions during training (used with callbacks)."""
+        ex = sample.copy()
+        ex["eff_scale"] = torch.tensor([1.0])
+        for k, v in ex.items():
+            if isinstance(v, torch.Tensor):
+                ex[k] = v.to(device=self.device)
+        ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
+
+        self.instance_peaks_inf_layer.output_stride = (
+            self.head_configs.centered_instance.confmaps[d_idx]["output_stride"]
+        )
+        output = self.instance_peaks_inf_layer(ex, output_head_skeleton_num=d_idx)
+
+        peaks = output["pred_instance_peaks"].cpu().numpy()
+        img = output["instance_image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        gt_instances = ex["instance"].cpu().numpy()
+        confmaps = output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        plot_peaks(gt_instances, peaks, paired=True)
+        return fig
+
+    def _forward_no_ddp(self, img):
+        """Forward pass bypassing DDP wrapper.
+
+        Used for visualization on rank 0 only, where calling the DDP-wrapped
+        model would corrupt reducer state (other ranks don't participate).
+        """
+        img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
+        # Access unwrapped model to avoid DDP collective ops
+        raw_model = (
+            self.model.module
+            if hasattr(self.model, "module")
+            else self.model
+        )
+        output = raw_model(
+            img,
+            include_backbone_features=self.backbone_feats is not None,
+            backbone_outputs=self.backbone_feats,
+        )
+        return {
+            "head": output["CenteredInstanceConfmapsHead"],
+            "backbone_features": output.get("backbone_features"),
+            "strides": output.get("backbone_features_strides"),
+        }
+
+    def get_visualization_data(self, sample, dataset_idx: int = 0) -> VisualizationData:
+        """Extract visualization data from a sample for a specific dataset/head.
+
+        Args:
+            sample: A sample from the visualization dataset.
+            dataset_idx: Index of the dataset/head to use for inference.
+
+        Returns:
+            VisualizationData object with all needed fields for visualization.
+        """
+        ex = sample.copy()
+        ex["eff_scale"] = torch.tensor([1.0])
+        for k, v in ex.items():
+            if isinstance(v, torch.Tensor):
+                ex[k] = v.to(device=self.device)
+        ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
+
+        # Use a DDP-safe inference layer that bypasses the DDP wrapper.
+        # The main instance_peaks_inf_layer uses self.forward → self.model (DDP),
+        # which corrupts DDP reducer state when called on rank 0 only.
+        viz_inf_layer = FindInstancePeaks(
+            torch_model=self._forward_no_ddp,
+            peak_threshold=self.instance_peaks_inf_layer.peak_threshold,
+            return_confmaps=True,
+            output_stride=self.head_configs.centered_instance.confmaps[dataset_idx]["output_stride"],
+        )
+        with torch.no_grad():
+            output = viz_inf_layer(ex, output_head_skeleton_num=dataset_idx)
+
+        peaks = output["pred_instance_peaks"].cpu().numpy()
+        peak_values = output["pred_peak_values"].cpu().numpy()
+        img = output["instance_image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        gt_instances = ex["instance"].cpu().numpy()
+        confmaps = output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+
+        node_names = self.node_names.get(dataset_idx, [])
+
+        return VisualizationData(
+            image=img,
+            pred_confmaps=confmaps,
+            pred_peaks=peaks,
+            pred_peak_values=peak_values,
+            gt_instances=gt_instances,
+            node_names=list(node_names) if node_names else [],
+            output_scale=confmaps.shape[0] / img.shape[0],
+            is_paired=True,
+        )
+
+    def training_step(self, batch, batch_idx):
+        """Training step for multi-head top-down model."""
+        total_loss = 0
+        opt = self.optimizers()
+        opt.zero_grad()
+
+        first_key = list(batch.keys())[0]
+        batch_size = batch[first_key]["frame_idx"].shape[0]
+
+        for d_num in batch.keys():
+            batch_data = batch[d_num]
+            X = torch.squeeze(batch_data["instance_image"], dim=1)
+            X = normalize_on_gpu(X)  # Normalize input
+            y = torch.squeeze(batch_data["confidence_maps"], dim=1)
+
+            # Forward pass through all heads
+            output = self.model(X)["CenteredInstanceConfmapsHead"]
+
+            # Detach gradients from non-matching heads
+            for h_num in batch.keys():
+                if d_num != h_num:
+                    with torch.no_grad():
+                        output[h_num] = output[h_num].detach()
+
+            # Get prediction for this dataset's head
+            y_preds = output[d_num]
+            loss_weight = self.loss_weights.get(d_num, 1.0)
+            curr_loss = loss_weight * self.loss_func(y_preds, y)
+
+            # Online hard keypoint mining
+            if self.online_mining:
+                ohkm_loss = compute_ohkm_loss(
+                    y_gt=y,
+                    y_pr=y_preds,
+                    hard_to_easy_ratio=self.hard_to_easy_ratio,
+                    min_hard_keypoints=self.min_hard_keypoints,
+                    max_hard_keypoints=self.max_hard_keypoints,
+                    loss_scale=self.loss_scale,
+                )
+                curr_loss = curr_loss + ohkm_loss
+
+            total_loss += curr_loss
+
+            # Accumulate per-head train loss for val-train gap
+            loss_val = curr_loss.detach().item()
+            self._per_head_train_loss_sum[d_num] = (
+                self._per_head_train_loss_sum.get(d_num, 0.0) + loss_val
+            )
+            self._per_head_train_loss_count[d_num] = (
+                self._per_head_train_loss_count.get(d_num, 0) + 1
+            )
+
+            self.manual_backward(curr_loss, retain_graph=True)
+
+            # Log backbone gradient norm after this head's backward pass.
+            # Since gradients accumulate across heads (retain_graph=True),
+            # this is the cumulative norm after head d_num. Comparing across
+            # heads shows each head's relative contribution to backbone updates.
+            if self._grad_logging_enabled:
+                backbone_grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.model.backbone.parameters(), max_norm=float("inf")
+                )
+                self.log(
+                    f"grad_norm/backbone_cumulative_after_{self._dataset_name(d_num)}",
+                    backbone_grad_norm,
+                    prog_bar=False,
+                    on_step=False,
+                    on_epoch=True,
+                    logger=True,
+                    sync_dist=True,
+                    batch_size=batch_size,
+                )
+
+            # Per-node loss logging
+            if d_num in self.node_names and len(self.node_names[d_num]) > 0:
+                batch_size_local, _, h, w = y.shape
+                mse = (y - y_preds) ** 2
+                channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size_local * h * w)
+                head_name = self._dataset_name(d_num)
+                for node_idx, name in enumerate(self.node_names[d_num]):
+                    if node_idx < channel_wise_loss.shape[0]:
+                        self.log(
+                            f"train/head_{head_name}/confmaps/{name}",
+                            channel_wise_loss[node_idx],
+                            prog_bar=False,
+                            on_step=False,
+                            on_epoch=True,
+                            logger=True,
+                            sync_dist=True,
+                            batch_size=batch_size,
+                        )
+
+            self.log(
+                f"train/head_{self._dataset_name(d_num)}_loss",
+                curr_loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+                batch_size=batch_size,
+            )
+
+        # Log step-level loss for progress bar
+        self.log(
+            "loss",
+            total_loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=False,
+            logger=False,
+            sync_dist=True,
+            batch_size=batch_size,
+        )
+
+        # Accumulate loss for epoch-averaged logging
+        self._accumulate_loss(total_loss)
+
+        opt.step()
+
+        return total_loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step for multi-head top-down model."""
+        total_loss = 0
+        first_key = list(batch.keys())[0]
+        batch_size = batch[first_key]["frame_idx"].shape[0]
+
+        for d_num in batch.keys():
+            X = torch.squeeze(batch[d_num]["instance_image"], dim=1)
+            X = normalize_on_gpu(X)  # Normalize input
+            y = torch.squeeze(batch[d_num]["confidence_maps"], dim=1)
+
+            y_preds = self.model(X)["CenteredInstanceConfmapsHead"][d_num]
+            loss_weight = self.loss_weights.get(d_num, 1.0)
+            curr_loss = loss_weight * nn.MSELoss()(y_preds, y)
+
+            # Online hard keypoint mining for validation
+            if self.online_mining:
+                ohkm_loss = compute_ohkm_loss(
+                    y_gt=y,
+                    y_pr=y_preds,
+                    hard_to_easy_ratio=self.hard_to_easy_ratio,
+                    min_hard_keypoints=self.min_hard_keypoints,
+                    max_hard_keypoints=self.max_hard_keypoints,
+                    loss_scale=self.loss_scale,
+                )
+                curr_loss = curr_loss + ohkm_loss
+
+            total_loss += curr_loss
+
+            # Accumulate per-head val loss for val-train gap
+            self._per_head_val_loss_sum[d_num] = (
+                self._per_head_val_loss_sum.get(d_num, 0.0)
+                + curr_loss.detach().item()
+            )
+            self._per_head_val_loss_count[d_num] = (
+                self._per_head_val_loss_count.get(d_num, 0) + 1
+            )
+
+            self.log(
+                f"val/head_{self._dataset_name(d_num)}_loss",
+                curr_loss,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+                batch_size=batch_size,
+            )
+
+        self.log(
+            "val_loss",
+            total_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
+        )
+        # Also log with val/ prefix for consistency
+        self.log(
+            "val/loss",
+            total_loss,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
+        )
+
+
+class SingleInstanceMultiHeadLightningModule(MultiHeadLightningModel):
+    """Lightning Module for multi-head single instance pose estimation.
+
+    Trains a shared backbone with multiple single-instance pose estimation heads,
+    one per dataset.
+    """
+
+    def __init__(
+        self,
+        model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
+        backbone_feats: Optional[str] = None,
+        dataset_loss_weights: Optional[Dict[int, float]] = None,
+        dataset_names: Optional[Dict[int, str]] = None,
+    ):
+        """Initialize the single instance multi-head module."""
+        super().__init__(
+            model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
+            backbone_feats=backbone_feats,
+            dataset_loss_weights=dataset_loss_weights,
+            dataset_names=dataset_names,
+        )
+
+        # Store node names per head for logging
+        self.node_names = {}
+        for d_num in self.head_configs.single_instance.confmaps:
+            self.node_names[d_num] = self.head_configs.single_instance.confmaps[d_num].get(
+                "part_names", []
+            )
+
+    def forward(self, img):
+        """Forward pass of the model."""
+        img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
+        output = self.model(
+            img,
+            include_backbone_features=self.backbone_feats is not None,
+            backbone_outputs=self.backbone_feats,
+        )
+        return {
+            "head": output["SingleInstanceConfmapsHead"],
+            "backbone_features": output.get("backbone_features"),
+            "strides": output.get("backbone_features_strides"),
+        }
+
+    def training_step(self, batch, batch_idx):
+        """Training step for multi-head single instance model."""
+        total_loss = 0
+        opt = self.optimizers()
+        opt.zero_grad()
+
+        first_key = list(batch.keys())[0]
+        batch_size = batch[first_key]["frame_idx"].shape[0]
+
+        for d_num in batch.keys():
+            batch_data = batch[d_num]
+            X = torch.squeeze(batch_data["image"], dim=1)
+            X = normalize_on_gpu(X)  # Normalize input
+            y = torch.squeeze(batch_data["confidence_maps"], dim=1)
+
+            # Forward pass through all heads
+            output = self.model(X)["SingleInstanceConfmapsHead"]
+
+            # Detach gradients from non-matching heads
+            for h_num in batch.keys():
+                if d_num != h_num:
+                    with torch.no_grad():
+                        output[h_num] = output[h_num].detach()
+
+            # Get prediction for this dataset's head
+            y_preds = output[d_num]
+            loss_weight = self.loss_weights.get(d_num, 1.0)
+            curr_loss = loss_weight * self.loss_func(y_preds, y)
+
+            # Online hard keypoint mining
+            if self.online_mining:
+                ohkm_loss = compute_ohkm_loss(
+                    y_gt=y,
+                    y_pr=y_preds,
+                    hard_to_easy_ratio=self.hard_to_easy_ratio,
+                    min_hard_keypoints=self.min_hard_keypoints,
+                    max_hard_keypoints=self.max_hard_keypoints,
+                    loss_scale=self.loss_scale,
+                )
+                curr_loss = curr_loss + ohkm_loss
+
+            total_loss += curr_loss
+
+            self.manual_backward(curr_loss, retain_graph=True)
+
+            self.log(
+                f"train/head_{self._dataset_name(d_num)}_loss",
+                curr_loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+                batch_size=batch_size,
+            )
+
+        # Log step-level loss for progress bar
+        self.log(
+            "loss",
+            total_loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=False,
+            logger=False,
+            sync_dist=True,
+            batch_size=batch_size,
+        )
+
+        # Accumulate loss for epoch-averaged logging
+        self._accumulate_loss(total_loss)
+
+        opt.step()
+
+        return total_loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step for multi-head single instance model."""
+        total_loss = 0
+        first_key = list(batch.keys())[0]
+        batch_size = batch[first_key]["frame_idx"].shape[0]
+
+        for d_num in batch.keys():
+            X = torch.squeeze(batch[d_num]["image"], dim=1)
+            X = normalize_on_gpu(X)  # Normalize input
+            y = torch.squeeze(batch[d_num]["confidence_maps"], dim=1)
+
+            y_preds = self.model(X)["SingleInstanceConfmapsHead"][d_num]
+            loss_weight = self.loss_weights.get(d_num, 1.0)
+            curr_loss = loss_weight * nn.MSELoss()(y_preds, y)
+
+            if self.online_mining:
+                ohkm_loss = compute_ohkm_loss(
+                    y_gt=y,
+                    y_pr=y_preds,
+                    hard_to_easy_ratio=self.hard_to_easy_ratio,
+                    min_hard_keypoints=self.min_hard_keypoints,
+                    max_hard_keypoints=self.max_hard_keypoints,
+                    loss_scale=self.loss_scale,
+                )
+                curr_loss = curr_loss + ohkm_loss
+
+            total_loss += curr_loss
+
+            self.log(
+                f"val/head_{self._dataset_name(d_num)}_loss",
+                curr_loss,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+                batch_size=batch_size,
+            )
+
+        self.log(
+            "val_loss",
+            total_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
+        )
+        # Also log with val/ prefix for consistency
+        self.log(
+            "val/loss",
+            total_loss,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
+        )
