@@ -205,8 +205,11 @@ class DataConfig:
         augmentation_config: Configurations related to augmentation. (only if `use_augmentations_train` is `True`)
         negative_sample_fraction: (float) Fraction of the training set that should consist of negative samples
             (frames with no instances). These frames produce all-zero confidence maps, teaching the model not to
-            hallucinate detections on empty backgrounds. Frames are sourced from the labels' suggestions list or
-            randomly sampled unlabeled frames. Must be between 0.0 and 1.0. *Default*: `0.0`.
+            hallucinate detections on empty backgrounds. Only frames explicitly marked as negative by the user
+            (``labels.negative_frames``) are used; unlabeled frames are never sampled since they may contain
+            unannotated animals. Must be between 0.0 and 1.0. *Default*: `0.0`.
+        negative_loss_weight: (float) Relative weight applied to the loss for negative samples. Must be > 0.
+            Values < 1 down-weight negatives; values > 1 up-weight them. *Default*: `1.0`.
         skeletons: skeleton configuration for the `.slp` file. This will be pulled from the train dataset and saved to the `training_config.yaml`
     """
 
@@ -230,7 +233,8 @@ class DataConfig:
     augmentation_config: Optional[AugmentationConfig] = field(
         factory=lambda: AugmentationConfig(geometric=GeometricConfig())
     )
-    negative_sample_fraction: float = 0.0
+    negative_sample_fraction: float = field(default=0.0, validator=validate_proportion)
+    negative_loss_weight: float = field(default=1.0, validator=validators.gt(0))
     skeletons: Optional[list] = None
 
 
