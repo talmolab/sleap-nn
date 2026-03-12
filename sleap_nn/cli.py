@@ -559,16 +559,14 @@ def train(
     help="Scale factor to apply to the input image. If not provided, the values from the training config are used. Default: None.",
 )
 @click.option(
-    "--ensure_rgb",
-    is_flag=True,
-    default=False,
-    help="True if the input image should have 3 channels (RGB image). If input has only one channel when this is set to `True`, then the images from single-channel is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. If not provided, the values from the training config are used. Default: `None`.",
+    "--ensure_rgb/--no-ensure_rgb",
+    default=None,
+    help="If True, input images will have 3 channels (RGB). Single-channel images are replicated along the channel axis. If False, RGB conversion is disabled. If not provided, the values from the training config are used. Default: None.",
 )
 @click.option(
-    "--ensure_grayscale",
-    is_flag=True,
-    default=False,
-    help="True if the input image should only have a single channel. If input has three channels (RGB) and this is set to True, then we convert the image to grayscale (single-channel) image. If the source image has only one channel and this is set to False, then we retain the single channel input. If not provided, the values from the training config are used. Default: `None`.",
+    "--ensure_grayscale/--no-ensure_grayscale",
+    default=None,
+    help="If True, input images will be converted to single-channel grayscale. If False, grayscale conversion is disabled. If not provided, the values from the training config are used. Default: None.",
 )
 @click.option(
     "--anchor_part",
@@ -923,7 +921,7 @@ def track(**kwargs):
 @click.option(
     "--oks_stddev",
     type=float,
-    default=0.05,
+    default=0.025,
     help="Standard deviation for OKS calculation",
 )
 @click.option("--oks_scale", type=float, help="Scale factor for OKS calculation")
@@ -931,7 +929,9 @@ def track(**kwargs):
     "--match_threshold", type=float, default=0.0, help="Threshold for instance matching"
 )
 @click.option(
-    "--user_labels_only", is_flag=True, help="Only evaluate user-labeled frames"
+    "--user_labels_only/--no-user_labels_only",
+    default=True,
+    help="Only evaluate user-labeled frames (default: True)",
 )
 def eval(**kwargs):
     """Run evaluation workflow."""
