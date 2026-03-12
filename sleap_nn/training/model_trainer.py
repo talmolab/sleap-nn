@@ -4,6 +4,7 @@ import os
 import shutil
 import attrs
 import torch
+from torch.utils.data import DataLoader
 import random
 import numpy as np
 import sleap_io as sio
@@ -60,6 +61,7 @@ from sleap_nn.training.callbacks import (
     SleapProgressBar,
     EpochEndEvaluationCallback,
     CentroidEvaluationCallback,
+    MultiHeadEpochEndEvaluationCallback,
     UnifiedVizCallback,
 )
 from sleap_nn import RANK
@@ -1467,6 +1469,7 @@ class MultiHeadModelTrainer:
     _initial_config: Optional[DictConfig] = None
     train_labels: List[sio.Labels] = attrs.field(factory=list)
     val_labels: List[sio.Labels] = attrs.field(factory=list)
+    test_labels: Optional[List[sio.Labels]] = None
     skeletons: Optional[List[sio.Skeleton]] = None
 
     lightning_model: Optional[MultiHeadLightningModel] = None
@@ -1606,6 +1609,33 @@ class MultiHeadModelTrainer:
         if not all_videos_exist:
             raise FileNotFoundError(
                 "One or more video files do not exist or are not accessible."
+            )
+
+        # Load test labels if provided in config
+        test_file_path = OmegaConf.select(
+            model_trainer.config, "data_config.test_file_path", default=None
+        )
+        if test_file_path is not None:
+            if isinstance(test_file_path, (dict, DictConfig)):
+                model_trainer.test_labels = []
+                for idx in sorted(test_file_path.keys()):
+                    test_path = test_file_path[idx]
+                    logger.info(f"  Loading test labels [{idx}]: {test_path}")
+                    model_trainer.test_labels.append(sio.load_slp(test_path))
+            elif isinstance(test_file_path, (list, tuple)):
+                model_trainer.test_labels = []
+                for i, test_path in enumerate(test_file_path):
+                    logger.info(f"  Loading test labels [{i}]: {test_path}")
+                    model_trainer.test_labels.append(sio.load_slp(test_path))
+            else:
+                logger.info(f"  Loading test labels: {test_file_path}")
+                model_trainer.test_labels = [sio.load_slp(test_file_path)]
+
+            logger.info(
+                f"Loaded {len(model_trainer.test_labels)} test dataset(s): "
+                + ", ".join(
+                    f"{len(tl)} frames" for tl in model_trainer.test_labels
+                )
             )
 
         logger.info("MultiHeadModelTrainer initialization complete.")
@@ -1911,6 +1941,7 @@ class MultiHeadModelTrainer:
             or self.model_type == "multi_class_topdown"
         ):
             self.config.data_config.preprocessing.crop_size = crop_size
+            self.config.data_config.preprocessing.scale = scale
 
     def _setup_head_config(self):
         """Setup node, edge and class names in head config for multi-head.
@@ -2243,6 +2274,55 @@ class MultiHeadModelTrainer:
                 )
                 logger.info(f"Saved ground truth labels for dataset {self._dataset_name(idx)}")
 
+    def _setup_eval_dataloaders(self, labels, label_type="test"):
+        """Setup per-dataset dataloaders for epoch-end evaluation.
+
+        Creates one DataLoader per dataset using the given labels, without
+        caching or augmentation. Uses val_data_loader batch_size/num_workers.
+
+        Args:
+            labels: List of sio.Labels (one per dataset) to create loaders for.
+            label_type: Label type name for logging ("test" or "val_eval").
+
+        Returns:
+            Dict mapping dataset index to DataLoader, or None if labels empty.
+        """
+        if labels is None or len(labels) == 0:
+            return None
+
+        # Use torch_dataset (no caching) for eval data
+        eval_config = self.config.copy()
+        eval_config.data_config.data_pipeline_fw = "torch_dataset"
+
+        dataloaders = {}
+        for d_idx in range(len(labels)):
+            name = self._dataset_name(d_idx)
+            logger.info(f"Setting up {label_type} dataset for {name}...")
+
+            # Create dataset using the val_dataset output of get_train_val_datasets_multi_head
+            # (val dataset = no augmentation, correct preprocessing)
+            _, dataset = get_train_val_datasets_multi_head(
+                train_labels=[self.train_labels[d_idx]],
+                val_labels=[labels[d_idx]],
+                config=eval_config,
+                d_idx=d_idx,
+                rank=-1,
+            )
+
+            dataloaders[d_idx] = DataLoader(
+                dataset=dataset,
+                shuffle=False,
+                batch_size=self.config.trainer_config.val_data_loader.batch_size,
+                num_workers=0,
+                pin_memory=True,
+            )
+            logger.info(
+                f"  {label_type} dataset {name}: {len(dataset)} samples, "
+                f"{len(dataloaders[d_idx])} batches"
+            )
+
+        return dataloaders
+
     def _setup_viz_datasets(self):
         """Setup visualization datasets for multi-head (without caching)."""
         data_viz_config = self.config.copy()
@@ -2455,6 +2535,47 @@ class MultiHeadModelTrainer:
         if self.config.trainer_config.enable_progress_bar:
             callbacks.append(SleapProgressBar())
 
+        # Add multi-head epoch-end evaluation callback if enabled
+        if self.config.trainer_config.eval.enabled:
+            skeletons = {i: s for i, s in enumerate(self.skeletons)}
+            dataset_names = {
+                i: self._dataset_name(i) for i in range(len(self.train_labels))
+            }
+
+            # Setup per-dataset val dataloaders for sequential eval
+            val_eval_dataloaders = self._setup_eval_dataloaders(
+                self.val_labels, label_type="val_eval"
+            )
+            val_videos = {
+                i: self.val_labels[i].videos
+                for i in range(len(self.val_labels))
+            }
+
+            # Setup test dataloaders if test labels are available
+            test_dataloaders = self._setup_eval_dataloaders(
+                self.test_labels, label_type="test"
+            )
+            test_videos = None
+            if test_dataloaders is not None:
+                test_videos = {
+                    i: self.test_labels[i].videos
+                    for i in range(len(self.test_labels))
+                }
+
+            callbacks.append(
+                MultiHeadEpochEndEvaluationCallback(
+                    skeletons=skeletons,
+                    dataset_names=dataset_names,
+                    val_dataloaders=val_eval_dataloaders,
+                    val_videos=val_videos,
+                    eval_frequency=self.config.trainer_config.eval.frequency,
+                    oks_stddev=self.config.trainer_config.eval.oks_stddev,
+                    oks_scale=self.config.trainer_config.eval.oks_scale,
+                    test_dataloaders=test_dataloaders,
+                    test_videos=test_videos,
+                )
+            )
+
         # Add unified visualization callback for each dataset
         if (
             self.config.trainer_config.visualize_preds_during_training
@@ -2654,6 +2775,17 @@ class MultiHeadModelTrainer:
             dataset_loss_weights=dataset_loss_weights,
             dataset_names=dataset_names,
         )
+
+        # Set gradient logging frequency from config
+        grad_logging_frequency = OmegaConf.select(
+            self.config, "trainer_config.grad_logging_frequency", default=0
+        )
+        self.lightning_model.grad_logging_frequency = grad_logging_frequency
+        if grad_logging_frequency > 0:
+            logger.info(
+                f"Gradient norm logging enabled every {grad_logging_frequency} epoch(s)"
+            )
+
         logger.info(f"Backbone model: {self.lightning_model.model.backbone}")
         logger.info(f"Head models: {self.lightning_model.model.head_layers}")
         total_params = sum(p.numel() for p in self.lightning_model.parameters())

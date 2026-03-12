@@ -2638,6 +2638,10 @@ class MultiHeadLightningModel(L.LightningModule):
         self.backbone_feats = backbone_feats
         self.dataset_names = dataset_names
 
+        # Gradient logging config (set via config after init)
+        self.grad_logging_frequency: int = 0  # 0 = disabled, N = every N epochs
+        self._grad_logging_enabled: bool = False  # Set per-epoch in on_train_epoch_start
+
         # Create multi-head model
         self.model = MultiHeadModel(
             backbone_type=self.backbone_type,
@@ -2671,11 +2675,11 @@ class MultiHeadLightningModel(L.LightningModule):
         # For epoch-averaged loss tracking
         self._epoch_loss_sum = 0.0
         self._epoch_loss_count = 0
-
-        # For epoch-end evaluation
-        self.val_predictions: List[Dict] = []
-        self.val_ground_truth: List[Dict] = []
-        self._collect_val_predictions: bool = False
+        # Per-head loss accumulators for val-train gap
+        self._per_head_train_loss_sum: Dict[int, float] = {}
+        self._per_head_train_loss_count: Dict[int, int] = {}
+        self._per_head_val_loss_sum: Dict[int, float] = {}
+        self._per_head_val_loss_count: Dict[int, int] = {}
 
         self.loss_func = nn.MSELoss()
         self.automatic_optimization = False  # Manual optimization for multi-head
@@ -2777,6 +2781,14 @@ class MultiHeadLightningModel(L.LightningModule):
         # Reset epoch loss tracking
         self._epoch_loss_sum = 0.0
         self._epoch_loss_count = 0
+        # Reset per-head train loss accumulators (for val-train gap)
+        self._per_head_train_loss_sum: Dict[int, float] = {}
+        self._per_head_train_loss_count: Dict[int, int] = {}
+        # Check if gradient logging should be active this epoch
+        self._grad_logging_enabled = (
+            self.grad_logging_frequency > 0
+            and (self.current_epoch + 1) % self.grad_logging_frequency == 0
+        )
 
     def _accumulate_loss(self, loss: torch.Tensor):
         """Accumulate loss for epoch-averaged logging. Call this in training_step."""
@@ -2828,9 +2840,9 @@ class MultiHeadLightningModel(L.LightningModule):
     def on_validation_epoch_start(self):
         """Configure the val timer at the beginning of each epoch."""
         self.val_start_time = time.time()
-        # Clear accumulated predictions for new epoch
-        self.val_predictions = []
-        self.val_ground_truth = []
+        # Reset per-head val loss accumulators (for val-train gap)
+        self._per_head_val_loss_sum: Dict[int, float] = {}
+        self._per_head_val_loss_count: Dict[int, int] = {}
 
     def on_validation_epoch_end(self):
         """Configure the val timer at the end of every epoch."""
@@ -2851,6 +2863,33 @@ class MultiHeadLightningModel(L.LightningModule):
             on_epoch=True,
             sync_dist=True,
         )
+
+        # Log per-head val-train loss gap
+        for d_num in self._per_head_val_loss_sum:
+            if (
+                d_num in self._per_head_train_loss_sum
+                and self._per_head_val_loss_count.get(d_num, 0) > 0
+                and self._per_head_train_loss_count.get(d_num, 0) > 0
+            ):
+                avg_val = (
+                    self._per_head_val_loss_sum[d_num]
+                    / self._per_head_val_loss_count[d_num]
+                )
+                avg_train = (
+                    self._per_head_train_loss_sum[d_num]
+                    / self._per_head_train_loss_count[d_num]
+                )
+                gap = avg_val - avg_train
+                head_name = self._dataset_name(d_num)
+                self.log(
+                    f"gap/head_{head_name}",
+                    gap,
+                    prog_bar=False,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
+
         # Manual LR scheduler stepping (needed with automatic_optimization=False)
         sch = self.lr_schedulers()
         if sch is not None:
@@ -3136,6 +3175,30 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
         plot_peaks(gt_centroids, peaks, paired=False)
         return fig
 
+    def _forward_no_ddp(self, img):
+        """Forward pass bypassing DDP wrapper.
+
+        Used for visualization on rank 0 only, where calling the DDP-wrapped
+        model would corrupt reducer state (other ranks don't participate).
+        """
+        img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
+        raw_model = (
+            self.model.module
+            if hasattr(self.model, "module")
+            else self.model
+        )
+        output = raw_model(
+            img,
+            include_backbone_features=self.backbone_feats is not None,
+            backbone_outputs=self.backbone_feats,
+        )
+        return {
+            "head": output["CentroidConfmapsHead"],
+            "backbone_features": output.get("backbone_features"),
+            "strides": output.get("backbone_features_strides"),
+        }
+
     def get_visualization_data(self, sample, dataset_idx: int = 0) -> VisualizationData:
         """Extract visualization data from a sample for a specific dataset/head.
 
@@ -3154,10 +3217,15 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
         ex["image"] = ex["image"].unsqueeze(dim=0)
         gt_centroids = ex["centroids"].cpu().numpy()
 
-        self.centroid_inf_layer.output_stride = self.head_configs.centroid.confmaps[
-            dataset_idx
-        ]["output_stride"]
-        output = self.centroid_inf_layer(ex, output_head_skeleton_num=dataset_idx)
+        viz_inf_layer = CentroidCrop(
+            torch_model=self._forward_no_ddp,
+            peak_threshold=self.centroid_inf_layer.peak_threshold,
+            return_confmaps=True,
+            output_stride=self.head_configs.centroid.confmaps[dataset_idx]["output_stride"],
+            input_scale=self.centroid_inf_layer.input_scale,
+        )
+        with torch.no_grad():
+            output = viz_inf_layer(ex, output_head_skeleton_num=dataset_idx)
 
         peaks = output["centroids"][0].cpu().numpy()
         img = output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
@@ -3397,6 +3465,31 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
         plot_peaks(gt_instances, peaks, paired=True)
         return fig
 
+    def _forward_no_ddp(self, img):
+        """Forward pass bypassing DDP wrapper.
+
+        Used for visualization on rank 0 only, where calling the DDP-wrapped
+        model would corrupt reducer state (other ranks don't participate).
+        """
+        img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
+        # Access unwrapped model to avoid DDP collective ops
+        raw_model = (
+            self.model.module
+            if hasattr(self.model, "module")
+            else self.model
+        )
+        output = raw_model(
+            img,
+            include_backbone_features=self.backbone_feats is not None,
+            backbone_outputs=self.backbone_feats,
+        )
+        return {
+            "head": output["CenteredInstanceConfmapsHead"],
+            "backbone_features": output.get("backbone_features"),
+            "strides": output.get("backbone_features_strides"),
+        }
+
     def get_visualization_data(self, sample, dataset_idx: int = 0) -> VisualizationData:
         """Extract visualization data from a sample for a specific dataset/head.
 
@@ -3414,10 +3507,17 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
                 ex[k] = v.to(device=self.device)
         ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
 
-        self.instance_peaks_inf_layer.output_stride = (
-            self.head_configs.centered_instance.confmaps[dataset_idx]["output_stride"]
+        # Use a DDP-safe inference layer that bypasses the DDP wrapper.
+        # The main instance_peaks_inf_layer uses self.forward → self.model (DDP),
+        # which corrupts DDP reducer state when called on rank 0 only.
+        viz_inf_layer = FindInstancePeaks(
+            torch_model=self._forward_no_ddp,
+            peak_threshold=self.instance_peaks_inf_layer.peak_threshold,
+            return_confmaps=True,
+            output_stride=self.head_configs.centered_instance.confmaps[dataset_idx]["output_stride"],
         )
-        output = self.instance_peaks_inf_layer(ex, output_head_skeleton_num=dataset_idx)
+        with torch.no_grad():
+            output = viz_inf_layer(ex, output_head_skeleton_num=dataset_idx)
 
         peaks = output["pred_instance_peaks"].cpu().numpy()
         peak_values = output["pred_peak_values"].cpu().numpy()
@@ -3481,7 +3581,35 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
 
             total_loss += curr_loss
 
+            # Accumulate per-head train loss for val-train gap
+            loss_val = curr_loss.detach().item()
+            self._per_head_train_loss_sum[d_num] = (
+                self._per_head_train_loss_sum.get(d_num, 0.0) + loss_val
+            )
+            self._per_head_train_loss_count[d_num] = (
+                self._per_head_train_loss_count.get(d_num, 0) + 1
+            )
+
             self.manual_backward(curr_loss, retain_graph=True)
+
+            # Log backbone gradient norm after this head's backward pass.
+            # Since gradients accumulate across heads (retain_graph=True),
+            # this is the cumulative norm after head d_num. Comparing across
+            # heads shows each head's relative contribution to backbone updates.
+            if self._grad_logging_enabled:
+                backbone_grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.model.backbone.parameters(), max_norm=float("inf")
+                )
+                self.log(
+                    f"grad_norm/backbone_cumulative_after_{self._dataset_name(d_num)}",
+                    backbone_grad_norm,
+                    prog_bar=False,
+                    on_step=False,
+                    on_epoch=True,
+                    logger=True,
+                    sync_dist=True,
+                    batch_size=batch_size,
+                )
 
             # Per-node loss logging
             if d_num in self.node_names and len(self.node_names[d_num]) > 0:
@@ -3560,6 +3688,15 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
                 curr_loss = curr_loss + ohkm_loss
 
             total_loss += curr_loss
+
+            # Accumulate per-head val loss for val-train gap
+            self._per_head_val_loss_sum[d_num] = (
+                self._per_head_val_loss_sum.get(d_num, 0.0)
+                + curr_loss.detach().item()
+            )
+            self._per_head_val_loss_count[d_num] = (
+                self._per_head_val_loss_count.get(d_num, 0) + 1
+            )
 
             self.log(
                 f"val/head_{self._dataset_name(d_num)}_loss",

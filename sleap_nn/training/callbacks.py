@@ -1634,3 +1634,438 @@ class CentroidEvaluationCallback(Callback):
                 wandb_logger.experiment.summary[summary_key] = value
             elif not is_distance and value > current_best:
                 wandb_logger.experiment.summary[summary_key] = value
+
+
+class MultiHeadEpochEndEvaluationCallback(Callback):
+    """Callback to run per-dataset evaluation metrics at end of validation epochs.
+
+    For multi-head models, this callback evaluates each dataset independently using
+    its respective head's predictions. Metrics are logged per-dataset under
+    ``eval/val/{dataset_name}/`` and ``eval/test/{dataset_name}/`` prefixes.
+
+    Instead of accumulating predictions during validation_step (which causes OOM
+    with 13 datasets under DDP), this callback runs the full inference + eval
+    pipeline sequentially at epoch end — one dataset at a time. Each dataset's
+    predictions are evaluated and freed before moving to the next.
+
+    Attributes:
+        skeletons: Dict mapping dataset index to sio.Skeleton.
+        val_dataloaders: Dict mapping dataset index to val DataLoader.
+        val_videos: Dict mapping dataset index to list of sio.Video objects (val).
+        dataset_names: Dict mapping dataset index to human-readable name.
+        eval_frequency: Run evaluation every N epochs (default: 1).
+        oks_stddev: OKS standard deviation (default: 0.025).
+        oks_scale: Optional OKS scale override.
+        metrics_to_log: List of metric keys to log.
+        test_dataloaders: Optional dict mapping dataset index to test DataLoader.
+        test_videos: Optional dict mapping dataset index to list of test sio.Video objects.
+    """
+
+    def __init__(
+        self,
+        skeletons: dict,
+        dataset_names: dict,
+        val_dataloaders: dict,
+        val_videos: dict,
+        eval_frequency: int = 1,
+        oks_stddev: float = 0.025,
+        oks_scale: Optional[float] = None,
+        metrics_to_log: Optional[list] = None,
+        test_dataloaders: Optional[dict] = None,
+        test_videos: Optional[dict] = None,
+    ):
+        """Initialize the callback.
+
+        Args:
+            skeletons: Dict mapping dataset index to sio.Skeleton.
+            dataset_names: Dict mapping dataset index to human-readable name.
+            val_dataloaders: Dict mapping dataset index to val DataLoader for eval.
+            val_videos: Dict mapping dataset index to list of sio.Video objects (val).
+            eval_frequency: Run evaluation every N epochs (default: 1).
+            oks_stddev: OKS standard deviation (default: 0.025).
+            oks_scale: Optional OKS scale override.
+            metrics_to_log: List of metric keys to log. If None, logs all available.
+            test_dataloaders: Optional dict mapping dataset index to test DataLoader.
+            test_videos: Optional dict mapping dataset index to list of test sio.Video objects.
+        """
+        super().__init__()
+        self.skeletons = skeletons
+        self.dataset_names = dataset_names
+        self.val_dataloaders = val_dataloaders
+        self.val_videos = val_videos
+        self.eval_frequency = eval_frequency
+        self.oks_stddev = oks_stddev
+        self.oks_scale = oks_scale
+        self.test_dataloaders = test_dataloaders
+        self.test_videos = test_videos
+        self.metrics_to_log = metrics_to_log or [
+            "mOKS",
+            "oks_voc.mAP",
+            "oks_voc.mAR",
+            "distance/avg",
+            "distance/p50",
+            "distance/p95",
+            "distance/p99",
+            "mPCK",
+            "PCK@5",
+            "PCK@10",
+            "visibility_precision",
+            "visibility_recall",
+        ]
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """Run sequential per-dataset inference + evaluation at epoch end.
+
+        DDP safety: ALL ranks participate in forward passes (required by DDP).
+        Only rank 0 performs evaluation and logging. Each dataset is processed
+        sequentially and freed before the next to minimize peak memory.
+        """
+        if trainer.sanity_checking:
+            return
+
+        is_eval_epoch = (
+            trainer.current_epoch + 1
+        ) % self.eval_frequency == 0
+
+        if not is_eval_epoch:
+            return
+
+        import sleap_io as sio
+        import numpy as np
+
+        # Val evaluation: sequential inference on per-dataset val dataloaders
+        if self.val_dataloaders is not None and self.val_videos is not None:
+            self._sequential_inference_and_eval(
+                trainer, pl_module, sio, np,
+                dataloaders=self.val_dataloaders,
+                videos=self.val_videos,
+                split="val",
+            )
+
+        # Test evaluation: sequential inference on per-dataset test dataloaders
+        if self.test_dataloaders is not None and self.test_videos is not None:
+            self._sequential_inference_and_eval(
+                trainer, pl_module, sio, np,
+                dataloaders=self.test_dataloaders,
+                videos=self.test_videos,
+                split="test",
+            )
+
+        # Barrier so all ranks wait for eval to finish before resuming training
+        trainer.strategy.barrier()
+
+    def _sequential_inference_and_eval(
+        self, trainer, pl_module, sio, np, dataloaders, videos, split
+    ):
+        """Run inference and evaluation sequentially, one dataset at a time.
+
+        All ranks participate in forward passes (required by DDP). Only rank 0
+        performs evaluation and logging. Each dataset's predictions are collected,
+        evaluated, and freed before moving to the next dataset — so peak memory
+        is bounded by the size of a single dataset's predictions.
+
+        Args:
+            trainer: Lightning trainer.
+            pl_module: Lightning module with model and instance_peaks_inf_layer.
+            sio: sleap_io module.
+            np: numpy module.
+            dataloaders: Dict mapping dataset index to DataLoader.
+            videos: Dict mapping dataset index to list of sio.Video objects.
+            split: "val" or "test" (for metric prefixes).
+        """
+        import torch
+        from sleap_nn.evaluation import Evaluator
+
+        for d_idx in sorted(dataloaders.keys()):
+            name = self.dataset_names.get(d_idx, f"dataset_{d_idx}")
+            loader = dataloaders[d_idx]
+
+            try:
+                preds = []
+                gts = []
+
+                # Set output_stride for this dataset's head
+                pl_module.instance_peaks_inf_layer.output_stride = (
+                    pl_module.head_configs.centered_instance.confmaps[d_idx][
+                        "output_stride"
+                    ]
+                )
+
+                for batch_data in loader:
+                    # Move batch to model device
+                    for k, v in batch_data.items():
+                        if isinstance(v, torch.Tensor):
+                            batch_data[k] = v.to(pl_module.device)
+
+                    # Save bbox before inference (modified in-place)
+                    bbox_prep_saved = batch_data["instance_bbox"].clone()
+
+                    with torch.no_grad():
+                        inference_output = pl_module.instance_peaks_inf_layer(
+                            batch_data, output_head_skeleton_num=d_idx
+                        )
+
+                    local_batch_size = len(batch_data["frame_idx"])
+                    for i in range(local_batch_size):
+                        eff = batch_data["eff_scale"][i].cpu().numpy()
+
+                        pred_peaks_crop = (
+                            inference_output["pred_instance_peaks"][i].cpu().numpy()
+                        )
+                        pred_scores = (
+                            inference_output["pred_peak_values"][i].cpu().numpy()
+                        )
+
+                        bbox_prep = (
+                            bbox_prep_saved[i].squeeze(0).cpu().numpy()
+                        )
+                        bbox_top_left_orig = bbox_prep[0] / eff
+
+                        pred_peaks_full = pred_peaks_crop + bbox_top_left_orig
+
+                        gt_crop_prep = (
+                            batch_data["instance"][i].squeeze(0).cpu().numpy()
+                        )
+                        gt_crop_orig = gt_crop_prep / eff
+                        gt_full_orig = gt_crop_orig + bbox_top_left_orig
+
+                        preds.append(
+                            {
+                                "video_idx": batch_data["video_idx"][i].item(),
+                                "frame_idx": batch_data["frame_idx"][i].item(),
+                                "pred_peaks": pred_peaks_full.reshape(1, -1, 2),
+                                "pred_scores": pred_scores.reshape(1, -1),
+                            }
+                        )
+                        gts.append(
+                            {
+                                "video_idx": batch_data["video_idx"][i].item(),
+                                "frame_idx": batch_data["frame_idx"][i].item(),
+                                "gt_instances": gt_full_orig.reshape(1, -1, 2),
+                                "num_instances": 1,
+                            }
+                        )
+
+                # Evaluate this dataset immediately (rank 0 only), then free
+                if trainer.is_global_zero:
+                    skeleton = self.skeletons[d_idx]
+                    vids = videos[d_idx]
+
+                    if not preds:
+                        logger.warning(
+                            f"No {split} predictions for dataset {name}"
+                        )
+                    else:
+                        pred_labels = self._build_pred_labels(
+                            preds, skeleton, vids, sio, np
+                        )
+                        gt_labels = self._build_gt_labels(
+                            gts, skeleton, vids, sio, np
+                        )
+
+                        if len(pred_labels) == 0:
+                            logger.warning(
+                                f"No valid {split} predictions for dataset "
+                                f"{name}"
+                            )
+                        else:
+                            evaluator = Evaluator(
+                                ground_truth_instances=gt_labels,
+                                predicted_instances=pred_labels,
+                                oks_stddev=self.oks_stddev,
+                                oks_scale=self.oks_scale,
+                                user_labels_only=False,
+                            )
+                            metrics = evaluator.evaluate()
+
+                            self._log_metrics(
+                                trainer, metrics, trainer.current_epoch,
+                                name, split=split,
+                            )
+
+                            logger.info(
+                                f"Epoch {trainer.current_epoch} {split} eval "
+                                f"[{name}]: "
+                                f"PCK@5={metrics['pck_metrics']['PCK@5']:.4f}, "
+                                f"mOKS={metrics['mOKS']['mOKS']:.4f}, "
+                                f"mAP={metrics['voc_metrics']['oks_voc.mAP']:.4f}"
+                            )
+
+                # Free this dataset's predictions before moving to next
+                del preds, gts
+
+            except Exception as e:
+                logger.warning(
+                    f"{split} evaluation failed for dataset {name}: {e}"
+                )
+
+    def _build_pred_labels(self, predictions, skeleton, videos, sio, np):
+        """Convert prediction dicts to sio.Labels for a single dataset."""
+        labeled_frames = []
+        for pred in predictions:
+            pred_peaks = pred["pred_peaks"]
+            pred_scores = pred["pred_scores"]
+
+            if pred_peaks is None or (
+                isinstance(pred_peaks, np.ndarray) and np.isnan(pred_peaks).all()
+            ):
+                continue
+
+            if len(pred_peaks.shape) == 2:
+                pred_peaks = pred_peaks.reshape(1, -1, 2)
+                pred_scores = pred_scores.reshape(1, -1)
+
+            instances = []
+            for inst_idx in range(len(pred_peaks)):
+                inst_points = pred_peaks[inst_idx]
+                inst_scores = (
+                    pred_scores[inst_idx] if pred_scores is not None else None
+                )
+
+                if np.isnan(inst_points).all():
+                    continue
+
+                inst = sio.PredictedInstance.from_numpy(
+                    points_data=inst_points,
+                    skeleton=skeleton,
+                    point_scores=(
+                        inst_scores
+                        if inst_scores is not None
+                        else np.ones(len(inst_points))
+                    ),
+                    score=(
+                        float(np.nanmean(inst_scores))
+                        if inst_scores is not None
+                        else 1.0
+                    ),
+                )
+                instances.append(inst)
+
+            if instances:
+                lf = sio.LabeledFrame(
+                    video=videos[pred["video_idx"]],
+                    frame_idx=pred["frame_idx"],
+                    instances=instances,
+                )
+                labeled_frames.append(lf)
+
+        return sio.Labels(
+            videos=videos,
+            skeletons=[skeleton],
+            labeled_frames=labeled_frames,
+        )
+
+    def _build_gt_labels(self, ground_truth, skeleton, videos, sio, np):
+        """Convert ground truth dicts to sio.Labels for a single dataset."""
+        labeled_frames = []
+        for gt in ground_truth:
+            instances = []
+            gt_instances = gt["gt_instances"]
+
+            if len(gt_instances.shape) == 2:
+                gt_instances = gt_instances.reshape(1, -1, 2)
+
+            for i in range(min(gt["num_instances"], len(gt_instances))):
+                inst_data = gt_instances[i]
+                if np.isnan(inst_data).all():
+                    continue
+                inst = sio.Instance.from_numpy(
+                    points_data=inst_data,
+                    skeleton=skeleton,
+                )
+                instances.append(inst)
+
+            if instances:
+                lf = sio.LabeledFrame(
+                    video=videos[gt["video_idx"]],
+                    frame_idx=gt["frame_idx"],
+                    instances=instances,
+                )
+                labeled_frames.append(lf)
+
+        return sio.Labels(
+            videos=videos,
+            skeletons=[skeleton],
+            labeled_frames=labeled_frames,
+        )
+
+    def _log_metrics(self, trainer, metrics, epoch, dataset_name, split="val"):
+        """Log evaluation metrics to WandB for a specific dataset."""
+        import numpy as np
+        from lightning.pytorch.loggers import WandbLogger
+
+        wandb_logger = None
+        for log in trainer.loggers:
+            if isinstance(log, WandbLogger):
+                wandb_logger = log
+                break
+
+        if wandb_logger is None:
+            return
+
+        prefix = f"eval/{split}/{dataset_name}"
+        log_dict = {"epoch": epoch}
+
+        if "mOKS" in self.metrics_to_log:
+            log_dict[f"{prefix}/mOKS"] = metrics["mOKS"]["mOKS"]
+
+        if "oks_voc.mAP" in self.metrics_to_log:
+            log_dict[f"{prefix}/oks_voc_mAP"] = metrics["voc_metrics"]["oks_voc.mAP"]
+
+        if "oks_voc.mAR" in self.metrics_to_log:
+            log_dict[f"{prefix}/oks_voc_mAR"] = metrics["voc_metrics"]["oks_voc.mAR"]
+
+        if "distance/avg" in self.metrics_to_log:
+            val = metrics["distance_metrics"]["avg"]
+            if not np.isnan(val):
+                log_dict[f"{prefix}/distance/avg"] = val
+
+        if "distance/p50" in self.metrics_to_log:
+            val = metrics["distance_metrics"]["p50"]
+            if not np.isnan(val):
+                log_dict[f"{prefix}/distance/p50"] = val
+
+        if "distance/p95" in self.metrics_to_log:
+            val = metrics["distance_metrics"]["p95"]
+            if not np.isnan(val):
+                log_dict[f"{prefix}/distance/p95"] = val
+
+        if "distance/p99" in self.metrics_to_log:
+            val = metrics["distance_metrics"]["p99"]
+            if not np.isnan(val):
+                log_dict[f"{prefix}/distance/p99"] = val
+
+        if "mPCK" in self.metrics_to_log:
+            log_dict[f"{prefix}/mPCK"] = metrics["pck_metrics"]["mPCK"]
+
+        if "PCK@5" in self.metrics_to_log:
+            log_dict[f"{prefix}/PCK_5"] = metrics["pck_metrics"]["PCK@5"]
+
+        if "PCK@10" in self.metrics_to_log:
+            log_dict[f"{prefix}/PCK_10"] = metrics["pck_metrics"]["PCK@10"]
+
+        if "visibility_precision" in self.metrics_to_log:
+            val = metrics["visibility_metrics"]["precision"]
+            if not np.isnan(val):
+                log_dict[f"{prefix}/visibility_precision"] = val
+
+        if "visibility_recall" in self.metrics_to_log:
+            val = metrics["visibility_metrics"]["recall"]
+            if not np.isnan(val):
+                log_dict[f"{prefix}/visibility_recall"] = val
+
+        wandb_logger.experiment.log(log_dict, commit=False)
+
+        # Update best metrics in summary
+        for key, value in log_dict.items():
+            if key == "epoch":
+                continue
+            summary_key = f"best/{key}"
+            current_best = wandb_logger.experiment.summary.get(summary_key)
+            is_distance = "distance" in key
+            if current_best is None:
+                wandb_logger.experiment.summary[summary_key] = value
+            elif is_distance and value < current_best:
+                wandb_logger.experiment.summary[summary_key] = value
+            elif not is_distance and value > current_best:
+                wandb_logger.experiment.summary[summary_key] = value
