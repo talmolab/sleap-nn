@@ -352,10 +352,23 @@ class BaseDataset(Dataset):
 
         self.lf_idx_list = self._get_lf_idx_list(labels)
 
-        # Store video references for negative frame loading (lightweight, no h5py issues)
-        self.video_refs = {
-            labels_idx: label.videos for labels_idx, label in enumerate(labels)
-        }
+        # Store video references for negative frame loading.
+        # Only needed when use_negative_frames is on AND caching is enabled
+        # (when cache_img is None, self.labels_list provides video access).
+        # Videos with open cv2 backends can't be pickled by DataLoader workers,
+        # so we deepcopy and close them to store picklable references.
+        self.video_refs = {}
+        if self.use_negative_frames and self.cache_img is not None:
+            from copy import deepcopy
+
+            for labels_idx, label in enumerate(labels):
+                video_copies = []
+                for video in label.videos:
+                    v = deepcopy(video)
+                    if hasattr(v, "close"):
+                        v.close()
+                    video_copies.append(v)
+                self.video_refs[labels_idx] = video_copies
 
         self.labels_list = None
         # this is to ensure that the labels are not passed to the multiprocessing pool when caching is enabled
