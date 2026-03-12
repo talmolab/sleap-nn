@@ -424,6 +424,116 @@ class TestNegativeSampleFraction:
         assert sample["is_negative"] is True
 
 
+class TestNegativeLossWeighting:
+    """Tests for _compute_negative_weighted_loss in lightning modules."""
+
+    def _make_model(self, weight=1.0):
+        """Create a minimal mock for testing _compute_negative_weighted_loss."""
+        from sleap_nn.training.lightning_modules import LightningModel
+        from unittest.mock import MagicMock
+
+        model = object.__new__(LightningModel)
+        model.negative_loss_weight = weight
+        model.log = MagicMock()
+        return model
+
+    def test_weighted_loss_no_negatives_in_batch(self):
+        """When is_negative is present but all False, loss equals MSELoss."""
+        model = self._make_model(weight=2.0)
+
+        y_preds = torch.randn(4, 2, 8, 8)
+        y = torch.randn(4, 2, 8, 8)
+        batch = {"is_negative": torch.tensor([False, False, False, False])}
+
+        loss = model._compute_negative_weighted_loss(y_preds, y, batch)
+        expected = torch.nn.MSELoss()(y_preds, y)
+        assert torch.allclose(loss, expected, atol=1e-6)
+
+    def test_weighted_loss_with_negatives(self):
+        """When negatives are present, loss is weighted."""
+        model = self._make_model(weight=5.0)
+
+        y_preds = torch.randn(4, 2, 8, 8)
+        y = torch.randn(4, 2, 8, 8)
+        batch = {"is_negative": torch.tensor([False, False, True, False])}
+
+        loss = model._compute_negative_weighted_loss(y_preds, y, batch)
+
+        per_sample = (y_preds - y).pow(2).mean(dim=[1, 2, 3])
+        weights = torch.tensor([1.0, 1.0, 5.0, 1.0])
+        expected = (per_sample * weights).mean()
+        assert torch.allclose(loss, expected, atol=1e-6)
+
+    def test_weighted_loss_weight_1_skips_weighting(self):
+        """When weight=1.0 and is_negative present, still equals MSELoss."""
+        model = self._make_model(weight=1.0)
+
+        y_preds = torch.randn(4, 2, 8, 8)
+        y = torch.randn(4, 2, 8, 8)
+        batch = {"is_negative": torch.tensor([False, True, False, True])}
+
+        loss = model._compute_negative_weighted_loss(y_preds, y, batch)
+        expected = torch.nn.MSELoss()(y_preds, y)
+        assert torch.allclose(loss, expected, atol=1e-6)
+
+    def test_weighted_loss_no_is_negative_key(self):
+        """When is_negative absent from batch, returns plain MSELoss."""
+        model = self._make_model(weight=5.0)
+
+        y_preds = torch.randn(4, 2, 8, 8)
+        y = torch.randn(4, 2, 8, 8)
+        batch = {}
+
+        loss = model._compute_negative_weighted_loss(y_preds, y, batch)
+        expected = torch.nn.MSELoss()(y_preds, y)
+        assert torch.allclose(loss, expected, atol=1e-6)
+
+    def test_weighted_loss_all_negative_batch(self):
+        """When all samples are negative, all get the negative weight."""
+        model = self._make_model(weight=0.5)
+
+        y_preds = torch.zeros(2, 1, 4, 4)
+        y = torch.zeros(2, 1, 4, 4)
+        batch = {"is_negative": torch.tensor([True, True])}
+
+        loss = model._compute_negative_weighted_loss(y_preds, y, batch)
+        assert loss.item() == 0.0
+
+    def test_split_metrics_logged(self):
+        """Verify split loss and count metrics are logged."""
+        model = self._make_model(weight=2.0)
+
+        y_preds = torch.randn(4, 2, 8, 8)
+        y = torch.randn(4, 2, 8, 8)
+        batch = {"is_negative": torch.tensor([False, False, True, False])}
+
+        model._compute_negative_weighted_loss(y_preds, y, batch)
+
+        logged_keys = {call.args[0] for call in model.log.call_args_list}
+        assert "train/loss_positive" in logged_keys
+        assert "train/loss_negative" in logged_keys
+        assert "train/n_positive" in logged_keys
+        assert "train/n_negative" in logged_keys
+
+        # Check counts
+        for call in model.log.call_args_list:
+            if call.args[0] == "train/n_positive":
+                assert call.args[1] == 3.0
+            if call.args[0] == "train/n_negative":
+                assert call.args[1] == 1.0
+
+    def test_no_metrics_when_is_negative_absent(self):
+        """No split metrics logged when is_negative is not in batch."""
+        model = self._make_model(weight=2.0)
+
+        y_preds = torch.randn(4, 2, 8, 8)
+        y = torch.randn(4, 2, 8, 8)
+        batch = {}
+
+        model._compute_negative_weighted_loss(y_preds, y, batch)
+        model.log.assert_not_called()
+
+
 class TestDataConfigNegativeFrames:
     """Test that the DataConfig accepts use_negative_frames."""
 
