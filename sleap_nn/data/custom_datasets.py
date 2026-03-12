@@ -34,7 +34,12 @@ from sleap_nn.data.normalization import (
     convert_to_grayscale,
     convert_to_rgb,
 )
-from sleap_nn.data.providers import get_max_instances, get_max_height_width, process_lf
+from sleap_nn.data.providers import (
+    get_max_instances,
+    get_max_height_width,
+    process_lf,
+    process_negative_lf,
+)
 from sleap_nn.data.resizing import apply_pad_to_stride, apply_sizematcher, apply_resizer
 from sleap_nn.data.augmentation import (
     apply_geometric_augmentation,
@@ -147,6 +152,10 @@ class ParallelCacheFiller:
         Returns:
             Tuple of (labels_idx, lf_idx, image_or_none, error_or_none).
         """
+        # Skip negative samples - they don't have labeled frames to cache
+        if sample.get("is_negative", False):
+            return sample["labels_idx"], None, None, None
+
         labels_idx = sample["labels_idx"]
         lf_idx = sample["lf_idx"]
 
@@ -283,10 +292,12 @@ class BaseDataset(Dataset):
         rank: Optional[int] = None,
         parallel_caching: bool = True,
         cache_workers: int = 0,
+        use_negative_frames: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__()
         self.user_instances_only = user_instances_only
+        self.use_negative_frames = use_negative_frames
         self.ensure_rgb = ensure_rgb
         self.ensure_grayscale = ensure_grayscale
 
@@ -320,6 +331,9 @@ class BaseDataset(Dataset):
             if max_instances > self.max_instances:
                 self.max_instances = max_instances
 
+        # Store num_nodes for negative frame generation
+        self.num_nodes = len(labels[0].skeletons[0].nodes) if labels else 0
+
         self.cache_img = cache_img
         self.cache_img_path = cache_img_path
         self.use_existing_imgs = use_existing_imgs
@@ -337,6 +351,24 @@ class BaseDataset(Dataset):
                 path.mkdir(parents=True, exist_ok=True)
 
         self.lf_idx_list = self._get_lf_idx_list(labels)
+
+        # Store video references for negative frame loading.
+        # Only needed when use_negative_frames is on AND caching is enabled
+        # (when cache_img is None, self.labels_list provides video access).
+        # Videos with open cv2 backends can't be pickled by DataLoader workers,
+        # so we deepcopy and close them to store picklable references.
+        self.video_refs = {}
+        if self.use_negative_frames and self.cache_img is not None:
+            from copy import deepcopy
+
+            for labels_idx, label in enumerate(labels):
+                video_copies = []
+                for video in label.videos:
+                    v = deepcopy(video)
+                    if hasattr(v, "close"):
+                        v.close()
+                    video_copies.append(v)
+                self.video_refs[labels_idx] = video_copies
 
         self.labels_list = None
         # this is to ensure that the labels are not passed to the multiprocessing pool when caching is enabled
@@ -367,7 +399,11 @@ class BaseDataset(Dataset):
                     dist.barrier()
 
     def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Tuple[int]]:
-        """Return list of indices of labelled frames."""
+        """Return list of indices of labelled frames (and optionally negative frames).
+
+        If ``self.use_negative_frames`` is True, all user-confirmed negative
+        frames (``labels.negative_frames``) are appended to the sample list.
+        """
         lf_idx_list = []
         for labels_idx, label in enumerate(labels):
             for lf_idx, lf in enumerate(label):
@@ -389,13 +425,64 @@ class BaseDataset(Dataset):
                         "lf_idx": lf_idx,
                         "video_idx": video_idx,
                         "frame_idx": lf.frame_idx,
+                        "is_negative": False,
                         "instances": (
                             lf.instances if self.cache_img is not None else None
                         ),
                     }
                     lf_idx_list.append(sample)
                     # This is to ensure that the labels are not passed to the multiprocessing pool (h5py objects can't be pickled)
+
+        # Add negative frames if requested
+        if self.use_negative_frames and len(lf_idx_list) > 0:
+            neg_samples = self._collect_negative_frames(labels)
+            if neg_samples:
+                n_positive = len(lf_idx_list)
+                lf_idx_list.extend(neg_samples)
+                logger.info(
+                    f"Added {len(neg_samples)} negative samples "
+                    f"to {n_positive} positive samples."
+                )
+
         return lf_idx_list
+
+    def _collect_negative_frames(
+        self,
+        labels: List[sio.Labels],
+    ) -> List[Dict]:
+        """Collect all user-confirmed negative frames from labels.
+
+        Only frames explicitly marked by the user as negative are used
+        (``LabeledFrame`` objects with ``is_negative=True``, accessed via
+        ``labels.negative_frames``).  Unlabeled frames are **not** included
+        because they may contain animals that simply haven't been annotated yet.
+
+        Args:
+            labels: List of sio.Labels objects.
+
+        Returns:
+            List of sample dicts with ``is_negative=True`` (one per unique
+            negative frame).
+        """
+        neg_samples: List[Dict] = []
+
+        for labels_idx, label in enumerate(labels):
+            if not hasattr(label, "negative_frames"):
+                continue
+            for lf in label.negative_frames:
+                video_idx = label.videos.index(lf.video)
+                neg_samples.append(
+                    {
+                        "labels_idx": labels_idx,
+                        "lf_idx": None,
+                        "video_idx": video_idx,
+                        "frame_idx": lf.frame_idx,
+                        "is_negative": True,
+                        "instances": None,
+                    }
+                )
+
+        return neg_samples
 
     def __next__(self):
         """Get the next sample from the dataset."""
@@ -467,6 +554,10 @@ class BaseDataset(Dataset):
 
         def process_samples(progress=None, task=None):
             for sample in self.lf_idx_list:
+                if sample.get("is_negative", False):
+                    if progress is not None:
+                        progress.update(task, advance=1)
+                    continue
                 labels_idx = sample["labels_idx"]
                 lf_idx = sample["lf_idx"]
                 img = labels[labels_idx][lf_idx].image
@@ -565,6 +656,97 @@ class BaseDataset(Dataset):
                 f"First error: {errors[0]}"
             )
 
+    def _apply_common_preprocessing(self, sample: Dict) -> Dict:
+        """Apply common preprocessing steps shared across all dataset types.
+
+        Handles: RGB/grayscale conversion, size matching, scaling, padding,
+        and augmentation.
+
+        Args:
+            sample: Sample dict with at least ``image`` and ``instances`` keys.
+
+        Returns:
+            The sample dict with preprocessing applied in-place.
+        """
+        if self.ensure_rgb:
+            sample["image"] = convert_to_rgb(sample["image"])
+        elif self.ensure_grayscale:
+            sample["image"] = convert_to_grayscale(sample["image"])
+
+        # size matcher
+        sample["image"], eff_scale = apply_sizematcher(
+            sample["image"],
+            max_height=self.max_hw[0],
+            max_width=self.max_hw[1],
+        )
+        sample["instances"] = sample["instances"] * eff_scale
+        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
+
+        # resize image
+        sample["image"], sample["instances"] = apply_resizer(
+            sample["image"],
+            sample["instances"],
+            scale=self.scale,
+        )
+
+        # Pad the image (if needed) according max stride
+        sample["image"] = apply_pad_to_stride(
+            sample["image"], max_stride=self.max_stride
+        )
+
+        # apply augmentation
+        if self.apply_aug:
+            if self.intensity_aug is not None:
+                sample["image"], sample["instances"] = apply_intensity_augmentation(
+                    sample["image"],
+                    sample["instances"],
+                    **self.intensity_aug,
+                )
+
+            if self.geometric_aug is not None:
+                sample["image"], sample["instances"] = apply_geometric_augmentation(
+                    sample["image"],
+                    sample["instances"],
+                    **self.geometric_aug,
+                )
+
+        return sample
+
+    def _load_negative_sample(self, sample: Dict) -> Dict:
+        """Load and preprocess a negative frame (no instances).
+
+        Reads the image from the video at the given frame index and returns a
+        sample dict with all-NaN instances.  Downstream code will generate
+        all-zero confidence maps from these NaN instances.
+
+        Args:
+            sample: Sample dict from lf_idx_list with ``is_negative=True``.
+
+        Returns:
+            Preprocessed sample dict.
+        """
+        labels_idx = sample["labels_idx"]
+        video_idx = sample["video_idx"]
+        frame_idx = sample["frame_idx"]
+
+        # Read image directly from the video
+        # Fall back to video_refs when labels_list is None (caching mode)
+        if self.labels_list is not None:
+            video = self.labels_list[labels_idx].videos[video_idx]
+        else:
+            video = self.video_refs[labels_idx][video_idx]
+        img = video[frame_idx]
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
+
+        return process_negative_lf(
+            img=img,
+            frame_idx=frame_idx,
+            video_idx=video_idx,
+            max_instances=self.max_instances,
+            num_nodes=self.num_nodes,
+        )
+
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
         return len(self.lf_idx_list)
@@ -641,6 +823,7 @@ class BottomUpDataset(BaseDataset):
         rank: Optional[int] = None,
         parallel_caching: bool = True,
         cache_workers: int = 0,
+        use_negative_frames: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -660,6 +843,7 @@ class BottomUpDataset(BaseDataset):
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            use_negative_frames=use_negative_frames,
         )
         self.confmap_head_config = confmap_head_config
         self.pafs_head_config = pafs_head_config
@@ -674,75 +858,38 @@ class BottomUpDataset(BaseDataset):
         video_idx = sample["video_idx"]
         frame_idx = sample["frame_idx"]
 
-        if self.cache_img is not None:
-            instances = sample["instances"]
-            if self.cache_img == "disk":
-                img = np.array(
-                    Image.open(
-                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
-                    )
-                )
-            elif self.cache_img == "memory":
-                img = self.cache[(labels_idx, lf_idx)].copy()
+        if sample.get("is_negative", False):
+            sample = self._load_negative_sample(sample)
         else:
-            lf = self.labels_list[labels_idx][lf_idx]
-            instances = lf.instances
-            img = lf.image
+            if self.cache_img is not None:
+                instances = sample["instances"]
+                if self.cache_img == "disk":
+                    img = np.array(
+                        Image.open(
+                            f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                        )
+                    )
+                elif self.cache_img == "memory":
+                    img = self.cache[(labels_idx, lf_idx)].copy()
+            else:
+                lf = self.labels_list[labels_idx][lf_idx]
+                instances = lf.instances
+                img = lf.image
 
-        if img.ndim == 2:
-            img = np.expand_dims(img, axis=2)
+            if img.ndim == 2:
+                img = np.expand_dims(img, axis=2)
 
-        # get dict
-        sample = process_lf(
-            instances_list=instances,
-            img=img,
-            frame_idx=frame_idx,
-            video_idx=video_idx,
-            max_instances=self.max_instances,
-            user_instances_only=self.user_instances_only,
-        )
+            # get dict
+            sample = process_lf(
+                instances_list=instances,
+                img=img,
+                frame_idx=frame_idx,
+                video_idx=video_idx,
+                max_instances=self.max_instances,
+                user_instances_only=self.user_instances_only,
+            )
 
-        if self.ensure_rgb:
-            sample["image"] = convert_to_rgb(sample["image"])
-        elif self.ensure_grayscale:
-            sample["image"] = convert_to_grayscale(sample["image"])
-
-        # size matcher
-        sample["image"], eff_scale = apply_sizematcher(
-            sample["image"],
-            max_height=self.max_hw[0],
-            max_width=self.max_hw[1],
-        )
-        sample["instances"] = sample["instances"] * eff_scale
-        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
-
-        # resize image
-        sample["image"], sample["instances"] = apply_resizer(
-            sample["image"],
-            sample["instances"],
-            scale=self.scale,
-        )
-
-        # Pad the image (if needed) according max stride
-        sample["image"] = apply_pad_to_stride(
-            sample["image"], max_stride=self.max_stride
-        )
-
-        # apply augmentation
-        if self.apply_aug:
-            if self.intensity_aug is not None:
-                sample["image"], sample["instances"] = apply_intensity_augmentation(
-                    sample["image"],
-                    sample["instances"],
-                    **self.intensity_aug,
-                )
-
-            if self.geometric_aug is not None:
-                sample["image"], sample["instances"] = apply_geometric_augmentation(
-                    sample["image"],
-                    sample["instances"],
-                    **self.geometric_aug,
-                )
+        sample = self._apply_common_preprocessing(sample)
 
         img_hw = sample["image"].shape[-2:]
 
@@ -769,6 +916,8 @@ class BottomUpDataset(BaseDataset):
         sample["confidence_maps"] = confidence_maps
         sample["part_affinity_fields"] = pafs
         sample["labels_idx"] = labels_idx
+        if self.use_negative_frames:
+            sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
 
         return sample
 
@@ -841,6 +990,7 @@ class BottomUpMultiClassDataset(BaseDataset):
         rank: Optional[int] = None,
         parallel_caching: bool = True,
         cache_workers: int = 0,
+        use_negative_frames: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -860,6 +1010,7 @@ class BottomUpMultiClassDataset(BaseDataset):
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            use_negative_frames=use_negative_frames,
         )
         self.confmap_head_config = confmap_head_config
         self.class_maps_head_config = class_maps_head_config
@@ -868,95 +1019,59 @@ class BottomUpMultiClassDataset(BaseDataset):
         self.class_map_threshold = class_map_threshold
 
     def __getitem__(self, index) -> Dict:
-        """Return dict with image, confmaps and pafs for given index."""
+        """Return dict with image, confmaps and class maps for given index."""
         sample = self.lf_idx_list[index]
         labels_idx = sample["labels_idx"]
         lf_idx = sample["lf_idx"]
         video_idx = sample["video_idx"]
         frame_idx = sample["frame_idx"]
 
-        if self.cache_img is not None:
-            instances = sample["instances"]
-            if self.cache_img == "disk":
-                img = np.array(
-                    Image.open(
-                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
-                    )
-                )
-            elif self.cache_img == "memory":
-                img = self.cache[(labels_idx, lf_idx)].copy()
+        if sample.get("is_negative", False):
+            sample = self._load_negative_sample(sample)
+            track_ids = torch.zeros(0, dtype=torch.int32)
         else:
-            lf = self.labels_list[labels_idx][lf_idx]
-            instances = lf.instances
-            img = lf.image
+            if self.cache_img is not None:
+                instances = sample["instances"]
+                if self.cache_img == "disk":
+                    img = np.array(
+                        Image.open(
+                            f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                        )
+                    )
+                elif self.cache_img == "memory":
+                    img = self.cache[(labels_idx, lf_idx)].copy()
+            else:
+                lf = self.labels_list[labels_idx][lf_idx]
+                instances = lf.instances
+                img = lf.image
 
-        if img.ndim == 2:
-            img = np.expand_dims(img, axis=2)
+            if img.ndim == 2:
+                img = np.expand_dims(img, axis=2)
 
-        # get dict
-        sample = process_lf(
-            instances_list=instances,
-            img=img,
-            frame_idx=frame_idx,
-            video_idx=video_idx,
-            max_instances=self.max_instances,
-            user_instances_only=self.user_instances_only,
-        )
+            # get dict
+            sample = process_lf(
+                instances_list=instances,
+                img=img,
+                frame_idx=frame_idx,
+                video_idx=video_idx,
+                max_instances=self.max_instances,
+                user_instances_only=self.user_instances_only,
+            )
 
-        track_ids = torch.Tensor(
-            [
-                (
-                    self.class_names.index(instances[idx].track.name)
-                    if instances[idx].track is not None
-                    else -1
-                )
-                for idx in range(sample["num_instances"])
-            ]
-        ).to(torch.int32)
+            track_ids = torch.Tensor(
+                [
+                    (
+                        self.class_names.index(instances[idx].track.name)
+                        if instances[idx].track is not None
+                        else -1
+                    )
+                    for idx in range(sample["num_instances"])
+                ]
+            ).to(torch.int32)
 
         sample["num_tracks"] = torch.tensor(len(self.class_names), dtype=torch.int32)
 
-        if self.ensure_rgb:
-            sample["image"] = convert_to_rgb(sample["image"])
-        elif self.ensure_grayscale:
-            sample["image"] = convert_to_grayscale(sample["image"])
-
-        # size matcher
-        sample["image"], eff_scale = apply_sizematcher(
-            sample["image"],
-            max_height=self.max_hw[0],
-            max_width=self.max_hw[1],
-        )
-        sample["instances"] = sample["instances"] * eff_scale
-        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
-
-        # resize image
-        sample["image"], sample["instances"] = apply_resizer(
-            sample["image"],
-            sample["instances"],
-            scale=self.scale,
-        )
-
-        # Pad the image (if needed) according max stride
-        sample["image"] = apply_pad_to_stride(
-            sample["image"], max_stride=self.max_stride
-        )
-
-        # apply augmentation
-        if self.apply_aug:
-            if self.intensity_aug is not None:
-                sample["image"], sample["instances"] = apply_intensity_augmentation(
-                    sample["image"],
-                    sample["instances"],
-                    **self.intensity_aug,
-                )
-
-            if self.geometric_aug is not None:
-                sample["image"], sample["instances"] = apply_geometric_augmentation(
-                    sample["image"],
-                    sample["instances"],
-                    **self.geometric_aug,
-                )
+        sample = self._apply_common_preprocessing(sample)
 
         img_hw = sample["image"].shape[-2:]
 
@@ -986,6 +1101,8 @@ class BottomUpMultiClassDataset(BaseDataset):
         sample["confidence_maps"] = confidence_maps
         sample["class_maps"] = class_maps
         sample["labels_idx"] = labels_idx
+        if self.use_negative_frames:
+            sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
 
         return sample
 
@@ -1594,6 +1711,7 @@ class CentroidDataset(BaseDataset):
         rank: Optional[int] = None,
         parallel_caching: bool = True,
         cache_workers: int = 0,
+        use_negative_frames: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -1613,6 +1731,7 @@ class CentroidDataset(BaseDataset):
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            use_negative_frames=use_negative_frames,
         )
         self.anchor_ind = anchor_ind
         self.confmap_head_config = confmap_head_config
@@ -1625,32 +1744,35 @@ class CentroidDataset(BaseDataset):
         video_idx = sample["video_idx"]
         lf_frame_idx = sample["frame_idx"]
 
-        if self.cache_img is not None:
-            instances = sample["instances"]
-            if self.cache_img == "disk":
-                img = np.array(
-                    Image.open(
-                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
-                    )
-                )
-            elif self.cache_img == "memory":
-                img = self.cache[(labels_idx, lf_idx)].copy()
+        if sample.get("is_negative", False):
+            sample = self._load_negative_sample(sample)
         else:
-            lf = self.labels_list[labels_idx][lf_idx]
-            instances = lf.instances
-            img = lf.image
-        if img.ndim == 2:
-            img = np.expand_dims(img, axis=2)
+            if self.cache_img is not None:
+                instances = sample["instances"]
+                if self.cache_img == "disk":
+                    img = np.array(
+                        Image.open(
+                            f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                        )
+                    )
+                elif self.cache_img == "memory":
+                    img = self.cache[(labels_idx, lf_idx)].copy()
+            else:
+                lf = self.labels_list[labels_idx][lf_idx]
+                instances = lf.instances
+                img = lf.image
+            if img.ndim == 2:
+                img = np.expand_dims(img, axis=2)
 
-        # get dict
-        sample = process_lf(
-            instances_list=instances,
-            img=img,
-            frame_idx=lf_frame_idx,
-            video_idx=video_idx,
-            max_instances=self.max_instances,
-            user_instances_only=self.user_instances_only,
-        )
+            # get dict
+            sample = process_lf(
+                instances_list=instances,
+                img=img,
+                frame_idx=lf_frame_idx,
+                video_idx=video_idx,
+                max_instances=self.max_instances,
+                user_instances_only=self.user_instances_only,
+            )
 
         if self.ensure_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
@@ -1713,6 +1835,8 @@ class CentroidDataset(BaseDataset):
 
         sample["centroids_confidence_maps"] = confidence_maps
         sample["labels_idx"] = labels_idx
+        if self.use_negative_frames:
+            sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
 
         return sample
 
@@ -1778,6 +1902,7 @@ class SingleInstanceDataset(BaseDataset):
         rank: Optional[int] = None,
         parallel_caching: bool = True,
         cache_workers: int = 0,
+        use_negative_frames: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -1797,6 +1922,7 @@ class SingleInstanceDataset(BaseDataset):
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            use_negative_frames=use_negative_frames,
         )
         self.confmap_head_config = confmap_head_config
 
@@ -1808,74 +1934,37 @@ class SingleInstanceDataset(BaseDataset):
         video_idx = sample["video_idx"]
         lf_frame_idx = sample["frame_idx"]
 
-        if self.cache_img is not None:
-            instances = sample["instances"]
-            if self.cache_img == "disk":
-                img = np.array(
-                    Image.open(
-                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
-                    )
-                )
-            elif self.cache_img == "memory":
-                img = self.cache[(labels_idx, lf_idx)].copy()
+        if sample.get("is_negative", False):
+            sample = self._load_negative_sample(sample)
         else:
-            lf = self.labels_list[labels_idx][lf_idx]
-            instances = lf.instances
-            img = lf.image
-        if img.ndim == 2:
-            img = np.expand_dims(img, axis=2)
+            if self.cache_img is not None:
+                instances = sample["instances"]
+                if self.cache_img == "disk":
+                    img = np.array(
+                        Image.open(
+                            f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                        )
+                    )
+                elif self.cache_img == "memory":
+                    img = self.cache[(labels_idx, lf_idx)].copy()
+            else:
+                lf = self.labels_list[labels_idx][lf_idx]
+                instances = lf.instances
+                img = lf.image
+            if img.ndim == 2:
+                img = np.expand_dims(img, axis=2)
 
-        # get dict
-        sample = process_lf(
-            instances_list=instances,
-            img=img,
-            frame_idx=lf_frame_idx,
-            video_idx=video_idx,
-            max_instances=self.max_instances,
-            user_instances_only=self.user_instances_only,
-        )
+            # get dict
+            sample = process_lf(
+                instances_list=instances,
+                img=img,
+                frame_idx=lf_frame_idx,
+                video_idx=video_idx,
+                max_instances=self.max_instances,
+                user_instances_only=self.user_instances_only,
+            )
 
-        if self.ensure_rgb:
-            sample["image"] = convert_to_rgb(sample["image"])
-        elif self.ensure_grayscale:
-            sample["image"] = convert_to_grayscale(sample["image"])
-
-        # size matcher
-        sample["image"], eff_scale = apply_sizematcher(
-            sample["image"],
-            max_height=self.max_hw[0],
-            max_width=self.max_hw[1],
-        )
-        sample["instances"] = sample["instances"] * eff_scale
-        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
-
-        # resize image
-        sample["image"], sample["instances"] = apply_resizer(
-            sample["image"],
-            sample["instances"],
-            scale=self.scale,
-        )
-
-        # Pad the image (if needed) according max stride
-        sample["image"] = apply_pad_to_stride(
-            sample["image"], max_stride=self.max_stride
-        )
-
-        # apply augmentation
-        if self.apply_aug:
-            if self.intensity_aug is not None:
-                sample["image"], sample["instances"] = apply_intensity_augmentation(
-                    sample["image"],
-                    sample["instances"],
-                    **self.intensity_aug,
-                )
-
-            if self.geometric_aug is not None:
-                sample["image"], sample["instances"] = apply_geometric_augmentation(
-                    sample["image"],
-                    sample["instances"],
-                    **self.geometric_aug,
-                )
+        sample = self._apply_common_preprocessing(sample)
 
         img_hw = sample["image"].shape[-2:]
 
@@ -1889,6 +1978,8 @@ class SingleInstanceDataset(BaseDataset):
 
         sample["confidence_maps"] = confidence_maps
         sample["labels_idx"] = labels_idx
+        if self.use_negative_frames:
+            sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
 
         return sample
 
@@ -2019,8 +2110,21 @@ def get_train_val_datasets(
     parallel_caching = getattr(config.data_config, "parallel_caching", True)
     cache_workers = getattr(config.data_config, "cache_workers", 0)
 
+    use_negative_frames = getattr(config.data_config, "use_negative_frames", False)
+
     model_type = get_model_type_from_cfg(config=config)
     backbone_type = get_backbone_type_from_cfg(config=config)
+
+    if use_negative_frames and model_type in (
+        "centered_instance",
+        "multi_class_topdown",
+    ):
+        logger.warning(
+            f"use_negative_frames is enabled but model_type='{model_type}' "
+            f"operates at instance-crop level and does not support frame-level "
+            f"negatives. Negative frames will be disabled."
+        )
+        use_negative_frames = False
 
     if cache_imgs == "disk" and use_existing_imgs:
         if not (
@@ -2074,6 +2178,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            use_negative_frames=use_negative_frames,
         )
         val_dataset = BottomUpDataset(
             labels=val_labels,
@@ -2099,6 +2204,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            use_negative_frames=use_negative_frames,
         )
 
     elif model_type == "multi_class_bottomup":
@@ -2134,6 +2240,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            use_negative_frames=use_negative_frames,
         )
         val_dataset = BottomUpMultiClassDataset(
             labels=val_labels,
@@ -2159,6 +2266,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            use_negative_frames=use_negative_frames,
         )
 
     elif model_type == "centered_instance":
@@ -2333,6 +2441,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            use_negative_frames=use_negative_frames,
         )
         val_dataset = CentroidDataset(
             labels=val_labels,
@@ -2358,6 +2467,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            use_negative_frames=use_negative_frames,
         )
 
     else:
@@ -2392,6 +2502,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            use_negative_frames=use_negative_frames,
         )
         val_dataset = SingleInstanceDataset(
             labels=val_labels,
@@ -2416,6 +2527,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            use_negative_frames=use_negative_frames,
         )
 
     # If using caching, close the videos to prevent `h5py objects can't be pickled error` when num_workers > 0.

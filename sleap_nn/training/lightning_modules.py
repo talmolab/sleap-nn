@@ -140,9 +140,11 @@ class LightningModel(L.LightningModule):
         optimizer: Optional[str] = "Adam",
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
+        negative_loss_weight: Optional[float] = 1.0,
     ):
         """Initialise the configs and the model."""
         super().__init__()
+        self.negative_loss_weight = negative_loss_weight
         self.model_type = model_type
         self.backbone_type = backbone_type
         if not isinstance(backbone_config, DictConfig):
@@ -296,6 +298,8 @@ class LightningModel(L.LightningModule):
             logger.error(message)
             raise ValueError(message)
 
+        negative_loss_weight = getattr(config.data_config, "negative_loss_weight", 1.0)
+
         lightning_model = lightning_models[model_type](
             model_type=model_type,
             backbone_type=backbone_type,
@@ -313,6 +317,7 @@ class LightningModel(L.LightningModule):
             optimizer=config.trainer_config.optimizer_name,
             learning_rate=config.trainer_config.optimizer.lr,
             amsgrad=config.trainer_config.optimizer.amsgrad,
+            negative_loss_weight=negative_loss_weight,
         )
 
         return lightning_model
@@ -402,6 +407,91 @@ class LightningModel(L.LightningModule):
             on_epoch=True,
             sync_dist=True,
         )
+
+    def _compute_negative_weighted_loss(
+        self, y_preds: torch.Tensor, y: torch.Tensor, batch: Dict
+    ) -> torch.Tensor:
+        """Compute MSE loss with optional negative sample weighting.
+
+        When ``is_negative`` is absent from the batch or ``negative_loss_weight``
+        is 1.0, this returns plain ``nn.MSELoss()``.  Otherwise, per-sample MSE
+        is computed and negative samples are weighted by ``negative_loss_weight``.
+
+        Also logs split metrics (positive/negative loss and counts) when
+        negatives are present.
+
+        Args:
+            y_preds: Predicted tensor.
+            y: Ground truth tensor.
+            batch: Batch dictionary, may contain ``is_negative`` key.
+
+        Returns:
+            The (optionally weighted) loss tensor.
+        """
+        is_negative = batch.get("is_negative", None)
+        if is_negative is None:
+            return nn.MSELoss()(y_preds, y)
+
+        # Per-sample loss for split tracking and weighting
+        per_sample = (
+            (y_preds - y).pow(2).mean(dim=list(range(1, y_preds.ndim)))
+        )  # (batch,)
+
+        is_neg = is_negative.to(y_preds.device)
+        is_pos = ~is_neg
+        n_neg = int(is_neg.sum().item())
+        n_pos = int(is_pos.sum().item())
+
+        # Log split losses and counts
+        if n_pos > 0:
+            loss_pos = per_sample[is_pos].mean()
+            self.log(
+                "train/loss_positive",
+                loss_pos,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        if n_neg > 0:
+            loss_neg = per_sample[is_neg].mean()
+            self.log(
+                "train/loss_negative",
+                loss_neg,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        self.log(
+            "train/n_positive",
+            float(n_pos),
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+            reduce_fx="sum",
+        )
+        self.log(
+            "train/n_negative",
+            float(n_neg),
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+            reduce_fx="sum",
+        )
+
+        # Apply weighting
+        if self.negative_loss_weight == 1.0:
+            return per_sample.mean()
+
+        weights = torch.where(
+            is_neg,
+            torch.tensor(self.negative_loss_weight, device=y_preds.device),
+            torch.tensor(1.0, device=y_preds.device),
+        )
+        return (per_sample * weights).mean()
 
     def training_step(self, batch, batch_idx):
         """Training step."""
@@ -575,6 +665,7 @@ class SingleInstanceLightningModule(LightningModel):
         optimizer: Optional[str] = "Adam",
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
+        negative_loss_weight: Optional[float] = 1.0,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -594,6 +685,7 @@ class SingleInstanceLightningModule(LightningModel):
             optimizer=optimizer,
             learning_rate=learning_rate,
             amsgrad=amsgrad,
+            negative_loss_weight=negative_loss_weight,
         )
 
         self.single_instance_inf_layer = SingleInstanceInferenceModel(
@@ -672,7 +764,7 @@ class SingleInstanceLightningModule(LightningModel):
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
 
-        loss = nn.MSELoss()(y_preds, y)
+        loss = self._compute_negative_weighted_loss(y_preds, y, batch)
 
         if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
@@ -708,6 +800,7 @@ class SingleInstanceLightningModule(LightningModel):
             on_epoch=False,
             sync_dist=True,
         )
+
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
         self._accumulate_loss(loss)
         return loss
@@ -849,6 +942,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
         optimizer: Optional[str] = "Adam",
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
+        negative_loss_weight: Optional[float] = 1.0,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -868,6 +962,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             optimizer=optimizer,
             learning_rate=learning_rate,
             amsgrad=amsgrad,
+            negative_loss_weight=negative_loss_weight,
         )
 
         self.instance_peaks_inf_layer = FindInstancePeaks(
@@ -1124,6 +1219,7 @@ class CentroidLightningModule(LightningModel):
         optimizer: Optional[str] = "Adam",
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
+        negative_loss_weight: Optional[float] = 1.0,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -1143,6 +1239,7 @@ class CentroidLightningModule(LightningModel):
             optimizer=optimizer,
             learning_rate=learning_rate,
             amsgrad=amsgrad,
+            negative_loss_weight=negative_loss_weight,
         )
 
         self.centroid_inf_layer = CentroidCrop(
@@ -1209,7 +1306,7 @@ class CentroidLightningModule(LightningModel):
         X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
-        loss = nn.MSELoss()(y_preds, y)
+        loss = self._compute_negative_weighted_loss(y_preds, y, batch)
         # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
             "loss",
@@ -1219,6 +1316,7 @@ class CentroidLightningModule(LightningModel):
             on_epoch=False,
             sync_dist=True,
         )
+
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
         self._accumulate_loss(loss)
         return loss
@@ -1360,6 +1458,7 @@ class BottomUpLightningModule(LightningModel):
         optimizer: Optional[str] = "Adam",
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
+        negative_loss_weight: Optional[float] = 1.0,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -1379,6 +1478,7 @@ class BottomUpLightningModule(LightningModel):
             optimizer=optimizer,
             learning_rate=learning_rate,
             amsgrad=amsgrad,
+            negative_loss_weight=negative_loss_weight,
         )
 
         paf_scorer = PAFScorer(
@@ -1485,8 +1585,8 @@ class BottomUpLightningModule(LightningModel):
         pafs = preds["PartAffinityFieldsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
 
-        confmap_loss = nn.MSELoss()(confmaps, y_confmap)
-        pafs_loss = nn.MSELoss()(pafs, y_paf)
+        confmap_loss = self._compute_negative_weighted_loss(confmaps, y_confmap, batch)
+        pafs_loss = self._compute_negative_weighted_loss(pafs, y_paf, batch)
 
         if self.online_mining is not None and self.online_mining:
             confmap_ohkm_loss = compute_ohkm_loss(
@@ -1522,6 +1622,7 @@ class BottomUpLightningModule(LightningModel):
             on_epoch=False,
             sync_dist=True,
         )
+
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
         self._accumulate_loss(loss)
         self.log(
@@ -1714,6 +1815,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
         optimizer: Optional[str] = "Adam",
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
+        negative_loss_weight: Optional[float] = 1.0,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -1733,6 +1835,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             optimizer=optimizer,
             learning_rate=learning_rate,
             amsgrad=amsgrad,
+            negative_loss_weight=negative_loss_weight,
         )
         self.bottomup_inf_layer = BottomUpMultiClassInferenceModel(
             torch_model=self.forward,
@@ -1833,8 +1936,10 @@ class BottomUpMultiClassLightningModule(LightningModel):
         classmaps = preds["ClassMapsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
 
-        confmap_loss = nn.MSELoss()(confmaps, y_confmap)
-        classmaps_loss = nn.MSELoss()(classmaps, y_classmap)
+        confmap_loss = self._compute_negative_weighted_loss(confmaps, y_confmap, batch)
+        classmaps_loss = self._compute_negative_weighted_loss(
+            classmaps, y_classmap, batch
+        )
 
         if self.online_mining is not None and self.online_mining:
             confmap_ohkm_loss = compute_ohkm_loss(
@@ -1861,6 +1966,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             on_epoch=False,
             sync_dist=True,
         )
+
         # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
         self._accumulate_loss(loss)
         self.log(
@@ -2149,6 +2255,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         optimizer: Optional[str] = "Adam",
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
+        negative_loss_weight: Optional[float] = 1.0,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -2168,6 +2275,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             optimizer=optimizer,
             learning_rate=learning_rate,
             amsgrad=amsgrad,
+            negative_loss_weight=negative_loss_weight,
         )
         self.instance_peaks_inf_layer = TopDownMultiClassFindInstancePeaks(
             torch_model=self.forward,

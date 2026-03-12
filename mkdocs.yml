@@ -122,6 +122,7 @@ nav:
     - Training:
       - guides/training.md
       - Config Generator: guides/config-generator.md
+      - Negative Frames: guides/negative-frames.md
       - Monitoring: guides/monitoring.md
       - Multi-GPU: guides/multi-gpu.md
     - Inference: guides/inference.md
