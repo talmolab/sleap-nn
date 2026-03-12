@@ -351,8 +351,8 @@ class TestNegativeSampleFraction:
             assert s.get("is_negative", False) is False
             assert s["lf_idx"] is not None
 
-    def test_is_negative_in_returned_sample(self, minimal_instance):
-        """Test that is_negative key is present in returned sample dict."""
+    def test_is_negative_not_in_sample_when_feature_off(self, minimal_instance):
+        """Test that is_negative key is absent when fraction=0 (feature off)."""
         labels = sio.load_slp(minimal_instance)
         confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
 
@@ -363,7 +363,22 @@ class TestNegativeSampleFraction:
             negative_sample_fraction=0.0,
         )
 
-        # Positive sample
+        sample = dataset[0]
+        assert "is_negative" not in sample
+
+    def test_is_negative_in_returned_sample(self, minimal_instance):
+        """Test that is_negative key is present when fraction > 0."""
+        labels = sio.load_slp(minimal_instance)
+        confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+
+        dataset = SingleInstanceDataset(
+            labels=[labels],
+            confmap_head_config=confmap_head,
+            max_stride=8,
+            negative_sample_fraction=0.5,  # Feature on (even if no negatives found)
+        )
+
+        # Positive sample should have is_negative=False
         sample = dataset[0]
         assert "is_negative" in sample
         assert sample["is_negative"] is False
@@ -392,7 +407,7 @@ class TestNegativeSampleFraction:
             labels=[labels],
             confmap_head_config=confmap_head,
             max_stride=8,
-            negative_sample_fraction=0.0,
+            negative_sample_fraction=0.5,  # Feature on
             cache_img="memory",
         )
 

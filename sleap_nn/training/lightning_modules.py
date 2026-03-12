@@ -441,7 +441,7 @@ class LightningModel(L.LightningModule):
     def _log_negative_metrics(self, batch: Dict, loss: torch.Tensor):
         """Log negative-sample metrics if ``is_negative`` is present in the batch."""
         is_negative = batch.get("is_negative", None)
-        if is_negative is None:
+        if is_negative is None or not is_negative.any():
             return
         n_neg = int(is_negative.sum().item())
         self.log(

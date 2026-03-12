@@ -931,7 +931,8 @@ class BottomUpDataset(BaseDataset):
         sample["confidence_maps"] = confidence_maps
         sample["part_affinity_fields"] = pafs
         sample["labels_idx"] = labels_idx
-        sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
+        if self.negative_sample_fraction > 0:
+            sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
 
         return sample
 
@@ -1115,7 +1116,8 @@ class BottomUpMultiClassDataset(BaseDataset):
         sample["confidence_maps"] = confidence_maps
         sample["class_maps"] = class_maps
         sample["labels_idx"] = labels_idx
-        sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
+        if self.negative_sample_fraction > 0:
+            sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
 
         return sample
 
@@ -1848,7 +1850,8 @@ class CentroidDataset(BaseDataset):
 
         sample["centroids_confidence_maps"] = confidence_maps
         sample["labels_idx"] = labels_idx
-        sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
+        if self.negative_sample_fraction > 0:
+            sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
 
         return sample
 
@@ -1990,7 +1993,8 @@ class SingleInstanceDataset(BaseDataset):
 
         sample["confidence_maps"] = confidence_maps
         sample["labels_idx"] = labels_idx
-        sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
+        if self.negative_sample_fraction > 0:
+            sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
 
         return sample
 

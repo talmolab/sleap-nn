@@ -52,7 +52,6 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         "part_affinity_fields",
         "labels_idx",
         "eff_scale",
-        "is_negative",
     ]
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -102,7 +101,6 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         "part_affinity_fields",
         "labels_idx",
         "eff_scale",
-        "is_negative",
     ]
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -181,7 +179,6 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         "part_affinity_fields",
         "labels_idx",
         "eff_scale",
-        "is_negative",
     ]
 
     sample = next(iter(dataset))
@@ -217,7 +214,6 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         "part_affinity_fields",
         "labels_idx",
         "eff_scale",
-        "is_negative",
     ]
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -282,7 +278,6 @@ def test_bottomup_multiclass_dataset(minimal_instance, tmp_path):
         "labels_idx",
         "num_tracks",
         "eff_scale",
-        "is_negative",
     ]
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -947,7 +942,6 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         "num_instances",
         "labels_idx",
         "eff_scale",
-        "is_negative",
     ]
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -982,7 +976,6 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         "num_instances",
         "labels_idx",
         "eff_scale",
-        "is_negative",
     ]
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -1059,7 +1052,6 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         "num_instances",
         "labels_idx",
         "eff_scale",
-        "is_negative",
     ]
 
     sample = next(iter(dataset))
@@ -1122,7 +1114,6 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         "orig_size",
         "labels_idx",
         "eff_scale",
-        "is_negative",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -1157,7 +1148,6 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         "orig_size",
         "labels_idx",
         "eff_scale",
-        "is_negative",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -1233,7 +1223,6 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         "num_instances",
         "labels_idx",
         "eff_scale",
-        "is_negative",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
