@@ -8,13 +8,13 @@
       
       
       
-        <link rel="canonical" href="https://nn.sleap.ai/dev/guides/tracking/">
+        <link rel="canonical" href="https://nn.sleap.ai/dev/guides/negative-frames/">
       
       
-        <link rel="prev" href="../evaluation/">
+        <link rel="prev" href="../config-generator/">
       
       
-        <link rel="next" href="../export/">
+        <link rel="next" href="../monitoring/">
       
       
         
@@ -25,7 +25,7 @@
     
     
       
-        <title>Tracking - sleap-nn documentation</title>
+        <title>Negative Frames - sleap-nn documentation</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#tracking" class="md-skip">
+        <a href="#negative-frames" class="md-skip">
           Skip to content
         </a>
       
@@ -119,7 +119,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Tracking
+              Negative Frames
             
           </span>
         </div>
@@ -697,6 +697,8 @@
                 
   
   
+    
+  
   
   
     
@@ -712,11 +714,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_1" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_1" checked>
         
           
           <div class="md-nav__link md-nav__container">
@@ -744,7 +746,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_1_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_1_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4_1">
             <span class="md-nav__icon md-icon"></span>
             
@@ -787,10 +789,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../negative-frames/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Negative Frames
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -806,6 +835,187 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-are-negative-frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Are Negative Frames?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#marking-frames-as-negative" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Marking Frames as Negative
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Marking Frames as Negative">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-makes-a-good-negative-frame" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Makes a Good Negative Frame?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#enabling-in-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enabling in Config
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Enabling in Config">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#python-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python API
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-model-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Model Types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How It Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Pipeline
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#loss-computation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loss Computation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-gating" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Gating
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Monitoring
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#slp-file-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SLP File Format
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#practical-tips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Practical Tips
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -935,37 +1145,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Tracking
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../tracking/" class="md-nav__link">
         
   
   
@@ -981,181 +1164,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#enable-tracking" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Enable Tracking
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#tracking-parameters" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tracking Parameters
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#tracking-methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tracking Methods
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Tracking Methods">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#fixed-window-default" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fixed Window (Default)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#local-queues" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Local Queues
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#optical-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Optical Flow
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#track-only-mode" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Track-Only Mode
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#limit-instances" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limit Instances
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#example-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Example Configurations
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Example Configurations">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#fast-animals" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fast Animals
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#crowded-scenes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Crowded Scenes
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#high-accuracy" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        High Accuracy
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Troubleshooting
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -5313,10 +5321,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#enable-tracking" class="md-nav__link">
+  <a href="#what-are-negative-frames" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Enable Tracking
+        What Are Negative Frames?
       
     </span>
   </a>
@@ -5324,55 +5332,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tracking-parameters" class="md-nav__link">
+  <a href="#marking-frames-as-negative" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Tracking Parameters
+        Marking Frames as Negative
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#tracking-methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tracking Methods
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Tracking Methods">
+    <nav class="md-nav" aria-label="Marking Frames as Negative">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fixed-window-default" class="md-nav__link">
+  <a href="#what-makes-a-good-negative-frame" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Fixed Window (Default)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#local-queues" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Local Queues
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#optical-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Optical Flow
+        What Makes a Good Negative Frame?
       
     </span>
   </a>
@@ -5385,66 +5360,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#track-only-mode" class="md-nav__link">
+  <a href="#enabling-in-config" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Track-Only Mode
+        Enabling in Config
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#limit-instances" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limit Instances
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#example-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Example Configurations
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Example Configurations">
+    <nav class="md-nav" aria-label="Enabling in Config">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#fast-animals" class="md-nav__link">
+  <a href="#python-api" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Fast Animals
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#crowded-scenes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Crowded Scenes
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#high-accuracy" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        High Accuracy
+        Python API
       
     </span>
   </a>
@@ -5457,10 +5388,93 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
+  <a href="#supported-model-types" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Troubleshooting
+        Supported Model Types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How It Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#data-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Pipeline
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#loss-computation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loss Computation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-gating" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Gating
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Monitoring
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#slp-file-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SLP File Format
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#practical-tips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Practical Tips
       
     </span>
   </a>
@@ -5487,209 +5501,231 @@
   
 
 
-<h1 id="tracking">Tracking<a class="headerlink" href="#tracking" title="Permanent link">&para;</a></h1>
-<p>Assign consistent IDs to instances across frames.</p>
+<h1 id="negative-frames">Negative Frames<a class="headerlink" href="#negative-frames" title="Permanent link">&para;</a></h1>
+<p>Teach your model to not hallucinate detections on empty backgrounds.</p>
 <hr />
-<h2 id="enable-tracking">Enable Tracking<a class="headerlink" href="#enable-tracking" title="Permanent link">&para;</a></h2>
-<p>Add <code>--tracking</code> to your inference command:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/bottomup/<span class="w"> </span>--tracking
+<h2 id="what-are-negative-frames">What Are Negative Frames?<a class="headerlink" href="#what-are-negative-frames" title="Permanent link">&para;</a></h2>
+<p>Negative frames are frames that the user has explicitly marked as containing <strong>no animals</strong>. When included in training, the model sees these frames paired with all-zero confidence maps, learning to suppress false-positive detections on backgrounds where nothing is present.</p>
+<p>Without negative frames, models only ever see frames with animals during training. This can cause the model to predict phantom keypoints on background-only regions at inference time — especially in scenes with textured backgrounds, equipment, or visual clutter.</p>
+<hr />
+<h2 id="marking-frames-as-negative">Marking Frames as Negative<a class="headerlink" href="#marking-frames-as-negative" title="Permanent link">&para;</a></h2>
+<p>Negative frames are marked in the <strong>SLEAP labeling GUI</strong> (the <code>sleap</code> frontend). When you mark a frame as negative, it is stored as a <code>LabeledFrame</code> with <code>is_negative=True</code> in the <code>.slp</code> file. These frames have no instance annotations — they represent confirmed empty backgrounds.</p>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>Only frames explicitly marked by the user are used. Unlabeled frames (frames that simply haven't been annotated yet) are <strong>never</strong> treated as negatives, since they may contain animals that haven't been labeled.</p>
+</div>
+<h3 id="what-makes-a-good-negative-frame">What Makes a Good Negative Frame?<a class="headerlink" href="#what-makes-a-good-negative-frame" title="Permanent link">&para;</a></h3>
+<p>Choose frames that:</p>
+<ul>
+<li>Show the environment without any animals present (e.g., before animals enter the arena)</li>
+<li>Cover diverse backgrounds that appear in your videos (different lighting, positions, equipment)</li>
+<li>Represent the visual variety the model will encounter at inference time</li>
+</ul>
+<p>The more diverse your negative frames, the better the model generalizes. A few negatives from one background teaches "don't predict on <em>this</em> background." Many negatives across varied backgrounds teaches "don't predict when there are no animals."</p>
+<hr />
+<h2 id="enabling-in-config">Enabling in Config<a class="headerlink" href="#enabling-in-config" title="Permanent link">&para;</a></h2>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">data_config</span><span class="p">:</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">use_negative_frames</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">      </span><span class="c1"># Include negative frames in training</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">negative_loss_weight</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span><span class="w">      </span><span class="c1"># Relative weight for negative sample loss</span>
 </span></code></pre></div>
-<hr />
-<h2 id="tracking-parameters">Tracking Parameters<a class="headerlink" href="#tracking-parameters" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Parameter</th>
-<th>Description</th>
-<th>Values</th>
+<th>Option</th>
+<th>Type</th>
 <th>Default</th>
+<th>Description</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>--tracking</code> / <code>-t</code></td>
-<td>Enable tracking</td>
-<td>Flag</td>
-<td><code>False</code></td>
+<td><code>use_negative_frames</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Include all user-confirmed negative frames in training</td>
 </tr>
 <tr>
-<td><code>--tracking_window_size</code></td>
-<td>Frames to look back</td>
-<td><code>INT</code></td>
-<td><code>5</code></td>
-</tr>
-<tr>
-<td><code>--min_new_track_points</code></td>
-<td>Min points for new track</td>
-<td><code>INT</code></td>
-<td><code>0</code></td>
-</tr>
-<tr>
-<td><code>--candidates_method</code></td>
-<td>Candidate selection method</td>
-<td><code>fixed_window</code>, <code>local_queues</code></td>
-<td><code>fixed_window</code></td>
-</tr>
-<tr>
-<td><code>--min_match_points</code></td>
-<td>Min non-NaN points for matching</td>
-<td><code>INT</code></td>
-<td><code>0</code></td>
-</tr>
-<tr>
-<td><code>--features</code></td>
-<td>Features for matching</td>
-<td><code>keypoints</code>, <code>centroids</code>, <code>bboxes</code>, <code>image</code></td>
-<td><code>keypoints</code></td>
-</tr>
-<tr>
-<td><code>--scoring_method</code></td>
-<td>Similarity scoring method</td>
-<td><code>oks</code>, <code>cosine_sim</code>, <code>iou</code>, <code>euclidean_dist</code></td>
-<td><code>oks</code></td>
-</tr>
-<tr>
-<td><code>--scoring_reduction</code></td>
-<td>Score reduction method</td>
-<td><code>mean</code>, <code>max</code>, <code>robust_quantile</code></td>
-<td><code>mean</code></td>
-</tr>
-<tr>
-<td><code>--track_matching_method</code></td>
-<td>Assignment algorithm</td>
-<td><code>hungarian</code>, <code>greedy</code></td>
-<td><code>hungarian</code></td>
-</tr>
-<tr>
-<td><code>--max_tracks</code></td>
-<td>Maximum track count</td>
-<td><code>INT</code></td>
-<td><code>None</code></td>
-</tr>
-<tr>
-<td><code>--use_flow</code></td>
-<td>Enable optical flow</td>
-<td>Flag</td>
-<td><code>False</code></td>
-</tr>
-</tbody>
-</table>
-<hr />
-<h2 id="tracking-methods">Tracking Methods<a class="headerlink" href="#tracking-methods" title="Permanent link">&para;</a></h2>
-<h3 id="fixed-window-default">Fixed Window (Default)<a class="headerlink" href="#fixed-window-default" title="Permanent link">&para;</a></h3>
-<p>Uses instances from the last N frames as matching candidates:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span>--candidates_method<span class="w"> </span>fixed_window<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">10</span>
-</span></code></pre></div>
-<p><strong>Best for</strong>: Most scenarios, good balance of speed and accuracy.</p>
-<h3 id="local-queues">Local Queues<a class="headerlink" href="#local-queues" title="Permanent link">&para;</a></h3>
-<p>Maintains separate history for each track ID:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span>--candidates_method<span class="w"> </span>local_queues<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">5</span>
-</span></code></pre></div>
-<p><strong>Best for</strong>: Robust to track breaks, handles occlusions better.</p>
-<h3 id="optical-flow">Optical Flow<a class="headerlink" href="#optical-flow" title="Permanent link">&para;</a></h3>
-<p>Uses optical flow to predict instance positions:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span>--use_flow
-</span></code></pre></div>
-<p><strong>Best for</strong>: Fast-moving animals.</p>
-<h4 id="optical-flow-parameters">Optical Flow Parameters<a class="headerlink" href="#optical-flow-parameters" title="Permanent link">&para;</a></h4>
-<table>
-<thead>
-<tr>
-<th>Parameter</th>
-<th>Description</th>
-<th>Values</th>
-<th>Default</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>--of_img_scale</code></td>
-<td>Image scale (lower = faster)</td>
-<td><code>FLOAT</code></td>
+<td><code>negative_loss_weight</code></td>
+<td><code>float</code></td>
 <td><code>1.0</code></td>
-</tr>
-<tr>
-<td><code>--of_window_size</code></td>
-<td>Window size per pyramid level</td>
-<td><code>INT</code></td>
-<td><code>21</code></td>
-</tr>
-<tr>
-<td><code>--of_max_levels</code></td>
-<td>Pyramid levels</td>
-<td><code>INT</code></td>
-<td><code>3</code></td>
+<td>Multiplier on per-sample loss for negatives. Values &gt; 1 amplify the negative gradient signal; &lt; 1 dampen it. Must be &gt; 0.</td>
 </tr>
 </tbody>
 </table>
-<hr />
-<h2 id="track-only-mode">Track-Only Mode<a class="headerlink" href="#track-only-mode" title="Permanent link">&para;</a></h2>
-<p>Assign tracks to existing predictions (no inference):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>--tracking
-</span></code></pre></div>
-<p>Note: Omit <code>--model_paths</code> for track-only mode.</p>
-<p>With specific frames:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>-t<span class="w"> </span>--frames<span class="w"> </span><span class="m">0</span>-100<span class="w"> </span>--video_index<span class="w"> </span><span class="m">0</span>
+<h3 id="python-api">Python API<a class="headerlink" href="#python-api" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">omegaconf</span><span class="w"> </span><span class="kn">import</span> <span class="n">OmegaConf</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">OmegaConf</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;config.yaml&quot;</span><span class="p">)</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">config</span><span class="o">.</span><span class="n">data_config</span><span class="o">.</span><span class="n">use_negative_frames</span> <span class="o">=</span> <span class="kc">True</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">config</span><span class="o">.</span><span class="n">data_config</span><span class="o">.</span><span class="n">negative_loss_weight</span> <span class="o">=</span> <span class="mf">1.0</span>
 </span></code></pre></div>
 <hr />
-<h2 id="limit-instances">Limit Instances<a class="headerlink" href="#limit-instances" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Maximum 5 instances per frame</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--max_instances<span class="w"> </span><span class="m">5</span>
+<h2 id="supported-model-types">Supported Model Types<a class="headerlink" href="#supported-model-types" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Model Type</th>
+<th>Supported</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Single Instance</td>
+<td>Yes</td>
+<td></td>
+</tr>
+<tr>
+<td>Centroid</td>
+<td>Yes</td>
+<td></td>
+</tr>
+<tr>
+<td>Bottom-Up</td>
+<td>Yes</td>
+<td></td>
+</tr>
+<tr>
+<td>Bottom-Up Multi-Class</td>
+<td>Yes</td>
+<td></td>
+</tr>
+<tr>
+<td>Centered Instance (Top-Down)</td>
+<td>No</td>
+<td>Operates on instance crops, not full frames</td>
+</tr>
+<tr>
+<td>Multi-Class Top-Down</td>
+<td>No</td>
+<td>Operates on instance crops, not full frames</td>
+</tr>
+</tbody>
+</table>
+<p>For unsupported model types, a warning is logged and the feature is automatically disabled:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>use_negative_frames is enabled but model_type=&#39;centered_instance&#39; operates at
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>instance-crop level and does not support frame-level negatives. Negative frames
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>will be disabled.
 </span></code></pre></div>
 <hr />
-<h2 id="example-configurations">Example Configurations<a class="headerlink" href="#example-configurations" title="Permanent link">&para;</a></h2>
-<h3 id="fast-animals">Fast Animals<a class="headerlink" href="#fast-animals" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span>--use_flow<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span>--of_img_scale<span class="w"> </span><span class="m">0</span>.5
-</span></code></pre></div>
-<h3 id="crowded-scenes">Crowded Scenes<a class="headerlink" href="#crowded-scenes" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span>--candidates_method<span class="w"> </span>local_queues<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">    </span>--max_tracks<span class="w"> </span><span class="m">10</span>
-</span></code></pre></div>
-<h3 id="high-accuracy">High Accuracy<a class="headerlink" href="#high-accuracy" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span>--scoring_method<span class="w"> </span>oks<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span>--scoring_reduction<span class="w"> </span>mean<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span>--track_matching_method<span class="w"> </span>hungarian
-</span></code></pre></div>
-<hr />
-<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
-<details class="question">
-<summary>Tracks switch identities</summary>
+<h2 id="how-it-works">How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
+<h3 id="data-pipeline">Data Pipeline<a class="headerlink" href="#data-pipeline" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p><strong>Collection:</strong> <code>_collect_negative_frames()</code> iterates over <code>labels.negative_frames</code> for each label file and builds sample dicts with <code>is_negative=True</code>.</p>
+</li>
+<li>
+<p><strong>Train/Val Split:</strong> Negative frames are <code>LabeledFrame</code> objects in the <code>.slp</code> file. When <code>make_training_splits()</code> splits labeled frames into train and val, negative frames are split proportionally alongside positives.</p>
+</li>
+<li>
+<p><strong>Dataset:</strong> Negative samples are appended to <code>lf_idx_list</code>. Each negative frame appears <strong>once</strong> — there is no oversampling. The balance between positives and negatives is controlled by how many frames the user marks as negative during annotation.</p>
+</li>
+<li>
+<p><strong>Shuffling:</strong> The standard PyTorch <code>DataLoader</code> with <code>shuffle=True</code> interleaves negatives with positives across batches.</p>
+</li>
+<li>
+<p><strong>Image Loading:</strong> <code>_load_negative_sample()</code> reads the image from the video at the specified frame index. In caching mode, negatives are loaded dynamically via stored video references (not cached, since they have no <code>lf_idx</code>).</p>
+</li>
+<li>
+<p><strong>Confidence Maps:</strong> <code>process_negative_lf()</code> creates a sample with all-NaN instances. These flow through the existing confidence map and PAF generation code, which converts NaN values to zeros via <code>torch.nan_to_num()</code>. The result is an all-zero target.</p>
+</li>
+</ol>
+<h3 id="loss-computation">Loss Computation<a class="headerlink" href="#loss-computation" title="Permanent link">&para;</a></h3>
+<p>When <code>is_negative</code> is present in the batch:</p>
 <ul>
-<li>Increase <code>--tracking_window_size</code></li>
-<li>Try <code>--candidates_method local_queues</code></li>
-<li>Use <code>--use_flow</code> for fast motion</li>
+<li>Per-sample MSE is computed: <code>(y_pred - y_target)^2</code> averaged over spatial dims</li>
+<li>Positive samples get weight <code>1.0</code>; negative samples get weight <code>negative_loss_weight</code></li>
+<li>The weighted per-sample losses are averaged to produce the final loss</li>
 </ul>
-</details>
-<details class="question">
-<summary>Too many tracks</summary>
+<p>When <code>negative_loss_weight=1.0</code> (default), this is numerically identical to <code>nn.MSELoss()</code>.</p>
+<h3 id="feature-gating">Feature Gating<a class="headerlink" href="#feature-gating" title="Permanent link">&para;</a></h3>
+<p>When <code>use_negative_frames=False</code> (default), <strong>no code paths change</strong>:</p>
 <ul>
-<li>Set <code>--max_tracks</code> to limit track count</li>
-<li>Increase <code>--min_new_track_points</code></li>
+<li>No <code>is_negative</code> key in sample dicts or batch tensors</li>
+<li>No additional metrics logged</li>
+<li>Loss computation uses <code>nn.MSELoss()</code> directly</li>
 </ul>
-</details>
-<details class="question">
-<summary>Tracking is slow</summary>
+<hr />
+<h2 id="monitoring">Monitoring<a class="headerlink" href="#monitoring" title="Permanent link">&para;</a></h2>
+<p>When the feature is active, these additional metrics are logged to WandB/TensorBoard:</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Aggregation</th>
+<th>What to Look For</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>train/loss</code></td>
+<td>epoch mean</td>
+<td>Combined loss (always logged, unchanged)</td>
+</tr>
+<tr>
+<td><code>train/loss_positive</code></td>
+<td>epoch mean</td>
+<td>MSE on positive frames — should decrease as model learns poses</td>
+</tr>
+<tr>
+<td><code>train/loss_negative</code></td>
+<td>epoch mean</td>
+<td>MSE on negative frames — should approach 0 as model learns to suppress</td>
+</tr>
+<tr>
+<td><code>train/n_positive</code></td>
+<td>epoch sum</td>
+<td>Total positive samples seen in epoch</td>
+</tr>
+<tr>
+<td><code>train/n_negative</code></td>
+<td>epoch sum</td>
+<td>Total negative samples seen in epoch</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition tip">
+<p class="admonition-title">Is It Working?</p>
+<p>Watch <code>train/loss_negative</code> — it should decrease toward 0 over training. If it stays flat, the model isn't learning from negatives. Consider increasing <code>negative_loss_weight</code> or adding more diverse negative frames.</p>
+</div>
+<hr />
+<h2 id="slp-file-format">SLP File Format<a class="headerlink" href="#slp-file-format" title="Permanent link">&para;</a></h2>
+<p>Negative frames are stored in <code>.slp</code> files (HDF5-based) in two places:</p>
+<ol>
+<li><strong><code>/frames</code> dataset:</strong> Like all labeled frames, with an empty instance range (<code>instance_id_start == instance_id_end</code>)</li>
+<li><strong><code>/negative_frames</code> dataset:</strong> A sidecar structured array of <code>(video_id, frame_idx)</code> tuples that marks which frames are explicitly negative</li>
+</ol>
+<p>The <code>sleap-io</code> library exposes these via:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;data.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># All user-confirmed negative frames</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">neg_frames</span> <span class="o">=</span> <span class="n">labels</span><span class="o">.</span><span class="n">negative_frames</span>  <span class="c1"># List[LabeledFrame] where is_negative=True</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="c1"># Check a specific frame</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">lf</span> <span class="o">=</span> <span class="n">labels</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="nb">print</span><span class="p">(</span><span class="n">lf</span><span class="o">.</span><span class="n">is_negative</span><span class="p">)</span>  <span class="c1"># True or False</span>
+</span></code></pre></div>
+<hr />
+<h2 id="practical-tips">Practical Tips<a class="headerlink" href="#practical-tips" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Reduce <code>--tracking_window_size</code></li>
-<li>Use <code>--of_img_scale 0.5</code> with optical flow</li>
+<li>
+<p><strong>Start with 10-20% negatives.</strong> If you have 100 labeled frames, mark 10-20 background frames as negative. This gives a reasonable signal without dominating training.</p>
+</li>
+<li>
+<p><strong>Diverse backgrounds matter more than quantity.</strong> 10 negatives from 10 different camera angles or time points are more valuable than 50 negatives from the same static background.</p>
+</li>
+<li>
+<p><strong>Watch the batch composition.</strong> With 100 positives and 10 negatives, ~9% of samples are negative. In a batch of 8, most batches will have 0-1 negatives. This is fine — the loss weight amplifies the signal when negatives do appear.</p>
+</li>
+<li>
+<p><strong>Use <code>negative_loss_weight</code> to tune.</strong> If negatives are rare relative to positives and <code>train/loss_negative</code> isn't decreasing, try <code>negative_loss_weight: 2.0</code> or higher to amplify the gradient signal.</p>
+</li>
+<li>
+<p><strong>Check val metrics too.</strong> Negative frames in the validation set (via the train/val split) contribute to <code>val/loss</code>. A model that hallucinates on empty backgrounds will have higher val loss.</p>
+</li>
 </ul>
-</details>
 
 
 
