@@ -419,6 +419,46 @@ def run_inference(
                     f"threshold: {filter_overlapping_threshold}"
                 )
 
+            # Filter by node count before tracking (track-only mode)
+            if filter_min_visible_nodes > 0 or filter_min_visible_node_fraction > 0.0:
+                from sleap_nn.inference.postprocessing import filter_by_node_count
+
+                # Create temporary Labels wrapper for filter function
+                temp_labels = sio.Labels(
+                    labeled_frames=lf_frames,
+                    videos=labels.videos,
+                    skeletons=labels.skeletons,
+                )
+                filter_by_node_count(
+                    temp_labels,
+                    min_visible_nodes=filter_min_visible_nodes,
+                    min_visible_node_fraction=filter_min_visible_node_fraction,
+                )
+                logger.info(
+                    f"Filtered instances by node count: min_visible_nodes={filter_min_visible_nodes}, "
+                    f"min_visible_node_fraction={filter_min_visible_node_fraction}"
+                )
+
+            # Filter by confidence score before tracking (track-only mode)
+            if filter_min_mean_node_score > 0.0 or filter_min_instance_score > 0.0:
+                from sleap_nn.inference.postprocessing import filter_by_node_confidence
+
+                # Create temporary Labels wrapper for filter function
+                temp_labels = sio.Labels(
+                    labeled_frames=lf_frames,
+                    videos=labels.videos,
+                    skeletons=labels.skeletons,
+                )
+                filter_by_node_confidence(
+                    temp_labels,
+                    min_mean_node_score=filter_min_mean_node_score,
+                    min_instance_score=filter_min_instance_score,
+                )
+                logger.info(
+                    f"Filtered instances by confidence: min_mean_node_score={filter_min_mean_node_score}, "
+                    f"min_instance_score={filter_min_instance_score}"
+                )
+
             tracked_frames = run_tracker(
                 untracked_frames=lf_frames,
                 window_size=tracking_window_size,
