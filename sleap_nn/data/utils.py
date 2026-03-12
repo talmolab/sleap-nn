@@ -97,24 +97,46 @@ def check_memory(
 ) -> int:
     """Return memory required for caching the image samples from a single labels object.
 
+    Estimates total memory using ``video.shape`` (which may load a single frame
+    lazily but caches the result) instead of decompressing every frame from HDF5.
+
+    Note:
+        Assumes uint8 (1 byte per element), which is true for all supported
+        sleap-io video backends.
+
     Args:
         labels: A `sleap_io.Labels` object containing the labels for a single dataset.
 
     Returns:
         Memory in bytes required to cache the image samples from the labels object.
     """
-    imgs_bytes = []
-    for label in labels:
-        if label.image is not None:
-            img = label.image
-            img_bytes = img.nbytes
-            imgs_bytes.append(img_bytes)
-        else:
+    if len(labels) == 0:
+        return 0
+
+    # Count labeled frames per video and collect unique videos.
+    frames_per_video: dict = {}
+    videos: dict = {}
+    for lf in labels:
+        vid_id = id(lf.video)
+        frames_per_video[vid_id] = frames_per_video.get(vid_id, 0) + 1
+        if vid_id not in videos:
+            videos[vid_id] = lf.video
+
+    # Estimate bytes per frame from video.shape (height * width * channels).
+    # Images are always uint8 (1 byte per element) when read from video backends.
+    total_bytes = 0
+    for vid_id, video in videos.items():
+        shape = video.shape
+        if shape is None or len(shape) < 4:
             raise ValueError(
-                "Labels object contains a label with no image data, which is required for training."
+                "Cannot determine video shape for memory estimation. "
+                "Ensure the video file is accessible."
             )
-    img_mem = sum(imgs_bytes)
-    return img_mem
+        _, height, width, channels = shape
+        bytes_per_frame = height * width * channels  # uint8
+        total_bytes += bytes_per_frame * frames_per_video[vid_id]
+
+    return total_bytes
 
 
 def estimate_cache_memory(
