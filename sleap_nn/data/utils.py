@@ -100,6 +100,10 @@ def check_memory(
     Estimates total memory using ``video.shape`` (which may load a single frame
     lazily but caches the result) instead of decompressing every frame from HDF5.
 
+    Note:
+        Assumes uint8 (1 byte per element), which is true for all supported
+        sleap-io video backends.
+
     Args:
         labels: A `sleap_io.Labels` object containing the labels for a single dataset.
 
