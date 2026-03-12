@@ -24,6 +24,8 @@ data_config:
 | `validation_fraction` | Fraction for auto-split | `0.1` |
 | `test_file_path` | Test data for evaluation | `null` |
 | `user_instances_only` | Only use user-labeled instances | `true` |
+| `use_negative_frames` | Include user-confirmed negative frames (see [guide](../guides/negative-frames.md)) | `false` |
+| `negative_loss_weight` | Loss weight multiplier for negative samples | `1.0` |
 
 ---
 
