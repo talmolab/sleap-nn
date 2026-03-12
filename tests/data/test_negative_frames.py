@@ -197,8 +197,8 @@ class TestNegativeSampleFraction:
         labels_indices = {s["labels_idx"] for s in neg_samples}
         assert labels_indices == {0, 1}
 
-    def test_oversampling(self, minimal_instance):
-        """Test that negatives are oversampled to match positive count."""
+    def test_negatives_included_once_each(self, minimal_instance):
+        """Test that negatives are included once each, not oversampled."""
         labels = sio.load_slp(minimal_instance)
         confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
 
@@ -206,41 +206,27 @@ class TestNegativeSampleFraction:
             labels=[labels],
             confmap_head_config=confmap_head,
             max_stride=8,
-            use_negative_frames=True,  # Feature on
+            use_negative_frames=False,
         )
 
-        # Count positive and negative samples
-        n_positive = sum(
-            1 for s in dataset.lf_idx_list if not s.get("is_negative", False)
-        )
-        n_negative = sum(1 for s in dataset.lf_idx_list if s.get("is_negative", False))
-
-        # minimal_instance has no negative_frames, so n_negative should be 0
-        # But if we had negatives, they'd be oversampled to match n_positive
-        assert n_negative == 0  # No user-marked negatives in test fixture
-
-        # Verify oversampling logic directly
         mock_video = MagicMock()
         mock_video.shape = (100, 384, 384, 1)
-        neg_lf = MagicMock()
-        neg_lf.video = mock_video
-        neg_lf.frame_idx = 50
+
+        neg_lfs = []
+        for i in range(3):
+            lf = MagicMock()
+            lf.video = mock_video
+            lf.frame_idx = 10 + i
+            neg_lfs.append(lf)
+
         mock_labels = MagicMock()
         mock_labels.videos = [mock_video]
-        mock_labels.negative_frames = [neg_lf]
+        mock_labels.negative_frames = neg_lfs
 
-        # 1 unique negative, should be oversampled to match positives
         neg_samples = dataset._collect_negative_frames([mock_labels])
-        assert len(neg_samples) == 1  # collect returns unique frames
-
-        # Oversampling happens in _get_lf_idx_list, not _collect_negative_frames
-        # With n_positive positives and 1 unique negative:
-        # oversampled count = n_positive (repeats to match)
-        if n_positive > 0:
-            repeats = n_positive // 1
-            remainder = n_positive % 1
-            expected = repeats + remainder
-            assert expected == n_positive
+        assert len(neg_samples) == 3
+        frame_indices = [s["frame_idx"] for s in neg_samples]
+        assert frame_indices == [10, 11, 12]
 
     def test_negative_frame_getitem_produces_zero_confmaps(self, minimal_instance):
         """Test that a manually-injected negative frame produces all-zero confmaps."""

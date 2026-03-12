@@ -206,8 +206,8 @@ class DataConfig:
         use_negative_frames: (bool) If ``True``, include all user-confirmed negative frames
             (``labels.negative_frames``) in the training set. These are frames the user explicitly
             marked as containing no instances. They produce all-zero confidence maps, teaching the model
-            not to hallucinate detections on empty backgrounds. Negative frames are oversampled to match
-            the number of positive frames so they appear regularly in batches. *Default*: ``False``.
+            not to hallucinate detections on empty backgrounds. Use ``negative_loss_weight`` to control
+            the relative importance of negative vs positive samples. *Default*: ``False``.
         negative_loss_weight: (float) Relative weight applied to the loss for negative samples. Must be > 0.
             Values < 1 down-weight negatives; values > 1 up-weight them. Only has effect when
             ``use_negative_frames`` is ``True``. *Default*: `1.0`.

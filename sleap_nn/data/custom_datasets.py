@@ -389,9 +389,7 @@ class BaseDataset(Dataset):
         """Return list of indices of labelled frames (and optionally negative frames).
 
         If ``self.use_negative_frames`` is True, all user-confirmed negative
-        frames (``labels.negative_frames``) are collected and oversampled to
-        match the number of positive frames, ensuring negatives appear
-        regularly in training batches.
+        frames (``labels.negative_frames``) are appended to the sample list.
         """
         lf_idx_list = []
         for labels_idx, label in enumerate(labels):
@@ -426,20 +424,11 @@ class BaseDataset(Dataset):
         if self.use_negative_frames and len(lf_idx_list) > 0:
             neg_samples = self._collect_negative_frames(labels)
             if neg_samples:
-                # Oversample negatives to match positive count so they appear
-                # regularly in batches. Without this, rare negatives would
-                # almost never land in a batch and the loss signal is lost.
                 n_positive = len(lf_idx_list)
-                n_unique_neg = len(neg_samples)
-                if n_unique_neg < n_positive:
-                    repeats = n_positive // n_unique_neg
-                    remainder = n_positive % n_unique_neg
-                    neg_samples = neg_samples * repeats + neg_samples[:remainder]
                 lf_idx_list.extend(neg_samples)
                 logger.info(
                     f"Added {len(neg_samples)} negative samples "
-                    f"({n_unique_neg} unique, oversampled to match "
-                    f"{n_positive} positives)."
+                    f"to {n_positive} positive samples."
                 )
 
         return lf_idx_list
