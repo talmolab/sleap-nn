@@ -292,12 +292,12 @@ class BaseDataset(Dataset):
         rank: Optional[int] = None,
         parallel_caching: bool = True,
         cache_workers: int = 0,
-        negative_sample_fraction: float = 0.0,
+        use_negative_frames: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__()
         self.user_instances_only = user_instances_only
-        self.negative_sample_fraction = negative_sample_fraction
+        self.use_negative_frames = use_negative_frames
         self.ensure_rgb = ensure_rgb
         self.ensure_grayscale = ensure_grayscale
 
@@ -388,9 +388,10 @@ class BaseDataset(Dataset):
     def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Tuple[int]]:
         """Return list of indices of labelled frames (and optionally negative frames).
 
-        If ``self.negative_sample_fraction > 0``, negative frames are appended.
-        Only frames explicitly marked by the user as negative
-        (``labels.negative_frames``) are used.
+        If ``self.use_negative_frames`` is True, all user-confirmed negative
+        frames (``labels.negative_frames``) are collected and oversampled to
+        match the number of positive frames, ensuring negatives appear
+        regularly in training batches.
         """
         lf_idx_list = []
         for labels_idx, label in enumerate(labels):
@@ -422,44 +423,44 @@ class BaseDataset(Dataset):
                     # This is to ensure that the labels are not passed to the multiprocessing pool (h5py objects can't be pickled)
 
         # Add negative frames if requested
-        if self.negative_sample_fraction > 0 and len(lf_idx_list) > 0:
-            n_positive = len(lf_idx_list)
-            # num negatives so that negatives / total = fraction
-            n_negatives = int(
-                round(
-                    n_positive
-                    * self.negative_sample_fraction
-                    / (1.0 - self.negative_sample_fraction)
-                )
-            )
-            if n_negatives > 0:
-                neg_samples = self._collect_negative_frames(labels, n_negatives)
+        if self.use_negative_frames and len(lf_idx_list) > 0:
+            neg_samples = self._collect_negative_frames(labels)
+            if neg_samples:
+                # Oversample negatives to match positive count so they appear
+                # regularly in batches. Without this, rare negatives would
+                # almost never land in a batch and the loss signal is lost.
+                n_positive = len(lf_idx_list)
+                n_unique_neg = len(neg_samples)
+                if n_unique_neg < n_positive:
+                    repeats = n_positive // n_unique_neg
+                    remainder = n_positive % n_unique_neg
+                    neg_samples = neg_samples * repeats + neg_samples[:remainder]
                 lf_idx_list.extend(neg_samples)
+                logger.info(
+                    f"Added {len(neg_samples)} negative samples "
+                    f"({n_unique_neg} unique, oversampled to match "
+                    f"{n_positive} positives)."
+                )
 
         return lf_idx_list
 
     def _collect_negative_frames(
         self,
         labels: List[sio.Labels],
-        n_negatives: int,
     ) -> List[Dict]:
-        """Collect negative frame indices for training.
+        """Collect all user-confirmed negative frames from labels.
 
         Only frames explicitly marked by the user as negative are used
         (``LabeledFrame`` objects with ``is_negative=True``, accessed via
-        ``labels.negative_frames``).  Unlabeled frames are **not** sampled
+        ``labels.negative_frames``).  Unlabeled frames are **not** included
         because they may contain animals that simply haven't been annotated yet.
-
-        If the requested number of negatives exceeds the available
-        user-confirmed negatives, only the available ones are returned and a
-        warning is logged.
 
         Args:
             labels: List of sio.Labels objects.
-            n_negatives: Number of negative samples requested.
 
         Returns:
-            List of sample dicts with ``is_negative=True``.
+            List of sample dicts with ``is_negative=True`` (one per unique
+            negative frame).
         """
         neg_samples: List[Dict] = []
 
@@ -478,24 +479,6 @@ class BaseDataset(Dataset):
                         "instances": None,
                     }
                 )
-
-        # Truncate to requested count
-        if len(neg_samples) > n_negatives:
-            import random
-
-            rng = random.Random(len(neg_samples))
-            neg_samples = rng.sample(neg_samples, n_negatives)
-
-        if len(neg_samples) > 0:
-            logger.info(f"Added {len(neg_samples)} negative samples to dataset.")
-
-        if 0 < len(neg_samples) < n_negatives:
-            logger.warning(
-                f"Requested {n_negatives} negative samples but only "
-                f"{len(neg_samples)} user-confirmed negative frames are "
-                f"available. Mark more frames as negative in the labeling GUI "
-                f"to reach the target."
-            )
 
         return neg_samples
 
@@ -838,7 +821,7 @@ class BottomUpDataset(BaseDataset):
         rank: Optional[int] = None,
         parallel_caching: bool = True,
         cache_workers: int = 0,
-        negative_sample_fraction: float = 0.0,
+        use_negative_frames: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -858,7 +841,7 @@ class BottomUpDataset(BaseDataset):
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
-            negative_sample_fraction=negative_sample_fraction,
+            use_negative_frames=use_negative_frames,
         )
         self.confmap_head_config = confmap_head_config
         self.pafs_head_config = pafs_head_config
@@ -931,7 +914,7 @@ class BottomUpDataset(BaseDataset):
         sample["confidence_maps"] = confidence_maps
         sample["part_affinity_fields"] = pafs
         sample["labels_idx"] = labels_idx
-        if self.negative_sample_fraction > 0:
+        if self.use_negative_frames:
             sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
 
         return sample
@@ -1005,7 +988,7 @@ class BottomUpMultiClassDataset(BaseDataset):
         rank: Optional[int] = None,
         parallel_caching: bool = True,
         cache_workers: int = 0,
-        negative_sample_fraction: float = 0.0,
+        use_negative_frames: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -1025,7 +1008,7 @@ class BottomUpMultiClassDataset(BaseDataset):
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
-            negative_sample_fraction=negative_sample_fraction,
+            use_negative_frames=use_negative_frames,
         )
         self.confmap_head_config = confmap_head_config
         self.class_maps_head_config = class_maps_head_config
@@ -1116,7 +1099,7 @@ class BottomUpMultiClassDataset(BaseDataset):
         sample["confidence_maps"] = confidence_maps
         sample["class_maps"] = class_maps
         sample["labels_idx"] = labels_idx
-        if self.negative_sample_fraction > 0:
+        if self.use_negative_frames:
             sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
 
         return sample
@@ -1726,7 +1709,7 @@ class CentroidDataset(BaseDataset):
         rank: Optional[int] = None,
         parallel_caching: bool = True,
         cache_workers: int = 0,
-        negative_sample_fraction: float = 0.0,
+        use_negative_frames: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -1746,7 +1729,7 @@ class CentroidDataset(BaseDataset):
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
-            negative_sample_fraction=negative_sample_fraction,
+            use_negative_frames=use_negative_frames,
         )
         self.anchor_ind = anchor_ind
         self.confmap_head_config = confmap_head_config
@@ -1850,7 +1833,7 @@ class CentroidDataset(BaseDataset):
 
         sample["centroids_confidence_maps"] = confidence_maps
         sample["labels_idx"] = labels_idx
-        if self.negative_sample_fraction > 0:
+        if self.use_negative_frames:
             sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
 
         return sample
@@ -1917,7 +1900,7 @@ class SingleInstanceDataset(BaseDataset):
         rank: Optional[int] = None,
         parallel_caching: bool = True,
         cache_workers: int = 0,
-        negative_sample_fraction: float = 0.0,
+        use_negative_frames: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -1937,7 +1920,7 @@ class SingleInstanceDataset(BaseDataset):
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
-            negative_sample_fraction=negative_sample_fraction,
+            use_negative_frames=use_negative_frames,
         )
         self.confmap_head_config = confmap_head_config
 
@@ -1993,7 +1976,7 @@ class SingleInstanceDataset(BaseDataset):
 
         sample["confidence_maps"] = confidence_maps
         sample["labels_idx"] = labels_idx
-        if self.negative_sample_fraction > 0:
+        if self.use_negative_frames:
             sample["is_negative"] = self.lf_idx_list[index].get("is_negative", False)
 
         return sample
@@ -2125,23 +2108,21 @@ def get_train_val_datasets(
     parallel_caching = getattr(config.data_config, "parallel_caching", True)
     cache_workers = getattr(config.data_config, "cache_workers", 0)
 
-    negative_sample_fraction = getattr(
-        config.data_config, "negative_sample_fraction", 0.0
-    )
+    use_negative_frames = getattr(config.data_config, "use_negative_frames", False)
 
     model_type = get_model_type_from_cfg(config=config)
     backbone_type = get_backbone_type_from_cfg(config=config)
 
-    if negative_sample_fraction > 0 and model_type in (
+    if use_negative_frames and model_type in (
         "centered_instance",
         "multi_class_topdown",
     ):
         logger.warning(
-            f"negative_sample_fraction={negative_sample_fraction} is set but "
-            f"model_type='{model_type}' operates at instance-crop level and does "
-            f"not support frame-level negatives. The fraction will be ignored."
+            f"use_negative_frames is enabled but model_type='{model_type}' "
+            f"operates at instance-crop level and does not support frame-level "
+            f"negatives. Negative frames will be disabled."
         )
-        negative_sample_fraction = 0.0
+        use_negative_frames = False
 
     if cache_imgs == "disk" and use_existing_imgs:
         if not (
@@ -2195,7 +2176,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
-            negative_sample_fraction=negative_sample_fraction,
+            use_negative_frames=use_negative_frames,
         )
         val_dataset = BottomUpDataset(
             labels=val_labels,
@@ -2221,7 +2202,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
-            negative_sample_fraction=negative_sample_fraction,
+            use_negative_frames=use_negative_frames,
         )
 
     elif model_type == "multi_class_bottomup":
@@ -2257,7 +2238,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
-            negative_sample_fraction=negative_sample_fraction,
+            use_negative_frames=use_negative_frames,
         )
         val_dataset = BottomUpMultiClassDataset(
             labels=val_labels,
@@ -2283,7 +2264,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
-            negative_sample_fraction=negative_sample_fraction,
+            use_negative_frames=use_negative_frames,
         )
 
     elif model_type == "centered_instance":
@@ -2458,7 +2439,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
-            negative_sample_fraction=negative_sample_fraction,
+            use_negative_frames=use_negative_frames,
         )
         val_dataset = CentroidDataset(
             labels=val_labels,
@@ -2484,7 +2465,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
-            negative_sample_fraction=negative_sample_fraction,
+            use_negative_frames=use_negative_frames,
         )
 
     else:
@@ -2519,7 +2500,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
-            negative_sample_fraction=negative_sample_fraction,
+            use_negative_frames=use_negative_frames,
         )
         val_dataset = SingleInstanceDataset(
             labels=val_labels,
@@ -2544,7 +2525,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
-            negative_sample_fraction=negative_sample_fraction,
+            use_negative_frames=use_negative_frames,
         )
 
     # If using caching, close the videos to prevent `h5py objects can't be pickled error` when num_workers > 0.
