@@ -2,9 +2,6 @@ import torch
 import pytest
 import sleap_io as sio
 import psutil
-import itertools
-
-from types import SimpleNamespace
 
 from sleap_nn.data.utils import (
     ensure_list,
@@ -81,18 +78,36 @@ def test_check_memory_ok(labels_path_fixture, request):
     "labels_path_fixture",
     [("minimal_instance"), ("small_robot_minimal")],
 )
-def test_check_memory_raises_when_one_label_has_no_image(labels_path_fixture, request):
+def test_check_memory_raises_when_shape_is_none(labels_path_fixture, request):
     labels_path = request.getfixturevalue(labels_path_fixture)
     labels = sio.load_slp(labels_path)
 
-    # Build an iterable that yields: one fake with image=None, then all real frames.
-    missing = SimpleNamespace(image=None)
-    adapted = itertools.chain(
-        [missing], (SimpleNamespace(image=lf.image) for lf in labels)
-    )
+    # Patch the video's shape to None to simulate an inaccessible video.
+    from unittest.mock import PropertyMock, patch
 
-    with pytest.raises(ValueError, match="no image data"):
-        check_memory(adapted)
+    video = labels[0].video
+    with patch.object(
+        type(video), "shape", new_callable=PropertyMock, return_value=None
+    ):
+        with pytest.raises(ValueError, match="Cannot determine video shape"):
+            check_memory(labels)
+
+
+def test_check_memory_multi_video(minimal_instance, small_robot_minimal):
+    """Test per-video sampling logic with two real videos of different sizes."""
+    labels_a = sio.load_slp(minimal_instance)
+    labels_b = sio.load_slp(small_robot_minimal)
+
+    # Compute expected from video shapes.
+    shape_a = labels_a[0].video.shape
+    shape_b = labels_b[0].video.shape
+    bytes_per_frame_a = shape_a[1] * shape_a[2] * shape_a[3]
+    bytes_per_frame_b = shape_b[1] * shape_b[2] * shape_b[3]
+    expected = len(labels_a) * bytes_per_frame_a + len(labels_b) * bytes_per_frame_b
+
+    # Combine labeled frames from both into a single list.
+    combined = list(labels_a) + list(labels_b)
+    assert check_memory(combined) == expected
 
 
 def test_check_memory_no_labels():
