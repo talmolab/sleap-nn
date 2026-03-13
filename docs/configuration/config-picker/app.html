@@ -3492,6 +3492,36 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
         window.selectAnchor = selectAnchor;
         window.selectModelType = selectModelType;
 
+        // Expose augmentation slider functions
+        window.updateAugSliderValue = updateAugSliderValue;
+        window.updateCIAugSliderValue = updateCIAugSliderValue;
+
+        // Expose sigma visualization functions
+        window.updateSigmaVisualization = updateSigmaVisualization;
+        window.updateCISigmaVisualization = updateCISigmaVisualization;
+
+        // Expose cache memory estimate functions
+        window.updateCacheMemoryEstimate = updateCacheMemoryEstimate;
+        window.updateCICacheMemoryEstimate = updateCICacheMemoryEstimate;
+        window.toggleDiskCacheOptions = toggleDiskCacheOptions;
+        window.toggleCIDiskCacheOptions = toggleCIDiskCacheOptions;
+
+        // Expose training option toggle functions
+        window.toggleEarlyStoppingOptions = toggleEarlyStoppingOptions;
+        window.toggleCIEarlyStoppingOptions = toggleCIEarlyStoppingOptions;
+        window.updateSchedulerOptions = updateSchedulerOptions;
+        window.updateCISchedulerOptions = updateCISchedulerOptions;
+        window.toggleSaveCkptOptions = toggleSaveCkptOptions;
+        window.toggleCISaveCkptOptions = toggleCISaveCkptOptions;
+        window.toggleOhkmOptions = toggleOhkmOptions;
+        window.toggleCIOhkmOptions = toggleCIOhkmOptions;
+        window.toggleWandbOptions = toggleWandbOptions;
+        window.toggleCIWandbOptions = toggleCIWandbOptions;
+        window.toggleVizOptions = toggleVizOptions;
+        window.toggleCIVizOptions = toggleCIVizOptions;
+        window.toggleEvalOptions = toggleEvalOptions;
+        window.toggleCIEvalOptions = toggleCIEvalOptions;
+
         function initAnchorCanvas() {
             const canvas = document.getElementById('anchor-preview-canvas');
             if (canvas) {
