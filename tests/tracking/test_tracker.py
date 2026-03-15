@@ -9,6 +9,7 @@ from sleap_nn.tracking.track_instance import (
     TrackInstances,
 )
 from sleap_nn.tracking.utils import (
+    hungarian_matching,
     nms_fast,
     nms_instances,
     cull_instances,
@@ -77,6 +78,30 @@ def centered_pair_predictions(
         device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     return result_labels
+
+
+def test_hungarian_matching_edge_cases():
+    """Test hungarian_matching with inf/nan cost matrices."""
+    # All-inf matrix (the reported bug in #491)
+    cost = np.full((2, 2), np.inf)
+    row_ids, col_ids = hungarian_matching(cost)
+    assert len(row_ids) == 2
+    assert len(col_ids) == 2
+
+    # All-NaN matrix
+    cost = np.full((3, 3), np.nan)
+    row_ids, col_ids = hungarian_matching(cost)
+    assert len(row_ids) == 3
+
+    # Mixed finite and inf
+    cost = np.array([[1.0, np.inf], [np.inf, 2.0]])
+    row_ids, col_ids = hungarian_matching(cost)
+    assert set(zip(row_ids, col_ids)) == {(0, 0), (1, 1)}
+
+    # Normal case still works
+    cost = np.array([[1.0, 3.0], [4.0, 2.0]])
+    row_ids, col_ids = hungarian_matching(cost)
+    assert set(zip(row_ids, col_ids)) == {(0, 0), (1, 1)}
 
 
 def test_cull_instances(
