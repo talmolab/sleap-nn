@@ -9,12 +9,11 @@ import sleap_io as sio
 
 def hungarian_matching(cost_matrix: np.ndarray) -> List[Tuple[int, int]]:
     """Match new instances to existing tracks using Hungarian matching."""
-    cost_matrix = np.copy(cost_matrix)
-
     # Replace inf/nan with a large finite value so linear_sum_assignment doesn't
-    # raise "cost matrix is infeasible". These pairs will be filtered out after.
+    # raise "cost matrix is infeasible".
     invalid = ~np.isfinite(cost_matrix)
     if invalid.any():
+        cost_matrix = np.copy(cost_matrix)
         finite_vals = cost_matrix[~invalid]
         fill = (np.abs(finite_vals).max() * 10 + 1) if finite_vals.size > 0 else 1e6
         cost_matrix[invalid] = fill
