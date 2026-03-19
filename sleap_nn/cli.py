@@ -1,5 +1,6 @@
 """Unified CLI for SLEAP-NN using rich-click for styled output."""
 
+import __main__
 import subprocess
 import tempfile
 import shutil
@@ -20,6 +21,27 @@ from sleap_nn import __version__
 from sleap_nn.config.utils import get_model_type_from_cfg
 import hydra
 import sys
+
+
+def _needs_module_respawn() -> bool:
+    """Check if we need to re-spawn with `python -m` for proper DDP support.
+
+    On Windows and macOS (Python 3.8+), multiprocessing uses 'spawn' instead of
+    'fork'. The 'spawn' method starts child processes fresh and needs to re-import
+    the training module. It uses `__main__.__spec__` to determine what module to
+    import.
+
+    When running via entry point scripts (e.g., `sleap-nn train` or `sleap train`),
+    `__main__.__spec__` is None because entry points don't set it. This causes
+    PyTorch Lightning's DDP to fail with: `ValueError: __main__.__spec__ is None`
+
+    When running via `python -m sleap_nn.cli`, `__main__.__spec__` is properly set,
+    allowing DDP child processes to re-import the module correctly.
+
+    Returns:
+        True if we need to re-spawn with `python -m`, False if already in module context.
+    """
+    return getattr(__main__, "__spec__", None) is None
 
 # Rich-click configuration for styled help
 click.rich_click.TEXT_MARKUP = "markdown"
@@ -367,15 +389,21 @@ def train(
 
         num_devices = _get_num_devices_from_config(cfg)
 
-        # Check if run_name is already set (means we're a subprocess or user provided it)
+        # Check if run_name is already set (for synchronization across DDP ranks)
         run_name = OmegaConf.select(cfg, "trainer_config.run_name", default=None)
         run_name_is_set = run_name is not None and run_name != "" and run_name != "None"
 
     # Multi-GPU path: spawn subprocess with finalized config
-    # Only do this if run_name is NOT set (otherwise we'd loop infinitely or user set it)
-    if num_devices > 1 and not run_name_is_set:
+    # We need to re-spawn if EITHER:
+    # 1. Not in module context (__main__.__spec__ is None) - required for DDP on
+    #    Windows/macOS where multiprocessing uses 'spawn' and needs to know what
+    #    module to re-import. See: https://github.com/talmolab/sleap/issues/2656
+    # 2. run_name is not set - required for synchronization so all DDP ranks use
+    #    the same run_name (otherwise each rank generates different timestamps)
+    needs_respawn = _needs_module_respawn() or not run_name_is_set
+    if num_devices > 1 and needs_respawn:
         logger.info(
-            f"Detected {num_devices} devices, using subprocess for run_name sync..."
+            f"Detected {num_devices} devices, re-spawning with module context for DDP..."
         )
 
         # Load and finalize config (generate run_name, apply overrides)
