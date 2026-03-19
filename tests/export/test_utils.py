@@ -735,6 +735,127 @@ class TestResolveCropSizeEdgeCases:
         assert result is None
 
 
+class TestResolveAnchorPart:
+    """Tests for resolve_anchor_part function."""
+
+    def test_resolve_anchor_part_centroid(self):
+        """Test extracting anchor_part for centroid models."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_anchor_part
+
+        cfg = OmegaConf.create(
+            {
+                "model_config": {
+                    "head_configs": {
+                        "centroid": {"confmaps": {"anchor_part": "thorax"}}
+                    }
+                }
+            }
+        )
+        anchor = resolve_anchor_part(cfg, "centroid")
+        assert anchor == "thorax"
+
+    def test_resolve_anchor_part_centered_instance(self):
+        """Test extracting anchor_part for centered_instance models."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_anchor_part
+
+        cfg = OmegaConf.create(
+            {
+                "model_config": {
+                    "head_configs": {
+                        "centered_instance": {"confmaps": {"anchor_part": "head"}}
+                    }
+                }
+            }
+        )
+        anchor = resolve_anchor_part(cfg, "centered_instance")
+        assert anchor == "head"
+
+    def test_resolve_anchor_part_none_when_not_set(self):
+        """Test that anchor_part returns None when not configured."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_anchor_part
+
+        cfg = OmegaConf.create(
+            {
+                "model_config": {
+                    "head_configs": {
+                        "centroid": {"confmaps": {"output_stride": 2, "sigma": 5.0}}
+                    }
+                }
+            }
+        )
+        anchor = resolve_anchor_part(cfg, "centroid")
+        assert anchor is None
+
+    def test_resolve_anchor_part_none_for_bottomup(self):
+        """Test that anchor_part returns None for bottomup models."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_anchor_part
+
+        cfg = OmegaConf.create(
+            {
+                "model_config": {
+                    "head_configs": {
+                        "bottomup": {
+                            "confmaps": {"output_stride": 2},
+                            "pafs": {"output_stride": 4},
+                        }
+                    }
+                }
+            }
+        )
+        anchor = resolve_anchor_part(cfg, "bottomup")
+        assert anchor is None
+
+    def test_resolve_anchor_part_none_for_single_instance(self):
+        """Test that anchor_part returns None for single_instance models."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_anchor_part
+
+        cfg = OmegaConf.create(
+            {
+                "model_config": {
+                    "head_configs": {
+                        "single_instance": {"confmaps": {"output_stride": 2}}
+                    }
+                }
+            }
+        )
+        anchor = resolve_anchor_part(cfg, "single_instance")
+        assert anchor is None
+
+    def test_resolve_anchor_part_none_for_unsupported_model(self):
+        """Test that anchor_part returns None for unsupported model types."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_anchor_part
+
+        cfg = OmegaConf.create({"model_config": {"head_configs": {}}})
+        anchor = resolve_anchor_part(cfg, "nonexistent_model")
+        assert anchor is None
+
+    def test_resolve_anchor_part_with_real_config(self, minimal_instance_centroid_ckpt):
+        """Test resolve_anchor_part with real centroid config."""
+        from sleap_nn.export.utils import load_training_config, resolve_anchor_part
+
+        cfg = load_training_config(minimal_instance_centroid_ckpt)
+        anchor = resolve_anchor_part(cfg, "centroid")
+        # anchor_part may be None or a string depending on config
+        assert anchor is None or isinstance(anchor, str)
+
+    def test_resolve_anchor_part_with_centered_instance_config(
+        self, minimal_instance_centered_instance_ckpt
+    ):
+        """Test resolve_anchor_part with real centered_instance config."""
+        from sleap_nn.export.utils import load_training_config, resolve_anchor_part
+
+        cfg = load_training_config(minimal_instance_centered_instance_ckpt)
+        anchor = resolve_anchor_part(cfg, "centered_instance")
+        # anchor_part may be None or a string depending on config
+        assert anchor is None or isinstance(anchor, str)
+
+
 class TestResolveNodeNamesEdgeCases:
     """Edge case tests for resolve_node_names."""
 

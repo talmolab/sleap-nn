@@ -18,6 +18,7 @@ from sleap_nn.export.metadata import (
 )
 from sleap_nn.export.utils import (
     load_training_config,
+    resolve_anchor_part,
     resolve_backbone_type,
     resolve_class_maps_output_stride,
     resolve_class_names,
@@ -328,6 +329,7 @@ def export(
             n_classes=metadata_n_classes,
             class_names=metadata_class_names,
             peak_threshold=peak_threshold,
+            anchor_part=resolve_anchor_part(cfg, model_type),
         )
 
         metadata.save(export_dir / "export_metadata.json")
@@ -401,6 +403,7 @@ def export(
                 n_classes=metadata_n_classes,
                 class_names=metadata_class_names,
                 peak_threshold=peak_threshold,
+                anchor_part=resolve_anchor_part(cfg, model_type),
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
         return
@@ -553,6 +556,7 @@ def export(
             input_dtype="uint8",
             normalization="0_to_1",
             peak_threshold=peak_threshold,
+            anchor_part=resolve_anchor_part(centroid_cfg, "centroid"),
         )
 
         metadata.save(export_dir / "export_metadata.json")
@@ -603,6 +607,7 @@ def export(
                 input_dtype="uint8",
                 normalization="0_to_1",
                 peak_threshold=peak_threshold,
+                anchor_part=resolve_anchor_part(centroid_cfg, "centroid"),
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
         return
@@ -761,6 +766,7 @@ def export(
             n_classes=n_classes,
             class_names=class_names,
             peak_threshold=peak_threshold,
+            anchor_part=resolve_anchor_part(centroid_cfg, "centroid"),
         )
         metadata.save(export_dir / "export_metadata.json")
         click.echo(f"ONNX model exported to: {model_out_path}")
@@ -807,6 +813,7 @@ def export(
                 n_classes=n_classes,
                 class_names=class_names,
                 peak_threshold=peak_threshold,
+                anchor_part=resolve_anchor_part(centroid_cfg, "centroid"),
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
         return

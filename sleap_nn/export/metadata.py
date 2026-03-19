@@ -54,6 +54,9 @@ class ExportMetadata:
     n_classes: Optional[int] = None
     class_names: Optional[List[str]] = None
 
+    # Centroid/top-down anchor point
+    anchor_part: Optional[str] = None
+
     # Training config reference
     training_config_embedded: bool = False
     training_config_hash: str = ""
@@ -98,6 +101,7 @@ class ExportMetadata:
             n_classes=data.get("n_classes"),
             class_names=data.get("class_names"),
             peak_threshold=data.get("peak_threshold"),
+            anchor_part=data.get("anchor_part"),
             training_config_embedded=bool(data.get("training_config_embedded", False)),
             training_config_hash=data.get("training_config_hash", ""),
         )
@@ -156,6 +160,7 @@ def build_base_metadata(
     n_classes: Optional[int] = None,
     class_names: Optional[List[str]] = None,
     peak_threshold: Optional[float] = None,
+    anchor_part: Optional[str] = None,
 ) -> ExportMetadata:
     """Create an ExportMetadata instance with standard defaults."""
     return ExportMetadata(
@@ -183,6 +188,7 @@ def build_base_metadata(
         n_classes=n_classes,
         class_names=class_names,
         peak_threshold=peak_threshold,
+        anchor_part=anchor_part,
         training_config_embedded=training_config_embedded,
         training_config_hash=training_config_hash,
     )
