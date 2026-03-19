@@ -50,6 +50,7 @@ class TestExportMetadata:
         assert metadata.class_names is None
         assert metadata.training_config_embedded is False
         assert metadata.training_config_hash == ""
+        assert metadata.anchor_part is None
 
     def test_export_metadata_to_dict(self):
         """Test that to_dict() produces a serializable dict with all keys."""
@@ -101,6 +102,7 @@ class TestExportMetadata:
             "n_classes",
             "class_names",
             "peak_threshold",
+            "anchor_part",
             "training_config_embedded",
             "training_config_hash",
         }
@@ -140,6 +142,7 @@ class TestExportMetadata:
             "normalization": "0_to_1",
             "n_classes": 2,
             "class_names": ["female", "male"],
+            "anchor_part": "thorax",
             "training_config_embedded": True,
             "training_config_hash": "abc123",
         }
@@ -154,6 +157,7 @@ class TestExportMetadata:
         assert metadata.precision == "fp16"
         assert metadata.n_classes == 2
         assert metadata.class_names == ["female", "male"]
+        assert metadata.anchor_part == "thorax"
         assert metadata.training_config_embedded is True
 
     def test_export_metadata_from_dict_minimal(self):
@@ -175,6 +179,7 @@ class TestExportMetadata:
         assert metadata.normalization == "0_to_1"
         assert metadata.edge_inds == []
         assert metadata.crop_size is None
+        assert metadata.anchor_part is None
 
     def test_export_metadata_from_dict_unknown_keys(self):
         """Test that unknown keys in dict are ignored gracefully."""
@@ -292,6 +297,53 @@ class TestExportMetadata:
         assert loaded.n_classes == 2
         assert loaded.class_names == ["female", "male"]
 
+    def test_anchor_part_field(self):
+        """Test that anchor_part field works correctly for centroid/top-down models."""
+        # With anchor_part set
+        metadata_with_anchor = ExportMetadata(
+            sleap_nn_version=__version__,
+            export_timestamp="2026-01-18",
+            export_format="onnx",
+            model_type="centroid",
+            model_name="test",
+            checkpoint_path="/path",
+            backbone="unet",
+            n_nodes=13,
+            n_edges=12,
+            node_names=["head", "thorax", "abdomen"] + [f"n{i}" for i in range(10)],
+            edge_inds=[(i, i + 1) for i in range(12)],
+            input_scale=1.0,
+            input_channels=1,
+            output_stride=2,
+            anchor_part="thorax",
+        )
+        assert metadata_with_anchor.anchor_part == "thorax"
+
+        # Without anchor_part (default None)
+        metadata_no_anchor = ExportMetadata(
+            sleap_nn_version=__version__,
+            export_timestamp="2026-01-18",
+            export_format="onnx",
+            model_type="bottomup",
+            model_name="test",
+            checkpoint_path="/path",
+            backbone="unet",
+            n_nodes=5,
+            n_edges=4,
+            node_names=["n0", "n1", "n2", "n3", "n4"],
+            edge_inds=[(0, 1), (1, 2), (2, 3), (3, 4)],
+            input_scale=1.0,
+            input_channels=1,
+            output_stride=4,
+        )
+        assert metadata_no_anchor.anchor_part is None
+
+        # Check roundtrip preserves anchor_part
+        d = metadata_with_anchor.to_dict()
+        assert d["anchor_part"] == "thorax"
+        loaded = ExportMetadata.from_dict(d)
+        assert loaded.anchor_part == "thorax"
+
     def test_default_timestamp(self):
         """Test that default_timestamp() returns a valid ISO format string."""
         ts = ExportMetadata.default_timestamp()
@@ -348,6 +400,46 @@ class TestBuildBaseMetadata:
 
         assert metadata.n_classes == 3
         assert metadata.class_names == ["class_a", "class_b", "class_c"]
+
+    def test_build_base_metadata_with_anchor_part(self):
+        """Test build_base_metadata with anchor_part for centroid models."""
+        metadata = build_base_metadata(
+            export_format="onnx",
+            model_type="centroid",
+            model_name="centroid_test",
+            checkpoint_path="/path/to/ckpt",
+            backbone="unet",
+            n_nodes=13,
+            n_edges=12,
+            node_names=["head", "thorax", "abdomen"] + [f"n{i}" for i in range(10)],
+            edge_inds=[(i, i + 1) for i in range(12)],
+            input_scale=0.5,
+            input_channels=1,
+            output_stride=2,
+            anchor_part="thorax",
+        )
+
+        assert metadata.anchor_part == "thorax"
+        assert metadata.model_type == "centroid"
+
+    def test_build_base_metadata_without_anchor_part(self):
+        """Test build_base_metadata defaults anchor_part to None."""
+        metadata = build_base_metadata(
+            export_format="onnx",
+            model_type="bottomup",
+            model_name="bottomup_test",
+            checkpoint_path="/path/to/ckpt",
+            backbone="unet",
+            n_nodes=5,
+            n_edges=4,
+            node_names=["n0", "n1", "n2", "n3", "n4"],
+            edge_inds=[(0, 1), (1, 2), (2, 3), (3, 4)],
+            input_scale=1.0,
+            input_channels=1,
+            output_stride=4,
+        )
+
+        assert metadata.anchor_part is None
 
 
 class TestHashFile:

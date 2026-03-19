@@ -168,6 +168,31 @@ def resolve_backbone_type(cfg: DictConfig) -> str:
     return get_backbone_type_from_cfg(cfg)
 
 
+def resolve_anchor_part(cfg: DictConfig, model_type: str) -> Optional[str]:
+    """Resolve anchor_part from config for centroid and centered_instance models.
+
+    Args:
+        cfg: The training job configuration.
+        model_type: The model type (e.g., "centroid", "centered_instance").
+
+    Returns:
+        The anchor part name if configured, None otherwise.
+        Only returns a value for "centroid" and "centered_instance" model types.
+    """
+    head_configs = cfg.model_config.head_configs
+
+    if model_type == "centroid":
+        head = getattr(head_configs, "centroid", None)
+    elif model_type == "centered_instance":
+        head = getattr(head_configs, "centered_instance", None)
+    else:
+        return None
+
+    if head and hasattr(head, "confmaps"):
+        return getattr(head.confmaps, "anchor_part", None)
+    return None
+
+
 def resolve_input_shape(
     cfg: DictConfig,
     input_height: Optional[int] = None,
