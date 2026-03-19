@@ -43,6 +43,7 @@ def _needs_module_respawn() -> bool:
     """
     return getattr(__main__, "__spec__", None) is None
 
+
 # Rich-click configuration for styled help
 click.rich_click.TEXT_MARKUP = "markdown"
 click.rich_click.SHOW_ARGUMENTS = True
