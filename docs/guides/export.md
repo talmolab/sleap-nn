@@ -24,23 +24,23 @@ Export requires additional dependencies. Install them with your preferred method
 
     ```bash
     # ONNX export (CPU)
-    uv tool install "sleap-nn[torch,export]" --torch-backend auto
+    uv tool install "sleap-nn[export]" --torch-backend auto
 
     # ONNX export (GPU runtime)
-    uv tool install "sleap-nn[torch,export-gpu]" --torch-backend auto
+    uv tool install "sleap-nn[export-gpu]" --torch-backend auto
 
     # TensorRT export (Linux/Windows with NVIDIA GPU)
-    uv tool install "sleap-nn[torch,export-gpu,tensorrt]" --torch-backend auto
+    uv tool install "sleap-nn[export-gpu,tensorrt]" --torch-backend auto
     ```
 
 === "pip"
 
     ```bash
     # ONNX export (CPU)
-    pip install sleap-nn[torch,export]
+    pip install sleap-nn[export]
 
     # TensorRT export (NVIDIA GPUs)
-    pip install sleap-nn[torch,export-gpu,tensorrt]
+    pip install sleap-nn[export-gpu,tensorrt]
     ```
 
 !!! note "TensorRT availability"

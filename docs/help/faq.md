@@ -101,7 +101,7 @@ SLEAP-NN uses PyTorch, so it runs on any system where PyTorch is supported. This
     PyTorch 2.10 supports CUDA 12.6, 12.8, and 13.0. Use `--torch-backend auto` to auto-detect:
 
     ```bash
-    uv tool install sleap-nn[torch] --torch-backend auto
+    uv tool install sleap-nn --torch-backend auto
     ```
 
     **For RTX 50-series (Blackwell) GPUs**: You need CUDA 12.8 or higher and driver R570+. These GPUs have compute capability 10.0/12.0 which requires the latest PyTorch builds.
@@ -187,7 +187,7 @@ SLEAP-NN uses PyTorch, so it runs on any system where PyTorch is supported. This
        ```
     4. Reinstall with correct CUDA version:
        ```bash
-       uv tool install sleap-nn[torch] --torch-backend cu126 --reinstall
+       uv tool install sleap-nn --torch-backend cu126 --reinstall
        ```
 
 ??? question "CUDA kernel not compatible with compute capability"
