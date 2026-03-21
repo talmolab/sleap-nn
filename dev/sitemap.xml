@@ -33,6 +33,10 @@
          <lastmod>2026-03-21</lastmod>
     </url>
     <url>
+         <loc>https://nn.sleap.ai/dev/api/model_info/</loc>
+         <lastmod>2026-03-21</lastmod>
+    </url>
+    <url>
          <loc>https://nn.sleap.ai/dev/api/predict/</loc>
          <lastmod>2026-03-21</lastmod>
     </url>
