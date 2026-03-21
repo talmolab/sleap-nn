@@ -7,7 +7,7 @@ Train a model and run inference in under 5 minutes.
 ## Installation
 
 ```bash
-uv tool install sleap-nn[torch] --torch-backend auto
+uv tool install sleap-nn --torch-backend auto
 ```
 
 See [full installation guide](../installation.md) for other methods and troubleshooting.
@@ -123,4 +123,3 @@ print(f"Found {len(labels)} frames with predictions")
     [:octicons-arrow-right-24: ONNX/TensorRT export](../guides/export.md)
 
 </div>
-

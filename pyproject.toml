@@ -31,6 +31,8 @@ classifiers = [
 dependencies = [
     "sleap-io>=0.6.5,<0.7.0",
     "numpy",
+    "torch",
+    "torchvision>=0.20.0",
     "lightning",
     "skia-python>=87.0,<=138.0",  # pinned for Python 3.13 compatibility (see sleap-io#355)
     "jsonpickle",
@@ -61,7 +63,9 @@ version = { attr = "sleap_nn.__version__" }
 readme = { file = ["README.md"], content-type = "text/markdown" }
 
 [project.optional-dependencies]
-torch = ["torch", "torchvision>=0.20.0"]
+torch = ["torch", "torchvision>=0.20.0"]  # redundant (now default deps), kept for backwards compat
+cpu = ["sleap-nn[torch-cpu]"]
+gpu = ["sleap-nn[torch-cuda130]"]
 torch-cpu = ["torch", "torchvision>=0.20.0"]
 torch-cuda118 = ["torch", "torchvision>=0.20.0"]
 torch-cuda128 = ["torch", "torchvision>=0.20.0"]
@@ -118,6 +122,8 @@ constraint-dependencies = [
 ]
 conflicts = [
     [
+        { extra = "cpu" },
+        { extra = "gpu" },
         { extra = "torch-cpu" },
         { extra = "torch-cuda118" },
         { extra = "torch-cuda128" },

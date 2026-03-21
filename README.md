@@ -14,7 +14,7 @@ Need a quick start? Refer to our [Quick Start guide](https://nn.sleap.ai/latest/
 
 ## Documentation
 
-**📚 [Documentation](https://nn.sleap.ai)** - Comprehensive guides and API reference
+**[Documentation](https://nn.sleap.ai)** - Comprehensive guides and API reference
 
 ## For development setup
 
@@ -34,16 +34,16 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Windows
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
-  
+
 
 3. **Install sleap-nn dependencies based on your platform**\
 
 > **Python 3.14 is not yet supported**
 >
-> `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**.  
-> **Python 3.14 is not yet tested or supported.**  
-> By default, `uv` will use your system-installed Python.  
-> If you have Python 3.14 installed, you must specify the Python version (≤3.13) in the install command.  
+> `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**.
+> **Python 3.14 is not yet tested or supported.**
+> By default, `uv` will use your system-installed Python.
+> If you have Python 3.14 installed, you must specify the Python version (≤3.13) in the install command.
 >
 > For example:
 >
@@ -53,31 +53,27 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 > Replace `...` with the rest of your install command as needed.
 
 - Sync all dependencies based on your correct wheel using `uv sync`. `uv sync` creates a `.venv` (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use all installed packages, you must run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
-   - **Windows/Linux with NVIDIA GPU (CUDA 13.0):**
+   - **Windows/Linux with NVIDIA GPU:**
 
    ```bash
-   uv sync --extra torch-cuda130
+   uv sync --extra gpu
    ```
 
-   - **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
+   Or specify a CUDA version explicitly:
 
    ```bash
-   uv sync --extra torch-cuda128
-   ```
-
-   - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
-
-   ```bash
-   uv sync --extra torch-cuda118
+   uv sync --extra torch-cuda130  # CUDA 13.0
+   uv sync --extra torch-cuda128  # CUDA 12.8
+   uv sync --extra torch-cuda118  # CUDA 11.8
    ```
 
    - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):**
    Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
    ```bash
-   uv sync --extra torch-cpu
+   uv sync --extra cpu
    ```
 
-4. **Run tests**  
+4. **Run tests**
    ```bash
    uv run pytest tests
    ```

@@ -6,10 +6,10 @@ Thank you for your interest in contributing to sleap-nn! This guide will help yo
 
 > **Python 3.14 is not yet supported**
 >
-> `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**.  
-> **Python 3.14 is not yet tested or supported.**  
-> By default, `uv` will use your system-installed Python.  
-> If you have Python 3.14 installed, you must specify the Python version (≤3.13) in the install command.  
+> `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**.
+> **Python 3.14 is not yet tested or supported.**
+> By default, `uv` will use your system-installed Python.
+> If you have Python 3.14 installed, you must specify the Python version (≤3.13) in the install command.
 >
 > For example:
 >
@@ -18,34 +18,30 @@ Thank you for your interest in contributing to sleap-nn! This guide will help yo
 > ```
 > Replace `...` with the rest of your install command as needed.
 
-1. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
+1. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**
    `uv` is a fast and modern package manager for `pyproject.toml`-based projects. Refer [installation docs](https://docs.astral.sh/uv/getting-started/installation/) to install uv.
 
 2. **Install sleap-nn dependencies based on your platform**\
 
    - Sync all dependencies based on your correct wheel using `uv sync`. `uv sync` creates a `.venv` (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use all installed packages, you must run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
-     - **Windows/Linux with NVIDIA GPU (CUDA 13.0):**
+     - **Windows/Linux with NVIDIA GPU:**
 
       ```bash
-      uv sync --extra torch-cuda130
+      uv sync --extra gpu
       ```
 
-     - **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
+      Or specify a CUDA version explicitly:
 
       ```bash
-      uv sync --extra torch-cuda128
-      ```
-
-     - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
-
-      ```bash
-      uv sync --extra torch-cuda118
+      uv sync --extra torch-cuda130  # CUDA 13.0
+      uv sync --extra torch-cuda128  # CUDA 12.8
+      uv sync --extra torch-cuda118  # CUDA 11.8
       ```
 
      - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):**
      Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
       ```bash
-      uv sync --extra torch-cpu
+      uv sync --extra cpu
       ```
 > **Upgrading All Dependencies**
 > To ensure you have the latest versions of all dependencies, use the `--upgrade` flag with `uv sync`:
@@ -111,7 +107,7 @@ def load_tracks(filepath: str) -> np.ndarray:
 
     Args:
         filepath: Path to a SLEAP Analysis HDF5 file.
-    
+
     Returns:
         The loaded tracks as a `np.ndarray` of shape `(n_tracks, n_frames, n_nodes, 2)`.
     """
@@ -130,7 +126,7 @@ cd sleap-nn
 
 2. Install `sleap-nn` with docs dependencies:
    ```bash
-   uv sync --group docs --extra torch-cpu
+   uv sync --group docs --extra cpu
    ```
 
 3. Build and tag a new documentation version:

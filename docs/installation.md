@@ -46,11 +46,21 @@ SLEAP-NN uses [**uv**](https://docs.astral.sh/uv/) for installation and environm
     !!! warning "Python 3.14 not supported"
         If you don't have Python installed, uv will automatically download the latest version (Python 3.14), which is not yet supported. Add `--python 3.13` to specify a compatible version:
         ```bash
-        uv tool install --python 3.13 sleap-nn[torch] --torch-backend auto
+        uv tool install --python 3.13 sleap-nn --torch-backend auto
         ```
 
     ```bash
-    uv tool install sleap-nn[torch] --torch-backend auto
+    uv tool install sleap-nn --torch-backend auto
+    ```
+
+    This auto-detects your GPU and installs the correct PyTorch build. You can also specify a backend explicitly:
+
+    ```bash
+    # Explicit CUDA 13.0
+    uv tool install sleap-nn --torch-backend cu130
+
+    # CPU-only (smaller install)
+    uv tool install sleap-nn --torch-backend cpu
     ```
 
     **Step 3: Verify**
@@ -72,11 +82,11 @@ SLEAP-NN uses [**uv**](https://docs.astral.sh/uv/) for installation and environm
     !!! warning "Python 3.14 not supported"
         If you don't have Python installed, uv will automatically download the latest version (Python 3.14), which is not yet supported. Add `--python 3.13` to specify a compatible version:
         ```bash
-        uv tool install --python 3.13 "sleap-nn[torch]"
+        uv tool install --python 3.13 sleap-nn
         ```
 
     ```bash
-    uv tool install "sleap-nn[torch]"
+    uv tool install sleap-nn
     ```
 
     !!! note "Apple Silicon"
@@ -101,11 +111,11 @@ SLEAP-NN uses [**uv**](https://docs.astral.sh/uv/) for installation and environm
     !!! warning "Python 3.14 not supported"
         If you don't have Python installed, uv will automatically download the latest version (Python 3.14), which is not yet supported. Add `--python 3.13` to specify a compatible version:
         ```bash
-        uv tool install --python 3.13 sleap-nn[torch] --torch-backend cpu
+        uv tool install --python 3.13 sleap-nn --torch-backend cpu
         ```
 
     ```bash
-    uv tool install sleap-nn[torch] --torch-backend cpu
+    uv tool install sleap-nn --torch-backend cpu
     ```
 
     **Step 3: Verify**
@@ -125,16 +135,16 @@ SLEAP-NN uses [**uv**](https://docs.astral.sh/uv/) for installation and environm
     ```
 
     !!! note
-        This preserves the extras (`[torch]`) and torch backend from your original installation. If you need to change the torch backend, use the reinstall option.
+        This preserves the torch backend from your original installation. If you need to change the torch backend, use the reinstall option.
 
 === "Update to specific version"
     ```bash
-    uv tool install "sleap-nn[torch]==0.1.0" --torch-backend auto --force
+    uv tool install "sleap-nn==0.1.0" --torch-backend auto --force
     ```
 
 === "Reinstall (fix issues)"
     ```bash
-    uv tool install sleap-nn[torch] --torch-backend auto --reinstall
+    uv tool install sleap-nn --torch-backend auto --reinstall
     ```
 
     !!! tip "When to use `--reinstall`"
@@ -142,7 +152,7 @@ SLEAP-NN uses [**uv**](https://docs.astral.sh/uv/) for installation and environm
 
 === "Downgrade"
     ```bash
-    uv tool install "sleap-nn[torch]==0.0.5" --torch-backend auto --force
+    uv tool install "sleap-nn==0.0.5" --torch-backend auto --force
     ```
 
 === "Uninstall"
@@ -157,13 +167,13 @@ SLEAP-NN uses [**uv**](https://docs.astral.sh/uv/) for installation and environm
 Install alpha/beta releases to test new features:
 
 ```bash
-uv tool install sleap-nn[torch] --torch-backend auto --prerelease=allow
+uv tool install sleap-nn --torch-backend auto --prerelease=allow
 ```
 
 Install a specific pre-release:
 
 ```bash
-uv tool install "sleap-nn[torch]==0.1.0a4" --torch-backend auto
+uv tool install "sleap-nn==0.1.0a4" --torch-backend auto
 ```
 
 ---
@@ -176,10 +186,10 @@ Run sleap-nn without permanent installation. Each command creates a temporary en
 
 ```bash
 # Train
-uvx --from "sleap-nn[torch]" --torch-backend auto sleap-nn train --config config.yaml
+uvx --from sleap-nn --torch-backend auto sleap-nn train --config config.yaml
 
 # Inference
-uvx --from "sleap-nn[torch]" --torch-backend auto sleap-nn track -i video.mp4 -m models/
+uvx --from sleap-nn --torch-backend auto sleap-nn track -i video.mp4 -m models/
 ```
 
 !!! tip "Always latest"
@@ -200,30 +210,38 @@ conda activate sleap-nn
 
 **Install with GPU support:**
 
+=== "Default (PyPI)"
+    ```bash
+    pip install sleap-nn
+    ```
+
+    !!! note
+        PyTorch wheels on PyPI include CUDA support on Linux and Windows. This is the simplest option and works for most users.
+
 === "CUDA 12.8"
     ```bash
-    pip install sleap-nn[torch] \
+    pip install sleap-nn \
         --index-url https://pypi.org/simple \
         --extra-index-url https://download.pytorch.org/whl/cu128
     ```
 
 === "CUDA 11.8"
     ```bash
-    pip install sleap-nn[torch] \
+    pip install sleap-nn \
         --index-url https://pypi.org/simple \
         --extra-index-url https://download.pytorch.org/whl/cu118
     ```
 
 === "CPU Only"
     ```bash
-    pip install sleap-nn[torch] \
+    pip install sleap-nn \
         --index-url https://pypi.org/simple \
         --extra-index-url https://download.pytorch.org/whl/cpu
     ```
 
 === "macOS"
     ```bash
-    pip install "sleap-nn[torch]"
+    pip install sleap-nn
     ```
 
 !!! tip "Other CUDA versions"
@@ -257,11 +275,20 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 **Step 3: Install in development mode**
 
 ```bash
-uv sync --extra torch-cuda130
+uv sync --extra gpu
 ```
 
-!!! tip "Other backends"
-    Replace `torch-cuda130` with `torch-cuda128`, `torch-cpu`, or `torch` (macOS) as needed.
+This installs with CUDA 13.0 support. Other backends:
+
+| Extra | Backend |
+|-------|---------|
+| `--extra gpu` | CUDA 13.0 (alias for `torch-cuda130`) |
+| `--extra cpu` | CPU-only (alias for `torch-cpu`) |
+| `--extra torch-cuda128` | CUDA 12.8 |
+| `--extra torch-cuda118` | CUDA 11.8 |
+
+!!! note
+    On macOS, use `--extra cpu` — the MPS backend is automatically available.
 
 **Step 4: Run commands**
 
@@ -322,15 +349,15 @@ See [Contributing](https://github.com/talmolab/sleap-nn/blob/main/CONTRIBUTING.m
 
     3. **Reinstall with explicit CUDA version:**
        ```bash
-       uv tool install sleap-nn[torch] --torch-backend cu128 --reinstall
+       uv tool install sleap-nn --torch-backend cu128 --reinstall
        ```
 
 ??? question "Import errors or missing modules"
 
-    Reinstall with the torch extras:
+    Reinstall sleap-nn:
 
     ```bash
-    uv tool install sleap-nn[torch] --torch-backend auto --reinstall
+    uv tool install sleap-nn --torch-backend auto --reinstall
     ```
 
 ??? question "Wrong Python version"
@@ -338,7 +365,7 @@ See [Contributing](https://github.com/talmolab/sleap-nn/blob/main/CONTRIBUTING.m
     Specify the Python version explicitly:
 
     ```bash
-    uv tool install --python 3.13 sleap-nn[torch] --torch-backend auto
+    uv tool install --python 3.13 sleap-nn --torch-backend auto
     ```
 
 ??? question "uv version too old"
