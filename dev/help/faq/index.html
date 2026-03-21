@@ -5687,7 +5687,7 @@ The directory should contain <code>best_model.h5</code> and <code>training_confi
 <details class="question">
 <summary>Which CUDA version do I need?</summary>
 <p>PyTorch 2.10 supports CUDA 12.6, 12.8, and 13.0. Use <code>--torch-backend auto</code> to auto-detect:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--torch-backend<span class="w"> </span>auto
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="w"> </span>--torch-backend<span class="w"> </span>auto
 </span></code></pre></div>
 <p><strong>For RTX 50-series (Blackwell) GPUs</strong>: You need CUDA 12.8 or higher and driver R570+. These GPUs have compute capability 10.0/12.0 which requires the latest PyTorch builds.</p>
 <p><strong>For older GPUs</strong> (GTX 10-series, Quadro P-series): You may need to use older PyTorch versions or export to ONNX for CPU inference, as newer PyTorch versions have dropped support for Pascal architecture (compute capability 6.x).</p>
@@ -5766,7 +5766,7 @@ This shows GPU details and runs diagnostic tests. You should see your GPU listed
 </span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">())</span>
 </span></code></pre></div></li>
 <li>Reinstall with correct CUDA version:
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--torch-backend<span class="w"> </span>cu126<span class="w"> </span>--reinstall
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="w"> </span>--torch-backend<span class="w"> </span>cu126<span class="w"> </span>--reinstall
 </span></code></pre></div></li>
 </ol>
 </details>
