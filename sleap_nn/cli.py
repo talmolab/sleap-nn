@@ -1009,6 +1009,28 @@ def system():
     print_system_info()
 
 
+@cli.command(context_settings=CONTEXT_SETTINGS)
+@click.argument("path", type=str)
+def info(path):
+    """Display model configuration and evaluation metrics.
+
+    PATH can be a trained model directory or a training config YAML file.
+
+    If a model directory is given, shows config summary, training results,
+    evaluation metrics (if available), and files in the directory.
+
+    If a config YAML is given, shows only the config summary.
+
+    Examples:
+        sleap-nn info path/to/model_dir
+
+        sleap-nn info path/to/training_config.yaml
+    """
+    from sleap_nn.model_info import print_model_info
+
+    print_model_info(path)
+
+
 def _register_export_commands():
     """Lazily import and register export subcommands."""
     from sleap_nn.export.cli import export as export_command
