@@ -8,52 +8,11 @@ import json
 import shutil
 
 import click
-import torch
 
-from sleap_nn.export.exporters import export_to_onnx, export_to_tensorrt
-from sleap_nn.export.metadata import (
-    build_base_metadata,
-    embed_metadata_in_onnx,
-    hash_file,
-)
-from sleap_nn.export.utils import (
-    load_training_config,
-    resolve_anchor_part,
-    resolve_backbone_type,
-    resolve_class_maps_output_stride,
-    resolve_class_names,
-    resolve_crop_size,
-    resolve_edge_inds,
-    resolve_input_channels,
-    resolve_input_scale,
-    resolve_input_shape,
-    resolve_model_type,
-    resolve_n_classes,
-    resolve_node_names,
-    resolve_output_stride,
-    resolve_pafs_output_stride,
-)
-from sleap_nn.export.wrappers import (
-    BottomUpMultiClassONNXWrapper,
-    BottomUpONNXWrapper,
-    CenteredInstanceONNXWrapper,
-    CentroidONNXWrapper,
-    SingleInstanceONNXWrapper,
-    TopDownMultiClassCombinedONNXWrapper,
-    TopDownMultiClassONNXWrapper,
-    TopDownONNXWrapper,
-)
-from sleap_nn.training.lightning_modules import (
-    BottomUpLightningModule,
-    BottomUpMultiClassLightningModule,
-    CentroidLightningModule,
-    SingleInstanceLightningModule,
-    TopDownCenteredInstanceLightningModule,
-    TopDownCenteredInstanceMultiClassLightningModule,
-)
+CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 
-@click.command()
+@click.command(context_settings=CONTEXT_SETTINGS)
 @click.argument(
     "model_paths",
     nargs=-1,
@@ -122,6 +81,42 @@ def export(
     verify: bool,
 ) -> None:
     """Export trained models to ONNX/TensorRT formats."""
+    import torch
+
+    from sleap_nn.export.exporters import export_to_onnx, export_to_tensorrt
+    from sleap_nn.export.metadata import (
+        build_base_metadata,
+        embed_metadata_in_onnx,
+        hash_file,
+    )
+    from sleap_nn.export.utils import (
+        load_training_config,
+        resolve_anchor_part,
+        resolve_backbone_type,
+        resolve_class_maps_output_stride,
+        resolve_class_names,
+        resolve_crop_size,
+        resolve_edge_inds,
+        resolve_input_channels,
+        resolve_input_scale,
+        resolve_input_shape,
+        resolve_model_type,
+        resolve_n_classes,
+        resolve_node_names,
+        resolve_output_stride,
+        resolve_pafs_output_stride,
+    )
+    from sleap_nn.export.wrappers import (
+        BottomUpMultiClassONNXWrapper,
+        BottomUpONNXWrapper,
+        CenteredInstanceONNXWrapper,
+        CentroidONNXWrapper,
+        SingleInstanceONNXWrapper,
+        TopDownMultiClassCombinedONNXWrapper,
+        TopDownMultiClassONNXWrapper,
+        TopDownONNXWrapper,
+    )
+
     fmt = fmt.lower()
 
     if not model_paths:
@@ -825,7 +820,7 @@ def export(
     )
 
 
-@click.command()
+@click.command(context_settings=CONTEXT_SETTINGS)
 @click.argument(
     "export_dir",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
@@ -1046,6 +1041,15 @@ def _load_lightning_model(
     ckpt_path: Path,
     device: str,
 ):
+    from sleap_nn.training.lightning_modules import (
+        BottomUpLightningModule,
+        BottomUpMultiClassLightningModule,
+        CentroidLightningModule,
+        SingleInstanceLightningModule,
+        TopDownCenteredInstanceLightningModule,
+        TopDownCenteredInstanceMultiClassLightningModule,
+    )
+
     lightning_cls = {
         "centroid": CentroidLightningModule,
         "centered_instance": TopDownCenteredInstanceLightningModule,
