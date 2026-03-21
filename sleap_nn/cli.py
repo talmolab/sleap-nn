@@ -102,10 +102,12 @@ class LazyGroup(click.RichGroup):
     _export_loaded = False
 
     def list_commands(self, ctx):
+        """List all commands, loading export subcommands on first access."""
         self._ensure_export_loaded()
         return super().list_commands(ctx)
 
     def get_command(self, ctx, cmd_name):
+        """Get a command by name, loading export subcommands on first access."""
         self._ensure_export_loaded()
         return super().get_command(ctx, cmd_name)
 
