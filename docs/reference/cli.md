@@ -22,6 +22,7 @@ Complete command-line interface documentation.
 | [`sleap-nn export`](#sleap-nn-export) | Export to ONNX/TensorRT |
 | [`sleap-nn predict`](#sleap-nn-predict) | Inference on exported models |
 | [`sleap-nn config`](#sleap-nn-config) | Generate training configs (experimental) |
+| [`sleap-nn info`](#sleap-nn-info) | Inspect trained models |
 | [`sleap-nn system`](#sleap-nn-system) | System diagnostics |
 
 ---
@@ -304,6 +305,42 @@ For **top-down** pipelines, two config files are generated:
 For other pipelines, a single config file is generated.
 
 See the [Config Generator Guide](../guides/config-generator.md) for detailed usage.
+
+---
+
+## `sleap-nn info`
+
+Inspect a trained model directory or training config file. Shows model architecture, data settings, training configuration, training results, evaluation metrics, and files.
+
+```bash
+sleap-nn info PATH
+```
+
+`PATH` can be either:
+
+- A **trained model directory** — shows full summary including training results, evaluation metrics, and files
+- A **training config YAML file** — shows config summary only
+
+### Output Sections
+
+| Section | Shown when |
+|---------|------------|
+| **Model Info** | Always — model type, backbone, head, parameters, skeleton |
+| **Data** | Always — training/val data paths, preprocessing, augmentations |
+| **Training** | Always — optimizer, epochs, batch size, LR scheduler, early stopping |
+| **Training Results** | Model directory with `training_log.csv` — epochs trained, losses |
+| **Evaluation Metrics** | Model directory with metrics `.npz` files — mOKS, mAP, distances, PCK |
+| **Files** | Model directory — file listing with sizes |
+
+### Examples
+
+```bash
+# Inspect a trained model
+sleap-nn info models/my_training_run/
+
+# View config only
+sleap-nn info training_config.yaml
+```
 
 ---
 

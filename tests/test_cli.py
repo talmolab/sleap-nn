@@ -211,6 +211,67 @@ class TestEvalCommand:
         )
 
 
+class TestInfoCommand:
+    """Tests for info command using CliRunner."""
+
+    ASSETS = Path(__file__).parent / "assets" / "model_ckpts"
+    MODEL_WITH_METRICS = ASSETS / "single_instance_with_metrics"
+    MODEL_NO_METRICS = ASSETS / "minimal_instance_single_instance"
+
+    def test_info_in_help(self):
+        """Test that info command appears in main help."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--help"])
+        assert "info" in result.output
+
+    def test_info_help(self):
+        """Test info command help output."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["info", "--help"])
+        assert result.exit_code == 0
+        assert "model directory" in result.output.lower()
+
+    def test_info_model_dir(self):
+        """Test info command on a model directory with metrics."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["info", str(self.MODEL_WITH_METRICS)])
+        assert result.exit_code == 0
+        assert "Single Instance" in result.output
+        assert "UNet" in result.output
+        assert "1.3M" in result.output
+        assert "Training Results" in result.output
+        assert "Evaluation Metrics" in result.output
+        assert "Files" in result.output
+
+    def test_info_config_yaml(self):
+        """Test info command on a config YAML file."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["info", str(self.MODEL_NO_METRICS / "training_config.yaml")],
+        )
+        assert result.exit_code == 0
+        assert "Single Instance" in result.output
+        assert "UNet" in result.output
+        # Config-only mode should not show model-dir sections
+        assert "Training Results" not in result.output
+        assert "Files" not in result.output
+
+    def test_info_model_dir_no_metrics(self):
+        """Test info on model dir without metrics files."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["info", str(self.MODEL_NO_METRICS)])
+        assert result.exit_code == 0
+        assert "Single Instance" in result.output
+        assert "Evaluation Metrics" not in result.output
+
+    def test_info_nonexistent_path(self):
+        """Test info command with nonexistent path fails."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["info", "/nonexistent/path"])
+        assert result.exit_code != 0
+
+
 # =============================================================================
 # Subprocess-based tests (integration tests, run external process)
 # =============================================================================
