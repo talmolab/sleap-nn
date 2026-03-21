@@ -179,7 +179,7 @@ class TestTrackCommand:
         """Test track command with empty frames string."""
         runner = CliRunner()
         # Mock run_inference to avoid actual inference
-        with patch("sleap_nn.cli.run_inference") as mock_inference:
+        with patch("sleap_nn.predict.run_inference") as mock_inference:
             mock_inference.return_value = None
             result = runner.invoke(
                 cli,

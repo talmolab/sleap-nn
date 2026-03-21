@@ -2,25 +2,17 @@
 
 import __main__
 import subprocess
+import sys
 import tempfile
 import shutil
 from datetime import datetime
+from pathlib import Path
 
 import rich_click as click
 from click import Command
 from loguru import logger
-from pathlib import Path
-from omegaconf import OmegaConf, DictConfig
-import sleap_io as sio
-from sleap_nn.predict import run_inference, frame_list
-from sleap_nn.evaluation import run_evaluation
-from sleap_nn.export.cli import export as export_command
-from sleap_nn.export.cli import predict as predict_command
-from sleap_nn.train import run_training
+
 from sleap_nn import __version__
-from sleap_nn.config.utils import get_model_type_from_cfg
-import hydra
-import sys
 
 
 def _needs_module_respawn() -> bool:
@@ -101,7 +93,31 @@ def parse_path_map(ctx, param, value):
     return result
 
 
-@click.group()
+CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
+
+
+class LazyGroup(click.RichGroup):
+    """Click group that lazily loads export subcommands on first use."""
+
+    _export_loaded = False
+
+    def list_commands(self, ctx):
+        """List all commands, loading export subcommands on first access."""
+        self._ensure_export_loaded()
+        return super().list_commands(ctx)
+
+    def get_command(self, ctx, cmd_name):
+        """Get a command by name, loading export subcommands on first access."""
+        self._ensure_export_loaded()
+        return super().get_command(ctx, cmd_name)
+
+    def _ensure_export_loaded(self):
+        if not self._export_loaded:
+            LazyGroup._export_loaded = True
+            _register_export_commands()
+
+
+@click.group(cls=LazyGroup, context_settings=CONTEXT_SETTINGS)
 @click.option(
     "--version",
     "-v",
@@ -124,7 +140,7 @@ def cli():
     pass
 
 
-def _get_num_devices_from_config(cfg: DictConfig) -> int:
+def _get_num_devices_from_config(cfg) -> int:
     """Determine the number of devices from config.
 
     User preferences take precedence over auto-detection:
@@ -136,6 +152,7 @@ def _get_num_devices_from_config(cfg: DictConfig) -> int:
         Number of devices to use for training.
     """
     import torch
+    from omegaconf import OmegaConf
 
     # User preference: explicit device indices (highest priority)
     device_indices = OmegaConf.select(
@@ -168,11 +185,15 @@ def _get_num_devices_from_config(cfg: DictConfig) -> int:
     return 1
 
 
-def _finalize_config(cfg: DictConfig) -> DictConfig:
+def _finalize_config(cfg):
     """Finalize configuration by generating run_name if not provided.
 
     This runs ONCE before subprocess, ensuring all workers get the same run_name.
     """
+    import sleap_io as sio
+    from omegaconf import OmegaConf
+    from sleap_nn.config.utils import get_model_type_from_cfg
+
     # Resolve ckpt_dir first
     ckpt_dir = OmegaConf.select(cfg, "trainer_config.ckpt_dir", default=None)
     if ckpt_dir is None or ckpt_dir == "" or ckpt_dir == "None":
@@ -266,7 +287,7 @@ sleap-nn train --config-dir /path/to/dir --config-name myrun
     )
 
 
-@cli.command(cls=TrainCommand)
+@cli.command(cls=TrainCommand, context_settings=CONTEXT_SETTINGS)
 @click.option(
     "--config",
     type=str,
@@ -333,6 +354,11 @@ def train(
         sleap-nn train --config path/to/config.yaml trainer_config.max_epochs=100
         sleap-nn train config.yaml trainer_config.trainer_devices=4
     """
+    import hydra
+    import sleap_io as sio
+    from omegaconf import OmegaConf
+    from sleap_nn.train import run_training
+
     # Convert overrides to a mutable list
     overrides = list(overrides)
 
@@ -508,7 +534,7 @@ def train(
         run_training(config=cfg, train_labels=train_labels, val_labels=val_labels)
 
 
-@cli.command()
+@cli.command(context_settings=CONTEXT_SETTINGS)
 @click.option(
     "--data_path",
     "-i",
@@ -915,6 +941,8 @@ def train(
 )
 def track(**kwargs):
     """Run Inference and Tracking workflow."""
+    from sleap_nn.predict import run_inference, frame_list
+
     # Convert model_paths from tuple to list
     if "model_paths" in kwargs and kwargs["model_paths"]:
         kwargs["model_paths"] = list(kwargs["model_paths"])
@@ -931,7 +959,7 @@ def track(**kwargs):
     return run_inference(**kwargs)
 
 
-@cli.command()
+@cli.command(context_settings=CONTEXT_SETTINGS)
 @click.option(
     "--ground_truth_path",
     "-g",
@@ -964,10 +992,12 @@ def track(**kwargs):
 )
 def eval(**kwargs):
     """Run evaluation workflow."""
+    from sleap_nn.evaluation import run_evaluation
+
     run_evaluation(**kwargs)
 
 
-@cli.command()
+@cli.command(context_settings=CONTEXT_SETTINGS)
 def system():
     """Display system information and GPU status.
 
@@ -979,11 +1009,16 @@ def system():
     print_system_info()
 
 
-cli.add_command(export_command)
-cli.add_command(predict_command)
+def _register_export_commands():
+    """Lazily import and register export subcommands."""
+    from sleap_nn.export.cli import export as export_command
+    from sleap_nn.export.cli import predict as predict_command
+
+    cli.add_command(export_command)
+    cli.add_command(predict_command)
 
 
-@cli.command()
+@cli.command(context_settings=CONTEXT_SETTINGS)
 @click.argument("slp_path", type=str, required=False, default=None)
 @click.option(
     "--output",
