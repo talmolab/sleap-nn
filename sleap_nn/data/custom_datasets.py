@@ -23,6 +23,7 @@ from rich.progress import (
 )
 from rich.console import Console
 import torch
+import torch.nn.functional as F
 import torchvision.transforms as T
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
 import sleap_io as sio
@@ -48,6 +49,7 @@ from sleap_nn.data.augmentation import (
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.edge_maps import generate_pafs
 from sleap_nn.data.segmentation_maps import (
+    _compute_mask_centroids,
     generate_foreground_mask,
     generate_center_heatmap,
     generate_center_offsets,
@@ -2138,6 +2140,43 @@ class BottomUpSegmentationDataset(BaseDataset):
         self.seg_head_config = seg_head_config
         self.center_head_config = center_head_config
         self.offset_head_config = offset_head_config
+        self._warned_geometric_aug = False
+
+    def _apply_common_preprocessing(self, sample: Dict) -> Dict:
+        """Apply common preprocessing, skipping geometric augmentation.
+
+        Geometric augmentation spatially transforms the image but cannot be
+        applied to segmentation masks (which are loaded separately). This
+        override disables geometric augmentation and logs a warning when it
+        was configured but skipped.
+
+        Args:
+            sample: Sample dict with at least ``image`` and ``instances`` keys.
+
+        Returns:
+            The sample dict with preprocessing applied in-place.
+        """
+        if (
+            self.apply_aug
+            and self.geometric_aug is not None
+            and not self._warned_geometric_aug
+        ):
+            logger.warning(
+                "Geometric augmentation is configured but not supported for "
+                "BottomUpSegmentationDataset because masks cannot be spatially "
+                "transformed in sync with the image. Geometric augmentation "
+                "will be skipped; only intensity augmentation will be applied."
+            )
+            self._warned_geometric_aug = True
+
+        # Temporarily disable geometric aug, then call base implementation
+        saved_geometric_aug = self.geometric_aug
+        self.geometric_aug = None
+        try:
+            sample = super()._apply_common_preprocessing(sample)
+        finally:
+            self.geometric_aug = saved_geometric_aug
+        return sample
 
     def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
         """Return list of indices of frames that have segmentation masks.
@@ -2216,12 +2255,7 @@ class BottomUpSegmentationDataset(BaseDataset):
             "num_instances": 0,
         }
 
-        # Apply common preprocessing (RGB/grayscale, size matching, scaling, padding)
-        sample_dict = self._apply_common_preprocessing(sample_dict)
-
-        img_hw = sample_dict["image"].shape[-2:]
-
-        # Load masks for this frame
+        # Load masks for this frame (before preprocessing so we can resize them)
         label = self.labels_list[labels_idx]
         video = label.videos[video_idx]
         frame_masks = label.get_masks(video=video, frame_idx=frame_idx)
@@ -2229,6 +2263,33 @@ class BottomUpSegmentationDataset(BaseDataset):
         mask_arrays = []
         for m in frame_masks:
             mask_arrays.append(m.data)
+
+        # Record original image size before preprocessing
+        orig_img_hw = (image.shape[-2], image.shape[-1])
+
+        # Apply common preprocessing (RGB/grayscale, size matching, scaling, padding)
+        sample_dict = self._apply_common_preprocessing(sample_dict)
+
+        img_hw = sample_dict["image"].shape[-2:]
+
+        # Resize masks to match preprocessed image dimensions if size changed
+        if img_hw != orig_img_hw and len(mask_arrays) > 0:
+            target_h, target_w = img_hw
+            resized_masks = []
+            for m in mask_arrays:
+                # Convert mask to float tensor: (1, 1, H, W)
+                m_tensor = (
+                    torch.from_numpy(m.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+                )
+                m_resized = F.interpolate(
+                    m_tensor, size=(target_h, target_w), mode="area"
+                )
+                # Threshold back to binary
+                resized_masks.append((m_resized.squeeze().numpy() > 0.5))
+            mask_arrays = resized_masks
+
+        # Pre-compute mask centroids once for both center heatmap and offset heads
+        centers = _compute_mask_centroids(mask_arrays) if len(mask_arrays) > 0 else []
 
         # Generate GT tensors
         foreground_mask = generate_foreground_mask(
@@ -2242,12 +2303,14 @@ class BottomUpSegmentationDataset(BaseDataset):
             img_hw=img_hw,
             output_stride=self.center_head_config.output_stride,
             sigma=self.center_head_config.sigma,
+            centers=centers,
         )
 
         center_offsets, foreground_weight = generate_center_offsets(
             mask_arrays,
             img_hw=img_hw,
             output_stride=self.offset_head_config.output_stride,
+            centers=centers,
         )
 
         sample_dict["foreground_mask"] = foreground_mask

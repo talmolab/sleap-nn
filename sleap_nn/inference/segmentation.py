@@ -27,7 +27,6 @@ def group_instances_from_offsets(
         offsets: Offset field (dx, dy). Shape: (1, 2, H, W).
         fg_threshold: Threshold for foreground binarization.
         peak_threshold: Minimum peak value for center detection.
-        nms_kernel_size: Kernel size for non-maximum suppression.
         output_stride: Stride of the output maps relative to the input image.
 
     Returns:

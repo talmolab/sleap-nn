@@ -3,6 +3,7 @@
 from typing import Optional, Union, Dict, Any, List
 import time
 from torch import nn
+import torch.nn.functional as F
 import numpy as np
 import torch
 from omegaconf import OmegaConf, DictConfig
@@ -2623,7 +2624,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
         pred_offsets = preds["CenterOffsetHead"]
 
         fg_loss = compute_bce_dice_loss(pred_fg, y_fg)
-        center_loss = nn.MSELoss()(pred_center, y_center)
+        center_loss = F.mse_loss(pred_center, y_center)
         offset_loss = compute_masked_smooth_l1(pred_offsets, y_offsets, y_weight)
 
         losses = {
@@ -2671,7 +2672,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
         pred_offsets = preds["CenterOffsetHead"]
 
         fg_loss = compute_bce_dice_loss(pred_fg, y_fg)
-        center_loss = nn.MSELoss()(pred_center, y_center)
+        center_loss = F.mse_loss(pred_center, y_center)
         offset_loss = compute_masked_smooth_l1(pred_offsets, y_offsets, y_weight)
 
         losses = {

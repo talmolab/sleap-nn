@@ -4049,10 +4049,6 @@ class BottomUpSegmentationPredictor(Predictor):
             batch_size=batch_size,
         )
 
-    @classmethod
-    def from_trained_models(cls, *args, **kwargs):
-        """Initialize the Predictor class for certain type of model."""
-
     def make_pipeline(
         self,
         data_path: str,

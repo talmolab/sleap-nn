@@ -1,6 +1,6 @@
 """Generate ground truth tensors for instance segmentation from SegmentationMask objects."""
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -55,6 +55,7 @@ def generate_center_heatmap(
     img_hw: Tuple[int, int],
     output_stride: int = 2,
     sigma: float = 10.0,
+    centers: Optional[List[Tuple[float, float]]] = None,
 ) -> torch.Tensor:
     """Generate Gaussian heatmap at each instance mask centroid.
 
@@ -63,6 +64,8 @@ def generate_center_heatmap(
         img_hw: Original image size as (height, width).
         output_stride: Stride for downsampling the output.
         sigma: Standard deviation of the Gaussian in pixels (at original resolution).
+        centers: Pre-computed list of (x, y) centroid coordinates. If None, centroids
+            will be computed from masks via ``_compute_mask_centroids``.
 
     Returns:
         Tensor of shape (1, 1, H/s, W/s) with float32 values.
@@ -74,8 +77,9 @@ def generate_center_heatmap(
     if len(masks) == 0:
         return torch.zeros((1, 1, out_h, out_w), dtype=torch.float32)
 
-    # Compute centroids of each mask
-    centers = _compute_mask_centroids(masks)  # (N, 2) in (x, y) pixel coords
+    # Compute centroids of each mask if not provided
+    if centers is None:
+        centers = _compute_mask_centroids(masks)  # (N, 2) in (x, y) pixel coords
 
     # Build heatmap as max of Gaussians
     heatmap = torch.zeros((1, 1, out_h, out_w), dtype=torch.float32)
@@ -96,6 +100,7 @@ def generate_center_offsets(
     masks: List[np.ndarray],
     img_hw: Tuple[int, int],
     output_stride: int = 2,
+    centers: Optional[List[Tuple[float, float]]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Generate per-pixel offset vectors pointing to each pixel's instance center.
 
@@ -103,6 +108,8 @@ def generate_center_offsets(
         masks: List of 2D boolean arrays (H, W), one per instance.
         img_hw: Original image size as (height, width).
         output_stride: Stride for downsampling the output.
+        centers: Pre-computed list of (x, y) centroid coordinates. If None, centroids
+            will be computed from masks via ``_compute_mask_centroids``.
 
     Returns:
         Tuple of:
@@ -121,7 +128,8 @@ def generate_center_offsets(
     if len(masks) == 0:
         return offsets, weight_mask
 
-    centers = _compute_mask_centroids(masks)
+    if centers is None:
+        centers = _compute_mask_centroids(masks)
 
     # Create coordinate grids at output stride resolution
     # Grid values are in original pixel coordinates
@@ -140,7 +148,7 @@ def generate_center_offsets(
             m_ds = F.interpolate(m_tensor, size=(out_h, out_w), mode="area")
         else:
             m_ds = m_tensor
-        m_binary = m_ds.squeeze() > 0.5  # (out_h, out_w)
+        m_binary = m_ds[0, 0] > 0.5  # (out_h, out_w)
 
         cx, cy = centers[i]
 
