@@ -34,7 +34,11 @@ from sleap_nn.inference.bottomup import (
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.architectures.model import Model
 from sleap_nn.data.normalization import normalize_on_gpu
-from sleap_nn.training.losses import compute_ohkm_loss
+from sleap_nn.training.losses import (
+    compute_ohkm_loss,
+    compute_bce_dice_loss,
+    compute_masked_smooth_l1,
+)
 from loguru import logger
 from sleap_nn.training.utils import (
     xavier_init_weights,
@@ -291,10 +295,11 @@ class LightningModel(L.LightningModule):
             "bottomup": BottomUpLightningModule,
             "multi_class_bottomup": BottomUpMultiClassLightningModule,
             "multi_class_topdown": TopDownCenteredInstanceMultiClassLightningModule,
+            "bottomup_segmentation": BottomUpSegmentationLightningModule,
         }
 
         if model_type not in lightning_models:
-            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`]"
+            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`]"
             logger.error(message)
             raise ValueError(message)
 
@@ -2541,3 +2546,160 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                         "num_instances": 1,
                     }
                 )
+
+
+class BottomUpSegmentationLightningModule(LightningModel):
+    """Lightning Module for Bottom-Up Instance Segmentation.
+
+    Predicts foreground masks, instance center heatmaps, and per-pixel offset
+    vectors for grouping pixels into instances.
+    """
+
+    def __init__(
+        self,
+        model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
+        negative_loss_weight: Optional[float] = 1.0,
+    ):
+        """Initialise the configs and the model."""
+        super().__init__(
+            model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
+            negative_loss_weight=negative_loss_weight,
+        )
+
+    def forward(self, img):
+        """Forward pass of the model."""
+        img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
+        output = self.model(img)
+        return {
+            "SegmentationHead": output["SegmentationHead"],
+            "InstanceCenterHead": output["InstanceCenterHead"],
+            "CenterOffsetHead": output["CenterOffsetHead"],
+        }
+
+    def training_step(self, batch, batch_idx):
+        """Training step."""
+        X = torch.squeeze(batch["image"], dim=1)
+        y_fg = torch.squeeze(batch["foreground_mask"], dim=1)
+        y_center = torch.squeeze(batch["center_heatmap"], dim=1)
+        y_offsets = torch.squeeze(batch["center_offsets"], dim=1)
+        y_weight = torch.squeeze(batch["foreground_weight"], dim=1)
+
+        X = normalize_on_gpu(X)
+        preds = self.model(X)
+
+        pred_fg = preds["SegmentationHead"]
+        pred_center = preds["InstanceCenterHead"]
+        pred_offsets = preds["CenterOffsetHead"]
+
+        fg_loss = compute_bce_dice_loss(pred_fg, y_fg)
+        center_loss = nn.MSELoss()(pred_center, y_center)
+        offset_loss = compute_masked_smooth_l1(pred_offsets, y_offsets, y_weight)
+
+        losses = {
+            "SegmentationHead": fg_loss,
+            "InstanceCenterHead": center_loss,
+            "CenterOffsetHead": offset_loss,
+        }
+        loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
+
+        self.log(
+            "loss", loss, prog_bar=True, on_step=True, on_epoch=False, sync_dist=True
+        )
+        self._accumulate_loss(loss)
+        self.log("train/fg_loss", fg_loss, on_step=False, on_epoch=True, sync_dist=True)
+        self.log(
+            "train/center_loss",
+            center_loss,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        self.log(
+            "train/offset_loss",
+            offset_loss,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step."""
+        X = torch.squeeze(batch["image"], dim=1)
+        y_fg = torch.squeeze(batch["foreground_mask"], dim=1)
+        y_center = torch.squeeze(batch["center_heatmap"], dim=1)
+        y_offsets = torch.squeeze(batch["center_offsets"], dim=1)
+        y_weight = torch.squeeze(batch["foreground_weight"], dim=1)
+
+        X = normalize_on_gpu(X)
+        preds = self.model(X)
+
+        pred_fg = preds["SegmentationHead"]
+        pred_center = preds["InstanceCenterHead"]
+        pred_offsets = preds["CenterOffsetHead"]
+
+        fg_loss = compute_bce_dice_loss(pred_fg, y_fg)
+        center_loss = nn.MSELoss()(pred_center, y_center)
+        offset_loss = compute_masked_smooth_l1(pred_offsets, y_offsets, y_weight)
+
+        losses = {
+            "SegmentationHead": fg_loss,
+            "InstanceCenterHead": center_loss,
+            "CenterOffsetHead": offset_loss,
+        }
+        val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
+
+        self.log(
+            "val_loss",
+            val_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        self.log("val/fg_loss", fg_loss, on_step=False, on_epoch=True, sync_dist=True)
+        self.log(
+            "val/center_loss", center_loss, on_step=False, on_epoch=True, sync_dist=True
+        )
+        self.log(
+            "val/offset_loss", offset_loss, on_step=False, on_epoch=True, sync_dist=True
+        )
+
+        # Compute foreground IoU metric
+        pred_fg_binary = (pred_fg > 0.5).float()
+        intersection = (pred_fg_binary * y_fg).sum()
+        union = pred_fg_binary.sum() + y_fg.sum() - intersection
+        iou = intersection / (union + 1e-6)
+        self.log("val/fg_iou", iou, on_step=False, on_epoch=True, sync_dist=True)

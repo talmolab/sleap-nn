@@ -594,3 +594,96 @@ class OffsetRefinementHead(Head):
             sigma_threshold=sigma_threshold,
             loss_weight=loss_weight,
         )
+
+
+class SegmentationHead(Head):
+    """Head for predicting binary foreground segmentation masks.
+
+    Outputs a single-channel map with sigmoid activation representing the
+    probability that each pixel belongs to any instance (foreground).
+
+    Attributes:
+        output_stride: Stride of the output head tensor.
+        loss_weight: Weight of the loss term for this head during optimization.
+    """
+
+    def __init__(
+        self,
+        output_stride: int = 2,
+        loss_weight: float = 1.0,
+    ) -> None:
+        """Initialize the object with the specified attributes."""
+        super().__init__(output_stride, loss_weight)
+
+    @property
+    def channels(self) -> int:
+        """Return the number of channels in the tensor output by this head."""
+        return 1
+
+    @property
+    def activation(self) -> str:
+        """Return the activation function of the head output layer."""
+        return "sigmoid"
+
+    @property
+    def loss_function(self) -> str:
+        """Return the name of the loss function to use for this head."""
+        return "bce_dice"
+
+
+class InstanceCenterHead(Head):
+    """Head for predicting instance center heatmaps.
+
+    Outputs a single-channel Gaussian heatmap with peaks at each instance's
+    mask centroid. Similar to CentroidConfmapsHead but for mask-derived centers.
+
+    Attributes:
+        sigma: Standard deviation of the Gaussian in pixels.
+        output_stride: Stride of the output head tensor.
+        loss_weight: Weight of the loss term for this head during optimization.
+    """
+
+    def __init__(
+        self,
+        sigma: float = 10.0,
+        output_stride: int = 2,
+        loss_weight: float = 1.0,
+    ) -> None:
+        """Initialize the object with the specified attributes."""
+        super().__init__(output_stride, loss_weight)
+        self.sigma = sigma
+
+    @property
+    def channels(self) -> int:
+        """Return the number of channels in the tensor output by this head."""
+        return 1
+
+
+class CenterOffsetHead(Head):
+    """Head for predicting per-pixel offset vectors to instance centers.
+
+    Outputs a 2-channel map where each pixel's value is (dx, dy) pointing
+    from the pixel to its instance's center. Only meaningful on foreground pixels.
+
+    Attributes:
+        output_stride: Stride of the output head tensor.
+        loss_weight: Weight of the loss term for this head during optimization.
+    """
+
+    def __init__(
+        self,
+        output_stride: int = 2,
+        loss_weight: float = 0.1,
+    ) -> None:
+        """Initialize the object with the specified attributes."""
+        super().__init__(output_stride, loss_weight)
+
+    @property
+    def channels(self) -> int:
+        """Return the number of channels in the tensor output by this head."""
+        return 2
+
+    @property
+    def loss_function(self) -> str:
+        """Return the name of the loss function to use for this head."""
+        return "smooth_l1"

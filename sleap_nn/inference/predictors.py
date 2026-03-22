@@ -30,12 +30,14 @@ from sleap_nn.training.lightning_modules import (
     BottomUpLightningModule,
     BottomUpMultiClassLightningModule,
     TopDownCenteredInstanceMultiClassLightningModule,
+    BottomUpSegmentationLightningModule,
 )
 from sleap_nn.inference.single_instance import SingleInstanceInferenceModel
 from sleap_nn.inference.bottomup import (
     BottomUpInferenceModel,
     BottomUpMultiClassInferenceModel,
 )
+from sleap_nn.inference.segmentation import BottomUpSegmentationInferenceModel
 from sleap_nn.inference.topdown import (
     CentroidCrop,
     FindInstancePeaks,
@@ -399,6 +401,18 @@ class Predictor(ABC):
                 filter_min_visible_node_fraction=filter_min_visible_node_fraction,
                 filter_min_mean_node_score=filter_min_mean_node_score,
                 filter_min_instance_score=filter_min_instance_score,
+            )
+
+        elif "bottomup_segmentation" in model_names:
+            seg_ckpt_path = model_paths[model_names.index("bottomup_segmentation")]
+            predictor = BottomUpSegmentationPredictor.from_trained_models(
+                seg_ckpt_path=seg_ckpt_path,
+                backbone_ckpt_path=backbone_ckpt_path,
+                head_ckpt_path=head_ckpt_path,
+                peak_threshold=peak_threshold,
+                batch_size=batch_size,
+                device=device,
+                preprocess_config=preprocess_config,
             )
 
         else:
@@ -3962,3 +3976,98 @@ class TopDownMultiClassPredictor(Predictor):
             labeled_frames=predicted_frames,
         )
         return pred_labels
+
+
+class BottomUpSegmentationPredictor(Predictor):
+    """Predictor for bottom-up instance segmentation models.
+
+    This predictor loads a trained segmentation model and runs inference to
+    produce per-instance binary masks stored as ``sio.SegmentationMask`` objects.
+    """
+
+    def __init__(
+        self,
+        inference_model: BottomUpSegmentationInferenceModel,
+        preprocess: bool = True,
+        preprocess_config: dict = None,
+        max_stride: int = 16,
+        batch_size: int = 4,
+    ):
+        """Initialize the predictor."""
+        super().__init__(
+            preprocess=preprocess,
+            preprocess_config=preprocess_config,
+        )
+        self.inference_model = inference_model
+        self.max_stride = max_stride
+        self.batch_size = batch_size
+        self.videos = []
+
+    @classmethod
+    def from_trained_models(
+        cls,
+        seg_ckpt_path: str,
+        backbone_ckpt_path: Optional[str] = None,
+        head_ckpt_path: Optional[str] = None,
+        peak_threshold: float = 0.2,
+        batch_size: int = 4,
+        device: str = "cpu",
+        preprocess_config: Optional[OmegaConf] = None,
+    ) -> "BottomUpSegmentationPredictor":
+        """Create predictor from a trained model checkpoint."""
+        path = Path(seg_ckpt_path)
+        if (path / "training_config.yaml").exists():
+            config = OmegaConf.load((path / "training_config.yaml").as_posix())
+        else:
+            config = TrainingJobConfig.load_sleap_config(
+                (path / "training_config.json").as_posix()
+            )
+
+        # Load the lightning model
+        ckpt_path = backbone_ckpt_path or str(path / "best.ckpt")
+        model = BottomUpSegmentationLightningModule.load_from_checkpoint(
+            ckpt_path,
+            strict=False,
+        )
+        model.to(device)
+        model.eval()
+
+        seg_config = config.model_config.head_configs.bottomup_segmentation
+        output_stride = seg_config.segmentation.output_stride
+
+        inference_model = BottomUpSegmentationInferenceModel(
+            torch_model=model.forward,
+            fg_threshold=0.5,
+            peak_threshold=peak_threshold,
+            output_stride=output_stride,
+        )
+
+        return cls(
+            inference_model=inference_model,
+            preprocess=True,
+            preprocess_config=preprocess_config,
+            batch_size=batch_size,
+        )
+
+    @classmethod
+    def from_trained_models(cls, *args, **kwargs):
+        """Initialize the Predictor class for certain type of model."""
+
+    def make_pipeline(
+        self,
+        data_path: str,
+        queue_maxsize: int = 32,
+        video_index: int = None,
+        frames: Optional[list] = None,
+    ):
+        """Not implemented for segmentation predictor yet."""
+        raise NotImplementedError(
+            "Pipeline inference is not yet implemented for segmentation models. "
+            "Use predict_on_labels() or predict_on_video() instead."
+        )
+
+    def predict(self, *args, **kwargs):
+        """Not implemented for segmentation predictor yet."""
+        raise NotImplementedError(
+            "Direct prediction is not yet implemented for segmentation models."
+        )

@@ -22,6 +22,9 @@ from sleap_nn.architectures.heads import (
     ClassMapsHead,
     ClassVectorsHead,
     OffsetRefinementHead,
+    SegmentationHead,
+    InstanceCenterHead,
+    CenterOffsetHead,
 )
 from sleap_nn.architectures.unet import UNet
 from sleap_nn.architectures.convnext import ConvNextWrapper
@@ -98,8 +101,13 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
         heads.append(CenteredInstanceConfmapsHead(**head_config.confmaps))
         heads.append(ClassVectorsHead(**head_config.class_vectors))
 
+    elif model_type == "bottomup_segmentation":
+        heads.append(SegmentationHead(**head_config.segmentation))
+        heads.append(InstanceCenterHead(**head_config.center))
+        heads.append(CenterOffsetHead(**head_config.offsets))
+
     else:
-        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`."
+        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`."
         logger.error(message)
         raise Exception(message)
 
