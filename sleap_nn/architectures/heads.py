@@ -623,7 +623,7 @@ class SegmentationHead(Head):
     @property
     def activation(self) -> str:
         """Return the activation function of the head output layer."""
-        return "sigmoid"
+        return "identity"
 
     @property
     def loss_function(self) -> str:

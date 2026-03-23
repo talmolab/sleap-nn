@@ -71,7 +71,7 @@ def compute_bce_dice_loss(
     """Compute combined Binary Cross-Entropy and Dice loss for segmentation.
 
     Args:
-        y_pred: Predicted mask with sigmoid activation. Shape: (B, 1, H, W).
+        y_pred: Predicted logits (before sigmoid). Shape: (B, 1, H, W).
         y_gt: Ground truth binary mask. Shape: (B, 1, H, W).
         bce_weight: Weight for the BCE component.
         dice_weight: Weight for the Dice component.
@@ -80,11 +80,12 @@ def compute_bce_dice_loss(
     Returns:
         Scalar loss tensor.
     """
-    bce_loss = F.binary_cross_entropy(y_pred, y_gt, reduction="mean")
+    bce_loss = F.binary_cross_entropy_with_logits(y_pred, y_gt, reduction="mean")
 
-    # Dice loss
-    intersection = (y_pred * y_gt).sum(dim=(2, 3))
-    union = y_pred.sum(dim=(2, 3)) + y_gt.sum(dim=(2, 3))
+    # Dice loss (apply sigmoid to convert logits to probabilities)
+    y_pred_sig = torch.sigmoid(y_pred)
+    intersection = (y_pred_sig * y_gt).sum(dim=(2, 3))
+    union = y_pred_sig.sum(dim=(2, 3)) + y_gt.sum(dim=(2, 3))
     dice = (2.0 * intersection + smooth) / (union + smooth)
     dice_loss = 1.0 - dice.mean()
 

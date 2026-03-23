@@ -2603,7 +2603,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
         img = normalize_on_gpu(img)
         output = self.model(img)
         return {
-            "SegmentationHead": output["SegmentationHead"],
+            "SegmentationHead": torch.sigmoid(output["SegmentationHead"]),
             "InstanceCenterHead": output["InstanceCenterHead"],
             "CenterOffsetHead": output["CenterOffsetHead"],
         }
@@ -2632,7 +2632,12 @@ class BottomUpSegmentationLightningModule(LightningModel):
             "InstanceCenterHead": center_loss,
             "CenterOffsetHead": offset_loss,
         }
-        loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
+        seg_cfg = self.head_configs[self.model_type]
+        loss = (
+            seg_cfg.segmentation.loss_weight * losses["SegmentationHead"]
+            + seg_cfg.center.loss_weight * losses["InstanceCenterHead"]
+            + seg_cfg.offsets.loss_weight * losses["CenterOffsetHead"]
+        )
 
         self.log(
             "loss", loss, prog_bar=True, on_step=True, on_epoch=False, sync_dist=True
@@ -2680,7 +2685,12 @@ class BottomUpSegmentationLightningModule(LightningModel):
             "InstanceCenterHead": center_loss,
             "CenterOffsetHead": offset_loss,
         }
-        val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
+        seg_cfg = self.head_configs[self.model_type]
+        val_loss = (
+            seg_cfg.segmentation.loss_weight * losses["SegmentationHead"]
+            + seg_cfg.center.loss_weight * losses["InstanceCenterHead"]
+            + seg_cfg.offsets.loss_weight * losses["CenterOffsetHead"]
+        )
 
         self.log(
             "val_loss",
@@ -2699,7 +2709,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
         )
 
         # Compute foreground IoU metric
-        pred_fg_binary = (pred_fg > 0.5).float()
+        pred_fg_binary = (pred_fg > 0.0).float()
         intersection = (pred_fg_binary * y_fg).sum()
         union = pred_fg_binary.sum() + y_fg.sum() - intersection
         iou = intersection / (union + 1e-6)

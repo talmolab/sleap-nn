@@ -6,8 +6,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from sleap_nn.data.utils import make_grid_vectors
-
 
 def generate_foreground_mask(
     masks: List[np.ndarray],
@@ -71,8 +69,10 @@ def generate_center_heatmap(
         Tensor of shape (1, 1, H/s, W/s) with float32 values.
     """
     height, width = img_hw
-    xv, yv = make_grid_vectors(height, width, output_stride)
-    out_h, out_w = yv.shape[0], xv.shape[0]
+    out_h = height // output_stride
+    out_w = width // output_stride
+    xv = torch.arange(out_w, dtype=torch.float32) * output_stride + output_stride / 2.0
+    yv = torch.arange(out_h, dtype=torch.float32) * output_stride + output_stride / 2.0
 
     if len(masks) == 0:
         return torch.zeros((1, 1, out_h, out_w), dtype=torch.float32)
@@ -131,13 +131,18 @@ def generate_center_offsets(
     if centers is None:
         centers = _compute_mask_centroids(masks)
 
+    # Sort by area descending so smaller instances overwrite larger ones in overlaps
+    areas = [m.sum() for m in masks]
+    sorted_indices = sorted(range(len(masks)), key=lambda i: areas[i], reverse=True)
+
     # Create coordinate grids at output stride resolution
     # Grid values are in original pixel coordinates
     yy = torch.arange(out_h, dtype=torch.float32) * output_stride + output_stride / 2.0
     xx = torch.arange(out_w, dtype=torch.float32) * output_stride + output_stride / 2.0
     grid_x, grid_y = torch.meshgrid(xx, yy, indexing="xy")  # both (out_h, out_w)
 
-    for i, m in enumerate(masks):
+    for idx in sorted_indices:
+        m = masks[idx]
         # Downsample mask
         m_tensor = (
             torch.from_numpy(m[:height, :width].astype(np.float32))
@@ -150,7 +155,7 @@ def generate_center_offsets(
             m_ds = m_tensor
         m_binary = m_ds[0, 0] > 0.5  # (out_h, out_w)
 
-        cx, cy = centers[i]
+        cx, cy = centers[idx]
 
         # Offset = center - pixel_coord (so pixel + offset = center)
         dx = cx - grid_x  # (out_h, out_w)

@@ -204,7 +204,7 @@ def test_segmentation_head():
     head = SegmentationHead(output_stride=2, loss_weight=1.0)
 
     assert head.channels == 1
-    assert head.activation == "sigmoid"
+    assert head.activation == "identity"
     assert head.loss_function == "bce_dice"
     assert head.output_stride == 2
     assert head.loss_weight == 1.0
@@ -251,9 +251,8 @@ def test_segmentation_head_make_head():
 
     assert output.shape == (2, 1, 32, 32)  # channels=1
     assert output.dtype == torch.float32
-    # Sigmoid activation means all values in [0, 1]
-    assert output.min().item() >= 0.0
-    assert output.max().item() <= 1.0
+    # Identity activation means raw logits; just check they are finite
+    assert torch.isfinite(output).all()
 
 
 def test_instance_center_head_make_head():
@@ -290,7 +289,7 @@ from sleap_nn.training.losses import compute_bce_dice_loss, compute_masked_smoot
 def test_bce_dice_loss_perfect():
     """Identical pred and gt should give approximately 0 loss."""
     gt = torch.ones(1, 1, 16, 16)
-    pred = torch.ones(1, 1, 16, 16)
+    pred = torch.full((1, 1, 16, 16), 10.0)
 
     loss = compute_bce_dice_loss(pred, gt)
 
@@ -300,8 +299,8 @@ def test_bce_dice_loss_perfect():
 def test_bce_dice_loss_worst():
     """All-zeros pred with all-ones gt should give high loss."""
     gt = torch.ones(1, 1, 16, 16)
-    # Use small epsilon to avoid log(0) in BCE
-    pred = torch.full((1, 1, 16, 16), 1e-6)
+    # Large negative logit -> sigmoid near 0 -> worst case against gt of all ones
+    pred = torch.full((1, 1, 16, 16), -10.0)
 
     loss = compute_bce_dice_loss(pred, gt)
 
@@ -312,7 +311,7 @@ def test_bce_dice_loss_worst():
 def test_bce_dice_loss_half():
     """Pred of 0.5 everywhere with all-ones gt gives intermediate loss."""
     gt = torch.ones(1, 1, 16, 16)
-    pred = torch.full((1, 1, 16, 16), 0.5)
+    pred = torch.full((1, 1, 16, 16), 0.0)
 
     loss = compute_bce_dice_loss(pred, gt)
 
@@ -322,7 +321,7 @@ def test_bce_dice_loss_half():
 
 def test_bce_dice_loss_gradient():
     """Loss supports backpropagation."""
-    pred = torch.full((1, 1, 8, 8), 0.5, requires_grad=True)
+    pred = torch.full((1, 1, 8, 8), 0.0, requires_grad=True)
     gt = torch.ones(1, 1, 8, 8)
 
     loss = compute_bce_dice_loss(pred, gt)
