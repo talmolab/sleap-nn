@@ -560,6 +560,7 @@ class UnifiedVizCallback(Callback):
         # Auto-enable model-specific visualizations
         self.viz_pafs = model_type == "bottomup"
         self.viz_class_maps = model_type == "multi_class_bottomup"
+        self.viz_center_heatmap = model_type == "bottomup_segmentation"
 
         # Initialize renderers
         from sleap_nn.training.utils import MatplotlibRenderer, WandBRenderer
@@ -600,6 +601,8 @@ class UnifiedVizCallback(Callback):
             kwargs["include_pafs"] = True
         if self.viz_class_maps:
             kwargs["include_class_maps"] = True
+        if self.viz_center_heatmap:
+            kwargs["include_center_heatmap"] = True
 
         # Access lightning_model lazily from model_trainer
         return self.model_trainer.lightning_model.get_visualization_data(
@@ -637,6 +640,15 @@ class UnifiedVizCallback(Callback):
             fig.savefig(fig_path, format="png")
             plt.close(fig)
 
+        # Center heatmap visualization (for segmentation models)
+        if self.viz_center_heatmap and data.pred_center_heatmap is not None:
+            fig = self._render_center_heatmap(data)
+            fig_path = (
+                self.local_save_dir / f"{prefix}.center_heatmap.{epoch:04d}.png"
+            )
+            fig.savefig(fig_path, format="png")
+            plt.close(fig)
+
     def _render_class_maps(self, data):
         """Render class maps visualization.
 
@@ -659,6 +671,31 @@ class UnifiedVizCallback(Callback):
         plot_confmaps(
             data.pred_class_maps,
             output_scale=data.pred_class_maps.shape[0] / img.shape[0],
+        )
+        return fig
+
+    def _render_center_heatmap(self, data):
+        """Render center heatmap visualization for segmentation models.
+
+        Args:
+            data: VisualizationData with pred_center_heatmap populated.
+
+        Returns:
+            A matplotlib Figure object.
+        """
+        from sleap_nn.training.utils import plot_img, plot_confmaps
+
+        img = data.image
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(
+            data.pred_center_heatmap,
+            output_scale=data.pred_center_heatmap.shape[0] / img.shape[0],
         )
         return fig
 
@@ -709,6 +746,19 @@ class UnifiedVizCallback(Callback):
                 class_pil, caption=f"{prefix.title()} Class Maps Epoch {epoch}"
             )
 
+        # Center heatmap visualization (for segmentation models)
+        if self.viz_center_heatmap and data.pred_center_heatmap is not None:
+            center_fig = self._render_center_heatmap(data)
+            buf = BytesIO()
+            center_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+            buf.seek(0)
+            plt.close(center_fig)
+            center_pil = PILImage.open(buf)
+            log_dict[f"viz/{prefix}/center_heatmap"] = wandb.Image(
+                center_pil,
+                caption=f"{prefix.title()} Center Heatmap Epoch {epoch}",
+            )
+
         if log_dict:
             log_dict["epoch"] = epoch
             wandb_logger.experiment.log(log_dict, commit=False)
@@ -728,6 +778,12 @@ class UnifiedVizCallback(Callback):
             if self.viz_class_maps and data.pred_class_maps is not None:
                 columns.append(f"{prefix.title()} Class Maps")
                 table_data[0].append(log_dict.get(f"viz/{prefix}/class_maps"))
+
+            if self.viz_center_heatmap and data.pred_center_heatmap is not None:
+                columns.append(f"{prefix.title()} Center Heatmap")
+                table_data[0].append(
+                    log_dict.get(f"viz/{prefix}/center_heatmap")
+                )
 
             table = wandb.Table(columns=columns, data=table_data)
             wandb_logger.experiment.log(

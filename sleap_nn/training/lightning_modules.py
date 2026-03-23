@@ -33,6 +33,7 @@ from sleap_nn.inference.bottomup import (
     BottomUpMultiClassInferenceModel,
 )
 from sleap_nn.inference.paf_grouping import PAFScorer
+from sleap_nn.inference.segmentation import BottomUpSegmentationInferenceModel
 from sleap_nn.architectures.model import Model
 from sleap_nn.data.normalization import normalize_on_gpu
 from sleap_nn.training.losses import (
@@ -2597,6 +2598,125 @@ class BottomUpSegmentationLightningModule(LightningModel):
             negative_loss_weight=negative_loss_weight,
         )
 
+        seg_cfg = self.head_configs[self.model_type]
+        self.seg_inf_layer = BottomUpSegmentationInferenceModel(
+            torch_model=self.forward,
+            fg_threshold=0.5,
+            peak_threshold=0.1,
+            output_stride=seg_cfg.segmentation.output_stride,
+        )
+
+    def get_visualization_data(
+        self, sample, include_center_heatmap: bool = False
+    ) -> VisualizationData:
+        """Extract visualization data from a sample.
+
+        For segmentation models, the foreground probability map is used as
+        the confidence map overlay, and detected instance centers are shown
+        as predicted peaks.
+
+        Args:
+            sample: A sample dictionary from the data pipeline.
+            include_center_heatmap: If True, include the center heatmap in the
+                returned data for separate visualization.
+
+        Returns:
+            VisualizationData with foreground map and center locations.
+        """
+        ex = sample.copy()
+        for k, v in ex.items():
+            if isinstance(v, torch.Tensor):
+                ex[k] = v.to(device=self.device)
+        ex["image"] = ex["image"].unsqueeze(dim=0)
+
+        # Run forward pass to get predictions
+        with torch.no_grad():
+            img = ex["image"].squeeze(1).to(self.device)
+            img = normalize_on_gpu(img)
+            preds = self.model(img)
+
+        # Foreground probability as confmap overlay (H, W, 1)
+        fg_prob = torch.sigmoid(preds["SegmentationHead"][0]).cpu().numpy()
+        fg_prob = fg_prob.transpose(1, 2, 0)  # (H, W, 1)
+
+        # Get image as (H, W, C)
+        img_np = ex["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+
+        # Extract GT center locations from center_heatmap
+        from sleap_nn.inference.peak_finding import find_local_peaks_rough
+        from sleap_nn.inference.segmentation import group_instances_from_offsets
+
+        gt_centers = []
+        if "center_heatmap" in ex:
+            gt_peaks, _, _, _ = find_local_peaks_rough(
+                ex["center_heatmap"].unsqueeze(0), threshold=0.1
+            )
+            if len(gt_peaks) > 0:
+                gt_centers = gt_peaks.cpu().numpy()  # (N, 2) as (x, y)
+
+        # Run instance grouping to get predicted centers
+        seg_cfg = self.head_configs[self.model_type]
+        output_stride = seg_cfg.segmentation.output_stride
+
+        pred_centers = []
+        fg_sigmoid = torch.sigmoid(preds["SegmentationHead"])
+        instances = group_instances_from_offsets(
+            foreground=fg_sigmoid[0:1],
+            center_heatmap=preds["InstanceCenterHead"][0:1],
+            offsets=preds["CenterOffsetHead"][0:1],
+            fg_threshold=0.5,
+            peak_threshold=0.1,
+            output_stride=output_stride,
+        )
+        for inst in instances:
+            # Convert center from original pixel coords to output stride coords
+            cx, cy = inst["center"]
+            pred_centers.append([cx / output_stride, cy / output_stride])
+
+        # Format as (N, 1, 2) arrays for plot_peaks (instances, nodes, 2)
+        if len(gt_centers) > 0:
+            gt_pts = np.array(gt_centers).reshape(-1, 1, 2)
+        else:
+            gt_pts = np.zeros((0, 1, 2))
+
+        if len(pred_centers) > 0:
+            pred_pts = np.array(pred_centers).reshape(-1, 1, 2)
+        else:
+            pred_pts = np.zeros((0, 1, 2))
+
+        # Optionally include center heatmap for separate visualization
+        center_hmap = None
+        if include_center_heatmap:
+            center_hmap = preds["InstanceCenterHead"][0].cpu().numpy()
+            center_hmap = center_hmap.transpose(1, 2, 0)  # (H, W, 1)
+
+        return VisualizationData(
+            image=img_np,
+            pred_confmaps=fg_prob,
+            pred_peaks=pred_pts,
+            pred_peak_values=np.ones(len(pred_centers)),
+            gt_instances=gt_pts,
+            node_names=["center"],
+            output_scale=fg_prob.shape[0] / img_np.shape[0],
+            is_paired=False,
+            pred_center_heatmap=center_hmap,
+        )
+
+    def visualize_example(self, sample):
+        """Visualize segmentation predictions during training."""
+        data = self.get_visualization_data(sample)
+        scale = 1.0
+        if data.image.shape[0] < 512:
+            scale = 2.0
+        if data.image.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(data.image, dpi=72 * scale, scale=scale)
+        plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
+        plt.xlim(plt.xlim())
+        plt.ylim(plt.ylim())
+        plot_peaks(data.gt_instances, data.pred_peaks, paired=data.is_paired)
+        return fig
+
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1).to(self.device)
@@ -2693,7 +2813,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
         )
 
         self.log(
-            "val_loss",
+            "val/loss",
             val_loss,
             prog_bar=True,
             on_step=False,
