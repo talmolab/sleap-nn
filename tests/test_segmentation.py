@@ -721,3 +721,207 @@ def test_head_config_oneof_bottomup_segmentation():
     assert head_cfg.bottomup is None
     assert head_cfg.multi_class_bottomup is None
     assert head_cfg.multi_class_topdown is None
+
+
+# ---------------------------------------------------------------------------
+# 7. Predictor (sleap_nn/inference/predictors.py)
+# ---------------------------------------------------------------------------
+
+from sleap_nn.inference.predictors import BottomUpSegmentationPredictor
+from sleap_nn.inference.segmentation import (
+    BottomUpSegmentationInferenceModel,
+)
+
+
+def test_inference_model_no_padding_params():
+    """BottomUpSegmentationInferenceModel no longer accepts max_stride/input_scale."""
+
+    def dummy_model(x):
+        b = x.shape[0]
+        h, w = x.shape[-2] // 2, x.shape[-1] // 2
+        return {
+            "SegmentationHead": torch.zeros(b, 1, h, w),
+            "InstanceCenterHead": torch.zeros(b, 1, h, w),
+            "CenterOffsetHead": torch.zeros(b, 2, h, w),
+        }
+
+    # Should work with just the 3 required params
+    model = BottomUpSegmentationInferenceModel(
+        torch_model=dummy_model,
+        fg_threshold=0.5,
+        peak_threshold=0.2,
+        output_stride=2,
+    )
+    assert model.output_stride == 2
+    assert not hasattr(model, "max_stride")
+    assert not hasattr(model, "input_scale")
+
+
+def test_run_inference_on_batch_output():
+    """_run_inference_on_batch yields per-frame dicts with correct keys."""
+
+    def dummy_forward(x):
+        """Simulate model forward pass (receives (B, 1, C, H, W))."""
+        x = x.squeeze(1)  # (B, C, H, W)
+        b = x.shape[0]
+        h, w = x.shape[-2] // 2, x.shape[-1] // 2
+        return {
+            "SegmentationHead": torch.sigmoid(torch.randn(b, 1, h, w)),
+            "InstanceCenterHead": torch.zeros(b, 1, h, w),
+            "CenterOffsetHead": torch.zeros(b, 2, h, w),
+        }
+
+    predictor = BottomUpSegmentationPredictor(
+        output_stride=2,
+        batch_size=2,
+        max_stride=16,
+        preprocess_config={
+            "scale": 1.0,
+            "ensure_rgb": False,
+            "ensure_grayscale": False,
+            "crop_size": None,
+            "max_height": None,
+            "max_width": None,
+        },
+    )
+    predictor.inference_model = BottomUpSegmentationInferenceModel(
+        torch_model=dummy_forward,
+        fg_threshold=0.5,
+        peak_threshold=0.2,
+        output_stride=2,
+    )
+
+    # Build a fake batch (2 frames, 3-channel 32x32 images)
+    imgs = [torch.randn(1, 3, 32, 32), torch.randn(1, 3, 32, 32)]
+    fidxs = [0, 1]
+    vidxs = [0, 0]
+    org_szs = [torch.tensor([[32.0, 32.0]]), torch.tensor([[32.0, 32.0]])]
+    instances = []
+    eff_scales = [1.0, 1.0]
+
+    results = list(
+        predictor._run_inference_on_batch(
+            imgs, fidxs, vidxs, org_szs, instances, eff_scales
+        )
+    )
+
+    assert len(results) == 2
+    for r in results:
+        assert "video_idx" in r
+        assert "frame_idx" in r
+        assert "orig_size" in r
+        assert "instances" in r
+        assert "padded_size" in r
+        assert isinstance(r["instances"], list)
+
+
+def test_mask_upscaling():
+    """Masks are correctly cropped from padding and upscaled to original resolution."""
+    import sleap_io as sio
+
+    # Simulate: original image 30x30, output_stride=2
+    # After pad_to_stride(16), image becomes 32x32
+    # Model output maps are 16x16 (padded/stride)
+    # Original output size should be 15x15 (30/2)
+    orig_h, orig_w = 30, 30
+    output_stride = 2
+    padded_h, padded_w = 32, 32
+
+    # A mask at output stride resolution (16x16 due to padding)
+    mask = np.zeros((padded_h // output_stride, padded_w // output_stride), dtype=bool)
+    mask[2:8, 2:8] = True  # 6x6 block
+
+    # Crop to original output dims
+    crop_h = orig_h // output_stride  # 15
+    crop_w = orig_w // output_stride  # 15
+    cropped = mask[:crop_h, :crop_w]
+    assert cropped.shape == (15, 15)
+    # The 6x6 block should still be fully within bounds
+    assert cropped[2:8, 2:8].sum() == 36
+
+    # Upscale to original resolution
+    mask_tensor = torch.from_numpy(cropped.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+    mask_upscaled = torch.nn.functional.interpolate(
+        mask_tensor, size=(orig_h, orig_w), mode="nearest"
+    )
+    mask_full = mask_upscaled.squeeze().numpy() > 0.5
+
+    assert mask_full.shape == (30, 30)
+    assert mask_full.sum() > 0
+
+    # Verify it can be stored as a SegmentationMask
+    seg = sio.SegmentationMask.from_numpy(mask_full)
+    assert seg.height == 30
+    assert seg.width == 30
+    np.testing.assert_array_equal(seg.data, mask_full)
+
+
+def test_make_labeled_frames_from_generator():
+    """_make_labeled_frames_from_generator produces sio.Labels with masks."""
+    import sleap_io as sio
+
+    video = sio.Video(filename="test.mp4")
+
+    predictor = BottomUpSegmentationPredictor(
+        output_stride=2,
+        batch_size=1,
+    )
+    predictor.videos = [video]
+
+    # Create a mock generator output
+    mask1 = np.zeros((16, 16), dtype=bool)
+    mask1[0:8, 0:8] = True
+    mask2 = np.zeros((16, 16), dtype=bool)
+    mask2[8:16, 8:16] = True
+
+    def mock_generator():
+        yield {
+            "video_idx": 0,
+            "frame_idx": 5,
+            "orig_size": np.array([32.0, 32.0]),
+            "instances": [
+                {"mask": mask1, "center": (8.0, 8.0), "score": 0.9},
+                {"mask": mask2, "center": (24.0, 24.0), "score": 0.7},
+            ],
+            "padded_size": (32, 32),
+        }
+
+    labels = predictor._make_labeled_frames_from_generator(mock_generator())
+
+    assert isinstance(labels, sio.Labels)
+    assert len(labels.masks) == 2
+    assert labels.videos == [video]
+
+    # Check mask properties
+    for mask_obj in labels.masks:
+        assert isinstance(mask_obj, sio.SegmentationMask)
+        assert mask_obj.video == video
+        assert mask_obj.frame_idx == 5
+        assert mask_obj.height == 32
+        assert mask_obj.width == 32
+        assert mask_obj.data.shape == (32, 32)
+
+    # Check scores preserved
+    scores = sorted([m.score for m in labels.masks], reverse=True)
+    assert scores == [0.9, 0.7]
+
+
+def test_make_labeled_frames_empty_instances():
+    """_make_labeled_frames_from_generator handles frames with no instances."""
+    import sleap_io as sio
+
+    video = sio.Video(filename="test.mp4")
+    predictor = BottomUpSegmentationPredictor(output_stride=2)
+    predictor.videos = [video]
+
+    def mock_generator():
+        yield {
+            "video_idx": 0,
+            "frame_idx": 0,
+            "orig_size": np.array([32.0, 32.0]),
+            "instances": [],
+            "padded_size": (32, 32),
+        }
+
+    labels = predictor._make_labeled_frames_from_generator(mock_generator())
+    assert len(labels.masks) == 0

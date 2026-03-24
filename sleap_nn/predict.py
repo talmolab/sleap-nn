@@ -9,6 +9,7 @@ from sleap_nn.inference.predictors import (
     BottomUpPredictor,
     BottomUpMultiClassPredictor,
     TopDownMultiClassPredictor,
+    BottomUpSegmentationPredictor,
 )
 from sleap_nn.tracking.tracker import (
     Tracker,
@@ -570,6 +571,7 @@ def run_inference(
             tracking
             and not isinstance(predictor, BottomUpMultiClassPredictor)
             and not isinstance(predictor, TopDownMultiClassPredictor)
+            and not isinstance(predictor, BottomUpSegmentationPredictor)
         ):
             if post_connect_single_breaks or tracking_pre_cull_to_target:
                 if tracking_target_instance_count is None and max_instances is None:

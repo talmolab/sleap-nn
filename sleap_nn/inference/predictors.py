@@ -3978,30 +3978,34 @@ class TopDownMultiClassPredictor(Predictor):
         return pred_labels
 
 
+@attrs.define
 class BottomUpSegmentationPredictor(Predictor):
     """Predictor for bottom-up instance segmentation models.
 
     This predictor loads a trained segmentation model and runs inference to
     produce per-instance binary masks stored as ``sio.SegmentationMask`` objects.
+
+    Attributes:
+        config: Training configuration loaded from checkpoint directory.
+        seg_model: Trained Lightning module for segmentation.
+        videos: List of ``sio.Video`` objects for the output ``sio.Labels``.
+        fg_threshold: Threshold for binarizing the foreground probability map.
+        peak_threshold: Minimum confidence for detected instance centers.
+        output_stride: Stride of the model output maps relative to the input.
+        batch_size: Number of frames per inference batch.
+        device: Device for inference (``"cpu"``, ``"cuda"``, ``"mps"``).
+        max_stride: Maximum backbone stride for input padding.
     """
 
-    def __init__(
-        self,
-        inference_model: BottomUpSegmentationInferenceModel,
-        preprocess: bool = True,
-        preprocess_config: dict = None,
-        max_stride: int = 16,
-        batch_size: int = 4,
-    ):
-        """Initialize the predictor."""
-        super().__init__(
-            preprocess=preprocess,
-            preprocess_config=preprocess_config,
-        )
-        self.inference_model = inference_model
-        self.max_stride = max_stride
-        self.batch_size = batch_size
-        self.videos = []
+    config: Optional[OmegaConf] = None
+    seg_model: Optional[L.LightningModule] = attrs.field(default=None)
+    videos: Optional[List[sio.Video]] = attrs.field(default=None)
+    fg_threshold: float = 0.5
+    peak_threshold: float = 0.2
+    output_stride: int = 2
+    batch_size: int = 4
+    device: str = "cpu"
+    max_stride: int = 16
 
     @classmethod
     def from_trained_models(
@@ -4009,12 +4013,31 @@ class BottomUpSegmentationPredictor(Predictor):
         seg_ckpt_path: str,
         backbone_ckpt_path: Optional[str] = None,
         head_ckpt_path: Optional[str] = None,
+        fg_threshold: float = 0.5,
         peak_threshold: float = 0.2,
         batch_size: int = 4,
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
     ) -> "BottomUpSegmentationPredictor":
-        """Create predictor from a trained model checkpoint."""
+        """Create predictor from a trained model checkpoint.
+
+        Args:
+            seg_ckpt_path: Path to checkpoint directory containing ``best.ckpt``
+                and ``training_config.yaml``.
+            backbone_ckpt_path: Optional path to a different ``.ckpt`` file for
+                the backbone weights. If ``None``, ``best.ckpt`` is used.
+            head_ckpt_path: Optional path to a different ``.ckpt`` file for the
+                head layer weights.
+            fg_threshold: Threshold for foreground binarization. Default: 0.5.
+            peak_threshold: Minimum confidence for center detection. Default: 0.2.
+            batch_size: Number of frames per batch. Default: 4.
+            device: Device for inference. Default: ``"cpu"``.
+            preprocess_config: Preprocessing config. Missing keys are filled
+                from the training config.
+
+        Returns:
+            An instance of ``BottomUpSegmentationPredictor``.
+        """
         path = Path(seg_ckpt_path)
         if (path / "training_config.yaml").exists():
             config = OmegaConf.load((path / "training_config.yaml").as_posix())
@@ -4023,47 +4046,265 @@ class BottomUpSegmentationPredictor(Predictor):
                 (path / "training_config.json").as_posix()
             )
 
+        # Detect backbone type
+        for k, v in config.model_config.backbone_config.items():
+            if v is not None:
+                backbone_type = k
+                break
+
         # Load the lightning model
         ckpt_path = backbone_ckpt_path or str(path / "best.ckpt")
         model = BottomUpSegmentationLightningModule.load_from_checkpoint(
             ckpt_path,
             strict=False,
+            map_location=device,
+            weights_only=False,
         )
+
+        # Optionally load separate backbone/head weights
+        if backbone_ckpt_path is not None and head_ckpt_path is not None:
+            ckpt = torch.load(
+                backbone_ckpt_path, map_location=device, weights_only=False
+            )
+            ckpt["state_dict"] = {
+                k: ckpt["state_dict"][k]
+                for k in ckpt["state_dict"].keys()
+                if ".backbone" in k
+            }
+            model.load_state_dict(ckpt["state_dict"], strict=False)
+        elif backbone_ckpt_path is not None:
+            ckpt = torch.load(
+                backbone_ckpt_path, map_location=device, weights_only=False
+            )
+            model.load_state_dict(ckpt["state_dict"], strict=False)
+
+        if head_ckpt_path is not None:
+            ckpt = torch.load(head_ckpt_path, map_location=device, weights_only=False)
+            ckpt["state_dict"] = {
+                k: ckpt["state_dict"][k]
+                for k in ckpt["state_dict"].keys()
+                if ".head_layers" in k
+            }
+            model.load_state_dict(ckpt["state_dict"], strict=False)
+
         model.to(device)
         model.eval()
 
         seg_config = config.model_config.head_configs.bottomup_segmentation
         output_stride = seg_config.segmentation.output_stride
 
-        inference_model = BottomUpSegmentationInferenceModel(
-            torch_model=model.forward,
-            fg_threshold=0.5,
+        # Fill in preprocess_config defaults from training config
+        if preprocess_config is None:
+            preprocess_config = OmegaConf.create(
+                {
+                    "scale": 1.0,
+                    "ensure_rgb": False,
+                    "ensure_grayscale": False,
+                    "crop_size": None,
+                    "max_height": None,
+                    "max_width": None,
+                }
+            )
+        for k, v in preprocess_config.items():
+            if v is None:
+                preprocess_config[k] = (
+                    config.data_config.preprocessing[k]
+                    if k in config.data_config.preprocessing
+                    else None
+                )
+
+        obj = cls(
+            config=config,
+            seg_model=model,
+            fg_threshold=fg_threshold,
             peak_threshold=peak_threshold,
             output_stride=output_stride,
+            batch_size=batch_size,
+            device=device,
+            preprocess_config=preprocess_config,
+            max_stride=config.model_config.backbone_config[backbone_type]["max_stride"],
         )
 
-        return cls(
-            inference_model=inference_model,
-            preprocess=True,
-            preprocess_config=preprocess_config,
-            batch_size=batch_size,
+        obj._initialize_inference_model()
+        return obj
+
+    def _initialize_inference_model(self):
+        """Create the inference model from stored attributes."""
+        self.inference_model = BottomUpSegmentationInferenceModel(
+            torch_model=self.seg_model,
+            fg_threshold=self.fg_threshold,
+            peak_threshold=self.peak_threshold,
+            output_stride=self.output_stride,
         )
 
     def make_pipeline(
         self,
-        data_path: str,
+        inference_object: Union[str, Path, sio.Labels, sio.Video],
         queue_maxsize: int = 32,
-        video_index: int = None,
         frames: Optional[list] = None,
+        only_labeled_frames: bool = False,
+        only_suggested_frames: bool = False,
+        exclude_user_labeled: bool = False,
+        only_predicted_frames: bool = False,
+        video_index: Optional[int] = None,
+        video_dataset: Optional[str] = None,
+        video_input_format: str = "channels_last",
     ):
-        """Not implemented for segmentation predictor yet."""
-        raise NotImplementedError(
-            "Pipeline inference is not yet implemented for segmentation models. "
-            "Use predict_on_labels() or predict_on_video() instead."
-        )
+        """Create a data loading pipeline for inference.
 
-    def predict(self, *args, **kwargs):
-        """Not implemented for segmentation predictor yet."""
-        raise NotImplementedError(
-            "Direct prediction is not yet implemented for segmentation models."
+        Args:
+            inference_object: Path to ``.slp`` or video file, or an
+                ``sio.Labels`` / ``sio.Video`` instance.
+            queue_maxsize: Maximum frame buffer queue size. Default: 32.
+            frames: List of frame indices to predict on. Default: all frames.
+            only_labeled_frames: Only predict on user-labeled frames.
+            only_suggested_frames: Only predict on suggested frames.
+            exclude_user_labeled: Skip user-labeled frames.
+            only_predicted_frames: Only predict on already-predicted frames.
+            video_index: Index of video in ``.slp`` to predict on.
+            video_dataset: Dataset key for HDF5 videos.
+            video_input_format: Input format for HDF5 videos.
+        """
+        if isinstance(inference_object, (str, Path)):
+            inference_object = str(inference_object)
+            inference_object = (
+                sio.load_slp(inference_object)
+                if inference_object.endswith(".slp")
+                else sio.load_video(
+                    inference_object,
+                    dataset=video_dataset,
+                    input_format=video_input_format,
+                )
+            )
+
+        self.preprocess = True
+
+        if isinstance(inference_object, sio.Labels) and video_index is None:
+            frame_buffer = Queue(maxsize=queue_maxsize)
+            self.pipeline = LabelsReader(
+                labels=inference_object,
+                frame_buffer=frame_buffer,
+                only_labeled_frames=only_labeled_frames,
+                only_suggested_frames=only_suggested_frames,
+                exclude_user_labeled=exclude_user_labeled,
+                only_predicted_frames=only_predicted_frames,
+            )
+            self.videos = self.pipeline.labels.videos
+        else:
+            if isinstance(inference_object, sio.Labels) and video_index is not None:
+                labels = inference_object
+                video = labels.videos[video_index]
+                filtered_frames = _filter_user_labeled_frames(
+                    labels, video, frames, exclude_user_labeled
+                )
+                self.pipeline = VideoReader.from_video(
+                    video=video,
+                    queue_maxsize=queue_maxsize,
+                    frames=filtered_frames,
+                )
+            else:
+                frame_buffer = Queue(maxsize=queue_maxsize)
+                self.pipeline = VideoReader(
+                    video=inference_object,
+                    frame_buffer=frame_buffer,
+                    frames=frames,
+                )
+            self.videos = [self.pipeline.video]
+
+    def _run_inference_on_batch(
+        self, imgs, fidxs, vidxs, org_szs, instances, eff_scales
+    ):
+        """Run segmentation inference on a batch and yield per-frame results.
+
+        Overrides the base class to handle the segmentation model's output
+        format (``List[List[Dict]]``) and package per-frame metadata.
+
+        Yields:
+            Dict per frame with keys: ``video_idx``, ``frame_idx``,
+            ``orig_size``, ``instances``, ``padded_size``.
+        """
+        imgs = torch.concatenate(imgs, dim=0)
+        fidxs_tensor = torch.tensor(fidxs, dtype=torch.int32)
+        vidxs_tensor = torch.tensor(vidxs, dtype=torch.int32)
+        org_szs_tensor = torch.concatenate(org_szs, dim=0)
+
+        ex = {"image": imgs}
+
+        if self.preprocess:
+            scale = self.preprocess_config["scale"]
+            if scale != 1.0:
+                ex["image"] = resize_image(ex["image"], scale)
+            ex["image"] = apply_pad_to_stride(ex["image"], self.max_stride)
+
+        padded_h, padded_w = ex["image"].shape[-2:]
+
+        # Returns List[List[Dict]] — one list of instances per batch element
+        batch_results = self.inference_model(ex)
+
+        for i in range(len(batch_results)):
+            yield {
+                "video_idx": vidxs_tensor[i].item(),
+                "frame_idx": fidxs_tensor[i].item(),
+                "orig_size": org_szs_tensor[i].numpy(),
+                "instances": batch_results[i],
+                "padded_size": (padded_h, padded_w),
+            }
+
+    def _make_labeled_frames_from_generator(
+        self,
+        generator: Iterator[Dict[str, np.ndarray]],
+    ) -> sio.Labels:
+        """Convert inference results to ``sio.Labels`` with segmentation masks.
+
+        Args:
+            generator: Generator yielding per-frame dicts from
+                ``_run_inference_on_batch``.
+
+        Returns:
+            ``sio.Labels`` with ``sio.SegmentationMask`` objects.
+        """
+        all_masks = []
+
+        for ex in generator:
+            video_idx = int(ex["video_idx"])
+            frame_idx = int(ex["frame_idx"])
+            orig_size = ex["orig_size"]  # (H, W)
+            orig_h, orig_w = int(orig_size[0]), int(orig_size[1])
+            instance_list = ex["instances"]
+
+            # Crop and upscale dimensions
+            crop_h = orig_h // self.output_stride
+            crop_w = orig_w // self.output_stride
+
+            video = self.videos[video_idx]
+
+            for inst in instance_list:
+                mask = inst["mask"]  # (H_out, W_out) bool at output stride
+                score = inst["score"]
+
+                # Crop padding (mask may be larger due to pad_to_stride)
+                mask = mask[:crop_h, :crop_w]
+
+                # Upscale to original resolution via nearest-neighbor
+                mask_tensor = (
+                    torch.from_numpy(mask.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+                )
+                mask_upscaled = torch.nn.functional.interpolate(
+                    mask_tensor,
+                    size=(orig_h, orig_w),
+                    mode="nearest",
+                )
+                mask_full = mask_upscaled.squeeze().numpy() > 0.5
+
+                seg_mask = sio.SegmentationMask.from_numpy(
+                    mask_full,
+                    video=video,
+                    frame_idx=frame_idx,
+                    score=score,
+                )
+                all_masks.append(seg_mask)
+
+        return sio.Labels(
+            videos=self.videos,
+            masks=all_masks,
         )

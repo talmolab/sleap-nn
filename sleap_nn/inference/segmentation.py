@@ -6,8 +6,6 @@ import numpy as np
 import torch
 import lightning as L
 
-from sleap_nn.data.normalization import normalize_on_gpu
-from sleap_nn.data.resizing import apply_pad_to_stride
 from sleap_nn.inference.peak_finding import find_local_peaks_rough
 
 
@@ -112,14 +110,14 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
     """Inference model for bottom-up instance segmentation.
 
     Wraps a trained model and post-processing into a single forward pass.
+    Input images should already be padded to stride before being passed to this
+    model (handled by the predictor's ``_run_inference_on_batch``).
 
     Attributes:
         torch_model: Callable model that returns head output dict.
         fg_threshold: Threshold for foreground binarization.
         peak_threshold: Minimum peak value for center detection.
         output_stride: Stride of the model output maps.
-        input_scale: Factor to resize input images by before inference.
-        max_stride: Maximum stride for input padding.
     """
 
     def __init__(
@@ -128,8 +126,6 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         fg_threshold: float = 0.5,
         peak_threshold: float = 0.2,
         output_stride: int = 2,
-        input_scale: float = 1.0,
-        max_stride: int = 16,
     ):
         """Initialize the inference model."""
         super().__init__()
@@ -137,14 +133,13 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         self.fg_threshold = fg_threshold
         self.peak_threshold = peak_threshold
         self.output_stride = output_stride
-        self.input_scale = input_scale
-        self.max_stride = max_stride
 
     def forward(self, batch: Dict) -> List[List[Dict]]:
         """Run inference on a batch of images.
 
         Args:
-            batch: Dict with "image" key. Shape: (B, 1, C, H, W) or (B, C, H, W).
+            batch: Dict with "image" key. Shape: (B, C, H, W). Images should
+                already be padded to the model's max stride.
 
         Returns:
             List of instance lists (one per batch element). Each instance is a dict
@@ -155,9 +150,6 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
             images = images.squeeze(1)
 
         images = images.to(self.device)
-
-        if self.max_stride > 1:
-            images = apply_pad_to_stride(images, self.max_stride)
 
         output = self.torch_model(images.unsqueeze(1))
 
