@@ -2597,6 +2597,8 @@ class MultiHeadLightningModel(L.LightningModule):
         backbone_feats: Optional[str] = None,
         dataset_loss_weights: Optional[Dict[int, float]] = None,
         dataset_names: Optional[Dict[int, str]] = None,
+        apply_dwa: bool = False,
+        dwa_temperature: float = 2.0,
     ):
         """Initialize the configs and the model.
 
@@ -2606,6 +2608,10 @@ class MultiHeadLightningModel(L.LightningModule):
                 Example: {0: 1.0, 1: 0.5, 2: 2.0} to weight dataset 0 at 1.0, dataset 1 at 0.5.
             dataset_names: Optional dict mapping dataset indices to human-readable names.
                 Example: {0: "mice", 1: "flies"}.  Falls back to ``"dataset_{d_num}"``.
+            apply_dwa: If True, enable Dynamic Weight Averaging (DWA). Loss weights are
+                adjusted each epoch based on rate of loss change across heads.
+            dwa_temperature: Temperature for the DWA softmax (default: 2.0). Lower values
+                produce more aggressive reweighting toward struggling heads.
         """
         super().__init__()
         self.model_type = model_type
@@ -2680,6 +2686,14 @@ class MultiHeadLightningModel(L.LightningModule):
         self._per_head_train_loss_count: Dict[int, int] = {}
         self._per_head_val_loss_sum: Dict[int, float] = {}
         self._per_head_val_loss_count: Dict[int, int] = {}
+
+        # Dynamic Weight Averaging (DWA) state
+        self.apply_dwa = apply_dwa
+        self.dwa_temperature = dwa_temperature
+        # Stores per-head average training loss for the last 2 epochs: {d_num: [loss_t-2, loss_t-1]}
+        self._dwa_loss_history: Dict[int, List[float]] = {}
+        # Store initial weights as base weights for DWA (used to preserve static weight corrections)
+        self._dwa_base_weights: Dict[int, float] = dict(self.dataset_loss_weights) if apply_dwa else {}
 
         self.loss_func = nn.MSELoss()
         self.automatic_optimization = False  # Manual optimization for multi-head
@@ -2837,6 +2851,10 @@ class MultiHeadLightningModel(L.LightningModule):
                 sync_dist=True,
             )
 
+        # Dynamic Weight Averaging: update loss weights for next epoch
+        if self.apply_dwa:
+            self._update_dwa_weights()
+
     def on_validation_epoch_start(self):
         """Configure the val timer at the beginning of each epoch."""
         self.val_start_time = time.time()
@@ -2906,11 +2924,84 @@ class MultiHeadLightningModel(L.LightningModule):
             return self.dataset_names[d_num]
         return f"dataset_{d_num}"
 
+    def _update_dwa_weights(self):
+        """Update loss weights using Dynamic Weight Averaging (Liu et al., 2019).
+
+        Computes the rate of loss change for each head over the last 2 epochs,
+        then applies a softmax to produce weights that emphasize heads with slower
+        progress (higher loss ratio = loss not decreasing much = needs more attention).
+
+        Weights are scaled to preserve total loss magnitude (sum = num_datasets).
+        If static dataset weights were provided, DWA modulates on top of them.
+        """
+        import math
+
+        # Record this epoch's per-head average training loss
+        for d_num in self._per_head_train_loss_sum:
+            count = self._per_head_train_loss_count.get(d_num, 0)
+            if count > 0:
+                avg_loss = self._per_head_train_loss_sum[d_num] / count
+                if d_num not in self._dwa_loss_history:
+                    self._dwa_loss_history[d_num] = []
+                self._dwa_loss_history[d_num].append(avg_loss)
+                # Only keep last 2 epochs
+                if len(self._dwa_loss_history[d_num]) > 2:
+                    self._dwa_loss_history[d_num] = self._dwa_loss_history[d_num][-2:]
+
+        # Need at least 2 epochs of history to compute rate of change
+        all_heads = list(self._dwa_loss_history.keys())
+        if not all_heads or any(len(self._dwa_loss_history[d]) < 2 for d in all_heads):
+            return
+
+        # Compute loss ratios: r_i = L_i(t-1) / L_i(t-2)
+        # r > 1 means loss increased (struggling), r < 1 means loss decreased (progressing)
+        ratios = {}
+        for d_num in all_heads:
+            prev, curr = self._dwa_loss_history[d_num]
+            # Guard against zero/near-zero previous loss
+            ratios[d_num] = curr / max(prev, 1e-12)
+
+        # Softmax with temperature: w_i = exp(r_i / T) / sum(exp(r_j / T))
+        T = self.dwa_temperature
+        max_ratio = max(ratios.values())  # For numerical stability
+        exp_vals = {d: math.exp((r - max_ratio) / T) for d, r in ratios.items()}
+        exp_sum = sum(exp_vals.values())
+        num_heads = len(all_heads)
+
+        # Scale so weights sum to num_heads (preserves loss magnitude)
+        dwa_weights = {d: (v / exp_sum) * num_heads for d, v in exp_vals.items()}
+
+        # If static base weights exist, multiply DWA factors on top and re-normalize
+        if self._dwa_base_weights:
+            combined = {d: self._dwa_base_weights.get(d, 1.0) * dwa_weights[d] for d in all_heads}
+            combined_sum = sum(combined.values())
+            # Re-normalize to preserve total loss magnitude (sum = num_heads)
+            final_weights = {d: (w / combined_sum) * num_heads for d, w in combined.items()}
+        else:
+            final_weights = dwa_weights
+
+        # Update the live weights used in training_step
+        self.dataset_loss_weights.update(final_weights)
+        self.loss_weights = self.dataset_loss_weights
+
+        # Log DWA weights
+        for d_num, w in final_weights.items():
+            self.log(
+                f"dwa_weight/{self._dataset_name(d_num)}",
+                w,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+
     @staticmethod
     def get_lightning_model_from_config(
         config: DictConfig,
         dataset_loss_weights: Optional[Dict[int, float]] = None,
         dataset_names: Optional[Dict[int, str]] = None,
+        apply_dwa: bool = False,
+        dwa_temperature: float = 2.0,
     ):
         """Create the appropriate multi-head Lightning model based on config.
 
@@ -2920,6 +3011,8 @@ class MultiHeadLightningModel(L.LightningModule):
                 If provided, overrides the per-head loss_weight values from config.
                 Example: {0: 1.0, 1: 0.5, 2: 2.0} to weight dataset 0 at 1.0, dataset 1 at 0.5.
             dataset_names: Optional dict mapping dataset indices to human-readable names.
+            apply_dwa: If True, enable Dynamic Weight Averaging.
+            dwa_temperature: Temperature for the DWA softmax.
 
         Returns:
             MultiHeadLightningModel: Instance of the appropriate Lightning module.
@@ -2957,6 +3050,8 @@ class MultiHeadLightningModel(L.LightningModule):
             amsgrad=config.trainer_config.optimizer.amsgrad,
             dataset_loss_weights=dataset_loss_weights,
             dataset_names=dataset_names,
+            apply_dwa=apply_dwa,
+            dwa_temperature=dwa_temperature,
         )
 
         return lightning_model
@@ -3098,6 +3193,8 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
         backbone_feats: Optional[str] = None,
         dataset_loss_weights: Optional[Dict[int, float]] = None,
         dataset_names: Optional[Dict[int, str]] = None,
+        apply_dwa: bool = False,
+        dwa_temperature: float = 2.0,
     ):
         """Initialize the centroid multi-head module."""
         super().__init__(
@@ -3120,6 +3217,8 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
             backbone_feats=backbone_feats,
             dataset_loss_weights=dataset_loss_weights,
             dataset_names=dataset_names,
+            apply_dwa=apply_dwa,
+            dwa_temperature=dwa_temperature,
         )
 
         # Inference layer for visualization
@@ -3271,9 +3370,9 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
             y_preds = output[d_num]
             loss_weight = self.loss_weights.get(d_num, 1.0)
             curr_loss = loss_weight * self.loss_func(y_preds, y)
-            total_loss += curr_loss
+            total_loss += curr_loss.detach()
 
-            self.manual_backward(curr_loss, retain_graph=True)
+            self.manual_backward(curr_loss)
 
             self.log(
                 f"train/head_{self._dataset_name(d_num)}_loss",
@@ -3382,6 +3481,8 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
         backbone_feats: Optional[str] = None,
         dataset_loss_weights: Optional[Dict[int, float]] = None,
         dataset_names: Optional[Dict[int, str]] = None,
+        apply_dwa: bool = False,
+        dwa_temperature: float = 2.0,
     ):
         """Initialize the top-down centered instance multi-head module."""
         super().__init__(
@@ -3404,6 +3505,8 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
             backbone_feats=backbone_feats,
             dataset_loss_weights=dataset_loss_weights,
             dataset_names=dataset_names,
+            apply_dwa=apply_dwa,
+            dwa_temperature=dwa_temperature,
         )
 
         # Inference layer for visualization
@@ -3579,7 +3682,7 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
                 )
                 curr_loss = curr_loss + ohkm_loss
 
-            total_loss += curr_loss
+            total_loss += curr_loss.detach()
 
             # Accumulate per-head train loss for val-train gap
             loss_val = curr_loss.detach().item()
@@ -3590,10 +3693,10 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
                 self._per_head_train_loss_count.get(d_num, 0) + 1
             )
 
-            self.manual_backward(curr_loss, retain_graph=True)
+            self.manual_backward(curr_loss)
 
             # Log backbone gradient norm after this head's backward pass.
-            # Since gradients accumulate across heads (retain_graph=True),
+            # Since gradients accumulate across heads,
             # this is the cumulative norm after head d_num. Comparing across
             # heads shows each head's relative contribution to backbone updates.
             if self._grad_logging_enabled:
@@ -3760,6 +3863,8 @@ class SingleInstanceMultiHeadLightningModule(MultiHeadLightningModel):
         backbone_feats: Optional[str] = None,
         dataset_loss_weights: Optional[Dict[int, float]] = None,
         dataset_names: Optional[Dict[int, str]] = None,
+        apply_dwa: bool = False,
+        dwa_temperature: float = 2.0,
     ):
         """Initialize the single instance multi-head module."""
         super().__init__(
@@ -3782,6 +3887,8 @@ class SingleInstanceMultiHeadLightningModule(MultiHeadLightningModel):
             backbone_feats=backbone_feats,
             dataset_loss_weights=dataset_loss_weights,
             dataset_names=dataset_names,
+            apply_dwa=apply_dwa,
+            dwa_temperature=dwa_temperature,
         )
 
         # Store node names per head for logging
@@ -3847,9 +3954,9 @@ class SingleInstanceMultiHeadLightningModule(MultiHeadLightningModel):
                 )
                 curr_loss = curr_loss + ohkm_loss
 
-            total_loss += curr_loss
+            total_loss += curr_loss.detach()
 
-            self.manual_backward(curr_loss, retain_graph=True)
+            self.manual_backward(curr_loss)
 
             self.log(
                 f"train/head_{self._dataset_name(d_num)}_loss",

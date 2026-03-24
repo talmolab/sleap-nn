@@ -1490,6 +1490,11 @@ class MultiHeadModelTrainer:
     # weights and larger datasets get higher weights to compensate for sampling frequency.
     apply_dataset_loss_weights: bool = False
 
+    # Whether to enable Dynamic Weight Averaging (DWA) for per-head loss weights.
+    # When True, loss weights are adjusted each epoch based on rate of loss change.
+    apply_dynamic_weight_averaging: bool = False
+    dwa_temperature: float = 2.0
+
     def _dataset_name(self, d_idx: int) -> str:
         """Get a human-readable name for a dataset index.
 
@@ -1508,6 +1513,8 @@ class MultiHeadModelTrainer:
         train_labels: Optional[List[sio.Labels]] = None,
         val_labels: Optional[List[sio.Labels]] = None,
         apply_dataset_loss_weights: bool = False,
+        apply_dynamic_weight_averaging: bool = False,
+        dwa_temperature: float = 2.0,
     ):
         """Create a model trainer instance from config.
 
@@ -1518,6 +1525,9 @@ class MultiHeadModelTrainer:
             apply_dataset_loss_weights: If True, automatically compute loss weights based on
                 dataset sizes to compensate for max_size_cycle sampling. Smaller datasets
                 (repeated more) get lower weights, larger datasets get higher weights.
+            apply_dynamic_weight_averaging: If True, enable Dynamic Weight Averaging (DWA).
+                Adjusts per-head loss weights each epoch based on rate of loss change.
+            dwa_temperature: Temperature for the DWA softmax (default: 2.0).
 
         Returns:
             MultiHeadModelTrainer instance with config fully set up.
@@ -1525,12 +1535,17 @@ class MultiHeadModelTrainer:
         logger.info("Initializing MultiHeadModelTrainer from config...")
         model_trainer = cls(config=config)
         model_trainer.apply_dataset_loss_weights = apply_dataset_loss_weights
+        model_trainer.apply_dynamic_weight_averaging = apply_dynamic_weight_averaging
+        model_trainer.dwa_temperature = dwa_temperature
 
         model_trainer.model_type = get_model_type_from_cfg(model_trainer.config)
         model_trainer.backbone_type = get_backbone_type_from_cfg(model_trainer.config)
         logger.info(f"Model type: {model_trainer.model_type}")
         logger.info(f"Backbone type: {model_trainer.backbone_type}")
         logger.info(f"Apply dataset loss weights: {apply_dataset_loss_weights}")
+        logger.info(f"Apply dynamic weight averaging: {apply_dynamic_weight_averaging}")
+        if apply_dynamic_weight_averaging:
+            logger.info(f"DWA temperature: {dwa_temperature}")
 
         if model_trainer.config.trainer_config.seed is not None:
             logger.info(f"Setting seed: {model_trainer.config.trainer_config.seed}")
@@ -2461,7 +2476,7 @@ class MultiHeadModelTrainer:
             # CSV log callback
             csv_log_keys = [
                 "epoch",
-                "train_loss",
+                "train/loss",
                 "val_loss",
                 "learning_rate",
             ]
@@ -2469,8 +2484,8 @@ class MultiHeadModelTrainer:
             for d_idx in range(len(self.train_labels)):
                 name = self._dataset_name(d_idx)
                 csv_log_keys.extend([
-                    f"train_loss_head_{name}",
-                    f"val_loss_head_{name}",
+                    f"train/head_{name}_loss",
+                    f"val/head_{name}_loss",
                 ])
 
             csv_logger = CSVLoggerCallback(
@@ -2774,6 +2789,8 @@ class MultiHeadModelTrainer:
             config=self.config,
             dataset_loss_weights=dataset_loss_weights,
             dataset_names=dataset_names,
+            apply_dwa=self.apply_dynamic_weight_averaging,
+            dwa_temperature=self.dwa_temperature,
         )
 
         # Set gradient logging frequency from config
