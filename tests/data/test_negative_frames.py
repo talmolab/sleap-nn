@@ -132,7 +132,7 @@ class TestNegativeSampleFraction:
         assert neg_frame_indices == {50, 60}
         for s in neg_samples:
             assert s["is_negative"] is True
-            assert s["lf_idx"] is None
+            assert s["lf_idx"].startswith("neg_")
 
     def test_collect_does_not_sample_unlabeled_frames(self, minimal_instance):
         """Test that unlabeled frames are never sampled as negatives."""
@@ -395,32 +395,91 @@ class TestNegativeSampleFraction:
         assert sample["is_negative"] is True
 
     def test_caching_with_negatives(self, minimal_instance):
-        """Test that memory caching works with negative_sample_fraction > 0."""
+        """Test that memory caching works with negative frames."""
+        from unittest.mock import patch, PropertyMock
+
         labels = sio.load_slp(minimal_instance)
         confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
 
-        dataset = SingleInstanceDataset(
-            labels=[labels],
-            confmap_head_config=confmap_head,
-            max_stride=8,
-            use_negative_frames=True,  # Feature on
-            cache_img="memory",
+        # Create a mock negative frame using a valid video/frame
+        video = labels.videos[0]
+        frame_idx = labels.labeled_frames[0].frame_idx
+        neg_lf = MagicMock()
+        neg_lf.video = video
+        neg_lf.frame_idx = frame_idx
+
+        with patch.object(
+            type(labels),
+            "negative_frames",
+            new_callable=PropertyMock,
+            return_value=[neg_lf],
+        ):
+            dataset = SingleInstanceDataset(
+                labels=[labels],
+                confmap_head_config=confmap_head,
+                max_stride=8,
+                use_negative_frames=True,
+                cache_img="memory",
+            )
+
+        n_neg = sum(1 for s in dataset.lf_idx_list if s.get("is_negative", False))
+        assert n_neg == 1
+
+        neg_idx = next(
+            i
+            for i, s in enumerate(dataset.lf_idx_list)
+            if s.get("is_negative", False)
         )
-
-        neg_sample = {
-            "labels_idx": 0,
-            "lf_idx": None,
-            "video_idx": 0,
-            "frame_idx": 0,
-            "is_negative": True,
-            "instances": None,
-        }
-        dataset.lf_idx_list.append(neg_sample)
-
-        neg_idx = len(dataset.lf_idx_list) - 1
         sample = dataset[neg_idx]
 
         assert torch.all(sample["confidence_maps"] == 0)
+        assert sample["is_negative"] is True
+
+    def test_disk_caching_with_negatives(self, minimal_instance, tmp_path):
+        """Test that disk caching works with negative frames (regression #504)."""
+        from unittest.mock import patch, PropertyMock
+
+        labels = sio.load_slp(minimal_instance)
+        confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+
+        video = labels.videos[0]
+        frame_idx = labels.labeled_frames[0].frame_idx
+        neg_lf = MagicMock()
+        neg_lf.video = video
+        neg_lf.frame_idx = frame_idx
+
+        with patch.object(
+            type(labels),
+            "negative_frames",
+            new_callable=PropertyMock,
+            return_value=[neg_lf],
+        ):
+            dataset = SingleInstanceDataset(
+                labels=[labels],
+                confmap_head_config=confmap_head,
+                max_stride=8,
+                use_negative_frames=True,
+                cache_img="disk",
+                cache_img_path=str(tmp_path),
+            )
+
+        # Verify negative frame image was cached to disk
+        neg_sample = next(
+            s for s in dataset.lf_idx_list if s.get("is_negative", False)
+        )
+        cache_file = tmp_path / f"sample_{neg_sample['labels_idx']}_{neg_sample['lf_idx']}.jpg"
+        assert cache_file.exists()
+
+        # Verify it can be loaded from cache
+        neg_idx = next(
+            i
+            for i, s in enumerate(dataset.lf_idx_list)
+            if s.get("is_negative", False)
+        )
+        sample = dataset[neg_idx]
+
+        assert torch.all(sample["confidence_maps"] == 0)
+        assert sample["num_instances"] == 0
         assert sample["is_negative"] is True
 
 
