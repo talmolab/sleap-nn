@@ -152,22 +152,23 @@ class ParallelCacheFiller:
         Returns:
             Tuple of (labels_idx, lf_idx, image_or_none, error_or_none).
         """
-        # Skip negative samples - they don't have labeled frames to cache
-        if sample.get("is_negative", False):
-            return sample["labels_idx"], None, None, None
-
         labels_idx = sample["labels_idx"]
         lf_idx = sample["lf_idx"]
 
         try:
-            # Get the labeled frame
-            lf = self.labels[labels_idx][lf_idx]
-
-            # Get thread-local video
-            video = self._get_thread_local_video(lf.video)
-
-            # Read the image
-            img = video[lf.frame_idx]
+            if sample.get("is_negative", False):
+                # Negative frames: read directly from video by index
+                video_idx = sample["video_idx"]
+                frame_idx = sample["frame_idx"]
+                video = self._get_thread_local_video(
+                    self.labels[labels_idx].videos[video_idx]
+                )
+                img = video[frame_idx]
+            else:
+                # Positive frames: read from labeled frame
+                lf = self.labels[labels_idx][lf_idx]
+                video = self._get_thread_local_video(lf.video)
+                img = video[lf.frame_idx]
 
             if img.shape[-1] == 1:
                 img = np.squeeze(img)
@@ -352,24 +353,6 @@ class BaseDataset(Dataset):
 
         self.lf_idx_list = self._get_lf_idx_list(labels)
 
-        # Store video references for negative frame loading.
-        # Only needed when use_negative_frames is on AND caching is enabled
-        # (when cache_img is None, self.labels_list provides video access).
-        # Videos with open cv2 backends can't be pickled by DataLoader workers,
-        # so we deepcopy and close them to store picklable references.
-        self.video_refs = {}
-        if self.use_negative_frames and self.cache_img is not None:
-            from copy import deepcopy
-
-            for labels_idx, label in enumerate(labels):
-                video_copies = []
-                for video in label.videos:
-                    v = deepcopy(video)
-                    if hasattr(v, "close"):
-                        v.close()
-                    video_copies.append(v)
-                self.video_refs[labels_idx] = video_copies
-
         self.labels_list = None
         # this is to ensure that the labels are not passed to the multiprocessing pool when caching is enabled
         # (h5py objects can't be pickled error with num_workers > 0) in mac and windows
@@ -469,12 +452,12 @@ class BaseDataset(Dataset):
         for labels_idx, label in enumerate(labels):
             if not hasattr(label, "negative_frames"):
                 continue
-            for lf in label.negative_frames:
+            for idx, lf in enumerate(label.negative_frames):
                 video_idx = label.videos.index(lf.video)
                 neg_samples.append(
                     {
                         "labels_idx": labels_idx,
-                        "lf_idx": None,
+                        "lf_idx": f"neg_{labels_idx}_{idx}",
                         "video_idx": video_idx,
                         "frame_idx": lf.frame_idx,
                         "is_negative": True,
@@ -554,13 +537,14 @@ class BaseDataset(Dataset):
 
         def process_samples(progress=None, task=None):
             for sample in self.lf_idx_list:
-                if sample.get("is_negative", False):
-                    if progress is not None:
-                        progress.update(task, advance=1)
-                    continue
                 labels_idx = sample["labels_idx"]
                 lf_idx = sample["lf_idx"]
-                img = labels[labels_idx][lf_idx].image
+                if sample.get("is_negative", False):
+                    video_idx = sample["video_idx"]
+                    frame_idx = sample["frame_idx"]
+                    img = labels[labels_idx].videos[video_idx][frame_idx]
+                else:
+                    img = labels[labels_idx][lf_idx].image
                 if img.shape[-1] == 1:
                     img = np.squeeze(img)
                 if self.cache_img == "disk":
@@ -715,7 +699,7 @@ class BaseDataset(Dataset):
     def _load_negative_sample(self, sample: Dict) -> Dict:
         """Load and preprocess a negative frame (no instances).
 
-        Reads the image from the video at the given frame index and returns a
+        Reads the image from the cache (if available) or video and returns a
         sample dict with all-NaN instances.  Downstream code will generate
         all-zero confidence maps from these NaN instances.
 
@@ -728,14 +712,17 @@ class BaseDataset(Dataset):
         labels_idx = sample["labels_idx"]
         video_idx = sample["video_idx"]
         frame_idx = sample["frame_idx"]
+        lf_idx = sample["lf_idx"]
 
-        # Read image directly from the video
-        # Fall back to video_refs when labels_list is None (caching mode)
-        if self.labels_list is not None:
-            video = self.labels_list[labels_idx].videos[video_idx]
+        if self.cache_img == "disk":
+            img = np.array(
+                Image.open(f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg")
+            )
+        elif self.cache_img == "memory":
+            img = self.cache[(labels_idx, lf_idx)].copy()
         else:
-            video = self.video_refs[labels_idx][video_idx]
-        img = video[frame_idx]
+            video = self.labels_list[labels_idx].videos[video_idx]
+            img = video[frame_idx]
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
 
