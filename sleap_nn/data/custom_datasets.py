@@ -716,9 +716,7 @@ class BaseDataset(Dataset):
 
         if self.cache_img == "disk":
             img = np.array(
-                Image.open(
-                    f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
-                )
+                Image.open(f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg")
             )
         elif self.cache_img == "memory":
             img = self.cache[(labels_idx, lf_idx)].copy()

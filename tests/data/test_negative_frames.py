@@ -426,9 +426,7 @@ class TestNegativeSampleFraction:
         assert n_neg == 1
 
         neg_idx = next(
-            i
-            for i, s in enumerate(dataset.lf_idx_list)
-            if s.get("is_negative", False)
+            i for i, s in enumerate(dataset.lf_idx_list) if s.get("is_negative", False)
         )
         sample = dataset[neg_idx]
 
@@ -464,17 +462,15 @@ class TestNegativeSampleFraction:
             )
 
         # Verify negative frame image was cached to disk
-        neg_sample = next(
-            s for s in dataset.lf_idx_list if s.get("is_negative", False)
+        neg_sample = next(s for s in dataset.lf_idx_list if s.get("is_negative", False))
+        cache_file = (
+            tmp_path / f"sample_{neg_sample['labels_idx']}_{neg_sample['lf_idx']}.jpg"
         )
-        cache_file = tmp_path / f"sample_{neg_sample['labels_idx']}_{neg_sample['lf_idx']}.jpg"
         assert cache_file.exists()
 
         # Verify it can be loaded from cache
         neg_idx = next(
-            i
-            for i, s in enumerate(dataset.lf_idx_list)
-            if s.get("is_negative", False)
+            i for i, s in enumerate(dataset.lf_idx_list) if s.get("is_negative", False)
         )
         sample = dataset[neg_idx]
 
@@ -495,13 +491,14 @@ class TestNegativeSampleFraction:
         neg_lf.video = video
         neg_lf.frame_idx = frame_idx
 
-        with patch.object(
-            type(labels),
-            "negative_frames",
-            new_callable=PropertyMock,
-            return_value=[neg_lf],
-        ), patch(
-            "sleap_nn.data.custom_datasets.MIN_SAMPLES_FOR_PARALLEL_CACHING", 0
+        with (
+            patch.object(
+                type(labels),
+                "negative_frames",
+                new_callable=PropertyMock,
+                return_value=[neg_lf],
+            ),
+            patch("sleap_nn.data.custom_datasets.MIN_SAMPLES_FOR_PARALLEL_CACHING", 0),
         ):
             dataset = SingleInstanceDataset(
                 labels=[labels],
@@ -515,9 +512,7 @@ class TestNegativeSampleFraction:
 
         # Verify negative was cached and can be loaded
         neg_idx = next(
-            i
-            for i, s in enumerate(dataset.lf_idx_list)
-            if s.get("is_negative", False)
+            i for i, s in enumerate(dataset.lf_idx_list) if s.get("is_negative", False)
         )
         sample = dataset[neg_idx]
 
