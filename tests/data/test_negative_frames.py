@@ -242,7 +242,7 @@ class TestNegativeSampleFraction:
 
         neg_sample = {
             "labels_idx": 0,
-            "lf_idx": None,
+            "lf_idx": "neg_0_0",
             "video_idx": 0,
             "frame_idx": 0,
             "is_negative": True,
@@ -288,7 +288,7 @@ class TestNegativeSampleFraction:
 
         neg_sample = {
             "labels_idx": 0,
-            "lf_idx": None,
+            "lf_idx": "neg_0_0",
             "video_idx": 0,
             "frame_idx": 0,
             "is_negative": True,
@@ -317,7 +317,7 @@ class TestNegativeSampleFraction:
 
         neg_sample = {
             "labels_idx": 0,
-            "lf_idx": None,
+            "lf_idx": "neg_0_0",
             "video_idx": 0,
             "frame_idx": 0,
             "is_negative": True,
@@ -382,7 +382,7 @@ class TestNegativeSampleFraction:
         # Inject and test negative sample
         neg_sample = {
             "labels_idx": 0,
-            "lf_idx": None,
+            "lf_idx": "neg_0_0",
             "video_idx": 0,
             "frame_idx": 0,
             "is_negative": True,
@@ -471,6 +471,49 @@ class TestNegativeSampleFraction:
         assert cache_file.exists()
 
         # Verify it can be loaded from cache
+        neg_idx = next(
+            i
+            for i, s in enumerate(dataset.lf_idx_list)
+            if s.get("is_negative", False)
+        )
+        sample = dataset[neg_idx]
+
+        assert torch.all(sample["confidence_maps"] == 0)
+        assert sample["num_instances"] == 0
+        assert sample["is_negative"] is True
+
+    def test_parallel_caching_with_negatives(self, minimal_instance, tmp_path):
+        """Test that parallel caching works with negative frames."""
+        from unittest.mock import patch, PropertyMock
+
+        labels = sio.load_slp(minimal_instance)
+        confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+
+        video = labels.videos[0]
+        frame_idx = labels.labeled_frames[0].frame_idx
+        neg_lf = MagicMock()
+        neg_lf.video = video
+        neg_lf.frame_idx = frame_idx
+
+        with patch.object(
+            type(labels),
+            "negative_frames",
+            new_callable=PropertyMock,
+            return_value=[neg_lf],
+        ), patch(
+            "sleap_nn.data.custom_datasets.MIN_SAMPLES_FOR_PARALLEL_CACHING", 0
+        ):
+            dataset = SingleInstanceDataset(
+                labels=[labels],
+                confmap_head_config=confmap_head,
+                max_stride=8,
+                use_negative_frames=True,
+                cache_img="disk",
+                cache_img_path=str(tmp_path),
+                parallel_caching=True,
+            )
+
+        # Verify negative was cached and can be loaded
         neg_idx = next(
             i
             for i, s in enumerate(dataset.lf_idx_list)
