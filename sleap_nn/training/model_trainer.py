@@ -7,6 +7,7 @@ import torch
 import random
 import numpy as np
 import sleap_io as sio
+import sleap_nn
 import time
 import lightning as L
 import wandb
@@ -1260,6 +1261,11 @@ class ModelTrainer:
                 Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name
             ).as_posix()
+
+            # Overwrite version with current sleap-nn version
+            self._initial_config.sleap_nn_version = sleap_nn.__version__
+            self.config.sleap_nn_version = sleap_nn.__version__
+
             OmegaConf.save(
                 self._initial_config,
                 (Path(ckpt_path) / "initial_config.yaml").as_posix(),
