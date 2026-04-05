@@ -12,7 +12,7 @@ import torch
 import attrs
 import lightning as L
 from queue import Queue
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 from loguru import logger
 from sleap_nn.data.providers import LabelsReader, VideoReader
 from sleap_nn.data.resizing import (
@@ -30,6 +30,9 @@ from sleap_nn.training.lightning_modules import (
     BottomUpLightningModule,
     BottomUpMultiClassLightningModule,
     TopDownCenteredInstanceMultiClassLightningModule,
+    CentroidMultiHeadLightningModule,
+    TopDownCenteredInstanceMultiHeadLightningModule,
+    SingleInstanceMultiHeadLightningModule,
 )
 from sleap_nn.inference.single_instance import SingleInstanceInferenceModel
 from sleap_nn.inference.bottomup import (
@@ -99,6 +102,59 @@ def _filter_user_labeled_frames(
 
     # Filter out user-labeled frames
     return [f for f in frames if f not in user_frame_indices]
+
+
+def _is_multi_head_config(config: OmegaConf, model_type: str = "centroid") -> bool:
+    """Check if a training config represents a multi-head model.
+
+    Multi-head configs have head_configs with numeric keys (0, 1, 2...) instead of
+    direct config values.
+
+    Args:
+        config: The training configuration loaded from a checkpoint.
+        model_type: The model type to check ("centroid", "centered_instance", or "single_instance").
+
+    Returns:
+        True if the config represents a multi-head model, False otherwise.
+    """
+    try:
+        head_configs = config.model_config.head_configs
+        if model_type == "centroid" and hasattr(head_configs, "centroid"):
+            confmaps = head_configs.centroid.confmaps
+        elif model_type == "centered_instance" and hasattr(head_configs, "centered_instance"):
+            confmaps = head_configs.centered_instance.confmaps
+        elif model_type == "single_instance" and hasattr(head_configs, "single_instance"):
+            confmaps = head_configs.single_instance.confmaps
+        else:
+            return False
+
+        # Multi-head configs have numeric keys (0, 1, 2...)
+        if isinstance(confmaps, (dict, DictConfig)):
+            keys = list(confmaps.keys())
+            if keys and all(isinstance(k, int) or (isinstance(k, str) and k.isdigit()) for k in keys):
+                return True
+    except (AttributeError, KeyError):
+        pass
+
+    return False
+
+
+def _get_skeletons_for_multi_head(
+    config: OmegaConf, output_head_skeleton_num: int = 0
+) -> List[sio.Skeleton]:
+    """Get the skeleton(s) for a multi-head model config.
+
+    Args:
+        config: The training configuration.
+        output_head_skeleton_num: Which skeleton to return for inference.
+
+    Returns:
+        List containing the skeleton for the specified head.
+    """
+    skeletons = get_skeleton_from_config(config.data_config.skeletons)
+    if isinstance(skeletons, list) and len(skeletons) > output_head_skeleton_num:
+        return [skeletons[output_head_skeleton_num]]
+    return skeletons if isinstance(skeletons, list) else [skeletons]
 
 
 class RateColumn(rich.progress.ProgressColumn):
@@ -180,6 +236,8 @@ class Predictor(ABC):
         filter_min_visible_node_fraction: float = 0.0,
         filter_min_mean_node_score: float = 0.0,
         filter_min_instance_score: float = 0.0,
+        backbone_feats: Optional[str] = None,
+        output_head_skeleton_num: int = 0,
     ) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
@@ -269,6 +327,7 @@ class Predictor(ABC):
                 return_confmaps=return_confmaps,
                 device=device,
                 preprocess_config=preprocess_config,
+                backbone_feats=backbone_feats,
             )
 
         elif (
@@ -301,6 +360,8 @@ class Predictor(ABC):
                     filter_min_visible_node_fraction=filter_min_visible_node_fraction,
                     filter_min_mean_node_score=filter_min_mean_node_score,
                     filter_min_instance_score=filter_min_instance_score,
+                    backbone_feats=backbone_feats,
+                    output_head_skeleton_num=output_head_skeleton_num,
                 )
             if "centered_instance" in model_names:
                 confmap_ckpt_path = model_paths[model_names.index("centered_instance")]
@@ -326,6 +387,8 @@ class Predictor(ABC):
                     filter_min_visible_node_fraction=filter_min_visible_node_fraction,
                     filter_min_mean_node_score=filter_min_mean_node_score,
                     filter_min_instance_score=filter_min_instance_score,
+                    backbone_feats=backbone_feats,
+                    output_head_skeleton_num=output_head_skeleton_num,
                 )
             elif "multi_class_topdown" in model_names:
                 confmap_ckpt_path = model_paths[
@@ -353,6 +416,8 @@ class Predictor(ABC):
                     filter_min_visible_node_fraction=filter_min_visible_node_fraction,
                     filter_min_mean_node_score=filter_min_mean_node_score,
                     filter_min_instance_score=filter_min_instance_score,
+                    backbone_feats=backbone_feats,
+                    output_head_skeleton_num=output_head_skeleton_num,
                 )
 
         elif "bottomup" in model_names:
@@ -795,6 +860,10 @@ class TopDownPredictor(Predictor):
     filter_min_visible_node_fraction: float = 0.0
     filter_min_mean_node_score: float = 0.0
     filter_min_instance_score: float = 0.0
+    # Multi-head model support
+    is_multi_head_model: bool = False
+    output_head_skeleton_num: int = 0
+    backbone_feats: Optional[str] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -811,17 +880,34 @@ class TopDownPredictor(Predictor):
             centered_instance_peak_threshold = self.peak_threshold
 
         if self.anchor_part is not None:
-            anchor_ind = self.skeletons[0].node_names.index(self.anchor_part)
+            if isinstance(self.anchor_part, int):
+                anchor_ind = self.anchor_part
+            else:
+                anchor_ind = self.skeletons[0].node_names.index(self.anchor_part)
         else:
             anch_pt = None
             if self.centroid_config is not None:
-                anch_pt = (
-                    self.centroid_config.model_config.head_configs.centroid.confmaps.anchor_part
-                )
+                if self.is_multi_head_model:
+                    anch_pt = (
+                        self.centroid_config.model_config.head_configs.centroid.confmaps[
+                            self.output_head_skeleton_num
+                        ].anchor_part
+                    )
+                else:
+                    anch_pt = (
+                        self.centroid_config.model_config.head_configs.centroid.confmaps.anchor_part
+                    )
             if self.confmap_config is not None:
-                anch_pt = (
-                    self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
-                )
+                if self.is_multi_head_model:
+                    anch_pt = (
+                        self.confmap_config.model_config.head_configs.centered_instance.confmaps[
+                            self.output_head_skeleton_num
+                        ].anchor_part
+                    )
+                else:
+                    anch_pt = (
+                        self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
+                    )
             anchor_ind = (
                 self.skeletons[0].node_names.index(anch_pt)
                 if anch_pt is not None
@@ -843,18 +929,29 @@ class TopDownPredictor(Predictor):
             max_stride = self.centroid_config.model_config.backbone_config[
                 f"{self.centroid_backbone_type}"
             ]["max_stride"]
+            # Get output_stride and input_scale - handle multi-head vs single-head
+            if self.is_multi_head_model:
+                centroid_output_stride = self.centroid_config.model_config.head_configs.centroid.confmaps[
+                    self.output_head_skeleton_num
+                ]["output_stride"]
+                centroid_input_scale = self.centroid_config.data_config.preprocessing.scale[
+                    self.output_head_skeleton_num
+                ]
+            else:
+                centroid_output_stride = self.centroid_config.model_config.head_configs.centroid.confmaps.output_stride
+                centroid_input_scale = self.centroid_config.data_config.preprocessing.scale
             # initialize centroid crop layer
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
                 peak_threshold=centroid_peak_threshold,
-                output_stride=self.centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
+                output_stride=centroid_output_stride,
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
                 return_confmaps=self.return_confmaps,
                 return_crops=return_crops,
                 max_instances=self.max_instances,
                 max_stride=max_stride,
-                input_scale=self.centroid_config.data_config.preprocessing.scale,
+                input_scale=centroid_input_scale,
                 crop_hw=(
                     self.preprocess_config.crop_size,
                     self.preprocess_config.crop_size,
@@ -870,16 +967,29 @@ class TopDownPredictor(Predictor):
             max_stride = self.confmap_config.model_config.backbone_config[
                 f"{self.centered_instance_backbone_type}"
             ]["max_stride"]
+            # Get output_stride and input_scale - handle multi-head vs single-head
+            if self.is_multi_head_model:
+                confmap_output_stride = self.confmap_config.model_config.head_configs.centered_instance.confmaps[
+                    self.output_head_skeleton_num
+                ]["output_stride"]
+                confmap_input_scale = self.confmap_config.data_config.preprocessing.scale[
+                    self.output_head_skeleton_num
+                ]
+            else:
+                confmap_output_stride = self.confmap_config.model_config.head_configs.centered_instance.confmaps.output_stride
+                confmap_input_scale = self.confmap_config.data_config.preprocessing.scale
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
                 peak_threshold=centered_instance_peak_threshold,
-                output_stride=self.confmap_config.model_config.head_configs.centered_instance.confmaps.output_stride,
+                output_stride=confmap_output_stride,
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
                 return_confmaps=self.return_confmaps,
                 max_stride=max_stride,
-                input_scale=self.confmap_config.data_config.preprocessing.scale,
+                input_scale=confmap_input_scale,
             )
+            if self.is_multi_head_model:
+                centroid_crop_layer.precrop_resize = confmap_input_scale
 
         if self.centroid_config is None and self.confmap_config is not None:
             self.instances_key = (
@@ -888,7 +998,10 @@ class TopDownPredictor(Predictor):
 
         # Initialize the inference model with centroid and instance peak layers
         self.inference_model = TopDownInferenceModel(
-            centroid_crop=centroid_crop_layer, instance_peaks=instance_peaks_layer
+            centroid_crop=centroid_crop_layer,
+            instance_peaks=instance_peaks_layer,
+            output_head_skeleton_num=self.output_head_skeleton_num,
+            backbone_feats=self.backbone_feats,
         )
 
     @classmethod
@@ -914,6 +1027,8 @@ class TopDownPredictor(Predictor):
         filter_min_visible_node_fraction: float = 0.0,
         filter_min_mean_node_score: float = 0.0,
         filter_min_instance_score: float = 0.0,
+        output_head_skeleton_num: int = 0,
+        backbone_feats: Optional[str] = None,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
@@ -957,6 +1072,10 @@ class TopDownPredictor(Predictor):
                 visible nodes. Default: 0.0.
             filter_min_instance_score: (float) Minimum overall instance confidence score.
                 Default: 0.0.
+            output_head_skeleton_num: (int) For multi-head models, specifies which head's skeleton
+                to use for output predictions. Default: 0.
+            backbone_feats: (str) Optional parameter to specify which backbone features to return.
+                For multi-head models. Default: None.
 
         Returns:
             An instance of `TopDownPredictor` with the loaded models.
@@ -986,7 +1105,14 @@ class TopDownPredictor(Predictor):
                     (Path(centroid_ckpt_path) / "training_config.json").as_posix()
                 )
 
-            skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
+            # Detect if this is a multi-head model
+            is_centroid_multi_head = _is_multi_head_config(centroid_config, "centroid")
+
+            # Get skeletons - handle multi-head vs single-head
+            if is_centroid_multi_head:
+                skeletons = _get_skeletons_for_multi_head(centroid_config, output_head_skeleton_num)
+            else:
+                skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
 
             # check which backbone architecture
             for k, v in centroid_config.model_config.backbone_config.items():
@@ -996,29 +1122,55 @@ class TopDownPredictor(Predictor):
 
             if not is_sleap_ckpt:
                 ckpt_path = (Path(centroid_ckpt_path) / "best.ckpt").as_posix()
-                centroid_model = CentroidLightningModule.load_from_checkpoint(
-                    checkpoint_path=ckpt_path,
-                    model_type="centroid",
-                    backbone_type=centroid_backbone_type,
-                    backbone_config=centroid_config.model_config.backbone_config,
-                    head_configs=centroid_config.model_config.head_configs,
-                    pretrained_backbone_weights=None,
-                    pretrained_head_weights=None,
-                    init_weights=centroid_config.model_config.init_weights,
-                    lr_scheduler=centroid_config.trainer_config.lr_scheduler,
-                    online_mining=centroid_config.trainer_config.online_hard_keypoint_mining.online_mining,
-                    hard_to_easy_ratio=centroid_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
-                    min_hard_keypoints=centroid_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
-                    max_hard_keypoints=centroid_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
-                    loss_scale=centroid_config.trainer_config.online_hard_keypoint_mining.loss_scale,
-                    optimizer=centroid_config.trainer_config.optimizer_name,
-                    learning_rate=centroid_config.trainer_config.optimizer.lr,
-                    amsgrad=centroid_config.trainer_config.optimizer.amsgrad,
-                    map_location=device,
-                    weights_only=False,
-                )
+
+                # Load appropriate lightning module based on multi-head detection
+                if is_centroid_multi_head:
+                    centroid_model = CentroidMultiHeadLightningModule.load_from_checkpoint(
+                        checkpoint_path=ckpt_path,
+                        model_type="centroid",
+                        backbone_type=centroid_backbone_type,
+                        backbone_config=centroid_config.model_config.backbone_config,
+                        head_configs=centroid_config.model_config.head_configs,
+                        pretrained_backbone_weights=None,
+                        pretrained_head_weights=None,
+                        init_weights=centroid_config.model_config.init_weights,
+                        lr_scheduler=centroid_config.trainer_config.lr_scheduler,
+                        online_mining=centroid_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                        hard_to_easy_ratio=centroid_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                        min_hard_keypoints=centroid_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                        max_hard_keypoints=centroid_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                        loss_scale=centroid_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                        optimizer=centroid_config.trainer_config.optimizer_name,
+                        learning_rate=centroid_config.trainer_config.optimizer.lr,
+                        amsgrad=centroid_config.trainer_config.optimizer.amsgrad,
+                        map_location=device,
+                        weights_only=False,
+                        backbone_feats=backbone_feats,
+                    )
+                else:
+                    centroid_model = CentroidLightningModule.load_from_checkpoint(
+                        checkpoint_path=ckpt_path,
+                        model_type="centroid",
+                        backbone_type=centroid_backbone_type,
+                        backbone_config=centroid_config.model_config.backbone_config,
+                        head_configs=centroid_config.model_config.head_configs,
+                        pretrained_backbone_weights=None,
+                        pretrained_head_weights=None,
+                        init_weights=centroid_config.model_config.init_weights,
+                        lr_scheduler=centroid_config.trainer_config.lr_scheduler,
+                        online_mining=centroid_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                        hard_to_easy_ratio=centroid_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                        min_hard_keypoints=centroid_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                        max_hard_keypoints=centroid_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                        loss_scale=centroid_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                        optimizer=centroid_config.trainer_config.optimizer_name,
+                        learning_rate=centroid_config.trainer_config.optimizer.lr,
+                        amsgrad=centroid_config.trainer_config.optimizer.amsgrad,
+                        map_location=device,
+                        weights_only=False,
+                    )
             else:
-                # Load the converted model
+                # Load the converted model (legacy SLEAP ckpt - always single-head)
                 centroid_converted_model = load_legacy_model(
                     model_dir=f"{centroid_ckpt_path}"
                 )
@@ -1103,7 +1255,14 @@ class TopDownPredictor(Predictor):
                     (Path(confmap_ckpt_path) / "training_config.json").as_posix()
                 )
 
-            skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
+            # Detect if this is a multi-head model
+            is_confmap_multi_head = _is_multi_head_config(confmap_config, "centered_instance")
+
+            # Get skeletons - handle multi-head vs single-head
+            if is_confmap_multi_head:
+                skeletons = _get_skeletons_for_multi_head(confmap_config, output_head_skeleton_num)
+            else:
+                skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
 
             # check which backbone architecture
             for k, v in confmap_config.model_config.backbone_config.items():
@@ -1113,29 +1272,55 @@ class TopDownPredictor(Predictor):
 
             if not is_sleap_ckpt:
                 ckpt_path = (Path(confmap_ckpt_path) / "best.ckpt").as_posix()
-                confmap_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
-                    checkpoint_path=ckpt_path,
-                    model_type="centered_instance",
-                    backbone_config=confmap_config.model_config.backbone_config,
-                    head_configs=confmap_config.model_config.head_configs,
-                    pretrained_backbone_weights=None,
-                    pretrained_head_weights=None,
-                    init_weights=confmap_config.model_config.init_weights,
-                    lr_scheduler=confmap_config.trainer_config.lr_scheduler,
-                    online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
-                    hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
-                    min_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
-                    max_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
-                    loss_scale=confmap_config.trainer_config.online_hard_keypoint_mining.loss_scale,
-                    optimizer=confmap_config.trainer_config.optimizer_name,
-                    learning_rate=confmap_config.trainer_config.optimizer.lr,
-                    amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
-                    backbone_type=centered_instance_backbone_type,
-                    map_location=device,
-                    weights_only=False,
-                )
+
+                # Load appropriate lightning module based on multi-head detection
+                if is_confmap_multi_head:
+                    confmap_model = TopDownCenteredInstanceMultiHeadLightningModule.load_from_checkpoint(
+                        checkpoint_path=ckpt_path,
+                        model_type="centered_instance",
+                        backbone_config=confmap_config.model_config.backbone_config,
+                        head_configs=confmap_config.model_config.head_configs,
+                        pretrained_backbone_weights=None,
+                        pretrained_head_weights=None,
+                        init_weights=confmap_config.model_config.init_weights,
+                        lr_scheduler=confmap_config.trainer_config.lr_scheduler,
+                        online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                        hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                        min_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                        max_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                        loss_scale=confmap_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                        optimizer=confmap_config.trainer_config.optimizer_name,
+                        learning_rate=confmap_config.trainer_config.optimizer.lr,
+                        amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
+                        backbone_type=centered_instance_backbone_type,
+                        map_location=device,
+                        weights_only=False,
+                        backbone_feats=backbone_feats,
+                    )
+                else:
+                    confmap_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
+                        checkpoint_path=ckpt_path,
+                        model_type="centered_instance",
+                        backbone_config=confmap_config.model_config.backbone_config,
+                        head_configs=confmap_config.model_config.head_configs,
+                        pretrained_backbone_weights=None,
+                        pretrained_head_weights=None,
+                        init_weights=confmap_config.model_config.init_weights,
+                        lr_scheduler=confmap_config.trainer_config.lr_scheduler,
+                        online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                        hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                        min_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                        max_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                        loss_scale=confmap_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                        optimizer=confmap_config.trainer_config.optimizer_name,
+                        learning_rate=confmap_config.trainer_config.optimizer.lr,
+                        amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
+                        backbone_type=centered_instance_backbone_type,
+                        map_location=device,
+                        weights_only=False,
+                    )
             else:
-                # Load the converted model
+                # Load the converted model (legacy SLEAP ckpt - always single-head)
                 confmap_converted_model = load_legacy_model(
                     model_dir=f"{confmap_ckpt_path}"
                 )
@@ -1203,12 +1388,25 @@ class TopDownPredictor(Predictor):
             confmap_config = None
             confmap_model = None
 
+        # Determine if either model is multi-head
+        is_multi_head = (
+            (centroid_ckpt_path is not None and centroid_config is not None and _is_multi_head_config(centroid_config, "centroid"))
+            or (confmap_ckpt_path is not None and confmap_config is not None and _is_multi_head_config(confmap_config, "centered_instance"))
+        )
+
         if centroid_config is not None:
-            preprocess_config["scale"] = (
-                centroid_config.data_config.preprocessing.scale
-                if preprocess_config["scale"] is None
-                else preprocess_config["scale"]
-            )
+            if is_multi_head:
+                preprocess_config["scale"] = (
+                    centroid_config.data_config.preprocessing.scale[output_head_skeleton_num]
+                    if preprocess_config["scale"] is None
+                    else preprocess_config["scale"]
+                )
+            else:
+                preprocess_config["scale"] = (
+                    centroid_config.data_config.preprocessing.scale
+                    if preprocess_config["scale"] is None
+                    else preprocess_config["scale"]
+                )
             preprocess_config["ensure_rgb"] = (
                 centroid_config.data_config.preprocessing.ensure_rgb
                 if preprocess_config["ensure_rgb"] is None
@@ -1219,23 +1417,42 @@ class TopDownPredictor(Predictor):
                 if preprocess_config["ensure_grayscale"] is None
                 else preprocess_config["ensure_grayscale"]
             )
-            preprocess_config["max_height"] = (
-                centroid_config.data_config.preprocessing.max_height
-                if preprocess_config["max_height"] is None
-                else preprocess_config["max_height"]
-            )
-            preprocess_config["max_width"] = (
-                centroid_config.data_config.preprocessing.max_width
-                if preprocess_config["max_width"] is None
-                else preprocess_config["max_width"]
-            )
+            if is_multi_head:
+                preprocess_config["max_height"] = (
+                    centroid_config.data_config.preprocessing.max_height[output_head_skeleton_num]
+                    if preprocess_config["max_height"] is None
+                    else preprocess_config["max_height"]
+                )
+                preprocess_config["max_width"] = (
+                    centroid_config.data_config.preprocessing.max_width[output_head_skeleton_num]
+                    if preprocess_config["max_width"] is None
+                    else preprocess_config["max_width"]
+                )
+            else:
+                preprocess_config["max_height"] = (
+                    centroid_config.data_config.preprocessing.max_height
+                    if preprocess_config["max_height"] is None
+                    else preprocess_config["max_height"]
+                )
+                preprocess_config["max_width"] = (
+                    centroid_config.data_config.preprocessing.max_width
+                    if preprocess_config["max_width"] is None
+                    else preprocess_config["max_width"]
+                )
 
         else:
-            preprocess_config["scale"] = (
-                confmap_config.data_config.preprocessing.scale
-                if preprocess_config["scale"] is None
-                else preprocess_config["scale"]
-            )
+            if is_multi_head:
+                preprocess_config["scale"] = (
+                    confmap_config.data_config.preprocessing.scale[output_head_skeleton_num]
+                    if preprocess_config["scale"] is None
+                    else preprocess_config["scale"]
+                )
+            else:
+                preprocess_config["scale"] = (
+                    confmap_config.data_config.preprocessing.scale
+                    if preprocess_config["scale"] is None
+                    else preprocess_config["scale"]
+                )
             preprocess_config["ensure_rgb"] = (
                 confmap_config.data_config.preprocessing.ensure_rgb
                 if preprocess_config["ensure_rgb"] is None
@@ -1246,22 +1463,38 @@ class TopDownPredictor(Predictor):
                 if preprocess_config["ensure_grayscale"] is None
                 else preprocess_config["ensure_grayscale"]
             )
-            preprocess_config["max_height"] = (
-                confmap_config.data_config.preprocessing.max_height
-                if preprocess_config["max_height"] is None
-                else preprocess_config["max_height"]
-            )
-            preprocess_config["max_width"] = (
-                confmap_config.data_config.preprocessing.max_width
-                if preprocess_config["max_width"] is None
-                else preprocess_config["max_width"]
-            )
+            if is_multi_head:
+                preprocess_config["max_height"] = (
+                    confmap_config.data_config.preprocessing.max_height[output_head_skeleton_num]
+                    if preprocess_config["max_height"] is None
+                    else preprocess_config["max_height"]
+                )
+                preprocess_config["max_width"] = (
+                    confmap_config.data_config.preprocessing.max_width[output_head_skeleton_num]
+                    if preprocess_config["max_width"] is None
+                    else preprocess_config["max_width"]
+                )
+            else:
+                preprocess_config["max_height"] = (
+                    confmap_config.data_config.preprocessing.max_height
+                    if preprocess_config["max_height"] is None
+                    else preprocess_config["max_height"]
+                )
+                preprocess_config["max_width"] = (
+                    confmap_config.data_config.preprocessing.max_width
+                    if preprocess_config["max_width"] is None
+                    else preprocess_config["max_width"]
+                )
 
-        preprocess_config["crop_size"] = (
-            confmap_config.data_config.preprocessing.crop_size
-            if preprocess_config["crop_size"] is None and confmap_config is not None
-            else preprocess_config["crop_size"]
-        )
+        if confmap_config is not None and preprocess_config["crop_size"] is None:
+            if is_multi_head:
+                preprocess_config["crop_size"] = (
+                    confmap_config.data_config.preprocessing.crop_size[output_head_skeleton_num]
+                )
+            else:
+                preprocess_config["crop_size"] = (
+                    confmap_config.data_config.preprocessing.crop_size
+                )
 
         # create an instance of TopDownPredictor class
         obj = cls(
@@ -1297,6 +1530,9 @@ class TopDownPredictor(Predictor):
             filter_min_visible_node_fraction=filter_min_visible_node_fraction,
             filter_min_mean_node_score=filter_min_mean_node_score,
             filter_min_instance_score=filter_min_instance_score,
+            is_multi_head_model=is_multi_head,
+            output_head_skeleton_num=output_head_skeleton_num,
+            backbone_feats=backbone_feats,
         )
 
         obj._initialize_inference_model()
@@ -1605,17 +1841,28 @@ class SingleInstancePredictor(Predictor):
     device: str = "cpu"
     preprocess_config: Optional[OmegaConf] = None
     max_stride: int = 16
+    is_multi_head_model: bool = False
+    output_head_skeleton_num: int = 0
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
+        # Get output_stride from config - handle multi-head vs single-head
+        if self.is_multi_head_model:
+            output_stride = self.confmap_config.model_config.head_configs.single_instance.confmaps[self.output_head_skeleton_num].output_stride
+            input_scale = self.confmap_config.data_config.preprocessing.scale[self.output_head_skeleton_num]
+        else:
+            output_stride = self.confmap_config.model_config.head_configs.single_instance.confmaps.output_stride
+            input_scale = self.confmap_config.data_config.preprocessing.scale
+
         self.inference_model = SingleInstanceInferenceModel(
             torch_model=self.confmap_model,
             peak_threshold=self.peak_threshold,
-            output_stride=self.confmap_config.model_config.head_configs.single_instance.confmaps.output_stride,
+            output_stride=output_stride,
             refinement=self.integral_refinement,
             integral_patch_size=self.integral_patch_size,
             return_confmaps=self.return_confmaps,
-            input_scale=self.confmap_config.data_config.preprocessing.scale,
+            input_scale=input_scale,
+            output_head_skeleton_num=self.output_head_skeleton_num,
         )
 
     @classmethod
@@ -1632,6 +1879,8 @@ class SingleInstancePredictor(Predictor):
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
         max_stride: int = 16,
+        output_head_skeleton_num: int = 0,
+        backbone_feats: Optional[str] = None,
     ) -> "SingleInstancePredictor":
         """Create predictor from saved models.
 
@@ -1661,6 +1910,10 @@ class SingleInstancePredictor(Predictor):
                 `backbone_config`. This determines the downsampling factor applied by the backbone,
                 and is used to ensure that input images are padded or resized to be compatible
                 with the model's architecture. Default: 16.
+            output_head_skeleton_num: (int) For multi-head models, specifies which head's skeleton
+                to use for output predictions. Default: 0.
+            backbone_feats: (str) Optional parameter to specify which backbone features to return.
+                One of "last" or "all". Default: None.
 
         Returns:
             An instance of `SingleInstancePredictor` with the loaded models.
@@ -1683,6 +1936,15 @@ class SingleInstancePredictor(Predictor):
                 (Path(confmap_ckpt_path) / "training_config.json").as_posix()
             )
 
+        # Detect if this is a multi-head model
+        is_multi_head = _is_multi_head_config(confmap_config, "single_instance")
+
+        # Get skeletons - handle multi-head vs single-head
+        if is_multi_head:
+            skeletons = _get_skeletons_for_multi_head(confmap_config, output_head_skeleton_num)
+        else:
+            skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
+
         # check which backbone architecture
         for k, v in confmap_config.model_config.backbone_config.items():
             if v is not None:
@@ -1691,28 +1953,55 @@ class SingleInstancePredictor(Predictor):
 
         if not is_sleap_ckpt:
             ckpt_path = (Path(confmap_ckpt_path) / "best.ckpt").as_posix()
-            confmap_model = SingleInstanceLightningModule.load_from_checkpoint(
-                checkpoint_path=ckpt_path,
-                model_type="single_instance",
-                backbone_config=confmap_config.model_config.backbone_config,
-                head_configs=confmap_config.model_config.head_configs,
-                pretrained_backbone_weights=None,
-                pretrained_head_weights=None,
-                init_weights=confmap_config.model_config.init_weights,
-                lr_scheduler=confmap_config.trainer_config.lr_scheduler,
-                backbone_type=backbone_type,
-                online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
-                hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
-                min_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
-                max_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
-                loss_scale=confmap_config.trainer_config.online_hard_keypoint_mining.loss_scale,
-                optimizer=confmap_config.trainer_config.optimizer_name,
-                learning_rate=confmap_config.trainer_config.optimizer.lr,
-                amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
-                map_location=device,
-                weights_only=False,
-            )
+
+            # Load appropriate lightning module based on multi-head detection
+            if is_multi_head:
+                confmap_model = SingleInstanceMultiHeadLightningModule.load_from_checkpoint(
+                    checkpoint_path=ckpt_path,
+                    model_type="single_instance",
+                    backbone_config=confmap_config.model_config.backbone_config,
+                    head_configs=confmap_config.model_config.head_configs,
+                    pretrained_backbone_weights=None,
+                    pretrained_head_weights=None,
+                    init_weights=confmap_config.model_config.init_weights,
+                    lr_scheduler=confmap_config.trainer_config.lr_scheduler,
+                    backbone_type=backbone_type,
+                    online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                    hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                    min_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                    max_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                    loss_scale=confmap_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                    optimizer=confmap_config.trainer_config.optimizer_name,
+                    learning_rate=confmap_config.trainer_config.optimizer.lr,
+                    amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
+                    map_location=device,
+                    weights_only=False,
+                    backbone_feats=backbone_feats,
+                )
+            else:
+                confmap_model = SingleInstanceLightningModule.load_from_checkpoint(
+                    checkpoint_path=ckpt_path,
+                    model_type="single_instance",
+                    backbone_config=confmap_config.model_config.backbone_config,
+                    head_configs=confmap_config.model_config.head_configs,
+                    pretrained_backbone_weights=None,
+                    pretrained_head_weights=None,
+                    init_weights=confmap_config.model_config.init_weights,
+                    lr_scheduler=confmap_config.trainer_config.lr_scheduler,
+                    backbone_type=backbone_type,
+                    online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                    hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                    min_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                    max_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                    loss_scale=confmap_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                    optimizer=confmap_config.trainer_config.optimizer_name,
+                    learning_rate=confmap_config.trainer_config.optimizer.lr,
+                    amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
+                    map_location=device,
+                    weights_only=False,
+                )
         else:
+            # Legacy SLEAP checkpoints are always single-head
             confmap_converted_model = load_legacy_model(
                 model_dir=f"{confmap_ckpt_path}"
             )
@@ -1737,10 +2026,9 @@ class SingleInstancePredictor(Predictor):
             confmap_model.eval()
             confmap_model.model = confmap_converted_model
             confmap_model.to(device)
+            is_multi_head = False  # Legacy models are always single-head
 
         confmap_model.eval()
-
-        skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
 
         if backbone_ckpt_path is not None and head_ckpt_path is not None:
             logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
@@ -1772,13 +2060,16 @@ class SingleInstancePredictor(Predictor):
             confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
         confmap_model.to(device)
 
+        # Keys that are dict-indexed per dataset in multi-head configs
+        _per_dataset_keys = {"scale", "max_height", "max_width", "crop_size"}
         for k, v in preprocess_config.items():
             if v is None:
-                preprocess_config[k] = (
-                    confmap_config.data_config.preprocessing[k]
-                    if k in confmap_config.data_config.preprocessing
-                    else None
-                )
+                if k in confmap_config.data_config.preprocessing:
+                    val = confmap_config.data_config.preprocessing[k]
+                    if is_multi_head and k in _per_dataset_keys:
+                        preprocess_config[k] = val[output_head_skeleton_num]
+                    else:
+                        preprocess_config[k] = val
 
         # create an instance of SingleInstancePredictor class
         obj = cls(
@@ -1796,6 +2087,8 @@ class SingleInstancePredictor(Predictor):
             max_stride=confmap_config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ],
+            is_multi_head_model=is_multi_head,
+            output_head_skeleton_num=output_head_skeleton_num,
         )
 
         obj._initialize_inference_model()
@@ -3179,6 +3472,10 @@ class TopDownMultiClassPredictor(Predictor):
     filter_min_visible_node_fraction: float = 0.0
     filter_min_mean_node_score: float = 0.0
     filter_min_instance_score: float = 0.0
+    # Multi-head model support (for compatibility)
+    is_multi_head_model: bool = False
+    output_head_skeleton_num: int = 0
+    backbone_feats: Optional[str] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -3195,7 +3492,10 @@ class TopDownMultiClassPredictor(Predictor):
             centered_instance_peak_threshold = self.peak_threshold
 
         if self.anchor_part is not None:
-            anchor_ind = self.skeletons[0].node_names.index(self.anchor_part)
+            if isinstance(self.anchor_part, int):
+                anchor_ind = self.anchor_part
+            else:
+                anchor_ind = self.skeletons[0].node_names.index(self.anchor_part)
         else:
             anch_pt = None
             if self.centroid_config is not None:
@@ -3294,6 +3594,8 @@ class TopDownMultiClassPredictor(Predictor):
         filter_min_visible_node_fraction: float = 0.0,
         filter_min_mean_node_score: float = 0.0,
         filter_min_instance_score: float = 0.0,
+        output_head_skeleton_num: int = 0,
+        backbone_feats: Optional[str] = None,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
@@ -3341,6 +3643,10 @@ class TopDownMultiClassPredictor(Predictor):
                 visible nodes. Default: 0.0.
             filter_min_instance_score: (float) Minimum overall instance confidence score.
                 Default: 0.0.
+            output_head_skeleton_num: (int) For multi-head models, specifies which head's skeleton
+                to use for output predictions. Default: 0.
+            backbone_feats: (str) Optional parameter to specify which backbone features to return.
+                For multi-head models. Default: None.
 
         Returns:
             An instance of `TopDownPredictor` with the loaded models.
@@ -3667,6 +3973,12 @@ class TopDownMultiClassPredictor(Predictor):
             else preprocess_config["crop_size"]
         )
 
+        # Determine if either model is multi-head
+        is_multi_head = (
+            (centroid_ckpt_path is not None and centroid_config is not None and _is_multi_head_config(centroid_config, "centroid"))
+            or (confmap_ckpt_path is not None and confmap_config is not None and _is_multi_head_config(confmap_config, "centered_instance"))
+        )
+
         # create an instance of TopDownPredictor class
         obj = cls(
             centroid_config=centroid_config,
@@ -3701,6 +4013,9 @@ class TopDownMultiClassPredictor(Predictor):
             filter_min_visible_node_fraction=filter_min_visible_node_fraction,
             filter_min_mean_node_score=filter_min_mean_node_score,
             filter_min_instance_score=filter_min_instance_score,
+            is_multi_head_model=is_multi_head,
+            output_head_skeleton_num=output_head_skeleton_num,
+            backbone_feats=backbone_feats,
         )
 
         obj._initialize_inference_model()
