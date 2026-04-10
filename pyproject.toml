@@ -29,7 +29,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "sleap-io>=0.6.5,<0.7.0",
+    "sleap-io @ git+https://github.com/talmolab/sleap-io.git@main",
     "numpy",
     "torch",
     "torchvision>=0.20.0",
