@@ -29,6 +29,7 @@ from typing import List, Optional, Text, Tuple, Union
 from collections import OrderedDict
 import torch
 from torch import nn
+from torch.nn import functional as F
 
 from sleap_nn.architectures.common import MaxPool2dWithSamePadding
 from sleap_nn.architectures.utils import get_act_fn
@@ -538,6 +539,13 @@ class SimpleUpsamplingBlock(nn.Module):
             elif (
                 self.up_interpolate and idx == 1 and feature is not None
             ):  # Right after upsampling or convtranspose2d.
+                if x.shape[-2:] != feature.shape[-2:]:
+                    x = F.interpolate(
+                        x,
+                        size=feature.shape[-2:],
+                        mode=self.interp_method,
+                        align_corners=False,
+                    )
                 x = torch.concat((feature, x), dim=1)
             x = b(x)
         return x
