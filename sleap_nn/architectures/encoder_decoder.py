@@ -535,6 +535,13 @@ class SimpleUpsamplingBlock(nn.Module):
                 and idx == self.norm_act_layers
                 and feature is not None
             ):
+                if x.shape[-2:] != feature.shape[-2:]:
+                    x = F.interpolate(
+                        x,
+                        size=feature.shape[-2:],
+                        mode=self.interp_method,
+                        align_corners=False,
+                    )
                 x = torch.concat((feature, x), dim=1)
             elif (
                 self.up_interpolate and idx == 1 and feature is not None
