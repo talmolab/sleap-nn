@@ -59,6 +59,12 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     show_default=True,
     help="Minimum confidence threshold for peak detection (baked into ONNX graph).",
 )
+@click.option(
+    "--workspace-size-gb",
+    type=float,
+    default=None,
+    help="TensorRT builder workspace size in GB. Uses exporter default if unset.",
+)
 @click.option("--verify/--no-verify", default=True, show_default=True)
 def export(
     model_paths: tuple[Path, ...],
@@ -78,6 +84,7 @@ def export(
     device: str,
     precision: str,
     peak_threshold: float,
+    workspace_size_gb: Optional[float],
     verify: bool,
 ) -> None:
     """Export trained models to ONNX/TensorRT formats."""
@@ -118,6 +125,12 @@ def export(
     )
 
     fmt = fmt.lower()
+
+    trt_workspace_kwargs = (
+        {"workspace_size": int(workspace_size_gb * (1 << 30))}
+        if workspace_size_gb is not None
+        else {}
+    )
 
     if not model_paths:
         raise click.ClickException("Provide at least one model path to export.")
@@ -370,6 +383,7 @@ def export(
                 min_shape=trt_min_shape,
                 opt_shape=trt_opt_shape,
                 max_shape=trt_max_shape,
+                **trt_workspace_kwargs,
                 verbose=True,
             )
             # Update metadata for TensorRT
@@ -573,6 +587,7 @@ def export(
                 input_dtype=torch.uint8,
                 precision=precision,
                 max_shape=(max_batch_size, C, H * 2, W * 2),
+                **trt_workspace_kwargs,
                 verbose=True,
             )
             # Update metadata for TensorRT
@@ -778,6 +793,7 @@ def export(
                 input_dtype=torch.uint8,
                 precision=precision,
                 max_shape=(max_batch_size, C, H * 2, W * 2),
+                **trt_workspace_kwargs,
                 verbose=True,
             )
             trt_metadata = build_base_metadata(
