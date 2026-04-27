@@ -267,6 +267,30 @@
             max-height: 400px;
             object-fit: contain;
         }
+        .frame-loading {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            max-height: 400px;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.35);
+            pointer-events: none;
+            z-index: 2;
+        }
+        .frame-loading::before {
+            content: '';
+            width: 32px;
+            height: 32px;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: frame-spin 0.8s linear infinite;
+        }
+        @keyframes frame-spin {
+            to { transform: rotate(360deg); }
+        }
         .frame-controls {
             display: flex;
             align-items: center;
@@ -965,11 +989,18 @@
                 <!-- Frame Viewer -->
                 <div class="frame-viewer" id="frame-viewer">
                     <canvas id="frame-canvas" class="frame-canvas"></canvas>
+                    <div class="frame-loading hidden" id="frame-loading"></div>
                     <div class="frame-controls">
                         <button class="small secondary" id="prev-frame-btn">&lt;</button>
                         <input type="range" id="frame-slider" class="frame-slider" min="0" max="0" value="0">
                         <button class="small secondary" id="next-frame-btn">&gt;</button>
                         <span class="frame-info" id="frame-info">Frame 0 / 0</span>
+                        <label style="display: inline-flex; align-items: center; gap: 5px; margin-left: auto; font-size: 0.85rem; color: var(--text-dim);">
+                            <input type="checkbox" id="zoom-to-instances"> Zoom to instances
+                        </label>
+                        <label style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.85rem; color: var(--text-dim);">
+                            <input type="checkbox" id="show-node-names"> Node names
+                        </label>
                     </div>
                 </div>
 
@@ -2136,9 +2167,15 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                                 </div>
                                 <div class="form-group" style="margin: 0;">
                                     <label style="font-size: 0.8rem;">OKS Stddev
-                                        <span class="tooltip">?<span class="tooltip-text">Standard deviation for OKS Gaussian. Smaller = stricter matching. Default: 0.025</span></span>
+                                        <span class="tooltip">?<span class="tooltip-text">Standard deviation for OKS Gaussian. Smaller = stricter matching. Used for keypoint models. Default: 0.025</span></span>
                                     </label>
                                     <input type="number" id="eval-oks-stddev" value="0.025" min="0.001" max="0.5" step="0.005" style="padding: 6px;">
+                                </div>
+                                <div class="form-group" style="margin: 0;">
+                                    <label style="font-size: 0.8rem;">Match Threshold (px)
+                                        <span class="tooltip">?<span class="tooltip-text">Max distance in pixels for centroid matching. Used for centroid model evaluation. Default: 50.0</span></span>
+                                    </label>
+                                    <input type="number" id="eval-match-threshold" value="50.0" min="1" max="500" step="1" style="padding: 6px;">
                                 </div>
                             </div>
                         </div>
@@ -3042,6 +3079,12 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                                 <label style="font-size: 0.8rem;">OKS Stddev</label>
                                 <input type="number" id="ci-eval-oks-stddev" value="0.025" min="0.001" max="0.5" step="0.005" style="padding: 6px;">
                             </div>
+                            <div class="form-group" style="margin: 0;">
+                                <label style="font-size: 0.8rem;">Match Threshold (px)
+                                    <span class="tooltip">?<span class="tooltip-text">Max distance in pixels for centroid matching. Used for centroid model evaluation only. Default: 50.0</span></span>
+                                </label>
+                                <input type="number" id="ci-eval-match-threshold" value="50.0" min="1" max="500" step="1" style="padding: 6px;">
+                            </div>
                         </div>
                     </div>
                     </div>
@@ -3243,10 +3286,42 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
         let selectedCIAnchor = null;
         let videoElement = null;
         let videoFrame = null;  // ImageBitmap for reliable drawing (from video or embedded frame)
-        let instancesData = null;  // Store parsed instance data for visualization
+        let instancesData = null;  // Primary instance (used by anchor canvas / sigma viz / crop preview)
+        let currentFrameInstances = []; // All visible instances on the currently displayed frame
+        let showNodeNames = false; // Toggle for the frame viewer's node-name labels
+        let zoomToInstances = false; // Toggle: crop the frame view to fit visible instances
         let anchorCanvasData = null;  // Store transform data for anchor canvas click detection
         let loadedCentroidConfig = null;  // Store loaded centroid YAML config
         let loadedCIConfig = null;  // Store loaded centered instance YAML config
+        // True when the currently displayed frame's pixels correspond to instancesData
+        // (i.e., we can safely overlay keypoints). False when an external video is uploaded
+        // and we can't reliably seek to the labeled frame index.
+        let frameMatchesInstances = true;
+        // Labeled-frame navigation state for the Data Summary frame viewer.
+        let sortedLabeledFrames = []; // [{ frameIdx, frameRef }, ...] for the first video, sorted by frameIdx
+        let currentLabeledIdx = 0;    // index INTO sortedLabeledFrames
+        const frameBitmapCache = new Map(); // frameIdx -> ImageBitmap (loaded frames)
+        let videoObjectUrl = null;    // Blob URL backing videoElement.src (must be revoked on replace)
+
+        // Close all ImageBitmaps in the frame cache and clear it.
+        function clearFrameBitmapCache() {
+            for (const bmp of frameBitmapCache.values()) {
+                try { bmp.close?.(); } catch (e) { /* close may be unsupported in older browsers */ }
+            }
+            frameBitmapCache.clear();
+        }
+
+        // Tear down the current external video (revokes blob URL, drops handle).
+        function disposeVideoElement() {
+            if (videoElement) {
+                try { videoElement.pause(); videoElement.src = ''; videoElement.load(); } catch (e) {}
+            }
+            if (videoObjectUrl) {
+                URL.revokeObjectURL(videoObjectUrl);
+                videoObjectUrl = null;
+            }
+            videoElement = null;
+        }
 
         // Receptive field computation based on sleap-nn formula
         // From: sleap_nn/example_notebooks/receptive_field_guide.py
@@ -3326,8 +3401,8 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
         // Based on sleap_nn/data/instance_cropping.py:find_instance_crop_size
         function computeSuggestedCropSize(maxBboxDim, maxStride, useAugmentation = false, userPadding = null) {
             let padding = 0;
-            if (userPadding !== null && userPadding > 0) {
-                // User specified padding overrides auto-computed padding
+            if (userPadding !== null && userPadding >= 0) {
+                // User specified padding overrides auto-computed padding (0 means "no padding").
                 padding = userPadding;
             } else if (useAugmentation) {
                 // Use CI-specific augmentation values for crop size calculation
@@ -3466,6 +3541,7 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
             initPretrainedCkptsToggle();
             initAdditionalParamsToggle();
             initAnchorCanvas();
+            initFrameNav();
             updateSteps();
         }
 
@@ -3845,99 +3921,31 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
         }
 
         async function handleVideoFile(file) {
-            const url = URL.createObjectURL(file);
+            // Tear down any previous video first so we don't leak the blob URL.
+            disposeVideoElement();
+
+            videoObjectUrl = URL.createObjectURL(file);
             videoElement = document.createElement('video');
-            videoElement.src = url;
+            videoElement.src = videoObjectUrl;
             videoElement.muted = true;
+            videoElement.preload = 'auto';
 
-            // Track which frame we actually display
-            let displayedFrameIdx = 0;
-
-            videoElement.addEventListener('loadedmetadata', () => {
-                // Estimate video frame count and find best matching labeled frame
-                const fps = 30; // Assume 30 fps as default
-                const estimatedFrameCount = Math.floor(videoElement.duration * fps);
-
-                // Find a labeled frame that exists within this video's frame range
-                let bestFrame = null;
-                let bestFrameIdx = 0;
-
-                if (labelsObj && labelsObj.labeledFrames.length > 0) {
-                    // Sort frames by frame index
-                    const sortedFrames = [...labelsObj.labeledFrames].sort((a, b) => a.frameIdx - b.frameIdx);
-
-                    // Find the first labeled frame within video range
-                    for (const frame of sortedFrames) {
-                        if (frame.frameIdx < estimatedFrameCount) {
-                            bestFrame = frame;
-                            bestFrameIdx = frame.frameIdx;
-                            break;
-                        }
-                    }
-
-                    // If no frame in range, just use first labeled frame and show frame 0
-                    if (!bestFrame) {
-                        bestFrame = sortedFrames[0];
-                        bestFrameIdx = 0; // Show frame 0 of video
-                        console.warn(`Labeled frames (starting at ${sortedFrames[0].frameIdx}) are beyond video range (${estimatedFrameCount} frames). Showing frame 0.`);
-                    }
-                }
-
-                displayedFrameIdx = bestFrameIdx;
-                const targetTime = bestFrameIdx / fps;
-
-                console.log(`Video has ~${estimatedFrameCount} frames. Seeking to frame ${bestFrameIdx} (time: ${targetTime.toFixed(3)}s)`);
-                videoElement.currentTime = Math.min(targetTime, videoElement.duration - 0.001);
-
-                // Update instancesData to match the frame we'll display
-                if (bestFrame) {
-                    updateInstancesDataFromFrame(bestFrame);
-                }
+            await new Promise((resolve, reject) => {
+                videoElement.addEventListener('loadedmetadata', resolve, { once: true });
+                videoElement.addEventListener('error', () => reject(new Error('video load error')), { once: true });
+                videoElement.load();
             });
 
-            videoElement.addEventListener('seeked', async () => {
-                // Capture the frame
-                const canvas = document.createElement('canvas');
-                canvas.width = videoElement.videoWidth;
-                canvas.height = videoElement.videoHeight;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(videoElement, 0, 0);
+            // Frame cache is keyed by frameIdx; clear so external-video frames aren't mixed
+            // with stale embedded-backend bitmaps.
+            clearFrameBitmapCache();
 
-                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                firstFrame = {
-                    data: new Uint8Array(imageData.data),
-                    width: canvas.width,
-                    height: canvas.height,
-                    channels: 4  // RGBA from canvas
-                };
-
-                // Create ImageBitmap for reliable drawing in anchor visualization
-                try {
-                    videoFrame = await createImageBitmap(videoElement);
-                } catch (e) {
-                    console.warn('Could not create ImageBitmap from video:', e);
-                    // Fallback: create from canvas
-                    videoFrame = await createImageBitmap(canvas);
-                }
-
-                // Update image dimensions if they differ
-                if (slpData && (slpData.imgWidth !== canvas.width || slpData.imgHeight !== canvas.height)) {
-                    slpData.imgWidth = canvas.width;
-                    slpData.imgHeight = canvas.height;
-                }
-
-                // Hide video upload section, redraw
-                document.getElementById('video-upload-section').classList.add('hidden');
-                drawFramePreview();
-                updateRFVisualization();
-                updateEffectiveSize();
-                // Redraw anchor preview with new video frame
-                if (selectedAnchor !== null || instancesData) {
-                    drawAnchorPreview(selectedAnchor);
-                }
-            });
-
-            videoElement.load();
+            // Re-load the current labeled frame; it'll go through captureExternalVideoFrame.
+            await loadFrameAtIndex(currentLabeledIdx);
+            updateEffectiveSize();
+            if (selectedAnchor !== null || instancesData) {
+                drawAnchorPreview(selectedAnchor);
+            }
         }
 
         async function handleFile(file) {
@@ -3948,6 +3956,12 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
 
             document.getElementById('loading-status').classList.remove('hidden');
             document.getElementById('upload-zone').classList.add('hidden');
+
+            // Reset per-upload state so a previous SLP/video doesn't bleed into the new one.
+            disposeVideoElement();
+            firstFrame = null;
+            videoFrame = null;
+            instancesData = null;
 
             try {
                 const arrayBuffer = await file.arrayBuffer();
@@ -4001,12 +4015,21 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
             ]);
             const skeletonName = skeleton.name || 'Skeleton';
 
-            // Video dimensions - shape is [numFrames, height, width, channels]
-            let imgWidth = 640, imgHeight = 480, numChannels = 1;
+            // Video dimensions - shape is [numFrames, height, width, channels].
+            // When metadata is missing (common for .slp referencing external mp4 with no
+            // shape recorded), leave dims unset so the first loaded frame's bitmap can
+            // populate them — keypoints are in the actual video coord space, not the
+            // 640x480 default.
+            let imgWidth = 0, imgHeight = 0, numChannels = 1;
+            let dimsFromMetadata = false;
             if (video && video.shape && video.shape.length >= 3) {
-                imgHeight = video.shape[1] || 480;
-                imgWidth = video.shape[2] || 640;
+                imgHeight = video.shape[1] || 0;
+                imgWidth = video.shape[2] || 0;
                 numChannels = video.shape[3] || 1;
+                if (imgWidth > 0 && imgHeight > 0) dimsFromMetadata = true;
+            }
+            if (!dimsFromMetadata) {
+                imgWidth = 640; imgHeight = 480; // placeholder until first frame loads
             }
 
             const tracks = labels.tracks.map(t => t.name);
@@ -4118,6 +4141,7 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                 skeleton: { nodes, edges, name: skeletonName },
                 imgWidth,
                 imgHeight,
+                dimsFromMetadata,
                 numChannels,
                 numFrames: labels.labeledFrames.length,
                 maxInstancesPerFrame,
@@ -4238,14 +4262,24 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
 
         // Update instancesData to match a specific frame's instances
         function updateInstancesDataFromFrame(frame) {
-            if (!frame || !frame.instances || frame.instances.length === 0) return;
+            currentFrameInstances = [];
+            if (!frame || !frame.instances || frame.instances.length === 0) {
+                instancesData = null;
+                return;
+            }
 
             const skeleton = labelsObj.skeletons[0];
             const nodes = skeleton.nodes.map(n => n.name);
+            const videoIdx = labelsObj.videos.indexOf(frame.video);
+            const tracks = labelsObj.tracks || [];
+            const hasAnyTrack = frame.instances.some(i => i.track);
 
-            // Find the best instance in this frame (most visible points)
+            // Collect every visible-keypoint instance in the frame, plus track which
+            // one to promote as the "primary" (most visible points) for the
+            // single-instance UIs (anchor canvas, sigma viz, crop preview).
             let bestInstance = null;
             let bestPointCount = 0;
+            let frameColorCounter = 0;
 
             for (const instance of frame.instances) {
                 const instancePoints = [];
@@ -4255,7 +4289,6 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                 instance.points.forEach((point, nodeIdx) => {
                     const nodeName = nodes[nodeIdx];
                     if (!nodeName) return;
-
                     if (point && point.visible) {
                         const [x, y] = point.xy;
                         if (Number.isFinite(x) && Number.isFinite(y)) {
@@ -4268,95 +4301,223 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                     }
                 });
 
+                if (instancePoints.length === 0) continue;
+
+                // Color by track when available so the same animal keeps its color
+                // across frames. Untracked instances fall back to per-frame index.
+                let colorIdx;
+                if (hasAnyTrack && instance.track) {
+                    const ti = tracks.indexOf(instance.track);
+                    colorIdx = ti >= 0 ? ti : frameColorCounter++;
+                } else {
+                    colorIdx = frameColorCounter++;
+                }
+
+                const entry = {
+                    points: instancePoints,
+                    bbox: { minX, minY, maxX, maxY },
+                    frameIdx: frame.frameIdx,
+                    videoIdx,
+                    colorIdx,
+                    trackName: instance.track?.name || null,
+                };
+                currentFrameInstances.push(entry);
+
                 if (instancePoints.length > bestPointCount) {
                     bestPointCount = instancePoints.length;
-                    bestInstance = {
-                        points: instancePoints,
-                        bbox: { minX, minY, maxX, maxY },
-                        frameIdx: frame.frameIdx,
-                        videoIdx: labelsObj.videos.indexOf(frame.video)
-                    };
+                    bestInstance = entry;
                 }
             }
 
-            if (bestInstance) {
-                instancesData = bestInstance;
-                console.log(`Updated instancesData for frame ${frame.frameIdx} with ${bestPointCount} points`);
+            // Frame has no visible-keypoint instances; don't carry over the previous
+            // frame's points onto this image — they would be misaligned.
+            instancesData = bestInstance;
+        }
+
+        // Build the sorted list of labeled frames for the first video and reset cache.
+        function buildSortedLabeledFrames() {
+            sortedLabeledFrames = [];
+            currentLabeledIdx = 0;
+            clearFrameBitmapCache();
+            if (!labelsObj || !labelsObj.labeledFrames.length) return;
+            const firstVideo = labelsObj.videos[0];
+            const frames = labelsObj.labeledFrames
+                .filter(f => f.video === firstVideo)
+                .sort((a, b) => a.frameIdx - b.frameIdx);
+            sortedLabeledFrames = frames.map(f => ({ frameIdx: f.frameIdx, frame: f }));
+        }
+
+        // Convert whatever video.backend.getFrame returns into an ImageBitmap.
+        async function frameDataToBitmap(imageData) {
+            if (!imageData) return null;
+            if (imageData instanceof ImageBitmap) return imageData;
+            if (imageData instanceof ImageData) return await createImageBitmap(imageData);
+            if (imageData instanceof Uint8Array || imageData instanceof Int8Array) {
+                const u8 = imageData instanceof Int8Array
+                    ? new Uint8Array(imageData.buffer, imageData.byteOffset, imageData.byteLength)
+                    : imageData;
+                const blob = new Blob([u8], { type: 'image/png' });
+                return await createImageBitmap(blob);
+            }
+            return null;
+        }
+
+        // Seek the uploaded HTMLVideoElement to a frame and capture it as ImageBitmap.
+        // Uses fps from SLP video backend metadata when available; otherwise falls back
+        // to 30 (same caveat as the metrics visualizer's frame seek).
+        async function captureExternalVideoFrame(frameIdx) {
+            if (!videoElement) return null;
+            const fps = labelsObj?.videos?.[0]?.backend?.fps || 30;
+            const targetTime = Math.min(frameIdx / fps, videoElement.duration - 0.001);
+
+            await new Promise((resolve, reject) => {
+                const onSeeked = () => { cleanup(); resolve(); };
+                const onError = () => { cleanup(); reject(new Error('seek error')); };
+                const cleanup = () => {
+                    videoElement.removeEventListener('seeked', onSeeked);
+                    videoElement.removeEventListener('error', onError);
+                };
+                videoElement.addEventListener('seeked', onSeeked);
+                videoElement.addEventListener('error', onError);
+                videoElement.currentTime = Math.max(0, targetTime);
+            });
+            try {
+                return await createImageBitmap(videoElement);
+            } catch (e) {
+                console.warn('createImageBitmap from video failed:', e);
+                return null;
+            }
+        }
+
+        // Load and display the labeled frame at sortedLabeledFrames[idx].
+        async function loadFrameAtIndex(idx) {
+            if (!sortedLabeledFrames.length) return;
+            currentLabeledIdx = Math.max(0, Math.min(sortedLabeledFrames.length - 1, idx));
+            const entry = sortedLabeledFrames[currentLabeledIdx];
+            const frame = entry.frame;
+
+            updateInstancesDataFromFrame(frame);
+            updateFrameNavUI();
+
+            let bitmap = frameBitmapCache.get(entry.frameIdx);
+            const loadingEl = document.getElementById('frame-loading');
+
+            if (!bitmap) {
+                loadingEl?.classList.remove('hidden');
+                try {
+                    const video = frame.video;
+                    if (video?.backend?.getFrame) {
+                        try {
+                            const imageData = await video.backend.getFrame(entry.frameIdx);
+                            bitmap = await frameDataToBitmap(imageData);
+                        } catch (err) {
+                            // Embedded backend failed (e.g., MediaVideo with unresolved path);
+                            // fall through to external video capture if available.
+                        }
+                    }
+                    if (!bitmap && videoElement) {
+                        bitmap = await captureExternalVideoFrame(entry.frameIdx);
+                    }
+                    if (bitmap) frameBitmapCache.set(entry.frameIdx, bitmap);
+                } finally {
+                    loadingEl?.classList.add('hidden');
+                }
+            }
+
+            if (bitmap) {
+                firstFrame = {
+                    bitmap,
+                    width: bitmap.width,
+                    height: bitmap.height,
+                    channels: slpData.numChannels || 1
+                };
+                videoFrame = bitmap;
+                // If the SLP didn't carry video dimensions in metadata, the bitmap is
+                // our only source of truth for video size. Adopt its dims as slpData
+                // so downstream UIs (RF viz, GPU memory, anchor canvas) see the real
+                // resolution and the keypoint coords align with the displayed pixels.
+                if (!slpData.dimsFromMetadata) {
+                    slpData.imgWidth = bitmap.width;
+                    slpData.imgHeight = bitmap.height;
+                    slpData.dimsFromMetadata = true; // promote so we don't keep updating
+                }
+                frameMatchesInstances = true;
+                document.getElementById('video-upload-section')?.classList.add('hidden');
+            } else {
+                // No pixels available — overlay should not draw (would mis-align)
+                frameMatchesInstances = false;
+            }
+            drawFramePreview();
+            updateRFVisualization();
+        }
+
+        // Sync the slider, frame counter, and prev/next button states to currentLabeledIdx.
+        function updateFrameNavUI() {
+            const slider = document.getElementById('frame-slider');
+            const info = document.getElementById('frame-info');
+            const prevBtn = document.getElementById('prev-frame-btn');
+            const nextBtn = document.getElementById('next-frame-btn');
+            const total = sortedLabeledFrames.length;
+            if (slider) {
+                slider.min = 0;
+                slider.max = Math.max(0, total - 1);
+                slider.value = currentLabeledIdx;
+                slider.disabled = total <= 1;
+            }
+            if (info) {
+                if (total === 0) {
+                    info.textContent = 'No labeled frames';
+                } else {
+                    const fi = sortedLabeledFrames[currentLabeledIdx]?.frameIdx ?? 0;
+                    info.textContent = `Frame ${fi} (${currentLabeledIdx + 1}/${total} labeled)`;
+                }
+            }
+            if (prevBtn) prevBtn.disabled = currentLabeledIdx === 0;
+            if (nextBtn) nextBtn.disabled = currentLabeledIdx >= total - 1;
+        }
+
+        function initFrameNav() {
+            const slider = document.getElementById('frame-slider');
+            const prevBtn = document.getElementById('prev-frame-btn');
+            const nextBtn = document.getElementById('next-frame-btn');
+            const namesToggle = document.getElementById('show-node-names');
+            const zoomToggle = document.getElementById('zoom-to-instances');
+            if (slider) {
+                slider.addEventListener('input', (e) => {
+                    loadFrameAtIndex(parseInt(e.target.value, 10) || 0);
+                });
+            }
+            if (prevBtn) prevBtn.addEventListener('click', () => loadFrameAtIndex(currentLabeledIdx - 1));
+            if (nextBtn) nextBtn.addEventListener('click', () => loadFrameAtIndex(currentLabeledIdx + 1));
+            if (namesToggle) {
+                namesToggle.checked = showNodeNames;
+                namesToggle.addEventListener('change', (e) => {
+                    showNodeNames = e.target.checked;
+                    drawFramePreview();
+                });
+            }
+            if (zoomToggle) {
+                zoomToggle.checked = zoomToInstances;
+                zoomToggle.addEventListener('change', (e) => {
+                    zoomToInstances = e.target.checked;
+                    drawFramePreview();
+                });
             }
         }
 
         async function loadFirstFrameFromLabels() {
-            if (!labelsObj || !labelsObj.labeledFrames.length) {
+            buildSortedLabeledFrames();
+            if (!sortedLabeledFrames.length) {
                 document.getElementById('video-upload-section').classList.remove('hidden');
+                updateFrameNavUI();
                 return;
             }
-
-            const targetFrameIdx = slpData.firstLabeledFrameIdx;
-            const targetVideoIdx = slpData.firstLabeledVideoIdx;
-
-            // Find the target frame
-            const frame = labelsObj.labeledFrames.find(f =>
-                f.frameIdx === targetFrameIdx &&
-                labelsObj.videos.indexOf(f.video) === targetVideoIdx
-            ) || labelsObj.labeledFrames[0];
-
-            if (!frame) {
+            // Try to load the first labeled frame (uses embedded backend if available).
+            await loadFrameAtIndex(0);
+            // If no pixels, prompt for video upload; navigation still works (skeleton-only).
+            if (!firstFrame) {
                 document.getElementById('video-upload-section').classList.remove('hidden');
-                return;
             }
-
-            // Update instancesData to match this frame's instances
-            updateInstancesDataFromFrame(frame);
-
-            const video = frame.video;
-
-            // Check if video has backend (embedded frames)
-            if (video.backend) {
-                try {
-                    console.log(`Loading embedded frame from video backend, frame_idx=${frame.frameIdx}`);
-                    const imageData = await video.backend.getFrame(frame.frameIdx);
-
-                    let bitmap = null;
-                    if (imageData instanceof ImageBitmap) {
-                        bitmap = imageData;
-                    } else if (imageData instanceof ImageData) {
-                        bitmap = await createImageBitmap(imageData);
-                    } else if (imageData instanceof Uint8Array || imageData instanceof Int8Array) {
-                        // PNG-encoded data
-                        const uint8Data = imageData instanceof Int8Array
-                            ? new Uint8Array(imageData.buffer, imageData.byteOffset, imageData.byteLength)
-                            : imageData;
-                        const blob = new Blob([uint8Data], { type: 'image/png' });
-                        bitmap = await createImageBitmap(blob);
-                    }
-
-                    if (bitmap) {
-                        firstFrame = {
-                            bitmap: bitmap,
-                            width: bitmap.width,
-                            height: bitmap.height,
-                            channels: slpData.numChannels || 1
-                        };
-                        videoFrame = bitmap;
-
-                        // Update dimensions if they differ from metadata
-                        if (slpData.imgWidth !== bitmap.width || slpData.imgHeight !== bitmap.height) {
-                            console.log(`Updating dimensions from ${slpData.imgWidth}x${slpData.imgHeight} to ${bitmap.width}x${bitmap.height}`);
-                            slpData.imgWidth = bitmap.width;
-                            slpData.imgHeight = bitmap.height;
-                        }
-
-                        console.log(`Loaded embedded frame: ${bitmap.width}x${bitmap.height}`);
-                        return;
-                    }
-                } catch (err) {
-                    console.warn('Error loading embedded frame via sleap-io.js:', err);
-                }
-            }
-
-            // No embedded frames available - show video upload section
-            console.log('No embedded frames available, showing video upload section');
-            document.getElementById('video-upload-section').classList.remove('hidden');
         }
 
         function displayDataSummary() {
@@ -4786,17 +4947,58 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
             return html;
         }
 
+        // Compute the source rect (in slpData / keypoint coord space) the frame viewer
+        // should display. Returns null when zoom is off — caller should draw the full bitmap.
+        function computeZoomViewport() {
+            if (!zoomToInstances || !currentFrameInstances.length) return null;
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const inst of currentFrameInstances) {
+                if (!inst.bbox) continue;
+                if (inst.bbox.minX < minX) minX = inst.bbox.minX;
+                if (inst.bbox.minY < minY) minY = inst.bbox.minY;
+                if (inst.bbox.maxX > maxX) maxX = inst.bbox.maxX;
+                if (inst.bbox.maxY > maxY) maxY = inst.bbox.maxY;
+            }
+            if (!Number.isFinite(minX)) return null;
+            // 25% padding around the combined bbox, clamped to frame bounds.
+            const w = maxX - minX, h = maxY - minY;
+            const pad = Math.max(20, Math.max(w, h) * 0.25);
+            const W = slpData.imgWidth, H = slpData.imgHeight;
+            return {
+                x: Math.max(0, minX - pad),
+                y: Math.max(0, minY - pad),
+                w: Math.min(W, maxX + pad) - Math.max(0, minX - pad),
+                h: Math.min(H, maxY + pad) - Math.max(0, minY - pad),
+            };
+        }
+
         function drawFramePreview() {
             const canvas = document.getElementById('frame-canvas');
             const ctx = canvas.getContext('2d');
 
             if (firstFrame) {
+                const viewport = computeZoomViewport();
+
+                // Canvas matches the bitmap's pixel dimensions. Keypoint coords are
+                // assumed to be in the same space (which is true for sleap-saved
+                // full-frame .pkg.slp embeds). If the bitmap differs from
+                // slpData.imgWidth/Height (e.g., cropped embeds), drawSkeletonOverlay
+                // applies a uniform scale so keypoints still land on the right pixels.
                 canvas.width = firstFrame.width;
                 canvas.height = firstFrame.height;
 
-                // If we have a bitmap (from pkg.slp), draw it directly
                 if (firstFrame.bitmap) {
-                    ctx.drawImage(firstFrame.bitmap, 0, 0);
+                    if (viewport) {
+                        // Draw the cropped subregion stretched to fill the canvas.
+                        // Bitmap coords use a uniform scale relative to slpData if dims differ.
+                        const bx = viewport.x * (firstFrame.width / slpData.imgWidth);
+                        const by = viewport.y * (firstFrame.height / slpData.imgHeight);
+                        const bw = viewport.w * (firstFrame.width / slpData.imgWidth);
+                        const bh = viewport.h * (firstFrame.height / slpData.imgHeight);
+                        ctx.drawImage(firstFrame.bitmap, bx, by, bw, bh, 0, 0, canvas.width, canvas.height);
+                    } else {
+                        ctx.drawImage(firstFrame.bitmap, 0, 0);
+                    }
                 } else if (firstFrame.data) {
                     // Draw from raw pixel data
                     const imageData = ctx.createImageData(firstFrame.width, firstFrame.height);
@@ -4842,55 +5044,93 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                 ctx.font = '14px system-ui';
                 ctx.fillText('Upload video file above to preview', canvas.width / 2, canvas.height / 2 + 25);
             }
-
-            document.getElementById('frame-info').textContent = `Frame 1 / ${slpData.numFrames}`;
+            // Frame counter is owned by updateFrameNavUI — don't overwrite it here.
         }
+
+        // Per-instance colors (cycled by index). Edges use the same hue at lower alpha.
+        const INSTANCE_COLORS = ['#10b981', '#f59e0b', '#3b82f6', '#ec4899', '#a855f7', '#14b8a6', '#ef4444', '#84cc16'];
 
         // Draw skeleton overlay on frame preview
         function drawSkeletonOverlay(ctx) {
-            if (!instancesData || !slpData) return;
+            if (!slpData) return;
+            // Don't overlay points if the frame pixels don't correspond to instances
+            // (e.g., external video upload where we couldn't seek to the labeled frame).
+            if (!frameMatchesInstances) return;
+            if (!currentFrameInstances.length) return;
 
-            const points = instancesData.points;
-            if (!points || points.length === 0) return;
+            const edges = slpData.skeleton.edges || [];
 
-            // Create point lookup by node name
-            const pointMap = {};
-            for (const p of points) {
-                pointMap[p.node] = p;
+            // Build a coord transform from world (keypoint) space to canvas pixels.
+            // Two cases:
+            //   - Zoomed: canvas spans only the viewport rect of world coords, so
+            //     we map (worldX - vp.x) → canvas pixel via canvas.width / vp.w.
+            //   - Full frame: canvas matches the bitmap; if bitmap was downsampled
+            //     relative to slpData (rare), apply uniform scale.
+            const viewport = computeZoomViewport();
+            const canvasW = firstFrame?.width || slpData.imgWidth;
+            const canvasH = firstFrame?.height || slpData.imgHeight;
+            let tx, ty;
+            if (viewport) {
+                const cx = canvasW / viewport.w;
+                const cy = canvasH / viewport.h;
+                tx = (x) => (x - viewport.x) * cx;
+                ty = (y) => (y - viewport.y) * cy;
+            } else {
+                const sx = (firstFrame?.width && slpData.imgWidth) ? firstFrame.width / slpData.imgWidth : 1;
+                const sy = (firstFrame?.height && slpData.imgHeight) ? firstFrame.height / slpData.imgHeight : 1;
+                tx = (x) => x * sx;
+                ty = (y) => y * sy;
             }
 
-            // Draw edges first (behind nodes)
-            ctx.strokeStyle = '#667eea';
-            ctx.lineWidth = 2;
-            for (const [srcIdx, dstIdx] of slpData.skeleton.edges) {
-                const srcName = slpData.skeleton.nodes[srcIdx];
-                const dstName = slpData.skeleton.nodes[dstIdx];
-                const srcPt = pointMap[srcName];
-                const dstPt = pointMap[dstName];
+            // Scale stroke/dot/font sizes to canvas width so they're legible regardless
+            // of bitmap resolution (e.g., 1024px canvas displayed at ~400px).
+            const scaleRef = Math.min(canvasW, canvasH);
+            const dotRadius = Math.max(3, Math.round(scaleRef / 200));
+            const edgeWidth = Math.max(1.5, scaleRef / 400);
+            const fontSize = Math.max(12, Math.round(scaleRef / 50));
 
-                if (srcPt && dstPt) {
-                    ctx.beginPath();
-                    ctx.moveTo(srcPt.x, srcPt.y);
-                    ctx.lineTo(dstPt.x, dstPt.y);
-                    ctx.stroke();
+            currentFrameInstances.forEach((inst, instIdx) => {
+                const colorIdx = inst.colorIdx ?? instIdx;
+                const color = INSTANCE_COLORS[colorIdx % INSTANCE_COLORS.length];
+                const points = inst.points;
+                const pointMap = {};
+                for (const p of points) pointMap[p.node] = p;
+
+                // Edges
+                ctx.strokeStyle = color;
+                ctx.globalAlpha = 0.7;
+                ctx.lineWidth = edgeWidth;
+                for (const [srcIdx, dstIdx] of edges) {
+                    const srcPt = pointMap[slpData.skeleton.nodes[srcIdx]];
+                    const dstPt = pointMap[slpData.skeleton.nodes[dstIdx]];
+                    if (srcPt && dstPt) {
+                        ctx.beginPath();
+                        ctx.moveTo(tx(srcPt.x), ty(srcPt.y));
+                        ctx.lineTo(tx(dstPt.x), ty(dstPt.y));
+                        ctx.stroke();
+                    }
                 }
-            }
+                ctx.globalAlpha = 1;
 
-            // Draw keypoint nodes
-            ctx.fillStyle = '#10b981';
-            for (const p of points) {
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-                ctx.fill();
-            }
+                // Keypoints
+                ctx.fillStyle = color;
+                for (const p of points) {
+                    ctx.beginPath();
+                    ctx.arc(tx(p.x), ty(p.y), dotRadius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
 
-            // Draw keypoint labels
-            ctx.fillStyle = '#ffffff';
-            ctx.font = '10px system-ui';
-            ctx.textAlign = 'left';
-            for (const p of points) {
-                ctx.fillText(p.node, p.x + 6, p.y + 3);
-            }
+                // Optional node labels
+                if (showNodeNames) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = `${fontSize}px system-ui`;
+                    ctx.textAlign = 'left';
+                    const offset = dotRadius + 2;
+                    for (const p of points) {
+                        ctx.fillText(p.node, tx(p.x) + offset, ty(p.y) + Math.round(fontSize / 3));
+                    }
+                }
+            });
         }
 
         // Draw crop visualization for centered instance models
@@ -4973,7 +5213,9 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
 
             // Build recommendation hint based on decision factors
             let recommendationHint = '';
-            if (isSmallAnimal && !isSingleAnimal) {
+            if (isSingleAnimal && isSmallAnimal) {
+                recommendationHint = `<br><span style="font-size: 0.85rem; color: #fbbf24;">⚠ Heads-up: your animal is only ~${Math.round(animalRatio * 100)}% of the frame size. Even with a single instance per frame, Top-Down may train better — cropping around the animal gives the model more usable resolution.</span>`;
+            } else if (isSmallAnimal && !isSingleAnimal) {
                 recommendationHint = '<br><span style="font-size: 0.85rem; color: #667eea;">Top-down works well when animals are small in the frame - cropping improves resolution.</span>';
             } else if (hasHighOverlap && !isSingleAnimal) {
                 recommendationHint = '<br><span style="font-size: 0.85rem; color: #667eea;">Bottom-up handles overlapping animals better using Part Affinity Fields.</span>';
@@ -5542,7 +5784,7 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
             // Calculate effective padding for display
             let effectivePadding = 0;
             let paddingSource = '';
-            if (userCropPadding !== null && userCropPadding > 0) {
+            if (userCropPadding !== null && userCropPadding >= 0) {
                 effectivePadding = userCropPadding;
                 paddingSource = 'user';
             } else if (useAug) {
@@ -6944,7 +7186,8 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                 // Evaluation (OKS)
                 enableEval: document.getElementById('enable-eval')?.checked || false,
                 evalFrequency: parseInt(document.getElementById('eval-frequency')?.value) || 1,
-                evalOksStddev: parseFloat(document.getElementById('eval-oks-stddev')?.value) || 0.025
+                evalOksStddev: parseFloat(document.getElementById('eval-oks-stddev')?.value) || 0.025,
+                evalMatchThreshold: parseFloat(document.getElementById('eval-match-threshold')?.value) || 50.0
             };
         }
 
@@ -7021,10 +7264,11 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                 enableEval: document.getElementById('ci-enable-eval')?.checked || false,
                 evalFrequency: parseInt(document.getElementById('ci-eval-frequency')?.value) || 1,
                 evalOksStddev: parseFloat(document.getElementById('ci-eval-oks-stddev')?.value) || 0.025,
+                evalMatchThreshold: parseFloat(document.getElementById('ci-eval-match-threshold')?.value) || 50.0,
                 // CI-specific augmentation values
                 augRotation: parseInt(document.getElementById('ci-aug-rotation-val')?.value) || 0,
                 augScaleRange: parseInt(document.getElementById('ci-aug-scale-val')?.value) || 0,
-                augTranslate: parseInt(document.getElementById('ci-aug-translate-val')?.value) || 0,
+                augTranslate: (parseInt(document.getElementById('ci-aug-translate-val')?.value) || 0) / 100,
                 augBrightness: parseInt(document.getElementById('ci-aug-brightness-val')?.value) || 0,
                 augContrast: parseInt(document.getElementById('ci-aug-contrast-val')?.value) || 0
             };
@@ -7069,7 +7313,10 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
 
                 // Get CI-specific parameters (model + training)
                 const ciMaxStride = parseInt(document.getElementById('ci-max-stride').value) || 16;
-                const cropSize = parseInt(document.getElementById('crop-size').value) || Math.ceil(slpData.maxAnimalSize * 1.5 / ciMaxStride) * ciMaxStride;
+                const userCropPadding = document.getElementById('ci-crop-padding')?.value
+                    ? parseInt(document.getElementById('ci-crop-padding').value) : null;
+                const cropSize = parseInt(document.getElementById('crop-size').value)
+                    || computeSuggestedCropSize(slpData.maxMaxDim, ciMaxStride, true, userCropPadding);
                 const ciHeadType = selectedModelType === 'multi_class_topdown' ? 'multi_class_topdown' : 'centered_instance';
                 const ciScale = parseFloat(document.getElementById('ci-scale').value) || 1.0;
                 const ciBackbone = document.getElementById('ci-backbone')?.value || 'unet';
@@ -7356,7 +7603,10 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
 
                 // Get CI-specific parameters (model + training)
                 const ciMaxStride = parseInt(document.getElementById('ci-max-stride').value) || 16;
-                const cropSize = parseInt(document.getElementById('crop-size').value) || Math.ceil(slpData.maxAnimalSize * 1.5 / ciMaxStride) * ciMaxStride;
+                const userCropPadding = document.getElementById('ci-crop-padding')?.value
+                    ? parseInt(document.getElementById('ci-crop-padding').value) : null;
+                const cropSize = parseInt(document.getElementById('crop-size').value)
+                    || computeSuggestedCropSize(slpData.maxMaxDim, ciMaxStride, true, userCropPadding);
                 const ciHeadType = selectedModelType === 'multi_class_topdown' ? 'multi_class_topdown' : 'centered_instance';
                 const ciScale = parseFloat(document.getElementById('ci-scale').value) || 1.0;
                 const ciBackbone = document.getElementById('ci-backbone')?.value || 'unet';
@@ -7393,6 +7643,22 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
 
             // Update CLI commands
             updateCLICommands();
+        }
+
+        // Format Optional[List[str]] schema fields as a YAML block list, single string,
+        // or 'null'. Avoids JS template-literal coercing arrays via .toString() (joined with ',').
+        function formatLabelsPath(value, defaultPath, comment) {
+            const cmt = comment ? `  ${comment}` : '';
+            if (Array.isArray(value) && value.length > 0) {
+                return value.map((p, i) => `\n    - ${p}${i === 0 ? cmt : ''}`).join('');
+            }
+            if (typeof value === 'string' && value) {
+                return `\n    - ${value}${cmt}`;
+            }
+            if (defaultPath) {
+                return `\n    - ${defaultPath}${cmt}`;
+            }
+            return ' null';
         }
 
         function generateConfigYaml(params) {
@@ -7512,8 +7778,11 @@ ${partNames}
     multi_class_bottomup: null
     multi_class_topdown: null`;
             } else if (headType === 'bottomup') {
-                const edges = slpData.skeleton.edges.map(e =>
-                    `          - [${slpData.skeleton.nodes[e[0]]}, ${slpData.skeleton.nodes[e[1]]}]`).join('\n');
+                const skelEdges = slpData.skeleton.edges || [];
+                const edgesYaml = skelEdges.length > 0
+                    ? '\n' + skelEdges.map(e =>
+                        `          - [${slpData.skeleton.nodes[e[0]]}, ${slpData.skeleton.nodes[e[1]]}]`).join('\n')
+                    : ' []';
                 headConfig = `    single_instance: null
     centroid: null
     centered_instance: null
@@ -7525,8 +7794,7 @@ ${partNames}
         output_stride: ${outputStride}
         loss_weight: ${adv.confmapsLossWeight || 1.0}
       pafs:
-        edges:
-${edges}
+        edges:${edgesYaml}
         sigma: ${pafSigma}
         output_stride: ${adv.pafOutputStride || 2}
         loss_weight: ${adv.pafLossWeight || 1.0}
@@ -7643,15 +7911,14 @@ ${partNames}
 # Model type: ${headType}
 
 data_config:
-  train_labels_path:
-    - ${lcData.train_labels_path?.[0] || '/path/to/your/labels.slp'}  # UPDATE THIS PATH
-  val_labels_path: ${lcData.val_labels_path || 'null'}
+  train_labels_path:${formatLabelsPath(lcData.train_labels_path, '/path/to/your/labels.slp', '# UPDATE THIS PATH')}
+  val_labels_path:${formatLabelsPath(lcData.val_labels_path)}
   validation_fraction: ${valFraction}
   test_file_path: ${lcData.test_file_path || 'null'}
   provider: ${lcData.provider || 'LabelsReader'}
   user_instances_only: ${lcData.user_instances_only ?? true}
-  data_pipeline_fw: ${adv.dataPipeline && adv.dataPipeline !== 'torch_dataset' ? adv.dataPipeline : lcData.data_pipeline_fw || 'torch_dataset'}
-  cache_img_path: ${adv.dataPipeline === 'torch_dataset_cache_img_disk' && adv.cacheImgPath ? `"${adv.cacheImgPath}"` : lcData.cache_img_path || 'null'}
+  data_pipeline_fw: ${adv.dataPipeline || 'torch_dataset'}
+  cache_img_path: ${adv.dataPipeline === 'torch_dataset_cache_img_disk' && adv.cacheImgPath ? `"${adv.cacheImgPath}"` : 'null'}
   use_existing_imgs: ${adv.dataPipeline === 'torch_dataset_cache_img_disk' ? adv.useExistingImgs : lcData.use_existing_imgs ?? false}
   delete_cache_imgs_after_training: ${adv.dataPipeline === 'torch_dataset_cache_img_disk' ? adv.deleteCacheAfterTraining : lcData.delete_cache_imgs_after_training ?? true}
   parallel_caching: ${adv.dataPipeline?.includes('cache') ? adv.parallelCaching : lcData.parallel_caching ?? true}
@@ -7676,23 +7943,23 @@ trainer_config:
   train_data_loader:
     batch_size: ${batchSize}
     shuffle: true
-    num_workers: ${adv.numWorkers || lcTrainer.train_data_loader?.num_workers || 0}
+    num_workers: ${adv.numWorkers ?? lcTrainer.train_data_loader?.num_workers ?? 0}
   val_data_loader:
     batch_size: ${batchSize}
     shuffle: false
-    num_workers: ${adv.numWorkers || lcTrainer.val_data_loader?.num_workers || 0}
+    num_workers: ${adv.numWorkers ?? lcTrainer.val_data_loader?.num_workers ?? 0}
   model_ckpt:
     save_top_k: ${adv.ckptSaveTopK ?? lcTrainer.model_ckpt?.save_top_k ?? 1}
     save_last: ${adv.ckptSaveLast === true ? 'true' : adv.ckptSaveLast === false ? 'false' : lcTrainer.model_ckpt?.save_last ?? 'null'}
   trainer_devices: ${lcTrainer.trainer_devices || 'auto'}
   trainer_accelerator: ${accelerator}
   enable_progress_bar: ${lcTrainer.enable_progress_bar ?? true}
-  min_train_steps_per_epoch: ${adv.minSteps || lcTrainer.min_train_steps_per_epoch || 200}
-  visualize_preds_during_training: ${adv.enableViz || lcTrainer.visualize_preds_during_training || false}
-  keep_viz: ${adv.vizKeepFolder || lcTrainer.keep_viz || false}
+  min_train_steps_per_epoch: ${adv.minSteps ?? lcTrainer.min_train_steps_per_epoch ?? 200}
+  visualize_preds_during_training: ${adv.enableViz}
+  keep_viz: ${adv.vizKeepFolder}
   max_epochs: ${maxEpochs}
   seed: ${adv.seed !== null && adv.seed !== undefined ? adv.seed : lcTrainer.seed ?? 'null'}
-  use_wandb: ${adv.enableWandb || lcTrainer.use_wandb || false}
+  use_wandb: ${adv.enableWandb}
   save_ckpt: ${saveCkpt}
   ckpt_dir: ${adv.ckptDir && adv.ckptDir !== './models' ? adv.ckptDir : lcTrainer.ckpt_dir || './models'}
   run_name: ${adv.runName ? `"${adv.runName}"` : lcTrainer.run_name ? `"${lcTrainer.run_name}"` : 'null'}
@@ -7737,11 +8004,11 @@ ${adv.lrScheduler === 'step_lr' ? `    step_lr:
     min_delta: ${adv.esMinDelta || lcTrainer.early_stopping?.min_delta || 1e-8}
     patience: ${adv.esPatience || lcTrainer.early_stopping?.patience || 10}
   online_hard_keypoint_mining:
-    online_mining: ${adv.enableOhkm || lcTrainer.online_hard_keypoint_mining?.online_mining || false}
+    online_mining: ${adv.enableOhkm}
     hard_to_easy_ratio: ${adv.ohkmRatio || lcTrainer.online_hard_keypoint_mining?.hard_to_easy_ratio || 2.0}
     min_hard_keypoints: ${adv.ohkmMinHard || lcTrainer.online_hard_keypoint_mining?.min_hard_keypoints || 2}
     max_hard_keypoints: ${adv.ohkmMaxHard !== null && adv.ohkmMaxHard !== undefined ? adv.ohkmMaxHard : lcTrainer.online_hard_keypoint_mining?.max_hard_keypoints ?? 'null'}
-    loss_scale: ${adv.ohkmLossScale || lcTrainer.online_hard_keypoint_mining?.loss_scale || 5.0}${(adv.enableWandb || lcTrainer.use_wandb) ? `
+    loss_scale: ${adv.ohkmLossScale || lcTrainer.online_hard_keypoint_mining?.loss_scale || 5.0}${adv.enableWandb ? `
   wandb:
     entity: ${adv.wandbEntity ? `"${adv.wandbEntity}"` : lcTrainer.wandb?.entity ? `"${lcTrainer.wandb.entity}"` : 'null'}
     project: ${adv.wandbProject ? `"${adv.wandbProject}"` : lcTrainer.wandb?.project ? `"${lcTrainer.wandb.project}"` : '"sleap-training"'}
@@ -7753,7 +8020,8 @@ ${adv.lrScheduler === 'step_lr' ? `    step_lr:
   eval:
     enabled: true
     frequency: ${adv.evalFrequency || 1}
-    oks_stddev: ${adv.evalOksStddev || 0.025}` : ''}
+    oks_stddev: ${adv.evalOksStddev || 0.025}
+    match_threshold: ${adv.evalMatchThreshold || 50.0}` : ''}
 `;
         }
 
