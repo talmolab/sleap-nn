@@ -1071,18 +1071,6 @@ def _register_export_commands():
     help="Override model pipeline type.",
 )
 @click.option(
-    "--batch-size",
-    type=int,
-    default=None,
-    help="Override batch size.",
-)
-@click.option(
-    "--max-epochs",
-    type=int,
-    default=None,
-    help="Override max epochs.",
-)
-@click.option(
     "--show-yaml",
     is_flag=True,
     default=False,
@@ -1093,8 +1081,6 @@ def config(
     output,
     auto,
     pipeline,
-    batch_size,
-    max_epochs,
     show_yaml,
 ):
     """Generate training configuration for a SLEAP file.
@@ -1112,7 +1098,7 @@ def config(
         sleap-nn config labels.slp --auto -o config.yaml
 
         # Auto-generate with overrides
-        sleap-nn config labels.slp --auto --pipeline bottomup --batch-size 8
+        sleap-nn config labels.slp --auto --pipeline bottomup
     """
     from sleap_nn.config_generator.generator import ConfigGenerator
 
@@ -1128,10 +1114,6 @@ def config(
         # Apply overrides
         if pipeline:
             gen.pipeline(pipeline)
-        if batch_size:
-            gen.batch_size(batch_size)
-        if max_epochs:
-            gen.max_epochs(max_epochs)
 
         if show_yaml:
             click.echo(gen.to_yaml())

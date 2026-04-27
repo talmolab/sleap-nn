@@ -279,7 +279,7 @@ class ModelSelectScreen(Widget):
         )
 
     def on_mount(self) -> None:
-        """Handle mount - pre-select recommended option."""
+        """Handle mount - preselect recommended option."""
         selected_type = None
 
         if self._state and self._state._pipeline:
@@ -344,20 +344,19 @@ class ModelSelectScreen(Widget):
             else:
                 self._state._input_scale = 1.0  # Full scale for other models
 
-            # Auto-adjust max_stride based on animal size vs receptive field
-            scaled_animal_size = (
+            # Floor max_stride by RF coverage at the new scale, but DON'T
+            # downgrade below what the bucket recommendation gave on SLP load
+            # (which uses scale=1.0 — matches web app's setDefaultParameters).
+            base_stride = 32 if "large_rf" in self._state._backbone else 16
+            scaled_max_animal_size = (
                 self._state.stats.max_bbox_size * self._state._input_scale
             )
-            required_stride = self._state._compute_max_stride_for_animal_size(
-                scaled_animal_size
+            coverage_stride = self._state._compute_max_stride_for_animal_size(
+                scaled_max_animal_size
             )
-
-            # Use at least the base stride (16 for medium_rf, 32 for large_rf)
-            if "large_rf" in self._state._backbone:
-                base_stride = 32
-            else:
-                base_stride = 16
-            self._state._max_stride = max(base_stride, required_stride)
+            self._state._max_stride = max(
+                base_stride, coverage_stride, self._state._max_stride
+            )
 
     def _update_pipeline_info(self, pipeline_type: PipelineType) -> None:
         """Update the pipeline info box based on selected type."""
