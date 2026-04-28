@@ -262,6 +262,7 @@ class VisualizationData:
         is_paired: Whether GT and predictions can be paired for error visualization.
         pred_pafs: Part affinity fields for bottom-up models, optional.
         pred_class_maps: Class maps for multi-class models, optional.
+        pred_center_heatmap: Center heatmap for segmentation models, optional.
     """
 
     image: np.ndarray
@@ -274,6 +275,7 @@ class VisualizationData:
     is_paired: bool = True
     pred_pafs: Optional[np.ndarray] = None
     pred_class_maps: Optional[np.ndarray] = None
+    pred_center_heatmap: Optional[np.ndarray] = None
 
 
 class MatplotlibRenderer:

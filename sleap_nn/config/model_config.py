@@ -876,6 +876,54 @@ class ClassVectorsConfig:
 
 
 @define
+class SegmentationHeadConfig:
+    """Configuration for the foreground segmentation head.
+
+    Attributes:
+        output_stride: (int) The stride of the output segmentation maps relative to the
+            input image. Default: 2.
+        loss_weight: (float) Scalar float used to weigh the loss term for this head
+            during training. Default: 1.0.
+    """
+
+    output_stride: int = 2
+    loss_weight: float = 1.0
+
+
+@define
+class InstanceCenterConfig:
+    """Configuration for the instance center heatmap head.
+
+    Attributes:
+        sigma: (float) Standard deviation of the Gaussian distribution used to generate
+            center heatmaps, in pixels at original image resolution. Default: 10.0.
+        output_stride: (int) The stride of the output center heatmaps relative to the
+            input image. Default: 2.
+        loss_weight: (float) Scalar float used to weigh the loss term for this head
+            during training. Default: 1.0.
+    """
+
+    sigma: float = 10.0
+    output_stride: int = 2
+    loss_weight: float = 1.0
+
+
+@define
+class CenterOffsetConfig:
+    """Configuration for the center offset head.
+
+    Attributes:
+        output_stride: (int) The stride of the output offset maps relative to the
+            input image. Default: 2.
+        loss_weight: (float) Scalar float used to weigh the loss term for this head
+            during training. Default: 0.1.
+    """
+
+    output_stride: int = 2
+    loss_weight: float = 0.1
+
+
+@define
 class SingleInstanceConfig:
     """single instance head_config."""
 
@@ -920,6 +968,15 @@ class TopDownCenteredInstanceMultiClassConfig:
     class_vectors: Optional[ClassVectorsConfig] = None
 
 
+@define
+class BottomUpSegmentationConfig:
+    """Head config for bottom-up instance segmentation models."""
+
+    segmentation: Optional[SegmentationHeadConfig] = None
+    center: Optional[InstanceCenterConfig] = None
+    offsets: Optional[CenterOffsetConfig] = None
+
+
 @oneof
 @define
 class HeadConfig:
@@ -934,6 +991,7 @@ class HeadConfig:
         bottomup: An instance of `BottomUpConfig`.
         multi_class_bottomup: An instance of `BottomUpMultiClassConfig`.
         multi_class_topdown: An instance of `TopDownCenteredInstanceMultiClassConfig`.
+        bottomup_segmentation: An instance of `BottomUpSegmentationConfig`.
     """
 
     single_instance: Optional[SingleInstanceConfig] = None
@@ -942,6 +1000,7 @@ class HeadConfig:
     bottomup: Optional[BottomUpConfig] = None
     multi_class_bottomup: Optional[BottomUpMultiClassConfig] = None
     multi_class_topdown: Optional[TopDownCenteredInstanceMultiClassConfig] = None
+    bottomup_segmentation: Optional[BottomUpSegmentationConfig] = None
 
 
 @oneof
