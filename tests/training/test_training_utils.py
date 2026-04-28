@@ -479,6 +479,24 @@ class TestWandBRenderer:
         assert boxes[0]["scores"]["confidence"] == pytest.approx(0.95, rel=0.01)
         assert "(0.95)" in boxes[0]["box_caption"]
 
+    def test_peaks_to_boxes_with_centroid_confidence(self):
+        """Handles centroid confidences with one value per predicted instance."""
+        renderer = WandBRenderer()
+        peaks = np.array([[[10.0, 20.0]], [[30.0, 40.0]]])
+        peak_values = np.array([0.95, 0.87])
+        node_names = ["centroid"]
+        img_w, img_h = 100, 100
+
+        boxes = renderer._peaks_to_boxes(
+            peaks, node_names, img_w, img_h, peak_values=peak_values, is_gt=False
+        )
+
+        assert len(boxes) == 2
+        assert boxes[0]["scores"]["confidence"] == pytest.approx(0.95, rel=0.01)
+        assert boxes[1]["scores"]["confidence"] == pytest.approx(0.87, rel=0.01)
+        assert "(0.95)" in boxes[0]["box_caption"]
+        assert "(0.87)" in boxes[1]["box_caption"]
+
     def test_peaks_to_boxes_skips_nan(self):
         """Skips NaN coordinates."""
         renderer = WandBRenderer()
