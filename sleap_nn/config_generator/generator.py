@@ -5,11 +5,16 @@ configurations from SLP files with sensible defaults.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Optional, Tuple, Union
 
 from omegaconf import DictConfig, OmegaConf
 
 from sleap_nn.config_generator.analyzer import DatasetStats, ViewType, analyze_slp
+from sleap_nn.config_generator.architecture_estimates import (
+    compute_max_stride_for_animal_size,
+    compute_suggested_crop_size,
+    recommend_default_max_stride,
+)
 from sleap_nn.config_generator.memory import MemoryEstimate, estimate_memory
 from sleap_nn.config_generator.recommender import (
     BackboneType,
@@ -99,18 +104,111 @@ class ConfigGenerator:
         self._output_stride: int = 1
         self._max_stride: int = 16
         self._filters: int = 32
-        self._filters_rate: float = 2.0
+        self._filters_rate: float = 1.5
         self._use_augmentations: bool = True
         self._rotation_range: Tuple[float, float] = (-15.0, 15.0)
         self._scale_range: Tuple[float, float] = (0.9, 1.1)
+        self._translate: float = 0.0  # 0.0..1.0 fraction of image width/height
+        self._brightness: float = 0.0  # 0..1 fraction; 0 disables
+        self._contrast: float = 0.0  # 0..1 fraction; 0 disables
         self._early_stopping: bool = True
-        self._early_stopping_patience: int = 10
+        self._early_stopping_patience: int = 5  # Web-app HTML default
+        self._early_stopping_min_delta: float = 1e-6  # Web-app HTML default
         self._validation_fraction: float = 0.1
         self._anchor_part: Optional[str] = None
         self._crop_size: Optional[int] = None
+        self._min_crop_size: int = 100
+        self._crop_padding: Optional[int] = None
+        self._max_height: Optional[int] = None  # override; defaults to stats max
+        self._max_width: Optional[int] = None
         self._view_type: ViewType = ViewType.UNKNOWN
         self._ensure_rgb: bool = False
         self._ensure_grayscale: bool = False
+        self._input_channels: Optional[int] = None  # overrides stats.num_channels
+
+        # Head settings
+        self._paf_sigma: float = 15.0
+        self._paf_output_stride: int = 4
+        self._paf_loss_weight: float = 1.0
+        self._confmaps_loss_weight: float = 1.0
+        # multi-class
+        self._class_fc_layers: int = 1
+        self._class_fc_units: int = 64
+        self._class_loss_weight: float = 1.0
+        self._mc_confmaps_loss_weight: float = 1.0
+
+        # Pretrained weights
+        self._pretrained_backbone_weights: Optional[str] = None
+        self._pretrained_head_weights: Optional[str] = None
+        self._use_imagenet_pretrained: bool = True
+
+        # Trainer
+        self._optimizer_name: str = "Adam"
+        self._amsgrad: bool = False
+        self._trainer_accelerator: str = "auto"
+        self._trainer_devices: Any = "auto"
+        self._save_ckpt: bool = True
+        self._save_top_k: int = 1
+        self._save_last: Optional[bool] = True  # Web app default
+        self._ckpt_dir: str = "./models"  # Web app default
+        self._run_name: Optional[str] = None
+        self._resume_ckpt_path: Optional[str] = None
+        self._seed: Optional[int] = None
+        self._min_train_steps_per_epoch: int = 200
+        self._num_workers: int = 0
+        self._enable_progress_bar: bool = True
+        self._visualize_preds_during_training: bool = True
+        self._keep_viz: bool = False
+
+        # LR scheduler: name + per-branch params
+        self._lr_scheduler: str = (
+            "reduce_lr_on_plateau"  # or step_lr/cosine_annealing_warmup/linear_warmup_linear_decay/none
+        )
+        self._reduce_lr_threshold: float = 1e-6
+        self._reduce_lr_threshold_mode: str = "abs"
+        self._reduce_lr_cooldown: int = 3
+        self._reduce_lr_patience: int = 5
+        self._reduce_lr_factor: float = 0.5
+        self._reduce_lr_min: float = 1e-8
+        self._step_lr_step_size: int = 10
+        self._step_lr_gamma: float = 0.1
+        self._cosine_warmup_epochs: int = 5
+        self._cosine_warmup_start_lr: float = 0.0
+        self._cosine_eta_min: float = 0.0
+        self._linear_warmup_epochs: int = 5
+        self._linear_warmup_start_lr: float = 0.0
+        self._linear_end_lr: float = 0.0
+
+        # Online hard keypoint mining
+        self._enable_ohkm: bool = False
+        self._ohkm_ratio: float = 2.0
+        self._ohkm_min_hard: int = 2
+        self._ohkm_max_hard: Optional[int] = None
+        self._ohkm_loss_scale: float = 5.0
+
+        # WandB
+        self._enable_wandb: bool = False
+        self._wandb_entity: Optional[str] = None
+        self._wandb_project: str = "sleap-training"
+        self._wandb_name: Optional[str] = None
+        self._wandb_api_key: Optional[str] = None
+        self._wandb_mode: Optional[str] = None
+        self._wandb_viz_enabled: bool = True
+        self._wandb_save_viz: bool = False
+
+        # Eval
+        self._enable_eval: bool = False
+        self._eval_frequency: int = 1
+        self._eval_oks_stddev: float = 0.025
+        self._eval_match_threshold: float = 50.0
+
+        # Data pipeline / caching
+        self._data_pipeline_fw: str = "torch_dataset"
+        self._cache_img_path: Optional[str] = None
+        self._use_existing_imgs: bool = False
+        self._delete_cache_imgs_after_training: bool = True
+        self._parallel_caching: bool = True
+        self._cache_workers: int = 0
 
     @classmethod
     def from_slp(cls, path: str) -> "ConfigGenerator":
@@ -211,28 +309,54 @@ class ConfigGenerator:
             self._filters = 32
             self._filters_rate = 1.5  # Web app default
 
-        # Set channel configuration
-        self._ensure_rgb = self.stats.is_rgb
-        self._ensure_grayscale = self.stats.is_grayscale
+        # Channel configuration: only emit ``ensure_rgb``/``ensure_grayscale``
+        # when an actual conversion is required. Web app behavior:
+        #   ensure_rgb        = True iff (user wants 3ch OR pretrained) AND original is 1ch
+        #   ensure_grayscale  = True iff user wants 1ch AND original is 3ch
+        # On auto-config the user keeps the original channels, so both are
+        # False unless the user later switches to a pretrained backbone.
+        is_pretrained = "convnext" in self._backbone or "swint" in self._backbone
+        self._ensure_rgb = bool(is_pretrained and self.stats.num_channels == 1)
+        self._ensure_grayscale = False
 
-        # Set top-down specific parameters (affects input_scale used for max_stride)
+        # Default max_stride uses the web-app bucket on avg bbox diagonal
+        # at the recommender's input scale (``setDefaultParameters`` in
+        # app.html runs at scale=1.0). Compute BEFORE applying the centroid
+        # 0.5 scale so we match the web app's default for top-down models.
+        bucket_stride = recommend_default_max_stride(
+            self.stats.avg_bbox_diagonal, self._input_scale
+        )
+
+        # Top-down centroid scale override (web app applies this in
+        # selectModelType, after setDefaultParameters has already picked
+        # max_stride at scale=1.0). Don't recompute the bucket here.
         if self._pipeline in ("centroid", "multi_class_topdown"):
-            self._input_scale = 0.5  # Lower scale for centroid
+            self._input_scale = 0.5
             self._sigma = 5.0
             self._output_stride = 2
 
-        # Auto-adjust max_stride if RF < animal size (scaled by input_scale)
-        # RF map: {8: 36, 16: 76, 32: 156, 64: 316}
-        rf_map = {8: 36, 16: 76, 32: 156, 64: 316}
-        scaled_animal_size = self.stats.max_bbox_size * self._input_scale
-        required_stride = base_max_stride
-        for stride in [8, 16, 32, 64]:
-            if rf_map[stride] >= scaled_animal_size:
-                required_stride = stride
-                break
-        else:
-            required_stride = 64
-        self._max_stride = max(base_max_stride, required_stride)
+        # Floor by RF coverage of the largest instance at the (possibly
+        # lowered) scale so we never under-provision.
+        scaled_max_animal_size = self.stats.max_bbox_size * self._input_scale
+        coverage_stride = compute_max_stride_for_animal_size(scaled_max_animal_size)
+        self._max_stride = max(base_max_stride, bucket_stride, coverage_stride)
+
+        # Override the recommender's 1.5x crop size with the augmentation-aware
+        # canonical formula for top-down centered-instance pipelines.
+        if self._pipeline in ("centered_instance", "multi_class_topdown") or (
+            rec.pipeline.requires_second_model
+            and rec.pipeline.second_model_type == "centered_instance"
+        ):
+            ci_max_stride = 16  # CI default; instance crops don't need deeper RF
+            rot_min, rot_max = self._rotation_range
+            scale_min, scale_max_aug = self._scale_range
+            self._crop_size = compute_suggested_crop_size(
+                self.stats.max_bbox_size,
+                max_stride=ci_max_stride,
+                use_augmentation=self._use_augmentations,
+                rotation_max=max(abs(rot_min), abs(rot_max)),
+                scale_max=max(scale_min, scale_max_aug),
+            )
 
         self._recommendation = rec
         return self
@@ -242,50 +366,56 @@ class ConfigGenerator:
     def pipeline(self, pipeline: PipelineType) -> "ConfigGenerator":
         """Set the pipeline type.
 
+        Pipeline-specific defaults match the web app:
+
+        - ``centroid``: centroid stage of top-down — main preprocessing,
+          scale=0.5, sigma=5.0, output_stride=2.
+        - ``centered_instance``, ``multi_class_topdown``: CI stage of top-down —
+          CI preprocessing (crop_size), scale=1.0, sigma=2.5, output_stride=2.
+        - ``single_instance``, ``bottomup``, ``multi_class_bottomup``: main
+          preprocessing, scale=1.0, sigma=5.0, output_stride=2.
+
         Args:
-            pipeline: One of "single_instance", "centroid", "centered_instance",
-                "bottomup", "multi_class_bottomup", "multi_class_topdown".
+            pipeline: One of the six canonical pipeline types.
 
         Returns:
             self for method chaining.
         """
         self._pipeline = pipeline
 
-        # Update defaults based on pipeline type (web app behavior)
-        if pipeline in ("centroid", "multi_class_topdown"):
-            self._input_scale = 0.5  # Lower scale for centroid
+        if pipeline == "centroid":
+            self._input_scale = 0.5
             self._sigma = 5.0
             self._output_stride = 2
-        else:
-            # For non-centroid, use defaults
-            if self._input_scale == 0.5:  # Reset if was set for centroid
-                self._input_scale = 1.0
-
-        # Recalculate max_stride based on new input_scale
-        self._recalculate_max_stride()
+            self._recalculate_max_stride()
+        elif pipeline in ("centered_instance", "multi_class_topdown"):
+            self._input_scale = 1.0
+            self._sigma = 2.5
+            self._output_stride = 2
+            # CI stages operate on cropped instances; max_stride=16 is the
+            # web-app default ("ci-max-stride" HTML).
+            self._max_stride = 16
+        else:  # single_instance, bottomup, multi_class_bottomup
+            self._input_scale = 1.0
+            self._sigma = 5.0
+            self._output_stride = 2
+            self._recalculate_max_stride()
 
         return self
 
     def _recalculate_max_stride(self) -> None:
-        """Recalculate max_stride based on animal size vs receptive field."""
-        # RF map: {8: 36, 16: 76, 32: 156, 64: 316}
-        rf_map = {8: 36, 16: 76, 32: 156, 64: 316}
+        """Refloor max_stride by RF coverage at the current scale.
 
-        # Base stride depends on backbone
-        if "large_rf" in self._backbone:
-            base_max_stride = 32
-        else:
-            base_max_stride = 16
-
-        scaled_animal_size = self.stats.max_bbox_size * self._input_scale
-        required_stride = base_max_stride
-        for stride in [8, 16, 32, 64]:
-            if rf_map[stride] >= scaled_animal_size:
-                required_stride = stride
-                break
-        else:
-            required_stride = 64
-        self._max_stride = max(base_max_stride, required_stride)
+        Web-app behavior: ``setDefaultParameters`` picks max_stride from the
+        bucket at scale=1.0. ``selectModelType`` may then change the scale
+        but does NOT rebucket. So here we only floor by RF coverage so that
+        a deep enough network is still chosen if the user picks a pipeline
+        with a smaller scale; we do not downgrade ``_max_stride``.
+        """
+        base_max_stride = 32 if "large_rf" in self._backbone else 16
+        scaled_max_animal_size = self.stats.max_bbox_size * self._input_scale
+        coverage_stride = compute_max_stride_for_animal_size(scaled_max_animal_size)
+        self._max_stride = max(base_max_stride, coverage_stride, self._max_stride)
 
     def backbone(self, backbone: BackboneType) -> "ConfigGenerator":
         """Set the backbone architecture.
@@ -502,95 +632,196 @@ class ConfigGenerator:
         return OmegaConf.create(config)
 
     def _build_data_config(self) -> dict:
-        """Build data configuration section."""
-        return {
-            "train_labels_path": [str(self.slp_path)],
-            "val_labels_path": [],
-            "validation_fraction": self._validation_fraction,
-            "user_instances_only": True,
-            "data_pipeline_fw": "torch_dataset",
-            "preprocessing": {
-                "ensure_rgb": self._ensure_rgb,
-                "ensure_grayscale": self._ensure_grayscale,
-                "scale": self._input_scale,
-                "crop_size": self._crop_size,
-            },
-            "use_augmentations_train": self._use_augmentations,
-            "augmentation_config": {
-                "geometric": {
-                    "rotation_min": self._rotation_range[0],
-                    "rotation_max": self._rotation_range[1],
-                    "scale_min": self._scale_range[0],
-                    "scale_max": self._scale_range[1],
-                    "translate_width": 0.0,
-                    "translate_height": 0.0,
-                    "affine_p": 1.0 if self._use_augmentations else 0.0,
-                },
-                "intensity": {
-                    "brightness_limit": 0.0,
-                    "brightness_p": 0.0,
-                    "contrast_limit": 0.0,
-                    "contrast_p": 0.0,
-                },
-            },
+        """Build data configuration section.
+
+        Mirrors the web app's ``generateConfigYaml`` data_config block
+        (``app.html``) and matches the canonical ``DataConfig`` /
+        ``PreprocessingConfig`` / ``AugmentationConfig`` schemas in
+        ``sleap_nn/config/data_config.py``.
+        """
+        is_centered_instance = self._pipeline in (
+            "centered_instance",
+            "multi_class_topdown",
+        )
+
+        # Preprocessing block depends on whether this is a CI model.
+        preprocessing: dict = {
+            "ensure_rgb": self._ensure_rgb,
+            "ensure_grayscale": self._ensure_grayscale,
         }
+        if is_centered_instance:
+            preprocessing["crop_size"] = self._crop_size
+            preprocessing["min_crop_size"] = self._min_crop_size
+            preprocessing["crop_padding"] = self._crop_padding
+            preprocessing["scale"] = 1.0
+        else:
+            preprocessing["max_height"] = (
+                self._max_height
+                if self._max_height is not None
+                else getattr(self.stats, "max_height", None)
+            )
+            preprocessing["max_width"] = (
+                self._max_width
+                if self._max_width is not None
+                else getattr(self.stats, "max_width", None)
+            )
+            preprocessing["scale"] = self._input_scale
+            preprocessing["crop_size"] = None
+
+        config = {
+            "train_labels_path": [str(self.slp_path)],
+            "val_labels_path": None,
+            "validation_fraction": self._validation_fraction,
+            "test_file_path": None,
+            "provider": "LabelsReader",
+            "user_instances_only": True,
+            "data_pipeline_fw": self._data_pipeline_fw,
+            "cache_img_path": self._cache_img_path,
+            "use_existing_imgs": self._use_existing_imgs,
+            "delete_cache_imgs_after_training": self._delete_cache_imgs_after_training,
+            "parallel_caching": self._parallel_caching,
+            "cache_workers": self._cache_workers,
+            "preprocessing": preprocessing,
+            "use_augmentations_train": self._use_augmentations,
+            "augmentation_config": self._build_augmentation_config(),
+        }
+        return config
+
+    def _build_augmentation_config(self) -> Optional[dict]:
+        """Build the structured augmentation_config block.
+
+        Returns ``None`` if augmentations are disabled or all sliders are zero.
+        Otherwise emits ``intensity`` and/or ``geometric`` subblocks with the
+        canonical field names from ``sleap_nn/config/data_config.py``
+        (``IntensityConfig``, ``GeometricConfig``).
+        """
+        if not self._use_augmentations:
+            return None
+
+        rot_min, rot_max = self._rotation_range
+        scale_min, scale_max = self._scale_range
+        has_rotation = (rot_min, rot_max) != (0.0, 0.0)
+        has_scale = (scale_min, scale_max) != (1.0, 1.0)
+        has_translate = self._translate > 0
+        has_brightness = self._brightness > 0
+        has_contrast = self._contrast > 0
+
+        block: dict = {}
+
+        if has_brightness or has_contrast:
+            intensity: dict = {}
+            if has_contrast:
+                intensity["contrast_min"] = round(1 - self._contrast, 2)
+                intensity["contrast_max"] = round(1 + self._contrast, 2)
+                intensity["contrast_p"] = 1.0
+            if has_brightness:
+                intensity["brightness_min"] = round(1 - self._brightness, 2)
+                intensity["brightness_max"] = round(1 + self._brightness, 2)
+                intensity["brightness_p"] = 1.0
+            block["intensity"] = intensity
+
+        if has_rotation or has_scale or has_translate:
+            geometric: dict = {}
+            if has_rotation:
+                geometric["rotation_min"] = float(rot_min)
+                geometric["rotation_max"] = float(rot_max)
+                geometric["rotation_p"] = 1.0
+            if has_scale:
+                geometric["scale_min"] = float(scale_min)
+                geometric["scale_max"] = float(scale_max)
+                geometric["scale_p"] = 1.0
+            if has_translate:
+                geometric["translate_width"] = float(self._translate)
+                geometric["translate_height"] = float(self._translate)
+                geometric["translate_p"] = 1.0
+            block["geometric"] = geometric
+
+        return block or None
 
     def _build_model_config(self) -> dict:
-        """Build model configuration section."""
-        # Determine input channels
-        in_channels = 3 if self._ensure_rgb else 1
+        """Build model configuration section.
 
-        # Backbone config
-        if "unet" in self._backbone:
-            backbone_config = {
-                "unet": {
-                    "in_channels": in_channels,
-                    "filters": self._filters,
-                    "filters_rate": self._filters_rate,
-                    "max_stride": self._max_stride,
-                    "output_stride": self._output_stride,
-                }
-            }
-        elif "convnext" in self._backbone:
-            model_type = "tiny" if "tiny" in self._backbone else "small"
-            backbone_config = {
-                "convnext": {
-                    "in_channels": in_channels,
-                    "model_type": model_type,
-                    "output_stride": self._output_stride,
-                }
-            }
-        else:  # swint
-            model_type = "tiny" if "tiny" in self._backbone else "small"
-            backbone_config = {
-                "swint": {
-                    "in_channels": in_channels,
-                    "model_type": model_type,
-                    "output_stride": self._output_stride,
-                }
-            }
+        Emits all three backbone keys (unet, convnext, swint) with exactly one
+        non-null value, mirroring the web app and matching the canonical
+        ``BackboneConfig`` ``oneof`` schema in
+        ``sleap_nn/config/model_config.py``.
+        """
+        is_pretrained = self._backbone.startswith(
+            "convnext"
+        ) or self._backbone.startswith("swint")
+        # Pretrained backbones force RGB.
+        if is_pretrained:
+            in_channels = 3
+        else:
+            in_channels = 3 if self._ensure_rgb else 1
 
-        # Head config
-        head_configs = self._build_head_config()
+        backbone_config: dict = {"unet": None, "convnext": None, "swint": None}
+
+        if self._backbone.startswith("unet"):
+            backbone_config["unet"] = {
+                "in_channels": in_channels,
+                "kernel_size": 3,
+                "filters": self._filters,
+                "filters_rate": self._filters_rate,
+                "max_stride": self._max_stride,
+                "output_stride": self._output_stride,
+            }
+        elif self._backbone.startswith("convnext"):
+            model_type = self._backbone.replace("convnext_", "") or "tiny"
+            weights_map = {
+                "tiny": "ConvNeXt_Tiny_Weights",
+                "small": "ConvNeXt_Small_Weights",
+                "base": "ConvNeXt_Base_Weights",
+                "large": "ConvNeXt_Large_Weights",
+            }
+            backbone_config["convnext"] = {
+                "model_type": model_type,
+                "pre_trained_weights": (
+                    weights_map.get(model_type, "ConvNeXt_Tiny_Weights")
+                    if self._use_imagenet_pretrained
+                    else None
+                ),
+                "in_channels": in_channels,
+                "max_stride": 32,
+                "output_stride": self._output_stride,
+            }
+        elif self._backbone.startswith("swint"):
+            model_type = self._backbone.replace("swint_", "") or "tiny"
+            weights_map = {
+                "tiny": "Swin_T_Weights",
+                "small": "Swin_S_Weights",
+                "base": "Swin_B_Weights",
+            }
+            backbone_config["swint"] = {
+                "model_type": model_type,
+                "pre_trained_weights": (
+                    weights_map.get(model_type, "Swin_T_Weights")
+                    if self._use_imagenet_pretrained
+                    else None
+                ),
+                "in_channels": in_channels,
+                "max_stride": 32,
+                "output_stride": self._output_stride,
+            }
 
         return {
             "init_weights": "default",
+            "pretrained_backbone_weights": self._pretrained_backbone_weights,
+            "pretrained_head_weights": self._pretrained_head_weights,
             "backbone_config": backbone_config,
-            "head_configs": head_configs,
+            "head_configs": self._build_head_config(),
         }
 
     def _build_head_config(self) -> dict:
         """Build head configuration based on pipeline type.
 
-        Returns config with all head types, setting the active one's config
-        and null for all others (matches expected sleap-nn config format).
+        All six head keys are emitted with exactly one non-null value, matching
+        the canonical ``HeadConfig`` ``oneof`` schema and the web app's
+        ``generateConfigYaml`` head section.
         """
-        base_confmap = {
-            "sigma": self._sigma,
-            "output_stride": self._output_stride,
-        }
+        part_names = list(self.stats.node_names) if self.stats else []
+        edges = list(getattr(self.stats, "edges", []) or [])
 
-        # Initialize all head types to null
         head_configs = {
             "single_instance": None,
             "centroid": None,
@@ -601,117 +832,279 @@ class ConfigGenerator:
         }
 
         if self._pipeline == "single_instance":
-            head_configs["single_instance"] = {"confmaps": base_confmap}
+            head_configs["single_instance"] = {
+                "confmaps": {
+                    "part_names": part_names,
+                    "sigma": self._sigma,
+                    "output_stride": self._output_stride,
+                }
+            }
 
         elif self._pipeline == "centroid":
-            cfg = {"confmaps": {**base_confmap, "anchor_part": self._anchor_part}}
-            head_configs["centroid"] = cfg
+            head_configs["centroid"] = {
+                "confmaps": {
+                    "anchor_part": self._anchor_part,
+                    "sigma": self._sigma,
+                    "output_stride": self._output_stride,
+                }
+            }
 
         elif self._pipeline == "centered_instance":
-            cfg = {"confmaps": {**base_confmap, "anchor_part": self._anchor_part}}
-            head_configs["centered_instance"] = cfg
+            head_configs["centered_instance"] = {
+                "confmaps": {
+                    "part_names": part_names,
+                    "anchor_part": self._anchor_part,
+                    "sigma": self._sigma,
+                    "output_stride": self._output_stride,
+                    "loss_weight": 1.0,
+                }
+            }
 
         elif self._pipeline == "bottomup":
             head_configs["bottomup"] = {
                 "confmaps": {
-                    **base_confmap,
-                    "loss_weight": 1.0,
+                    "part_names": part_names,
+                    "sigma": self._sigma,
+                    "output_stride": self._output_stride,
+                    "loss_weight": self._confmaps_loss_weight,
                 },
                 "pafs": {
-                    "sigma": 15.0,  # PAFs use larger sigma
-                    "output_stride": max(self._output_stride, 4),
-                    "loss_weight": 1.0,
+                    "edges": edges,
+                    "sigma": self._paf_sigma,
+                    "output_stride": self._paf_output_stride,
+                    "loss_weight": self._paf_loss_weight,
                 },
             }
 
         elif self._pipeline == "multi_class_bottomup":
             head_configs["multi_class_bottomup"] = {
-                "confmaps": {**base_confmap, "loss_weight": 1.0},
-                "pafs": {
-                    "sigma": 15.0,
-                    "output_stride": max(self._output_stride, 4),
-                    "loss_weight": 1.0,
+                "confmaps": {
+                    "part_names": part_names,
+                    "sigma": self._sigma,
+                    "output_stride": self._output_stride,
+                    "loss_weight": self._mc_confmaps_loss_weight,
                 },
-                "class_vectors": {
-                    "num_fc_layers": 1,
-                    "num_fc_units": 64,
+                "class_maps": {
+                    "classes": None,
+                    "sigma": self._sigma,
+                    "output_stride": self._output_stride,
+                    "loss_weight": self._class_loss_weight,
                 },
             }
 
         elif self._pipeline == "multi_class_topdown":
-            cfg = {
-                "confmaps": {**base_confmap, "anchor_part": self._anchor_part},
+            head_configs["multi_class_topdown"] = {
+                "confmaps": {
+                    "part_names": part_names,
+                    "anchor_part": self._anchor_part,
+                    "sigma": self._sigma,
+                    "output_stride": self._output_stride,
+                    "loss_weight": self._mc_confmaps_loss_weight,
+                },
                 "class_vectors": {
-                    "num_fc_layers": 1,
-                    "num_fc_units": 64,
+                    "classes": None,
+                    "num_fc_layers": self._class_fc_layers,
+                    "num_fc_units": self._class_fc_units,
+                    "global_pool": True,
+                    "output_stride": self._max_stride,
+                    "loss_weight": self._class_loss_weight,
                 },
             }
-            head_configs["multi_class_topdown"] = cfg
 
         return head_configs
 
     def _build_trainer_config(self) -> dict:
-        """Build trainer configuration section."""
-        return {
+        """Build trainer configuration section.
+
+        Matches the canonical ``TrainerConfig`` in
+        ``sleap_nn/config/trainer_config.py`` and the web app's
+        ``generateConfigYaml`` trainer block.
+        """
+        config: dict = {
             "train_data_loader": {
                 "batch_size": self._batch_size,
                 "shuffle": True,
-                "num_workers": 0,
+                "num_workers": self._num_workers,
             },
             "val_data_loader": {
                 "batch_size": self._batch_size,
                 "shuffle": False,
-                "num_workers": 0,
+                "num_workers": self._num_workers,
             },
+            "model_ckpt": {
+                "save_top_k": self._save_top_k,
+                "save_last": self._save_last,
+            },
+            "trainer_devices": self._trainer_devices,
+            "trainer_accelerator": self._trainer_accelerator,
+            "enable_progress_bar": self._enable_progress_bar,
+            "min_train_steps_per_epoch": self._min_train_steps_per_epoch,
+            "visualize_preds_during_training": self._visualize_preds_during_training,
+            "keep_viz": self._keep_viz,
             "max_epochs": self._max_epochs,
-            "trainer_accelerator": "auto",
-            "trainer_devices": "auto",
-            "enable_progress_bar": True,
-            "visualize_preds_during_training": False,
-            "keep_viz": False,
-            "min_steps_per_epoch": 200,  # Web app default
-            "optimizer_name": "Adam",
+            "seed": self._seed,
+            "use_wandb": self._enable_wandb,
+            "save_ckpt": self._save_ckpt,
+            "ckpt_dir": self._ckpt_dir,
+            "run_name": self._run_name,
+            "resume_ckpt_path": self._resume_ckpt_path,
+            "optimizer_name": self._optimizer_name,
             "optimizer": {
                 "lr": self._learning_rate,
-                "amsgrad": False,
+                "amsgrad": self._amsgrad,
             },
+            "lr_scheduler": self._build_lr_scheduler_config(),
             "early_stopping": {
                 "stop_training_on_plateau": self._early_stopping,
+                "min_delta": self._early_stopping_min_delta,
                 "patience": self._early_stopping_patience,
-                "min_delta": 1e-8,
             },
-            "lr_scheduler": {
-                "type": "ReduceLROnPlateau",
-                "factor": 0.5,
-                "patience": 5,
-                "min_lr": 1e-8,
-                "cooldown": 3,
+            "online_hard_keypoint_mining": {
+                "online_mining": self._enable_ohkm,
+                "hard_to_easy_ratio": self._ohkm_ratio,
+                "min_hard_keypoints": self._ohkm_min_hard,
+                "max_hard_keypoints": self._ohkm_max_hard,
+                "loss_scale": self._ohkm_loss_scale,
             },
-            "save_ckpt": True,
-            "save_top_k": 1,
-            "save_last": False,
         }
 
-    def build_centered_instance(self) -> DictConfig:
-        """Build centered_instance config for top-down models.
+        if self._enable_wandb:
+            config["wandb"] = {
+                "entity": self._wandb_entity,
+                "project": self._wandb_project,
+                "name": self._wandb_name,
+                "api_key": self._wandb_api_key,
+                "wandb_mode": self._wandb_mode,
+                "viz_enabled": self._wandb_viz_enabled,
+                "save_viz_imgs_wandb": self._wandb_save_viz,
+            }
 
-        This creates a separate config for the centered_instance model
-        that is paired with the centroid model in top-down pipelines.
+        if self._enable_eval:
+            config["eval"] = {
+                "enabled": True,
+                "frequency": self._eval_frequency,
+                "oks_stddev": self._eval_oks_stddev,
+                "match_threshold": self._eval_match_threshold,
+            }
+
+        return config
+
+    def _build_lr_scheduler_config(self) -> dict:
+        """Build the lr_scheduler block with one branch active, others null.
+
+        Matches ``LRSchedulerConfig`` (``sleap_nn/config/trainer_config.py``).
+        """
+        block: dict = {
+            "step_lr": None,
+            "reduce_lr_on_plateau": None,
+            "cosine_annealing_warmup": None,
+            "linear_warmup_linear_decay": None,
+        }
+        if self._lr_scheduler == "step_lr":
+            block["step_lr"] = {
+                "step_size": self._step_lr_step_size,
+                "gamma": self._step_lr_gamma,
+            }
+        elif self._lr_scheduler == "cosine_annealing_warmup":
+            block["cosine_annealing_warmup"] = {
+                "warmup_epochs": self._cosine_warmup_epochs,
+                "warmup_start_lr": self._cosine_warmup_start_lr,
+                "eta_min": self._cosine_eta_min,
+            }
+        elif self._lr_scheduler == "linear_warmup_linear_decay":
+            block["linear_warmup_linear_decay"] = {
+                "warmup_epochs": self._linear_warmup_epochs,
+                "warmup_start_lr": self._linear_warmup_start_lr,
+                "end_lr": self._linear_end_lr,
+            }
+        elif self._lr_scheduler == "none":
+            pass  # all four branches null
+        else:
+            # Default: reduce_lr_on_plateau
+            block["reduce_lr_on_plateau"] = {
+                "threshold": self._reduce_lr_threshold,
+                "threshold_mode": self._reduce_lr_threshold_mode,
+                "cooldown": self._reduce_lr_cooldown,
+                "patience": self._reduce_lr_patience,
+                "factor": self._reduce_lr_factor,
+                "min_lr": self._reduce_lr_min,
+            }
+        return block
+
+    def build_centroid(self) -> DictConfig:
+        """Build the centroid-stage config for a top-down dual emit.
+
+        Always emits a ``centroid`` head with main preprocessing, scale=0.5,
+        sigma=5.0, output_stride=2 — matches the web app's centroid stage
+        for both ``topdown`` and ``multi_class_topdown`` model types.
+
+        ``max_stride`` is taken from the web-app bucket on the SLP's avg
+        bbox diagonal at scale=1.0, then floored by RF coverage at scale=0.5.
+        This way the centroid stage's max_stride doesn't depend on prior
+        ``pipeline()`` calls — the bucket runs from the dataset stats.
 
         Returns:
-            Centered instance configuration.
+            Centroid-stage configuration.
+        """
+        orig_pipeline = self._pipeline
+        orig_scale = self._input_scale
+        orig_sigma = self._sigma
+        orig_output_stride = self._output_stride
+        orig_max_stride = self._max_stride
+
+        self._pipeline = "centroid"
+        self._input_scale = 0.5
+        self._sigma = 5.0
+        self._output_stride = 2
+        # Web-app behavior: max_stride bucket runs at scale=1.0, then the
+        # centroid scale (0.5) is applied.
+        bucket_stride = recommend_default_max_stride(self.stats.avg_bbox_diagonal, 1.0)
+        scaled_max_animal_size = self.stats.max_bbox_size * self._input_scale
+        coverage_stride = compute_max_stride_for_animal_size(scaled_max_animal_size)
+        base_max_stride = 32 if "large_rf" in self._backbone else 16
+        self._max_stride = max(base_max_stride, bucket_stride, coverage_stride)
+
+        config = self.build()
+
+        self._pipeline = orig_pipeline
+        self._input_scale = orig_scale
+        self._sigma = orig_sigma
+        self._output_stride = orig_output_stride
+        self._max_stride = orig_max_stride
+
+        return config
+
+    def build_centered_instance(self) -> DictConfig:
+        """Build the centered-instance / multi-class-topdown CI config.
+
+        Used as the second config in a top-down dual emit. The head type is
+        chosen from the current pipeline:
+
+        - ``multi_class_topdown`` → emits a ``multi_class_topdown`` head
+          (with class_vectors), matching the web app's CI tab when the user
+          picks the multi-class top-down model type.
+        - anything else (including the centroid stage) → emits a
+          ``centered_instance`` head.
+
+        Returns:
+            Centered-instance / multi-class-topdown CI configuration.
         """
         # Save current state
         orig_pipeline = self._pipeline
         orig_scale = self._input_scale
         orig_sigma = self._sigma
         orig_output_stride = self._output_stride
+        orig_max_stride = self._max_stride
 
-        # Switch to centered_instance settings
-        self._pipeline = "centered_instance"
+        # Switch to CI stage settings (web app's CI tab)
+        if orig_pipeline == "multi_class_topdown":
+            self._pipeline = "multi_class_topdown"
+        else:
+            self._pipeline = "centered_instance"
         self._input_scale = 1.0  # Full resolution for instance
         self._sigma = 2.5  # Tighter sigma for instance
         self._output_stride = 2
+        self._max_stride = 16  # CI default; crops are size-limited
 
         # Build the config
         config = self.build()
@@ -721,6 +1114,7 @@ class ConfigGenerator:
         self._input_scale = orig_scale
         self._sigma = orig_sigma
         self._output_stride = orig_output_stride
+        self._max_stride = orig_max_stride
 
         return config
 
@@ -745,12 +1139,13 @@ class ConfigGenerator:
         parent = path_obj.parent
 
         if self.is_topdown:
-            # Save centroid config
+            # Save centroid stage (always a ``centroid`` head)
             centroid_path = parent / f"{stem}_centroid{suffix}"
-            centroid_config = self.build()
+            centroid_config = self.build_centroid()
             OmegaConf.save(centroid_config, centroid_path)
 
-            # Save centered_instance config
+            # Save CI stage (centered_instance or multi_class_topdown head,
+            # depending on the original pipeline).
             instance_path = parent / f"{stem}_centered_instance{suffix}"
             instance_config = self.build_centered_instance()
             OmegaConf.save(instance_config, instance_path)

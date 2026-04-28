@@ -221,6 +221,10 @@ class ConfigGeneratorApp(App):
         # Initialize with slp_path if provided
         if self.slp_path and self.slp_path.exists():
             self._state = ConfigState(str(self.slp_path))
+            # Apply data-driven defaults so downstream screens see a populated
+            # state (max_stride, sigma, scale, etc.). Mirrors the web app's
+            # ``setDefaultParameters`` running on SLP load.
+            self._state.auto_configure()
 
         await self._show_step(1)
 

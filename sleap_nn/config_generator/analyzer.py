@@ -37,8 +37,14 @@ class DatasetStats:
         num_channels: Number of image channels (1=grayscale, 3=RGB).
         max_instances_per_frame: Maximum instances in any single frame.
         avg_instances_per_frame: Average instances per frame.
-        max_bbox_size: Maximum bounding box dimension of any instance.
-        avg_bbox_size: Average bounding box size.
+        max_bbox_size: Maximum bounding box dimension of any instance
+            (``max(width, height)`` per instance).
+        avg_bbox_size: Average bounding box size, defined as
+            ``mean(max(width, height))`` across instances.
+        avg_bbox_diagonal: Average bounding box diagonal
+            (``mean(sqrt(width**2 + height**2))``). Matches the web app's
+            ``slpData.avgAnimalSize`` and is used for default ``max_stride``
+            bucket recommendations.
         num_nodes: Number of skeleton nodes.
         num_edges: Number of skeleton edges.
         node_names: List of node names.
@@ -60,6 +66,7 @@ class DatasetStats:
     avg_instances_per_frame: float
     max_bbox_size: float
     avg_bbox_size: float
+    avg_bbox_diagonal: float
     num_nodes: int
     num_edges: int
     node_names: List[str]
@@ -182,17 +189,21 @@ def _detect_channels(labels: sio.Labels) -> int:
 
 def _compute_bbox_stats(
     labels: sio.Labels, user_instances_only: bool = True
-) -> Tuple[float, float]:
-    """Compute average and minimum bounding box sizes.
+) -> Tuple[float, float, float]:
+    """Compute bbox size statistics across all instances.
 
     Args:
         labels: sleap_io Labels object.
         user_instances_only: If True, only consider user-labeled instances.
 
     Returns:
-        Tuple of (avg_bbox_size, min_bbox_size).
+        Tuple of (avg_bbox_size, min_bbox_size, avg_bbox_diagonal).
+        ``avg_bbox_size`` is ``mean(max(width, height))``;
+        ``avg_bbox_diagonal`` is ``mean(sqrt(width**2 + height**2))`` and
+        matches the web app's ``avgAnimalSize``.
     """
     bbox_sizes = []
+    bbox_diagonals = []
 
     for lf in labels.labeled_frames:
         instances = lf.user_instances if user_instances_only else lf.instances
@@ -211,15 +222,22 @@ def _compute_bbox_stats(
 
             min_pt = valid_pts.min(axis=0)
             max_pt = valid_pts.max(axis=0)
-            bbox_size = max(max_pt[0] - min_pt[0], max_pt[1] - min_pt[1])
+            width = float(max_pt[0] - min_pt[0])
+            height = float(max_pt[1] - min_pt[1])
+            bbox_size = max(width, height)
 
             if bbox_size > 0:
                 bbox_sizes.append(bbox_size)
+                bbox_diagonals.append(float(np.sqrt(width**2 + height**2)))
 
     if not bbox_sizes:
-        return 100.0, 50.0  # Default values
+        return 100.0, 50.0, 130.0  # Default values
 
-    return float(np.mean(bbox_sizes)), float(np.min(bbox_sizes))
+    return (
+        float(np.mean(bbox_sizes)),
+        float(np.min(bbox_sizes)),
+        float(np.mean(bbox_diagonals)),
+    )
 
 
 def _compute_avg_instances(
@@ -449,7 +467,7 @@ def analyze_slp(
     except Exception:
         max_bbox = 100.0  # Default fallback
 
-    avg_bbox, min_bbox = _compute_bbox_stats(labels, user_instances_only)
+    avg_bbox, min_bbox, avg_bbox_diag = _compute_bbox_stats(labels, user_instances_only)
     avg_instances = _compute_avg_instances(labels, user_instances_only)
 
     # Count total instances - count all instances to be consistent with max_instances
@@ -501,6 +519,7 @@ def analyze_slp(
         avg_instances_per_frame=avg_instances,
         max_bbox_size=max_bbox,
         avg_bbox_size=avg_bbox,
+        avg_bbox_diagonal=avg_bbox_diag,
         num_nodes=len(node_names),
         num_edges=len(edges),
         node_names=node_names,

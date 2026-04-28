@@ -254,8 +254,6 @@ sleap-nn config SLP_PATH [OPTIONS]
 | `--output` | `-o` | Output path for config file(s) | `PATH` | `<slp_name>_config.yaml` |
 | `--auto` | | Auto-generate without interactive TUI | Flag | `false` |
 | `--pipeline` | | Model pipeline type | `single_instance`, `bottomup`, `topdown` | Auto-detected |
-| `--batch-size` | | Override batch size | `INT` | Auto-detected |
-| `--max-epochs` | | Override max epochs | `INT` | `200` |
 | `--show-yaml` | | Print YAML to stdout instead of saving | Flag | `false` |
 
 ### Modes
@@ -289,7 +287,7 @@ sleap-nn config labels.slp --auto
 sleap-nn config labels.slp --auto -o my_config.yaml
 
 # Auto-generate with overrides
-sleap-nn config labels.slp --auto --pipeline bottomup --batch-size 8
+sleap-nn config labels.slp --auto --pipeline bottomup
 
 # Preview YAML without saving
 sleap-nn config labels.slp --auto --show-yaml

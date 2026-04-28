@@ -59,8 +59,6 @@ For top-down pipelines, this creates two config files:
 | `--output` | `-o` | Output path for config file(s) | `<slp_name>_config.yaml` |
 | `--auto` | | Auto-generate without interactive TUI | `false` |
 | `--pipeline` | | Pipeline: `single_instance`, `bottomup`, or `topdown` | Auto-detected |
-| `--batch-size` | | Override batch size | Auto-detected |
-| `--max-epochs` | | Override max epochs | `200` |
 | `--show-yaml` | | Print YAML to stdout instead of saving | `false` |
 
 ---
@@ -85,9 +83,6 @@ sleap-nn config labels.slp --auto --show-yaml
 ```bash
 # Force bottom-up pipeline
 sleap-nn config labels.slp --auto --pipeline bottomup
-
-# Custom batch size and epochs
-sleap-nn config labels.slp --auto --batch-size 8 --max-epochs 100
 ```
 
 ### Train with Generated Config
