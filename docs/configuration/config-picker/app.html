@@ -2131,12 +2131,12 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                             </div>
                         </div>
                         <div class="toggle-group">
-                            <input type="checkbox" id="enable-viz" onchange="toggleVizOptions()">
+                            <input type="checkbox" id="enable-viz" onchange="toggleVizOptions()" checked>
                             <label for="enable-viz" style="display: inline; margin: 0;">
                                 Save Prediction Visualizations
                             </label>
                         </div>
-                        <div id="viz-options" class="toggle-options" style="margin-left: 25px; padding: 10px; background: #3a3a3a; border-radius: 6px; font-size: 0.85rem; display: none;">
+                        <div id="viz-options" class="toggle-options" style="margin-left: 25px; padding: 10px; background: #3a3a3a; border-radius: 6px; font-size: 0.85rem; display: block;">
                             <div class="form-group" style="margin: 0;">
                                 <label style="font-size: 0.8rem;">
                                     <input type="checkbox" id="viz-keep-folder" style="margin-right: 5px;">
@@ -3043,12 +3043,12 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                         </div>
                     </div>
                     <div class="toggle-group">
-                        <input type="checkbox" id="ci-enable-viz" onchange="toggleCIVizOptions()">
+                        <input type="checkbox" id="ci-enable-viz" onchange="toggleCIVizOptions()" checked>
                         <label for="ci-enable-viz" style="display: inline; margin: 0;">
                             Save Prediction Visualizations
                         </label>
                     </div>
-                    <div id="ci-viz-options" class="toggle-options" style="margin-left: 25px; padding: 10px; background: #3a3a3a; border-radius: 6px; font-size: 0.85rem; display: none;">
+                    <div id="ci-viz-options" class="toggle-options" style="margin-left: 25px; padding: 10px; background: #3a3a3a; border-radius: 6px; font-size: 0.85rem; display: block;">
                         <div class="form-group" style="margin: 0;">
                             <label style="font-size: 0.8rem;">
                                 <input type="checkbox" id="ci-viz-keep-folder" style="margin-right: 5px;">

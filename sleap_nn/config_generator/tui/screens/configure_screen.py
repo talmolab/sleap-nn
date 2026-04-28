@@ -22,6 +22,11 @@ from textual.widgets import (
 )
 from textual.widget import Widget
 
+from sleap_nn.config_generator.architecture_estimates import (
+    compute_receptive_field,
+    decoder_blocks as _decoder_blocks,
+    encoder_blocks as _encoder_blocks,
+)
 from sleap_nn.config_generator.tui.state import (
     ConfigState,
     DataPipelineType,
@@ -372,14 +377,11 @@ class ConfigureScreen(Widget):
             model_widget.update("[dim]Load SLP file to see model info[/dim]")
             return
 
-        import math
-
         # Get max animal size from stats
         max_animal_size = self._state.stats.max_bbox_size
 
-        # Compute receptive field based on max_stride
-        rf_table = {8: 36, 16: 76, 32: 156, 64: 316, 128: 636}
-        rf_pixels = rf_table.get(self._state._max_stride, 76)
+        # Receptive field of the deepest encoder layer (UNet).
+        rf_pixels = compute_receptive_field(self._state._max_stride)
 
         # Scale RF by input scale to get effective RF in original image space
         effective_rf = (
@@ -392,12 +394,10 @@ class ConfigureScreen(Widget):
         params = self._state.model_params_estimate
         params_str = f"{params / 1e6:.1f}M" if params >= 1e6 else f"{params / 1e3:.0f}K"
 
-        # Get encoder/decoder blocks
-        encoder_blocks = int(math.log2(self._state._max_stride))
-        decoder_blocks = (
-            int(math.log2(self._state._max_stride / self._state._output_stride))
-            if self._state._output_stride > 0
-            else encoder_blocks
+        # Encoder / decoder block counts
+        encoder_blocks = _encoder_blocks(self._state._max_stride)
+        decoder_blocks = _decoder_blocks(
+            self._state._max_stride, self._state._output_stride
         )
 
         # Compute effective Gaussian radius: sigma * output_stride * 2

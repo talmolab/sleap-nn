@@ -81,59 +81,21 @@ def _estimate_params_accurate(
     num_keypoints: int,
     filters_rate: float = 1.5,
 ) -> int:
-    """Estimate model parameters based on architecture (matches web app formula).
+    """Estimate UNet parameter count.
 
-    Args:
-        filters: Base number of filters in first encoder block.
-        max_stride: Maximum stride (determines encoder depth).
-        output_stride: Output stride for decoder depth.
-        in_channels: Number of input channels.
-        num_keypoints: Number of output keypoints.
-        filters_rate: Multiplier for filters per encoder block.
-
-    Returns:
-        Estimated total parameter count.
+    Thin wrapper kept for backwards compatibility; canonical implementation
+    lives in :mod:`sleap_nn.config_generator.architecture_estimates`.
     """
-    down_blocks = int(math.log2(max_stride))
-    up_blocks = (
-        int(math.log2(max_stride / output_stride)) if output_stride > 0 else down_blocks
+    from sleap_nn.config_generator.architecture_estimates import estimate_unet_params
+
+    return estimate_unet_params(
+        filters=filters,
+        max_stride=max_stride,
+        output_stride=output_stride,
+        in_channels=in_channels,
+        num_keypoints=num_keypoints,
+        filters_rate=filters_rate,
     )
-
-    total_params = 0
-    ch = in_channels
-    f = filters
-
-    # Encoder blocks: 2 convs per block (3x3 kernel)
-    for i in range(down_blocks):
-        total_params += ch * f * 9 + f  # First conv + bias
-        total_params += f * f * 9 + f  # Second conv + bias
-        ch = f
-        f = int(f * filters_rate)
-
-    # Middle block
-    total_params += ch * f * 9 + f
-    total_params += f * f * 9 + f
-    middle_filters = f
-
-    # Decoder blocks
-    f = middle_filters
-    for i in range(up_blocks):
-        next_f = int(f / filters_rate)
-        # Skip connection doubles input channels
-        skip_f = (
-            int(filters * (filters_rate ** (down_blocks - 1 - i)))
-            if i < down_blocks
-            else 0
-        )
-        decoder_input = f + skip_f
-        total_params += decoder_input * next_f * 9 + next_f
-        total_params += next_f * next_f * 9 + next_f
-        f = next_f
-
-    # Head: 1x1 conv to keypoints
-    total_params += f * num_keypoints * 1 + num_keypoints
-
-    return total_params
 
 
 def estimate_memory(

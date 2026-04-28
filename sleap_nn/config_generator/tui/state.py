@@ -9,7 +9,17 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from omegaconf import OmegaConf
+
 from sleap_nn.config_generator.analyzer import DatasetStats, ViewType, analyze_slp
+from sleap_nn.config_generator.architecture_estimates import (
+    compute_max_stride_for_animal_size,
+    compute_receptive_field,
+    compute_suggested_crop_size,
+    encoder_blocks as _encoder_blocks,
+    estimate_unet_params,
+    recommend_default_max_stride,
+)
 from sleap_nn.config_generator.generator import ConfigGenerator
 from sleap_nn.config_generator.memory import MemoryEstimate, estimate_memory
 from sleap_nn.config_generator.recommender import (
@@ -112,9 +122,9 @@ class CheckpointConfig:
 
     enabled: bool = True  # Master toggle (save_ckpt)
     run_name: str = ""
-    checkpoint_dir: str = ""
+    checkpoint_dir: str = "./models"  # Web app default
     save_top_k: int = 1
-    save_last: bool = False  # Web app default is null/false
+    save_last: bool = True  # Web app default
     resume_from: str = ""
 
 
@@ -194,7 +204,7 @@ class ConfigState:
         self._max_height: Optional[int] = None
         self._max_width: Optional[int] = None
         self._ensure_rgb: bool = False
-        self._ensure_grayscale: bool = True
+        self._ensure_grayscale: bool = False
         self._data_pipeline: DataPipelineType = DataPipelineType.TORCH_DATASET
         self._num_workers: int = 0
         self._validation_fraction: float = 0.1
@@ -253,7 +263,7 @@ class ConfigState:
         self._min_steps_per_epoch: int = 200  # Web app default
         self._random_seed: Optional[int] = None
         self._enable_progress_bar: bool = True  # Web app default
-        self._visualize_preds: bool = False  # Web app default
+        self._visualize_preds: bool = True  # Web app default (matches checkbox)
         self._keep_viz: bool = False  # Web app default
 
         # For top-down, separate training config for centered instance
@@ -264,8 +274,8 @@ class ConfigState:
 
         # Early stopping
         self._early_stopping: bool = True
-        self._early_stopping_patience: int = 10
-        self._early_stopping_min_delta: float = 1e-8
+        self._early_stopping_patience: int = 5  # Web-app HTML default
+        self._early_stopping_min_delta: float = 1e-6  # Web-app HTML default
 
         # For top-down
         self._ci_early_stopping: bool = True
@@ -365,74 +375,65 @@ class ConfigState:
             self._backbone, self._filters, self._filters_rate, self._max_stride
         )
 
-    # RF map: max_stride -> receptive field size (for UNet)
-    RF_MAP = {8: 36, 16: 76, 32: 156, 64: 316}
-
     @property
     def receptive_field(self) -> int:
-        """Estimate receptive field based on max_stride."""
-        return self.RF_MAP.get(self._max_stride, 76)
+        """Receptive field of the deepest encoder layer (UNet)."""
+        return compute_receptive_field(self._max_stride)
 
     @property
     def encoder_blocks(self) -> int:
         """Number of encoder blocks based on max_stride."""
-        import math
-
-        return int(math.log2(self._max_stride))
+        return _encoder_blocks(self._max_stride)
 
     def _compute_max_stride_for_animal_size(self, animal_size: float) -> int:
-        """Compute the minimum max_stride needed for RF to cover animal size.
+        """Smallest max_stride whose RF covers the animal."""
+        return compute_max_stride_for_animal_size(animal_size)
 
-        Args:
-            animal_size: Maximum animal bounding box size in pixels.
+    def _compute_auto_crop_size(self) -> int:
+        """Auto-suggest a crop size for the centered-instance model.
 
-        Returns:
-            The smallest max_stride where RF >= animal_size.
+        Uses the canonical formula
+        :py:func:`compute_suggested_crop_size` (web-app parity), then floors
+        to ``_ci_min_crop_size``.
         """
-        # Find smallest stride where RF >= animal_size
-        for stride in [8, 16, 32, 64]:
-            if self.RF_MAP[stride] >= animal_size:
-                return stride
-        # If animal is very large, use max stride
-        return 64
+        crop = compute_suggested_crop_size(
+            self.stats.max_bbox_size,
+            max_stride=self._ci_max_stride,
+            use_augmentation=self._ci_augmentation.enabled,
+            user_padding=self._ci_crop_padding,
+            rotation_max=(
+                self._ci_augmentation.rotation_max
+                if self._ci_augmentation.rotation_enabled
+                else 0.0
+            ),
+            scale_max=(
+                self._ci_augmentation.scale_max
+                if self._ci_augmentation.scale_enabled
+                else 1.0
+            ),
+        )
+        return max(crop, self._ci_min_crop_size)
 
     def _estimate_params(
         self, backbone: str, filters: int, filters_rate: float, max_stride: int
     ) -> int:
-        """Estimate model parameters."""
-        import math
-
+        """Estimate model parameter count."""
         if "convnext" in backbone or "swint" in backbone:
-            # Pretrained models have fixed sizes
+            # Pretrained backbones have ~fixed parameter counts.
             if "tiny" in backbone:
                 return 28_000_000
             return 50_000_000
 
-        # UNet parameter estimation
-        num_blocks = int(math.log2(max_stride))
-        total = 0
-
-        # Encoder
-        in_ch = 3 if self._ensure_rgb else 1
-        for i in range(num_blocks):
-            out_ch = int(filters * (filters_rate**i))
-            # Conv blocks (2 per level)
-            total += in_ch * out_ch * 9 + out_ch  # 3x3 conv + bias
-            total += out_ch * out_ch * 9 + out_ch
-            in_ch = out_ch
-
-        # Decoder (similar structure)
-        for i in range(num_blocks - 1, -1, -1):
-            out_ch = int(filters * (filters_rate**i))
-            skip_ch = out_ch  # Skip connection
-            total += (in_ch + skip_ch) * out_ch * 9 + out_ch
-            total += out_ch * out_ch * 9 + out_ch
-            in_ch = out_ch
-
-        # Head
-        total += in_ch * self.stats.num_nodes * 1 + self.stats.num_nodes
-
-        return total
+        in_channels = 3 if self._ensure_rgb else 1
+        num_keypoints = self.stats.num_nodes if self.stats else 1
+        return estimate_unet_params(
+            filters=filters,
+            max_stride=max_stride,
+            output_stride=self._output_stride,
+            in_channels=in_channels,
+            num_keypoints=num_keypoints,
+            filters_rate=filters_rate,
+        )
 
     def add_observer(self, callback: Callable[[], None]) -> None:
         """Add an observer callback for state changes."""
@@ -480,16 +481,28 @@ class ConfigState:
         else:
             base_max_stride = 16
             self._filters = 32
-            self._filters_rate = 2.0
+            self._filters_rate = 1.5
 
-        # Adjust max_stride if RF < animal size (scaled by input_scale)
-        scaled_animal_size = self.stats.max_bbox_size * self._input_scale
-        required_stride = self._compute_max_stride_for_animal_size(scaled_animal_size)
-        self._max_stride = max(base_max_stride, required_stride)
+        # Default max_stride from web-app bucket logic (avg-bbox-diagonal * scale).
+        # Mirrors ``setDefaultParameters`` in app.html (which uses
+        # ``slpData.avgAnimalSize`` = avg of bbox diagonals) so TUI and web app
+        # produce the same recommendation for the same SLP.
+        bucket_stride = recommend_default_max_stride(
+            self.stats.avg_bbox_diagonal, self._input_scale
+        )
+        # Floor: ensure RF still covers the largest bbox (scaled).
+        scaled_max_animal_size = self.stats.max_bbox_size * self._input_scale
+        coverage_stride = self._compute_max_stride_for_animal_size(
+            scaled_max_animal_size
+        )
+        self._max_stride = max(base_max_stride, bucket_stride, coverage_stride)
 
-        # Set channel configuration
-        self._ensure_rgb = self.stats.is_rgb
-        self._ensure_grayscale = self.stats.is_grayscale
+        # Channel conversion: only request a conversion when the original
+        # channel count differs from what's needed (RGB needed for pretrained
+        # backbones, otherwise default to whatever the SLP provides).
+        is_pretrained = "convnext" in self._backbone or "swint" in self._backbone
+        self._ensure_rgb = bool(is_pretrained and self.stats.num_channels == 1)
+        self._ensure_grayscale = False
 
         # Set defaults for top-down models
         if self.is_topdown:
@@ -498,12 +511,16 @@ class ConfigState:
             self._sigma = 5.0
             self._output_stride = 2
 
-            # Adjust centroid max_stride if RF < scaled animal size
-            scaled_animal_size = self.stats.max_bbox_size * self._input_scale
-            centroid_required_stride = self._compute_max_stride_for_animal_size(
-                scaled_animal_size
+            # The web app does NOT recompute max_stride after switching to
+            # centroid (it stays as picked at scale=1.0). Match that behavior:
+            # leave max_stride alone here. The pre-existing value from the
+            # bucket above (computed at scale=1.0) is what the web app shows.
+            # We still floor by RF coverage at the new scale to be safe.
+            scaled_max_animal_size = self.stats.max_bbox_size * self._input_scale
+            coverage_stride = self._compute_max_stride_for_animal_size(
+                scaled_max_animal_size
             )
-            self._max_stride = max(16, centroid_required_stride)
+            self._max_stride = max(self._max_stride, coverage_stride)
 
             # Centered instance model defaults
             # Always use max_stride=16 for instance - crops are sized appropriately
@@ -537,506 +554,201 @@ class ConfigState:
         )
 
     def build_config(self) -> Dict[str, Any]:
-        """Build the complete configuration dictionary."""
+        """Build the complete configuration dictionary.
+
+        Delegates to ``ConfigGenerator`` so the TUI emits the canonical
+        schema (matches ``docs/configuration/config-picker/app.html``).
+        """
         if self._pipeline is None:
             raise ValueError("Pipeline not set. Call auto_configure() first.")
 
-        return {
-            "data_config": self._build_data_config(),
-            "model_config": self._build_model_config(),
-            "trainer_config": self._build_trainer_config(),
-        }
+        self._apply_to_generator(self._generator, ci_mode=False)
+        cfg = self._generator.build()
+        return OmegaConf.to_container(cfg, resolve=True)
 
     def build_centroid_config(self) -> Dict[str, Any]:
-        """Build centroid model config for top-down pipeline."""
+        """Build the centroid-stage config for a top-down pipeline.
+
+        Always emits a ``centroid`` head — regardless of whether the user
+        selected ``centroid`` or ``multi_class_topdown`` as the pipeline,
+        the first stage of top-down is always centroid detection.
+        """
         if not self.is_topdown:
             raise ValueError("Centroid config only for top-down pipelines")
 
-        # Temporarily set pipeline to centroid
-        orig_pipeline = self._pipeline
-        self._pipeline = "centroid"
-        config = self.build_config()
-        self._pipeline = orig_pipeline
-        return config
+        self._apply_to_generator(self._generator, ci_mode=False)
+        cfg = self._generator.build_centroid()
+        return OmegaConf.to_container(cfg, resolve=True)
 
     def build_centered_instance_config(self) -> Dict[str, Any]:
-        """Build centered instance model config for top-down pipeline."""
+        """Build the centered-instance head config for a top-down pipeline."""
         if not self.is_topdown:
             raise ValueError("Centered instance config only for top-down pipelines")
 
-        # Use CI-specific settings
-        return {
-            "data_config": self._build_ci_data_config(),
-            "model_config": self._build_ci_model_config(),
-            "trainer_config": self._build_ci_trainer_config(),
-        }
+        self._apply_to_generator(self._generator, ci_mode=True)
+        # Use multi_class_topdown if originally selected; else centered_instance.
+        ci_pipeline = (
+            "multi_class_topdown"
+            if self._pipeline == "multi_class_topdown"
+            else "centered_instance"
+        )
+        self._generator._pipeline = ci_pipeline
+        cfg = self._generator.build()
+        return OmegaConf.to_container(cfg, resolve=True)
 
-    def _build_data_config(self) -> Dict[str, Any]:
-        """Build data configuration section."""
-        config = {
-            "train_labels_path": [str(self.slp_path)],
-            "val_labels_path": [],
-            "validation_fraction": self._validation_fraction,
-            "user_instances_only": self._user_instances_only,
-            "data_pipeline_fw": self._data_pipeline.value,
-            "preprocessing": {
-                "ensure_rgb": self._ensure_rgb,
-                "ensure_grayscale": self._ensure_grayscale,
-                "scale": self._input_scale,
-            },
-            "use_augmentations_train": self._augmentation.enabled,
-            "augmentation_config": self._build_augmentation_config(self._augmentation),
-        }
+    def _apply_to_generator(self, gen: "ConfigGenerator", *, ci_mode: bool) -> None:
+        """Push state values onto a ``ConfigGenerator`` so its build matches.
 
-        if self._max_height:
-            config["preprocessing"]["max_height"] = self._max_height
-        if self._max_width:
-            config["preprocessing"]["max_width"] = self._max_width
-        if self._crop_size:
-            config["preprocessing"]["crop_size"] = self._crop_size
+        ``ci_mode`` selects the centered-instance state attrs (``_ci_*``) for
+        top-down dual-config generation; otherwise uses the main attrs.
+        """
+        # Pipeline + skeleton-derived flags
+        gen._pipeline = self._pipeline
+        gen._anchor_part = self._anchor_part
+        gen._view_type = self._view_type
+        gen._ensure_rgb = self._ensure_rgb
+        gen._ensure_grayscale = self._ensure_grayscale
 
-        # Add caching config when not using default torch_dataset
-        if self._data_pipeline != DataPipelineType.TORCH_DATASET:
-            if self._data_pipeline == DataPipelineType.DISK_CACHE:
-                # Disk caching options
-                if self._cache_config.cache_img_path:
-                    config["cache_img_path"] = self._cache_config.cache_img_path
-                config["use_existing_imgs"] = self._cache_config.use_existing_imgs
-                config["delete_cache_imgs_after_training"] = (
-                    self._cache_config.delete_cache_after_training
-                )
-            config["parallel_caching"] = self._cache_config.parallel_caching
-            config["cache_workers"] = self._cache_config.cache_workers
+        # Model
+        gen._backbone = self._ci_backbone if ci_mode else self._backbone
+        gen._max_stride = self._ci_max_stride if ci_mode else self._max_stride
+        gen._filters = self._ci_filters if ci_mode else self._filters
+        gen._filters_rate = self._ci_filters_rate if ci_mode else self._filters_rate
+        gen._sigma = self._ci_sigma if ci_mode else self._sigma
+        gen._output_stride = self._ci_output_stride if ci_mode else self._output_stride
+        gen._use_imagenet_pretrained = self._use_imagenet_pretrained
+        gen._pretrained_backbone_weights = (
+            self._ci_pretrained_backbone if ci_mode else self._pretrained_backbone
+        ) or None
+        gen._pretrained_head_weights = (
+            self._ci_pretrained_head if ci_mode else self._pretrained_head
+        ) or None
 
-        return config
+        # Data / preprocessing
+        gen._input_scale = self._ci_input_scale if ci_mode else self._input_scale
+        gen._validation_fraction = self._validation_fraction
+        gen._max_height = self._max_height
+        gen._max_width = self._max_width
+        gen._crop_size = self._crop_size
+        gen._min_crop_size = self._ci_min_crop_size if ci_mode else 100
+        gen._crop_padding = self._ci_crop_padding if ci_mode else None
 
-    def _build_ci_data_config(self) -> Dict[str, Any]:
-        """Build data config for centered instance model."""
-        config = {
-            "train_labels_path": [str(self.slp_path)],
-            "val_labels_path": [],
-            "validation_fraction": self._validation_fraction,
-            "user_instances_only": self._user_instances_only,
-            "data_pipeline_fw": self._data_pipeline.value,
-            "preprocessing": {
-                "ensure_rgb": self._ensure_rgb,
-                "ensure_grayscale": self._ensure_grayscale,
-                "scale": self._ci_input_scale,
-                "crop_size": self._crop_size or self._compute_auto_crop_size(),
-                "min_crop_size": self._ci_min_crop_size,
-            },
-            "use_augmentations_train": self._ci_augmentation.enabled,
-            "augmentation_config": self._build_augmentation_config(
-                self._ci_augmentation
-            ),
-        }
-
-        if self._ci_crop_padding is not None:
-            config["preprocessing"]["crop_padding"] = self._ci_crop_padding
-
-        # Add caching config when not using default torch_dataset
-        if self._data_pipeline != DataPipelineType.TORCH_DATASET:
-            if self._data_pipeline == DataPipelineType.DISK_CACHE:
-                if self._cache_config.cache_img_path:
-                    config["cache_img_path"] = self._cache_config.cache_img_path
-                config["use_existing_imgs"] = self._cache_config.use_existing_imgs
-                config["delete_cache_imgs_after_training"] = (
-                    self._cache_config.delete_cache_after_training
-                )
-            config["parallel_caching"] = self._cache_config.parallel_caching
-            config["cache_workers"] = self._cache_config.cache_workers
-
-        return config
-
-    def _compute_auto_crop_size(self) -> int:
-        """Compute automatic crop size based on instance bounding boxes."""
-        # Use 1.5x the max bbox dimension, rounded to max_stride
-        max_dim = self.stats.max_bbox_size
-        crop = int(max_dim * 1.5)
-        # Round up to multiple of max_stride
-        crop = (
-            (crop + self._ci_max_stride - 1) // self._ci_max_stride
-        ) * self._ci_max_stride
-        return max(crop, self._ci_min_crop_size)
-
-    def _build_augmentation_config(self, aug: AugmentationConfig) -> Dict[str, Any]:
-        """Build augmentation configuration section."""
-        # Only include enabled augmentations
-        rotation_min = aug.rotation_min if aug.rotation_enabled else 0.0
-        rotation_max = aug.rotation_max if aug.rotation_enabled else 0.0
+        # Augmentation
+        aug = self._ci_augmentation if ci_mode else self._augmentation
+        gen._use_augmentations = aug.enabled
+        rot_min = aug.rotation_min if aug.rotation_enabled else 0.0
+        rot_max = aug.rotation_max if aug.rotation_enabled else 0.0
+        gen._rotation_range = (rot_min, rot_max)
         scale_min = aug.scale_min if aug.scale_enabled else 1.0
         scale_max = aug.scale_max if aug.scale_enabled else 1.0
-        translate = (
-            aug.translate / 100.0 if aug.translate_enabled else 0.0
-        )  # Convert % to fraction
+        gen._scale_range = (scale_min, scale_max)
+        # translate is stored as a percentage (0-50) in TUI; canonical is fraction.
+        gen._translate = (aug.translate / 100.0) if aug.translate_enabled else 0.0
+        gen._brightness = aug.brightness_limit if aug.brightness_enabled else 0.0
+        gen._contrast = aug.contrast_limit if aug.contrast_enabled else 0.0
 
-        # Geometric augmentations are applied if any geometric aug is enabled
-        any_geometric = (
-            aug.rotation_enabled or aug.scale_enabled or aug.translate_enabled
+        # PAF / multi-class head settings (bottom-up only meaningful)
+        gen._paf_sigma = self._paf_config.sigma
+        gen._paf_output_stride = self._paf_config.output_stride
+        gen._paf_loss_weight = self._paf_config.loss_weight
+        gen._confmaps_loss_weight = self._paf_config.confmaps_loss_weight
+        gen._class_fc_layers = self._class_vector_config.num_fc_layers
+        gen._class_fc_units = self._class_vector_config.num_fc_units
+        gen._class_loss_weight = self._class_vector_config.loss_weight
+        gen._mc_confmaps_loss_weight = self._paf_config.confmaps_loss_weight
+
+        # Trainer
+        gen._batch_size = self._ci_batch_size if ci_mode else self._batch_size
+        gen._max_epochs = self._ci_max_epochs if ci_mode else self._max_epochs
+        gen._learning_rate = self._ci_learning_rate if ci_mode else self._learning_rate
+        gen._optimizer_name = self._ci_optimizer if ci_mode else self._optimizer
+        gen._trainer_accelerator = self._accelerator
+        gen._trainer_devices = self._devices
+        gen._enable_progress_bar = self._enable_progress_bar
+        gen._visualize_preds_during_training = self._visualize_preds
+        gen._keep_viz = self._keep_viz
+        gen._min_train_steps_per_epoch = self._min_steps_per_epoch
+        gen._seed = self._random_seed
+        gen._num_workers = self._num_workers
+
+        # Early stopping
+        if ci_mode:
+            gen._early_stopping = self._ci_early_stopping
+            gen._early_stopping_patience = self._ci_early_stopping_patience
+            gen._early_stopping_min_delta = self._ci_early_stopping_min_delta
+        else:
+            gen._early_stopping = self._early_stopping
+            gen._early_stopping_patience = self._early_stopping_patience
+            gen._early_stopping_min_delta = self._early_stopping_min_delta
+
+        # LR scheduler
+        sched = self._ci_scheduler if ci_mode else self._scheduler
+        scheduler_map = {
+            SchedulerType.NONE: "none",
+            SchedulerType.REDUCE_ON_PLATEAU: "reduce_lr_on_plateau",
+            SchedulerType.STEP_LR: "step_lr",
+            SchedulerType.COSINE_ANNEALING_WARMUP: "cosine_annealing_warmup",
+            SchedulerType.LINEAR_WARMUP_LINEAR_DECAY: "linear_warmup_linear_decay",
+        }
+        gen._lr_scheduler = scheduler_map.get(sched.type, "reduce_lr_on_plateau")
+        gen._reduce_lr_factor = sched.factor
+        gen._reduce_lr_patience = sched.plateau_patience
+        gen._reduce_lr_min = sched.min_lr
+        gen._reduce_lr_cooldown = sched.cooldown
+        gen._step_lr_step_size = sched.step_size
+        gen._step_lr_gamma = sched.gamma
+        gen._cosine_warmup_epochs = sched.warmup_epochs
+        gen._cosine_warmup_start_lr = sched.warmup_start_lr
+        gen._cosine_eta_min = sched.eta_min
+        gen._linear_warmup_epochs = sched.linear_warmup_epochs
+        gen._linear_warmup_start_lr = sched.linear_warmup_start_lr
+        gen._linear_end_lr = sched.end_lr
+
+        # Checkpoint
+        gen._save_ckpt = self._checkpoint.enabled
+        gen._save_top_k = self._checkpoint.save_top_k
+        gen._save_last = self._checkpoint.save_last
+        if ci_mode:
+            gen._ckpt_dir = (
+                self._ci_checkpoint_dir or self._checkpoint.checkpoint_dir or "./models"
+            )
+            gen._run_name = self._ci_run_name or None
+        else:
+            gen._ckpt_dir = self._checkpoint.checkpoint_dir or "./models"
+            gen._run_name = self._checkpoint.run_name or None
+        gen._resume_ckpt_path = self._checkpoint.resume_from or None
+
+        # OHKM
+        gen._enable_ohkm = self._ohkm.enabled
+        gen._ohkm_ratio = self._ohkm.hard_to_easy_ratio
+        gen._ohkm_min_hard = self._ohkm.min_hard_keypoints
+        gen._ohkm_max_hard = self._ohkm.max_hard_keypoints
+        gen._ohkm_loss_scale = self._ohkm.loss_scale
+
+        # WandB
+        gen._enable_wandb = self._wandb.enabled
+        gen._wandb_entity = self._wandb.entity or None
+        gen._wandb_project = self._wandb.project or "sleap-training"
+        gen._wandb_name = self._wandb.name or None
+        gen._wandb_api_key = self._wandb.api_key or None
+        gen._wandb_mode = self._wandb.mode if self._wandb.mode != "online" else None
+        gen._wandb_viz_enabled = self._wandb.viz_enabled
+        gen._wandb_save_viz = self._wandb.save_viz_imgs
+
+        # Eval
+        gen._enable_eval = self._evaluation.enabled
+        gen._eval_frequency = self._evaluation.frequency
+        gen._eval_oks_stddev = self._evaluation.oks_stddev
+
+        # Data pipeline / caching
+        gen._data_pipeline_fw = self._data_pipeline.value
+        gen._cache_img_path = self._cache_config.cache_img_path or None
+        gen._use_existing_imgs = self._cache_config.use_existing_imgs
+        gen._delete_cache_imgs_after_training = (
+            self._cache_config.delete_cache_after_training
         )
-        affine_p = 1.0 if (aug.enabled and any_geometric) else 0.0
-
-        return {
-            "geometric": {
-                "rotation_min": rotation_min,
-                "rotation_max": rotation_max,
-                "scale_min": scale_min,
-                "scale_max": scale_max,
-                "translate_width": translate,
-                "translate_height": translate,
-                "affine_p": affine_p,
-            },
-            "intensity": {
-                "brightness_limit": (
-                    aug.brightness_limit if aug.brightness_enabled else 0.0
-                ),
-                "brightness_p": 0.5 if aug.brightness_enabled else 0.0,
-                "contrast_limit": aug.contrast_limit if aug.contrast_enabled else 0.0,
-                "contrast_p": 0.5 if aug.contrast_enabled else 0.0,
-            },
-        }
-
-    def _build_model_config(self) -> Dict[str, Any]:
-        """Build model configuration section."""
-        in_channels = 3 if self._ensure_rgb else 1
-
-        # Backbone config
-        backbone_config = self._build_backbone_config(
-            self._backbone,
-            in_channels,
-            self._filters,
-            self._filters_rate,
-            self._max_stride,
-            self._output_stride,
-        )
-
-        # Head config
-        head_configs = self._build_head_config()
-
-        config = {
-            "init_weights": "default",
-            "backbone_config": backbone_config,
-            "head_configs": head_configs,
-        }
-
-        # Add pretrained weights if specified
-        if self._pretrained_backbone:
-            config["pretrained_backbone_path"] = self._pretrained_backbone
-        if self._pretrained_head:
-            config["pretrained_head_path"] = self._pretrained_head
-
-        return config
-
-    def _build_ci_model_config(self) -> Dict[str, Any]:
-        """Build model config for centered instance model."""
-        in_channels = 3 if self._ensure_rgb else 1
-
-        backbone_config = self._build_backbone_config(
-            self._ci_backbone,
-            in_channels,
-            self._ci_filters,
-            self._ci_filters_rate,
-            self._ci_max_stride,
-            self._ci_output_stride,
-        )
-
-        head_configs = {
-            "single_instance": None,
-            "centroid": None,
-            "centered_instance": {
-                "confmaps": {
-                    "sigma": self._ci_sigma,
-                    "output_stride": self._ci_output_stride,
-                    "anchor_part": self._anchor_part,
-                }
-            },
-            "bottomup": None,
-            "multi_class_bottomup": None,
-            "multi_class_topdown": None,
-        }
-
-        config = {
-            "init_weights": "default",
-            "backbone_config": backbone_config,
-            "head_configs": head_configs,
-        }
-
-        if self._ci_pretrained_backbone:
-            config["pretrained_backbone_path"] = self._ci_pretrained_backbone
-        if self._ci_pretrained_head:
-            config["pretrained_head_path"] = self._ci_pretrained_head
-
-        return config
-
-    def _build_backbone_config(
-        self,
-        backbone: str,
-        in_channels: int,
-        filters: int,
-        filters_rate: float,
-        max_stride: int,
-        output_stride: int,
-    ) -> Dict[str, Any]:
-        """Build backbone configuration."""
-        if "unet" in backbone:
-            return {
-                "unet": {
-                    "in_channels": in_channels,
-                    "filters": filters,
-                    "filters_rate": filters_rate,
-                    "max_stride": max_stride,
-                    "output_stride": output_stride,
-                }
-            }
-        elif "convnext" in backbone:
-            model_type = "tiny" if "tiny" in backbone else "small"
-            return {
-                "convnext": {
-                    "in_channels": in_channels,
-                    "model_type": model_type,
-                    "output_stride": output_stride,
-                }
-            }
-        else:  # swint
-            model_type = "tiny" if "tiny" in backbone else "small"
-            return {
-                "swint": {
-                    "in_channels": in_channels,
-                    "model_type": model_type,
-                    "output_stride": output_stride,
-                }
-            }
-
-    def _build_head_config(self) -> Dict[str, Any]:
-        """Build head configuration based on pipeline type."""
-        base_confmap = {
-            "sigma": self._sigma,
-            "output_stride": self._output_stride,
-        }
-
-        head_configs = {
-            "single_instance": None,
-            "centroid": None,
-            "centered_instance": None,
-            "bottomup": None,
-            "multi_class_bottomup": None,
-            "multi_class_topdown": None,
-        }
-
-        if self._pipeline == "single_instance":
-            head_configs["single_instance"] = {"confmaps": base_confmap}
-
-        elif self._pipeline == "centroid":
-            head_configs["centroid"] = {
-                "confmaps": {**base_confmap, "anchor_part": self._anchor_part}
-            }
-
-        elif self._pipeline == "centered_instance":
-            head_configs["centered_instance"] = {
-                "confmaps": {**base_confmap, "anchor_part": self._anchor_part}
-            }
-
-        elif self._pipeline == "bottomup":
-            head_configs["bottomup"] = {
-                "confmaps": {
-                    **base_confmap,
-                    "loss_weight": self._paf_config.confmaps_loss_weight,
-                },
-                "pafs": {
-                    "sigma": self._paf_config.sigma,
-                    "output_stride": self._paf_config.output_stride,
-                    "loss_weight": self._paf_config.loss_weight,
-                },
-            }
-
-        elif self._pipeline == "multi_class_bottomup":
-            head_configs["multi_class_bottomup"] = {
-                "confmaps": {
-                    **base_confmap,
-                    "loss_weight": self._paf_config.confmaps_loss_weight,
-                },
-                "pafs": {
-                    "sigma": self._paf_config.sigma,
-                    "output_stride": self._paf_config.output_stride,
-                    "loss_weight": self._paf_config.loss_weight,
-                },
-                "class_vectors": {
-                    "num_fc_layers": self._class_vector_config.num_fc_layers,
-                    "num_fc_units": self._class_vector_config.num_fc_units,
-                },
-            }
-
-        elif self._pipeline == "multi_class_topdown":
-            head_configs["multi_class_topdown"] = {
-                "confmaps": {**base_confmap, "anchor_part": self._anchor_part},
-                "class_vectors": {
-                    "num_fc_layers": self._class_vector_config.num_fc_layers,
-                    "num_fc_units": self._class_vector_config.num_fc_units,
-                },
-            }
-
-        return head_configs
-
-    def _build_trainer_config(self) -> Dict[str, Any]:
-        """Build trainer configuration section."""
-        config = {
-            "train_data_loader": {
-                "batch_size": self._batch_size,
-                "shuffle": True,
-                "num_workers": self._num_workers,
-            },
-            "val_data_loader": {
-                "batch_size": self._batch_size,
-                "shuffle": False,
-                "num_workers": self._num_workers,
-            },
-            "max_epochs": self._max_epochs,
-            "trainer_accelerator": self._accelerator,
-            "trainer_devices": self._devices,
-            "enable_progress_bar": self._enable_progress_bar,
-            "visualize_preds_during_training": self._visualize_preds,
-            "keep_viz": self._keep_viz,
-            "optimizer_name": self._optimizer,
-            "optimizer": {
-                "lr": self._learning_rate,
-                "amsgrad": False,
-            },
-            "early_stopping": {
-                "stop_training_on_plateau": self._early_stopping,
-                "patience": self._early_stopping_patience,
-                "min_delta": self._early_stopping_min_delta,
-            },
-            "save_ckpt": self._checkpoint.enabled,
-            "min_steps_per_epoch": self._min_steps_per_epoch,
-        }
-
-        if self._random_seed is not None:
-            config["random_seed"] = self._random_seed
-
-        # Add scheduler config
-        if self._scheduler.type != SchedulerType.NONE:
-            config["lr_scheduler"] = self._build_scheduler_config(self._scheduler)
-
-        # Add checkpoint config
-        if self._checkpoint.run_name:
-            config["run_name"] = self._checkpoint.run_name
-        if self._checkpoint.checkpoint_dir:
-            config["ckpt_dir"] = self._checkpoint.checkpoint_dir
-        if self._checkpoint.resume_from:
-            config["resume_ckpt_path"] = self._checkpoint.resume_from
-        config["save_top_k"] = self._checkpoint.save_top_k
-        config["save_last"] = self._checkpoint.save_last
-
-        # Add OHKM config
-        if self._ohkm.enabled:
-            config["ohkm"] = {
-                "enabled": True,
-                "hard_to_easy_ratio": self._ohkm.hard_to_easy_ratio,
-                "loss_scale": self._ohkm.loss_scale,
-                "min_hard_keypoints": self._ohkm.min_hard_keypoints,
-                "max_hard_keypoints": self._ohkm.max_hard_keypoints,
-            }
-
-        # Add W&B config
-        if self._wandb.enabled:
-            config["wandb"] = {
-                "enabled": True,
-                "entity": self._wandb.entity,
-                "project": self._wandb.project,
-                "name": self._wandb.name,
-                "mode": self._wandb.mode,
-                "viz_enabled": self._wandb.viz_enabled,
-                "save_viz_imgs_wandb": self._wandb.save_viz_imgs,
-            }
-            if self._wandb.api_key:
-                config["wandb"]["api_key"] = self._wandb.api_key
-
-        # Add evaluation config
-        if self._evaluation.enabled:
-            config["evaluation"] = {
-                "enabled": True,
-                "frequency": self._evaluation.frequency,
-                "oks_stddev": self._evaluation.oks_stddev,
-            }
-
-        return config
-
-    def _build_ci_trainer_config(self) -> Dict[str, Any]:
-        """Build trainer config for centered instance model."""
-        config = {
-            "train_data_loader": {
-                "batch_size": self._ci_batch_size,
-                "shuffle": True,
-                "num_workers": self._num_workers,
-            },
-            "val_data_loader": {
-                "batch_size": self._ci_batch_size,
-                "shuffle": False,
-                "num_workers": self._num_workers,
-            },
-            "max_epochs": self._ci_max_epochs,
-            "trainer_accelerator": self._accelerator,
-            "trainer_devices": self._devices,
-            "optimizer_name": self._ci_optimizer,
-            "optimizer": {
-                "lr": self._ci_learning_rate,
-            },
-            "early_stopping": {
-                "stop_training_on_plateau": self._ci_early_stopping,
-                "patience": self._ci_early_stopping_patience,
-                "min_delta": self._ci_early_stopping_min_delta,
-            },
-            "save_ckpt": self._checkpoint.enabled,
-            "min_steps_per_epoch": self._min_steps_per_epoch,
-        }
-
-        if self._random_seed is not None:
-            config["random_seed"] = self._random_seed
-
-        # Add scheduler config
-        if self._ci_scheduler.type != SchedulerType.NONE:
-            config["lr_scheduler"] = self._build_scheduler_config(self._ci_scheduler)
-
-        return config
-
-    def _build_scheduler_config(self, scheduler: SchedulerConfig) -> Dict[str, Any]:
-        """Build scheduler configuration."""
-        config = {"type": scheduler.type.value}
-
-        if scheduler.type == SchedulerType.REDUCE_ON_PLATEAU:
-            config.update(
-                {
-                    "factor": scheduler.factor,
-                    "patience": scheduler.plateau_patience,
-                    "min_lr": scheduler.min_lr,
-                    "cooldown": scheduler.cooldown,
-                }
-            )
-        elif scheduler.type == SchedulerType.STEP_LR:
-            config.update(
-                {
-                    "step_size": scheduler.step_size,
-                    "gamma": scheduler.gamma,
-                }
-            )
-        elif scheduler.type == SchedulerType.COSINE_ANNEALING_WARMUP:
-            config.update(
-                {
-                    "warmup_epochs": scheduler.warmup_epochs,
-                    "warmup_start_lr": scheduler.warmup_start_lr,
-                    "eta_min": scheduler.eta_min,
-                }
-            )
-        elif scheduler.type == SchedulerType.LINEAR_WARMUP_LINEAR_DECAY:
-            config.update(
-                {
-                    "warmup_epochs": scheduler.linear_warmup_epochs,
-                    "warmup_start_lr": scheduler.linear_warmup_start_lr,
-                    "end_lr": scheduler.end_lr,
-                }
-            )
-
-        return config
+        gen._parallel_caching = self._cache_config.parallel_caching
+        gen._cache_workers = self._cache_config.cache_workers
 
     def to_yaml(self) -> str:
         """Convert configuration to YAML string."""

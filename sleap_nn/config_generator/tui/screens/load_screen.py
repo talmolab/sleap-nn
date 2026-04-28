@@ -76,54 +76,6 @@ class DatasetSummary(Static):
         return "\n".join(lines)
 
 
-class RecommendationBox(Static):
-    """Widget to display model recommendation."""
-
-    def __init__(self, state: Optional[ConfigState] = None, **kwargs):
-        """Initialize with optional state."""
-        super().__init__(**kwargs)
-        self._state = state
-
-    def update_state(self, state: ConfigState) -> None:
-        """Update with new state."""
-        self._state = state
-        self.refresh()
-
-    def render(self) -> str:
-        """Render the recommendation."""
-        if self._state is None:
-            return "[dim]Load data to see recommendation[/dim]"
-
-        rec = self._state.recommendation
-
-        # Map internal pipeline types to user-friendly names
-        pipeline_display_names = {
-            "single_instance": "Single Instance",
-            "centroid": "Top-Down",
-            "centered_instance": "Top-Down",
-            "bottomup": "Bottom-Up",
-            "multi_class_bottomup": "Bottom-Up",
-            "multi_class_topdown": "Top-Down",
-        }
-        pipeline_name = pipeline_display_names.get(
-            rec.pipeline.recommended, rec.pipeline.recommended
-        )
-
-        lines = [
-            "[bold green]Model Recommendation[/bold green]",
-            "",
-            f"[bold]Recommended: {pipeline_name}[/bold]",
-            f"[dim]{rec.pipeline.reason}[/dim]",
-            "",
-            "[bold cyan]Model Types:[/bold cyan]",
-            "• [bold]Single Instance[/bold] - One animal per frame. Fastest and simplest.",
-            "• [bold]Top-Down[/bold] - Multiple animals, well-separated. Detects each animal, then finds keypoints.",
-            "• [bold]Bottom-Up[/bold] - Multiple animals with overlap. Finds all keypoints, then groups them.",
-        ]
-
-        return "\n".join(lines)
-
-
 class LoadScreen(Widget):
     """Screen for loading and analyzing SLP files."""
 
@@ -167,13 +119,6 @@ class LoadScreen(Widget):
         min-height: 15;
     }
 
-    #recommendation-box {
-        background: $success-darken-3;
-        border: solid $success;
-        padding: 1 2;
-        margin-top: 1;
-        min-height: 5;
-    }
     """
 
     class FileLoaded(Message):
@@ -204,7 +149,8 @@ class LoadScreen(Widget):
             if self._state:
                 # File already loaded via CLI
                 yield Label(
-                    "Review your dataset statistics and model recommendation below.",
+                    "Review your dataset statistics below, then proceed to "
+                    "select a model type.",
                     classes="hint",
                 )
             else:
@@ -223,15 +169,12 @@ class LoadScreen(Widget):
 
             with Container(id="summary-container"):
                 yield DatasetSummary(self._state, id="dataset-summary")
-                yield RecommendationBox(self._state, id="recommendation-box")
 
     def on_mount(self) -> None:
         """Handle mount - update summary if state exists."""
         if self._state is not None:
             summary = self.query_one("#dataset-summary", DatasetSummary)
             summary.update_state(self._state)
-            recommendation = self.query_one("#recommendation-box", RecommendationBox)
-            recommendation.update_state(self._state)
 
     @on(Input.Submitted, "#file-input")
     async def handle_input_submit(self, event: Input.Submitted) -> None:
@@ -263,10 +206,6 @@ class LoadScreen(Widget):
             # Update summary display
             summary = self.query_one("#dataset-summary", DatasetSummary)
             summary.update_state(self._state)
-
-            # Update recommendation display
-            recommendation = self.query_one("#recommendation-box", RecommendationBox)
-            recommendation.update_state(self._state)
 
             # Auto-configure with defaults
             self._state.auto_configure()
