@@ -272,6 +272,118 @@ class TestInfoCommand:
         assert result.exit_code != 0
 
 
+class TestConfigCommand:
+    """Tests for `sleap-nn config` CLI surface (pipeline choices, output files)."""
+
+    def test_pipeline_topdown_writes_paired_configs(self, minimal_instance, tmp_path):
+        """`--pipeline topdown` produces both centroid and centered_instance configs."""
+        out = tmp_path / "cfg.yaml"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "config",
+                str(minimal_instance),
+                "--auto",
+                "--pipeline",
+                "topdown",
+                "-o",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "cfg_centroid.yaml").exists()
+        assert (tmp_path / "cfg_centered_instance.yaml").exists()
+
+    def test_pipeline_multi_class_topdown_writes_paired_configs(
+        self, minimal_instance, tmp_path
+    ):
+        """`--pipeline multi_class_topdown` also produces both configs."""
+        out = tmp_path / "cfg.yaml"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "config",
+                str(minimal_instance),
+                "--auto",
+                "--pipeline",
+                "multi_class_topdown",
+                "-o",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "cfg_centroid.yaml").exists()
+        assert (tmp_path / "cfg_centered_instance.yaml").exists()
+
+    @pytest.mark.parametrize(
+        "pipeline", ["single_instance", "bottomup", "multi_class_bottomup"]
+    )
+    def test_pipeline_single_stage_writes_one_config(
+        self, minimal_instance, tmp_path, pipeline
+    ):
+        """Non-topdown pipelines write a single config file."""
+        out = tmp_path / "cfg.yaml"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "config",
+                str(minimal_instance),
+                "--auto",
+                "--pipeline",
+                pipeline,
+                "-o",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert out.exists()
+        # Should not have produced split top-down files
+        assert not (tmp_path / "cfg_centroid.yaml").exists()
+        assert not (tmp_path / "cfg_centered_instance.yaml").exists()
+
+    @pytest.mark.parametrize("removed", ["centroid", "centered_instance"])
+    def test_internal_pipeline_names_not_exposed(
+        self, minimal_instance, tmp_path, removed
+    ):
+        """Internal stage names (centroid, centered_instance) are not valid CLI choices."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "config",
+                str(minimal_instance),
+                "--auto",
+                "--pipeline",
+                removed,
+                "-o",
+                str(tmp_path / "cfg.yaml"),
+            ],
+        )
+        assert result.exit_code != 0
+        # Click rejects invalid choices with "Invalid value"
+        assert (
+            "Invalid value" in result.output
+            or "invalid choice" in result.output.lower()
+        )
+
+    def test_config_help_lists_pipeline_choices(self):
+        """`--help` lists the user-facing pipeline choices."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["config", "--help"], terminal_width=200)
+        assert result.exit_code == 0
+        for choice in [
+            "single_instance",
+            "bottomup",
+            "topdown",
+            "multi_class_bottomup",
+            "multi_class_topdown",
+        ]:
+            assert choice in result.output
+
+
 # =============================================================================
 # Subprocess-based tests (integration tests, run external process)
 # =============================================================================

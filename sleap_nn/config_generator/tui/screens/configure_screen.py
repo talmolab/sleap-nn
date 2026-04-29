@@ -1452,25 +1452,25 @@ class ConfigureScreen(Widget):
             yield Label("Num Workers:", classes="param-label")
             yield Select(
                 [
-                    ("0 (Default)", "0"),
-                    ("2", "2"),
+                    ("0", "0"),
+                    ("2 (Default)", "2"),
                     ("4", "4"),
                     ("8", "8"),
                 ],
-                value=str(self._state._num_workers if self._state else 0),
+                value=str(self._state._num_workers if self._state else 2),
                 id="num-workers-select",
                 classes="param-input",
             )
 
         current_pipeline = (
-            self._state._data_pipeline.value if self._state else "torch_dataset"
+            self._state._data_pipeline.value if self._state else "litdata"
         )
         with Horizontal(classes="param-row"):
             yield Label("Data Pipeline:", classes="param-label")
             yield Select(
                 [
-                    ("Video (default)", "torch_dataset"),
-                    ("Cache to Memory", "litdata"),
+                    ("Video", "torch_dataset"),
+                    ("Cache to Memory (default)", "litdata"),
                     ("Cache to Disk", "litdata_disk"),
                 ],
                 value=current_pipeline,
@@ -2640,12 +2640,12 @@ class ConfigureScreen(Widget):
                 yield Label("Num Workers:", classes="param-label")
                 yield Select(
                     [
-                        ("0 (Default)", "0"),
-                        ("2", "2"),
+                        ("0", "0"),
+                        ("2 (Default)", "2"),
                         ("4", "4"),
                         ("8", "8"),
                     ],
-                    value=str(self._state._num_workers if self._state else 0),
+                    value=str(self._state._num_workers if self._state else 2),
                     id="centroid-num-workers-select",
                     classes="param-input",
                 )
@@ -2653,14 +2653,14 @@ class ConfigureScreen(Widget):
 
             # Data Pipeline
             current_pipeline = (
-                self._state._data_pipeline.value if self._state else "torch_dataset"
+                self._state._data_pipeline.value if self._state else "litdata"
             )
             with Horizontal(classes="param-row"):
                 yield Label("Data Pipeline:", classes="param-label")
                 yield Select(
                     [
-                        ("Video (default)", "torch_dataset"),
-                        ("Cache to Memory", "litdata"),
+                        ("Video", "torch_dataset"),
+                        ("Cache to Memory (default)", "litdata"),
                         ("Cache to Disk", "litdata_disk"),
                     ],
                     value=current_pipeline,
@@ -3451,12 +3451,12 @@ class ConfigureScreen(Widget):
                 yield Label("Num Workers:", classes="param-label")
                 yield Select(
                     [
-                        ("0 (Default)", "0"),
-                        ("2", "2"),
+                        ("0", "0"),
+                        ("2 (Default)", "2"),
                         ("4", "4"),
                         ("8", "8"),
                     ],
-                    value=str(self._state._num_workers if self._state else 0),
+                    value=str(self._state._num_workers if self._state else 2),
                     id="instance-num-workers-select",
                     classes="param-input",
                 )
@@ -3464,14 +3464,14 @@ class ConfigureScreen(Widget):
 
             # Data Pipeline
             current_pipeline = (
-                self._state._data_pipeline.value if self._state else "torch_dataset"
+                self._state._data_pipeline.value if self._state else "litdata"
             )
             with Horizontal(classes="param-row"):
                 yield Label("Data Pipeline:", classes="param-label")
                 yield Select(
                     [
-                        ("Video (default)", "torch_dataset"),
-                        ("Cache to Memory", "litdata"),
+                        ("Video", "torch_dataset"),
+                        ("Cache to Memory (default)", "litdata"),
                         ("Cache to Disk", "litdata_disk"),
                     ],
                     value=current_pipeline,
