@@ -1939,12 +1939,12 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                                 <label>
                                     Num Workers
                                     <span class="tooltip">?
-                                        <span class="tooltip-text">Number of parallel processes for loading data.<br><br><b>0 (Default):</b> Required when using torch_dataset (reading directly from video). This is the recommended setting.<br><br><b>>0:</b> Only use with caching pipelines (cache_img_memory/disk). More workers can speed up training but use more RAM.<br><br><b>Note:</b> On Mac/Windows, only use >0 with caching enabled.</span>
+                                        <span class="tooltip-text">Number of parallel processes for loading data.<br><br><b>2 (Default):</b> Recommended with caching pipelines (cache_img_memory/disk). More workers can speed up training but use more RAM.<br><br><b>0:</b> Required when using torch_dataset (reading directly from video).<br><br><b>Note:</b> On Mac/Windows, only use >0 with caching enabled.</span>
                                     </span>
                                 </label>
                                 <select id="num-workers" onchange="updateCacheMemoryEstimate()">
-                                    <option value="0" selected>0 (Default)</option>
-                                    <option value="2">2</option>
+                                    <option value="0">0</option>
+                                    <option value="2" selected>2 (Default)</option>
                                     <option value="4">4</option>
                                     <option value="8">8</option>
                                 </select>
@@ -1957,8 +1957,8 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                                     </span>
                                 </label>
                                 <select id="data-pipeline" onchange="updateCacheMemoryEstimate(); toggleDiskCacheOptions()">
-                                    <option value="torch_dataset" selected>torch_dataset (Default)</option>
-                                    <option value="torch_dataset_cache_img_memory">Cache to Memory</option>
+                                    <option value="torch_dataset">torch_dataset</option>
+                                    <option value="torch_dataset_cache_img_memory" selected>Cache to Memory (Default)</option>
                                     <option value="torch_dataset_cache_img_disk">Cache to Disk</option>
                                 </select>
                             </div>
@@ -2872,12 +2872,12 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                                 <label>
                                     Num Workers
                                     <span class="tooltip">?
-                                        <span class="tooltip-text">Parallel processes for loading data.<br><br><b>0:</b> Required for torch_dataset (default).<br><b>>0:</b> Only with caching pipelines.</span>
+                                        <span class="tooltip-text">Parallel processes for loading data.<br><br><b>2 (Default):</b> Recommended with caching pipelines.<br><b>0:</b> Required for torch_dataset.</span>
                                     </span>
                                 </label>
                                 <select id="ci-num-workers" onchange="updateCICacheMemoryEstimate()">
-                                    <option value="0" selected>0 (Default)</option>
-                                    <option value="2">2</option>
+                                    <option value="0">0</option>
+                                    <option value="2" selected>2 (Default)</option>
                                     <option value="4">4</option>
                                     <option value="8">8</option>
                                 </select>
@@ -2890,8 +2890,8 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                                     </span>
                                 </label>
                                 <select id="ci-data-pipeline" onchange="updateCICacheMemoryEstimate(); toggleCIDiskCacheOptions()">
-                                    <option value="torch_dataset" selected>torch_dataset (Default)</option>
-                                    <option value="torch_dataset_cache_img_memory">Cache to Memory</option>
+                                    <option value="torch_dataset">torch_dataset</option>
+                                    <option value="torch_dataset_cache_img_memory" selected>Cache to Memory (Default)</option>
                                     <option value="torch_dataset_cache_img_disk">Cache to Disk</option>
                                 </select>
                             </div>
