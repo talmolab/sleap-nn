@@ -205,8 +205,8 @@ class ConfigState:
         self._max_width: Optional[int] = None
         self._ensure_rgb: bool = False
         self._ensure_grayscale: bool = False
-        self._data_pipeline: DataPipelineType = DataPipelineType.TORCH_DATASET
-        self._num_workers: int = 0
+        self._data_pipeline: DataPipelineType = DataPipelineType.MEMORY_CACHE
+        self._num_workers: int = 2
         self._validation_fraction: float = 0.1
         self._user_instances_only: bool = True  # Web app default
 

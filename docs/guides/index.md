@@ -5,6 +5,7 @@ Task-oriented guides for common workflows.
 | Guide | Description |
 |-------|-------------|
 | [Training](training.md) | Configure training, fine-tune models |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Config Generator](config-generator.md) | Generate training configs via TUI or auto mode |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Negative Frames](negative-frames.md) | Reduce false positives with background frames |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Monitoring](monitoring.md) | WandB, visualizations, epoch-end evaluation |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Multi-GPU](multi-gpu.md) | Scale training across multiple GPUs |

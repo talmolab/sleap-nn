@@ -58,7 +58,7 @@ For top-down pipelines, this creates two config files:
 |--------|-------|-------------|---------|
 | `--output` | `-o` | Output path for config file(s) | `<slp_name>_config.yaml` |
 | `--auto` | | Auto-generate without interactive TUI | `false` |
-| `--pipeline` | | Pipeline: `single_instance`, `bottomup`, or `topdown` | Auto-detected |
+| `--pipeline` | | Pipeline: `single_instance`, `bottomup`, `topdown`, `multi_class_bottomup`, or `multi_class_topdown` | Auto-detected |
 | `--show-yaml` | | Print YAML to stdout instead of saving | `false` |
 
 ---

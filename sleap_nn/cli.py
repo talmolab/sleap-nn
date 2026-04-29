@@ -1060,15 +1060,14 @@ def _register_export_commands():
     type=click.Choice(
         [
             "single_instance",
-            "centroid",
-            "centered_instance",
             "bottomup",
+            "topdown",
             "multi_class_bottomup",
             "multi_class_topdown",
         ]
     ),
     default=None,
-    help="Override model pipeline type.",
+    help="Override model pipeline type. 'topdown' generates paired centroid + centered_instance configs.",
 )
 @click.option(
     "--show-yaml",
@@ -1113,7 +1112,9 @@ def config(
 
         # Apply overrides
         if pipeline:
-            gen.pipeline(pipeline)
+            # 'topdown' is a CLI alias for the centroid stage, which triggers
+            # paired centroid + centered_instance config generation.
+            gen.pipeline("centroid" if pipeline == "topdown" else pipeline)
 
         if show_yaml:
             click.echo(gen.to_yaml())
