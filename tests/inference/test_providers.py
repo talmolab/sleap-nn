@@ -1,0 +1,179 @@
+"""Tests for ``VideoProvider`` + ``LabelsProvider`` + ``IncrementalLabelsWriter``.
+
+The ``NumpyProvider`` + ``Provider`` protocol live in
+``test_predictor_new.py``. This file covers the file-backed providers
+and the streaming writer.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import pytest
+import torch
+
+from sleap_nn.inference.outputs import Outputs
+from sleap_nn.inference.predictor import Predictor
+from sleap_nn.inference.providers import LabelsProvider, Provider, VideoProvider
+from sleap_nn.inference.writer import IncrementalLabelsWriter
+
+DATA_ROOT = Path(__file__).resolve().parents[1] / "assets" / "datasets"
+VIDEO = DATA_ROOT / "centered_pair_small.mp4"
+LABELS = DATA_ROOT / "minimal_instance.pkg.slp"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# VideoProvider
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.skipif(not VIDEO.exists(), reason="test video not present")
+def test_video_provider_yields_frames_in_batches():
+    """A 8-frame slice + batch_size=4 → 2 batches with frame indices 0..7."""
+    provider = VideoProvider(video=str(VIDEO), batch_size=4, frames=list(range(8)))
+    assert len(provider) == 2
+    assert isinstance(provider, Provider)
+    batches = list(provider)
+    assert len(batches) == 2
+    assert batches[0].images.shape[0] == 4
+    assert batches[1].images.shape[0] == 4
+    np.testing.assert_array_equal(batches[0].frame_indices, [0, 1, 2, 3])
+    np.testing.assert_array_equal(batches[1].frame_indices, [4, 5, 6, 7])
+    # video_idx is constant 0 (single source)
+    assert (batches[0].video_indices == 0).all()
+
+
+@pytest.mark.skipif(not VIDEO.exists(), reason="test video not present")
+def test_video_provider_uneven_last_batch():
+    """5 frames + batch=3 → batches of sizes 3 + 2."""
+    provider = VideoProvider(video=str(VIDEO), batch_size=3, frames=list(range(5)))
+    sizes = [b.images.shape[0] for b in provider]
+    assert sizes == [3, 2]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# LabelsProvider
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.skipif(not LABELS.exists(), reason="test labels file not present")
+def test_labels_provider_yields_instances():
+    """Labels provider attaches GT instances to each batch."""
+    provider = LabelsProvider(labels=str(LABELS), batch_size=4)
+    assert len(provider) >= 1
+    assert isinstance(provider, Provider)
+    batch = next(iter(provider))
+    # GT instances are populated.
+    assert batch.instances is not None
+    assert batch.instances.ndim == 4  # (B, max_inst, n_nodes, 2)
+    # Frame indices are the labeled frames' actual indices.
+    assert batch.frame_indices is not None
+    # Images are the labeled frames.
+    assert batch.images.shape[0] == batch.instances.shape[0]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# IncrementalLabelsWriter
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_incremental_writer_atomic_rename(tmp_path):
+    """``close()`` renames ``<path>.tmp`` → final path; no half-written file."""
+    import sleap_io as sio
+
+    skel = sio.Skeleton(nodes=[sio.Node(name=f"n{i}") for i in range(2)])
+    out_path = tmp_path / "out.slp"
+    writer = IncrementalLabelsWriter(
+        path=str(out_path), skeleton=skel, write_interval=2
+    )
+
+    # Synthetic Outputs: 2 frames, 1 instance, 2 nodes.
+    o1 = Outputs(
+        pred_keypoints=torch.tensor([[[[1.0, 2.0], [3.0, 4.0]]]]),
+        pred_peak_values=torch.tensor([[[0.9, 0.9]]]),
+        frame_indices=torch.tensor([0]),
+        video_indices=torch.tensor([0]),
+    )
+    o2 = Outputs(
+        pred_keypoints=torch.tensor([[[[5.0, 6.0], [7.0, 8.0]]]]),
+        pred_peak_values=torch.tensor([[[0.9, 0.9]]]),
+        frame_indices=torch.tensor([1]),
+        video_indices=torch.tensor([0]),
+    )
+
+    with writer:
+        writer.write(o1)
+        writer.write(o2)
+
+    assert out_path.exists()
+    # Tmp file should NOT exist after close (atomic rename done).
+    assert not writer.tmp_path.exists()
+    # Loadable .slp.
+    labels = sio.load_slp(str(out_path))
+    assert len(labels.labeled_frames) == 2
+
+
+def test_incremental_writer_close_is_idempotent(tmp_path):
+    """Calling ``close()`` twice doesn't raise or rewrite."""
+    import sleap_io as sio
+
+    skel = sio.Skeleton(nodes=[sio.Node(name="n0")])
+    writer = IncrementalLabelsWriter(path=str(tmp_path / "out.slp"), skeleton=skel)
+    writer.write(
+        Outputs(
+            pred_keypoints=torch.tensor([[[[0.0, 0.0]]]]),
+            pred_peak_values=torch.tensor([[[1.0]]]),
+            frame_indices=torch.tensor([0]),
+            video_indices=torch.tensor([0]),
+        )
+    )
+    writer.close()
+    writer.close()  # second call should be a no-op
+
+
+def test_incremental_writer_write_after_close_raises(tmp_path):
+    """Writing to a closed writer raises ``RuntimeError``."""
+    import sleap_io as sio
+
+    skel = sio.Skeleton(nodes=[sio.Node(name="n0")])
+    writer = IncrementalLabelsWriter(path=str(tmp_path / "out.slp"), skeleton=skel)
+    writer.close()
+    with pytest.raises(RuntimeError, match="closed"):
+        writer.write(Outputs(pred_keypoints=torch.zeros(1, 1, 1, 2)))
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# End-to-end: Predictor.predict_to_file
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class _StubLayer:
+    """Layer-shaped stub: returns a constant ``Outputs`` per batch."""
+
+    def predict(self, image, **kwargs) -> Outputs:
+        b = image.shape[0]
+        return Outputs(
+            pred_keypoints=torch.zeros(b, 1, 2, 2),
+            pred_peak_values=torch.ones(b, 1, 2),
+            instance_scores=torch.ones(b, 1) * 0.9,
+        )
+
+
+def test_predictor_predict_to_file_end_to_end(tmp_path):
+    """``predict_to_file`` writes a saveable ``.slp`` from a stub layer."""
+    import sleap_io as sio
+
+    from sleap_nn.inference.providers import NumpyProvider
+
+    skel = sio.Skeleton(nodes=[sio.Node(name="n0"), sio.Node(name="n1")])
+    images = np.zeros((6, 1, 8, 8), dtype=np.float32)
+    provider = NumpyProvider(images=images, batch_size=2)
+
+    predictor = Predictor(layer=_StubLayer())
+    out_path = tmp_path / "predictions.slp"
+    written = predictor.predict_to_file(provider, path=str(out_path), skeleton=skel)
+    assert Path(written).exists()
+    labels = sio.load_slp(str(out_path))
+    # 6 frames in / 2 per batch / 1 instance per frame → 6 LabeledFrames
+    assert len(labels.labeled_frames) == 6

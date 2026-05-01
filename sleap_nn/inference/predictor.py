@@ -103,6 +103,50 @@ class Predictor:
         yield from self._batch_iter(provider)
 
     # ──────────────────────────────────────────────────────────────────
+    # Disk-streaming: write to a .slp incrementally
+    # ──────────────────────────────────────────────────────────────────
+
+    def predict_to_file(
+        self,
+        provider: Provider,
+        path: str,
+        skeleton: Any,
+        videos: Optional[List[Any]] = None,
+        write_interval: int = 500,
+    ) -> str:
+        """Run inference and stream results to a ``.slp`` file.
+
+        Memory stays O(``write_interval``) — outputs are slimmed and
+        converted to LabeledFrames per batch; heavy tensors are dropped
+        immediately. The writer atomic-renames a ``.tmp`` to ``path`` on
+        successful completion so crashes mid-stream don't corrupt the
+        destination.
+
+        Args:
+            provider: Frame source.
+            path: Destination ``.slp`` path.
+            skeleton: ``sio.Skeleton`` for instance conversion.
+            videos: Optional list of ``sio.Video`` indexed by
+                ``video_indices`` for the saved labels.
+            write_interval: Number of LabeledFrames to buffer before
+                a disk flush.
+
+        Returns:
+            The (resolved) destination path string.
+        """
+        from sleap_nn.inference.writer import IncrementalLabelsWriter
+
+        with IncrementalLabelsWriter(
+            path=path,
+            skeleton=skeleton,
+            videos=videos,
+            write_interval=write_interval,
+        ) as writer:
+            for outputs in self.predict_streaming(provider):
+                writer.write(outputs)
+        return path
+
+    # ──────────────────────────────────────────────────────────────────
     # Internals
     # ──────────────────────────────────────────────────────────────────
 
