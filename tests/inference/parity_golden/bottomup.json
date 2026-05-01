@@ -1,0 +1,313 @@
+{
+  "batches": [
+    {
+      "eff_scale": {
+        "dtype": "float32",
+        "shape": [
+          4
+        ],
+        "type": "ndarray"
+      },
+      "frame_idx": {
+        "dtype": "int32",
+        "shape": [
+          4
+        ],
+        "type": "ndarray"
+      },
+      "image": {
+        "dtype": "uint8",
+        "shape": [
+          4,
+          1,
+          1,
+          384,
+          384
+        ],
+        "type": "ndarray"
+      },
+      "instance_scores": {
+        "items": [
+          {
+            "dtype": "float32",
+            "shape": [
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2
+            ],
+            "type": "ndarray"
+          }
+        ],
+        "type": "list"
+      },
+      "orig_size": {
+        "dtype": "float32",
+        "shape": [
+          4,
+          1,
+          2
+        ],
+        "type": "ndarray"
+      },
+      "pred_instance_peaks": {
+        "items": [
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2,
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2,
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2,
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2,
+              2
+            ],
+            "type": "ndarray"
+          }
+        ],
+        "type": "list"
+      },
+      "pred_peak_values": {
+        "items": [
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2
+            ],
+            "type": "ndarray"
+          }
+        ],
+        "type": "list"
+      },
+      "video_idx": {
+        "dtype": "int32",
+        "shape": [
+          4
+        ],
+        "type": "ndarray"
+      }
+    },
+    {
+      "eff_scale": {
+        "dtype": "float32",
+        "shape": [
+          4
+        ],
+        "type": "ndarray"
+      },
+      "frame_idx": {
+        "dtype": "int32",
+        "shape": [
+          4
+        ],
+        "type": "ndarray"
+      },
+      "image": {
+        "dtype": "uint8",
+        "shape": [
+          4,
+          1,
+          1,
+          384,
+          384
+        ],
+        "type": "ndarray"
+      },
+      "instance_scores": {
+        "items": [
+          {
+            "dtype": "float32",
+            "shape": [
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2
+            ],
+            "type": "ndarray"
+          }
+        ],
+        "type": "list"
+      },
+      "orig_size": {
+        "dtype": "float32",
+        "shape": [
+          4,
+          1,
+          2
+        ],
+        "type": "ndarray"
+      },
+      "pred_instance_peaks": {
+        "items": [
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2,
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2,
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2,
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2,
+              2
+            ],
+            "type": "ndarray"
+          }
+        ],
+        "type": "list"
+      },
+      "pred_peak_values": {
+        "items": [
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2
+            ],
+            "type": "ndarray"
+          },
+          {
+            "dtype": "float32",
+            "shape": [
+              2,
+              2
+            ],
+            "type": "ndarray"
+          }
+        ],
+        "type": "list"
+      },
+      "video_idx": {
+        "dtype": "int32",
+        "shape": [
+          4
+        ],
+        "type": "ndarray"
+      }
+    }
+  ],
+  "n_batches": 2
+}
