@@ -14,6 +14,7 @@ extra) — landing as a follow-up commit on the same branch.
 
 from sleap_nn.inference.layers.backends.base import ModelBackend
 from sleap_nn.inference.layers.backends.onnx_backend import ONNXBackend
+from sleap_nn.inference.layers.backends.tensorrt_backend import TensorRTBackend
 from sleap_nn.inference.layers.backends.torch_backend import TorchBackend
 
-__all__ = ["ModelBackend", "ONNXBackend", "TorchBackend"]
+__all__ = ["ModelBackend", "ONNXBackend", "TensorRTBackend", "TorchBackend"]
