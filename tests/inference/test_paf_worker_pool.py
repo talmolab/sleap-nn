@@ -19,6 +19,7 @@ Coverage:
 
 from __future__ import annotations
 
+import os
 import pickle
 import sys
 from pathlib import Path
@@ -27,6 +28,21 @@ import numpy as np
 import pytest
 import torch
 from omegaconf import OmegaConf  # noqa: F401  # used in legacy-predictor build
+
+# ``ProcessPoolExecutor`` tests reliably hang in GitHub Actions CI
+# containers — both Linux (fork) and Windows (spawn) — when the worker
+# spawns a fresh interpreter that has to re-import the BottomUpLayer
+# stack (torch + scipy + networkx + the model module). Mac CI doesn't
+# even reach the test (skipped explicitly). The pool's correctness is
+# already covered by:
+#   - test_phase_split_matches_monolithic_postprocess (no subprocess;
+#     proves _score_pafs_on_gpu + group_scored_batch == postprocess)
+#   - test_grouping_params_pickle_round_trip + test_scored_batch_pickle…
+#     (proves the value types serialize cleanly)
+# So in CI we skip the actual pool spawn and verify the algorithm via
+# the synthetic phase-split test. Locally (no CI=true), the heavy pool
+# test still runs.
+_IN_CI = os.environ.get("CI") == "true"
 
 from sleap_nn.inference.layers.backends import TorchBackend
 from sleap_nn.inference.layers.bottomup import BottomUpLayer
@@ -220,12 +236,109 @@ def test_phase_split_matches_monolithic_postprocess(bottomup_layer, bottomup_ima
 # ─────────────────────────────────────────────────────────────────────────
 
 
+def _build_synthetic_scored_batch(
+    n_samples: int = 1, n_nodes: int = 2
+) -> tuple[ScoredBatch, GroupingParams]:
+    """Build a tiny ``ScoredBatch`` + ``GroupingParams`` for pool tests.
+
+    Avoids loading any model. Two-node skeleton, one edge (n0 → n1),
+    each sample has 2 detected peaks. Lightweight enough that
+    spawning a fresh interpreter to deserialize this in a worker is
+    fast even in resource-constrained CI containers.
+    """
+    cms_peaks = []
+    cms_peak_vals = []
+    cms_peak_channel_inds = []
+    edge_inds = []
+    edge_peak_inds = []
+    line_scores = []
+    for s in range(n_samples):
+        # Two peaks: one for node 0, one for node 1.
+        peaks = torch.tensor([[10.0 + s, 10.0], [20.0 + s, 20.0]])
+        cms_peaks.append(peaks)
+        cms_peak_vals.append(torch.tensor([0.9, 0.8]))
+        cms_peak_channel_inds.append(torch.tensor([0, 1], dtype=torch.int32))
+        # One candidate connection between the two peaks.
+        edge_inds.append(torch.tensor([0], dtype=torch.int32))
+        edge_peak_inds.append(torch.tensor([[0, 1]], dtype=torch.int32))
+        line_scores.append(torch.tensor([0.95]))
+
+    info = PreprocInfo(
+        original_size=(64, 64),
+        processed_size=(64, 64),
+        eff_scale=torch.ones(n_samples),
+        input_scale=1.0,
+        output_stride=1,
+    )
+    scored = ScoredBatch(
+        cms_peaks=cms_peaks,
+        cms_peak_vals=cms_peak_vals,
+        cms_peak_channel_inds=cms_peak_channel_inds,
+        edge_inds=edge_inds,
+        edge_peak_inds=edge_peak_inds,
+        line_scores=line_scores,
+        info=info,
+        n_samples=n_samples,
+        n_nodes=n_nodes,
+        skip_paf=False,
+    )
+    params = GroupingParams(
+        paf_scorer_kwargs={
+            "part_names": ["n0", "n1"],
+            "edges": [("n0", "n1")],
+            "pafs_stride": 1,
+            "max_edge_length_ratio": 0.5,
+            "dist_penalty_weight": 1.0,
+            "n_points": 5,
+            "min_instance_peaks": 0,
+            "min_line_scores": 0.0,
+        },
+        max_instances=2,
+    )
+    return scored, params
+
+
+def test_pool_matches_inline_on_synthetic_scored_batch():
+    """``PafGroupingPool`` produces identical ``Outputs`` to inline call.
+
+    Lightweight enough to run in CI on all 3 platforms (Linux fork,
+    Windows / Mac spawn). Uses a synthetic ``ScoredBatch`` so workers
+    don't have to re-import the BottomUpLayer stack — only the
+    minimal grouping function + a 2-node ``PAFScorer`` config.
+    """
+    scored, params = _build_synthetic_scored_batch(n_samples=3, n_nodes=2)
+    out_inline = group_scored_batch(scored, params)
+
+    with PafGroupingPool(n_workers=2, grouping_params=params) as pool:
+        pool.submit(0, scored)
+        pool.submit(1, scored)
+        results = dict(pool.iter_completed())
+
+    assert set(results.keys()) == {0, 1}
+    for ordinal, out_pool in results.items():
+        torch.testing.assert_close(
+            out_pool.pred_keypoints, out_inline.pred_keypoints, equal_nan=True
+        )
+        torch.testing.assert_close(
+            out_pool.pred_peak_values,
+            out_inline.pred_peak_values,
+            equal_nan=True,
+        )
+        torch.testing.assert_close(
+            out_pool.instance_scores, out_inline.instance_scores, equal_nan=True
+        )
+
+
 @pytest.mark.skipif(
     not BOTTOMUP_CKPT.exists(), reason="bottomup checkpoint not present"
 )
 @pytest.mark.skipif(
-    sys.platform == "darwin",
-    reason="ProcessPoolExecutor uses spawn on macOS; CI runners are flaky",
+    _IN_CI,
+    reason=(
+        "Pool spawn with the real BottomUpLayer hangs in resource-constrained "
+        "CI containers (heavy module re-import in workers). The synthetic "
+        "pool test above covers the algorithm; this heavy test runs locally."
+    ),
 )
 def test_predictor_paf_workers_matches_inline(bottomup_layer):
     """``Predictor(paf_workers=2)`` produces identical Outputs to ``paf_workers=0``."""
