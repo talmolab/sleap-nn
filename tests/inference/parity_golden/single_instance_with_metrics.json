@@ -1,0 +1,125 @@
+{
+  "batches": [
+    {
+      "eff_scale": {
+        "dtype": "float32",
+        "shape": [
+          4
+        ],
+        "type": "ndarray"
+      },
+      "frame_idx": {
+        "dtype": "int32",
+        "shape": [
+          4
+        ],
+        "type": "ndarray"
+      },
+      "image": {
+        "dtype": "uint8",
+        "shape": [
+          4,
+          1,
+          3,
+          320,
+          560
+        ],
+        "type": "ndarray"
+      },
+      "orig_size": {
+        "dtype": "float32",
+        "shape": [
+          4,
+          1,
+          2
+        ],
+        "type": "ndarray"
+      },
+      "pred_instance_peaks": {
+        "dtype": "float32",
+        "shape": [
+          4,
+          2,
+          2
+        ],
+        "type": "ndarray"
+      },
+      "pred_peak_values": {
+        "dtype": "float32",
+        "shape": [
+          4,
+          2
+        ],
+        "type": "ndarray"
+      },
+      "video_idx": {
+        "dtype": "int32",
+        "shape": [
+          4
+        ],
+        "type": "ndarray"
+      }
+    },
+    {
+      "eff_scale": {
+        "dtype": "float32",
+        "shape": [
+          4
+        ],
+        "type": "ndarray"
+      },
+      "frame_idx": {
+        "dtype": "int32",
+        "shape": [
+          4
+        ],
+        "type": "ndarray"
+      },
+      "image": {
+        "dtype": "uint8",
+        "shape": [
+          4,
+          1,
+          3,
+          320,
+          560
+        ],
+        "type": "ndarray"
+      },
+      "orig_size": {
+        "dtype": "float32",
+        "shape": [
+          4,
+          1,
+          2
+        ],
+        "type": "ndarray"
+      },
+      "pred_instance_peaks": {
+        "dtype": "float32",
+        "shape": [
+          4,
+          2,
+          2
+        ],
+        "type": "ndarray"
+      },
+      "pred_peak_values": {
+        "dtype": "float32",
+        "shape": [
+          4,
+          2
+        ],
+        "type": "ndarray"
+      },
+      "video_idx": {
+        "dtype": "int32",
+        "shape": [
+          4
+        ],
+        "type": "ndarray"
+      }
+    }
+  ],
+  "n_batches": 2
+}
