@@ -188,17 +188,9 @@ class _MorphologicalDilationModule(nn.Module):
         return morphological_dilation(x, self.kernel)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "morphological_dilation uses Tensor.unfold which the legacy "
-        "TorchScript ONNX exporter cannot handle (Unfold input size not "
-        "accessible). PR 5 (#513) replaces this with F.max_pool2d-based "
-        "NMS, after which this test should xpass — at which point drop "
-        "this marker."
-    ),
-)
 def test_morphological_dilation_exports():
+    """The 8-shift formulation introduced in PR 5 of #508 exports cleanly,
+    closing the unfold-based gap that xfailed in PR 1."""
     img = torch.randn(2, 1, 16, 16)
     module = _MorphologicalDilationModule()
     (out_onnx,) = _export_and_run(module, (img,), ["img"], ["out"])
@@ -229,16 +221,6 @@ class _FindGlobalPeaksRoughModule(nn.Module):
         return find_global_peaks_rough(cms, threshold=0.1)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "find_global_peaks_rough uses boolean-mask index_put_ for the "
-        "below-threshold NaN-padding, which the legacy TorchScript ONNX "
-        "exporter rejects. PR 5 (#513) rewrites the threshold logic with "
-        "torch.where for both fixed-shape masking and ONNX exportability; "
-        "this test will xpass then — drop the marker at that point."
-    ),
-)
 def test_find_global_peaks_rough_exports():
     # Construct confmaps with known peaks so threshold=0.1 leaves valid points.
     cms = torch.zeros(2, 3, 8, 8)
@@ -253,19 +235,28 @@ def test_find_global_peaks_rough_exports():
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Documented non-exportability — ``find_local_peaks_rough`` (variable peaks)
+# ``find_local_peaks_rough`` exports per fixed example shape
 # ──────────────────────────────────────────────────────────────────────────
-# ``find_local_peaks_rough`` returns a variable number of peaks (depends on
-# the data), which the legacy TorchScript exporter doesn't support. This is
-# documented as a known limitation; PR 7 (#515) addresses it by baking
-# ``find_top_k_peaks`` (fixed-shape) into the ONNX wrappers.
+# Variable-peak-count output remains a constraint at inference time (the
+# exported graph is fixed to whatever count was traced). PR 7 (#515) handles
+# the production export path via ``find_top_k_peaks`` (fixed K). The smoke
+# test here just verifies the function lowers cleanly to ONNX after the
+# PR 5 morphological_dilation rewrite — which it now does.
 
 
-def test_find_local_peaks_rough_known_export_gap():
-    """Document — and pin — the current export limitation."""
+class _FindLocalPeaksRoughModule(nn.Module):
+    def forward(self, cms: torch.Tensor):
+        """Return only the peak point coordinates from local-peak finding."""
+        peaks, _vals, _s_inds, _c_inds = find_local_peaks_rough(cms, threshold=0.1)
+        return peaks
+
+
+def test_find_local_peaks_rough_exports():
+    """After PR 5's morphological_dilation rewrite, find_local_peaks_rough
+    exports for a fixed-shape example. Production paths still use
+    ``find_top_k_peaks`` for variable-shape safety (PR 7)."""
     cms = torch.zeros(1, 1, 8, 8)
     cms[0, 0, 4, 4] = 1.0
-    module = nn.Module()
-    module.forward = lambda x: find_local_peaks_rough(x, threshold=0.1)  # type: ignore[assignment]
-    with pytest.raises(Exception):  # noqa: B017 — torch raises a varied set
-        _export_and_run(module, (cms,), ["cms"], ["pts", "vals", "s", "c"])
+    module = _FindLocalPeaksRoughModule()
+    (out_pts_onnx,) = _export_and_run(module, (cms,), ["cms"], ["pts"])
+    _assert_close(out_pts_onnx, module(cms))
