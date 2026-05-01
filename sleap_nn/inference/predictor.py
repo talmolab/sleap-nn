@@ -66,6 +66,23 @@ class Predictor:
         return FilterPipeline(self.filter_config)
 
     # ──────────────────────────────────────────────────────────────────
+    # Factory: build a Predictor from one or more checkpoint paths
+    # ──────────────────────────────────────────────────────────────────
+
+    @classmethod
+    def from_model_paths(cls, model_paths: List[str], **kwargs) -> "Predictor":
+        """Build a :class:`Predictor` from one or more model checkpoint paths.
+
+        See :func:`sleap_nn.inference.factory.from_model_paths` for the
+        full kwarg surface. This classmethod is a thin alias so existing
+        callers can do ``Predictor.from_model_paths(...)`` without
+        knowing about the factory module.
+        """
+        from sleap_nn.inference.factory import from_model_paths
+
+        return from_model_paths(model_paths, **kwargs)
+
+    # ──────────────────────────────────────────────────────────────────
     # Synchronous: returns Outputs list or sio.Labels
     # ──────────────────────────────────────────────────────────────────
 
