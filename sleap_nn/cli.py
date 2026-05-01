@@ -940,23 +940,314 @@ def train(
     help="Output JSON progress for GUI integration instead of Rich progress bar.",
 )
 def track(**kwargs):
-    """Run Inference and Tracking workflow."""
-    from sleap_nn.predict import run_inference, frame_list
+    """Run Inference and Tracking workflow.
 
-    # Convert model_paths from tuple to list
+    .. deprecated::
+       Use ``sleap-nn infer`` instead. The ``track`` alias will be
+       removed in a future release. This is currently equivalent to
+       ``sleap-nn infer`` (PR 10 of #508 / #518).
+    """
+    import warnings
+
+    warnings.warn(
+        "`sleap-nn track` is deprecated; use `sleap-nn infer` instead. "
+        "Aliases will be removed in v0.3.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _run_inference_impl(**kwargs)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# PR 10 of #508 — `sleap-nn infer` unified inference command (#518)
+# ──────────────────────────────────────────────────────────────────────────
+#
+# `infer`, `predict`, and `track` share an option list and dispatch to one
+# implementation. The option list is built programmatically below
+# (``_INFERENCE_OPTIONS``) so the three commands stay in lockstep — adding
+# a flag in one place updates all three.
+#
+# The new flags introduced by PR 10:
+#   --paf-workers / --cpu-workers (alias)  → wires to Predictor(paf_workers=)
+#   --stream-to-file                        → triggers Predictor.predict_to_file
+#   --write-interval                        → flush cadence for stream-to-file
+#   --peak-conf-threshold (alias)           → alternate name for --peak_threshold
+#
+# The first two are accepted but warn / error today: the underlying new
+# Predictor wiring lands in PR 14 (#519, blocked-by this PR). When that
+# PR lands, this implementation flips to call
+# ``sleap_nn.inference.predictor.Predictor`` directly without changing
+# the user-facing CLI surface.
+
+
+def _run_inference_impl(**kwargs):
+    """Shared implementation for ``infer`` / ``predict`` / ``track``.
+
+    Coerces tuple-shaped multi-options into lists, parses the
+    ``--frames`` string into a list of int frame indices, validates the
+    new PR 10 flags, and delegates to the legacy ``run_inference``.
+    """
+    from sleap_nn.predict import frame_list, run_inference
+
+    # Strip new-flow flags before delegating to legacy run_inference;
+    # they don't have a legacy hook to land on yet.
+    paf_workers = kwargs.pop("paf_workers", 0) or 0
+    cpu_workers = kwargs.pop("cpu_workers", None)
+    stream_to_file = kwargs.pop("stream_to_file", None)
+    write_interval = kwargs.pop("write_interval", None)
+    if cpu_workers is not None:
+        import warnings
+
+        warnings.warn(
+            "--cpu-workers is deprecated; use --paf-workers.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if paf_workers == 0:
+            paf_workers = cpu_workers
+    if stream_to_file is not None:
+        raise click.UsageError(
+            "--stream-to-file requires the new Predictor.predict_to_file flow; "
+            "this lands in a follow-up PR (#519). Until then, omit this flag and "
+            "use the default in-memory output."
+        )
+    if write_interval is not None and stream_to_file is None:
+        raise click.UsageError(
+            "--write-interval is only meaningful together with --stream-to-file."
+        )
+    if paf_workers > 0:
+        logger.warning(
+            "--paf-workers > 0 has no effect in the current CLI release; "
+            "the worker pool ships with the new Predictor flow (#519)."
+        )
+
     if "model_paths" in kwargs and kwargs["model_paths"]:
         kwargs["model_paths"] = list(kwargs["model_paths"])
     else:
         kwargs["model_paths"] = None
 
-    # Convert frames string to list
     if "frames" in kwargs and kwargs["frames"]:
         kwargs["frames"] = frame_list(kwargs["frames"])
     else:
         kwargs["frames"] = None
 
-    # Call the original function
     return run_inference(**kwargs)
+
+
+def _common_inference_options(f):
+    """Apply the shared inference flag list to a click command function.
+
+    Defined as a function-level decorator (not a ``@click.option`` chain)
+    so the same option set can be reused across ``infer`` / ``predict``
+    / ``track`` without copy-pasting ~70 decorator lines per command.
+    """
+    decorators = [
+        click.option(
+            "--data_path",
+            "-i",
+            type=str,
+            required=True,
+            help="Path to data to predict on. Labels (.slp) file or any supported video format.",
+        ),
+        click.option(
+            "--model_paths",
+            "-m",
+            multiple=True,
+            help="Path to trained model directory. Multiple models may be passed (each preceded by --model_paths).",
+        ),
+        click.option(
+            "--output_path",
+            "-o",
+            type=str,
+            default=None,
+            help="Output filename. Defaults to '[data_path].slp'.",
+        ),
+        click.option(
+            "--device",
+            "-d",
+            type=str,
+            default="auto",
+            help="Device on which to allocate tensors. One of (cpu, cuda, mps, auto).",
+        ),
+        click.option(
+            "--batch_size",
+            "-b",
+            type=int,
+            default=4,
+            help="Number of frames to predict at a time.",
+        ),
+        click.option(
+            "--tracking",
+            "-t",
+            is_flag=True,
+            default=False,
+            help="Run tracking on predicted instances.",
+        ),
+        click.option(
+            "-n",
+            "--max_instances",
+            type=int,
+            default=None,
+            help="Cap on instances per frame for multi-instance models.",
+        ),
+        click.option(
+            "--backbone_ckpt_path",
+            type=str,
+            default=None,
+            help="Override path to the backbone .ckpt.",
+        ),
+        click.option(
+            "--head_ckpt_path",
+            type=str,
+            default=None,
+            help="Override path to the head .ckpt.",
+        ),
+        click.option("--max_height", type=int, default=None),
+        click.option("--max_width", type=int, default=None),
+        click.option("--input_scale", type=float, default=None),
+        click.option(
+            "--ensure_rgb/--no-ensure_rgb",
+            default=None,
+            help="Force RGB conversion of input frames.",
+        ),
+        click.option(
+            "--ensure_grayscale/--no-ensure_grayscale",
+            default=None,
+            help="Force grayscale conversion of input frames.",
+        ),
+        click.option("--anchor_part", type=str, default=None),
+        click.option("--only_labeled_frames", is_flag=True, default=False),
+        click.option("--only_suggested_frames", is_flag=True, default=False),
+        click.option("--exclude_user_labeled", is_flag=True, default=False),
+        click.option("--only_predicted_frames", is_flag=True, default=False),
+        click.option("--no_empty_frames", is_flag=True, default=False),
+        click.option("--video_index", type=int, default=None),
+        click.option("--video_dataset", type=str, default=None),
+        click.option(
+            "--video_input_format",
+            type=str,
+            default="channels_last",
+        ),
+        click.option(
+            "--frames",
+            type=str,
+            default="",
+            help="Frame list as comma-separated or hyphen range (e.g., 1,2,3 or 1-3).",
+        ),
+        click.option("--integral_patch_size", type=int, default=5),
+        click.option("--max_edge_length_ratio", type=float, default=0.25),
+        click.option("--dist_penalty_weight", type=float, default=1.0),
+        click.option("--n_points", type=int, default=10),
+        click.option("--min_instance_peaks", type=float, default=0),
+        click.option("--min_line_scores", type=float, default=0.25),
+        click.option("--queue_maxsize", type=int, default=32),
+        click.option("--crop_size", type=int, default=None),
+        click.option(
+            "--peak_threshold",
+            "--peak-conf-threshold",
+            "peak_threshold",
+            type=float,
+            default=0.2,
+            help="Min confmap value for a valid peak. --peak-conf-threshold is an alias.",
+        ),
+        click.option("--filter_overlapping", is_flag=True, default=False),
+        click.option(
+            "--filter_overlapping_method",
+            type=click.Choice(["iou", "oks"]),
+            default="iou",
+        ),
+        click.option("--filter_overlapping_threshold", type=float, default=0.8),
+        click.option("--filter_min_visible_nodes", type=int, default=0),
+        click.option("--filter_min_visible_node_fraction", type=float, default=0.0),
+        click.option("--filter_min_mean_node_score", type=float, default=0.0),
+        click.option("--filter_min_instance_score", type=float, default=0.0),
+        click.option("--integral_refinement", type=str, default="integral"),
+        click.option("--tracking_window_size", type=int, default=5),
+        click.option("--min_new_track_points", type=int, default=0),
+        click.option("--candidates_method", type=str, default="fixed_window"),
+        click.option("--min_match_points", type=int, default=0),
+        click.option("--features", type=str, default="keypoints"),
+        click.option("--scoring_method", type=str, default="oks"),
+        click.option("--scoring_reduction", type=str, default="mean"),
+        click.option("--robust_best_instance", type=float, default=1.0),
+        click.option("--track_matching_method", type=str, default="hungarian"),
+        click.option("--max_tracks", type=int, default=None),
+        click.option("--use_flow", is_flag=True, default=False),
+        click.option("--of_img_scale", type=float, default=1.0),
+        click.option("--of_window_size", type=int, default=21),
+        click.option("--of_max_levels", type=int, default=3),
+        click.option("--post_connect_single_breaks", is_flag=True, default=False),
+        click.option("--tracking_target_instance_count", type=int, default=None),
+        click.option("--tracking_pre_cull_to_target", type=int, default=0),
+        click.option("--tracking_pre_cull_iou_threshold", type=float, default=0),
+        click.option("--tracking_clean_instance_count", type=int, default=0),
+        click.option("--tracking_clean_iou_threshold", type=float, default=0),
+        click.option("--gui", is_flag=True, default=False),
+        # New PR 10 flags ─────────────────────────────────────────────
+        click.option(
+            "--paf-workers",
+            "paf_workers",
+            type=int,
+            default=0,
+            help=(
+                "Number of CPU worker processes for the bottom-up PAF "
+                "grouping stage. 0 (default) keeps grouping in-process. "
+                "Replaces --cpu-workers (kept as an alias for one cycle)."
+            ),
+        ),
+        click.option(
+            "--cpu-workers",
+            "cpu_workers",
+            type=int,
+            default=None,
+            help="[DEPRECATED] Use --paf-workers.",
+        ),
+        click.option(
+            "--stream-to-file",
+            "stream_to_file",
+            type=str,
+            default=None,
+            help=(
+                "Stream predictions incrementally to this .slp path "
+                "(memory stays O(write-interval)). Triggers the new "
+                "Predictor.predict_to_file flow."
+            ),
+        ),
+        click.option(
+            "--write-interval",
+            "write_interval",
+            type=int,
+            default=None,
+            help=(
+                "Number of LabeledFrames to buffer before flushing to "
+                "disk when --stream-to-file is set. Default: 500."
+            ),
+        ),
+    ]
+    for d in reversed(decorators):
+        f = d(f)
+    return f
+
+
+@cli.command(context_settings=CONTEXT_SETTINGS)
+@_common_inference_options
+def infer(**kwargs):
+    """Run inference on videos or labels files.
+
+    Single unified inference entry point. Replaces ``track``, ``predict``,
+    and ``export predict`` (which remain as aliases with deprecation
+    warnings until v0.3).
+    """
+    return _run_inference_impl(**kwargs)
+
+
+# NOTE: The `sleap-nn predict` deprecation alias is deferred — a follow-up
+# PR will (a) convert `export` from a single command to a click group,
+# (b) re-home the existing top-level `predict` (which today runs inference
+# on an exported ONNX/TRT model) under `sleap-nn export predict`, and
+# (c) reclaim the top-level `predict` name as an alias for `infer`. PR 10
+# ships `track` deprecation and the canonical `infer` only, so users can
+# migrate via either of those paths first.
 
 
 @cli.command(context_settings=CONTEXT_SETTINGS)
