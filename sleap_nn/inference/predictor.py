@@ -43,6 +43,13 @@ class Predictor:
             like :class:`TopDownLayer`.
         filter_config: Optional post-inference filter config. Default is
             the no-op identity.
+        paf_workers: Number of CPU worker processes for the bottom-up
+            PAF grouping stage. ``0`` (default) runs grouping inline in
+            the main process — the parity path. ``>0`` is only honored
+            when ``layer`` is a :class:`BottomUpLayer`; for any other
+            layer type the value is ignored. Each worker starts a fresh
+            Python interpreter on macOS / Windows (~1s startup cost), so
+            keep this off for short videos on those platforms.
 
     Notes:
         Keeps no state across calls — same predictor can be reused on
@@ -51,6 +58,7 @@ class Predictor:
 
     layer: Any
     filter_config: FilterConfig = attrs.Factory(FilterConfig)
+    paf_workers: int = 0
 
     @property
     def filter_pipeline(self) -> FilterPipeline:
@@ -99,7 +107,15 @@ class Predictor:
 
         Caller-controlled memory: the predictor never materializes the
         full list. Useful for long videos and live cameras.
+
+        When ``paf_workers > 0`` and ``layer`` is a :class:`BottomUpLayer`,
+        routes through :meth:`_predict_streaming_pipelined` which runs
+        the GPU peak / PAF-scoring stage in this process and ships the
+        CPU grouping stage to a :class:`PafGroupingPool`.
         """
+        if self.paf_workers > 0 and self._can_pipeline():
+            yield from self._predict_streaming_pipelined(provider)
+            return
         yield from self._batch_iter(provider)
 
     # ──────────────────────────────────────────────────────────────────
@@ -165,6 +181,50 @@ class Predictor:
             outputs = pipeline(outputs)
             outputs = self._stamp_metadata(outputs, batch)
             yield outputs
+
+    # ──────────────────────────────────────────────────────────────────
+    # Pipelined bottom-up: GPU stage in main proc, CPU grouping in pool
+    # ──────────────────────────────────────────────────────────────────
+
+    def _can_pipeline(self) -> bool:
+        """``True`` iff ``layer`` is a :class:`BottomUpLayer` (not multiclass)."""
+        # Local import: avoids importing the layer module at predictor load.
+        from sleap_nn.inference.layers.bottomup import BottomUpLayer
+
+        return isinstance(self.layer, BottomUpLayer)
+
+    def _predict_streaming_pipelined(self, provider: Provider) -> Iterator[Outputs]:
+        """Stream ``Outputs`` with the CPU grouping stage in a worker pool.
+
+        The GPU stage (:meth:`BottomUpLayer._score_pafs_on_gpu`) runs
+        synchronously in this process; the CPU stage
+        (:func:`group_scored_batch`) is submitted to a
+        :class:`PafGroupingPool` and drained in submission order so
+        the caller observes the same frame ordering as the inline
+        path.
+        """
+        from sleap_nn.inference.streaming import PafGroupingPool
+
+        pipeline = self.filter_pipeline
+        layer = self.layer
+        params = layer.grouping_params()
+
+        # Cache per-batch metadata keyed by submission ordinal so we can
+        # restamp it onto the worker-produced Outputs.
+        meta: dict[int, Any] = {}
+        with PafGroupingPool(
+            n_workers=self.paf_workers, grouping_params=params
+        ) as pool:
+            for ordinal, batch in enumerate(provider):
+                x, info = layer.preprocess(batch.images)
+                raw = layer.backend(x)
+                scored = layer._score_pafs_on_gpu(raw, info)
+                pool.submit(ordinal, scored)
+                meta[ordinal] = batch
+            for ordinal, outputs in pool.iter_completed():
+                outputs = pipeline(outputs)
+                outputs = self._stamp_metadata(outputs, meta.pop(ordinal))
+                yield outputs
 
     @staticmethod
     def _stamp_metadata(outputs: Outputs, batch: Any) -> Outputs:
