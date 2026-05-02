@@ -985,12 +985,16 @@ def _run_inference_impl(**kwargs):
 
     Coerces tuple-shaped multi-options into lists, parses the
     ``--frames`` string into a list of int frame indices, validates the
-    new PR 10 flags, and delegates to the legacy ``run_inference``.
+    new PR 10 flags, and routes to the right backend:
+
+    * ``--stream-to-file`` set → builds a new :class:`Predictor` via
+      :func:`sleap_nn.inference.factory.from_model_paths` and writes
+      incrementally with :meth:`Predictor.predict_to_file` (PR 12).
+    * Otherwise → delegates to the legacy ``run_inference`` flow
+      (which still owns tracking, frame filtering, GUI progress, etc.).
     """
     from sleap_nn.predict import frame_list, run_inference
 
-    # Strip new-flow flags before delegating to legacy run_inference;
-    # they don't have a legacy hook to land on yet.
     paf_workers = kwargs.pop("paf_workers", 0) or 0
     cpu_workers = kwargs.pop("cpu_workers", None)
     stream_to_file = kwargs.pop("stream_to_file", None)
@@ -1005,20 +1009,9 @@ def _run_inference_impl(**kwargs):
         )
         if paf_workers == 0:
             paf_workers = cpu_workers
-    if stream_to_file is not None:
-        raise click.UsageError(
-            "--stream-to-file requires the new Predictor.predict_to_file flow; "
-            "this lands in a follow-up PR (#519). Until then, omit this flag and "
-            "use the default in-memory output."
-        )
     if write_interval is not None and stream_to_file is None:
         raise click.UsageError(
             "--write-interval is only meaningful together with --stream-to-file."
-        )
-    if paf_workers > 0:
-        logger.warning(
-            "--paf-workers > 0 has no effect in the current CLI release; "
-            "the worker pool ships with the new Predictor flow (#519)."
         )
 
     if "model_paths" in kwargs and kwargs["model_paths"]:
@@ -1031,7 +1024,111 @@ def _run_inference_impl(**kwargs):
     else:
         kwargs["frames"] = None
 
+    # ── Stream-to-file path: new Predictor + IncrementalLabelsWriter ───
+    if stream_to_file is not None:
+        return _run_stream_to_file(
+            kwargs,
+            stream_to_file=stream_to_file,
+            write_interval=write_interval or 500,
+            paf_workers=paf_workers,
+        )
+
+    if paf_workers > 0:
+        logger.warning(
+            "--paf-workers > 0 currently has no effect in the in-memory "
+            "predict path; pass --stream-to-file to use the worker pool."
+        )
+
     return run_inference(**kwargs)
+
+
+def _run_stream_to_file(
+    kwargs: dict,
+    stream_to_file: str,
+    write_interval: int,
+    paf_workers: int,
+) -> str:
+    """Build a new ``Predictor`` and stream predictions to ``stream_to_file``.
+
+    Handles the ``--stream-to-file`` CLI path (PR 12). Restricted to the
+    cases the new factory + ``Predictor.predict_to_file`` support today:
+    inference on a video / labels file, no tracking, default frame
+    selection. Anything richer raises ``UsageError`` and points at the
+    legacy ``--no-stream-to-file`` path.
+    """
+    if kwargs.get("tracking"):
+        raise click.UsageError(
+            "--stream-to-file does not yet support --tracking; tracking "
+            "lands in a follow-up PR. Drop --stream-to-file to use the "
+            "legacy in-memory path with tracking."
+        )
+    if not kwargs.get("model_paths"):
+        raise click.UsageError("--model_paths is required for --stream-to-file.")
+    data_path = kwargs.get("data_path")
+    if not data_path:
+        raise click.UsageError("--data_path is required for --stream-to-file.")
+
+    from pathlib import Path
+
+    import sleap_io as sio
+
+    from sleap_nn.inference.factory import from_model_paths
+    from sleap_nn.inference.providers import LabelsProvider, VideoProvider
+
+    factory_kwargs = {
+        "device": kwargs.get("device", "auto"),
+        "peak_threshold": kwargs.get("peak_threshold", 0.2),
+        "integral_refinement": kwargs.get("integral_refinement", "integral"),
+        "integral_patch_size": kwargs.get("integral_patch_size", 5),
+        "batch_size": kwargs.get("batch_size", 4),
+        "max_instances": kwargs.get("max_instances"),
+        "return_confmaps": False,
+        "anchor_part": kwargs.get("anchor_part"),
+        "paf_workers": paf_workers,
+    }
+    if kwargs.get("backbone_ckpt_path"):
+        factory_kwargs["backbone_ckpt_path"] = kwargs["backbone_ckpt_path"]
+    if kwargs.get("head_ckpt_path"):
+        factory_kwargs["head_ckpt_path"] = kwargs["head_ckpt_path"]
+
+    predictor = from_model_paths(kwargs["model_paths"], **factory_kwargs)
+
+    src = Path(data_path)
+    if src.suffix == ".slp":
+        provider = LabelsProvider(
+            labels=str(src), batch_size=kwargs.get("batch_size", 4)
+        )
+        labels = sio.load_slp(str(src))
+        skeleton = labels.skeletons[0]
+    else:
+        provider = VideoProvider(
+            video=str(src),
+            batch_size=kwargs.get("batch_size", 4),
+            frames=kwargs.get("frames"),
+            dataset=kwargs.get("video_dataset"),
+            input_format=kwargs.get("video_input_format"),
+        )
+        # Skeleton comes from the model's training_config — pull via the layer.
+        skeleton = _skeleton_from_predictor(predictor, kwargs["model_paths"][0])
+
+    return predictor.predict_to_file(
+        provider,
+        path=str(stream_to_file),
+        skeleton=skeleton,
+        write_interval=write_interval,
+    )
+
+
+def _skeleton_from_predictor(predictor, model_path: str):
+    """Extract a ``sleap_io.Skeleton`` from the model's ``training_config``."""
+    from omegaconf import OmegaConf
+
+    from sleap_nn.inference.utils import get_skeleton_from_config
+
+    cfg_path = Path(model_path) / "training_config.yaml"
+    cfg = OmegaConf.load(cfg_path.as_posix())
+    skeletons = get_skeleton_from_config(cfg.data_config.skeletons)
+    return skeletons[0]
 
 
 def _common_inference_options(f):

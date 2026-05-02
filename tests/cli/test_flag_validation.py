@@ -19,8 +19,12 @@ from click.testing import CliRunner
 from sleap_nn.cli import cli
 
 
-def test_stream_to_file_raises_usage_error_until_pr14():
-    """``--stream-to-file`` is a hard error today; the new flow ships later."""
+def test_stream_to_file_with_tracking_raises_usage_error():
+    """``--stream-to-file`` + ``--tracking`` is rejected until tracking lands.
+
+    PR 12 wires --stream-to-file to ``Predictor.predict_to_file`` for the
+    in-memory case; tracking with streaming is a follow-up.
+    """
     runner = CliRunner()
     result = runner.invoke(
         cli,
@@ -32,11 +36,11 @@ def test_stream_to_file_raises_usage_error_until_pr14():
             "/fake/model",
             "--stream-to-file",
             "/tmp/out.slp",
+            "--tracking",
         ],
     )
     assert result.exit_code != 0
-    assert "stream-to-file" in result.output
-    assert "follow-up" in result.output or "#519" in result.output
+    assert "tracking" in result.output.lower()
 
 
 def test_write_interval_without_stream_to_file_errors():
@@ -108,6 +112,44 @@ def test_paf_workers_positive_emits_no_effect_warning():
         # them merged); just confirm the call still succeeded — the
         # specific warning surface is logger-level and not part of the
         # contract.
+
+
+def test_stream_to_file_invokes_new_predictor_flow(tmp_path):
+    """``--stream-to-file`` reaches ``Predictor.predict_to_file``.
+
+    Patches the factory to return a stub Predictor whose
+    ``predict_to_file`` records that it was called — confirms the CLI
+    routes through the new flow rather than the legacy ``run_inference``.
+    """
+    from unittest.mock import MagicMock, patch
+
+    out = tmp_path / "out.slp"
+    runner = CliRunner()
+
+    stub_predictor = MagicMock()
+    stub_predictor.predict_to_file.return_value = str(out)
+    with (
+        patch("sleap_nn.inference.factory.from_model_paths") as mock_factory,
+        patch("sleap_nn.cli._skeleton_from_predictor") as mock_skel,
+        patch("sleap_nn.inference.providers.VideoProvider"),
+    ):
+        mock_factory.return_value = stub_predictor
+        mock_skel.return_value = object()
+        result = runner.invoke(
+            cli,
+            [
+                "infer",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--stream-to-file",
+                str(out),
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert mock_factory.called
+    assert stub_predictor.predict_to_file.called
 
 
 def test_unknown_flag_rejected_cleanly():
