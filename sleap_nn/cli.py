@@ -1033,13 +1033,105 @@ def _run_inference_impl(**kwargs):
             paf_workers=paf_workers,
         )
 
+    # ── In-memory new-flow path (PR 13) ────────────────────────────────
+    # When the requested flags don't need anything the legacy ``run_inference``
+    # alone can do (tracking, suggested-frame filtering, GUI progress reporter,
+    # backbone/head ckpt overrides), route through the new
+    # :func:`Predictor.from_model_paths(...).predict(...)` flow. The legacy
+    # path stays available as a fallback for everything else.
+    if _can_use_new_in_memory_flow(kwargs):
+        return _run_in_memory_new_flow(kwargs, paf_workers=paf_workers)
+
     if paf_workers > 0:
         logger.warning(
-            "--paf-workers > 0 currently has no effect in the in-memory "
-            "predict path; pass --stream-to-file to use the worker pool."
+            "--paf-workers > 0 currently has no effect on the legacy "
+            "predict path; pass --stream-to-file or use a simpler config "
+            "(no tracking, no advanced frame filtering) to use the worker pool."
         )
 
     return run_inference(**kwargs)
+
+
+def _can_use_new_in_memory_flow(kwargs: dict) -> bool:
+    """Return True iff the new factory + Predictor.predict can serve this call.
+
+    The new flow currently supports the basics: a video / labels source,
+    one or two .ckpt model dirs, optional ``frames`` list, and the
+    standard preprocess overrides. It does NOT yet handle tracking,
+    suggested-frame / predicted-frame filtering, or the GUI progress
+    reporter. Anything in those categories falls through to legacy.
+    """
+    if kwargs.get("tracking"):
+        return False
+    for flag in (
+        "only_suggested_frames",
+        "exclude_user_labeled",
+        "only_predicted_frames",
+        "no_empty_frames",
+        "gui",
+    ):
+        if kwargs.get(flag):
+            return False
+    if kwargs.get("backbone_ckpt_path") or kwargs.get("head_ckpt_path"):
+        # Layer-level checkpoint overrides aren't piped through the new
+        # factory yet; the legacy loader handles them today.
+        return False
+    if not kwargs.get("model_paths"):
+        return False
+    return True
+
+
+def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
+    """Run the new ``Predictor`` flow synchronously and save the resulting Labels.
+
+    This is the in-memory counterpart to :func:`_run_stream_to_file`:
+    same factory, same providers, but ``predict()`` instead of
+    ``predict_to_file()`` so the result lives in memory until the final
+    ``Labels.save()`` call.
+    """
+    from pathlib import Path
+
+    import sleap_io as sio
+
+    from sleap_nn.inference.factory import from_model_paths
+    from sleap_nn.inference.providers import LabelsProvider, VideoProvider
+
+    factory_kwargs = {
+        "device": kwargs.get("device", "auto"),
+        "peak_threshold": kwargs.get("peak_threshold", 0.2),
+        "integral_refinement": kwargs.get("integral_refinement", "integral"),
+        "integral_patch_size": kwargs.get("integral_patch_size", 5),
+        "batch_size": kwargs.get("batch_size", 4),
+        "max_instances": kwargs.get("max_instances"),
+        "anchor_part": kwargs.get("anchor_part"),
+        "paf_workers": paf_workers,
+    }
+    predictor = from_model_paths(kwargs["model_paths"], **factory_kwargs)
+
+    src = Path(kwargs["data_path"])
+    only_labeled = bool(kwargs.get("only_labeled_frames"))
+    if src.suffix == ".slp":
+        provider = LabelsProvider(
+            labels=str(src),
+            batch_size=kwargs.get("batch_size", 4),
+            only_labeled_frames=only_labeled,
+        )
+        skeleton = sio.load_slp(str(src)).skeletons[0]
+    else:
+        provider = VideoProvider(
+            video=str(src),
+            batch_size=kwargs.get("batch_size", 4),
+            frames=kwargs.get("frames"),
+            dataset=kwargs.get("video_dataset"),
+            input_format=kwargs.get("video_input_format"),
+        )
+        skeleton = _skeleton_from_predictor(predictor, kwargs["model_paths"][0])
+
+    labels = predictor.predict(provider, make_labels=True, skeleton=skeleton)
+
+    output_path = kwargs.get("output_path") or f"{src}.slp"
+    labels.save(output_path)
+    return labels
 
 
 def _run_stream_to_file(

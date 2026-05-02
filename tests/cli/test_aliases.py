@@ -18,7 +18,12 @@ from sleap_nn.cli import cli
 
 
 def test_track_emits_deprecation_warning():
-    """``sleap-nn track`` runs the legacy flow but emits a DeprecationWarning."""
+    """``sleap-nn track`` emits a DeprecationWarning.
+
+    Adds ``--tracking`` to force the legacy ``run_inference`` path
+    (PR 13 routes simple cases to the new factory by default; we mock
+    that legacy entry point here).
+    """
     runner = CliRunner()
     with patch("sleap_nn.predict.run_inference") as mock_run:
         mock_run.return_value = None
@@ -32,6 +37,7 @@ def test_track_emits_deprecation_warning():
                     "/fake/path.mp4",
                     "--model_paths",
                     "/fake/model",
+                    "--tracking",
                 ],
             )
         assert result.exit_code == 0, result.output
@@ -44,7 +50,12 @@ def test_track_emits_deprecation_warning():
 
 
 def test_track_and_infer_reach_same_run_inference_kwargs():
-    """``track`` and ``infer`` produce identical kwargs to ``run_inference``."""
+    """``track`` and ``infer`` produce identical kwargs to ``run_inference``.
+
+    Adds ``--tracking`` to force the legacy ``run_inference`` path on
+    both sides; PR 13 routes simple cases through the new factory which
+    doesn't call ``run_inference`` at all.
+    """
     runner = CliRunner()
     args_common = [
         "--data_path",
@@ -57,6 +68,7 @@ def test_track_and_infer_reach_same_run_inference_kwargs():
         "2",
         "--peak_threshold",
         "0.15",
+        "--tracking",
     ]
 
     with patch("sleap_nn.predict.run_inference") as mock_run:
@@ -66,7 +78,6 @@ def test_track_and_infer_reach_same_run_inference_kwargs():
 
     with patch("sleap_nn.predict.run_inference") as mock_run:
         mock_run.return_value = None
-        # Suppress the DeprecationWarning during the test.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
             runner.invoke(cli, ["track"] + args_common)

@@ -63,7 +63,11 @@ def test_write_interval_without_stream_to_file_errors():
 
 
 def test_cpu_workers_alias_emits_deprecation_warning():
-    """``--cpu-workers`` warns and is wired through (mapped to paf_workers)."""
+    """``--cpu-workers`` warns and is wired through (mapped to paf_workers).
+
+    Forces the legacy path with ``--tracking`` (PR 13 routes simple
+    cases through the new factory which doesn't trip this warning).
+    """
     runner = CliRunner()
     with patch("sleap_nn.predict.run_inference") as mock_run:
         mock_run.return_value = None
@@ -77,6 +81,7 @@ def test_cpu_workers_alias_emits_deprecation_warning():
                     "/fake/path.mp4",
                     "--model_paths",
                     "/fake/model",
+                    "--tracking",
                     "--cpu-workers",
                     "2",
                 ],
@@ -90,7 +95,7 @@ def test_cpu_workers_alias_emits_deprecation_warning():
 
 
 def test_paf_workers_positive_emits_no_effect_warning():
-    """``--paf-workers > 0`` succeeds but warns the pool is inactive in the CLI."""
+    """``--paf-workers > 0`` succeeds on the legacy path with ``--tracking``."""
     runner = CliRunner()
     with patch("sleap_nn.predict.run_inference") as mock_run:
         mock_run.return_value = None
@@ -102,16 +107,12 @@ def test_paf_workers_positive_emits_no_effect_warning():
                 "/fake/path.mp4",
                 "--model_paths",
                 "/fake/model",
+                "--tracking",
                 "--paf-workers",
                 "4",
             ],
         )
         assert result.exit_code == 0, result.output
-        # The warning is emitted via loguru.logger.warning. The CliRunner
-        # captures stderr by default in mix_stderr=True (click >=8.2 keeps
-        # them merged); just confirm the call still succeeded — the
-        # specific warning surface is logger-level and not part of the
-        # contract.
 
 
 def test_stream_to_file_invokes_new_predictor_flow(tmp_path):
