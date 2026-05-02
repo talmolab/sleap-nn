@@ -223,67 +223,8 @@ def test_factory_rejects_unsupported_combination():
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 5. Parity vs legacy Predictor.from_model_paths on the same image
-# ─────────────────────────────────────────────────────────────────────────
-
-
-def test_factory_parity_vs_legacy_single_instance(single_predictor):
-    """New ``Predictor.layer.predict`` matches legacy ``inference_model.forward``.
-
-    Loads a fresh legacy predictor here (separate from the module-scoped
-    new-factory predictor) so the two reach the same checkpoint via
-    independent code paths and we compare outputs.
-    """
-    from omegaconf import OmegaConf
-
-    from sleap_nn.inference.predictors import Predictor as LegacyPredictor
-
-    rng = np.random.default_rng(0)
-    image = rng.integers(0, 255, size=(2, 1, 1, 384, 384)).astype(np.uint8)
-    image_t = torch.from_numpy(image).float()  # (B, 1, C, H, W)
-
-    # Legacy path
-    legacy = LegacyPredictor.from_model_paths(
-        [str(SINGLE_CKPT)],
-        device="cpu",
-        peak_threshold=0.2,
-        preprocess_config=OmegaConf.create(
-            {
-                "ensure_rgb": None,
-                "ensure_grayscale": None,
-                "crop_size": None,
-                "max_width": None,
-                "max_height": None,
-                "scale": None,
-            }
-        ),
-    )
-    legacy._initialize_inference_model()
-    legacy_inf = legacy.inference_model
-    legacy_inf.eval()
-    legacy_input = {
-        "image": image_t,
-        "frame_idx": torch.tensor([0, 1], dtype=torch.float32),
-        "video_idx": torch.tensor([0, 0], dtype=torch.float32),
-        "orig_size": torch.tensor([[384.0, 384.0], [384.0, 384.0]]),
-        "eff_scale": torch.ones(2),
-    }
-    with torch.no_grad():
-        legacy_out_list = legacy_inf(legacy_input)
-    legacy_out = legacy_out_list[0]
-    legacy_peaks = legacy_out["pred_instance_peaks"]
-
-    # New factory path (module-scoped — already loaded)
-    new_outputs = single_predictor.layer.predict(image_t.squeeze(1))  # (B, C, H, W)
-    new_peaks = new_outputs.pred_keypoints
-
-    # Single-instance: new_peaks is (B, 1, N, 2); legacy is (B, N, 2).
-    np.testing.assert_allclose(
-        new_peaks.squeeze(1).numpy(),
-        legacy_peaks.numpy(),
-        equal_nan=True,
-        atol=1e-4,
-        rtol=1e-5,
-    )
-    del legacy, legacy_inf
-    gc.collect()
+# Note: the per-test "parity vs legacy InferenceModel.forward" check was
+# removed. End-to-end byte-for-byte parity is captured once at the top
+# of the stack via the PR 0 goldens; per-layer parity vs legacy is
+# development-time scaffolding that locks in legacy behaviour
+# (including ULP-drift quirks) and triples CI runtime.

@@ -202,38 +202,15 @@ def test_scored_batch_to_cpu_is_idempotent_on_cpu_tensors():
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 2. GPU/CPU phase split parity (vs monolithic postprocess)
+# 2. Predictor — paf_workers=N matches paf_workers=0 (the parity contract)
 # ─────────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.skipif(
-    not BOTTOMUP_CKPT.exists(), reason="bottomup checkpoint not present"
-)
-def test_phase_split_matches_monolithic_postprocess(bottomup_layer, bottomup_image):
-    """``_score_pafs_on_gpu`` + ``group_scored_batch`` == ``postprocess``."""
-    layer = bottomup_layer
-    img = bottomup_image
-    out_inline = layer.predict(img)
-
-    x, info = layer.preprocess(img)
-    raw = layer.backend(x)
-    scored = layer._score_pafs_on_gpu(raw, info)
-    out_split = group_scored_batch(scored, layer.grouping_params())
-
-    torch.testing.assert_close(
-        out_inline.pred_keypoints, out_split.pred_keypoints, equal_nan=True
-    )
-    torch.testing.assert_close(
-        out_inline.pred_peak_values, out_split.pred_peak_values, equal_nan=True
-    )
-    torch.testing.assert_close(
-        out_inline.instance_scores, out_split.instance_scores, equal_nan=True
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────
-# 3. Predictor — paf_workers=N matches paf_workers=0 (the parity contract)
-# ─────────────────────────────────────────────────────────────────────────
+#
+# The previous "phase split == monolithic postprocess" parity test was
+# removed: it loaded a real BottomUpLayer checkpoint and ran the model
+# end-to-end twice (~580s on Mac CI). End-to-end parity vs main is
+# captured once at the top of the stack via the PR 0 goldens; the
+# synthetic pool test below covers the GPU+CPU split's correctness on
+# a deterministic small payload that runs in <3s.
 
 
 def _build_synthetic_scored_batch(
