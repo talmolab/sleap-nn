@@ -5,7 +5,7 @@ and re-emits a new ``Predictor`` with the appropriate layer composition.
 
 Coverage:
 
-1. Each of the 6 supported model-type combinations builds a new
+1. Each of the 5 supported model-type combinations builds a new
    ``Predictor`` whose layer is the expected type.
 2. ``Predictor.from_model_paths`` (classmethod) and the free
    ``factory.from_model_paths`` produce equivalent objects.
@@ -13,12 +13,19 @@ Coverage:
    ``Outputs`` on a synthetic image (smoke test — full per-type parity
    vs the legacy ``InferenceModel.forward`` is already covered in
    ``tests/inference/layers/test_*.py``).
-4. The factory raises ``ValueError`` on an unsupported combination
-   (e.g., two centroid models).
+4. The factory raises ``ValueError`` on an unsupported combination.
+5. Parity vs legacy ``inference_model.forward`` on the single-instance
+   checkpoint within 1e-4 atol / 1e-5 rtol.
+
+Performance: each ckpt-combo predictor is module-scoped so we only
+pay the Lightning checkpoint load cost once per CI run. Without this,
+~11 fresh model loads would inflate Linux/Windows runtime by 3-5x and
+trigger memory pressure that slows neighbouring test files.
 """
 
 from __future__ import annotations
 
+import gc
 from pathlib import Path
 
 import numpy as np
@@ -44,62 +51,104 @@ MULTICLASS_TD_CKPT = CKPT_ROOT / "minimal_instance_multiclass_centered_instance"
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 1. Layer-type dispatch — one test per supported combination
+# Module-scoped fixtures — load each ckpt ONCE per test session
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.skipif(not SINGLE_CKPT.exists(), reason="single-instance ckpt absent")
-def test_factory_builds_single_instance_layer():
-    """``[single_instance]`` → ``SingleInstanceLayer``."""
-    predictor = from_model_paths([str(SINGLE_CKPT)], device="cpu")
-    assert isinstance(predictor, Predictor)
-    assert isinstance(predictor.layer, SingleInstanceLayer)
+@pytest.fixture(scope="module")
+def single_predictor() -> Predictor:
+    """Built once per module; reused across single-instance tests."""
+    if not SINGLE_CKPT.exists():
+        pytest.skip("single-instance ckpt absent")
+    p = from_model_paths([str(SINGLE_CKPT)], device="cpu")
+    yield p
+    del p
+    gc.collect()
 
 
-@pytest.mark.skipif(not BOTTOMUP_CKPT.exists(), reason="bottomup ckpt absent")
-def test_factory_builds_bottomup_layer():
-    """``[bottomup]`` → ``BottomUpLayer``."""
-    predictor = from_model_paths([str(BOTTOMUP_CKPT)], device="cpu")
-    assert isinstance(predictor.layer, BottomUpLayer)
+@pytest.fixture(scope="module")
+def bottomup_predictor() -> Predictor:
+    """Built once per module; reused across bottom-up tests."""
+    if not BOTTOMUP_CKPT.exists():
+        pytest.skip("bottomup ckpt absent")
+    p = from_model_paths([str(BOTTOMUP_CKPT)], device="cpu")
+    yield p
+    del p
+    gc.collect()
 
 
-@pytest.mark.skipif(
-    not MULTICLASS_BU_CKPT.exists(), reason="multiclass-bottomup ckpt absent"
-)
-def test_factory_builds_bottomup_multiclass_layer():
-    """``[multi_class_bottomup]`` → ``BottomUpMultiClassLayer``."""
-    predictor = from_model_paths([str(MULTICLASS_BU_CKPT)], device="cpu")
-    assert isinstance(predictor.layer, BottomUpMultiClassLayer)
+@pytest.fixture(scope="module")
+def multiclass_bu_predictor() -> Predictor:
+    """Built once per module; reused across multi-class bottom-up tests."""
+    if not MULTICLASS_BU_CKPT.exists():
+        pytest.skip("multiclass-bottomup ckpt absent")
+    p = from_model_paths([str(MULTICLASS_BU_CKPT)], device="cpu")
+    yield p
+    del p
+    gc.collect()
 
 
-@pytest.mark.skipif(
-    not (CENTROID_CKPT.exists() and CENTERED_CKPT.exists()),
-    reason="topdown ckpts absent",
-)
-def test_factory_builds_topdown_layer():
-    """``[centroid, centered_instance]`` → ``TopDownLayer``."""
-    predictor = from_model_paths(
+@pytest.fixture(scope="module")
+def topdown_predictor() -> Predictor:
+    """Built once per module; reused across top-down tests."""
+    if not (CENTROID_CKPT.exists() and CENTERED_CKPT.exists()):
+        pytest.skip("topdown ckpts absent")
+    p = from_model_paths(
         [str(CENTROID_CKPT), str(CENTERED_CKPT)],
         device="cpu",
         peak_threshold=0.03,
         max_instances=6,
     )
-    assert isinstance(predictor.layer, TopDownLayer)
+    yield p
+    del p
+    gc.collect()
 
 
-@pytest.mark.skipif(
-    not (CENTROID_CKPT.exists() and MULTICLASS_TD_CKPT.exists()),
-    reason="topdown-multiclass ckpts absent",
-)
-def test_factory_builds_topdown_multiclass_layer():
-    """``[centroid, multi_class_topdown]`` → ``TopDownMultiClassLayer``."""
-    predictor = from_model_paths(
+@pytest.fixture(scope="module")
+def topdown_multiclass_predictor() -> Predictor:
+    """Built once per module; reused across top-down multi-class tests."""
+    if not (CENTROID_CKPT.exists() and MULTICLASS_TD_CKPT.exists()):
+        pytest.skip("topdown-multiclass ckpts absent")
+    p = from_model_paths(
         [str(CENTROID_CKPT), str(MULTICLASS_TD_CKPT)],
         device="cpu",
         peak_threshold=0.03,
         max_instances=6,
     )
-    assert isinstance(predictor.layer, TopDownMultiClassLayer)
+    yield p
+    del p
+    gc.collect()
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 1. Layer-type dispatch — one test per supported combination
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_factory_builds_single_instance_layer(single_predictor):
+    """``[single_instance]`` → ``SingleInstanceLayer``."""
+    assert isinstance(single_predictor, Predictor)
+    assert isinstance(single_predictor.layer, SingleInstanceLayer)
+
+
+def test_factory_builds_bottomup_layer(bottomup_predictor):
+    """``[bottomup]`` → ``BottomUpLayer``."""
+    assert isinstance(bottomup_predictor.layer, BottomUpLayer)
+
+
+def test_factory_builds_bottomup_multiclass_layer(multiclass_bu_predictor):
+    """``[multi_class_bottomup]`` → ``BottomUpMultiClassLayer``."""
+    assert isinstance(multiclass_bu_predictor.layer, BottomUpMultiClassLayer)
+
+
+def test_factory_builds_topdown_layer(topdown_predictor):
+    """``[centroid, centered_instance]`` → ``TopDownLayer``."""
+    assert isinstance(topdown_predictor.layer, TopDownLayer)
+
+
+def test_factory_builds_topdown_multiclass_layer(topdown_multiclass_predictor):
+    """``[centroid, multi_class_topdown]`` → ``TopDownMultiClassLayer``."""
+    assert isinstance(topdown_multiclass_predictor.layer, TopDownMultiClassLayer)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -107,13 +156,17 @@ def test_factory_builds_topdown_multiclass_layer():
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.skipif(not SINGLE_CKPT.exists(), reason="single-instance ckpt absent")
-def test_classmethod_matches_factory_function():
-    """``Predictor.from_model_paths(...)`` builds the same kind of object."""
+def test_classmethod_matches_factory_function(single_predictor):
+    """``Predictor.from_model_paths(...)`` builds the same kind of object.
+
+    Uses the module-scoped factory predictor on one side and a fresh
+    classmethod call on the other; freed at end of test.
+    """
     via_classmethod = Predictor.from_model_paths([str(SINGLE_CKPT)], device="cpu")
-    via_function = from_model_paths([str(SINGLE_CKPT)], device="cpu")
-    assert type(via_classmethod) is type(via_function)
-    assert type(via_classmethod.layer) is type(via_function.layer)
+    assert type(via_classmethod) is type(single_predictor)
+    assert type(via_classmethod.layer) is type(single_predictor.layer)
+    del via_classmethod
+    gc.collect()
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -121,42 +174,28 @@ def test_classmethod_matches_factory_function():
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.skipif(not SINGLE_CKPT.exists(), reason="single-instance ckpt absent")
-def test_factory_single_instance_predict_smoke():
+def test_factory_single_instance_predict_smoke(single_predictor):
     """Built ``Predictor.layer.predict`` returns a structurally valid ``Outputs``."""
-    predictor = from_model_paths([str(SINGLE_CKPT)], device="cpu")
     img = np.zeros((1, 1, 384, 384), dtype=np.float32)
-    out = predictor.layer.predict(img)
+    out = single_predictor.layer.predict(img)
     assert isinstance(out, Outputs)
     assert out.pred_keypoints is not None
     assert out.pred_keypoints.ndim == 4  # (B, I, N, 2)
     assert out.pred_keypoints.shape[0] == 1
 
 
-@pytest.mark.skipif(not BOTTOMUP_CKPT.exists(), reason="bottomup ckpt absent")
-def test_factory_bottomup_predict_smoke():
+def test_factory_bottomup_predict_smoke(bottomup_predictor):
     """Bottomup factory builds a layer that returns valid ``Outputs``."""
-    predictor = from_model_paths([str(BOTTOMUP_CKPT)], device="cpu")
     img = np.zeros((1, 1, 384, 384), dtype=np.float32)
-    out = predictor.layer.predict(img)
+    out = bottomup_predictor.layer.predict(img)
     assert isinstance(out, Outputs)
     assert out.pred_keypoints.ndim == 4
 
 
-@pytest.mark.skipif(
-    not (CENTROID_CKPT.exists() and CENTERED_CKPT.exists()),
-    reason="topdown ckpts absent",
-)
-def test_factory_topdown_predict_smoke():
+def test_factory_topdown_predict_smoke(topdown_predictor):
     """TopDown factory builds a layer that returns valid ``Outputs``."""
-    predictor = from_model_paths(
-        [str(CENTROID_CKPT), str(CENTERED_CKPT)],
-        device="cpu",
-        peak_threshold=0.03,
-        max_instances=6,
-    )
     img = np.zeros((1, 1, 384, 384), dtype=np.float32)
-    out = predictor.layer.predict(img)
+    out = topdown_predictor.layer.predict(img)
     assert isinstance(out, Outputs)
     assert out.pred_keypoints.ndim == 4
     # TopDown produces pred_centroids alongside pred_keypoints.
@@ -170,9 +209,12 @@ def test_factory_topdown_predict_smoke():
 
 @pytest.mark.skipif(not CENTROID_CKPT.exists(), reason="centroid ckpt absent")
 def test_factory_rejects_unsupported_combination():
-    """Two centroid models is not a supported pipeline → ``ValueError``."""
-    # The legacy loader will accept two-centroid input but the factory's
-    # _select_layer dispatch refuses it. Capture either failure point.
+    """Two centroid models is not a supported pipeline → ``ValueError``.
+
+    Note: the legacy loader runs first and may either accept the
+    duplicate or fail; both surfaces are valid signals for "this
+    combination isn't supported".
+    """
     with pytest.raises((ValueError, RuntimeError)):
         from_model_paths(
             [str(CENTROID_CKPT), str(CENTROID_CKPT)],
@@ -185,9 +227,13 @@ def test_factory_rejects_unsupported_combination():
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.skipif(not SINGLE_CKPT.exists(), reason="single-instance ckpt absent")
-def test_factory_parity_vs_legacy_single_instance():
-    """New ``Predictor.layer.predict`` matches legacy ``inference_model.forward``."""
+def test_factory_parity_vs_legacy_single_instance(single_predictor):
+    """New ``Predictor.layer.predict`` matches legacy ``inference_model.forward``.
+
+    Loads a fresh legacy predictor here (separate from the module-scoped
+    new-factory predictor) so the two reach the same checkpoint via
+    independent code paths and we compare outputs.
+    """
     from omegaconf import OmegaConf
 
     from sleap_nn.inference.predictors import Predictor as LegacyPredictor
@@ -227,13 +273,11 @@ def test_factory_parity_vs_legacy_single_instance():
     legacy_out = legacy_out_list[0]
     legacy_peaks = legacy_out["pred_instance_peaks"]
 
-    # New factory path
-    predictor = from_model_paths([str(SINGLE_CKPT)], device="cpu", peak_threshold=0.2)
-    new_outputs = predictor.layer.predict(image_t.squeeze(1))  # (B, C, H, W)
+    # New factory path (module-scoped — already loaded)
+    new_outputs = single_predictor.layer.predict(image_t.squeeze(1))  # (B, C, H, W)
     new_peaks = new_outputs.pred_keypoints
 
     # Single-instance: new_peaks is (B, 1, N, 2); legacy is (B, N, 2).
-    # Squeeze the I=1 dim for shape match.
     np.testing.assert_allclose(
         new_peaks.squeeze(1).numpy(),
         legacy_peaks.numpy(),
@@ -241,3 +285,5 @@ def test_factory_parity_vs_legacy_single_instance():
         atol=1e-4,
         rtol=1e-5,
     )
+    del legacy, legacy_inf
+    gc.collect()
