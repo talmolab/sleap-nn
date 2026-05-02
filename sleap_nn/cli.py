@@ -1116,7 +1116,9 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
             batch_size=kwargs.get("batch_size", 4),
             only_labeled_frames=only_labeled,
         )
-        skeleton = sio.load_slp(str(src)).skeletons[0]
+        loaded = sio.load_slp(str(src))
+        skeleton = loaded.skeletons[0]
+        videos = list(loaded.videos)
     else:
         provider = VideoProvider(
             video=str(src),
@@ -1126,8 +1128,13 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
             input_format=kwargs.get("video_input_format"),
         )
         skeleton = _skeleton_from_predictor(predictor, kwargs["model_paths"][0])
+        # ``Labels.save()`` traverses ``video.backend``; pass the loaded
+        # ``sio.Video`` so the saved .slp has a real backend reference.
+        videos = [sio.load_video(str(src))]
 
-    labels = predictor.predict(provider, make_labels=True, skeleton=skeleton)
+    labels = predictor.predict(
+        provider, make_labels=True, skeleton=skeleton, videos=videos
+    )
 
     output_path = kwargs.get("output_path") or f"{src}.slp"
     labels.save(output_path)
