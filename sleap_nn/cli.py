@@ -1075,6 +1075,27 @@ def _can_use_new_in_memory_flow(kwargs: dict) -> bool:
     return True
 
 
+def _resolve_device(value: object) -> str:
+    """Resolve a CLI ``--device`` value to a concrete torch device string.
+
+    The legacy :func:`sleap_nn.predict.run_inference` resolves ``"auto"``
+    before any checkpoint loading; the new flow needs the same so
+    ``torch.load(map_location="auto")`` doesn't blow up on the legacy
+    factory loader.
+    """
+    if hasattr(value, "type"):
+        value = str(value)
+    if value in (None, "", "auto"):
+        import torch
+
+        if torch.cuda.is_available():
+            return "cuda"
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return "mps"
+        return "cpu"
+    return str(value)
+
+
 def _build_filter_config(kwargs: dict) -> "object":
     """Build a :class:`FilterConfig` from the CLI ``--filter_*`` flags.
 
@@ -1158,7 +1179,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     from sleap_nn.inference.providers import LabelsProvider, VideoProvider
 
     factory_kwargs = {
-        "device": kwargs.get("device", "auto"),
+        "device": _resolve_device(kwargs.get("device")),
         "peak_threshold": kwargs.get("peak_threshold", 0.2),
         "integral_refinement": kwargs.get("integral_refinement", "integral"),
         "integral_patch_size": kwargs.get("integral_patch_size", 5),
@@ -1253,7 +1274,7 @@ def _run_stream_to_file(
     from sleap_nn.inference.providers import LabelsProvider, VideoProvider
 
     factory_kwargs = {
-        "device": kwargs.get("device", "auto"),
+        "device": _resolve_device(kwargs.get("device")),
         "peak_threshold": kwargs.get("peak_threshold", 0.2),
         "integral_refinement": kwargs.get("integral_refinement", "integral"),
         "integral_patch_size": kwargs.get("integral_patch_size", 5),
