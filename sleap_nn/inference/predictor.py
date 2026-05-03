@@ -22,7 +22,7 @@ This commit ships the synchronous :meth:`predict`. Streaming +
 
 from __future__ import annotations
 
-from typing import Any, Iterator, List, Optional, Union
+from typing import Any, Callable, Iterator, List, Optional, Union
 
 import attrs
 import numpy as np
@@ -32,6 +32,14 @@ from sleap_nn.inference.filters import FilterConfig, FilterPipeline
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.providers import Provider
 from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
+
+
+def _safe_len(provider: Any) -> int:
+    """Return ``len(provider)`` or ``-1`` if the provider doesn't expose ``__len__``."""
+    try:
+        return len(provider)
+    except TypeError:
+        return -1
 
 
 @attrs.define
@@ -92,6 +100,48 @@ class Predictor:
 
         return from_model_paths(model_paths, **kwargs)
 
+    @classmethod
+    def from_export_dir(cls, export_dir: str, **kwargs) -> "Predictor":
+        """Build a :class:`Predictor` from an exported ``.onnx`` / ``.trt`` directory.
+
+        See :func:`sleap_nn.inference.factory.from_export_dir` for the
+        full kwarg surface.
+        """
+        from sleap_nn.inference.factory import from_export_dir
+
+        return from_export_dir(export_dir, **kwargs)
+
+    @staticmethod
+    def retrack(
+        labels: Any,
+        tracker_config: TrackerConfig,
+        clean_empty_frames: bool = False,
+    ) -> Any:
+        """Retrack an existing ``sio.Labels`` without running inference.
+
+        Pure tracking — useful when you already have predicted instances
+        in a ``.slp`` and just want to (re)apply a tracker. Mirrors the
+        legacy ``run_inference(model_paths=None, tracking=True, ...)``
+        path. The tracker runs once over the full LabeledFrame list;
+        post-tracking cleanup (cull / connect-single-breaks) is applied
+        per ``tracker_config``.
+
+        Args:
+            labels: A ``sio.Labels`` whose ``predicted_instances`` are
+                tracked in-place semantics — this returns a new
+                ``Labels`` with tracked instances.
+            tracker_config: :class:`TrackerConfig` to drive the tracker.
+            clean_empty_frames: When ``True``, drop empty frames from
+                the result (matches ``--no_empty_frames``).
+
+        Returns:
+            New ``sio.Labels`` with tracks attached.
+        """
+        out = apply_tracking(labels, tracker_config)
+        if clean_empty_frames:
+            out.clean(frames=True, skeletons=False)
+        return out
+
     # ──────────────────────────────────────────────────────────────────
     # Synchronous: returns Outputs list or sio.Labels
     # ──────────────────────────────────────────────────────────────────
@@ -103,6 +153,7 @@ class Predictor:
         skeleton: Optional[Any] = None,
         videos: Optional[List[Any]] = None,
         clean_empty_frames: bool = False,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> Union[List[Outputs], Any]:
         """Run inference on every batch from ``provider``.
 
@@ -118,12 +169,16 @@ class Predictor:
                 drop ``LabeledFrame``s with no instances from the
                 returned ``sio.Labels``. Mirrors the legacy
                 ``no_empty_frames`` flag.
+            progress_callback: Optional ``(processed_batches, total_batches)``
+                callback invoked after each batch. ``total_batches`` is
+                ``len(provider)`` if the provider implements ``__len__``,
+                else ``-1``.
 
         Returns:
             ``List[Outputs]`` (raw mode) or ``sio.Labels`` (with-labels
             mode).
         """
-        outputs_list = list(self._batch_iter(provider))
+        outputs_list = list(self._batch_iter(provider, progress_callback))
         if not make_labels:
             if self.tracker_config is not None:
                 raise ValueError(
@@ -144,7 +199,11 @@ class Predictor:
     # Streaming: yields one Outputs at a time
     # ──────────────────────────────────────────────────────────────────
 
-    def predict_streaming(self, provider: Provider) -> Iterator[Outputs]:
+    def predict_streaming(
+        self,
+        provider: Provider,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+    ) -> Iterator[Outputs]:
         """Yield one ``Outputs`` per provider batch.
 
         Caller-controlled memory: the predictor never materializes the
@@ -162,9 +221,9 @@ class Predictor:
                 "full LabeledFrame list; use predict() instead."
             )
         if self.paf_workers > 0 and self._can_pipeline():
-            yield from self._predict_streaming_pipelined(provider)
+            yield from self._predict_streaming_pipelined(provider, progress_callback)
             return
-        yield from self._batch_iter(provider)
+        yield from self._batch_iter(provider, progress_callback)
 
     # ──────────────────────────────────────────────────────────────────
     # Disk-streaming: write to a .slp incrementally
@@ -177,6 +236,7 @@ class Predictor:
         skeleton: Any,
         videos: Optional[List[Any]] = None,
         write_interval: int = 500,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> str:
         """Run inference and stream results to a ``.slp`` file.
 
@@ -194,6 +254,9 @@ class Predictor:
                 ``video_indices`` for the saved labels.
             write_interval: Number of LabeledFrames to buffer before
                 a disk flush.
+            progress_callback: Optional ``(processed_batches, total_batches)``
+                callback invoked after each batch (forwarded to
+                :meth:`predict_streaming`).
 
         Returns:
             The (resolved) destination path string.
@@ -206,7 +269,7 @@ class Predictor:
             videos=videos,
             write_interval=write_interval,
         ) as writer:
-            for outputs in self.predict_streaming(provider):
+            for outputs in self.predict_streaming(provider, progress_callback):
                 writer.write(outputs)
         return path
 
@@ -214,10 +277,15 @@ class Predictor:
     # Internals
     # ──────────────────────────────────────────────────────────────────
 
-    def _batch_iter(self, provider: Provider) -> Iterator[Outputs]:
+    def _batch_iter(
+        self,
+        provider: Provider,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+    ) -> Iterator[Outputs]:
         """Run ``layer.predict`` + ``FilterPipeline`` per provider batch."""
         pipeline = self.filter_pipeline
-        for batch in provider:
+        total = _safe_len(provider)
+        for i, batch in enumerate(provider):
             kwargs: dict = {}
             if batch.instances is not None:
                 kwargs["instances"] = (
@@ -229,6 +297,8 @@ class Predictor:
             outputs = pipeline(outputs)
             outputs = self._stamp_metadata(outputs, batch)
             yield outputs
+            if progress_callback is not None:
+                progress_callback(i + 1, total)
 
     # ──────────────────────────────────────────────────────────────────
     # Pipelined bottom-up: GPU stage in main proc, CPU grouping in pool
@@ -241,7 +311,11 @@ class Predictor:
 
         return isinstance(self.layer, BottomUpLayer)
 
-    def _predict_streaming_pipelined(self, provider: Provider) -> Iterator[Outputs]:
+    def _predict_streaming_pipelined(
+        self,
+        provider: Provider,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+    ) -> Iterator[Outputs]:
         """Stream ``Outputs`` with the CPU grouping stage in a worker pool.
 
         The GPU stage (:meth:`BottomUpLayer._score_pafs_on_gpu`) runs
@@ -256,6 +330,7 @@ class Predictor:
         pipeline = self.filter_pipeline
         layer = self.layer
         params = layer.grouping_params()
+        total = _safe_len(provider)
 
         # Cache per-batch metadata keyed by submission ordinal so we can
         # restamp it onto the worker-produced Outputs.
@@ -269,10 +344,14 @@ class Predictor:
                 scored = layer._score_pafs_on_gpu(raw, info)
                 pool.submit(ordinal, scored)
                 meta[ordinal] = batch
+            completed = 0
             for ordinal, outputs in pool.iter_completed():
                 outputs = pipeline(outputs)
                 outputs = self._stamp_metadata(outputs, meta.pop(ordinal))
                 yield outputs
+                completed += 1
+                if progress_callback is not None:
+                    progress_callback(completed, total)
 
     @staticmethod
     def _stamp_metadata(outputs: Outputs, batch: Any) -> Outputs:

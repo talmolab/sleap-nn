@@ -194,7 +194,11 @@ def test_predictor_predict_applies_tracker_after_to_labels(
 
     # Patch the class-level methods so ``predict()`` reaches the
     # post-_to_labels tracking hook without needing a real model.
-    monkeypatch.setattr(Predictor, "_batch_iter", lambda self, provider: iter([]))
+    monkeypatch.setattr(
+        Predictor,
+        "_batch_iter",
+        lambda self, provider, progress_callback=None: iter([]),
+    )
     monkeypatch.setattr(
         Predictor,
         "_to_labels",
@@ -232,7 +236,11 @@ def test_predictor_predict_clean_empty_frames_drops_empty(skeleton, video, monke
         def __iter__(self):
             return iter([])
 
-    monkeypatch.setattr(Predictor, "_batch_iter", lambda self, provider: iter([]))
+    monkeypatch.setattr(
+        Predictor,
+        "_batch_iter",
+        lambda self, provider, progress_callback=None: iter([]),
+    )
     monkeypatch.setattr(
         Predictor,
         "_to_labels",

@@ -89,13 +89,22 @@ def test_write_interval_without_stream_to_file_errors():
 def test_cpu_workers_alias_emits_deprecation_warning():
     """``--cpu-workers`` warns and is wired through (mapped to paf_workers).
 
-    Forces the legacy path with ``--gui`` (PR 13/14 route simple +
-    tracking cases through the new factory which doesn't trip this
-    warning).
+    The deprecation fires in ``_run_inference_impl`` regardless of which
+    backend serves the request — we just need the impl to not crash.
     """
+    from unittest.mock import MagicMock
+
+    stub_predictor = MagicMock()
+    stub_predictor.predict.return_value = MagicMock()
     runner = CliRunner()
-    with patch("sleap_nn.predict.run_inference") as mock_run:
-        mock_run.return_value = None
+    with (
+        patch(
+            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
+        ),
+        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
+        patch("sleap_nn.inference.providers.VideoProvider"),
+        patch("sleap_io.load_video"),
+    ):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             result = runner.invoke(
@@ -106,7 +115,6 @@ def test_cpu_workers_alias_emits_deprecation_warning():
                     "/fake/path.mp4",
                     "--model_paths",
                     "/fake/model",
-                    "--gui",
                     "--cpu-workers",
                     "2",
                 ],
@@ -119,11 +127,25 @@ def test_cpu_workers_alias_emits_deprecation_warning():
         ), [str(d.message) for d in deprecations]
 
 
-def test_paf_workers_positive_emits_no_effect_warning():
-    """``--paf-workers > 0`` succeeds on the legacy path with ``--gui``."""
+def test_paf_workers_positive_does_not_warn_on_new_flow():
+    """``--paf-workers > 0`` works on the new flow without legacy warnings.
+
+    PR 16 routes everything through the new flow; the old "no effect on
+    legacy path" warning is gone.
+    """
+    from unittest.mock import MagicMock
+
+    stub_predictor = MagicMock()
+    stub_predictor.predict.return_value = MagicMock()
     runner = CliRunner()
-    with patch("sleap_nn.predict.run_inference") as mock_run:
-        mock_run.return_value = None
+    with (
+        patch(
+            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
+        ),
+        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
+        patch("sleap_nn.inference.providers.VideoProvider"),
+        patch("sleap_io.load_video"),
+    ):
         result = runner.invoke(
             cli,
             [
@@ -132,12 +154,12 @@ def test_paf_workers_positive_emits_no_effect_warning():
                 "/fake/path.mp4",
                 "--model_paths",
                 "/fake/model",
-                "--gui",
                 "--paf-workers",
                 "4",
             ],
         )
         assert result.exit_code == 0, result.output
+        assert "paf-workers > 0" not in result.output
 
 
 def test_stream_to_file_invokes_new_predictor_flow(tmp_path):
