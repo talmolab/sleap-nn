@@ -33,6 +33,7 @@ from omegaconf import OmegaConf
 
 from sleap_nn.inference.filters import FilterConfig
 from sleap_nn.inference.layers.backends import TorchBackend
+from sleap_nn.inference.tracking import TrackerConfig
 from sleap_nn.inference.layers.bottomup import BottomUpLayer
 from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLayer
 from sleap_nn.inference.layers.centered_instance import CenteredInstanceLayer
@@ -233,6 +234,7 @@ def from_model_paths(
     anchor_part: Optional[str] = None,
     filter_config: Optional[FilterConfig] = None,
     paf_workers: int = 0,
+    tracker_config: Optional[TrackerConfig] = None,
 ):
     """Build a new :class:`Predictor` (PR 8) from one or more checkpoint paths.
 
@@ -264,6 +266,9 @@ def from_model_paths(
             ``run_inference`` if any are non-default.
         paf_workers: Number of CPU worker processes for the bottom-up
             PAF grouping stage. Forwarded to :class:`Predictor`.
+        tracker_config: Optional :class:`TrackerConfig`. Forwarded to
+            :class:`Predictor`; when set, ``predict()`` will track
+            instances post-inference.
 
     Returns:
         A :class:`sleap_nn.inference.predictor.Predictor` wrapping the
@@ -317,6 +322,8 @@ def from_model_paths(
     kwargs: dict = {"layer": layer, "paf_workers": paf_workers}
     if filter_config is not None:
         kwargs["filter_config"] = filter_config
+    if tracker_config is not None:
+        kwargs["tracker_config"] = tracker_config
     return NewPredictor(**kwargs)
 
 

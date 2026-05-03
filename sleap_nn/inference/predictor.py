@@ -31,6 +31,7 @@ import torch
 from sleap_nn.inference.filters import FilterConfig, FilterPipeline
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.providers import Provider
+from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
 
 
 @attrs.define
@@ -50,6 +51,14 @@ class Predictor:
             layer type the value is ignored. Each worker starts a fresh
             Python interpreter on macOS / Windows (~1s startup cost), so
             keep this off for short videos on those platforms.
+        tracker_config: Optional :class:`TrackerConfig`. When set,
+            :meth:`predict` runs the tracker on the resulting
+            ``sio.Labels`` (requires ``make_labels=True``) before
+            returning. A fresh ``Tracker`` is built per call, so no
+            state leaks across invocations. ``predict_streaming`` /
+            ``predict_to_file`` raise on tracker_config — end-of-stream
+            cleanup (``cull_instances`` / ``connect_single_breaks``)
+            needs the full LabeledFrame list, which defeats streaming.
 
     Notes:
         Keeps no state across calls — same predictor can be reused on
@@ -59,6 +68,7 @@ class Predictor:
     layer: Any
     filter_config: FilterConfig = attrs.Factory(FilterConfig)
     paf_workers: int = 0
+    tracker_config: Optional[TrackerConfig] = None
 
     @property
     def filter_pipeline(self) -> FilterPipeline:
@@ -110,10 +120,18 @@ class Predictor:
         """
         outputs_list = list(self._batch_iter(provider))
         if not make_labels:
+            if self.tracker_config is not None:
+                raise ValueError(
+                    "tracker_config requires make_labels=True; the tracker "
+                    "operates on sio.PredictedInstance objects."
+                )
             return outputs_list
         if skeleton is None:
             raise ValueError("make_labels=True requires `skeleton` to be passed.")
-        return self._to_labels(outputs_list, skeleton=skeleton, videos=videos)
+        labels = self._to_labels(outputs_list, skeleton=skeleton, videos=videos)
+        if self.tracker_config is not None:
+            labels = apply_tracking(labels, self.tracker_config)
+        return labels
 
     # ──────────────────────────────────────────────────────────────────
     # Streaming: yields one Outputs at a time
@@ -130,6 +148,12 @@ class Predictor:
         the GPU peak / PAF-scoring stage in this process and ships the
         CPU grouping stage to a :class:`PafGroupingPool`.
         """
+        if self.tracker_config is not None:
+            raise ValueError(
+                "tracker_config is not supported on predict_streaming / "
+                "predict_to_file. End-of-stream tracker cleanup needs the "
+                "full LabeledFrame list; use predict() instead."
+            )
         if self.paf_workers > 0 and self._can_pipeline():
             yield from self._predict_streaming_pipelined(provider)
             return

@@ -817,6 +817,57 @@ def test_track_command(
     assert len(labels) == 100
 
 
+def test_track_command_with_tracking_uses_new_flow(
+    centered_instance_video,
+    minimal_instance_centered_instance_ckpt,
+    minimal_instance_centroid_ckpt,
+    tmp_path,
+):
+    """End-to-end ``--tracking`` smoke test on the new flow (PR 14)."""
+    import subprocess
+
+    cmd = [
+        "uv",
+        "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
+        "sleap-nn",
+        "infer",
+        "--model_paths",
+        minimal_instance_centroid_ckpt,
+        "--model_paths",
+        minimal_instance_centered_instance_ckpt,
+        "--data_path",
+        centered_instance_video.as_posix(),
+        "--max_instances",
+        "2",
+        "--tracking",
+        "--tracking_window_size",
+        "5",
+        "--output_path",
+        f"{tmp_path}/test_tracked.slp",
+        "--frames",
+        "0-49",
+        "--device",
+        "cpu",
+    ]
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    out = Path(f"{tmp_path}/test_tracked.slp")
+    assert out.exists()
+
+    labels = sio.load_slp(str(out))
+    assert len(labels) == 50
+    # At least one frame should have a tracked predicted instance.
+    tracked_count = sum(
+        1
+        for lf in labels.labeled_frames
+        for inst in lf.instances
+        if getattr(inst, "track", None) is not None
+    )
+    assert tracked_count > 0, "no tracks were assigned by the new-flow tracker"
+
+
 def test_eval_command(
     minimal_instance, tmp_path, minimal_instance_centered_instance_ckpt
 ):

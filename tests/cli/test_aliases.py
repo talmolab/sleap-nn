@@ -20,9 +20,10 @@ from sleap_nn.cli import cli
 def test_track_emits_deprecation_warning():
     """``sleap-nn track`` emits a DeprecationWarning.
 
-    Adds ``--tracking`` to force the legacy ``run_inference`` path
-    (PR 13 routes simple cases to the new factory by default; we mock
-    that legacy entry point here).
+    Adds ``--gui`` to force the legacy ``run_inference`` path (PR 13
+    routes simple cases to the new factory by default; PR 14 routes
+    ``--tracking`` through the new factory too — ``--gui`` is the
+    remaining legacy-only flag).
     """
     runner = CliRunner()
     with patch("sleap_nn.predict.run_inference") as mock_run:
@@ -37,7 +38,7 @@ def test_track_emits_deprecation_warning():
                     "/fake/path.mp4",
                     "--model_paths",
                     "/fake/model",
-                    "--tracking",
+                    "--gui",
                 ],
             )
         assert result.exit_code == 0, result.output
@@ -52,9 +53,10 @@ def test_track_emits_deprecation_warning():
 def test_track_and_infer_reach_same_run_inference_kwargs():
     """``track`` and ``infer`` produce identical kwargs to ``run_inference``.
 
-    Adds ``--tracking`` to force the legacy ``run_inference`` path on
-    both sides; PR 13 routes simple cases through the new factory which
-    doesn't call ``run_inference`` at all.
+    Adds ``--gui`` to force the legacy ``run_inference`` path on both
+    sides; PR 13 routes simple cases through the new factory and PR 14
+    routes ``--tracking`` too, so ``--gui`` is the remaining
+    legacy-only flag that lets us assert kwarg equality.
     """
     runner = CliRunner()
     args_common = [
@@ -68,7 +70,7 @@ def test_track_and_infer_reach_same_run_inference_kwargs():
         "2",
         "--peak_threshold",
         "0.15",
-        "--tracking",
+        "--gui",
     ]
 
     with patch("sleap_nn.predict.run_inference") as mock_run:

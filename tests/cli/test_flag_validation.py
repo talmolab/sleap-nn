@@ -65,8 +65,9 @@ def test_write_interval_without_stream_to_file_errors():
 def test_cpu_workers_alias_emits_deprecation_warning():
     """``--cpu-workers`` warns and is wired through (mapped to paf_workers).
 
-    Forces the legacy path with ``--tracking`` (PR 13 routes simple
-    cases through the new factory which doesn't trip this warning).
+    Forces the legacy path with ``--gui`` (PR 13/14 route simple +
+    tracking cases through the new factory which doesn't trip this
+    warning).
     """
     runner = CliRunner()
     with patch("sleap_nn.predict.run_inference") as mock_run:
@@ -81,7 +82,7 @@ def test_cpu_workers_alias_emits_deprecation_warning():
                     "/fake/path.mp4",
                     "--model_paths",
                     "/fake/model",
-                    "--tracking",
+                    "--gui",
                     "--cpu-workers",
                     "2",
                 ],
@@ -95,7 +96,7 @@ def test_cpu_workers_alias_emits_deprecation_warning():
 
 
 def test_paf_workers_positive_emits_no_effect_warning():
-    """``--paf-workers > 0`` succeeds on the legacy path with ``--tracking``."""
+    """``--paf-workers > 0`` succeeds on the legacy path with ``--gui``."""
     runner = CliRunner()
     with patch("sleap_nn.predict.run_inference") as mock_run:
         mock_run.return_value = None
@@ -107,7 +108,7 @@ def test_paf_workers_positive_emits_no_effect_warning():
                 "/fake/path.mp4",
                 "--model_paths",
                 "/fake/model",
-                "--tracking",
+                "--gui",
                 "--paf-workers",
                 "4",
             ],

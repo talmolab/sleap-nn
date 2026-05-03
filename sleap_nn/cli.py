@@ -1055,14 +1055,13 @@ def _run_inference_impl(**kwargs):
 def _can_use_new_in_memory_flow(kwargs: dict) -> bool:
     """Return True iff the new factory + Predictor.predict can serve this call.
 
-    The new flow currently supports the basics: a video / labels source,
-    one or two .ckpt model dirs, optional ``frames`` list, and the
-    standard preprocess overrides. It does NOT yet handle tracking,
-    suggested-frame / predicted-frame filtering, or the GUI progress
-    reporter. Anything in those categories falls through to legacy.
+    The new flow handles: video / labels source, one or two ``.ckpt``
+    model dirs, optional ``frames`` list, the standard preprocess
+    overrides, and ``--tracking`` (post-inference tracker via
+    :class:`TrackerConfig`). It does NOT yet handle suggested-frame /
+    predicted-frame filtering, the GUI progress reporter, layer-level
+    checkpoint overrides, or the pre-tracking ``--filter_*`` knobs.
     """
-    if kwargs.get("tracking"):
-        return False
     for flag in (
         "only_suggested_frames",
         "exclude_user_labeled",
@@ -1076,9 +1075,65 @@ def _can_use_new_in_memory_flow(kwargs: dict) -> bool:
         # Layer-level checkpoint overrides aren't piped through the new
         # factory yet; the legacy loader handles them today.
         return False
+    if kwargs.get("tracking") and _has_pre_tracking_filter(kwargs):
+        # Pre-tracking ``filter_*`` knobs run as a separate stage in
+        # legacy ``run_inference``; they aren't routed through
+        # ``FilterPipeline`` yet. Stay on legacy when both are set.
+        return False
     if not kwargs.get("model_paths"):
         return False
     return True
+
+
+def _has_pre_tracking_filter(kwargs: dict) -> bool:
+    """``True`` if the user set any post-inference filter knob.
+
+    The legacy ``run_inference`` runs these as a separate stage before
+    tracking; the new flow's :class:`FilterPipeline` doesn't yet thread
+    CLI flags through, so we keep tracking + filter combinations on
+    legacy until that wiring lands.
+    """
+    if kwargs.get("filter_overlapping"):
+        return True
+    if kwargs.get("filter_min_visible_nodes") or kwargs.get(
+        "filter_min_visible_node_fraction"
+    ):
+        return True
+    if kwargs.get("filter_min_mean_node_score") or kwargs.get(
+        "filter_min_instance_score"
+    ):
+        return True
+    return False
+
+
+def _build_tracker_config(kwargs: dict) -> "object":
+    """Build a :class:`TrackerConfig` from the CLI ``--tracking_*`` flags."""
+    from sleap_nn.inference.tracking import TrackerConfig
+
+    return TrackerConfig(
+        window_size=kwargs.get("tracking_window_size", 5),
+        min_new_track_points=kwargs.get("min_new_track_points", 0),
+        candidates_method=kwargs.get("candidates_method", "fixed_window"),
+        min_match_points=kwargs.get("min_match_points", 0),
+        features=kwargs.get("features", "keypoints"),
+        scoring_method=kwargs.get("scoring_method", "oks"),
+        scoring_reduction=kwargs.get("scoring_reduction", "mean"),
+        robust_best_instance=kwargs.get("robust_best_instance", 1.0),
+        track_matching_method=kwargs.get("track_matching_method", "hungarian"),
+        max_tracks=kwargs.get("max_tracks"),
+        use_flow=kwargs.get("use_flow", False),
+        of_img_scale=kwargs.get("of_img_scale", 1.0),
+        of_window_size=kwargs.get("of_window_size", 21),
+        of_max_levels=kwargs.get("of_max_levels", 3),
+        tracking_target_instance_count=kwargs.get("tracking_target_instance_count"),
+        tracking_pre_cull_to_target=kwargs.get("tracking_pre_cull_to_target", 0),
+        tracking_pre_cull_iou_threshold=kwargs.get(
+            "tracking_pre_cull_iou_threshold", 0.0
+        ),
+        tracking_clean_instance_count=kwargs.get("tracking_clean_instance_count", 0),
+        tracking_clean_iou_threshold=kwargs.get("tracking_clean_iou_threshold", 0.0),
+        post_connect_single_breaks=kwargs.get("post_connect_single_breaks", False),
+    )
 
 
 def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
@@ -1106,6 +1161,8 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         "anchor_part": kwargs.get("anchor_part"),
         "paf_workers": paf_workers,
     }
+    if kwargs.get("tracking"):
+        factory_kwargs["tracker_config"] = _build_tracker_config(kwargs)
     predictor = from_model_paths(kwargs["model_paths"], **factory_kwargs)
 
     src = Path(kwargs["data_path"])
