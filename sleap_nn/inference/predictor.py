@@ -102,6 +102,7 @@ class Predictor:
         make_labels: bool = False,
         skeleton: Optional[Any] = None,
         videos: Optional[List[Any]] = None,
+        clean_empty_frames: bool = False,
     ) -> Union[List[Outputs], Any]:
         """Run inference on every batch from ``provider``.
 
@@ -113,6 +114,10 @@ class Predictor:
                 ``make_labels=True``.
             videos: Optional list of ``sio.Video`` indexed by
                 ``video_indices`` for label conversion.
+            clean_empty_frames: When ``True`` and ``make_labels=True``,
+                drop ``LabeledFrame``s with no instances from the
+                returned ``sio.Labels``. Mirrors the legacy
+                ``no_empty_frames`` flag.
 
         Returns:
             ``List[Outputs]`` (raw mode) or ``sio.Labels`` (with-labels
@@ -131,6 +136,8 @@ class Predictor:
         labels = self._to_labels(outputs_list, skeleton=skeleton, videos=videos)
         if self.tracker_config is not None:
             labels = apply_tracking(labels, self.tracker_config)
+        if clean_empty_frames:
+            labels.clean(frames=True, skeletons=False)
         return labels
 
     # ──────────────────────────────────────────────────────────────────

@@ -43,6 +43,30 @@ def test_stream_to_file_with_tracking_raises_usage_error():
     assert "tracking" in result.output.lower()
 
 
+def test_stream_to_file_with_no_empty_frames_raises_usage_error():
+    """``--stream-to-file`` + ``--no_empty_frames`` is rejected (PR 15).
+
+    Streaming writes each batch to disk, so dropping empty frames after
+    the fact isn't possible.
+    """
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "infer",
+            "--data_path",
+            "/fake/path.mp4",
+            "--model_paths",
+            "/fake/model",
+            "--stream-to-file",
+            "/tmp/out.slp",
+            "--no_empty_frames",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "no_empty_frames" in result.output.lower()
+
+
 def test_write_interval_without_stream_to_file_errors():
     """``--write-interval`` alone is meaningless and rejected."""
     runner = CliRunner()

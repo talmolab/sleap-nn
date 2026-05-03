@@ -1055,55 +1055,61 @@ def _run_inference_impl(**kwargs):
 def _can_use_new_in_memory_flow(kwargs: dict) -> bool:
     """Return True iff the new factory + Predictor.predict can serve this call.
 
-    The new flow handles: video / labels source, one or two ``.ckpt``
-    model dirs, optional ``frames`` list, the standard preprocess
-    overrides, and ``--tracking`` (post-inference tracker via
-    :class:`TrackerConfig`). It does NOT yet handle suggested-frame /
-    predicted-frame filtering, the GUI progress reporter, layer-level
-    checkpoint overrides, or the pre-tracking ``--filter_*`` knobs.
+    As of PR 15 the new flow handles: video / labels source, one or two
+    ``.ckpt`` model dirs, optional ``frames`` list, preprocess
+    overrides, ``--tracking`` (post-inference tracker via
+    :class:`TrackerConfig`), every ``--filter_*`` knob (via
+    :class:`FilterConfig`), and the four frame-selection knobs
+    (``only_suggested_frames`` / ``exclude_user_labeled`` /
+    ``only_predicted_frames`` / ``no_empty_frames``).
+
+    Still legacy: ``--gui`` (Qt progress reporter) and the layer-level
+    ``--backbone_ckpt_path`` / ``--head_ckpt_path`` overrides.
     """
-    for flag in (
-        "only_suggested_frames",
-        "exclude_user_labeled",
-        "only_predicted_frames",
-        "no_empty_frames",
-        "gui",
-    ):
-        if kwargs.get(flag):
-            return False
-    if kwargs.get("backbone_ckpt_path") or kwargs.get("head_ckpt_path"):
-        # Layer-level checkpoint overrides aren't piped through the new
-        # factory yet; the legacy loader handles them today.
+    if kwargs.get("gui"):
         return False
-    if kwargs.get("tracking") and _has_pre_tracking_filter(kwargs):
-        # Pre-tracking ``filter_*`` knobs run as a separate stage in
-        # legacy ``run_inference``; they aren't routed through
-        # ``FilterPipeline`` yet. Stay on legacy when both are set.
+    if kwargs.get("backbone_ckpt_path") or kwargs.get("head_ckpt_path"):
         return False
     if not kwargs.get("model_paths"):
         return False
     return True
 
 
-def _has_pre_tracking_filter(kwargs: dict) -> bool:
-    """``True`` if the user set any post-inference filter knob.
+def _build_filter_config(kwargs: dict) -> "object":
+    """Build a :class:`FilterConfig` from the CLI ``--filter_*`` flags.
 
-    The legacy ``run_inference`` runs these as a separate stage before
-    tracking; the new flow's :class:`FilterPipeline` doesn't yet thread
-    CLI flags through, so we keep tracking + filter combinations on
-    legacy until that wiring lands.
+    Returns ``None`` when every knob is at its default — the
+    :class:`Predictor`'s default ``FilterConfig()`` is the no-op
+    identity, so we save a few attrs constructions in the common case.
     """
-    if kwargs.get("filter_overlapping"):
-        return True
-    if kwargs.get("filter_min_visible_nodes") or kwargs.get(
-        "filter_min_visible_node_fraction"
+    from sleap_nn.inference.filters import FilterConfig
+
+    overlapping = bool(kwargs.get("filter_overlapping"))
+    min_visible_nodes = int(kwargs.get("filter_min_visible_nodes") or 0)
+    min_visible_node_fraction = float(
+        kwargs.get("filter_min_visible_node_fraction") or 0.0
+    )
+    min_mean_node_score = float(kwargs.get("filter_min_mean_node_score") or 0.0)
+    min_instance_score = float(kwargs.get("filter_min_instance_score") or 0.0)
+    if not (
+        overlapping
+        or min_visible_nodes
+        or min_visible_node_fraction
+        or min_mean_node_score
+        or min_instance_score
     ):
-        return True
-    if kwargs.get("filter_min_mean_node_score") or kwargs.get(
-        "filter_min_instance_score"
-    ):
-        return True
-    return False
+        return None
+    return FilterConfig(
+        overlapping=overlapping,
+        overlapping_method=kwargs.get("filter_overlapping_method", "iou"),
+        overlapping_threshold=float(
+            kwargs.get("filter_overlapping_threshold", 0.8) or 0.8
+        ),
+        min_visible_nodes=min_visible_nodes,
+        min_visible_node_fraction=min_visible_node_fraction,
+        min_mean_node_score=min_mean_node_score,
+        min_instance_score=min_instance_score,
+    )
 
 
 def _build_tracker_config(kwargs: dict) -> "object":
@@ -1163,15 +1169,20 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     }
     if kwargs.get("tracking"):
         factory_kwargs["tracker_config"] = _build_tracker_config(kwargs)
+    filter_config = _build_filter_config(kwargs)
+    if filter_config is not None:
+        factory_kwargs["filter_config"] = filter_config
     predictor = from_model_paths(kwargs["model_paths"], **factory_kwargs)
 
     src = Path(kwargs["data_path"])
-    only_labeled = bool(kwargs.get("only_labeled_frames"))
     if src.suffix == ".slp":
         provider = LabelsProvider(
             labels=str(src),
             batch_size=kwargs.get("batch_size", 4),
-            only_labeled_frames=only_labeled,
+            only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
+            only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
+            exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
+            only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
         )
         loaded = sio.load_slp(str(src))
         skeleton = loaded.skeletons[0]
@@ -1190,7 +1201,11 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         videos = [sio.load_video(str(src))]
 
     labels = predictor.predict(
-        provider, make_labels=True, skeleton=skeleton, videos=videos
+        provider,
+        make_labels=True,
+        skeleton=skeleton,
+        videos=videos,
+        clean_empty_frames=bool(kwargs.get("no_empty_frames")),
     )
 
     output_path = kwargs.get("output_path") or f"{src}.slp"
@@ -1217,6 +1232,12 @@ def _run_stream_to_file(
             "--stream-to-file does not yet support --tracking; tracking "
             "lands in a follow-up PR. Drop --stream-to-file to use the "
             "legacy in-memory path with tracking."
+        )
+    if kwargs.get("no_empty_frames"):
+        raise click.UsageError(
+            "--no_empty_frames is incompatible with --stream-to-file: "
+            "streaming writes each batch to disk and cannot drop empty "
+            "frames after the fact. Drop --stream-to-file to use it."
         )
     if not kwargs.get("model_paths"):
         raise click.UsageError("--model_paths is required for --stream-to-file.")
@@ -1246,13 +1267,21 @@ def _run_stream_to_file(
         factory_kwargs["backbone_ckpt_path"] = kwargs["backbone_ckpt_path"]
     if kwargs.get("head_ckpt_path"):
         factory_kwargs["head_ckpt_path"] = kwargs["head_ckpt_path"]
+    filter_config = _build_filter_config(kwargs)
+    if filter_config is not None:
+        factory_kwargs["filter_config"] = filter_config
 
     predictor = from_model_paths(kwargs["model_paths"], **factory_kwargs)
 
     src = Path(data_path)
     if src.suffix == ".slp":
         provider = LabelsProvider(
-            labels=str(src), batch_size=kwargs.get("batch_size", 4)
+            labels=str(src),
+            batch_size=kwargs.get("batch_size", 4),
+            only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
+            only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
+            exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
+            only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
         )
         labels = sio.load_slp(str(src))
         skeleton = labels.skeletons[0]

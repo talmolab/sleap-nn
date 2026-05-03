@@ -210,6 +210,46 @@ def test_predictor_predict_applies_tracker_after_to_labels(
             assert inst.track is not None
 
 
+def test_predictor_predict_clean_empty_frames_drops_empty(skeleton, video, monkeypatch):
+    """``clean_empty_frames=True`` drops empty LabeledFrames after _to_labels."""
+    import sleap_io as sio
+
+    pred_inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[0.0, 0.0], [1.0, 1.0]], dtype=np.float32),
+        skeleton=skeleton,
+        score=0.9,
+    )
+    lfs = [
+        sio.LabeledFrame(video=video, frame_idx=0, instances=[]),
+        sio.LabeledFrame(video=video, frame_idx=1, instances=[pred_inst]),
+        sio.LabeledFrame(video=video, frame_idx=2, instances=[]),
+    ]
+    raw_labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=lfs)
+
+    pred = Predictor(layer=_StubLayer())
+
+    class _Provider:
+        def __iter__(self):
+            return iter([])
+
+    monkeypatch.setattr(Predictor, "_batch_iter", lambda self, provider: iter([]))
+    monkeypatch.setattr(
+        Predictor,
+        "_to_labels",
+        staticmethod(lambda outputs_list, skeleton, videos: raw_labels),
+    )
+
+    result = pred.predict(
+        _Provider(),
+        make_labels=True,
+        skeleton=skeleton,
+        videos=[video],
+        clean_empty_frames=True,
+    )
+    # Frame 1 (with the instance) survives; frames 0 and 2 are dropped.
+    assert [lf.frame_idx for lf in result.labeled_frames] == [1]
+
+
 def test_predictor_with_tracker_picklable_round_trip():
     pred = Predictor(
         layer=_StubLayer(),
