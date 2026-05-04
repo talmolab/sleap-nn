@@ -71,7 +71,11 @@ torch-cuda118 = ["torch", "torchvision>=0.20.0"]
 torch-cuda128 = ["torch", "torchvision>=0.20.0"]
 torch-cuda130 = ["torch", "torchvision>=0.20.0"]
 export = ["onnx>=1.15.0", "onnxruntime>=1.16.0", "onnxscript>=0.1.0"]
-export-gpu = ["onnx>=1.15.0", "onnxruntime-gpu>=1.16.0", "onnxscript>=0.1.0"]
+export-gpu = [
+    "onnx>=1.15.0",
+    "onnxruntime-gpu>=1.16.0; (sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'win32' and platform_machine == 'AMD64')",
+    "onnxscript>=0.1.0",
+]
 tensorrt = [
     "tensorrt>=10.13.0; sys_platform == 'linux' or sys_platform == 'win32'",
     "torch-tensorrt>=2.5.0; sys_platform == 'linux' or sys_platform == 'win32'",
