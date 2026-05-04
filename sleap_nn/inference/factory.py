@@ -327,6 +327,185 @@ def from_model_paths(
     return NewPredictor(**kwargs)
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# from_export_dir — build a Predictor from an exported ONNX/TRT directory
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def from_export_dir(
+    export_dir: Union[str, Path],
+    *,
+    runtime: str = "auto",
+    device: str = "auto",
+    return_confmaps: bool = False,
+    filter_config: Optional[FilterConfig] = None,
+    paf_workers: int = 0,
+    tracker_config: Optional[TrackerConfig] = None,
+):
+    """Build a new :class:`Predictor` from an exported model directory.
+
+    The directory is expected to contain ``export_metadata.json`` plus
+    one of ``model.onnx`` / ``model.trt``. Pulls model-type, output stride,
+    input scale, and peak-threshold from the metadata; constructs the
+    appropriate :class:`InferenceLayer` subclass on the
+    ``does_baked_postproc=True`` path so peak finding stays inside the
+    exported graph.
+
+    Args:
+        export_dir: Directory written by ``sleap_nn export`` (or any
+            equivalent exporter that emits the same metadata schema).
+        runtime: ``"auto"`` (prefer TRT when present, else ONNX),
+            ``"onnx"``, or ``"tensorrt"``.
+        device: Device string forwarded to the backend.
+        return_confmaps: Echo confmaps onto the resulting ``Outputs``
+            when the wrapper exports a ``confmaps`` output. Layers gate
+            on this flag.
+        filter_config: Optional :class:`FilterConfig` (post-inference).
+        paf_workers: Forwarded to :class:`Predictor`. Only meaningful
+            for bottom-up exports — irrelevant for single-instance.
+        tracker_config: Optional :class:`TrackerConfig` (post-inference
+            tracker).
+
+    Returns:
+        A configured :class:`sleap_nn.inference.predictor.Predictor`.
+
+    Raises:
+        FileNotFoundError: ``export_metadata.json`` or the model file
+            isn't present at the expected path.
+        NotImplementedError: ``model_type`` is recognized but its export
+            adapter hasn't landed yet. As of PR 18 only
+            ``"single_instance"`` is supported; ``centroid`` /
+            ``centered_instance`` / top-down combined / bottom-up /
+            multiclass land in follow-up PRs.
+        ValueError: ``runtime`` isn't recognized.
+
+    Notes:
+        Skeleton hydration is *not* done here — call
+        :func:`sleap_nn.inference.utils.get_skeleton_from_config` on the
+        export's ``training_config.yaml`` separately if you need a
+        skeleton for ``Predictor.predict(make_labels=True, ...)``.
+    """
+    from sleap_nn.export.metadata import ExportMetadata
+    from sleap_nn.inference.predictor import Predictor as NewPredictor
+
+    export_dir = Path(export_dir)
+
+    metadata_path = export_dir / "export_metadata.json"
+    if not metadata_path.exists():
+        raise FileNotFoundError(
+            f"export_metadata.json not found at {metadata_path}. "
+            f"Pass a directory written by `sleap_nn export`."
+        )
+    metadata = ExportMetadata.load(metadata_path)
+
+    runtime, model_path = _resolve_export_runtime(export_dir, runtime)
+    backend = _build_export_backend(runtime, model_path, device)
+
+    layer = _select_export_layer(
+        metadata=metadata,
+        backend=backend,
+        return_confmaps=return_confmaps,
+    )
+
+    kwargs: dict = {"layer": layer, "paf_workers": paf_workers}
+    if filter_config is not None:
+        kwargs["filter_config"] = filter_config
+    if tracker_config is not None:
+        kwargs["tracker_config"] = tracker_config
+    return NewPredictor(**kwargs)
+
+
+def _resolve_export_runtime(export_dir: Path, runtime: str) -> tuple[str, Path]:
+    """Pick the runtime + model file for an export directory.
+
+    Returns ``(runtime, model_path)`` where ``runtime`` is one of
+    ``"onnx"`` or ``"tensorrt"``.
+    """
+    onnx_path = export_dir / "model.onnx"
+    trt_path = export_dir / "model.trt"
+
+    if runtime == "auto":
+        if trt_path.exists():
+            return "tensorrt", trt_path
+        if onnx_path.exists():
+            return "onnx", onnx_path
+        raise FileNotFoundError(
+            f"No model file found in {export_dir}. "
+            f"Expected model.onnx or model.trt."
+        )
+    if runtime == "onnx":
+        if not onnx_path.exists():
+            raise FileNotFoundError(f"ONNX model not found: {onnx_path}")
+        return "onnx", onnx_path
+    if runtime == "tensorrt":
+        if not trt_path.exists():
+            raise FileNotFoundError(f"TensorRT model not found: {trt_path}")
+        return "tensorrt", trt_path
+    raise ValueError(
+        f"Unknown runtime: {runtime!r}. Expected 'auto', 'onnx', or 'tensorrt'."
+    )
+
+
+def _build_export_backend(runtime: str, model_path: Path, device: str):
+    """Construct the right ``ModelBackend`` for an exported model file."""
+    if runtime == "onnx":
+        from sleap_nn.inference.layers.backends import ONNXBackend
+
+        return ONNXBackend(model_path=str(model_path), device=device)
+    if runtime == "tensorrt":
+        from sleap_nn.inference.layers.backends import TensorRTBackend
+
+        return TensorRTBackend(engine_path=str(model_path), device=device)
+    raise ValueError(f"Unknown runtime: {runtime!r}")
+
+
+def _select_export_layer(
+    metadata: Any,
+    backend: Any,
+    return_confmaps: bool,
+):
+    """Dispatch on ``metadata.model_type`` → build the right export layer.
+
+    As of PR 18 only ``single_instance`` is supported. Other types
+    raise ``NotImplementedError`` and continue using the legacy
+    ``sleap_nn.export.inference.predict`` driver in the meantime.
+    """
+    model_type = metadata.model_type
+
+    if model_type == "single_instance":
+        return SingleInstanceLayer(
+            backend=backend,
+            output_stride=metadata.output_stride,
+            preprocess_config=PreprocessConfig(scale=metadata.input_scale),
+            postprocess_config=PostprocessConfig(
+                peak_threshold=(
+                    metadata.peak_threshold
+                    if metadata.peak_threshold is not None
+                    else 0.2
+                ),
+                refinement="none",  # peak-finding is baked into the export graph
+                return_confmaps=return_confmaps,
+            ),
+        )
+
+    if model_type in {
+        "centroid",
+        "centered_instance",
+        "topdown",
+        "bottomup",
+        "multi_class_bottomup",
+        "multi_class_topdown",
+    }:
+        raise NotImplementedError(
+            f"from_export_dir: model_type={model_type!r} adapter not yet "
+            f"implemented. Currently supported: 'single_instance'. Use the "
+            f"legacy `sleap_nn.export.inference.predict(...)` for other "
+            f"model types until follow-up PRs land."
+        )
+
+    raise ValueError(f"Unrecognized model_type {model_type!r} in export_metadata.json.")
+
+
 def _select_layer(legacy_predictor: Any, model_types: List[str], device: str):
     """Dispatch on detected model types → build the new layer composition."""
     if "single_instance" in model_types:
