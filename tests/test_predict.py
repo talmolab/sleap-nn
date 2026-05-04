@@ -10,6 +10,34 @@ from _pytest.logging import LogCaptureFixture
 import torch
 
 
+def test_run_inference_emits_deprecation_warning(
+    minimal_instance, minimal_instance_centered_instance_ckpt, tmp_path
+):
+    """``run_inference()`` is the legacy entry point; calling it emits a
+    DeprecationWarning pointing at the new ``Predictor`` API."""
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        run_inference(
+            model_paths=[minimal_instance_centered_instance_ckpt],
+            data_path=minimal_instance.as_posix(),
+            make_labels=True,
+            peak_threshold=0.0,
+            device="cpu",
+            output_path=f"{tmp_path}/test.slp",
+            integral_refinement=None,
+        )
+
+    deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    matching = [
+        w
+        for w in deprecations
+        if "run_inference" in str(w.message) and "Predictor" in str(w.message)
+    ]
+    assert matching, [str(w.message) for w in deprecations]
+
+
 @pytest.fixture
 def caplog(caplog: LogCaptureFixture):
     handler_id = logger.add(
