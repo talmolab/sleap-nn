@@ -341,6 +341,9 @@ def from_export_dir(
     filter_config: Optional[FilterConfig] = None,
     paf_workers: int = 0,
     tracker_config: Optional[TrackerConfig] = None,
+    max_instances: Optional[int] = None,
+    min_instance_peaks: float = 0,
+    min_line_scores: float = 0.25,
 ):
     """Build a new :class:`Predictor` from an exported model directory.
 
@@ -361,6 +364,13 @@ def from_export_dir(
             when the wrapper exports a ``confmaps`` output. Layers gate
             on this flag.
         filter_config: Optional :class:`FilterConfig` (post-inference).
+        max_instances: Optional cap on instances per frame. Forwarded
+            to bottom-up's CPU grouping stage; ignored for other model
+            types.
+        min_instance_peaks: Bottom-up only. Drop assembled instances
+            with fewer peaks than this.
+        min_line_scores: Bottom-up only. Per-edge match threshold
+            (between -1 and 1) for the PAF grouping step.
         paf_workers: Forwarded to :class:`Predictor`. Only meaningful
             for bottom-up exports — irrelevant for single-instance.
         tracker_config: Optional :class:`TrackerConfig` (post-inference
@@ -405,6 +415,9 @@ def from_export_dir(
         metadata=metadata,
         backend=backend,
         return_confmaps=return_confmaps,
+        max_instances=max_instances,
+        min_instance_peaks=min_instance_peaks,
+        min_line_scores=min_line_scores,
     )
 
     kwargs: dict = {"layer": layer, "paf_workers": paf_workers}
@@ -463,20 +476,24 @@ def _select_export_layer(
     metadata: Any,
     backend: Any,
     return_confmaps: bool,
+    max_instances: Optional[int] = None,
+    min_instance_peaks: float = 0,
+    min_line_scores: float = 0.25,
 ):
     """Dispatch on ``metadata.model_type`` → build the right export adapter.
 
     Export adapters live in :mod:`sleap_nn.inference.layers.exported` —
     thin translators that consume the wrapper's already-postprocessed
-    output (peaks already in original-image space) and produce a
-    structured :class:`Outputs`. They intentionally bypass the standard
-    layer's coord ladder so transforms aren't double-applied.
+    output and produce a structured :class:`Outputs`. They intentionally
+    bypass the standard layer's coord ladder so transforms aren't
+    double-applied.
 
-    Supported as of PR 19: ``single_instance``, ``centroid``,
-    ``centered_instance``, ``topdown``. Bottom-up + multiclass land in
-    follow-up PRs.
+    Supported as of PR 20: ``single_instance``, ``centroid``,
+    ``centered_instance``, ``topdown``, ``bottomup``. Multiclass types
+    land in PR 21.
     """
     from sleap_nn.inference.layers.exported import (
+        ExportedBottomUpLayer,
         ExportedCenteredInstanceLayer,
         ExportedCentroidLayer,
         ExportedSingleInstanceLayer,
@@ -497,14 +514,30 @@ def _select_export_layer(
         return ExportedCentroidLayer(backend=backend)
     if model_type == "topdown":
         return ExportedTopDownLayer(backend=backend)
+    if model_type == "bottomup":
+        if metadata.max_peaks_per_node is None:
+            raise ValueError(
+                "Bottom-up export metadata is missing `max_peaks_per_node`. "
+                "Re-export the model with the latest exporter."
+            )
+        return ExportedBottomUpLayer(
+            backend=backend,
+            node_names=list(metadata.node_names),
+            edge_inds=[(int(s), int(d)) for s, d in metadata.edge_inds],
+            max_peaks_per_node=int(metadata.max_peaks_per_node),
+            input_scale=float(metadata.input_scale),
+            max_instances=max_instances,
+            min_instance_peaks=min_instance_peaks,
+            min_line_scores=min_line_scores,
+        )
 
-    if model_type in {"bottomup", "multi_class_bottomup", "multi_class_topdown"}:
+    if model_type in {"multi_class_bottomup", "multi_class_topdown"}:
         raise NotImplementedError(
             f"from_export_dir: model_type={model_type!r} adapter not yet "
             f"implemented. Currently supported: 'single_instance', "
-            f"'centroid', 'centered_instance', 'topdown'. Use the "
-            f"legacy `sleap_nn.export.inference.predict(...)` for other "
-            f"model types until follow-up PRs land."
+            f"'centroid', 'centered_instance', 'topdown', 'bottomup'. "
+            f"Use the legacy `sleap_nn.export.inference.predict(...)` for "
+            f"other model types until follow-up PRs land."
         )
 
     raise ValueError(f"Unrecognized model_type {model_type!r} in export_metadata.json.")

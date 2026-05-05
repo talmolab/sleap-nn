@@ -230,13 +230,12 @@ def test_from_export_dir_missing_model_file_raises(tmp_path):
 @pytest.mark.parametrize(
     "model_type",
     [
-        "bottomup",
         "multi_class_bottomup",
         "multi_class_topdown",
     ],
 )
 def test_from_export_dir_unsupported_model_type_raises(tmp_path, model_type):
-    """Bottom-up + multiclass model types raise ``NotImplementedError`` (PR 19 scope)."""
+    """Multiclass model types raise ``NotImplementedError`` (PR 21 scope)."""
     from sleap_nn.inference.factory import from_export_dir
 
     export_dir = tmp_path / f"export_{model_type}"
@@ -506,3 +505,205 @@ def test_centroid_adapter_nan_pads_invalid_slots(centroid_export):
         invalid_vals = out.pred_centroid_values[0][invalid_mask]
         assert torch.isnan(invalid_centroids).all()
         assert torch.isnan(invalid_vals).all()
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Bottom-up synthetic export (PR 20)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _export_tiny_bottomup(
+    export_dir: Path,
+    n_nodes: int = 2,
+    n_edges: int = 1,
+    k: int = 4,
+) -> Path:
+    """Export an ONNX that emits the bottom-up wrapper output schema.
+
+    Outputs:
+        peaks (B, n_nodes, k, 2),
+        peak_vals (B, n_nodes, k),
+        peak_mask (B, n_nodes, k) bool,
+        line_scores (B, n_edges, k*k),
+        candidate_mask (B, n_edges, k*k) bool.
+
+    The model is intentionally simple — it picks topk peaks per node
+    over a 1-conv confmap and assigns synthesized line scores to every
+    candidate pair (so grouping has something to chew on).
+    """
+
+    class _Tiny(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.conv = nn.Conv2d(1, n_nodes, kernel_size=3, padding=1)
+            self.k = k
+            self.n_nodes = n_nodes
+            self.n_edges = n_edges
+
+        def forward(self, x: torch.Tensor):
+            cms = self.conv(x.float())  # (B, n_nodes, H, W)
+            B, _C, H, W = cms.shape
+            flat = cms.view(B, self.n_nodes, -1)
+            vals, idx = flat.topk(self.k, dim=-1)  # (B, n_nodes, k)
+            row = (idx // W).float()
+            col = (idx % W).float()
+            peaks = torch.stack([col, row], dim=-1)  # (B, n_nodes, k, 2)
+            peak_mask = vals > 0.0  # (B, n_nodes, k) bool
+            # All candidate pairs get a moderate score; mask follows from peak_mask.
+            kk = self.k * self.k
+            line_scores = torch.full((B, self.n_edges, kk), 0.5)
+            # Build candidate_mask = src_mask & dst_mask (matches wrapper).
+            edge_src = torch.tensor([0])
+            edge_dst = torch.tensor([1])
+            src_mask = peak_mask[:, edge_src, :]  # (B, n_edges, k)
+            dst_mask = peak_mask[:, edge_dst, :]
+            candidate_mask = (
+                src_mask.unsqueeze(3).expand(-1, -1, -1, self.k)
+                & dst_mask.unsqueeze(2).expand(-1, -1, self.k, -1)
+            ).reshape(B, self.n_edges, kk)
+            return peaks, vals, peak_mask, line_scores, candidate_mask
+
+    onnx_path = export_dir / "model.onnx"
+    torch.onnx.export(
+        _Tiny(),
+        (torch.zeros(1, 1, 16, 16),),
+        str(onnx_path),
+        input_names=["image"],
+        output_names=[
+            "peaks",
+            "peak_vals",
+            "peak_mask",
+            "line_scores",
+            "candidate_mask",
+        ],
+        opset_version=16,
+        do_constant_folding=True,
+        dynamo=False,
+    )
+    return onnx_path
+
+
+def _write_metadata_bottomup(
+    export_dir: Path,
+    n_nodes: int = 2,
+    edges: list = None,
+    max_peaks_per_node: int = 4,
+    input_scale: float = 1.0,
+) -> Path:
+    """ExportMetadata for bottom-up — adds ``edge_inds`` and ``max_peaks_per_node``."""
+    if edges is None:
+        edges = [(0, 1)]
+    meta = {
+        "sleap_nn_version": "0.0.0",
+        "export_timestamp": "2026-01-01T00:00:00",
+        "export_format": "onnx",
+        "model_type": "bottomup",
+        "model_name": "test_bottomup",
+        "checkpoint_path": "/tmp/fake.ckpt",
+        "backbone": "unet",
+        "n_nodes": n_nodes,
+        "n_edges": len(edges),
+        "node_names": [f"n{i}" for i in range(n_nodes)],
+        "edge_inds": [list(e) for e in edges],
+        "input_scale": input_scale,
+        "input_channels": 1,
+        "output_stride": 1,
+        "max_peaks_per_node": max_peaks_per_node,
+        "peak_threshold": 0.0,
+    }
+    path = export_dir / "export_metadata.json"
+    path.write_text(json.dumps(meta))
+    return path
+
+
+@pytest.fixture
+def bottomup_export(tmp_path):
+    """Export dir for a bottom-up model: model.onnx + metadata."""
+    export_dir = tmp_path / "bottomup_export"
+    export_dir.mkdir()
+    _export_tiny_bottomup(export_dir, n_nodes=2, n_edges=1, k=4)
+    _write_metadata_bottomup(
+        export_dir, n_nodes=2, edges=[(0, 1)], max_peaks_per_node=4
+    )
+    return export_dir
+
+
+def test_from_export_dir_bottomup_builds_predictor(bottomup_export):
+    """Bottom-up export → :class:`ExportedBottomUpLayer`."""
+    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.layers.exported import ExportedBottomUpLayer
+
+    predictor = from_export_dir(bottomup_export, device="cpu")
+    assert isinstance(predictor.layer, ExportedBottomUpLayer)
+    assert predictor.layer.max_peaks_per_node == 4
+    assert predictor.layer.node_names == ["n0", "n1"]
+    assert predictor.layer.edge_inds == [(0, 1)]
+
+
+def test_from_export_dir_bottomup_predict_smoke(bottomup_export):
+    """Bottom-up adapter runs the full GPU→CPU pipeline.
+
+    Validates the schema-translation glue (fixed-shape wrapper output →
+    variable-length ScoredBatch → group_scored_batch → Outputs).
+    """
+    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.providers import NumpyProvider
+
+    predictor = from_export_dir(bottomup_export, device="cpu", min_line_scores=-1.0)
+    images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
+    provider = NumpyProvider(images=images, batch_size=1)
+
+    outputs_list = predictor.predict(provider)
+    out = outputs_list[0]
+    # Bottom-up always populates pred_keypoints (NaN-padded if no
+    # instances assembled).
+    assert out.pred_keypoints is not None
+    assert out.pred_keypoints.ndim == 4  # (B, I, N, 2)
+    assert out.pred_keypoints.shape[0] == 1
+    assert out.pred_keypoints.shape[2] == 2  # n_nodes
+
+
+def test_from_export_dir_bottomup_forwards_grouping_kwargs(bottomup_export):
+    """``min_line_scores`` / ``min_instance_peaks`` / ``max_instances`` flow into the layer."""
+    from sleap_nn.inference.factory import from_export_dir
+
+    predictor = from_export_dir(
+        bottomup_export,
+        device="cpu",
+        max_instances=2,
+        min_instance_peaks=1,
+        min_line_scores=0.1,
+    )
+    layer = predictor.layer
+    assert layer.max_instances == 2
+    assert layer.min_instance_peaks == 1
+    assert abs(layer.min_line_scores - 0.1) < 1e-9
+
+
+def test_from_export_dir_bottomup_missing_max_peaks_per_node_raises(tmp_path):
+    """Missing ``max_peaks_per_node`` in metadata ⇒ ``ValueError``."""
+    from sleap_nn.inference.factory import from_export_dir
+
+    export_dir = tmp_path / "bad_bottomup"
+    export_dir.mkdir()
+    _export_tiny_bottomup(export_dir)
+    # Write metadata WITHOUT max_peaks_per_node.
+    meta = {
+        "sleap_nn_version": "0.0.0",
+        "export_timestamp": "2026-01-01T00:00:00",
+        "export_format": "onnx",
+        "model_type": "bottomup",
+        "model_name": "test",
+        "checkpoint_path": "/tmp/fake.ckpt",
+        "backbone": "unet",
+        "n_nodes": 2,
+        "n_edges": 1,
+        "node_names": ["n0", "n1"],
+        "edge_inds": [[0, 1]],
+        "input_scale": 1.0,
+        "input_channels": 1,
+        "output_stride": 1,
+    }
+    (export_dir / "export_metadata.json").write_text(json.dumps(meta))
+    with pytest.raises(ValueError, match="max_peaks_per_node"):
+        from_export_dir(export_dir, device="cpu")

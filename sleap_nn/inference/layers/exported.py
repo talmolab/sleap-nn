@@ -168,6 +168,186 @@ class ExportedCentroidLayer:
 
 
 @attrs.define
+class ExportedBottomUpLayer:
+    """Adapter for an ONNX/TRT-exported bottom-up model.
+
+    The bottom-up wrapper (``BottomUpONNXWrapper``) bakes peak finding +
+    PAF line scoring into the graph and returns fixed-shape tensors:
+
+    * ``peaks``: ``(B, n_nodes, k, 2)`` in scaled-input pixel space
+      (after multiplication by ``cms_output_stride`` inside the graph).
+    * ``peak_vals``: ``(B, n_nodes, k)``
+    * ``peak_mask``: ``(B, n_nodes, k)`` bool
+    * ``line_scores``: ``(B, n_edges, k*k)``
+    * ``candidate_mask``: ``(B, n_edges, k*k)`` bool
+
+    What's still left for the CPU to do: the **grouping** stage —
+    matching candidates per edge and assembling peaks into instances.
+    The adapter translates the fixed-shape wrapper output into the
+    variable-length per-sample :class:`ScoredBatch` format that
+    :func:`group_scored_batch` expects, then runs the same grouping
+    function the in-flow ``BottomUpLayer`` uses inline.
+
+    Args:
+        backend: A :class:`ModelBackend` whose ``does_baked_postproc``
+            is ``True``.
+        node_names: List of node names from ``ExportMetadata.node_names``.
+        edge_inds: List of ``(src_node_idx, dst_node_idx)`` tuples from
+            ``ExportMetadata.edge_inds``.
+        max_peaks_per_node: ``k`` — must match the wrapper's setting
+            (read from ``ExportMetadata.max_peaks_per_node``).
+        input_scale: The wrapper's baked-in ``input_scale``. Used to
+            unscale predicted instances back to original-image space.
+        max_instances: Optional cap on instances per frame.
+        min_instance_peaks: Drop assembled instances with fewer peaks.
+        min_line_scores: Per-edge match threshold (forwarded to
+            :class:`PAFScorer`).
+    """
+
+    backend: Any
+    node_names: list
+    edge_inds: list
+    max_peaks_per_node: int
+    input_scale: float = 1.0
+    max_instances: Optional[int] = None
+    min_instance_peaks: float = 0
+    min_line_scores: float = 0.25
+
+    def predict(self, image: Any, **_kwargs: Any) -> Outputs:
+        """Run the backend, translate to ``ScoredBatch``, run CPU grouping."""
+        from sleap_nn.inference.preprocess_info import PreprocInfo
+        from sleap_nn.inference.streaming import GroupingParams, group_scored_batch
+
+        x = _to_4d_uint8_tensor(image)
+        B, _C, H, W = x.shape
+        raw = self.backend(x)
+
+        info = PreprocInfo(
+            original_size=(H, W),
+            processed_size=(H, W),
+            eff_scale=torch.ones(B),
+            input_scale=self.input_scale,
+            output_stride=1,  # peaks already in scaled-input pixel space
+            pad_amount=(0, 0),
+            crop_offsets=None,
+        )
+
+        scored = self._build_scored_batch(raw, info)
+
+        # Reconstruct PAFScorer kwargs. ``pafs_stride`` is unused on the
+        # CPU grouping path (line scoring already happened in the graph),
+        # so 1 is a safe placeholder.
+        edges_by_name = [
+            (self.node_names[s], self.node_names[d]) for s, d in self.edge_inds
+        ]
+        params = GroupingParams(
+            paf_scorer_kwargs={
+                "part_names": list(self.node_names),
+                "edges": edges_by_name,
+                "pafs_stride": 1,
+                "max_edge_length_ratio": 0.25,
+                "dist_penalty_weight": 1.0,
+                "n_points": 10,
+                "min_instance_peaks": self.min_instance_peaks,
+                "min_line_scores": self.min_line_scores,
+            },
+            max_instances=self.max_instances,
+        )
+        return group_scored_batch(scored, params)
+
+    def _build_scored_batch(self, raw: dict, info: Any) -> Any:
+        """Convert wrapper output dict to a :class:`ScoredBatch`."""
+        from sleap_nn.inference.streaming import ScoredBatch
+
+        peaks = raw["peaks"]  # (B, n_nodes, k, 2)
+        peak_vals = raw["peak_vals"]  # (B, n_nodes, k)
+        peak_mask = raw["peak_mask"].bool()  # (B, n_nodes, k)
+        line_scores_t = raw["line_scores"]  # (B, n_edges, k*k)
+        candidate_mask = raw["candidate_mask"].bool()  # (B, n_edges, k*k)
+
+        B, n_nodes, k, _ = peaks.shape
+        n_edges = candidate_mask.shape[1]
+
+        # (n_nodes * k,) — every k consecutive slots map to one node.
+        channel_inds_flat = (
+            torch.arange(n_nodes).unsqueeze(1).expand(n_nodes, k).reshape(-1)
+        )
+
+        cms_peaks_list = []
+        cms_peak_vals_list = []
+        cms_channel_inds_list = []
+        edge_inds_list = []
+        edge_peak_inds_list = []
+        sample_line_scores_list = []
+
+        for b in range(B):
+            mask_flat = peak_mask[b].reshape(-1)  # (n_nodes * k,)
+            valid_idx = torch.nonzero(mask_flat, as_tuple=True)[0]  # (n_valid,)
+
+            cms_peaks_list.append(peaks[b].reshape(-1, 2)[valid_idx])
+            cms_peak_vals_list.append(peak_vals[b].reshape(-1)[valid_idx])
+            cms_channel_inds_list.append(channel_inds_flat[valid_idx])
+
+            # Map global index in (n_nodes * k) layout → compact index in
+            # the valid-only list. Invalid slots get -1 (won't be referenced
+            # by any candidate since candidate_mask is consistent with
+            # peak_mask in the wrapper).
+            global_to_compact = torch.full((n_nodes * k,), -1, dtype=torch.int64)
+            global_to_compact[valid_idx] = torch.arange(
+                len(valid_idx), dtype=torch.int64
+            )
+
+            sample_edge_inds = []
+            sample_edge_peak_inds = []
+            sample_line_scores_b = []
+            for e_idx in range(n_edges):
+                src_node, dst_node = self.edge_inds[e_idx]
+                cm = candidate_mask[b, e_idx]  # (k*k,)
+                ls = line_scores_t[b, e_idx]  # (k*k,)
+                valid_cand = torch.nonzero(cm, as_tuple=True)[0]
+                if valid_cand.numel() == 0:
+                    continue
+                src_k = valid_cand // k
+                dst_k = valid_cand % k
+                src_global = src_node * k + src_k
+                dst_global = dst_node * k + dst_k
+                src_compact = global_to_compact[src_global]
+                dst_compact = global_to_compact[dst_global]
+                ok = (src_compact >= 0) & (dst_compact >= 0)
+                if not ok.any():
+                    continue
+                sample_edge_inds.append(
+                    torch.full((int(ok.sum().item()),), e_idx, dtype=torch.int64)
+                )
+                sample_edge_peak_inds.append(
+                    torch.stack([src_compact[ok], dst_compact[ok]], dim=-1)
+                )
+                sample_line_scores_b.append(ls[valid_cand][ok])
+
+            if sample_edge_inds:
+                edge_inds_list.append(torch.cat(sample_edge_inds))
+                edge_peak_inds_list.append(torch.cat(sample_edge_peak_inds))
+                sample_line_scores_list.append(torch.cat(sample_line_scores_b))
+            else:
+                edge_inds_list.append(torch.empty(0, dtype=torch.int64))
+                edge_peak_inds_list.append(torch.empty(0, 2, dtype=torch.int64))
+                sample_line_scores_list.append(torch.empty(0))
+
+        return ScoredBatch(
+            cms_peaks=cms_peaks_list,
+            cms_peak_vals=cms_peak_vals_list,
+            cms_peak_channel_inds=cms_channel_inds_list,
+            edge_inds=edge_inds_list,
+            edge_peak_inds=edge_peak_inds_list,
+            line_scores=sample_line_scores_list,
+            info=info,
+            n_samples=B,
+            n_nodes=n_nodes,
+            skip_paf=False,
+        )
+
+
+@attrs.define
 class ExportedTopDownLayer:
     """Adapter for an ONNX/TRT-exported combined top-down model.
 
