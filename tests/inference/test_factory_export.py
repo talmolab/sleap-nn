@@ -227,23 +227,16 @@ def test_from_export_dir_missing_model_file_raises(tmp_path):
         from_export_dir(export_dir, device="cpu")
 
 
-@pytest.mark.parametrize(
-    "model_type",
-    [
-        "multi_class_bottomup",
-        "multi_class_topdown",
-    ],
-)
-def test_from_export_dir_unsupported_model_type_raises(tmp_path, model_type):
-    """Multiclass model types raise ``NotImplementedError`` (PR 21 scope)."""
+def test_from_export_dir_unrecognized_model_type_raises(tmp_path):
+    """An unknown ``model_type`` value raises ``ValueError``."""
     from sleap_nn.inference.factory import from_export_dir
 
-    export_dir = tmp_path / f"export_{model_type}"
+    export_dir = tmp_path / "export_unknown"
     export_dir.mkdir()
-    _export_tiny_single_instance(export_dir, n_nodes=2)  # any ONNX file works
-    _write_metadata(export_dir, model_type=model_type)
+    _export_tiny_single_instance(export_dir, n_nodes=2)
+    _write_metadata(export_dir, model_type="some_future_model")
 
-    with pytest.raises(NotImplementedError, match=model_type):
+    with pytest.raises(ValueError, match="Unrecognized model_type"):
         from_export_dir(export_dir, device="cpu")
 
 
@@ -706,4 +699,280 @@ def test_from_export_dir_bottomup_missing_max_peaks_per_node_raises(tmp_path):
     }
     (export_dir / "export_metadata.json").write_text(json.dumps(meta))
     with pytest.raises(ValueError, match="max_peaks_per_node"):
+        from_export_dir(export_dir, device="cpu")
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Multi-class synthetic exports (PR 21)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _export_tiny_multiclass_topdown(
+    export_dir: Path,
+    max_instances: int = 3,
+    n_nodes: int = 2,
+    n_classes: int = 3,
+) -> Path:
+    """Export ONNX matching ``TopDownMultiClassCombinedONNXWrapper`` schema.
+
+    Outputs: centroids, centroid_vals, peaks, peak_vals, class_logits,
+    instance_valid.
+    """
+
+    class _Tiny(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.conv = nn.Conv2d(1, 1, kernel_size=3, padding=1)
+            self.cls = nn.Conv2d(1, n_classes, kernel_size=1)
+            self.max_instances = max_instances
+            self.n_nodes = n_nodes
+            self.n_classes = n_classes
+
+        def forward(self, x: torch.Tensor):
+            cms = self.conv(x.float())
+            B, _C, H, W = cms.shape
+            flat = cms.view(B, -1)
+            vals, idx = flat.topk(self.max_instances, dim=-1)
+            row = (idx // W).float()
+            col = (idx % W).float()
+            centroids = torch.stack([col, row], dim=-1)
+            instance_valid = vals > 0.0
+            peaks = centroids.unsqueeze(2).expand(-1, -1, self.n_nodes, -1).clone()
+            peak_vals = vals.unsqueeze(-1).expand(-1, -1, self.n_nodes).clone()
+            # Synthesize class logits per instance — use a different
+            # constant offset per (instance, class) so Hungarian matching
+            # has a deterministic preferred assignment.
+            base = torch.linspace(0, 1, self.max_instances * self.n_classes).reshape(
+                1, self.max_instances, self.n_classes
+            )
+            class_logits = base.expand(B, -1, -1).clone()
+            return centroids, vals, peaks, peak_vals, class_logits, instance_valid
+
+    onnx_path = export_dir / "model.onnx"
+    torch.onnx.export(
+        _Tiny(),
+        (torch.zeros(1, 1, 16, 16),),
+        str(onnx_path),
+        input_names=["image"],
+        output_names=[
+            "centroids",
+            "centroid_vals",
+            "peaks",
+            "peak_vals",
+            "class_logits",
+            "instance_valid",
+        ],
+        opset_version=16,
+        do_constant_folding=True,
+        dynamo=False,
+    )
+    return onnx_path
+
+
+def _export_tiny_multiclass_bottomup(
+    export_dir: Path,
+    n_nodes: int = 2,
+    k: int = 3,
+    n_classes: int = 2,
+) -> Path:
+    """Export ONNX matching ``BottomUpMultiClassONNXWrapper`` schema.
+
+    Outputs: peaks, peak_vals, peak_mask, class_probs.
+    """
+
+    class _Tiny(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.conv = nn.Conv2d(1, n_nodes, kernel_size=3, padding=1)
+            self.k = k
+            self.n_nodes = n_nodes
+            self.n_classes = n_classes
+
+        def forward(self, x: torch.Tensor):
+            cms = self.conv(x.float())
+            B, _C, H, W = cms.shape
+            flat = cms.view(B, self.n_nodes, -1)
+            vals, idx = flat.topk(self.k, dim=-1)
+            row = (idx // W).float()
+            col = (idx % W).float()
+            peaks = torch.stack([col, row], dim=-1)
+            peak_mask = vals > 0.0
+            # Synthesize per-peak class probabilities — make peak k=0
+            # prefer class 0, k=1 prefer class 1, etc., so Hungarian
+            # matching has a deterministic answer per (sample, node).
+            base = torch.eye(max(self.k, self.n_classes))[: self.k, : self.n_classes]
+            class_probs = base.expand(B, self.n_nodes, -1, -1).clone()
+            return peaks, vals, peak_mask, class_probs
+
+    onnx_path = export_dir / "model.onnx"
+    torch.onnx.export(
+        _Tiny(),
+        (torch.zeros(1, 1, 16, 16),),
+        str(onnx_path),
+        input_names=["image"],
+        output_names=["peaks", "peak_vals", "peak_mask", "class_probs"],
+        opset_version=16,
+        do_constant_folding=True,
+        dynamo=False,
+    )
+    return onnx_path
+
+
+def _write_metadata_multiclass(
+    export_dir: Path,
+    model_type: str,
+    n_nodes: int = 2,
+    n_classes: int = 2,
+    max_peaks_per_node: int | None = None,
+    edges: list | None = None,
+    input_scale: float = 1.0,
+) -> Path:
+    """ExportMetadata for multiclass — adds ``n_classes``."""
+    meta = {
+        "sleap_nn_version": "0.0.0",
+        "export_timestamp": "2026-01-01T00:00:00",
+        "export_format": "onnx",
+        "model_type": model_type,
+        "model_name": "test_multiclass",
+        "checkpoint_path": "/tmp/fake.ckpt",
+        "backbone": "unet",
+        "n_nodes": n_nodes,
+        "n_edges": len(edges) if edges else 0,
+        "node_names": [f"n{i}" for i in range(n_nodes)],
+        "edge_inds": [list(e) for e in edges] if edges else [],
+        "input_scale": input_scale,
+        "input_channels": 1,
+        "output_stride": 1,
+        "n_classes": n_classes,
+        "class_names": [f"class_{i}" for i in range(n_classes)],
+    }
+    if max_peaks_per_node is not None:
+        meta["max_peaks_per_node"] = max_peaks_per_node
+    path = export_dir / "export_metadata.json"
+    path.write_text(json.dumps(meta))
+    return path
+
+
+@pytest.fixture
+def multiclass_topdown_export(tmp_path):
+    """Export dir for a multi-class top-down model."""
+    export_dir = tmp_path / "mc_topdown_export"
+    export_dir.mkdir()
+    _export_tiny_multiclass_topdown(export_dir, max_instances=3, n_nodes=2, n_classes=3)
+    _write_metadata_multiclass(
+        export_dir, model_type="multi_class_topdown", n_nodes=2, n_classes=3
+    )
+    return export_dir
+
+
+@pytest.fixture
+def multiclass_bottomup_export(tmp_path):
+    """Export dir for a multi-class bottom-up model."""
+    export_dir = tmp_path / "mc_bottomup_export"
+    export_dir.mkdir()
+    _export_tiny_multiclass_bottomup(export_dir, n_nodes=2, k=3, n_classes=2)
+    _write_metadata_multiclass(
+        export_dir,
+        model_type="multi_class_bottomup",
+        n_nodes=2,
+        n_classes=2,
+        max_peaks_per_node=3,
+    )
+    return export_dir
+
+
+def test_from_export_dir_multiclass_topdown_builds_predictor(
+    multiclass_topdown_export,
+):
+    """multi_class_topdown export → :class:`ExportedTopDownMultiClassLayer`."""
+    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.layers.exported import ExportedTopDownMultiClassLayer
+
+    predictor = from_export_dir(multiclass_topdown_export, device="cpu")
+    assert isinstance(predictor.layer, ExportedTopDownMultiClassLayer)
+    assert predictor.layer.n_classes == 3
+
+
+def test_from_export_dir_multiclass_topdown_predict_smoke(
+    multiclass_topdown_export,
+):
+    """Multi-class top-down adapter populates fields with class-ordered slots."""
+    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.providers import NumpyProvider
+
+    predictor = from_export_dir(multiclass_topdown_export, device="cpu")
+    images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
+    provider = NumpyProvider(images=images, batch_size=1)
+
+    out = predictor.predict(provider)[0]
+    assert out.pred_keypoints is not None
+    # I = n_classes = 3
+    assert out.pred_keypoints.shape == (1, 3, 2, 2)
+    assert out.pred_centroids.shape == (1, 3, 2)
+    assert out.pred_class_probs is not None
+    assert out.pred_class_probs.shape == (1, 3, 3)
+    assert out.instance_valid.shape == (1, 3)
+
+
+def test_from_export_dir_multiclass_bottomup_builds_predictor(
+    multiclass_bottomup_export,
+):
+    """multi_class_bottomup export → :class:`ExportedBottomUpMultiClassLayer`."""
+    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.layers.exported import (
+        ExportedBottomUpMultiClassLayer,
+    )
+
+    predictor = from_export_dir(multiclass_bottomup_export, device="cpu")
+    assert isinstance(predictor.layer, ExportedBottomUpMultiClassLayer)
+    assert predictor.layer.n_nodes == 2
+    assert predictor.layer.n_classes == 2
+
+
+def test_from_export_dir_multiclass_bottomup_predict_smoke(
+    multiclass_bottomup_export,
+):
+    """Multi-class bottom-up adapter groups peaks by class via Hungarian matching."""
+    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.providers import NumpyProvider
+
+    predictor = from_export_dir(multiclass_bottomup_export, device="cpu")
+    images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
+    provider = NumpyProvider(images=images, batch_size=1)
+
+    out = predictor.predict(provider)[0]
+    assert out.pred_keypoints is not None
+    # I = n_classes = 2, N = n_nodes = 2.
+    assert out.pred_keypoints.shape == (1, 2, 2, 2)
+    assert out.pred_class_vectors is not None
+    # (B, I, N, C) per Outputs convention.
+    assert out.pred_class_vectors.shape == (1, 2, 2, 2)
+    assert out.instance_valid.shape == (1, 2)
+
+
+def test_from_export_dir_multiclass_topdown_missing_n_classes_raises(tmp_path):
+    """Missing ``n_classes`` in metadata ⇒ ``ValueError``."""
+    from sleap_nn.inference.factory import from_export_dir
+
+    export_dir = tmp_path / "bad_mc_topdown"
+    export_dir.mkdir()
+    _export_tiny_multiclass_topdown(export_dir)
+    meta = {
+        "sleap_nn_version": "0.0.0",
+        "export_timestamp": "2026-01-01T00:00:00",
+        "export_format": "onnx",
+        "model_type": "multi_class_topdown",
+        "model_name": "test",
+        "checkpoint_path": "/tmp/fake.ckpt",
+        "backbone": "unet",
+        "n_nodes": 2,
+        "n_edges": 0,
+        "node_names": ["n0", "n1"],
+        "edge_inds": [],
+        "input_scale": 1.0,
+        "input_channels": 1,
+        "output_stride": 1,
+    }
+    (export_dir / "export_metadata.json").write_text(json.dumps(meta))
+    with pytest.raises(ValueError, match="n_classes"):
         from_export_dir(export_dir, device="cpu")

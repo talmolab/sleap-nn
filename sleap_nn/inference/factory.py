@@ -488,16 +488,19 @@ def _select_export_layer(
     bypass the standard layer's coord ladder so transforms aren't
     double-applied.
 
-    Supported as of PR 20: ``single_instance``, ``centroid``,
-    ``centered_instance``, ``topdown``, ``bottomup``. Multiclass types
-    land in PR 21.
+    Supported as of PR 21: every model type the export wrappers
+    produce — ``single_instance``, ``centroid``, ``centered_instance``,
+    ``topdown``, ``bottomup``, ``multi_class_topdown``,
+    ``multi_class_bottomup``.
     """
     from sleap_nn.inference.layers.exported import (
         ExportedBottomUpLayer,
+        ExportedBottomUpMultiClassLayer,
         ExportedCenteredInstanceLayer,
         ExportedCentroidLayer,
         ExportedSingleInstanceLayer,
         ExportedTopDownLayer,
+        ExportedTopDownMultiClassLayer,
     )
 
     model_type = metadata.model_type
@@ -530,14 +533,25 @@ def _select_export_layer(
             min_instance_peaks=min_instance_peaks,
             min_line_scores=min_line_scores,
         )
-
-    if model_type in {"multi_class_bottomup", "multi_class_topdown"}:
-        raise NotImplementedError(
-            f"from_export_dir: model_type={model_type!r} adapter not yet "
-            f"implemented. Currently supported: 'single_instance', "
-            f"'centroid', 'centered_instance', 'topdown', 'bottomup'. "
-            f"Use the legacy `sleap_nn.export.inference.predict(...)` for "
-            f"other model types until follow-up PRs land."
+    if model_type == "multi_class_topdown":
+        if metadata.n_classes is None:
+            raise ValueError(
+                "multi_class_topdown export metadata is missing `n_classes`."
+            )
+        return ExportedTopDownMultiClassLayer(
+            backend=backend,
+            n_classes=int(metadata.n_classes),
+        )
+    if model_type == "multi_class_bottomup":
+        if metadata.n_classes is None:
+            raise ValueError(
+                "multi_class_bottomup export metadata is missing `n_classes`."
+            )
+        return ExportedBottomUpMultiClassLayer(
+            backend=backend,
+            n_nodes=int(metadata.n_nodes),
+            n_classes=int(metadata.n_classes),
+            input_scale=float(metadata.input_scale),
         )
 
     raise ValueError(f"Unrecognized model_type {model_type!r} in export_metadata.json.")

@@ -395,3 +395,194 @@ class ExportedTopDownLayer:
             pred_centroid_values=centroid_vals,
             instance_valid=valid,
         )
+
+
+@attrs.define
+class ExportedTopDownMultiClassLayer:
+    """Adapter for an ONNX/TRT-exported combined top-down multi-class model.
+
+    Like :class:`ExportedTopDownLayer` plus a per-instance class-logits
+    output. Wrapper schema:
+
+    * ``centroids``: ``(B, I, 2)`` in original-image space.
+    * ``centroid_vals``: ``(B, I)``
+    * ``peaks``: ``(B, I, N, 2)`` in original-image space.
+    * ``peak_vals``: ``(B, I, N)``
+    * ``class_logits``: ``(B, I, n_classes)`` — raw logits.
+    * ``instance_valid``: ``(B, I)`` bool.
+
+    The legacy driver applies softmax to ``class_logits`` and runs
+    Hungarian matching to assign each valid instance to a unique class.
+    The adapter mirrors that and **reorders instances** so each output
+    slot ``(b, c, ...)`` holds the instance assigned to class ``c``.
+    Slots without a matching instance are NaN-padded.
+
+    Args:
+        backend: A :class:`ModelBackend` whose ``does_baked_postproc``
+            is ``True``.
+        n_classes: Number of identity classes (= ``I`` in the output).
+    """
+
+    backend: Any
+    n_classes: int
+
+    def predict(self, image: Any, **_kwargs: Any) -> Outputs:
+        """Run the backend, run softmax + Hungarian, build :class:`Outputs`."""
+        from sleap_nn.inference.ops.identity import get_class_inds_from_vectors
+
+        x = _to_4d_uint8_tensor(image)
+        raw = self.backend(x)
+
+        centroids = raw["centroids"]
+        centroid_vals = raw["centroid_vals"]
+        peaks = raw["peaks"]
+        peak_vals = raw["peak_vals"]
+        class_logits = raw["class_logits"]
+        valid = raw["instance_valid"].bool()
+
+        B = peaks.shape[0]
+        N = peaks.shape[2]
+        C = self.n_classes
+
+        # Allocate class-ordered slots, NaN-padded.
+        out_centroids = torch.full((B, C, 2), float("nan"))
+        out_centroid_vals = torch.full((B, C), float("nan"))
+        out_peaks = torch.full((B, C, N, 2), float("nan"))
+        out_peak_vals = torch.full((B, C, N), float("nan"))
+        out_class_probs = torch.full((B, C, C), float("nan"))
+        out_valid = torch.zeros((B, C), dtype=torch.bool)
+
+        for b in range(B):
+            v = valid[b]
+            if not v.any():
+                continue
+            # Softmax of valid instances' logits, then Hungarian matching.
+            valid_logits = class_logits[b, v]  # (n_valid, C)
+            probs = torch.softmax(valid_logits, dim=1)
+            class_inds, _ = get_class_inds_from_vectors(probs)
+            valid_idx = torch.nonzero(v, as_tuple=True)[0]  # original instance indices
+            for local_i, c in enumerate(class_inds.tolist()):
+                if c < 0 or c >= C:
+                    continue
+                src = int(valid_idx[local_i].item())
+                out_centroids[b, c] = centroids[b, src]
+                out_centroid_vals[b, c] = centroid_vals[b, src]
+                out_peaks[b, c] = peaks[b, src]
+                out_peak_vals[b, c] = peak_vals[b, src]
+                out_class_probs[b, c] = probs[local_i]
+                out_valid[b, c] = True
+
+        return Outputs(
+            pred_keypoints=out_peaks,
+            pred_peak_values=out_peak_vals,
+            pred_centroids=out_centroids,
+            pred_centroid_values=out_centroid_vals,
+            pred_class_probs=out_class_probs,
+            instance_valid=out_valid,
+        )
+
+
+@attrs.define
+class ExportedBottomUpMultiClassLayer:
+    """Adapter for an ONNX/TRT-exported bottom-up multi-class model.
+
+    Multi-class bottom-up replaces PAF-based grouping with class-map
+    grouping: every detected peak gets a class probability vector, and
+    Hungarian matching assigns peaks to classes per (sample, node).
+
+    Wrapper schema:
+
+    * ``peaks``: ``(B, n_nodes, k, 2)`` in scaled-input pixel space.
+    * ``peak_vals``: ``(B, n_nodes, k)``
+    * ``peak_mask``: ``(B, n_nodes, k)`` bool — invalid slots zeroed.
+    * ``class_probs``: ``(B, n_nodes, k, n_classes)`` — sampled at peaks.
+
+    The adapter flattens valid peaks per sample, runs
+    :func:`group_class_peaks` (the same Hungarian-matching primitive
+    the in-flow ``BottomUpMultiClassLayer`` uses), and scatters the
+    grouped peaks into a fixed ``(B, n_classes, n_nodes, 2)``.
+
+    Args:
+        backend: A :class:`ModelBackend` whose ``does_baked_postproc``
+            is ``True``.
+        n_nodes: Number of skeleton nodes.
+        n_classes: Number of identity classes (= ``I`` in the output).
+        input_scale: Wrapper's baked-in ``input_scale``. Used to
+            unscale predicted points back to original-image space.
+    """
+
+    backend: Any
+    n_nodes: int
+    n_classes: int
+    input_scale: float = 1.0
+
+    def predict(self, image: Any, **_kwargs: Any) -> Outputs:
+        """Run the backend, flatten + group peaks by class, build ``Outputs``."""
+        from sleap_nn.inference.ops.identity import group_class_peaks
+
+        x = _to_4d_uint8_tensor(image)
+        raw = self.backend(x)
+
+        peaks = raw["peaks"]  # (B, n_nodes, k, 2)
+        peak_vals = raw["peak_vals"]  # (B, n_nodes, k)
+        peak_mask = raw["peak_mask"].bool()  # (B, n_nodes, k)
+        class_probs_raw = raw["class_probs"]  # (B, n_nodes, k, n_classes)
+
+        B, n_nodes, k, _ = peaks.shape
+        C = self.n_classes
+
+        # Flatten across (B, n_nodes, k) → keep only mask=True entries.
+        flat_mask = peak_mask.reshape(-1)  # (B*n_nodes*k,)
+        valid_idx = torch.nonzero(flat_mask, as_tuple=True)[0]
+
+        if valid_idx.numel() == 0:
+            return Outputs(
+                pred_keypoints=torch.full((B, C, n_nodes, 2), float("nan")),
+                pred_peak_values=torch.full((B, C, n_nodes), float("nan")),
+                instance_valid=torch.zeros((B, C), dtype=torch.bool),
+            )
+
+        flat_peaks = peaks.reshape(-1, 2)[valid_idx]  # (n_valid, 2)
+        flat_vals = peak_vals.reshape(-1)[valid_idx]
+        flat_class_probs = class_probs_raw.reshape(-1, C)[valid_idx]
+
+        # Recover (sample, channel) indices for each surviving peak.
+        bnk = torch.arange(B * n_nodes * k)[valid_idx]
+        peak_sample_inds = (bnk // (n_nodes * k)).long()
+        peak_channel_inds = ((bnk // k) % n_nodes).long()
+
+        # Hungarian-match peaks to classes per (sample, node).
+        peak_inds, class_inds = group_class_peaks(
+            flat_class_probs,
+            peak_sample_inds,
+            peak_channel_inds,
+            n_samples=B,
+            n_channels=n_nodes,
+        )
+
+        # Scatter into (B, C, n_nodes, 2) NaN-padded output.
+        out_points = torch.full((B, C, n_nodes, 2), float("nan"))
+        out_vals = torch.full((B, C, n_nodes), float("nan"))
+        out_class_vectors = torch.full((B, C, n_nodes, C), float("nan"))
+        for i in range(int(peak_inds.numel())):
+            pi = int(peak_inds[i].item())
+            ci = int(class_inds[i].item())
+            b = int(peak_sample_inds[pi].item())
+            n = int(peak_channel_inds[pi].item())
+            out_points[b, ci, n] = flat_peaks[pi]
+            out_vals[b, ci, n] = flat_vals[pi]
+            out_class_vectors[b, ci, n] = flat_class_probs[pi]
+
+        # Unscale to original-image space.
+        if self.input_scale != 1.0:
+            out_points = out_points / self.input_scale
+
+        # An instance slot is "valid" if any of its nodes got a peak.
+        out_valid = ~torch.isnan(out_points[..., 0]).all(dim=-1)
+
+        return Outputs(
+            pred_keypoints=out_points,
+            pred_peak_values=out_vals,
+            pred_class_vectors=out_class_vectors,
+            instance_valid=out_valid,
+        )
