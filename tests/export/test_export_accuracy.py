@@ -119,16 +119,29 @@ def onnx_bottomup_labels(exported_bottomup_onnx_dir, video_path):
     """Run ONNX inference on the test video and return Labels."""
     pytest.importorskip("onnxruntime")
 
-    from sleap_nn.export.inference import predict
+    from omegaconf import OmegaConf
 
-    labels, stats = predict(
-        export_dir=exported_bottomup_onnx_dir,
-        video_path=video_path,
-        runtime="onnx",
-        device="cpu",
-        batch_size=4,
-        n_frames=_N_FRAMES,
-        peak_conf_threshold=_PEAK_THRESHOLD,
+    from sleap_nn.export.cli import _find_training_config_for_predict
+    from sleap_nn.export.metadata import ExportMetadata
+    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.providers import VideoProvider
+    from sleap_nn.inference.utils import get_skeleton_from_config
+
+    metadata = ExportMetadata.load(exported_bottomup_onnx_dir / "export_metadata.json")
+    cfg_path = _find_training_config_for_predict(
+        exported_bottomup_onnx_dir, metadata.model_type
+    )
+    cfg = OmegaConf.load(cfg_path.as_posix())
+    skeleton = get_skeleton_from_config(cfg.data_config.skeletons)[0]
+
+    sio_video = sio.Video.from_filename(str(video_path))
+    n_total = min(_N_FRAMES, len(sio_video))
+    provider = VideoProvider(video=sio_video, batch_size=4, frames=list(range(n_total)))
+    predictor = from_export_dir(
+        export_dir=exported_bottomup_onnx_dir, runtime="onnx", device="cpu"
+    )
+    labels = predictor.predict(
+        provider, make_labels=True, skeleton=skeleton, videos=[sio_video]
     )
     assert isinstance(labels, sio.Labels)
     return labels
