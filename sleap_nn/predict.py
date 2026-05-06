@@ -118,6 +118,8 @@ def run_inference(
     tracking_pre_cull_iou_threshold: float = 0,
     tracking_clean_instance_count: int = 0,
     tracking_clean_iou_threshold: float = 0,
+    backbone_feats: Optional[str] = None,
+    output_head_skeleton_num: int = 0,
     gui: bool = False,
 ):
     """Entry point to run inference on trained SLEAP-NN models.
@@ -561,6 +563,8 @@ def run_inference(
             filter_min_visible_node_fraction=filter_min_visible_node_fraction,
             filter_min_mean_node_score=filter_min_mean_node_score,
             filter_min_instance_score=filter_min_instance_score,
+            backbone_feats=backbone_feats,
+            output_head_skeleton_num=output_head_skeleton_num,
         )
 
         # Set GUI mode for progress output
