@@ -281,26 +281,32 @@ def from_model_paths(
     # Local imports avoid circulars (predictor → factory → predictor).
     from sleap_nn.config.utils import get_model_type_from_cfg
     from sleap_nn.inference.predictor import Predictor as NewPredictor
-    from sleap_nn.inference.predictors import Predictor as LegacyPredictor
+    from sleap_nn.inference.predictors import (
+        Predictor as LegacyPredictor,
+        legacy_predictor_internal_use,
+    )
 
     if preprocess_config is None:
         preprocess_config = _neutral_preprocess()
 
-    legacy_predictor = LegacyPredictor.from_model_paths(
-        model_paths=model_paths,
-        backbone_ckpt_path=backbone_ckpt_path,
-        head_ckpt_path=head_ckpt_path,
-        peak_threshold=peak_threshold,
-        integral_refinement=integral_refinement,
-        integral_patch_size=integral_patch_size,
-        batch_size=batch_size,
-        max_instances=max_instances,
-        return_confmaps=return_confmaps,
-        device=device,
-        preprocess_config=preprocess_config,
-        anchor_part=anchor_part,
-    )
-    legacy_predictor._initialize_inference_model()
+    # The factory IS the migration path for the deprecated legacy predictor
+    # entry points; suppress their DeprecationWarning while we delegate.
+    with legacy_predictor_internal_use():
+        legacy_predictor = LegacyPredictor.from_model_paths(
+            model_paths=model_paths,
+            backbone_ckpt_path=backbone_ckpt_path,
+            head_ckpt_path=head_ckpt_path,
+            peak_threshold=peak_threshold,
+            integral_refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            batch_size=batch_size,
+            max_instances=max_instances,
+            return_confmaps=return_confmaps,
+            device=device,
+            preprocess_config=preprocess_config,
+            anchor_part=anchor_part,
+        )
+        legacy_predictor._initialize_inference_model()
 
     # Detect model types across the supplied paths.
     model_types: list[str] = []

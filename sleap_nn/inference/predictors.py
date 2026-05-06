@@ -1,6 +1,27 @@
-"""Predictors for running inference."""
+"""Predictors for running inference.
 
+.. deprecated:: 0.2
+    All :class:`Predictor` subclasses in this module are deprecated. Use the
+    new factory entry points instead:
+
+    * :meth:`sleap_nn.inference.Predictor.from_model_paths` — checkpoint
+      inference (replaces ``*Predictor.from_trained_models`` and the
+      :meth:`Predictor.from_model_paths` dispatcher).
+    * :meth:`sleap_nn.inference.Predictor.from_export_dir` — exported
+      ONNX/TensorRT models.
+
+    This module remains in place because the new factory still delegates
+    Lightning checkpoint loading and ``inference_model`` construction here.
+    The factory uses :func:`legacy_predictor_internal_use` to silence the
+    deprecation warning while it does so. Once the loader logic is forked
+    out into a standalone module, the classes in this file collapse to thin
+    deprecation shims and then go away.
+"""
+
+import threading
+import warnings
 from collections import defaultdict
+from contextlib import contextmanager
 from typing import Dict, List, Optional, Union, Iterator, Text
 from pathlib import Path
 from abc import ABC, abstractmethod
@@ -58,6 +79,57 @@ from rich.progress import (
 from time import time
 import json
 import sys
+
+# ─────────────────────────────────────────────────────────────────────────
+# Deprecation machinery (PR 23 of #508)
+# ─────────────────────────────────────────────────────────────────────────
+# All public entry points in this module emit a ``DeprecationWarning`` so
+# external callers can migrate to ``sleap_nn.inference.factory``. The factory
+# itself still uses these classes as its checkpoint loader, though, so it
+# wraps its delegation calls in :func:`legacy_predictor_internal_use` to
+# suppress the warning while delegating.
+
+_LEGACY_INTERNAL_USE = threading.local()
+
+_DEPRECATION_MESSAGE = (
+    "{name} is deprecated. Use the new factory entry point instead:\n"
+    "    from sleap_nn.inference import Predictor\n"
+    "    predictor = Predictor.from_model_paths(model_paths, device=...)\n"
+    "or, for exported ONNX/TensorRT models:\n"
+    "    predictor = Predictor.from_export_dir(export_dir, ...)\n"
+    "See https://github.com/talmolab/sleap-nn/issues/508 for migration "
+    "details. The legacy `sleap_nn.inference.predictors` module will be "
+    "removed in a future release."
+)
+
+
+@contextmanager
+def legacy_predictor_internal_use():
+    """Silence :class:`DeprecationWarning` from legacy ``*Predictor`` entries.
+
+    ``sleap_nn.inference.factory.from_model_paths`` still delegates Lightning
+    checkpoint loading to this module's :meth:`Predictor.from_model_paths`
+    classmethod. The factory IS the migration path, so warning every time it
+    runs would be spurious noise. Wrap factory delegation calls with this
+    context manager.
+    """
+    prev = getattr(_LEGACY_INTERNAL_USE, "active", False)
+    _LEGACY_INTERNAL_USE.active = True
+    try:
+        yield
+    finally:
+        _LEGACY_INTERNAL_USE.active = prev
+
+
+def _warn_legacy(name: str) -> None:
+    """Emit a deprecation warning unless we're inside a factory delegation."""
+    if getattr(_LEGACY_INTERNAL_USE, "active", False):
+        return
+    warnings.warn(
+        _DEPRECATION_MESSAGE.format(name=name),
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 def _filter_user_labeled_frames(
@@ -234,6 +306,7 @@ class Predictor(ABC):
             `MoveNetPredictor`, `TopDownMultiClassPredictor`,
             `BottomUpMultiClassPredictor`.
         """
+        _warn_legacy(f"{cls.__name__}.from_model_paths")
         model_configs = []
         for model_path in model_paths:
             path = Path(model_path)
@@ -965,6 +1038,7 @@ class TopDownPredictor(Predictor):
             truth data. This will only work with `LabelsReader` as the provider.
 
         """
+        _warn_legacy(f"{cls.__name__}.from_trained_models")
         centered_instance_backbone_type = None
         centroid_backbone_type = None
         if centroid_ckpt_path is not None:
@@ -1666,6 +1740,7 @@ class SingleInstancePredictor(Predictor):
             An instance of `SingleInstancePredictor` with the loaded models.
 
         """
+        _warn_legacy(f"{cls.__name__}.from_trained_models")
         is_sleap_ckpt = False
         if (
             Path(confmap_ckpt_path) / "training_config.yaml"
@@ -2144,6 +2219,7 @@ class BottomUpPredictor(Predictor):
             An instance of `BottomUpPredictor` with the loaded models.
 
         """
+        _warn_legacy(f"{cls.__name__}.from_trained_models")
         is_sleap_ckpt = False
         if (
             Path(bottomup_ckpt_path) / "training_config.yaml"
@@ -2697,6 +2773,7 @@ class BottomUpMultiClassPredictor(Predictor):
             An instance of `BottomUpPredictor` with the loaded models.
 
         """
+        _warn_legacy(f"{cls.__name__}.from_trained_models")
         is_sleap_ckpt = False
         if (
             Path(bottomup_ckpt_path) / "training_config.yaml"
@@ -3349,6 +3426,7 @@ class TopDownMultiClassPredictor(Predictor):
             truth data. This will only work with `LabelsReader` as the provider.
 
         """
+        _warn_legacy(f"{cls.__name__}.from_trained_models")
         centered_instance_backbone_type = None
         centroid_backbone_type = None
         if centroid_ckpt_path is not None:
