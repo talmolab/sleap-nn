@@ -25,9 +25,17 @@ from torchvision.models.swin_transformer import (
     SwinTransformerBlockV2,
 )
 
-torch.fx.wrap("_patch_merging_pad")
-torch.fx.wrap("_get_relative_position_bias")
-torch.fx.wrap("shifted_window_attention")
+# Note (issue #527): this module previously registered three torch.fx wraps
+# at import time -- torch.fx.wrap("_patch_merging_pad") etc. Those wraps were
+# no-ops in practice (the named functions are defined in torchvision's own
+# swin_transformer module, not here, so torchvision's own wraps are what FX
+# actually consumes) but they actively broke torch.compile on every backbone:
+# torch.fx._patch_wrapped_functions does frame_dict[name] over every registry
+# entry, and a wrap registered against this module's globals with a name that
+# isn't in those globals raised KeyError("_patch_merging_pad") -- even when
+# compiling a UNet that never touches SwinT, because importing any sleap-nn
+# subpackage pulled this module in transitively. Dropping the wraps does not
+# change FX-tracing behavior for SwinT (torchvision's wraps still cover it).
 
 
 class SwinTransformerEncoder(nn.Module):
