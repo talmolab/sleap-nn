@@ -5031,6 +5031,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v020" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v013" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5246,6 +5257,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v020" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.2.0
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v013" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -5417,6 +5439,193 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h2 id="v020"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.2.0">v0.2.0</a><a class="headerlink" href="#v020" title="Permanent link">&para;</a></h2>
+<h1>SLEAP-NN v0.2.0 Release Notes</h1>
+<h2>Summary</h2>
+<p>SLEAP-NN v0.2.0 adopts <strong>sleap-io v0.7.0</strong>, which reorganizes the annotation model around a unified <code>User*</code>/<code>Predicted*</code> architecture and is API-breaking against earlier sleap-io versions. The release also brings the TUI config picker (<code>sleap-nn config &lt;slp&gt;</code>) to identical parity with the web-app config picker, switches default training to memory caching with 2 workers, simplifies the <code>--pipeline</code> CLI surface, and fixes bugs across negative-frame caching, multi-instance ConvNeXt export, and checkpoint metadata.</p>
+<p><strong>Key highlights:</strong></p>
+<ul>
+<li><strong>sleap-io v0.7.0</strong>: pinned to <code>&gt;=0.7.0,&lt;0.8.0</code>; carries the unified annotation architecture (abstract <code>BoundingBox</code>/<code>SegmentationMask</code>/<code>ROI</code>/<code>LabelImage</code> bases with <code>User*</code>/<code>Predicted*</code> variants). This is the reason for the minor version bump.</li>
+<li><strong>TUI ↔ web-app parity</strong>: <code>sleap-nn config &lt;slp&gt;</code> now produces byte-identical YAML to the web-app picker for all six pipelines, with corrected augmentation/head/trainer schema emission and matching <code>max_stride</code> recommendations.</li>
+<li><strong>Smarter defaults</strong>: TUI/web defaults flipped to <strong>Cache to Memory + 2 workers</strong>; <code>--pipeline topdown</code> is now a first-class value that emits paired centroid + centered_instance configs.</li>
+<li><strong>ConvNeXt export fix</strong>: resolves the spatial-size mismatch in <code>SimpleUpsamplingBlock</code> that crashed ONNX export on certain input sizes.</li>
+<li><strong>Negative-frame robustness</strong>: negative frames are now cached during <code>fill_cache</code>, fixing crashes on Lustre / DDP / containerized setups.</li>
+</ul>
+<hr>
+<h2>Installation</h2>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="# Upgrade to v0.2.0
+uv tool install sleap-nn --torch-backend auto --upgrade
+
+# Verify
+sleap-nn --version
+# Expected output: 0.2.0"><pre><span class="pl-c"><span class="pl-c">#</span> Upgrade to v0.2.0</span>
+uv tool install sleap-nn --torch-backend auto --upgrade
+
+<span class="pl-c"><span class="pl-c">#</span> Verify</span>
+sleap-nn --version
+<span class="pl-c"><span class="pl-c">#</span> Expected output: 0.2.0</span></pre></div>
+<hr>
+<h2>CLI Updates</h2>
+<h3>TUI / web-app config-picker parity (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4339649289" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/524" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/524/hovercard" href="https://github.com/talmolab/sleap-nn/pull/524">#524</a>)</h3>
+<p><code>sleap-nn config &lt;slp&gt;</code> (TUI) and <code>sleap-nn config &lt;slp&gt; --auto</code> (CLI auto-config) now produce <strong>byte-identical YAML</strong> to the web-app config picker for all six pipelines. The bulk of the change is schema-emission correctness — many fields the canonical loader needs were either wrong or missing.</p>
+<p>Highlights:</p>
+<ul>
+<li><strong>Augmentation</strong>: emits canonical <code>brightness_min/max + brightness_p</code>, <code>contrast_min/max + contrast_p</code>, per-axis <code>rotation_p</code>/<code>scale_p</code>/<code>translate_p</code> (was emitting non-canonical <code>brightness_limit</code>/<code>contrast_limit</code>).</li>
+<li><strong>Backbones</strong>: UNet now emits <code>kernel_size: 3</code>; ConvNeXt/SwinT emit <code>pre_trained_weights</code> and <code>max_stride: 32</code>.</li>
+<li><strong>Heads</strong>: emit <code>part_names</code> for every head that takes them; <code>edges</code> for PAFs; correct <code>class_maps</code> for <code>multi_class_bottomup</code>; full <code>class_vectors</code> block for <code>multi_class_topdown</code>.</li>
+<li><strong>Trainer</strong>: emits <code>optimizer.amsgrad</code>, <code>model_ckpt.{save_top_k, save_last}</code>, <code>min_train_steps_per_epoch</code>, the full <code>lr_scheduler</code> block with all four branches, <code>online_hard_keypoint_mining</code>, and conditional <code>wandb</code>/<code>eval</code> blocks.</li>
+<li><strong><code>max_stride</code> recommendation</strong> matches the web app: switches to bbox <strong>diagonal</strong> (<code>sqrt(w² + h²)</code>) for <code>avg_animal_size</code> and stops rebucketing after the centroid-stage scale switch.</li>
+<li><strong>Top-down dual emit</strong>: <code>pipeline()</code> sets correct per-stage defaults; new <code>build_centroid()</code> helper.</li>
+</ul>
+<h3>Default to memory caching + 2 workers, simplified <code>--pipeline</code> (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4347317988" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/526" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/526/hovercard" href="https://github.com/talmolab/sleap-nn/pull/526">#526</a>)</h3>
+<ul>
+<li>
+<p><strong>New defaults</strong> in TUI and web-app config picker: <strong>Cache to Memory</strong> with <strong>2 workers</strong> (previously no caching, 0 workers). Underlying Python schema defaults are unchanged, so programmatic <code>TrainingJobConfig()</code> users are unaffected.</p>
+</li>
+<li>
+<p><strong><code>--pipeline</code> CLI surface</strong> simplified — <code>topdown</code> is now a single user-facing value that emits paired centroid + centered_instance configs:</p>
+<table>
+<thead>
+<tr>
+<th>Old <code>--pipeline</code> value</th>
+<th>New</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>single_instance</code></td>
+<td><code>single_instance</code></td>
+</tr>
+<tr>
+<td><code>bottomup</code></td>
+<td><code>bottomup</code></td>
+</tr>
+<tr>
+<td><code>centroid</code></td>
+<td><em>(removed — use <code>topdown</code>)</em></td>
+</tr>
+<tr>
+<td><code>centered_instance</code></td>
+<td><em>(removed — use <code>topdown</code>)</em></td>
+</tr>
+<tr>
+<td><code>multi_class_bottomup</code></td>
+<td><code>multi_class_bottomup</code></td>
+</tr>
+<tr>
+<td><code>multi_class_topdown</code></td>
+<td><code>multi_class_topdown</code></td>
+</tr>
+<tr>
+<td><em>(new)</em></td>
+<td><code>topdown</code> → produces both centroid &amp; centered_instance configs</td>
+</tr>
+</tbody>
+</table>
+<p>The internal <code>PipelineType</code> literal and <code>gen.pipeline()</code> Python API still accept all six canonical types — existing tests and power-user code paths are unchanged.</p>
+</li>
+</ul>
+<hr>
+<h2>Bug Fixes</h2>
+<h3>Architecture &amp; Export</h3>
+<ul>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4345359360" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/525" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/525/hovercard" href="https://github.com/talmolab/sleap-nn/pull/525">#525</a></strong>: Fixed off-by-one spatial-size mismatch in <code>SimpleUpsamplingBlock</code> that crashed ConvNeXt ONNX export on inputs producing odd intermediate feature maps. Decoder upsample is now resized to match the encoder skip connection before concat — no-op when shapes already match, so trained models are unaffected.</li>
+</ul>
+<h3>Training &amp; Data</h3>
+<ul>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4165784769" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/505" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/505/hovercard" href="https://github.com/talmolab/sleap-nn/pull/505">#505</a></strong>: Negative frames are now cached during <code>_fill_cache</code> and read from cache in <code>_load_negative_sample()</code>, fixing <code>IndexError</code> crashes when <code>use_negative_frames: true</code> is combined with <code>torch_dataset_cache_img_disk</code> on network filesystems (Lustre), under DDP, or inside containers with different mount paths. Closes <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4160059860" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/504" data-hovercard-type="issue" data-hovercard-url="/talmolab/sleap-nn/issues/504/hovercard" href="https://github.com/talmolab/sleap-nn/issues/504">#504</a>.</li>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4197124241" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/506" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/506/hovercard" href="https://github.com/talmolab/sleap-nn/pull/506">#506</a></strong>: <code>sleap_nn_version</code> in saved <code>initial_config.yaml</code> and <code>training_config.yaml</code> is now overwritten with the running <code>sleap_nn.__version__</code> at checkpoint time, so saved configs always reflect the version that produced them.</li>
+</ul>
+<h3>Web Config Picker (<code>docs/configuration/config-picker/app.html</code>)</h3>
+<ul>
+<li><strong><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4337749942" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/523" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/523/hovercard" href="https://github.com/talmolab/sleap-nn/pull/523">#523</a></strong>: Twelve-plus bug fixes to the docs config picker — corrected centered-instance translate units (<code>/100</code>), <code>||</code> merge bugs that ignored explicit zero/false values, <code>val_labels_path</code> array stringification, <code>data_pipeline_fw</code> baseline fallthrough, <code>crop_padding: 0</code> rejection, empty bottomup <code>edges</code>, eval <code>match_threshold</code> for centroid models, plus lifecycle/leak fixes (blob-URL revocation, ImageBitmap cleanup) and a rebuilt frame viewer with track-stable colors, zoom-to-instances, and shape-metadata-less SLP support.</li>
+</ul>
+<hr>
+<h2>Dependency Updates</h2>
+<ul>
+<li><strong><code>sleap-io</code></strong>: <code>&gt;=0.6.5,&lt;0.7.0</code> → <code>&gt;=0.7.0,&lt;0.8.0</code> (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4378859909" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/550" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/550/hovercard" href="https://github.com/talmolab/sleap-nn/pull/550">#550</a>, <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4379292978" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/551" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/551/hovercard" href="https://github.com/talmolab/sleap-nn/pull/551">#551</a>)</li>
+<li><strong><code>onnxruntime-gpu</code></strong> in the <code>export-gpu</code> extra now carries a platform marker — only resolved on <code>linux/x86_64</code> and <code>win/AMD64</code> where wheels exist (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4378859909" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/550" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/550/hovercard" href="https://github.com/talmolab/sleap-nn/pull/550">#550</a>)</li>
+</ul>
+<hr>
+<h2>Changelog</h2>
+<h3>CLI Updates</h3>
+<table>
+<thead>
+<tr>
+<th>PR</th>
+<th>Title</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4339649289" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/524" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/524/hovercard" href="https://github.com/talmolab/sleap-nn/pull/524">#524</a></td>
+<td>TUI parity with web-app config picker</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4347317988" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/526" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/526/hovercard" href="https://github.com/talmolab/sleap-nn/pull/526">#526</a></td>
+<td>Default memory caching + 2 workers; simplify --pipeline CLI</td>
+</tr>
+</tbody>
+</table>
+<h3>Bug Fixes</h3>
+<table>
+<thead>
+<tr>
+<th>PR</th>
+<th>Title</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4165784769" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/505" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/505/hovercard" href="https://github.com/talmolab/sleap-nn/pull/505">#505</a></td>
+<td>Cache negative frames during fill_cache (closes <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4160059860" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/504" data-hovercard-type="issue" data-hovercard-url="/talmolab/sleap-nn/issues/504/hovercard" href="https://github.com/talmolab/sleap-nn/issues/504">#504</a>)</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4197124241" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/506" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/506/hovercard" href="https://github.com/talmolab/sleap-nn/pull/506">#506</a></td>
+<td>Overwrite sleap_nn_version in saved checkpoint configs</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4345359360" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/525" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/525/hovercard" href="https://github.com/talmolab/sleap-nn/pull/525">#525</a></td>
+<td>Align upsampled spatial size to skip connection in SimpleUpsamplingBlock</td>
+</tr>
+</tbody>
+</table>
+<h3>Other</h3>
+<table>
+<thead>
+<tr>
+<th>PR</th>
+<th>Title</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4337749942" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/523" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/523/hovercard" href="https://github.com/talmolab/sleap-nn/pull/523">#523</a></td>
+<td>Config picker bug fixes and frame viewer overhaul</td>
+</tr>
+</tbody>
+</table>
+<h3>Chores</h3>
+<table>
+<thead>
+<tr>
+<th>PR</th>
+<th>Title</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4378859909" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/550" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/550/hovercard" href="https://github.com/talmolab/sleap-nn/pull/550">#550</a></td>
+<td>Bump to v0.2.0 and require sleap-io &gt;=0.7.0</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4379292978" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/551" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/551/hovercard" href="https://github.com/talmolab/sleap-nn/pull/551">#551</a></td>
+<td>Cap sleap-io at &lt;0.8.0</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<p><strong>Full Changelog</strong>: <a class="commit-link" href="https://github.com/talmolab/sleap-nn/compare/v0.1.3...v0.2.0"><tt>v0.1.3...v0.2.0</tt></a></p>
 <h2 id="v013"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.1.3">v0.1.3</a><a class="headerlink" href="#v013" title="Permanent link">&para;</a></h2>
 <h1>SLEAP-NN v0.1.3 Release Notes</h1>
 <h2>Summary</h2>
