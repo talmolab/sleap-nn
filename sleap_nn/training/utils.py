@@ -505,10 +505,16 @@ class WandBRenderer:
         box_data = []
 
         # Normalize shape to (instances, nodes, 2)
+        if peak_values is not None:
+            peak_values = np.asarray(peak_values)
         if peaks.ndim == 2:
             peaks = peaks[np.newaxis, ...]
-            if peak_values is not None and peak_values.ndim == 1:
+
+        if peak_values is not None and peak_values.ndim == 1:
+            if peaks.shape[0] == 1 and peak_values.shape[0] == peaks.shape[1]:
                 peak_values = peak_values[np.newaxis, ...]
+            elif peaks.shape[1] == 1 and peak_values.shape[0] == peaks.shape[0]:
+                peak_values = peak_values[:, np.newaxis]
 
         # Convert box_size from pixels to percent
         box_w_pct = self.box_size / img_w
