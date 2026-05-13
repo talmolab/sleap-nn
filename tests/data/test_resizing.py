@@ -105,12 +105,16 @@ def test_apply_sizematcher_warns_on_size_mismatch(caplog, minimal_instance):
     resizing._SIZEMATCHER_WARNED_KEYS.clear()
     caplog.clear()
     apply_sizematcher(ex["image"], 100, 480)  # 384x384 -> downscale
-    assert any("downscaled" in r.message and "slower" in r.message for r in caplog.records)
+    assert any(
+        "downscaled" in r.message and "slower" in r.message for r in caplog.records
+    )
 
     resizing._SIZEMATCHER_WARNED_KEYS.clear()
     caplog.clear()
     apply_sizematcher(ex["image"], 500, 500)  # 384x384 -> upscale
-    assert any("upscaled" in r.message and "slower" in r.message for r in caplog.records)
+    assert any(
+        "upscaled" in r.message and "slower" in r.message for r in caplog.records
+    )
 
 
 def test_apply_sizematcher_warns_once_per_size(caplog, minimal_instance):
