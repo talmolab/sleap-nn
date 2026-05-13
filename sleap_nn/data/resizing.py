@@ -102,6 +102,36 @@ def apply_resizer(image: torch.Tensor, instances: torch.Tensor, scale: float = 1
     return image, instances
 
 
+_SIZEMATCHER_WARNED_KEYS: set = set()
+
+
+def _warn_size_mismatch(
+    img_height: int, img_width: int, max_height: int, max_width: int
+) -> None:
+    """Emit a one-time warning per unique (input, target) size combination.
+
+    `apply_sizematcher` is called per frame, so dedup is required to avoid
+    flooding the log when every frame of a video hits the same size mismatch.
+    """
+    key = (int(img_height), int(img_width), int(max_height), int(max_width))
+    if key in _SIZEMATCHER_WARNED_KEYS:
+        return
+    _SIZEMATCHER_WARNED_KEYS.add(key)
+    direction = (
+        "downscaled"
+        if (img_height > max_height or img_width > max_width)
+        else "upscaled"
+    )
+    logger.warning(
+        f"Input image size ({img_height}x{img_width}, HxW) does not match "
+        f"the configured max_height/max_width ({max_height}x{max_width}); "
+        f"frames will be {direction} and padded on every call, which is "
+        f"slower than running on natively-sized inputs. To eliminate this "
+        f"overhead, set max_height/max_width in your config to match the "
+        f"input dimensions."
+    )
+
+
 def apply_sizematcher(
     image: torch.Tensor,
     max_height: Optional[int] = None,
@@ -115,6 +145,7 @@ def apply_sizematcher(
     if max_width is None:
         max_width = img_width
     if img_height != max_height or img_width != max_width:
+        _warn_size_mismatch(img_height, img_width, max_height, max_width)
         hratio = max_height / img_height
         wratio = max_width / img_width
 

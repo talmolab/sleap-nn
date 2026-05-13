@@ -1,6 +1,7 @@
 import torch
 
 from sleap_nn.data.providers import process_lf
+from sleap_nn.data import resizing
 from sleap_nn.data.resizing import (
     apply_resizer,
     apply_pad_to_stride,
@@ -74,6 +75,8 @@ def test_apply_sizematcher(caplog, minimal_instance):
         max_instances=2,
     )
 
+    resizing._SIZEMATCHER_WARNED_KEYS.clear()
+
     image, _ = apply_sizematcher(ex["image"], 500, 500)
     assert image.shape == torch.Size([1, 1, 500, 500])
 
@@ -85,3 +88,47 @@ def test_apply_sizematcher(caplog, minimal_instance):
 
     image, eff = apply_sizematcher(ex["image"], 100, 480)
     assert image.shape == torch.Size([1, 1, 100, 480])
+
+
+def test_apply_sizematcher_warns_on_size_mismatch(caplog, minimal_instance):
+    """Size-mismatched frames (either direction) must warn about the slow path."""
+    labels = sio.load_slp(minimal_instance)
+    lf = labels[0]
+    ex = process_lf(
+        instances_list=lf.instances,
+        img=lf.image,
+        frame_idx=lf.frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
+
+    resizing._SIZEMATCHER_WARNED_KEYS.clear()
+    caplog.clear()
+    apply_sizematcher(ex["image"], 100, 480)  # 384x384 -> downscale
+    assert any("downscaled" in r.message and "slower" in r.message for r in caplog.records)
+
+    resizing._SIZEMATCHER_WARNED_KEYS.clear()
+    caplog.clear()
+    apply_sizematcher(ex["image"], 500, 500)  # 384x384 -> upscale
+    assert any("upscaled" in r.message and "slower" in r.message for r in caplog.records)
+
+
+def test_apply_sizematcher_warns_once_per_size(caplog, minimal_instance):
+    """Repeated calls with the same sizes should not flood the log."""
+    labels = sio.load_slp(minimal_instance)
+    lf = labels[0]
+    ex = process_lf(
+        instances_list=lf.instances,
+        img=lf.image,
+        frame_idx=lf.frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
+
+    resizing._SIZEMATCHER_WARNED_KEYS.clear()
+    caplog.clear()
+
+    for _ in range(5):
+        apply_sizematcher(ex["image"], 100, 480)
+    matches = [r for r in caplog.records if "100x480" in r.message]
+    assert len(matches) == 1
