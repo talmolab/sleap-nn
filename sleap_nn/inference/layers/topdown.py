@@ -146,8 +146,12 @@ class TopDownLayer:
             # Nothing to crop. Return all-NaN keypoints with the right shape.
             n_nodes = self._infer_n_nodes()
             return Outputs(
-                pred_keypoints=torch.full((B, max_inst, n_nodes, 2), float("nan")),
-                pred_peak_values=torch.full((B, max_inst, n_nodes), float("nan")),
+                pred_keypoints=torch.full(
+                    (B, max_inst, n_nodes, 2), float("nan"), device=centroids.device
+                ),
+                pred_peak_values=torch.full(
+                    (B, max_inst, n_nodes), float("nan"), device=centroids.device
+                ),
                 pred_centroids=centroids,
                 pred_centroid_values=centroid_vals,
             )
@@ -170,17 +174,20 @@ class TopDownLayer:
         stage2_kpts_img = add_crop_offset(stage2_kpts_3d, crop_topleft)
 
         # Scatter (n_valid, ...) back into (B, max_inst, ...). Invalid slots
-        # stay NaN (the canonical "no peak" sentinel).
+        # stay NaN (the canonical "no peak" sentinel). Allocate on the model's
+        # device so the scatter from device-resident stage-2 tensors doesn't
+        # raise on non-CPU runtimes (cuda / mps).
+        device = stage2_kpts_img.device
         n_nodes = stage2_kpts_img.shape[-2]
-        full_kpts = torch.full((B, max_inst, n_nodes, 2), float("nan"))
-        full_vals = torch.full((B, max_inst, n_nodes), float("nan"))
+        full_kpts = torch.full((B, max_inst, n_nodes, 2), float("nan"), device=device)
+        full_vals = torch.full((B, max_inst, n_nodes), float("nan"), device=device)
         full_kpts[valid_idx[:, 0], valid_idx[:, 1]] = stage2_kpts_img
         full_vals[valid_idx[:, 0], valid_idx[:, 1]] = (
             stage2_out.pred_peak_values.squeeze(1)
         )
 
         # Reshape bboxes back to (B, max_inst, 4, 2) for downstream debug.
-        full_bboxes = torch.full((B, max_inst, 4, 2), float("nan"))
+        full_bboxes = torch.full((B, max_inst, 4, 2), float("nan"), device=device)
         full_bboxes[valid_idx[:, 0], valid_idx[:, 1]] = bboxes
 
         return Outputs(

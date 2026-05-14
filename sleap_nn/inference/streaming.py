@@ -324,8 +324,19 @@ class PafGroupingPool:
             )
 
     def __enter__(self) -> "PafGroupingPool":
-        """Start the pool's worker processes."""
-        self._executor = ProcessPoolExecutor(max_workers=self.n_workers)
+        """Start the pool's worker processes.
+
+        Always uses the ``spawn`` start method. ``ProcessPoolExecutor`` defaults
+        to ``fork`` on Linux, which inherits the parent's already-initialized
+        CUDA context and deadlocks the first worker call. ``spawn`` is the
+        same start method already used on macOS / Windows by default.
+        """
+        import multiprocessing
+
+        self._executor = ProcessPoolExecutor(
+            max_workers=self.n_workers,
+            mp_context=multiprocessing.get_context("spawn"),
+        )
         return self
 
     def __exit__(

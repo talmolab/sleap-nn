@@ -78,7 +78,7 @@ class SingleInstanceLayer(InferenceLayer):
         info = PreprocInfo(
             original_size=(H, W),
             processed_size=(H, W),
-            eff_scale=torch.ones(B),
+            eff_scale=torch.ones(B, device=x.device),
             input_scale=self.preprocess_config.scale,
             output_stride=self.output_stride,
             pad_amount=(0, 0),

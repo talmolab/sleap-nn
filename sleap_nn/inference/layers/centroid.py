@@ -144,7 +144,8 @@ class CentroidLayer(InferenceLayer):
         centroids = generate_centroids(instances, anchor_ind=self.anchor_ind)
         # ``generate_centroids`` returns ``(B, 1, max_inst, 2)``; squeeze the
         # sample dim and pad each batch to the requested ``max_instances``.
-        centroid_vals = torch.ones(centroids.shape[:-1])  # (B, 1, max_inst)
+        device = centroids.device
+        centroid_vals = torch.ones(centroids.shape[:-1], device=device)
         peaks_per_b = [c[0] for c in centroids]  # list of (max_inst, 2)
         vals_per_b = [v[0] for v in centroid_vals]  # list of (max_inst,)
         max_instances = (
@@ -152,8 +153,8 @@ class CentroidLayer(InferenceLayer):
             if self.max_instances is not None
             else int(instances.shape[-3])
         )
-        padded_peaks = torch.full((B, max_instances, 2), float("nan"))
-        padded_vals = torch.full((B, max_instances), float("nan"))
+        padded_peaks = torch.full((B, max_instances, 2), float("nan"), device=device)
+        padded_vals = torch.full((B, max_instances), float("nan"), device=device)
         for b, (peaks_b, vals_b) in enumerate(zip(peaks_per_b, vals_per_b)):
             n = min(peaks_b.shape[0], max_instances)
             padded_peaks[b, :n] = peaks_b[:n]
@@ -162,7 +163,7 @@ class CentroidLayer(InferenceLayer):
         info = PreprocInfo(
             original_size=(H, W),
             processed_size=(H, W),
-            eff_scale=torch.ones(B),
+            eff_scale=torch.ones(B, device=device),
             input_scale=1.0,
             output_stride=1,
         )
@@ -202,7 +203,7 @@ class CentroidLayer(InferenceLayer):
         info = PreprocInfo(
             original_size=(H, W),
             processed_size=tuple(scaled.shape[-2:]),
-            eff_scale=torch.ones(B),
+            eff_scale=torch.ones(B, device=scaled.device),
             input_scale=self.preprocess_config.scale,
             output_stride=self.output_stride,
         )
@@ -260,8 +261,13 @@ class CentroidLayer(InferenceLayer):
         if max_instances == 0:
             max_instances = 1  # always emit at least one slot for shape stability
 
-        padded_peaks = torch.full((B, max_instances, 2), float("nan"))
-        padded_vals = torch.full((B, max_instances), float("nan"))
+        # Allocate the padded outputs on the same device as the peaks so the
+        # scatter below doesn't trip the device check on cuda / mps. Falling
+        # back to CPU produces correct results on CPU but silently routes
+        # cuda / mps results through CPU (or errors on a downstream scatter).
+        device = peaks.device
+        padded_peaks = torch.full((B, max_instances, 2), float("nan"), device=device)
+        padded_vals = torch.full((B, max_instances), float("nan"), device=device)
 
         for b in range(B):
             mask = sample_inds == b

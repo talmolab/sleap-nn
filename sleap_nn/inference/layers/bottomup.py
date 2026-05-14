@@ -111,7 +111,7 @@ class BottomUpLayer(InferenceLayer):
         info = PreprocInfo(
             original_size=(H, W),
             processed_size=tuple(scaled.shape[-2:]),
-            eff_scale=torch.ones(B),
+            eff_scale=torch.ones(B, device=scaled.device),
             input_scale=self.preprocess_config.scale,
             output_stride=self.cms_output_stride,
         )

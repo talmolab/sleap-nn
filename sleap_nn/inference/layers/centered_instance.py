@@ -145,9 +145,12 @@ class CenteredInstanceLayer(InferenceLayer):
         match_idx = nearest_node_dist.argmin(dim=-1)  # (B, max_inst_centroid)
 
         # Gather matched GT instance keypoints + assign full-confidence values.
-        b_idx = torch.arange(B).view(B, 1).expand(B, max_inst)
+        # Allocate b_idx + matched_vals on the centroids' device so the gather
+        # + ``torch.where`` below don't trip the device check on cuda / mps.
+        device = centroids.device
+        b_idx = torch.arange(B, device=device).view(B, 1).expand(B, max_inst)
         matched_kpts = instances[b_idx, match_idx]  # (B, max_inst, n_nodes, 2)
-        matched_vals = torch.ones(B, max_inst, n_nodes)
+        matched_vals = torch.ones(B, max_inst, n_nodes, device=device)
 
         # Centroids that were NaN-padded shouldn't pull a real GT instance —
         # mark their matched outputs back as NaN to preserve the "no peak"
@@ -168,7 +171,7 @@ class CenteredInstanceLayer(InferenceLayer):
             pred_keypoints=matched_kpts,
             pred_peak_values=matched_vals,
             pred_centroids=centroids,
-            pred_centroid_values=torch.ones(B, max_inst),
+            pred_centroid_values=torch.ones(B, max_inst, device=device),
         )
 
     # ──────────────────────────────────────────────────────────────────
@@ -198,7 +201,7 @@ class CenteredInstanceLayer(InferenceLayer):
         info = PreprocInfo(
             original_size=(H, W),
             processed_size=tuple(scaled.shape[-2:]),
-            eff_scale=torch.ones(B),
+            eff_scale=torch.ones(B, device=scaled.device),
             input_scale=self.preprocess_config.scale,
             output_stride=self.output_stride,
         )
