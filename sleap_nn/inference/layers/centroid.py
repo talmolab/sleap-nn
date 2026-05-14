@@ -64,7 +64,8 @@ class CentroidLayer(InferenceLayer):
             divisible by. Padding is applied bottom-right after the
             preprocess input-scale resize.
         anchor_ind: Skeleton-node index to use as the centroid anchor when
-            ``use_gt_centroids=True``. ``None`` falls back to bbox midpoint.
+            ``use_gt_centroids=True``. ``None`` falls back to the NaN-ignoring
+            mean of all visible nodes for each instance.
         use_gt_centroids: When ``True``, skip the model and read centroids
             from a batch's ``"instances"`` field (the LabelsReader path).
         preprocess_config / postprocess_config: Standard knobs.

@@ -1193,6 +1193,8 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         factory_kwargs["head_ckpt_path"] = kwargs["head_ckpt_path"]
     if kwargs.get("tracking"):
         factory_kwargs["tracker_config"] = _build_tracker_config(kwargs)
+    if kwargs.get("centroid_only"):
+        factory_kwargs["centroid_only"] = True
     filter_config = _build_filter_config(kwargs)
     if filter_config is not None:
         factory_kwargs["filter_config"] = filter_config
@@ -1378,6 +1380,8 @@ def _run_stream_to_file(
         factory_kwargs["backbone_ckpt_path"] = kwargs["backbone_ckpt_path"]
     if kwargs.get("head_ckpt_path"):
         factory_kwargs["head_ckpt_path"] = kwargs["head_ckpt_path"]
+    if kwargs.get("centroid_only"):
+        factory_kwargs["centroid_only"] = True
     filter_config = _build_filter_config(kwargs)
     if filter_config is not None:
         factory_kwargs["filter_config"] = filter_config
@@ -1476,6 +1480,21 @@ def _common_inference_options(f):
             is_flag=True,
             default=False,
             help="Run tracking on predicted instances.",
+        ),
+        click.option(
+            "--centroid_only",
+            "--centroid-only",
+            "centroid_only",
+            is_flag=True,
+            default=False,
+            help=(
+                "Force centroid-only output. Required only when both a "
+                "centroid and a centered-instance model are configured but "
+                "you want centroid-only predictions; if model_paths contains "
+                "a single centroid model, this mode is auto-detected. "
+                "Output skeleton is NaN-padded; centroid lands on the "
+                "configured anchor node (or node 0 if unset)."
+            ),
         ),
         click.option(
             "-n",

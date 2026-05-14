@@ -207,17 +207,16 @@ def test_factory_topdown_predict_smoke(topdown_predictor):
 # ─────────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.skipif(not CENTROID_CKPT.exists(), reason="centroid ckpt absent")
+@pytest.mark.skipif(not CENTERED_CKPT.exists(), reason="centered_instance ckpt absent")
 def test_factory_rejects_unsupported_combination():
-    """Two centroid models is not a supported pipeline → ``ValueError``.
+    """centered-instance without a centroid is not a supported pipeline.
 
-    Note: the legacy loader runs first and may either accept the
-    duplicate or fail; both surfaces are valid signals for "this
-    combination isn't supported".
+    Note: the legacy loader runs first and may either accept it or fail;
+    both surfaces are valid signals for "this combination isn't supported".
     """
     with pytest.raises((ValueError, RuntimeError)):
         from_model_paths(
-            [str(CENTROID_CKPT), str(CENTROID_CKPT)],
+            [str(CENTERED_CKPT)],
             device="cpu",
         )
 

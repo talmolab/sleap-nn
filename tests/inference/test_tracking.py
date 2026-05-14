@@ -202,7 +202,7 @@ def test_predictor_predict_applies_tracker_after_to_labels(
     monkeypatch.setattr(
         Predictor,
         "_to_labels",
-        staticmethod(lambda outputs_list, skeleton, videos: untracked),
+        staticmethod(lambda outputs_list, skeleton, videos, anchor_ind=None: untracked),
     )
 
     result = pred.predict(
@@ -244,7 +244,9 @@ def test_predictor_predict_clean_empty_frames_drops_empty(skeleton, video, monke
     monkeypatch.setattr(
         Predictor,
         "_to_labels",
-        staticmethod(lambda outputs_list, skeleton, videos: raw_labels),
+        staticmethod(
+            lambda outputs_list, skeleton, videos, anchor_ind=None: raw_labels
+        ),
     )
 
     result = pred.predict(

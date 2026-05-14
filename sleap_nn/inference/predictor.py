@@ -188,7 +188,12 @@ class Predictor:
             return outputs_list
         if skeleton is None:
             raise ValueError("make_labels=True requires `skeleton` to be passed.")
-        labels = self._to_labels(outputs_list, skeleton=skeleton, videos=videos)
+        labels = self._to_labels(
+            outputs_list,
+            skeleton=skeleton,
+            videos=videos,
+            anchor_ind=self._packaging_anchor_ind(),
+        )
         if self.tracker_config is not None:
             labels = apply_tracking(labels, self.tracker_config)
         if clean_empty_frames:
@@ -378,18 +383,22 @@ class Predictor:
         outputs_list: List[Outputs],
         skeleton: Any,
         videos: Optional[List[Any]] = None,
+        anchor_ind: Optional[int] = None,
     ) -> Any:
         """Concatenate per-batch ``Outputs`` into a single ``sio.Labels``.
 
         Uses each ``Outputs.to_labels`` (PR 2's minimal implementation) per
-        batch and merges the resulting labeled-frame lists.
+        batch and merges the resulting labeled-frame lists. ``anchor_ind``
+        is forwarded for centroid-only packaging (no-op otherwise).
         """
         import sleap_io as sio
 
         videos = list(videos) if videos else [None]
         all_lf: list = []
         for outputs in outputs_list:
-            sub = outputs.to_labels(skeleton=skeleton, videos=videos)
+            sub = outputs.to_labels(
+                skeleton=skeleton, videos=videos, anchor_ind=anchor_ind
+            )
             all_lf.extend(sub.labeled_frames)
         valid_videos = [v for v in videos if v is not None]
         return sio.Labels(
@@ -397,3 +406,17 @@ class Predictor:
             videos=valid_videos,
             skeletons=[skeleton],
         )
+
+    def _packaging_anchor_ind(self) -> Optional[int]:
+        """Anchor-node slot for centroid-only output packaging.
+
+        Returns ``self.layer.anchor_ind`` when the predictor's layer is a
+        ``CentroidLayer`` (centroid-only inference); ``None`` otherwise.
+        Forwarded to ``Outputs.to_labels`` so the centroid coordinate is
+        placed at the configured skeleton node (or node 0 if unset).
+        """
+        from sleap_nn.inference.layers.centroid import CentroidLayer
+
+        if isinstance(self.layer, CentroidLayer):
+            return self.layer.anchor_ind
+        return None

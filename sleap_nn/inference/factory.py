@@ -235,6 +235,7 @@ def from_model_paths(
     filter_config: Optional[FilterConfig] = None,
     paf_workers: int = 0,
     tracker_config: Optional[TrackerConfig] = None,
+    centroid_only: bool = False,
 ):
     """Build a new :class:`Predictor` (PR 8) from one or more checkpoint paths.
 
@@ -269,6 +270,11 @@ def from_model_paths(
         tracker_config: Optional :class:`TrackerConfig`. Forwarded to
             :class:`Predictor`; when set, ``predict()`` will track
             instances post-inference.
+        centroid_only: When ``True``, force the centroid-only dispatch
+            even if a centered-instance model is also among
+            ``model_paths``. Use to get centroid-only output from a
+            two-model top-down setup without re-exporting. Raises
+            ``ValueError`` if no centroid model is present.
 
     Returns:
         A :class:`sleap_nn.inference.predictor.Predictor` wrapping the
@@ -324,7 +330,17 @@ def from_model_paths(
             raise ValueError(f"no training_config in {model_path}")
         model_types.append(get_model_type_from_cfg(config=cfg))
 
-    layer = _select_layer(legacy_predictor, model_types, device)
+    if centroid_only:
+        if "centroid" not in model_types:
+            raise ValueError(
+                "centroid_only=True requires a centroid model in model_paths; "
+                f"detected types: {model_types}."
+            )
+        layer = _build_centroid_layer(
+            legacy_predictor.inference_model.centroid_crop, device
+        )
+    else:
+        layer = _select_layer(legacy_predictor, model_types, device)
     kwargs: dict = {"layer": layer, "paf_workers": paf_workers}
     if filter_config is not None:
         kwargs["filter_config"] = filter_config
@@ -578,9 +594,16 @@ def _select_layer(legacy_predictor: Any, model_types: List[str], device: str):
         return _build_topdown_layer(legacy_predictor, device)
     if has_centroid and has_multi_centered:
         return _build_topdown_multiclass_layer(legacy_predictor, device)
+    if has_centroid:
+        # Centroid-only inference (no stage-2 model). Returns a bare
+        # ``CentroidLayer`` so ``Predictor._to_labels`` packages the output
+        # with NaN-padded skeleton + centroid at the anchor node slot.
+        return _build_centroid_layer(
+            legacy_predictor.inference_model.centroid_crop, device
+        )
     raise ValueError(
         f"Unsupported model_paths combination: detected types {model_types}. "
         f"The new Predictor.from_model_paths supports: single_instance, "
         f"bottomup, multi_class_bottomup, top-down (centroid + centered_instance), "
-        f"or top-down multiclass (centroid + multi_class_topdown)."
+        f"top-down multiclass (centroid + multi_class_topdown), or centroid-only."
     )

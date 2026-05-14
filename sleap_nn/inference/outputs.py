@@ -239,6 +239,7 @@ class Outputs:
         self,
         skeleton: "Any",
         batch_index: int = 0,
+        anchor_ind: Optional[int] = None,
     ) -> List[Any]:
         """Convert one batch slot into a list of ``sio.PredictedInstance``.
 
@@ -246,6 +247,11 @@ class Outputs:
             skeleton: ``sleap_io.Skeleton`` describing nodes/edges.
             batch_index: Which sample in the batch to convert. Defaults to 0
                 (the common single-frame call site).
+            anchor_ind: Centroid-only packaging — when ``pred_keypoints`` is
+                None but ``pred_centroids`` is populated, this index decides
+                which skeleton-node slot receives the centroid coordinate
+                (all other slots are NaN). ``None`` defaults to node 0.
+                Ignored when ``pred_keypoints`` is populated.
 
         Returns:
             One ``sio.PredictedInstance`` per non-NaN instance slot.
@@ -255,8 +261,22 @@ class Outputs:
             assumed to already be in original-image space. Per-keypoint
             scores come from ``pred_peak_values``; per-instance scores
             from ``instance_scores`` if present, else mean of node scores.
+
+            **Centroid-only mode** (``pred_keypoints is None`` and
+            ``pred_centroids is not None``): packages each predicted
+            centroid into a ``PredictedInstance`` with the centroid
+            coordinate at ``anchor_ind`` (or node 0 if unset) and NaN at
+            every other node. Per-instance score = centroid value.
         """
         import sleap_io as sio
+
+        # Centroid-only branch: synthesize NaN-padded keypoints from centroids.
+        if self.pred_keypoints is None and self.pred_centroids is not None:
+            return self._to_instances_centroid_only(
+                skeleton=skeleton,
+                batch_index=batch_index,
+                anchor_ind=anchor_ind if anchor_ind is not None else 0,
+            )
 
         if self.pred_keypoints is None:
             return []
@@ -294,10 +314,56 @@ class Outputs:
             )
         return instances
 
+    def _to_instances_centroid_only(
+        self,
+        skeleton: "Any",
+        batch_index: int,
+        anchor_ind: int,
+    ) -> List[Any]:
+        """Centroid-only packaging: NaN-pad skeleton, centroid at ``anchor_ind``.
+
+        See :meth:`to_instances` for semantics.
+        """
+        import sleap_io as sio
+
+        centroids = self.pred_centroids[batch_index].detach().cpu().numpy()  # (I, 2)
+        cvals = (
+            self.pred_centroid_values[batch_index].detach().cpu().numpy()
+            if self.pred_centroid_values is not None
+            else np.full((centroids.shape[0],), np.nan, dtype=np.float32)
+        )
+
+        n_nodes = len(skeleton.nodes)
+        if not 0 <= anchor_ind < n_nodes:
+            raise ValueError(
+                f"anchor_ind={anchor_ind} is out of range for skeleton with "
+                f"{n_nodes} nodes."
+            )
+
+        instances: List[sio.PredictedInstance] = []
+        for i in range(centroids.shape[0]):
+            if np.all(np.isnan(centroids[i])):
+                continue
+            kpts = np.full((n_nodes, 2), np.nan, dtype=np.float32)
+            kpts[anchor_ind] = centroids[i]
+            point_scores = np.full((n_nodes,), np.nan, dtype=np.float32)
+            point_scores[anchor_ind] = float(cvals[i])
+            inst_score = float(cvals[i]) if not np.isnan(cvals[i]) else 0.0
+            instances.append(
+                sio.PredictedInstance.from_numpy(
+                    points_data=kpts,
+                    point_scores=point_scores,
+                    score=inst_score,
+                    skeleton=skeleton,
+                )
+            )
+        return instances
+
     def to_labels(
         self,
         skeleton: "Any",
         videos: Optional[List[Any]] = None,
+        anchor_ind: Optional[int] = None,
     ) -> Any:
         """Convert this ``Outputs`` to a ``sleap_io.Labels``.
 
@@ -305,6 +371,8 @@ class Outputs:
             skeleton: ``sleap_io.Skeleton`` describing nodes/edges.
             videos: List of ``sio.Video`` indexed by ``video_indices``.
                 Defaults to a single ``None`` placeholder.
+            anchor_ind: Forwarded to :meth:`to_instances` for centroid-only
+                packaging. Ignored when ``pred_keypoints`` is populated.
 
         Returns:
             A ``sleap_io.Labels`` containing one ``LabeledFrame`` per
@@ -320,7 +388,9 @@ class Outputs:
         videos = list(videos) if videos else [None]
         labeled_frames: List[sio.LabeledFrame] = []
         for b in range(self.batch_size):
-            instances = self.to_instances(skeleton=skeleton, batch_index=b)
+            instances = self.to_instances(
+                skeleton=skeleton, batch_index=b, anchor_ind=anchor_ind
+            )
             if not instances:
                 continue
             frame_idx = (
