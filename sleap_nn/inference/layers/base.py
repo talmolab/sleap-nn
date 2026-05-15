@@ -92,18 +92,61 @@ class InferenceLayer(ABC):
     # ──────────────────────────────────────────────────────────────────
 
     def warmup(self, sample_shape: Tuple[int, ...] | None = None) -> None:
-        """Prime the backend with a dummy forward.
+        """Prime the backend by running ``predict()`` on a synthesized frame.
+
+        The synthesized frame goes through the layer's full ``preprocess``
+        chain (sizematcher → input_scale → ensure_rgb/grayscale → pad →
+        n_samples wrap) so the model receives an input with the same
+        rank / channel-count / device contract as real inference, and
+        cuDNN's algorithm cache is primed for the right shape.
+
+        Pre-PR-27 this called ``backend.warmup(shape=(1, 1, 64, 64))``
+        directly, bypassing ``preprocess`` entirely. On torch 2.9.1+cu128
+        the bottom-up / centroid Lightning ``forward`` ops do
+        ``torch.squeeze(img, dim=1)`` unconditionally, collapsing the
+        4D dummy to 3D ``(1, 64, 64)``. cuDNN cached an algorithm for
+        that degenerate shape; the next real ``(4, 1, 3, 384, 384)`` batch
+        re-used the cached algorithm and crashed mid-decoder with
+        ``input[B=1, C=36, 32, 16] expected 72 channels``. Audit:
+        ``scratch/2026-04-30-inference-refactor-implementation/cuda_bench/
+        channel_bug_*.log``.
 
         Args:
-            sample_shape: Input shape for the dummy. If ``None``, falls back
-                to the subclass ``warmup_input_shape`` property.
+            sample_shape: Legacy escape hatch. When provided, dispatches
+                straight to ``backend.warmup`` exactly as before. Prefer
+                the default (synthesized real frame) on cuda / mps.
         """
-        shape = sample_shape if sample_shape is not None else self.warmup_input_shape
-        self.backend.warmup(shape)
+        if sample_shape is not None:
+            self.backend.warmup(sample_shape)
+            return
+        if self.backend.device == "cpu":
+            return  # warmup is a no-op on CPU; first forward is already cold-start
+        # Synthesize a tiny 3-channel uint8 frame in raw-video shape
+        # (H, W, C). ``preprocess`` will route it through sizematcher (when
+        # ``max_height``/``max_width`` are set), channel coercion, input
+        # scale, stride pad, and the n_samples wrap — producing the exact
+        # post-preprocess shape real inference uses.
+        cfg = self.preprocess_config
+        h = min(cfg.max_height or 96, 256)
+        w = min(cfg.max_width or 96, 256)
+        dummy = np.zeros((h, w, 3), dtype=np.uint8)
+        try:
+            self.predict(dummy)
+        except Exception:  # noqa: BLE001 — warmup is best-effort
+            pass
+        if self.backend.device.startswith("cuda"):
+            torch.cuda.synchronize()
+        elif self.backend.device == "mps":
+            torch.mps.synchronize()
 
     @property
     def warmup_input_shape(self) -> Tuple[int, ...]:
-        """Default warmup shape — subclasses can override."""
+        """Legacy warmup shape — only used when ``sample_shape`` is passed.
+
+        Retained for callers passing ``sample_shape`` to ``warmup``.
+        The default ``warmup()`` path ignores this and synthesizes a real
+        raw frame instead.
+        """
         return (1, 1, 64, 64)
 
     # ──────────────────────────────────────────────────────────────────
