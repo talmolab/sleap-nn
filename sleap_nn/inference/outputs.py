@@ -67,6 +67,18 @@ class Outputs:
         ``B`` = batch size, ``I`` = max instances, ``N`` = nodes,
         ``C`` = classes, ``H``/``W`` = spatial dims, ``E`` = number of edges.
         ``NaN`` indicates missing/invalid predictions in keypoint fields.
+
+    Rank-contract note (intentional divergence from legacy):
+        ``pred_keypoints`` is always ``(B, I, N, 2)`` — single-instance
+        layers emit ``I=1`` rather than collapsing the instance axis.
+        Legacy ``SingleInstanceInferenceModel.forward`` returned
+        ``(B, N, 2)`` (rank 3, no instance dim); the new flow keeps the
+        instance axis present so all model types share one schema and
+        downstream consumers can iterate ``outputs.pred_keypoints[b, i]``
+        without branching on model type. Same idea for
+        ``pred_peak_values`` (``(B, I, N)`` always) and the multi-instance
+        fields. Callers that previously read legacy rank-3 outputs need
+        an explicit ``.squeeze(1)`` to recover the old shape.
     """
 
     # ── Images (optional; None unless explicitly requested) ──────────
