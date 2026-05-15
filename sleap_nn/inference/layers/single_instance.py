@@ -49,12 +49,15 @@ class SingleInstanceLayer(InferenceLayer):
         postprocess_config: Peak decoding + intermediate-return knobs.
         output_stride: Stride between confmap and input pixels (read from
             the head config at construction).
+        max_stride: Backbone-network stride; inputs are padded bottom-right
+            to a multiple of this in ``preprocess``. Default ``1`` (no pad).
     """
 
     def __init__(
         self,
         backend: ModelBackend,
         output_stride: int,
+        max_stride: int = 1,
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
     ) -> None:
@@ -65,26 +68,39 @@ class SingleInstanceLayer(InferenceLayer):
             postprocess_config=postprocess_config or PostprocessConfig(),
             output_stride=output_stride,
         )
+        self.max_stride = max_stride
 
     # ──────────────────────────────────────────────────────────────────
     # Preprocess
     # ──────────────────────────────────────────────────────────────────
 
     def preprocess(self, image: ImageInput) -> Tuple[torch.Tensor, PreprocInfo]:
-        """Coerce to ``(B, C, H, W)`` and record reverse-ladder info."""
+        """Run the full legacy-parity chain and capture coord-undo info.
+
+        Steps via :meth:`InferenceLayer._apply_full_preprocess`:
+        ensure_rgb/grayscale → sizematcher → input_scale → pad_to_stride →
+        ``n_samples`` wrap. The single-instance Lightning forward has an
+        ``ndim==5`` guard so the wrap is benign there; we still apply it
+        to match the legacy ``_make_pipeline_inputs`` shape contract bit-
+        for-bit.
+        """
         x = self._to_4d_float_tensor(image)
-        B, _C, H, W = x.shape
+        B = x.shape[0]
+        scaled_5d, eff_scale, orig_hw = self._apply_full_preprocess(
+            x, max_stride=self.max_stride, unsqueeze_n_samples=True
+        )
+        processed_hw = tuple(scaled_5d.shape[-2:])
 
         info = PreprocInfo(
-            original_size=(H, W),
-            processed_size=(H, W),
-            eff_scale=torch.ones(B, device=x.device),
+            original_size=orig_hw,
+            processed_size=processed_hw,
+            eff_scale=eff_scale,
             input_scale=self.preprocess_config.scale,
             output_stride=self.output_stride,
             pad_amount=(0, 0),
             crop_offsets=None,
         )
-        return x, info
+        return scaled_5d, info
 
     # ──────────────────────────────────────────────────────────────────
     # Postprocess

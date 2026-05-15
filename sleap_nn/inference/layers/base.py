@@ -150,3 +150,106 @@ class InferenceLayer(ABC):
             raise ValueError(f"unexpected image rank {t.ndim}: shape {tuple(t.shape)}")
 
         return t.float()
+
+    # ──────────────────────────────────────────────────────────────────
+    # Shared raw-frame preprocessing chain
+    # ──────────────────────────────────────────────────────────────────
+
+    def _apply_full_preprocess(
+        self,
+        x: torch.Tensor,
+        *,
+        max_stride: int = 1,
+        unsqueeze_n_samples: bool = True,
+    ) -> Tuple[torch.Tensor, torch.Tensor, Tuple[int, int]]:
+        """Run the legacy-parity preprocessing chain on a (B, C, H, W) tensor.
+
+        Mirrors the legacy ``_make_pipeline_inputs`` per-frame chain
+        (``sleap_nn/inference/predictors.py:530-563``) plus the
+        ``apply_pad_to_stride`` hop from ``_run_inference_on_batch``.
+        Each step short-circuits when its config field is the identity
+        (``None``/``False``/``1.0``), so a raw-frame layer running on a
+        properly-sized batch sees zero extra ops.
+
+        Stages applied in order:
+
+        1. ``ensure_rgb`` / ``ensure_grayscale`` — channel coercion
+           (matches legacy lines 545-553).
+        2. Per-sample ``apply_sizematcher`` to
+           ``(preprocess_config.max_height, preprocess_config.max_width)``,
+           returning a per-sample ``eff_scale`` for the coord-undo ladder
+           (matches legacy line 538-555).
+        3. ``resize_image`` by ``preprocess_config.scale`` — global input
+           scale (matches legacy line 600-604).
+        4. ``apply_pad_to_stride`` to ``max_stride`` (matches legacy line
+           607). Use the model's max_stride; ``1`` is a no-op.
+        5. ``unsqueeze(dim=1)`` to add the ``n_samples`` axis so the
+           Lightning forward's unconditional ``squeeze(dim=1)`` resolves
+           to the expected rank. Skip when the layer's forward accepts
+           4D directly (``single_instance`` has an ``ndim==5`` guard, so
+           we still wrap to match legacy bit-for-bit).
+
+        Args:
+            x: ``(B, C, H, W)`` float32 tensor from :meth:`_to_4d_float_tensor`.
+            max_stride: Model's required input stride; the input is padded
+                bottom-right to a multiple of this. ``1`` is the identity.
+            unsqueeze_n_samples: When ``True`` (the legacy default for
+                multi-instance layers) wraps with a ``(B, 1, C, H, W)``
+                ``n_samples`` axis. Top-down crops feed
+                :class:`CenteredInstanceLayer` post-crop and don't need
+                sizematcher — those callers pass ``False``.
+
+        Returns:
+            ``(processed_tensor, eff_scale, original_HW)``:
+
+            * ``processed_tensor``: ``(B, 1, C, H', W')`` if
+              ``unsqueeze_n_samples`` else ``(B, C, H', W')``.
+            * ``eff_scale``: ``(B,)`` per-sample sizematcher scale factor.
+              All ones when no sizematcher is configured.
+            * ``original_HW``: ``(H, W)`` of the input before any resize.
+        """
+        # Local imports avoid a circular base.py → data.* → ... → base.py path.
+        from sleap_nn.data.normalization import convert_to_grayscale, convert_to_rgb
+        from sleap_nn.data.resizing import (
+            apply_pad_to_stride,
+            apply_sizematcher,
+            resize_image,
+        )
+
+        cfg = self.preprocess_config
+        B, _C, H, W = x.shape
+        orig_hw = (H, W)
+
+        # 1. Channel coercion.
+        if cfg.ensure_grayscale and x.shape[-3] != 1:
+            x = convert_to_grayscale(x)
+        elif cfg.ensure_rgb and x.shape[-3] != 3:
+            x = convert_to_rgb(x)
+
+        # 2. Per-sample sizematcher → eff_scale.
+        if cfg.max_height is not None or cfg.max_width is not None:
+            resized_frames: list = []
+            eff_scales: list = []
+            for b in range(B):
+                # apply_sizematcher accepts (C, H, W); preserves device.
+                r, scale = apply_sizematcher(x[b], cfg.max_height, cfg.max_width)
+                resized_frames.append(r)
+                eff_scales.append(float(scale))
+            x = torch.stack(resized_frames, dim=0)
+            eff_scale = torch.tensor(eff_scales, dtype=torch.float32, device=x.device)
+        else:
+            eff_scale = torch.ones(B, dtype=torch.float32, device=x.device)
+
+        # 3. Input scale.
+        if cfg.scale != 1.0:
+            x = resize_image(x, cfg.scale)
+
+        # 4. Pad to stride.
+        if max_stride != 1:
+            x = apply_pad_to_stride(x, max_stride)
+
+        # 5. n_samples wrap.
+        if unsqueeze_n_samples:
+            x = x.unsqueeze(1)
+
+        return x, eff_scale, orig_hw

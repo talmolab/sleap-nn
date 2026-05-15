@@ -178,32 +178,23 @@ class CentroidLayer(InferenceLayer):
     # ──────────────────────────────────────────────────────────────────
 
     def preprocess(self, image: ImageInput) -> Tuple[torch.Tensor, PreprocInfo]:
-        """Resize, pad to stride, and wrap with an n_samples dim.
+        """Run the full legacy-parity preprocessing chain on a raw frame.
 
-        The centroid Lightning forward unconditionally does
-        ``torch.squeeze(img, dim=1)`` (no ndim guard), so the layer hands
-        the backend a 5D tensor that becomes 4D after the squeeze.
+        Delegates to :meth:`InferenceLayer._apply_full_preprocess`:
+        ensure_rgb/grayscale → per-sample sizematcher (records eff_scale) →
+        input_scale → pad_to_stride → ``n_samples`` wrap. The centroid
+        Lightning forward unconditionally does ``torch.squeeze(img, dim=1)``,
+        so the layer must hand the backend a 5D tensor.
         """
         x = self._to_4d_float_tensor(image)
-        B, _C, H, W = x.shape
-
-        scaled = (
-            resize_image(x, self.preprocess_config.scale)
-            if self.preprocess_config.scale != 1.0
-            else x
+        scaled_5d, eff_scale, orig_hw = self._apply_full_preprocess(
+            x, max_stride=self.max_stride, unsqueeze_n_samples=True
         )
-        if self.max_stride != 1:
-            scaled = apply_pad_to_stride(scaled, self.max_stride)
-
-        # CentroidLightningModule.forward does ``torch.squeeze(img, dim=1)``
-        # without an ndim guard; feed it 5D so the squeeze yields 4D and the
-        # model's input convention is satisfied.
-        scaled_5d = scaled.unsqueeze(1)
 
         info = PreprocInfo(
-            original_size=(H, W),
-            processed_size=tuple(scaled.shape[-2:]),
-            eff_scale=torch.ones(B, device=scaled.device),
+            original_size=orig_hw,
+            processed_size=tuple(scaled_5d.shape[-2:]),
+            eff_scale=eff_scale,
             input_scale=self.preprocess_config.scale,
             output_stride=self.output_stride,
         )

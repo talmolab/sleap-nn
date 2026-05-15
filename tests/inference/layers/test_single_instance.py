@@ -93,6 +93,21 @@ def _build_layer_from_predictor():
 # ─────────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.xfail(
+    reason=(
+        "PR 27 superseded this test's contract. The PR 0 goldens store "
+        "the *preprocessed* model input as ``batch['image']`` and the "
+        "*final* keypoints (in original-image space) as "
+        "``batch['pred_instance_peaks']``. This test fed the preprocessed "
+        "image to the new layer and assumed the layer's ``preprocess()`` "
+        "was a no-op (Option-B contract: caller already preprocessed). "
+        "PR 27 moved the new layer to Option-A (layer.predict(raw_frame) "
+        "does the full pipeline) so feeding pre-scaled input here now "
+        "double-scales. Proper pipeline parity is verified in PR 27's "
+        "tests/inference/test_parity_vs_legacy.py."
+    ),
+    strict=True,
+)
 @pytest.mark.skipif(
     not SINGLE_CKPT.exists(), reason="single-instance checkpoint not present"
 )
