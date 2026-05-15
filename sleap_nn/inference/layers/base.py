@@ -111,8 +111,8 @@ class InferenceLayer(ABC):
     # ──────────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _to_4d_float_tensor(image: ImageInput) -> torch.Tensor:
-        """Coerce an image input to ``(B, C, H, W)`` float32.
+    def _to_4d_tensor(image: ImageInput) -> torch.Tensor:
+        """Coerce an image input to ``(B, C, H, W)``, preserving dtype.
 
         Accepts:
 
@@ -122,7 +122,11 @@ class InferenceLayer(ABC):
         - ``(C, H, W)`` channel-first
         - ``(B, C, H, W)`` channel-first
 
-        Always returns ``(B, C, H, W)`` ``torch.float32``.
+        Returns ``(B, C, H, W)`` with the same dtype as the input. uint8
+        inputs stay uint8 so subsequent ``tvf.resize`` calls produce
+        clean integer outputs (legacy parity — the eager float
+        conversion produced 255.00006... values that diverged from
+        legacy's clean uint8 path).
         """
         if isinstance(image, np.ndarray):
             t = torch.from_numpy(image)
@@ -149,7 +153,19 @@ class InferenceLayer(ABC):
         else:
             raise ValueError(f"unexpected image rank {t.ndim}: shape {tuple(t.shape)}")
 
-        return t.float()
+        return t
+
+    @classmethod
+    def _to_4d_float_tensor(cls, image: ImageInput) -> torch.Tensor:
+        """Coerce to ``(B, C, H, W)`` ``torch.float32``.
+
+        Thin wrapper over :meth:`_to_4d_tensor` for backward compat with
+        callers that explicitly want float32 (older test fixtures, ONNX
+        backends that don't accept uint8). New layer ``preprocess()``
+        methods use ``_to_4d_tensor`` so the legacy uint8 → ``tvf.resize``
+        path is preserved bit-for-bit.
+        """
+        return cls._to_4d_tensor(image).float()
 
     # ──────────────────────────────────────────────────────────────────
     # Shared raw-frame preprocessing chain

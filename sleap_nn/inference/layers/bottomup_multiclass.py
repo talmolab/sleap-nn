@@ -61,7 +61,7 @@ class BottomUpMultiClassLayer(InferenceLayer):
 
     def preprocess(self, image: ImageInput) -> Tuple[torch.Tensor, PreprocInfo]:
         """Run the full legacy-parity preprocessing chain on a raw frame."""
-        x = self._to_4d_float_tensor(image)
+        x = self._to_4d_tensor(image)
         scaled_5d, eff_scale, orig_hw = self._apply_full_preprocess(
             x, max_stride=self.max_stride, unsqueeze_n_samples=True
         )

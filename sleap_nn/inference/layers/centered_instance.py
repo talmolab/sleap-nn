@@ -188,7 +188,7 @@ class CenteredInstanceLayer(InferenceLayer):
         also accept raw frames; the helper handles both cases via the
         ``preprocess_config`` short-circuits.
         """
-        x = self._to_4d_float_tensor(image)
+        x = self._to_4d_tensor(image)
         scaled_5d, eff_scale, orig_hw = self._apply_full_preprocess(
             x, max_stride=self.max_stride, unsqueeze_n_samples=True
         )

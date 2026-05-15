@@ -65,13 +65,38 @@ def _neutral_preprocess() -> Any:
     )
 
 
+def _legacy_pp_field(legacy_predictor: Any, name: str, default: Any = None) -> Any:
+    """Read a field from the legacy predictor's resolved ``preprocess_config``.
+
+    The legacy ``from_trained_models`` resolves None inputs from training
+    config before constructing the predictor, so by the time the factory
+    is called every field in ``preprocess_config`` is concrete. Supports
+    both ``OmegaConf.DictConfig`` and plain dict.
+    """
+    cfg = getattr(legacy_predictor, "preprocess_config", None)
+    if cfg is None:
+        return default
+    try:
+        val = cfg[name] if not hasattr(cfg, name) else getattr(cfg, name)
+    except (KeyError, AttributeError):
+        return default
+    return val if val is not None else default
+
+
 def _build_single_instance_layer(predictor: Any, device: str) -> SingleInstanceLayer:
     """Wrap legacy ``SingleInstanceInferenceModel`` with the new layer."""
     inf = predictor.inference_model
     return SingleInstanceLayer(
         backend=TorchBackend(model=inf.torch_model, device=device),
         output_stride=inf.output_stride,
-        preprocess_config=PreprocessConfig(scale=inf.input_scale),
+        max_stride=getattr(predictor, "max_stride", 1),
+        preprocess_config=PreprocessConfig(
+            scale=inf.input_scale,
+            max_height=_legacy_pp_field(predictor, "max_height"),
+            max_width=_legacy_pp_field(predictor, "max_width"),
+            ensure_rgb=_legacy_pp_field(predictor, "ensure_rgb"),
+            ensure_grayscale=_legacy_pp_field(predictor, "ensure_grayscale"),
+        ),
         postprocess_config=PostprocessConfig(
             peak_threshold=inf.peak_threshold,
             refinement=inf.refinement or "none",
@@ -95,7 +120,13 @@ def _build_bottomup_layer(predictor: Any, device: str) -> BottomUpLayer:
         max_instances=getattr(inf, "max_instances", None),
         max_stride=max_stride,
         max_peaks_per_node=inf.max_peaks_per_node,
-        preprocess_config=PreprocessConfig(scale=inf.input_scale),
+        preprocess_config=PreprocessConfig(
+            scale=inf.input_scale,
+            max_height=_legacy_pp_field(predictor, "max_height"),
+            max_width=_legacy_pp_field(predictor, "max_width"),
+            ensure_rgb=_legacy_pp_field(predictor, "ensure_rgb"),
+            ensure_grayscale=_legacy_pp_field(predictor, "ensure_grayscale"),
+        ),
         postprocess_config=PostprocessConfig(
             peak_threshold=inf.peak_threshold,
             refinement=inf.refinement or "none",
@@ -120,7 +151,13 @@ def _build_bottomup_multiclass_layer(
         cms_output_stride=inf.cms_output_stride,
         class_maps_output_stride=inf.class_maps_output_stride,
         max_stride=max_stride,
-        preprocess_config=PreprocessConfig(scale=inf.input_scale),
+        preprocess_config=PreprocessConfig(
+            scale=inf.input_scale,
+            max_height=_legacy_pp_field(predictor, "max_height"),
+            max_width=_legacy_pp_field(predictor, "max_width"),
+            ensure_rgb=_legacy_pp_field(predictor, "ensure_rgb"),
+            ensure_grayscale=_legacy_pp_field(predictor, "ensure_grayscale"),
+        ),
         postprocess_config=PostprocessConfig(
             peak_threshold=inf.peak_threshold,
             refinement=inf.refinement or "none",
@@ -130,8 +167,18 @@ def _build_bottomup_multiclass_layer(
     )
 
 
-def _build_centroid_layer(legacy_centroid: Any, device: str) -> CentroidLayer:
-    """Wrap legacy ``CentroidCrop`` with the new ``CentroidLayer``."""
+def _build_centroid_layer(
+    legacy_centroid: Any,
+    device: str,
+    legacy_predictor: Optional[Any] = None,
+) -> CentroidLayer:
+    """Wrap legacy ``CentroidCrop`` with the new ``CentroidLayer``.
+
+    ``legacy_predictor``: optional reference to the outer predictor whose
+    resolved ``preprocess_config`` carries ``max_height/max_width/
+    ensure_rgb/ensure_grayscale``. The centroid layer applies the size-
+    matcher / channel-coercion chain matching legacy ``_make_pipeline_inputs``.
+    """
     return CentroidLayer(
         backend=TorchBackend(model=legacy_centroid.torch_model, device=device),
         output_stride=legacy_centroid.output_stride,
@@ -139,7 +186,13 @@ def _build_centroid_layer(legacy_centroid: Any, device: str) -> CentroidLayer:
         max_stride=legacy_centroid.max_stride,
         anchor_ind=legacy_centroid.anchor_ind,
         use_gt_centroids=False,
-        preprocess_config=PreprocessConfig(scale=legacy_centroid.input_scale),
+        preprocess_config=PreprocessConfig(
+            scale=legacy_centroid.input_scale,
+            max_height=_legacy_pp_field(legacy_predictor, "max_height"),
+            max_width=_legacy_pp_field(legacy_predictor, "max_width"),
+            ensure_rgb=_legacy_pp_field(legacy_predictor, "ensure_rgb"),
+            ensure_grayscale=_legacy_pp_field(legacy_predictor, "ensure_grayscale"),
+        ),
         postprocess_config=PostprocessConfig(
             peak_threshold=legacy_centroid.peak_threshold,
             refinement=legacy_centroid.refinement or "none",
@@ -152,7 +205,14 @@ def _build_centroid_layer(legacy_centroid: Any, device: str) -> CentroidLayer:
 def _build_centered_instance_layer(
     legacy_inst: Any, device: str
 ) -> CenteredInstanceLayer:
-    """Wrap legacy ``FindInstancePeaks`` with the new layer."""
+    """Wrap legacy ``FindInstancePeaks`` with the new layer.
+
+    No ``max_height/max_width`` forwarded: this layer receives per-instance
+    crops (at the model's training ``crop_hw``) in the top-down composition,
+    so the size-matcher must be a no-op. Channel-coercion (``ensure_*``) is
+    also redundant here because the centroid stage already coerced the
+    parent frame's channels.
+    """
     return CenteredInstanceLayer(
         backend=TorchBackend(model=legacy_inst.torch_model, device=device),
         output_stride=legacy_inst.output_stride,
@@ -170,7 +230,11 @@ def _build_centered_instance_layer(
 def _build_centered_instance_multiclass_layer(
     legacy_inst: Any, device: str
 ) -> CenteredInstanceMultiClassLayer:
-    """Wrap legacy ``TopDownMultiClassFindInstancePeaks`` with the new layer."""
+    """Wrap legacy ``TopDownMultiClassFindInstancePeaks`` with the new layer.
+
+    See :func:`_build_centered_instance_layer` for why size-matcher
+    fields are intentionally omitted.
+    """
     return CenteredInstanceMultiClassLayer(
         backend=TorchBackend(model=legacy_inst.torch_model, device=device),
         output_stride=legacy_inst.output_stride,
@@ -188,7 +252,9 @@ def _build_centered_instance_multiclass_layer(
 def _build_topdown_layer(predictor: Any, device: str) -> TopDownLayer:
     """Compose ``CentroidLayer`` + ``CenteredInstanceLayer`` into a ``TopDownLayer``."""
     inf = predictor.inference_model
-    centroid_layer = _build_centroid_layer(inf.centroid_crop, device)
+    centroid_layer = _build_centroid_layer(
+        inf.centroid_crop, device, legacy_predictor=predictor
+    )
     inst_layer = _build_centered_instance_layer(inf.instance_peaks, device)
     crop_h, crop_w = inf.centroid_crop.crop_hw
     return TopDownLayer(
@@ -203,7 +269,9 @@ def _build_topdown_multiclass_layer(
 ) -> TopDownMultiClassLayer:
     """Compose centroid + multi-class centered-instance into a multiclass topdown."""
     inf = predictor.inference_model
-    centroid_layer = _build_centroid_layer(inf.centroid_crop, device)
+    centroid_layer = _build_centroid_layer(
+        inf.centroid_crop, device, legacy_predictor=predictor
+    )
     inst_layer = _build_centered_instance_multiclass_layer(inf.instance_peaks, device)
     crop_h, crop_w = inf.centroid_crop.crop_hw
     return TopDownMultiClassLayer(
@@ -337,7 +405,9 @@ def from_model_paths(
                 f"detected types: {model_types}."
             )
         layer = _build_centroid_layer(
-            legacy_predictor.inference_model.centroid_crop, device
+            legacy_predictor.inference_model.centroid_crop,
+            device,
+            legacy_predictor=legacy_predictor,
         )
     else:
         layer = _select_layer(legacy_predictor, model_types, device)
@@ -599,7 +669,9 @@ def _select_layer(legacy_predictor: Any, model_types: List[str], device: str):
         # ``CentroidLayer`` so ``Predictor._to_labels`` packages the output
         # with NaN-padded skeleton + centroid at the anchor node slot.
         return _build_centroid_layer(
-            legacy_predictor.inference_model.centroid_crop, device
+            legacy_predictor.inference_model.centroid_crop,
+            device,
+            legacy_predictor=legacy_predictor,
         )
     raise ValueError(
         f"Unsupported model_paths combination: detected types {model_types}. "

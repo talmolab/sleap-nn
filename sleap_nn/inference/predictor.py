@@ -287,12 +287,28 @@ class Predictor:
         provider: Provider,
         progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> Iterator[Outputs]:
-        """Run ``layer.predict`` + ``FilterPipeline`` per provider batch."""
+        """Run ``layer.predict`` + ``FilterPipeline`` per provider batch.
+
+        ``Batch.instances`` is only forwarded to layers whose ``predict``
+        signature accepts an ``instances`` keyword — without this guard a
+        ``.slp`` source breaks every layer except ``CentroidLayer`` /
+        ``TopDownLayer`` (``SingleInstanceLayer.predict`` rejects unknown
+        kwargs, etc.). ``LabelsProvider`` always populates ``batch.instances``
+        even for layers that don't use them.
+        """
+        import inspect
+
+        try:
+            sig = inspect.signature(self.layer.predict)
+            layer_accepts_instances = "instances" in sig.parameters
+        except (TypeError, ValueError):  # pragma: no cover — non-introspectable
+            layer_accepts_instances = False
+
         pipeline = self.filter_pipeline
         total = _safe_len(provider)
         for i, batch in enumerate(provider):
             kwargs: dict = {}
-            if batch.instances is not None:
+            if batch.instances is not None and layer_accepts_instances:
                 kwargs["instances"] = (
                     batch.instances
                     if isinstance(batch.instances, torch.Tensor)

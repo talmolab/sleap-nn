@@ -120,7 +120,10 @@ class TopDownLayer:
             )
 
         # Stage 2: crop + run centered-instance model + un-crop.
-        x = self.centroid_layer._to_4d_float_tensor(image)
+        # Preserve dtype (uint8 → uint8) so crops + the centered_instance
+        # model input match legacy bit-for-bit; normalize_on_gpu inside
+        # the Lightning forward handles uint8 → float32 conversion.
+        x = self.centroid_layer._to_4d_tensor(image)
         return self._run_stage_2(x, centroids, centroid_vals, valid_mask)
 
     # ──────────────────────────────────────────────────────────────────

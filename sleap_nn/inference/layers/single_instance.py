@@ -84,7 +84,7 @@ class SingleInstanceLayer(InferenceLayer):
         to match the legacy ``_make_pipeline_inputs`` shape contract bit-
         for-bit.
         """
-        x = self._to_4d_float_tensor(image)
+        x = self._to_4d_tensor(image)
         B = x.shape[0]
         scaled_5d, eff_scale, orig_hw = self._apply_full_preprocess(
             x, max_stride=self.max_stride, unsqueeze_n_samples=True
