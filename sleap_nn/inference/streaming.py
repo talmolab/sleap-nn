@@ -85,7 +85,16 @@ class ScoredBatch:
     pafs: Optional[torch.Tensor] = None
 
     def to_cpu(self) -> "ScoredBatch":
-        """Detach + move every tensor field to CPU (idempotent on CPU)."""
+        """Detach + move every tensor field to CPU (idempotent on CPU).
+
+        Includes ``info.eff_scale``, which is a device-resident tensor on
+        cuda/mps after PR 26 made layer preprocess buffers device-aware.
+        Pre-PR-26 ``eff_scale`` was always CPU so the original ``to_cpu``
+        ignored ``info``; that assumption silently broke worker-pool
+        submissions on CUDA (spawn can't unpickle a CUDA tensor without
+        a shared CUDA context → deadlock on ``ProcessPoolExecutor.submit``).
+        """
+        new_info = attrs.evolve(self.info, eff_scale=self.info.eff_scale.detach().cpu())
         return attrs.evolve(
             self,
             cms_peaks=[t.detach().cpu() for t in self.cms_peaks],
@@ -96,6 +105,7 @@ class ScoredBatch:
             edge_inds=[t.detach().cpu() for t in self.edge_inds],
             edge_peak_inds=[t.detach().cpu() for t in self.edge_peak_inds],
             line_scores=[t.detach().cpu() for t in self.line_scores],
+            info=new_info,
             cms=self.cms.detach().cpu() if self.cms is not None else None,
             pafs=self.pafs.detach().cpu() if self.pafs is not None else None,
         )
