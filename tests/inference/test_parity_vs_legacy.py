@@ -198,6 +198,13 @@ FIXTURES = [
     ("bottomup", [CKPT_ROOT / "minimal_instance_bottomup"]),
 ]
 
+# Standalone centered-instance only runs against a labeled source (the
+# centroid stage reads GT centroids from the batch). Skip the video case.
+CENTERED_ONLY_FIXTURE = (
+    "centered_instance_only",
+    [CKPT_ROOT / "minimal_instance_centered_instance"],
+)
+
 
 @pytest.mark.parametrize(("label", "ckpts"), FIXTURES, ids=[f[0] for f in FIXTURES])
 def test_parity_vs_legacy_on_video(label, ckpts):
@@ -212,6 +219,21 @@ def test_parity_vs_legacy_on_video(label, ckpts):
 @pytest.mark.parametrize(("label", "ckpts"), FIXTURES, ids=[f[0] for f in FIXTURES])
 def test_parity_vs_legacy_on_labels(label, ckpts):
     """``minimal_instance.pkg.slp`` (the PR-0 golden source): new vs legacy match."""
+    if not _have(SLP, *ckpts):
+        pytest.skip(f"missing fixtures for {label}")
+    legacy = _run_legacy_keypoints(ckpts, SLP, n_frames=1)
+    new = _run_new_keypoints(ckpts, SLP, n_frames=1)
+    _assert_keypoint_parity(legacy, new)
+
+
+def test_parity_vs_legacy_centered_instance_only():
+    """Standalone centered-instance × labeled source: GT-centroid path matches legacy.
+
+    Mirrors legacy ``TopDownPredictor.from_trained_models(centroid_ckpt_path=None)``:
+    the centroid stage reads GT centroids from the batch's ``instances``
+    field and feeds them to the real centered-instance model.
+    """
+    label, ckpts = CENTERED_ONLY_FIXTURE
     if not _have(SLP, *ckpts):
         pytest.skip(f"missing fixtures for {label}")
     legacy = _run_legacy_keypoints(ckpts, SLP, n_frames=1)

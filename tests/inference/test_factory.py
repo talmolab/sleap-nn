@@ -208,17 +208,27 @@ def test_factory_topdown_predict_smoke(topdown_predictor):
 
 
 @pytest.mark.skipif(not CENTERED_CKPT.exists(), reason="centered_instance ckpt absent")
-def test_factory_rejects_unsupported_combination():
-    """centered-instance without a centroid is not a supported pipeline.
+def test_factory_centered_instance_only_uses_gt_centroids():
+    """Standalone centered-instance → ``TopDownLayer`` with GT centroid path.
 
-    Note: the legacy loader runs first and may either accept it or fail;
-    both surfaces are valid signals for "this combination isn't supported".
+    Mirrors legacy ``TopDownPredictor.from_trained_models(centroid_ckpt_path=None)``:
+    no centroid model in ``model_paths`` → the centroid stage reads GT
+    centroids from the input batch (``LabelsProvider``-only source).
     """
-    with pytest.raises((ValueError, RuntimeError)):
-        from_model_paths(
-            [str(CENTERED_CKPT)],
-            device="cpu",
-        )
+    p = from_model_paths([str(CENTERED_CKPT)], device="cpu")
+    assert isinstance(p.layer, TopDownLayer)
+    assert p.layer.centroid_layer.use_gt_centroids is True
+
+
+def test_factory_rejects_unrecognized_model_type():
+    """Truly unrecognized model type → clear ``ValueError`` from ``_select_layer``."""
+    from sleap_nn.inference.factory import _select_layer
+
+    class _FakeLegacyPredictor:
+        inference_model = None
+
+    with pytest.raises(ValueError, match="Unsupported model_paths combination"):
+        _select_layer(_FakeLegacyPredictor(), ["mystery_model_type"], device="cpu")
 
 
 # ─────────────────────────────────────────────────────────────────────────

@@ -133,32 +133,50 @@ class CentroidLayer(InferenceLayer):
         """Compute centroids from GT instances, no model forward.
 
         Mirrors the legacy ``CentroidCrop(use_gt_centroids=True)`` branch:
-        ``generate_centroids`` produces a ``(B, 1, max_inst, 2)`` tensor,
-        which we reshape to the canonical ``Outputs`` shape and pad to
-        ``max_instances`` with NaNs.
+        ``generate_centroids`` reduces ``(B, max_inst, n_nodes, 2)`` GT
+        keypoints to ``(B, max_inst, 2)`` centroids. NaN-padded instance
+        slots stay NaN; corresponding centroid_values are NaN-masked.
+        Truncated/padded to ``self.max_instances`` if set.
         """
         x = self._to_4d_float_tensor(image)
         B = x.shape[0]
         H, W = x.shape[-2], x.shape[-1]
 
         centroids = generate_centroids(instances, anchor_ind=self.anchor_ind)
-        # ``generate_centroids`` returns ``(B, 1, max_inst, 2)``; squeeze the
-        # sample dim and pad each batch to the requested ``max_instances``.
+        # ``centroids`` shape: ``(B, max_inst, 2)`` (3D — same rank as
+        # ``Outputs.pred_centroids``).
         device = centroids.device
-        centroid_vals = torch.ones(centroids.shape[:-1], device=device)
-        peaks_per_b = [c[0] for c in centroids]  # list of (max_inst, 2)
-        vals_per_b = [v[0] for v in centroid_vals]  # list of (max_inst,)
-        max_instances = (
-            self.max_instances
-            if self.max_instances is not None
-            else int(instances.shape[-3])
+        n_valid = centroids.shape[1]
+
+        # Confidence = 1.0 where centroid is valid, NaN where padded.
+        nan_mask = torch.isnan(centroids).any(dim=-1)  # (B, max_inst)
+        centroid_vals = torch.where(
+            nan_mask,
+            torch.full((B, n_valid), float("nan"), device=device),
+            torch.ones((B, n_valid), device=device),
         )
-        padded_peaks = torch.full((B, max_instances, 2), float("nan"), device=device)
-        padded_vals = torch.full((B, max_instances), float("nan"), device=device)
-        for b, (peaks_b, vals_b) in enumerate(zip(peaks_per_b, vals_per_b)):
-            n = min(peaks_b.shape[0], max_instances)
-            padded_peaks[b, :n] = peaks_b[:n]
-            padded_vals[b, :n] = vals_b[:n]
+
+        # Honor ``self.max_instances`` cap; pad-with-NaN or truncate to it.
+        max_inst = self.max_instances or n_valid
+        if max_inst > n_valid:
+            pad_n = max_inst - n_valid
+            centroids = torch.cat(
+                [
+                    centroids,
+                    torch.full((B, pad_n, 2), float("nan"), device=device),
+                ],
+                dim=1,
+            )
+            centroid_vals = torch.cat(
+                [
+                    centroid_vals,
+                    torch.full((B, pad_n), float("nan"), device=device),
+                ],
+                dim=1,
+            )
+        elif max_inst < n_valid:
+            centroids = centroids[:, :max_inst]
+            centroid_vals = centroid_vals[:, :max_inst]
 
         info = PreprocInfo(
             original_size=(H, W),
@@ -168,8 +186,8 @@ class CentroidLayer(InferenceLayer):
             output_stride=1,
         )
         return Outputs(
-            pred_centroids=padded_peaks,
-            pred_centroid_values=padded_vals,
+            pred_centroids=centroids,
+            pred_centroid_values=centroid_vals,
             preprocess_info=info,
         )
 

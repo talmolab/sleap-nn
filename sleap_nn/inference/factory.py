@@ -227,6 +227,38 @@ def _build_centered_instance_layer(
     )
 
 
+def _build_centroid_layer_gt_only(legacy_predictor: Any, backend: Any) -> CentroidLayer:
+    """Build a ``CentroidLayer`` that reads centroids from GT (no model forward).
+
+    Used when ``model_paths`` contains only a centered-instance model.
+    Mirrors the legacy ``TopDownPredictor.from_trained_models(centroid_ckpt_path=None)``
+    path, which synthesizes a ``CentroidCrop(use_gt_centroids=True)`` that
+    reads centroids from the input batch's ``instances`` field (populated
+    by :class:`LabelsProvider` from a ``.slp`` source).
+
+    Required-but-unused ``backend``: :class:`CentroidLayer` validates the
+    backend against the :class:`ModelBackend` protocol at construction,
+    but the ``use_gt_centroids=True`` branch in
+    :meth:`CentroidLayer.predict` never invokes it. Reuse the
+    centered-instance layer's backend so the device matches and no extra
+    GPU memory is allocated.
+    """
+    legacy_centroid = legacy_predictor.inference_model.centroid_crop
+    return CentroidLayer(
+        backend=backend,
+        # Stride / max-instances / max-stride are model-side knobs the GT
+        # path bypasses; pass benign defaults.
+        output_stride=1,
+        max_instances=None,
+        max_stride=1,
+        anchor_ind=getattr(legacy_centroid, "anchor_ind", None),
+        use_gt_centroids=True,
+        # No preprocess on the GT path — centroids come from the batch.
+        preprocess_config=PreprocessConfig(scale=1.0),
+        postprocess_config=PostprocessConfig(),
+    )
+
+
 def _build_centered_instance_multiclass_layer(
     legacy_inst: Any, device: str
 ) -> CenteredInstanceMultiClassLayer:
@@ -673,9 +705,33 @@ def _select_layer(legacy_predictor: Any, model_types: List[str], device: str):
             device,
             legacy_predictor=legacy_predictor,
         )
+    if has_centered:
+        # Standalone centered-instance inference: no centroid model is
+        # provided, so the centroid stage reads GT centroids from the
+        # batch's ``instances`` field (the ``LabelsProvider`` path). The
+        # legacy ``TopDownPredictor.from_trained_models(centroid_ckpt_path=None)``
+        # builds this composition; we mirror it here.
+        #
+        # Required input source: a ``.slp`` file with labeled centroids
+        # (``LabelsProvider``). Using ``VideoProvider`` will fail at
+        # ``CentroidLayer.predict`` with "use_gt_centroids=True requires
+        # `instances` to be passed" — by design.
+        inst_layer = _build_centered_instance_layer(
+            legacy_predictor.inference_model.instance_peaks, device
+        )
+        centroid_layer = _build_centroid_layer_gt_only(
+            legacy_predictor, inst_layer.backend
+        )
+        crop_h, crop_w = legacy_predictor.inference_model.centroid_crop.crop_hw
+        return TopDownLayer(
+            centroid_layer=centroid_layer,
+            centered_instance_layer=inst_layer,
+            crop_size=(crop_h, crop_w),
+        )
     raise ValueError(
         f"Unsupported model_paths combination: detected types {model_types}. "
         f"The new Predictor.from_model_paths supports: single_instance, "
         f"bottomup, multi_class_bottomup, top-down (centroid + centered_instance), "
-        f"top-down multiclass (centroid + multi_class_topdown), or centroid-only."
+        f"top-down multiclass (centroid + multi_class_topdown), centroid-only, "
+        f"or centered-instance-only (requires a .slp source for GT centroids)."
     )
