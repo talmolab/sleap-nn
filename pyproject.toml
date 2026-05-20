@@ -256,4 +256,5 @@ convention = "google"
 skip = '.git*,*.css'
 check-hidden = true
 # ignore-regex = ''
-# ignore-words-list = ''
+# Literal DRM device-node prefix (e.g. /dev/dri/renderD128) — not a typo of "rendered".
+ignore-words-list = 'renderD'

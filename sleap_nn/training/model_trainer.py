@@ -1216,7 +1216,9 @@ class ModelTrainer:
             if device_indices is not None and len(device_indices) > 0:
                 xpu_index = int(device_indices[0])
             strategy = SingleDeviceStrategy(device=torch.device("xpu", xpu_index))
-            logger.info(f"Using SingleDeviceStrategy on xpu:{xpu_index} (Lightning has no native XPU strategy)")
+            logger.info(
+                f"Using SingleDeviceStrategy on xpu:{xpu_index} (Lightning has no native XPU strategy)"
+            )
 
         # create lightning.Trainer instance.
         self.trainer = L.Trainer(

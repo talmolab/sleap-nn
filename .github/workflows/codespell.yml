@@ -1,4 +1,6 @@
-# Codespell configuration is within pyproject.toml
+# Codespell configuration is within pyproject.toml; the action below does
+# not read pyproject.toml on its own, so the `ignore_words_list` input
+# below must be kept in sync with [tool.codespell].ignore-words-list.
 ---
 name: Codespell
 
@@ -23,3 +25,6 @@ jobs:
         uses: codespell-project/codespell-problem-matcher@v1
       - name: Codespell
         uses: codespell-project/actions-codespell@v2
+        with:
+          # Literal DRM device-node prefix (e.g. /dev/dri/renderD128); not a typo of "rendered".
+          ignore_words_list: renderD
