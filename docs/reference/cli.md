@@ -79,7 +79,7 @@ sleap-nn track --data_path INPUT --model_paths MODEL [OPTIONS]
 | `--data_path` | `-i` | Video or labels file | `PATH` | Required |
 | `--model_paths` | `-m` | Model directory (multiple for top-down) | `PATH` | Required* |
 | `--output_path` | `-o` | Output file path | `PATH` | `<input>.predictions.slp` |
-| `--device` | `-d` | Compute device | `auto`, `cuda`, `cuda:0`, `cuda:1`, `cpu`, `mps` | `auto` |
+| `--device` | `-d` | Compute device | `auto`, `cuda`, `cuda:0`, `cuda:1`, `cpu`, `mps`, `xpu`, `xpu:0` | `auto` |
 | `--batch_size` | `-b` | Batch size | `INT` | `4` |
 | `--tracking` | `-t` | Enable tracking | Flag | `false` |
 
@@ -226,7 +226,7 @@ sleap-nn predict EXPORT_DIR INPUT_PATH [OPTIONS]
 | `--runtime` | `-r` | Inference runtime | `auto`, `onnx`, `tensorrt` | `auto` |
 | `--batch-size` | `-b` | Batch size | `INT` | `4` |
 | `--n-frames` | `-n` | Frames to process (0=all) | `INT` | `0` |
-| `--device` | | Compute device | `auto`, `cuda`, `cpu` | `auto` |
+| `--device` | | Compute device | `auto`, `cuda`, `cpu`, `xpu` | `auto` |
 
 ### Example
 

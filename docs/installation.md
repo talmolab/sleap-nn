@@ -232,6 +232,17 @@ conda activate sleap-nn
         --extra-index-url https://download.pytorch.org/whl/cu118
     ```
 
+=== "Intel GPU (XPU)"
+    ```bash
+    pip install sleap-nn \
+        --index-url https://pypi.org/simple \
+        --extra-index-url https://download.pytorch.org/whl/xpu
+    ```
+
+    !!! info "Intel Arc / Battlemage"
+        Linux x86_64 only. See **System Requirements** below for the Intel GPU
+        userspace runtime (`libze1`, `libze-intel-gpu1`, `intel-opencl-icd`).
+
 === "CPU Only"
     ```bash
     pip install sleap-nn \
@@ -286,9 +297,14 @@ This installs with CUDA 13.0 support. Other backends:
 | `--extra cpu` | CPU-only (alias for `torch-cpu`) |
 | `--extra torch-cuda128` | CUDA 12.8 |
 | `--extra torch-cuda118` | CUDA 11.8 |
+| `--extra torch-xpu` | Intel GPU (Arc / Battlemage), Linux x86_64 only |
 
 !!! note
     On macOS, use `--extra cpu` — the MPS backend is automatically available.
+
+!!! info "Intel GPU prerequisites"
+    `--extra torch-xpu` only pulls the PyTorch wheel. You also need the Intel
+    GPU userspace runtime — see **System Requirements** below.
 
 **Step 4: Run commands**
 
@@ -313,6 +329,47 @@ See [Contributing](https://github.com/talmolab/sleap-nn/blob/main/CONTRIBUTING.m
 
 !!! note "Apple Silicon"
     M1/M2/M3 Macs are fully supported via Metal Performance Shaders (MPS).
+
+!!! note "Intel GPU (Arc / Battlemage)"
+    Linux x86_64 only. PyTorch ≥ 2.5 ships native `torch.xpu` support; sleap-nn
+    registers a Lightning `XPUAccelerator` on import so `trainer_accelerator="xpu"`
+    just works.
+
+    **Userspace runtime** (install once, system-wide):
+
+    === "Ubuntu 24.04+"
+        ```bash
+        sudo apt install libze1 libze-intel-gpu1 intel-opencl-icd clinfo
+        ```
+        Ubuntu 26.04 ships these in the `universe` repo by default. For 24.04
+        link the Intel [GPU compute apt repo](https://dgpu-docs.intel.com/driver/client/overview.html)
+        first.
+
+    === "Other distros"
+        Install the equivalent of the Intel Level-Zero loader, the Intel L0
+        backend for your GPU, and the Intel OpenCL ICD. The PyTorch XPU wheel
+        bundles the SYCL runtime (`intel-sycl-rt`, `oneCCL`, `oneMKL`), so
+        Intel oneAPI Base Toolkit is **not** required.
+
+    **Headless / SSH / service users:** `/dev/dri/renderD*` is ACL-granted to
+    the active desktop seat owner. For SSH or systemd-service users, add
+    `$USER` to the `render` group:
+
+    ```bash
+    sudo gpasswd -a "$USER" render && newgrp render
+    ```
+
+    **Verify:**
+
+    ```bash
+    clinfo -l                  # should list "Intel(R) Arc(TM) ..."
+    sleap-nn system            # should report "accelerator: xpu"
+    ```
+
+    **Kernel driver note:** the `i915` and `xe` DRM drivers both work for
+    PyTorch XPU compute. On kernel 7.0 with Arc A-series (Alchemist, e.g.
+    A770), the default is `i915`. To force `xe`, boot with
+    `i915.force_probe=!56a0 xe.force_probe=56a0` — usually unnecessary.
 
 !!! warning "Python 3.14"
     Not yet supported. Use `--python 3.13` with uv commands.
@@ -367,6 +424,34 @@ See [Contributing](https://github.com/talmolab/sleap-nn/blob/main/CONTRIBUTING.m
     ```bash
     uv tool install --python 3.13 sleap-nn --torch-backend auto
     ```
+
+??? question "Intel GPU (XPU) not detected"
+
+    1. **Confirm the device is visible at the OS level:**
+       ```bash
+       clinfo -l                # should list Intel Arc / Battlemage
+       ls /dev/dri/renderD*     # should exist; check `getfacl` for your user
+       ```
+
+    2. **Confirm torch sees it:**
+       ```bash
+       python -c "import torch; print(torch.__version__, torch.xpu.is_available())"
+       ```
+       Expected: `2.x.y+xpu True`. If the version doesn't end in `+xpu`, your
+       venv has the CPU wheel — install with `--extra torch-xpu` (or
+       `--extra-index-url https://download.pytorch.org/whl/xpu` for pip).
+
+    3. **Check sleap-nn detects XPU:**
+       ```bash
+       sleap-nn system
+       ```
+
+    !!! warning "torch can silently downgrade"
+        Any `uv pip install` that resolves a torch-using package will replace
+        the XPU wheel with the PyPI CPU wheel unless you re-pin the source.
+        Always use `uv sync --extra torch-xpu` (from source) or include
+        `--extra-index-url https://download.pytorch.org/whl/xpu` (with pip)
+        when re-installing.
 
 ??? question "uv version too old"
 
