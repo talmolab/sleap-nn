@@ -376,7 +376,7 @@ class TestGetSystemInfoDict:
         assert "pytorch_version" in info
         assert "cuda_available" in info
         assert "accelerator" in info
-        assert info["accelerator"] in ("cpu", "cuda", "mps")
+        assert info["accelerator"] in ("cpu", "cuda", "mps", "xpu")
         assert "packages" in info
         assert "gpus" in info
 
@@ -495,6 +495,8 @@ class TestTestGpuOperations:
 
         if torch.cuda.is_available():
             pytest.skip("CUDA available - skipping no-GPU test")
+        if torch.xpu.is_available():
+            pytest.skip("XPU available - skipping no-GPU test")
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             pytest.skip("MPS available - skipping no-GPU test")
 

@@ -70,6 +70,13 @@ torch-cpu = ["torch", "torchvision>=0.20.0"]
 torch-cuda118 = ["torch", "torchvision>=0.20.0"]
 torch-cuda128 = ["torch", "torchvision>=0.20.0"]
 torch-cuda130 = ["torch", "torchvision>=0.20.0"]
+torch-xpu = [  # Intel GPU (Arc / Battlemage) — Linux x86_64 only
+    "torch",
+    "torchvision>=0.20.0",
+    # triton-xpu is a transitive dep of torch+xpu, but the PyPI copy is stale
+    # (3.3.0b1) — must come from the pytorch-xpu index, see [tool.uv.sources].
+    "triton-xpu; platform_machine == 'x86_64' and sys_platform == 'linux'",
+]
 export = ["onnx>=1.15.0", "onnxruntime>=1.16.0", "onnxscript>=0.1.0"]
 export-gpu = [
     "onnx>=1.15.0",
@@ -132,6 +139,7 @@ conflicts = [
         { extra = "torch-cuda118" },
         { extra = "torch-cuda128" },
         { extra = "torch-cuda130" },
+        { extra = "torch-xpu" },
     ],
 ]
 
@@ -141,12 +149,19 @@ torch = [
     { index = "pytorch-cu118", extra = "torch-cuda118", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu128", extra = "torch-cuda128", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu130", extra = "torch-cuda130", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
+    { index = "pytorch-xpu", extra = "torch-xpu", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
 torchvision = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
     { index = "pytorch-cu118", extra = "torch-cuda118", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu128", extra = "torch-cuda128", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu130", extra = "torch-cuda130", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
+    { index = "pytorch-xpu", extra = "torch-xpu", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+]
+# torch+xpu pulls triton-xpu>=3.7. PyPI's triton-xpu only goes to 3.3.0b1 (stale),
+# so we have to source the newer wheels from the pytorch-xpu index.
+triton-xpu = [
+    { index = "pytorch-xpu", extra = "torch-xpu", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
 
 [[tool.uv.index]]
@@ -167,6 +182,11 @@ explicit = true
 [[tool.uv.index]]
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-xpu"
+url = "https://download.pytorch.org/whl/xpu"
 explicit = true
 
 [[tool.uv.index]]
@@ -236,4 +256,5 @@ convention = "google"
 skip = '.git*,*.css'
 check-hidden = true
 # ignore-regex = ''
-# ignore-words-list = ''
+# Literal DRM device-node prefix (e.g. /dev/dri/renderD128) — not a typo of "rendered".
+ignore-words-list = 'renderD'

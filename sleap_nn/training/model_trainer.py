@@ -30,6 +30,12 @@ from lightning.pytorch.profilers import (
     PyTorchProfiler,
     PassThroughProfiler,
 )
+from lightning.pytorch.strategies import SingleDeviceStrategy
+
+# Import for side-effect: registers `XPUAccelerator` under the name "xpu" with
+# Lightning's AcceleratorRegistry. Safe on no-XPU boxes — the accelerator's
+# `is_available()` gates use, not import.
+from sleap_nn.training import xpu_accelerator  # noqa: F401
 from sleap_io.io.skeleton import SkeletonYAMLEncoder
 from sleap_nn.data.instance_cropping import (
     find_instance_crop_size,
@@ -177,6 +183,10 @@ class ModelTrainer:
         # if cuda is available
         if torch.cuda.is_available():
             torch.cuda.manual_seed(seed)
+
+        # if xpu is available
+        if torch.xpu.is_available():
+            torch.xpu.manual_seed_all(seed)
 
         # lightning
         L.seed_everything(seed)
@@ -1186,6 +1196,29 @@ class ModelTrainer:
             # assign multiple ranks to the same GPU, causing "Duplicate GPU detected" errors.
             devices.sort()
             logger.info(f"Using GPUs with most available memory: {devices}")
+
+        # XPU strategy passthrough.
+        #
+        # Lightning 2.6 has no built-in XPU support — multiple upstream PRs
+        # (Lightning-AI/pytorch-lightning#16834, #17700, #19443, #20349) were
+        # closed without merging, and the strategy chooser in
+        # `accelerator_connector._choose_strategy` falls back to a CPU
+        # `SingleDeviceStrategy` for any non-CUDA/MPS accelerator. So when the
+        # user picks `accelerator="xpu"` and leaves `strategy="auto"`, we
+        # construct the single-device strategy explicitly here instead of
+        # monkey-patching Lightning.
+        accelerator = self.config.trainer_config.trainer_accelerator
+        if accelerator == "xpu" and (strategy == "auto" or strategy is None):
+            xpu_index = 0
+            device_indices = OmegaConf.select(
+                self.config, "trainer_config.trainer_device_indices", default=None
+            )
+            if device_indices is not None and len(device_indices) > 0:
+                xpu_index = int(device_indices[0])
+            strategy = SingleDeviceStrategy(device=torch.device("xpu", xpu_index))
+            logger.info(
+                f"Using SingleDeviceStrategy on xpu:{xpu_index} (Lightning has no native XPU strategy)"
+            )
 
         # create lightning.Trainer instance.
         self.trainer = L.Trainer(
