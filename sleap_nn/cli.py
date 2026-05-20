@@ -177,6 +177,8 @@ def _get_num_devices_from_config(cfg) -> int:
             return 1
         elif torch.cuda.is_available():
             return torch.cuda.device_count()
+        elif torch.xpu.is_available():
+            return torch.xpu.device_count()
         elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return 1
         else:

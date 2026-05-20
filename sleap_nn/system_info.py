@@ -226,7 +226,9 @@ def get_system_info_dict() -> dict:
         "gpu_count": 0,
         "gpus": [],
         "mps_available": False,
-        "accelerator": "cpu",  # cpu, cuda, or mps
+        "xpu_available": torch.xpu.is_available(),
+        "xpu_version": getattr(torch.version, "xpu", None),
+        "accelerator": "cpu",  # cpu, cuda, xpu, or mps
         "packages": {},
     }
 
@@ -262,6 +264,21 @@ def get_system_info_dict() -> dict:
                 }
             )
 
+    # Intel XPU (Arc / Battlemage, native torch.xpu — PyTorch >= 2.5).
+    elif torch.xpu.is_available():
+        info["accelerator"] = "xpu"
+        info["gpu_count"] = torch.xpu.device_count()
+        for i in range(torch.xpu.device_count()):
+            props = torch.xpu.get_device_properties(i)
+            info["gpus"].append(
+                {
+                    "id": i,
+                    "name": props.name,
+                    "driver_version": getattr(props, "driver_version", None),
+                    "memory_gb": round(props.total_memory / (1024**3), 1),
+                }
+            )
+
     # MPS (Apple Silicon)
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         info["mps_available"] = True
@@ -286,6 +303,13 @@ def test_gpu_operations() -> tuple[bool, Optional[str]]:
     if torch.cuda.is_available():
         try:
             x = torch.randn(100, 100, device="cuda")
+            _ = torch.mm(x, x)
+            return True, None
+        except Exception as e:
+            return False, str(e)
+    elif torch.xpu.is_available():
+        try:
+            x = torch.randn(100, 100, device="xpu")
             _ = torch.mm(x, x)
             return True, None
         except Exception as e:

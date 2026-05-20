@@ -44,7 +44,12 @@ def load_exported_model(
         runtime = detect_runtime(model_path)
 
     if device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.xpu.is_available():
+            device = "xpu"
+        else:
+            device = "cpu"
 
     if runtime == "onnx":
         return ONNXPredictor(str(model_path), device=device, **kwargs)

@@ -206,7 +206,7 @@ class Predictor(ABC):
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
-                ("cpu", "cuda", "mps").
+                ("cpu", "cuda", "mps", "xpu").
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -753,7 +753,7 @@ class TopDownPredictor(Predictor):
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
             along with the predicted peak values and points. Default: False.
         device: (str) Device on which torch.Tensor will be allocated. One of the
-            ("cpu", "cuda", "mps").
+            ("cpu", "cuda", "mps", "xpu").
             Default: "cpu"
         preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
             in the `data_config.preprocessing` section.
@@ -937,7 +937,7 @@ class TopDownPredictor(Predictor):
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
-                ("cpu", "cuda", "mps").
+                ("cpu", "cuda", "mps", "xpu").
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -1581,7 +1581,7 @@ class SingleInstancePredictor(Predictor):
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
             along with the predicted peak values and points. Default: False.
         device: (str) Device on which torch.Tensor will be allocated. One of the
-            ("cpu", "cuda", "mps").
+            ("cpu", "cuda", "mps", "xpu").
             Default: "cpu"
         preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -1653,7 +1653,7 @@ class SingleInstancePredictor(Predictor):
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
-                ("cpu", "cuda", "mps").
+                ("cpu", "cuda", "mps", "xpu").
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -1997,7 +1997,7 @@ class BottomUpPredictor(Predictor):
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
             along with the predicted peak values and points. Default: False.
         device: (str) Device on which torch.Tensor will be allocated. One of the
-            ("cpu", "cuda", "mps").
+            ("cpu", "cuda", "mps", "xpu").
             Default: "cpu".
         preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -2117,7 +2117,7 @@ class BottomUpPredictor(Predictor):
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
-                ("cpu", "cuda", "mps").
+                ("cpu", "cuda", "mps", "xpu").
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -2579,7 +2579,7 @@ class BottomUpMultiClassPredictor(Predictor):
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
             along with the predicted peak values and points. Default: False.
         device: (str) Device on which torch.Tensor will be allocated. One of the
-            ("cpu", "cuda", "mps").
+            ("cpu", "cuda", "mps", "xpu").
             Default: "cpu".
         preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -2670,7 +2670,7 @@ class BottomUpMultiClassPredictor(Predictor):
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
-                ("cpu", "cuda", "mps").
+                ("cpu", "cuda", "mps", "xpu").
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -3141,7 +3141,7 @@ class TopDownMultiClassPredictor(Predictor):
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
             along with the predicted peak values and points. Default: False.
         device: (str) Device on which torch.Tensor will be allocated. One of the
-            ("cpu", "cuda", "mps").
+            ("cpu", "cuda", "mps", "xpu").
             Default: "cpu"
         preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
             in the `data_config.preprocessing` section.
@@ -3317,7 +3317,7 @@ class TopDownMultiClassPredictor(Predictor):
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
-                ("cpu", "cuda", "mps").
+                ("cpu", "cuda", "mps", "xpu").
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
