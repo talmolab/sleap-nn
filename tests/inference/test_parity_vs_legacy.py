@@ -196,6 +196,17 @@ FIXTURES = [
         ],
     ),
     ("bottomup", [CKPT_ROOT / "minimal_instance_bottomup"]),
+    (
+        "multi_class_bottomup",
+        [CKPT_ROOT / "minimal_instance_multiclass_bottomup"],
+    ),
+    (
+        "multi_class_topdown",
+        [
+            CKPT_ROOT / "minimal_instance_centroid",
+            CKPT_ROOT / "minimal_instance_multiclass_centered_instance",
+        ],
+    ),
 ]
 
 # Standalone centered-instance only runs against a labeled source (the

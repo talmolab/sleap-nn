@@ -101,7 +101,7 @@ class BottomUpMultiClassLayer(InferenceLayer):
         peaks_for_classmap = peaks / self.class_maps_output_stride
 
         n_nodes = cms.shape[1]
-        instances, peak_scores, instance_scores = classify_peaks_from_maps(
+        instances, peak_scores, class_probs = classify_peaks_from_maps(
             class_maps.detach(),
             peaks_for_classmap,
             peak_vals,
@@ -118,6 +118,11 @@ class BottomUpMultiClassLayer(InferenceLayer):
         eff = info.eff_scale.to(instances.device)
         if not torch.all(eff == 1.0):
             instances = instances / eff.view(-1, 1, 1, 1)
+
+        # class_probs is (B, n_classes, n_nodes) — reduce over the node axis
+        # to satisfy the (B, I) instance_scores contract that downstream
+        # filters + Outputs.to_instances expect. Matches topdown_multiclass.
+        instance_scores = torch.nanmean(class_probs, dim=-1)
 
         outputs = Outputs(
             pred_keypoints=instances,
