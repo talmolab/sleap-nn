@@ -264,8 +264,9 @@ class Predictor:
                     "operates on sio.PredictedInstance objects."
                 )
             return outputs_list
-        skeleton = skeleton or self.skeleton
-        if skeleton is None:
+        if skeleton is not None:
+            self.skeleton = skeleton
+        if self.skeleton is None:
             raise ValueError(
                 "make_labels=True requires a skeleton. Either pass "
                 "`skeleton=...` or build the Predictor via from_model_paths() "
@@ -273,7 +274,6 @@ class Predictor:
             )
         labels = self._to_labels(
             outputs_list,
-            skeleton=skeleton,
             videos=videos,
             anchor_ind=self._packaging_anchor_ind(),
         )
@@ -352,8 +352,9 @@ class Predictor:
         Returns:
             The (resolved) destination path string.
         """
-        skeleton = skeleton or self.skeleton
-        if skeleton is None:
+        if skeleton is not None:
+            self.skeleton = skeleton
+        if self.skeleton is None:
             raise ValueError(
                 "predict_to_file requires a skeleton. Either pass "
                 "`skeleton=...` or build the Predictor via from_model_paths() "
@@ -364,7 +365,7 @@ class Predictor:
         provider, _ = self._make_provider(source, frames=frames)
         with IncrementalLabelsWriter(
             path=path,
-            skeleton=skeleton,
+            skeleton=self.skeleton,
             videos=videos,
             write_interval=write_interval,
         ) as writer:
@@ -471,16 +472,16 @@ class Predictor:
             return outputs
         return attrs.evolve(outputs, **kwargs)
 
-    @staticmethod
     def _to_labels(
+        self,
         outputs_list: List[Outputs],
-        skeleton: Any,
         videos: Optional[List[Any]] = None,
         anchor_ind: Optional[int] = None,
     ) -> Any:
         """Concatenate per-batch ``Outputs`` into a single ``sio.Labels``."""
         import sleap_io as sio
 
+        skeleton = self.skeleton
         videos = list(videos) if videos else [None]
         all_lf: list = []
         for outputs in outputs_list:
