@@ -143,7 +143,7 @@ def test_from_export_dir_single_instance_predict_smoke(single_instance_export):
     images = np.zeros((1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
-    outputs_list = predictor.predict(provider)
+    outputs_list = predictor.predict(provider, make_labels=False)
     assert len(outputs_list) == 1
     out = outputs_list[0]
     assert out.pred_keypoints is not None
@@ -189,7 +189,7 @@ def test_from_export_dir_single_instance_no_double_coord_ladder(tmp_path):
     images = np.zeros((1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
-    outputs_list = predictor.predict(provider)
+    outputs_list = predictor.predict(provider, make_labels=False)
     out = outputs_list[0]
     # Whatever the wrapper produced (argmax over 16x16 → values in [0, 15])
     # must come through unchanged. Specifically NOT re-multiplied by
@@ -413,7 +413,7 @@ def test_from_export_dir_centroid_predict_smoke(centroid_export):
     images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
-    outputs_list = predictor.predict(provider)
+    outputs_list = predictor.predict(provider, make_labels=False)
     out = outputs_list[0]
     assert out.pred_centroids is not None
     assert out.pred_centroid_values is not None
@@ -441,7 +441,7 @@ def test_from_export_dir_centered_instance_predict_smoke(centered_instance_expor
     crops = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=crops, batch_size=1)
 
-    outputs_list = predictor.predict(provider)
+    outputs_list = predictor.predict(provider, make_labels=False)
     out = outputs_list[0]
     assert out.pred_keypoints is not None
     # (B_crops, 1 instance per crop, n_nodes, 2) → (1, 1, 2, 2).
@@ -466,7 +466,7 @@ def test_from_export_dir_topdown_predict_smoke(topdown_export):
     images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
-    outputs_list = predictor.predict(provider)
+    outputs_list = predictor.predict(provider, make_labels=False)
     out = outputs_list[0]
     assert out.pred_keypoints is not None
     assert out.pred_centroids is not None
@@ -488,7 +488,7 @@ def test_centroid_adapter_nan_pads_invalid_slots(centroid_export):
     images = np.zeros((1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
-    out = predictor.predict(provider)[0]
+    out = predictor.predict(provider, make_labels=False)[0]
     # Some slots may be invalid. Wherever instance_valid is False, the
     # corresponding centroid + value must be NaN.
     valid = out.instance_valid[0]
@@ -646,7 +646,7 @@ def test_from_export_dir_bottomup_predict_smoke(bottomup_export):
     images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
-    outputs_list = predictor.predict(provider)
+    outputs_list = predictor.predict(provider, make_labels=False)
     out = outputs_list[0]
     # Bottom-up always populates pred_keypoints (NaN-padded if no
     # instances assembled).
@@ -904,7 +904,7 @@ def test_from_export_dir_multiclass_topdown_predict_smoke(
     images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
-    out = predictor.predict(provider)[0]
+    out = predictor.predict(provider, make_labels=False)[0]
     assert out.pred_keypoints is not None
     # I = n_classes = 3
     assert out.pred_keypoints.shape == (1, 3, 2, 2)
@@ -940,7 +940,7 @@ def test_from_export_dir_multiclass_bottomup_predict_smoke(
     images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
-    out = predictor.predict(provider)[0]
+    out = predictor.predict(provider, make_labels=False)[0]
     assert out.pred_keypoints is not None
     # I = n_classes = 2, N = n_nodes = 2.
     assert out.pred_keypoints.shape == (1, 2, 2, 2)

@@ -12,6 +12,7 @@ Coverage:
 6. ``make_labels=True`` requires ``skeleton`` (clear ``ValueError``).
 7. ``Provider`` protocol — ``isinstance(numpy_provider, Provider)``
    returns ``True``.
+8. Source dispatch: ``predict`` accepts ``sio.Video``, ``Provider``, etc.
 """
 
 from __future__ import annotations
@@ -56,7 +57,6 @@ def test_numpy_provider_yields_expected_batches():
     assert batches[0].images.shape == (4, 1, 8, 8)
     assert batches[1].images.shape == (4, 1, 8, 8)
     assert batches[2].images.shape == (2, 1, 8, 8)
-    # Frame indices auto-populated.
     assert np.array_equal(batches[0].frame_indices, [0, 1, 2, 3])
     assert np.array_equal(batches[2].frame_indices, [8, 9])
 
@@ -73,11 +73,11 @@ def test_numpy_provider_satisfies_provider_protocol():
 
 
 def test_predictor_predict_returns_outputs_list():
-    """Default ``predict`` returns a list of ``Outputs``, one per batch."""
+    """``make_labels=False`` returns a list of ``Outputs``, one per batch."""
     images = np.zeros((6, 1, 8, 8), dtype=np.float32)
     provider = NumpyProvider(images=images, batch_size=2)
     predictor = Predictor(layer=_StubLayer())
-    outputs_list = predictor.predict(provider)
+    outputs_list = predictor.predict(provider, make_labels=False)
     assert isinstance(outputs_list, list)
     assert len(outputs_list) == 3
     assert all(isinstance(o, Outputs) for o in outputs_list)
@@ -107,15 +107,13 @@ def test_predict_streaming_yields_outputs():
 
 def test_predictor_applies_filter_config():
     """A non-trivial ``FilterConfig`` filters the ``Outputs`` per batch."""
-    # Stub returns instance_scores=0.9; min_instance_score=0.95 should
-    # NaN-out everything.
     images = np.zeros((2, 1, 8, 8), dtype=np.float32)
     provider = NumpyProvider(images=images, batch_size=2)
     predictor = Predictor(
         layer=_StubLayer(),
         filter_config=FilterConfig(min_instance_score=0.95),
     )
-    out = predictor.predict(provider)[0]
+    out = predictor.predict(provider, make_labels=False)[0]
     assert torch.isnan(out.pred_keypoints).all()
 
 
@@ -124,7 +122,7 @@ def test_default_filter_is_noop():
     images = np.zeros((2, 1, 8, 8), dtype=np.float32)
     provider = NumpyProvider(images=images, batch_size=2)
     predictor = Predictor(layer=_StubLayer())
-    out = predictor.predict(provider)[0]
+    out = predictor.predict(provider, make_labels=False)[0]
     assert not torch.isnan(out.pred_keypoints).any()
 
 
@@ -143,7 +141,7 @@ def test_metadata_propagates_from_provider():
         video_indices=np.array([0, 0, 1, 1], dtype=np.int64),
     )
     predictor = Predictor(layer=_StubLayer())
-    out_list = predictor.predict(provider)
+    out_list = predictor.predict(provider, make_labels=False)
     assert torch.equal(out_list[0].frame_indices, torch.tensor([10, 11]))
     assert torch.equal(out_list[1].video_indices, torch.tensor([1, 1]))
 
@@ -181,6 +179,21 @@ def test_make_labels_uses_predictor_skeleton():
     images = np.zeros((2, 1, 8, 8), dtype=np.float32)
     provider = NumpyProvider(images=images, batch_size=2)
     predictor = Predictor(layer=_StubLayer(), skeleton=skel)
-    labels = predictor.predict(provider, make_labels=True)
+    labels = predictor.predict(provider)
     assert isinstance(labels, sio.Labels)
     assert labels.skeletons[0] is skel
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 8. batch_size stored on Predictor
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_batch_size_stored_on_predictor():
+    predictor = Predictor(layer=_StubLayer(), batch_size=8)
+    assert predictor.batch_size == 8
+
+
+def test_batch_size_default():
+    predictor = Predictor(layer=_StubLayer())
+    assert predictor.batch_size == 4

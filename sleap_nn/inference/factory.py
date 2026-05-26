@@ -322,8 +322,9 @@ def from_model_paths(
         integral_refinement: ``"integral"`` for sub-pixel refinement,
             ``"none"`` (or ``None``) for grid-aligned peaks.
         integral_patch_size: Refinement patch size.
-        batch_size: Currently unused — :class:`Provider` controls batch
-            size. Kept in the signature for ``run_inference`` compatibility.
+        batch_size: Default batch size stored on the ``Predictor``. Used
+            when ``predict()`` auto-constructs a provider from an
+            ``sio.Video`` or ``sio.Labels``.
         max_instances: Cap on instances per frame.
         return_confmaps: Echo confmaps into ``Outputs.pred_confmaps``.
         device: ``"cpu"``, ``"cuda"``, ``"mps"``, or ``"cuda:N"``.
@@ -385,7 +386,12 @@ def from_model_paths(
     else:
         layer = _select_layer(loaded, model_types, device)
     skeleton = loaded.skeletons[0] if loaded.skeletons else None
-    kwargs: dict = {"layer": layer, "skeleton": skeleton, "paf_workers": paf_workers}
+    kwargs: dict = {
+        "layer": layer,
+        "skeleton": skeleton,
+        "batch_size": batch_size,
+        "paf_workers": paf_workers,
+    }
     if filter_config is not None:
         kwargs["filter_config"] = filter_config
     if tracker_config is not None:
@@ -403,6 +409,7 @@ def from_export_dir(
     *,
     runtime: str = "auto",
     device: str = "auto",
+    batch_size: int = 4,
     return_confmaps: bool = False,
     filter_config: Optional[FilterConfig] = None,
     paf_workers: int = 0,
@@ -487,7 +494,12 @@ def from_export_dir(
     )
 
     skeleton = _skeleton_from_export(export_dir, metadata)
-    kwargs: dict = {"layer": layer, "skeleton": skeleton, "paf_workers": paf_workers}
+    kwargs: dict = {
+        "layer": layer,
+        "skeleton": skeleton,
+        "batch_size": batch_size,
+        "paf_workers": paf_workers,
+    }
     if filter_config is not None:
         kwargs["filter_config"] = filter_config
     if tracker_config is not None:
