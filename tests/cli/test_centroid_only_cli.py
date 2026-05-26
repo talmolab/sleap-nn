@@ -40,7 +40,7 @@ def test_centroid_only_flag_propagates_to_factory():
     runner = CliRunner()
     with (
         patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
+            "sleap_nn.inference.factory.get_predictor_from_model_paths", return_value=stub_predictor
         ) as mock_factory,
         patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
         patch("sleap_nn.inference.providers.VideoProvider"),
@@ -73,7 +73,7 @@ def test_centroid_only_flag_omitted_is_default_off():
     runner = CliRunner()
     with (
         patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
+            "sleap_nn.inference.factory.get_predictor_from_model_paths", return_value=stub_predictor
         ) as mock_factory,
         patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
         patch("sleap_nn.inference.providers.VideoProvider"),
@@ -103,7 +103,7 @@ def test_centroid_only_underscore_variant_accepted():
     runner = CliRunner()
     with (
         patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
+            "sleap_nn.inference.factory.get_predictor_from_model_paths", return_value=stub_predictor
         ) as mock_factory,
         patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
         patch("sleap_nn.inference.providers.VideoProvider"),

@@ -32,7 +32,7 @@ import numpy as np
 import pytest
 import torch
 
-from sleap_nn.inference.factory import from_model_paths
+from sleap_nn.inference.factory import get_predictor_from_model_paths
 from sleap_nn.inference.layers.bottomup import BottomUpLayer
 from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLayer
 from sleap_nn.inference.layers.single_instance import SingleInstanceLayer
@@ -60,7 +60,7 @@ def single_predictor() -> Predictor:
     """Built once per module; reused across single-instance tests."""
     if not SINGLE_CKPT.exists():
         pytest.skip("single-instance ckpt absent")
-    p = from_model_paths([str(SINGLE_CKPT)], device="cpu")
+    p = get_predictor_from_model_paths([str(SINGLE_CKPT)], device="cpu")
     yield p
     del p
     gc.collect()
@@ -71,7 +71,7 @@ def bottomup_predictor() -> Predictor:
     """Built once per module; reused across bottom-up tests."""
     if not BOTTOMUP_CKPT.exists():
         pytest.skip("bottomup ckpt absent")
-    p = from_model_paths([str(BOTTOMUP_CKPT)], device="cpu")
+    p = get_predictor_from_model_paths([str(BOTTOMUP_CKPT)], device="cpu")
     yield p
     del p
     gc.collect()
@@ -82,7 +82,7 @@ def multiclass_bu_predictor() -> Predictor:
     """Built once per module; reused across multi-class bottom-up tests."""
     if not MULTICLASS_BU_CKPT.exists():
         pytest.skip("multiclass-bottomup ckpt absent")
-    p = from_model_paths([str(MULTICLASS_BU_CKPT)], device="cpu")
+    p = get_predictor_from_model_paths([str(MULTICLASS_BU_CKPT)], device="cpu")
     yield p
     del p
     gc.collect()
@@ -93,7 +93,7 @@ def topdown_predictor() -> Predictor:
     """Built once per module; reused across top-down tests."""
     if not (CENTROID_CKPT.exists() and CENTERED_CKPT.exists()):
         pytest.skip("topdown ckpts absent")
-    p = from_model_paths(
+    p = get_predictor_from_model_paths(
         [str(CENTROID_CKPT), str(CENTERED_CKPT)],
         device="cpu",
         peak_threshold=0.03,
@@ -109,7 +109,7 @@ def topdown_multiclass_predictor() -> Predictor:
     """Built once per module; reused across top-down multi-class tests."""
     if not (CENTROID_CKPT.exists() and MULTICLASS_TD_CKPT.exists()):
         pytest.skip("topdown-multiclass ckpts absent")
-    p = from_model_paths(
+    p = get_predictor_from_model_paths(
         [str(CENTROID_CKPT), str(MULTICLASS_TD_CKPT)],
         device="cpu",
         peak_threshold=0.03,
@@ -215,7 +215,7 @@ def test_factory_centered_instance_only_uses_gt_centroids():
     no centroid model in ``model_paths`` → the centroid stage reads GT
     centroids from the input batch (``LabelsProvider``-only source).
     """
-    p = from_model_paths([str(CENTERED_CKPT)], device="cpu")
+    p = get_predictor_from_model_paths([str(CENTERED_CKPT)], device="cpu")
     assert isinstance(p.layer, TopDownLayer)
     assert p.layer.centroid_layer.use_gt_centroids is True
 

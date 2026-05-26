@@ -123,7 +123,7 @@ def onnx_bottomup_labels(exported_bottomup_onnx_dir, video_path):
 
     from sleap_nn.export.cli import _find_training_config_for_predict
     from sleap_nn.export.metadata import ExportMetadata
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.providers import VideoProvider
     from sleap_nn.inference.utils import get_skeleton_from_config
 
@@ -137,7 +137,7 @@ def onnx_bottomup_labels(exported_bottomup_onnx_dir, video_path):
     sio_video = sio.Video.from_filename(str(video_path))
     n_total = min(_N_FRAMES, len(sio_video))
     provider = VideoProvider(video=sio_video, batch_size=4, frames=list(range(n_total)))
-    predictor = from_export_dir(
+    predictor = get_predictor_from_export_dir(
         export_dir=exported_bottomup_onnx_dir, runtime="onnx", device="cpu"
     )
     labels = predictor.predict(

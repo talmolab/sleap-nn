@@ -91,10 +91,10 @@ def _run_new_keypoints(
     model_paths: list[Path], source: Path, n_frames: int
 ) -> np.ndarray:
     """New-flow keypoints in **image-space** (via the ``sio.Labels`` output)."""
-    from sleap_nn.inference.factory import from_model_paths
+    from sleap_nn.inference.factory import get_predictor_from_model_paths
     from sleap_nn.inference.providers import LabelsProvider, VideoProvider
 
-    predictor = from_model_paths(
+    predictor = get_predictor_from_model_paths(
         [str(p) for p in model_paths], device="cpu", batch_size=n_frames
     )
     if str(source).endswith(".slp"):

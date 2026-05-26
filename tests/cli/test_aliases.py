@@ -25,7 +25,7 @@ def _mock_new_flow():
     stub_predictor.predict.return_value = MagicMock()
     return [
         patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
+            "sleap_nn.inference.factory.get_predictor_from_model_paths", return_value=stub_predictor
         ),
         patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
         patch("sleap_nn.inference.providers.VideoProvider"),
@@ -95,7 +95,7 @@ def test_track_and_infer_reach_same_factory_kwargs():
         stub_predictor.predict.return_value = MagicMock()
         with (
             patch(
-                "sleap_nn.inference.factory.from_model_paths",
+                "sleap_nn.inference.factory.get_predictor_from_model_paths",
                 return_value=stub_predictor,
             ) as mock_factory,
             patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),

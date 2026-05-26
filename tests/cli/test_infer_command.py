@@ -60,7 +60,7 @@ def test_infer_accepts_legacy_track_flag_surface():
     runner = CliRunner()
     with (
         patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
+            "sleap_nn.inference.factory.get_predictor_from_model_paths", return_value=stub_predictor
         ) as mock_factory,
         patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
         patch("sleap_nn.inference.providers.VideoProvider"),
@@ -112,7 +112,7 @@ def test_infer_peak_conf_threshold_alias():
     runner = CliRunner()
     with (
         patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
+            "sleap_nn.inference.factory.get_predictor_from_model_paths", return_value=stub_predictor
         ) as mock_factory,
         patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
         patch("sleap_nn.inference.providers.VideoProvider"),
@@ -151,7 +151,7 @@ def test_infer_simple_case_uses_new_factory_flow(tmp_path):
     stub_predictor = MagicMock()
     stub_predictor.predict.return_value = stub_labels
     with (
-        patch("sleap_nn.inference.factory.from_model_paths") as mock_factory,
+        patch("sleap_nn.inference.factory.get_predictor_from_model_paths") as mock_factory,
         patch("sleap_nn.cli._skeleton_from_predictor") as mock_skel,
         patch("sleap_nn.inference.providers.VideoProvider"),
         patch("sleap_nn.predict.run_inference") as mock_run_inference,
@@ -193,7 +193,7 @@ def test_infer_with_tracking_uses_new_factory_flow(tmp_path):
     stub_predictor = MagicMock()
     stub_predictor.predict.return_value = stub_labels
     with (
-        patch("sleap_nn.inference.factory.from_model_paths") as mock_factory,
+        patch("sleap_nn.inference.factory.get_predictor_from_model_paths") as mock_factory,
         patch("sleap_nn.cli._skeleton_from_predictor") as mock_skel,
         patch("sleap_nn.inference.providers.VideoProvider"),
         patch("sleap_nn.predict.run_inference") as mock_run,
@@ -242,7 +242,7 @@ def test_infer_with_tracking_plus_filter_uses_new_factory_flow(tmp_path):
     stub_predictor = MagicMock()
     stub_predictor.predict.return_value = MagicMock()
     with (
-        patch("sleap_nn.inference.factory.from_model_paths") as mock_factory,
+        patch("sleap_nn.inference.factory.get_predictor_from_model_paths") as mock_factory,
         patch("sleap_nn.cli._skeleton_from_predictor") as mock_skel,
         patch("sleap_nn.inference.providers.VideoProvider"),
         patch("sleap_nn.predict.run_inference") as mock_run,
@@ -289,7 +289,7 @@ def test_infer_with_filter_flags_builds_filter_config(tmp_path):
     stub_predictor = MagicMock()
     stub_predictor.predict.return_value = MagicMock()
     with (
-        patch("sleap_nn.inference.factory.from_model_paths") as mock_factory,
+        patch("sleap_nn.inference.factory.get_predictor_from_model_paths") as mock_factory,
         patch("sleap_nn.cli._skeleton_from_predictor"),
         patch("sleap_nn.inference.providers.VideoProvider"),
         patch("sleap_nn.predict.run_inference"),
@@ -330,7 +330,7 @@ def test_infer_no_empty_frames_passes_clean_flag(tmp_path):
     stub_predictor = MagicMock()
     stub_predictor.predict.return_value = MagicMock()
     with (
-        patch("sleap_nn.inference.factory.from_model_paths") as mock_factory,
+        patch("sleap_nn.inference.factory.get_predictor_from_model_paths") as mock_factory,
         patch("sleap_nn.cli._skeleton_from_predictor"),
         patch("sleap_nn.inference.providers.VideoProvider"),
         patch("sleap_nn.predict.run_inference"),
@@ -364,7 +364,7 @@ def test_infer_only_suggested_frames_routes_to_new_flow(tmp_path):
     stub_predictor = MagicMock()
     stub_predictor.predict.return_value = MagicMock()
     with (
-        patch("sleap_nn.inference.factory.from_model_paths") as mock_factory,
+        patch("sleap_nn.inference.factory.get_predictor_from_model_paths") as mock_factory,
         patch("sleap_nn.inference.providers.LabelsProvider") as mock_provider,
         patch("sleap_io.load_slp") as mock_load,
         patch("sleap_nn.predict.run_inference") as mock_run,
@@ -400,7 +400,7 @@ def test_infer_gui_emits_json_progress(tmp_path):
     runner = CliRunner()
     with (
         patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
+            "sleap_nn.inference.factory.get_predictor_from_model_paths", return_value=stub_predictor
         ),
         patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
         patch("sleap_nn.inference.providers.VideoProvider"),
@@ -443,7 +443,7 @@ def test_infer_without_gui_no_progress_callback(tmp_path):
     runner = CliRunner()
     with (
         patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
+            "sleap_nn.inference.factory.get_predictor_from_model_paths", return_value=stub_predictor
         ),
         patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
         patch("sleap_nn.inference.providers.VideoProvider"),
@@ -472,7 +472,7 @@ def test_infer_backbone_and_head_ckpt_paths_thread_to_factory(tmp_path):
     runner = CliRunner()
     with (
         patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
+            "sleap_nn.inference.factory.get_predictor_from_model_paths", return_value=stub_predictor
         ) as mock_factory,
         patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
         patch("sleap_nn.inference.providers.VideoProvider"),
@@ -547,7 +547,7 @@ def test_infer_paf_workers_zero_no_warning(tmp_path):
     runner = CliRunner()
     with (
         patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
+            "sleap_nn.inference.factory.get_predictor_from_model_paths", return_value=stub_predictor
         ),
         patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
         patch("sleap_nn.inference.providers.VideoProvider"),

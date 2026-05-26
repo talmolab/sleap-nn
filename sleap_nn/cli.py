@@ -988,7 +988,7 @@ def _run_inference_impl(**kwargs):
     new PR 10 flags, and routes to the right backend:
 
     * ``--stream-to-file`` set → builds a new :class:`Predictor` via
-      :func:`sleap_nn.inference.factory.from_model_paths` and writes
+      :func:`sleap_nn.inference.factory.get_predictor_from_model_paths` and writes
       incrementally with :meth:`Predictor.predict_to_file` (PR 12).
     * Otherwise → delegates to the legacy ``run_inference`` flow
       (which still owns tracking, frame filtering, GUI progress, etc.).
@@ -1169,7 +1169,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
 
     import sleap_io as sio
 
-    from sleap_nn.inference.factory import from_model_paths
+    from sleap_nn.inference.factory import get_predictor_from_model_paths
     from sleap_nn.inference.predictor import Predictor as NewPredictor
     from sleap_nn.inference.providers import LabelsProvider, VideoProvider
 
@@ -1198,7 +1198,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     filter_config = _build_filter_config(kwargs)
     if filter_config is not None:
         factory_kwargs["filter_config"] = filter_config
-    predictor = from_model_paths(kwargs["model_paths"], **factory_kwargs)
+    predictor = get_predictor_from_model_paths(kwargs["model_paths"], **factory_kwargs)
 
     src = Path(kwargs["data_path"])
     if src.suffix == ".slp":
@@ -1362,7 +1362,7 @@ def _run_stream_to_file(
 
     import sleap_io as sio
 
-    from sleap_nn.inference.factory import from_model_paths
+    from sleap_nn.inference.factory import get_predictor_from_model_paths
     from sleap_nn.inference.providers import LabelsProvider, VideoProvider
 
     factory_kwargs = {
@@ -1386,7 +1386,7 @@ def _run_stream_to_file(
     if filter_config is not None:
         factory_kwargs["filter_config"] = filter_config
 
-    predictor = from_model_paths(kwargs["model_paths"], **factory_kwargs)
+    predictor = get_predictor_from_model_paths(kwargs["model_paths"], **factory_kwargs)
 
     src = Path(data_path)
     if src.suffix == ".slp":

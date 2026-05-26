@@ -164,9 +164,9 @@ class Predictor:
         callers can do ``Predictor.from_model_paths(...)`` without
         knowing about the factory module.
         """
-        from sleap_nn.inference.factory import from_model_paths
+        from sleap_nn.inference.factory import get_predictor_from_model_paths
 
-        return from_model_paths(model_paths, **kwargs)
+        return get_predictor_from_model_paths(model_paths, **kwargs)
 
     @classmethod
     def from_export_dir(cls, export_dir: str, **kwargs) -> "Predictor":
@@ -175,9 +175,9 @@ class Predictor:
         See :func:`sleap_nn.inference.factory.from_export_dir` for the
         full kwarg surface.
         """
-        from sleap_nn.inference.factory import from_export_dir
+        from sleap_nn.inference.factory import get_predictor_from_export_dir
 
-        return from_export_dir(export_dir, **kwargs)
+        return get_predictor_from_export_dir(export_dir, **kwargs)
 
     @staticmethod
     def retrack(

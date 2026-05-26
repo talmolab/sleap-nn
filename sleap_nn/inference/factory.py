@@ -288,7 +288,7 @@ def _build_topdown_multiclass_layer(
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def from_model_paths(
+def get_predictor_from_model_paths(
     model_paths: List[str],
     *,
     backbone_ckpt_path: Optional[str] = None,
@@ -400,11 +400,11 @@ def from_model_paths(
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# from_export_dir — build a Predictor from an exported ONNX/TRT directory
+# get_predictor_from_export_dir — build a Predictor from an exported ONNX/TRT directory
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def from_export_dir(
+def get_predictor_from_export_dir(
     export_dir: Union[str, Path],
     *,
     runtime: str = "auto",
@@ -711,7 +711,7 @@ def _select_layer(legacy_predictor: Any, model_types: List[str], device: str):
         )
     raise ValueError(
         f"Unsupported model_paths combination: detected types {model_types}. "
-        f"The new Predictor.from_model_paths supports: single_instance, "
+        f"get_predictor_from_model_paths supports: single_instance, "
         f"bottomup, multi_class_bottomup, top-down (centroid + centered_instance), "
         f"top-down multiclass (centroid + multi_class_topdown), centroid-only, "
         f"or centered-instance-only (requires a .slp source for GT centroids)."

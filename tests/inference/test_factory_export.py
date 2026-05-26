@@ -120,12 +120,12 @@ def single_instance_export(tmp_path):
 def test_from_export_dir_single_instance_builds_predictor(single_instance_export):
     """``from_export_dir`` produces a :class:`Predictor` whose layer is an
     :class:`ExportedSingleInstanceLayer` wired to an :class:`ONNXBackend`."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.layers.backends import ONNXBackend
     from sleap_nn.inference.layers.exported import ExportedSingleInstanceLayer
     from sleap_nn.inference.predictor import Predictor
 
-    predictor = from_export_dir(single_instance_export, device="cpu")
+    predictor = get_predictor_from_export_dir(single_instance_export, device="cpu")
     assert isinstance(predictor, Predictor)
     assert isinstance(predictor.layer, ExportedSingleInstanceLayer)
     assert isinstance(predictor.layer.backend, ONNXBackend)
@@ -136,10 +136,10 @@ def test_from_export_dir_single_instance_predict_smoke(single_instance_export):
     """End-to-end: build via ``from_export_dir`` and call ``predict()``
     on a synthetic ``NumpyProvider`` batch. Output should be one
     ``Outputs`` per batch with populated ``pred_keypoints``."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.providers import NumpyProvider
 
-    predictor = from_export_dir(single_instance_export, device="cpu")
+    predictor = get_predictor_from_export_dir(single_instance_export, device="cpu")
     images = np.zeros((1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
@@ -154,7 +154,7 @@ def test_from_export_dir_single_instance_predict_smoke(single_instance_export):
 
 def test_predictor_classmethod_alias_matches_function(single_instance_export):
     """``Predictor.from_export_dir`` and ``factory.from_export_dir`` are equivalent."""
-    from sleap_nn.inference.factory import from_export_dir as fn
+    from sleap_nn.inference.factory import get_predictor_from_export_dir as fn
     from sleap_nn.inference.predictor import Predictor
 
     direct = fn(single_instance_export, device="cpu")
@@ -171,7 +171,7 @@ def test_from_export_dir_single_instance_no_double_coord_ladder(tmp_path):
     With ``output_stride=4`` and ``input_scale=0.5`` in metadata, the
     wrapper output should pass through unchanged (no peaks * 16 bug).
     """
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.providers import NumpyProvider
 
     export_dir = tmp_path / "scaled_export"
@@ -185,7 +185,7 @@ def test_from_export_dir_single_instance_no_double_coord_ladder(tmp_path):
         input_scale=0.5,
     )
 
-    predictor = from_export_dir(export_dir, device="cpu")
+    predictor = get_predictor_from_export_dir(export_dir, device="cpu")
     images = np.zeros((1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
@@ -208,28 +208,28 @@ def test_from_export_dir_single_instance_no_double_coord_ladder(tmp_path):
 
 def test_from_export_dir_missing_metadata_raises(tmp_path):
     """No ``export_metadata.json`` ⇒ ``FileNotFoundError`` with a clear message."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
 
     export_dir = tmp_path / "empty"
     export_dir.mkdir()
     with pytest.raises(FileNotFoundError, match="export_metadata.json"):
-        from_export_dir(export_dir, device="cpu")
+        get_predictor_from_export_dir(export_dir, device="cpu")
 
 
 def test_from_export_dir_missing_model_file_raises(tmp_path):
     """Metadata present but no ``model.onnx`` / ``model.trt`` ⇒ ``FileNotFoundError``."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
 
     export_dir = tmp_path / "metadata_only"
     export_dir.mkdir()
     _write_metadata(export_dir, model_type="single_instance")
     with pytest.raises(FileNotFoundError, match="model.onnx or model.trt"):
-        from_export_dir(export_dir, device="cpu")
+        get_predictor_from_export_dir(export_dir, device="cpu")
 
 
 def test_from_export_dir_unrecognized_model_type_raises(tmp_path):
     """An unknown ``model_type`` value raises ``ValueError``."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
 
     export_dir = tmp_path / "export_unknown"
     export_dir.mkdir()
@@ -237,31 +237,31 @@ def test_from_export_dir_unrecognized_model_type_raises(tmp_path):
     _write_metadata(export_dir, model_type="some_future_model")
 
     with pytest.raises(ValueError, match="Unrecognized model_type"):
-        from_export_dir(export_dir, device="cpu")
+        get_predictor_from_export_dir(export_dir, device="cpu")
 
 
 def test_from_export_dir_unknown_runtime_raises(single_instance_export):
     """``runtime`` other than auto/onnx/tensorrt ⇒ ``ValueError``."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
 
     with pytest.raises(ValueError, match="Unknown runtime"):
-        from_export_dir(single_instance_export, runtime="foo", device="cpu")
+        get_predictor_from_export_dir(single_instance_export, runtime="foo", device="cpu")
 
 
 def test_from_export_dir_explicit_onnx_runtime(single_instance_export):
     """``runtime='onnx'`` works when the .onnx file exists."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
 
-    predictor = from_export_dir(single_instance_export, runtime="onnx", device="cpu")
+    predictor = get_predictor_from_export_dir(single_instance_export, runtime="onnx", device="cpu")
     assert predictor.layer is not None
 
 
 def test_from_export_dir_tensorrt_missing_engine_raises(single_instance_export):
     """``runtime='tensorrt'`` on an ONNX-only dir ⇒ ``FileNotFoundError``."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
 
     with pytest.raises(FileNotFoundError, match="model.trt"):
-        from_export_dir(single_instance_export, runtime="tensorrt", device="cpu")
+        get_predictor_from_export_dir(single_instance_export, runtime="tensorrt", device="cpu")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -397,19 +397,19 @@ def topdown_export(tmp_path):
 
 def test_from_export_dir_centroid_builds_predictor(centroid_export):
     """Centroid export → :class:`ExportedCentroidLayer`."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.layers.exported import ExportedCentroidLayer
 
-    predictor = from_export_dir(centroid_export, device="cpu")
+    predictor = get_predictor_from_export_dir(centroid_export, device="cpu")
     assert isinstance(predictor.layer, ExportedCentroidLayer)
 
 
 def test_from_export_dir_centroid_predict_smoke(centroid_export):
     """Centroid adapter populates ``pred_centroids`` + ``pred_centroid_values``."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.providers import NumpyProvider
 
-    predictor = from_export_dir(centroid_export, device="cpu")
+    predictor = get_predictor_from_export_dir(centroid_export, device="cpu")
     images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
@@ -425,19 +425,19 @@ def test_from_export_dir_centroid_predict_smoke(centroid_export):
 
 def test_from_export_dir_centered_instance_builds_predictor(centered_instance_export):
     """Centered-instance export → :class:`ExportedCenteredInstanceLayer`."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.layers.exported import ExportedCenteredInstanceLayer
 
-    predictor = from_export_dir(centered_instance_export, device="cpu")
+    predictor = get_predictor_from_export_dir(centered_instance_export, device="cpu")
     assert isinstance(predictor.layer, ExportedCenteredInstanceLayer)
 
 
 def test_from_export_dir_centered_instance_predict_smoke(centered_instance_export):
     """Centered-instance adapter populates ``pred_keypoints`` per crop."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.providers import NumpyProvider
 
-    predictor = from_export_dir(centered_instance_export, device="cpu")
+    predictor = get_predictor_from_export_dir(centered_instance_export, device="cpu")
     crops = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=crops, batch_size=1)
 
@@ -450,19 +450,19 @@ def test_from_export_dir_centered_instance_predict_smoke(centered_instance_expor
 
 def test_from_export_dir_topdown_builds_predictor(topdown_export):
     """Top-down combined export → :class:`ExportedTopDownLayer`."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.layers.exported import ExportedTopDownLayer
 
-    predictor = from_export_dir(topdown_export, device="cpu")
+    predictor = get_predictor_from_export_dir(topdown_export, device="cpu")
     assert isinstance(predictor.layer, ExportedTopDownLayer)
 
 
 def test_from_export_dir_topdown_predict_smoke(topdown_export):
     """Top-down adapter populates centroids + keypoints + instance_valid."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.providers import NumpyProvider
 
-    predictor = from_export_dir(topdown_export, device="cpu")
+    predictor = get_predictor_from_export_dir(topdown_export, device="cpu")
     images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
@@ -480,11 +480,11 @@ def test_from_export_dir_topdown_predict_smoke(topdown_export):
 
 def test_centroid_adapter_nan_pads_invalid_slots(centroid_export):
     """Invalid centroid slots (zero-confidence) are NaN'd per Outputs convention."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.providers import NumpyProvider
 
     # All-zero image → conv outputs ~0 confmap, all topk values <= 0 → all invalid.
-    predictor = from_export_dir(centroid_export, device="cpu")
+    predictor = get_predictor_from_export_dir(centroid_export, device="cpu")
     images = np.zeros((1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
@@ -623,10 +623,10 @@ def bottomup_export(tmp_path):
 
 def test_from_export_dir_bottomup_builds_predictor(bottomup_export):
     """Bottom-up export → :class:`ExportedBottomUpLayer`."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.layers.exported import ExportedBottomUpLayer
 
-    predictor = from_export_dir(bottomup_export, device="cpu")
+    predictor = get_predictor_from_export_dir(bottomup_export, device="cpu")
     assert isinstance(predictor.layer, ExportedBottomUpLayer)
     assert predictor.layer.max_peaks_per_node == 4
     assert predictor.layer.node_names == ["n0", "n1"]
@@ -639,10 +639,10 @@ def test_from_export_dir_bottomup_predict_smoke(bottomup_export):
     Validates the schema-translation glue (fixed-shape wrapper output →
     variable-length ScoredBatch → group_scored_batch → Outputs).
     """
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.providers import NumpyProvider
 
-    predictor = from_export_dir(bottomup_export, device="cpu", min_line_scores=-1.0)
+    predictor = get_predictor_from_export_dir(bottomup_export, device="cpu", min_line_scores=-1.0)
     images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
@@ -658,9 +658,9 @@ def test_from_export_dir_bottomup_predict_smoke(bottomup_export):
 
 def test_from_export_dir_bottomup_forwards_grouping_kwargs(bottomup_export):
     """``min_line_scores`` / ``min_instance_peaks`` / ``max_instances`` flow into the layer."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
 
-    predictor = from_export_dir(
+    predictor = get_predictor_from_export_dir(
         bottomup_export,
         device="cpu",
         max_instances=2,
@@ -675,7 +675,7 @@ def test_from_export_dir_bottomup_forwards_grouping_kwargs(bottomup_export):
 
 def test_from_export_dir_bottomup_missing_max_peaks_per_node_raises(tmp_path):
     """Missing ``max_peaks_per_node`` in metadata ⇒ ``ValueError``."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
 
     export_dir = tmp_path / "bad_bottomup"
     export_dir.mkdir()
@@ -699,7 +699,7 @@ def test_from_export_dir_bottomup_missing_max_peaks_per_node_raises(tmp_path):
     }
     (export_dir / "export_metadata.json").write_text(json.dumps(meta))
     with pytest.raises(ValueError, match="max_peaks_per_node"):
-        from_export_dir(export_dir, device="cpu")
+        get_predictor_from_export_dir(export_dir, device="cpu")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -885,10 +885,10 @@ def test_from_export_dir_multiclass_topdown_builds_predictor(
     multiclass_topdown_export,
 ):
     """multi_class_topdown export → :class:`ExportedTopDownMultiClassLayer`."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.layers.exported import ExportedTopDownMultiClassLayer
 
-    predictor = from_export_dir(multiclass_topdown_export, device="cpu")
+    predictor = get_predictor_from_export_dir(multiclass_topdown_export, device="cpu")
     assert isinstance(predictor.layer, ExportedTopDownMultiClassLayer)
     assert predictor.layer.n_classes == 3
 
@@ -897,10 +897,10 @@ def test_from_export_dir_multiclass_topdown_predict_smoke(
     multiclass_topdown_export,
 ):
     """Multi-class top-down adapter populates fields with class-ordered slots."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.providers import NumpyProvider
 
-    predictor = from_export_dir(multiclass_topdown_export, device="cpu")
+    predictor = get_predictor_from_export_dir(multiclass_topdown_export, device="cpu")
     images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
@@ -918,12 +918,12 @@ def test_from_export_dir_multiclass_bottomup_builds_predictor(
     multiclass_bottomup_export,
 ):
     """multi_class_bottomup export → :class:`ExportedBottomUpMultiClassLayer`."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.layers.exported import (
         ExportedBottomUpMultiClassLayer,
     )
 
-    predictor = from_export_dir(multiclass_bottomup_export, device="cpu")
+    predictor = get_predictor_from_export_dir(multiclass_bottomup_export, device="cpu")
     assert isinstance(predictor.layer, ExportedBottomUpMultiClassLayer)
     assert predictor.layer.n_nodes == 2
     assert predictor.layer.n_classes == 2
@@ -933,10 +933,10 @@ def test_from_export_dir_multiclass_bottomup_predict_smoke(
     multiclass_bottomup_export,
 ):
     """Multi-class bottom-up adapter groups peaks by class via Hungarian matching."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.providers import NumpyProvider
 
-    predictor = from_export_dir(multiclass_bottomup_export, device="cpu")
+    predictor = get_predictor_from_export_dir(multiclass_bottomup_export, device="cpu")
     images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 
@@ -952,7 +952,7 @@ def test_from_export_dir_multiclass_bottomup_predict_smoke(
 
 def test_from_export_dir_multiclass_topdown_missing_n_classes_raises(tmp_path):
     """Missing ``n_classes`` in metadata ⇒ ``ValueError``."""
-    from sleap_nn.inference.factory import from_export_dir
+    from sleap_nn.inference.factory import get_predictor_from_export_dir
 
     export_dir = tmp_path / "bad_mc_topdown"
     export_dir.mkdir()
@@ -975,4 +975,4 @@ def test_from_export_dir_multiclass_topdown_missing_n_classes_raises(tmp_path):
     }
     (export_dir / "export_metadata.json").write_text(json.dumps(meta))
     with pytest.raises(ValueError, match="n_classes"):
-        from_export_dir(export_dir, device="cpu")
+        get_predictor_from_export_dir(export_dir, device="cpu")
