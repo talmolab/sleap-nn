@@ -1,35 +1,19 @@
 """Build a new :class:`Predictor` directly from model checkpoint paths.
 
-PR 11 of #508 (#519). The legacy ``sleap_nn.inference.predictors.Predictor``
-already knows how to:
+PR 11 of #508 (#519), updated in PR 28c to use :mod:`sleap_nn.inference.loaders`
+for checkpoint loading instead of delegating to the legacy ``*Predictor`` classes.
 
-* Resolve ``training_config.{yaml,json}`` (incl. SLEAP <=1.4 legacy)
-* Reconstruct the right Lightning module per model type with all its
-  optimizer / scheduler / hard-mining hyperparams (Lightning's
-  ``load_from_checkpoint`` requires those even when only weights matter)
-* Apply ``backbone_ckpt_path`` / ``head_ckpt_path`` overrides
-* Hydrate the skeleton + place the model on the requested device
-
-That work is non-trivial and a perfect candidate for *reuse*. This
-factory delegates it to the legacy predictor, then re-wraps the loaded
-torch module(s) and PAF scorer with the new ``InferenceLayer``
-subclasses. The result is a brand-new :class:`Predictor` that accepts
-the existing ``run_inference`` kwargs without forking the model-loader
-logic.
-
-Why not delete the legacy loader entirely? It's tightly coupled to
-``LightningModule.load_from_checkpoint`` and a SLEAP <=1.4 legacy
-converter — both stable code paths. Eventually (post-#519) the legacy
-``inference_model`` and ``make_pipeline`` go away, and the factory
-keeps the loader. Until then this stays a thin adapter.
+The factory detects model types from ``training_config.{yaml,json}``, loads
+Lightning checkpoints + inference models via :func:`loaders.load_model_assets`,
+and wraps them with the new ``InferenceLayer`` subclasses. The legacy
+``sleap_nn.inference.predictors`` module is preserved for backwards compat but
+is no longer imported here.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, List, Optional, Union
-
-from omegaconf import OmegaConf
 
 from sleap_nn.inference.filters import FilterConfig
 from sleap_nn.inference.layers.backends import TorchBackend
@@ -49,20 +33,6 @@ from sleap_nn.inference.layers.topdown_multiclass import (
 # ─────────────────────────────────────────────────────────────────────────
 # Layer builders — one per model type, given a loaded legacy inference_model
 # ─────────────────────────────────────────────────────────────────────────
-
-
-def _neutral_preprocess() -> Any:
-    """OmegaConf preprocess overrides that mean 'use the training config'."""
-    return OmegaConf.create(
-        {
-            "ensure_rgb": None,
-            "ensure_grayscale": None,
-            "crop_size": None,
-            "max_width": None,
-            "max_height": None,
-            "scale": None,
-        }
-    )
 
 
 def _legacy_pp_field(legacy_predictor: Any, name: str, default: Any = None) -> Any:
@@ -384,51 +354,22 @@ def from_model_paths(
         ValueError: If ``model_paths`` doesn't contain a recognized
             combination of model types (e.g., two centroid models).
     """
-    # Local imports avoid circulars (predictor → factory → predictor).
-    from sleap_nn.config.utils import get_model_type_from_cfg
+    from sleap_nn.inference.loaders import load_model_assets
     from sleap_nn.inference.predictor import Predictor as NewPredictor
-    from sleap_nn.inference.predictors import (
-        Predictor as LegacyPredictor,
-        legacy_predictor_internal_use,
+
+    loaded, model_types = load_model_assets(
+        model_paths,
+        device=device,
+        backbone_ckpt_path=backbone_ckpt_path,
+        head_ckpt_path=head_ckpt_path,
+        peak_threshold=peak_threshold,
+        integral_refinement=integral_refinement,
+        integral_patch_size=integral_patch_size,
+        max_instances=max_instances,
+        return_confmaps=return_confmaps,
+        preprocess_config=preprocess_config,
+        anchor_part=anchor_part,
     )
-
-    if preprocess_config is None:
-        preprocess_config = _neutral_preprocess()
-
-    # The factory IS the migration path for the deprecated legacy predictor
-    # entry points; suppress their DeprecationWarning while we delegate.
-    with legacy_predictor_internal_use():
-        legacy_predictor = LegacyPredictor.from_model_paths(
-            model_paths=model_paths,
-            backbone_ckpt_path=backbone_ckpt_path,
-            head_ckpt_path=head_ckpt_path,
-            peak_threshold=peak_threshold,
-            integral_refinement=integral_refinement,
-            integral_patch_size=integral_patch_size,
-            batch_size=batch_size,
-            max_instances=max_instances,
-            return_confmaps=return_confmaps,
-            device=device,
-            preprocess_config=preprocess_config,
-            anchor_part=anchor_part,
-        )
-        legacy_predictor._initialize_inference_model()
-
-    # Detect model types across the supplied paths.
-    model_types: list[str] = []
-    for model_path in model_paths:
-        path = Path(model_path)
-        if (path / "training_config.yaml").exists():
-            cfg = OmegaConf.load((path / "training_config.yaml").as_posix())
-        elif (path / "training_config.json").exists():
-            from sleap_nn.config.training_job_config import TrainingJobConfig
-
-            cfg = TrainingJobConfig.load_sleap_config(
-                (path / "training_config.json").as_posix()
-            )
-        else:  # pragma: no cover — guarded by legacy loader above
-            raise ValueError(f"no training_config in {model_path}")
-        model_types.append(get_model_type_from_cfg(config=cfg))
 
     if centroid_only:
         if "centroid" not in model_types:
@@ -437,12 +378,12 @@ def from_model_paths(
                 f"detected types: {model_types}."
             )
         layer = _build_centroid_layer(
-            legacy_predictor.inference_model.centroid_crop,
+            loaded.inference_model.centroid_crop,
             device,
-            legacy_predictor=legacy_predictor,
+            legacy_predictor=loaded,
         )
     else:
-        layer = _select_layer(legacy_predictor, model_types, device)
+        layer = _select_layer(loaded, model_types, device)
     kwargs: dict = {"layer": layer, "paf_workers": paf_workers}
     if filter_config is not None:
         kwargs["filter_config"] = filter_config
