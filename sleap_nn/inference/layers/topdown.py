@@ -269,10 +269,13 @@ class TopDownLayer:
         full_crops = None
         if self.return_crops:
             C = crops.shape[1]
+            crops_on_device = crops.to(device)
             full_crops = torch.zeros(
-                (B, max_inst, C, crop_h, crop_w), dtype=crops.dtype, device=device
+                (B, max_inst, C, crop_h, crop_w),
+                dtype=crops.dtype,
+                device=device,
             )
-            full_crops[valid_idx[:, 0], valid_idx[:, 1]] = crops
+            full_crops[valid_idx[:, 0], valid_idx[:, 1]] = crops_on_device
 
         return Outputs(
             pred_keypoints=full_kpts,
