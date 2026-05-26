@@ -384,7 +384,8 @@ def from_model_paths(
         )
     else:
         layer = _select_layer(loaded, model_types, device)
-    kwargs: dict = {"layer": layer, "paf_workers": paf_workers}
+    skeleton = loaded.skeletons[0] if loaded.skeletons else None
+    kwargs: dict = {"layer": layer, "skeleton": skeleton, "paf_workers": paf_workers}
     if filter_config is not None:
         kwargs["filter_config"] = filter_config
     if tracker_config is not None:
@@ -456,9 +457,9 @@ def from_export_dir(
 
     Notes:
         Skeleton hydration is *not* done here — call
-        :func:`sleap_nn.inference.utils.get_skeleton_from_config` on the
-        export's ``training_config.yaml`` separately if you need a
-        skeleton for ``Predictor.predict(make_labels=True, ...)``.
+        The skeleton is resolved automatically from the export's
+        ``training_config.yaml`` (if present) or from the export
+        metadata's ``node_names``.
     """
     from sleap_nn.export.metadata import ExportMetadata
     from sleap_nn.inference.predictor import Predictor as NewPredictor
@@ -485,12 +486,39 @@ def from_export_dir(
         min_line_scores=min_line_scores,
     )
 
-    kwargs: dict = {"layer": layer, "paf_workers": paf_workers}
+    skeleton = _skeleton_from_export(export_dir, metadata)
+    kwargs: dict = {"layer": layer, "skeleton": skeleton, "paf_workers": paf_workers}
     if filter_config is not None:
         kwargs["filter_config"] = filter_config
     if tracker_config is not None:
         kwargs["tracker_config"] = tracker_config
     return NewPredictor(**kwargs)
+
+
+def _skeleton_from_export(export_dir: Path, metadata: Any) -> Any:
+    """Best-effort skeleton from an export directory.
+
+    Tries the embedded training config first (full skeleton with edges);
+    falls back to a bare ``sio.Skeleton`` built from ``metadata.node_names``.
+    """
+    import sleap_io as sio
+
+    training_cfg_path = export_dir / "training_config.yaml"
+    if training_cfg_path.exists():
+        try:
+            from sleap_nn.inference.utils import get_skeleton_from_config
+
+            cfg = OmegaConf.load(str(training_cfg_path))
+            skels = get_skeleton_from_config(cfg.data_config.skeletons)
+            if skels:
+                return skels[0]
+        except Exception:
+            pass
+    if metadata.node_names:
+        return sio.Skeleton(
+            nodes=[sio.Node(name=n) for n in metadata.node_names]
+        )
+    return None
 
 
 def _resolve_export_runtime(export_dir: Path, runtime: str) -> tuple[str, Path]:

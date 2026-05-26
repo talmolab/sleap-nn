@@ -50,6 +50,11 @@ class Predictor:
         layer: Any object exposing ``predict(image) -> Outputs``. Includes
             every :class:`InferenceLayer` subclass plus composed layers
             like :class:`TopDownLayer`.
+        skeleton: Optional ``sio.Skeleton`` resolved from the training
+            config. Populated automatically by :func:`from_model_paths`.
+            Used as the default for ``predict(make_labels=True)`` and
+            ``predict_to_file()`` when no explicit ``skeleton`` kwarg is
+            passed.
         filter_config: Optional post-inference filter config. Default is
             the no-op identity.
         paf_workers: Number of CPU worker processes for the bottom-up
@@ -74,6 +79,7 @@ class Predictor:
     """
 
     layer: Any
+    skeleton: Optional[Any] = None
     filter_config: FilterConfig = attrs.Factory(FilterConfig)
     paf_workers: int = 0
     tracker_config: Optional[TrackerConfig] = None
@@ -161,8 +167,8 @@ class Predictor:
             provider: A :class:`Provider` source.
             make_labels: When ``True``, return a ``sio.Labels`` instead of
                 a list of ``Outputs``. Requires ``skeleton``.
-            skeleton: ``sio.Skeleton`` for label conversion. Required when
-                ``make_labels=True``.
+            skeleton: ``sio.Skeleton`` for label conversion. Falls back to
+                ``self.skeleton`` when ``None``.
             videos: Optional list of ``sio.Video`` indexed by
                 ``video_indices`` for label conversion.
             clean_empty_frames: When ``True`` and ``make_labels=True``,
@@ -186,8 +192,13 @@ class Predictor:
                     "operates on sio.PredictedInstance objects."
                 )
             return outputs_list
+        skeleton = skeleton or self.skeleton
         if skeleton is None:
-            raise ValueError("make_labels=True requires `skeleton` to be passed.")
+            raise ValueError(
+                "make_labels=True requires a skeleton. Either pass "
+                "`skeleton=...` or build the Predictor via from_model_paths() "
+                "which sets it automatically from the training config."
+            )
         labels = self._to_labels(
             outputs_list,
             skeleton=skeleton,
@@ -238,7 +249,7 @@ class Predictor:
         self,
         provider: Provider,
         path: str,
-        skeleton: Any,
+        skeleton: Optional[Any] = None,
         videos: Optional[List[Any]] = None,
         write_interval: int = 500,
         progress_callback: Optional[Callable[[int, int], None]] = None,
@@ -254,7 +265,8 @@ class Predictor:
         Args:
             provider: Frame source.
             path: Destination ``.slp`` path.
-            skeleton: ``sio.Skeleton`` for instance conversion.
+            skeleton: ``sio.Skeleton`` for instance conversion. Falls back
+                to ``self.skeleton`` when ``None``.
             videos: Optional list of ``sio.Video`` indexed by
                 ``video_indices`` for the saved labels.
             write_interval: Number of LabeledFrames to buffer before
@@ -266,6 +278,13 @@ class Predictor:
         Returns:
             The (resolved) destination path string.
         """
+        skeleton = skeleton or self.skeleton
+        if skeleton is None:
+            raise ValueError(
+                "predict_to_file requires a skeleton. Either pass "
+                "`skeleton=...` or build the Predictor via from_model_paths() "
+                "which sets it automatically from the training config."
+            )
         from sleap_nn.inference.writer import IncrementalLabelsWriter
 
         with IncrementalLabelsWriter(

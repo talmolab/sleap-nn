@@ -171,3 +171,16 @@ def test_make_labels_returns_sio_labels():
     predictor = Predictor(layer=_StubLayer())
     labels = predictor.predict(provider, make_labels=True, skeleton=skel)
     assert isinstance(labels, sio.Labels)
+
+
+def test_make_labels_uses_predictor_skeleton():
+    """``make_labels=True`` without explicit skeleton uses ``self.skeleton``."""
+    import sleap_io as sio
+
+    skel = sio.Skeleton(nodes=[sio.Node(name=f"n{i}") for i in range(4)])
+    images = np.zeros((2, 1, 8, 8), dtype=np.float32)
+    provider = NumpyProvider(images=images, batch_size=2)
+    predictor = Predictor(layer=_StubLayer(), skeleton=skel)
+    labels = predictor.predict(provider, make_labels=True)
+    assert isinstance(labels, sio.Labels)
+    assert labels.skeletons[0] is skel
