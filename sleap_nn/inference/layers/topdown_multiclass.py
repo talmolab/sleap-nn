@@ -148,6 +148,7 @@ class TopDownMultiClassLayer(TopDownLayer):
         crop_size: Tuple[int, int],
         centroid_nms: bool = False,
         centroid_nms_threshold: float = 0.5,
+        return_crops: bool = False,
     ) -> None:
         """Forward to ``TopDownLayer`` after type-checking the inner layer."""
         if not isinstance(centered_instance_layer, CenteredInstanceMultiClassLayer):
@@ -162,4 +163,5 @@ class TopDownMultiClassLayer(TopDownLayer):
             crop_size=crop_size,
             centroid_nms=centroid_nms,
             centroid_nms_threshold=centroid_nms_threshold,
+            return_crops=return_crops,
         )

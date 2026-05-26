@@ -45,6 +45,9 @@ class TopDownLayer:
             animals where the centroid model emits two centroids per
             animal.
         centroid_nms_threshold: bbox-IoU threshold for the centroid NMS.
+        return_crops: When ``True``, store the per-instance crops on
+            ``Outputs.crops`` as a ``(B, I, C, cH, cW)`` tensor.
+            Disabled by default to save memory.
 
     Notes:
         Not an :class:`InferenceLayer` subclass — composes two layers
@@ -60,6 +63,7 @@ class TopDownLayer:
         crop_size: Tuple[int, int],
         centroid_nms: bool = False,
         centroid_nms_threshold: float = 0.5,
+        return_crops: bool = False,
     ) -> None:
         """Stash the inner layers and crop knobs."""
         self.centroid_layer = centroid_layer
@@ -67,6 +71,7 @@ class TopDownLayer:
         self.crop_size = crop_size
         self.centroid_nms = centroid_nms
         self.centroid_nms_threshold = centroid_nms_threshold
+        self.return_crops = return_crops
 
     def predict(
         self,
@@ -260,12 +265,22 @@ class TopDownLayer:
         full_bboxes = torch.full((B, max_inst, 4, 2), float("nan"), device=device)
         full_bboxes[valid_idx[:, 0], valid_idx[:, 1]] = bboxes_img
 
+        # Optionally scatter crops into (B, max_inst, C, cH, cW).
+        full_crops = None
+        if self.return_crops:
+            C = crops.shape[1]
+            full_crops = torch.zeros(
+                (B, max_inst, C, crop_h, crop_w), dtype=crops.dtype, device=device
+            )
+            full_crops[valid_idx[:, 0], valid_idx[:, 1]] = crops
+
         return Outputs(
             pred_keypoints=full_kpts,
             pred_peak_values=full_vals,
             pred_centroids=centroids_in_image_space,
             pred_centroid_values=centroid_vals,
             instance_bboxes=full_bboxes,
+            crops=full_crops,
         )
 
     # ──────────────────────────────────────────────────────────────────
