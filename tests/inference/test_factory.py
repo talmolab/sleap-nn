@@ -1,21 +1,18 @@
-"""Tests for :func:`sleap_nn.inference.factory.from_model_paths`.
+"""Tests for :func:`sleap_nn.inference.factory.get_predictor_from_model_paths`.
 
-The factory wraps the legacy ``inference.predictors.Predictor`` loader
-and re-emits a new ``Predictor`` with the appropriate layer composition.
+The factory detects model types from ``training_config.{yaml,json}``, loads
+Lightning checkpoints + inference models via :func:`loaders.load_model_assets`,
+and wraps them with the new ``InferenceLayer`` subclasses.
 
 Coverage:
 
 1. Each of the 5 supported model-type combinations builds a new
    ``Predictor`` whose layer is the expected type.
-2. ``Predictor.from_model_paths`` (classmethod) and the free
-   ``factory.from_model_paths`` produce equivalent objects.
-3. Each layer-type's ``predict()`` returns a structurally well-formed
+2. Each layer-type's ``predict()`` returns a structurally well-formed
    ``Outputs`` on a synthetic image (smoke test — full per-type parity
    vs the legacy ``InferenceModel.forward`` is already covered in
    ``tests/inference/layers/test_*.py``).
-4. The factory raises ``ValueError`` on an unsupported combination.
-5. Parity vs legacy ``inference_model.forward`` on the single-instance
-   checkpoint within 1e-4 atol / 1e-5 rtol.
+3. The factory raises ``ValueError`` on an unsupported combination.
 
 Performance: each ckpt-combo predictor is module-scoped so we only
 pay the Lightning checkpoint load cost once per CI run. Without this,
@@ -40,6 +37,9 @@ from sleap_nn.inference.layers.topdown import TopDownLayer
 from sleap_nn.inference.layers.topdown_multiclass import TopDownMultiClassLayer
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.predictor import Predictor
+
+# The factory functions are the canonical entry points:
+# get_predictor_from_model_paths and get_predictor_from_export_dir.
 
 CKPT_ROOT = Path(__file__).resolve().parents[1] / "assets" / "model_ckpts"
 SINGLE_CKPT = CKPT_ROOT / "minimal_instance_single_instance"
@@ -152,25 +152,7 @@ def test_factory_builds_topdown_multiclass_layer(topdown_multiclass_predictor):
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 2. Classmethod equivalence
-# ─────────────────────────────────────────────────────────────────────────
-
-
-def test_classmethod_matches_factory_function(single_predictor):
-    """``Predictor.from_model_paths(...)`` builds the same kind of object.
-
-    Uses the module-scoped factory predictor on one side and a fresh
-    classmethod call on the other; freed at end of test.
-    """
-    via_classmethod = Predictor.from_model_paths([str(SINGLE_CKPT)], device="cpu")
-    assert type(via_classmethod) is type(single_predictor)
-    assert type(via_classmethod.layer) is type(single_predictor.layer)
-    del via_classmethod
-    gc.collect()
-
-
-# ─────────────────────────────────────────────────────────────────────────
-# 3. End-to-end smoke: layer.predict produces valid Outputs
+# 2. End-to-end smoke: layer.predict produces valid Outputs
 # ─────────────────────────────────────────────────────────────────────────
 
 
@@ -203,7 +185,7 @@ def test_factory_topdown_predict_smoke(topdown_predictor):
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 4. Error path
+# 3. Error path
 # ─────────────────────────────────────────────────────────────────────────
 
 

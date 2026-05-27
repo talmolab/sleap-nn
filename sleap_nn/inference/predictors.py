@@ -4,11 +4,10 @@
     All :class:`Predictor` subclasses in this module are deprecated. Use the
     new factory entry points instead:
 
-    * :meth:`sleap_nn.inference.Predictor.from_model_paths` — checkpoint
-      inference (replaces ``*Predictor.from_trained_models`` and the
-      :meth:`Predictor.from_model_paths` dispatcher).
-    * :meth:`sleap_nn.inference.Predictor.from_export_dir` — exported
-      ONNX/TensorRT models.
+    * :func:`sleap_nn.inference.factory.get_predictor_from_model_paths` —
+      checkpoint inference (replaces ``*Predictor.from_trained_models``).
+    * :func:`sleap_nn.inference.factory.get_predictor_from_export_dir` —
+      exported ONNX/TensorRT models.
 
     This module remains in place because the new factory still delegates
     Lightning checkpoint loading and ``inference_model`` construction here.
@@ -93,10 +92,11 @@ _LEGACY_INTERNAL_USE = threading.local()
 
 _DEPRECATION_MESSAGE = (
     "{name} is deprecated. Use the new factory entry point instead:\n"
-    "    from sleap_nn.inference import Predictor\n"
-    "    predictor = Predictor.from_model_paths(model_paths, device=...)\n"
+    "    from sleap_nn.inference import get_predictor_from_model_paths\n"
+    "    predictor = get_predictor_from_model_paths(model_paths, device=...)\n"
     "or, for exported ONNX/TensorRT models:\n"
-    "    predictor = Predictor.from_export_dir(export_dir, ...)\n"
+    "    from sleap_nn.inference import get_predictor_from_export_dir\n"
+    "    predictor = get_predictor_from_export_dir(export_dir, ...)\n"
     "See https://github.com/talmolab/sleap-nn/issues/508 for migration "
     "details. The legacy `sleap_nn.inference.predictors` module will be "
     "removed in a future release."

@@ -1,10 +1,8 @@
-"""``Predictor`` — high-level orchestrator for the new inference stack.
+"""``Predictor`` — high-level orchestrator for the inference stack.
 
 Composes an :class:`InferenceLayer` (or composed layer like
 :class:`TopDownLayer`) with a :class:`Provider` source and a
-:class:`FilterPipeline` post-processor. Replaces the legacy
-``sleap_nn.inference.predictors.Predictor`` (which is 3964 lines, model-
-type-specific, and tightly couples I/O / batching / filtering).
+:class:`FilterPipeline` post-processor.
 
 Three usage tiers:
 
@@ -13,14 +11,14 @@ Three usage tiers:
   use for short videos / interactive sessions.
 * :meth:`predict_streaming` — yields one ``Outputs`` per batch as a
   generator. Memory stays O(tracker_window).
-* :meth:`predict_to_file` — disk-streaming write of a ``.slp`` via the
-  forthcoming ``IncrementalLabelsWriter``. Memory stays O(write_interval).
+* :meth:`predict_to_file` — disk-streaming write of a ``.slp`` via
+  :class:`IncrementalLabelsWriter`. Memory stays O(write_interval).
 """
 
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Callable, Iterator, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Iterator, List, Optional, Union
 
 import attrs
 import numpy as np
@@ -31,6 +29,9 @@ from sleap_nn.inference.layers.configs import PostprocessConfig
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.providers import Provider
 from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
+
+if TYPE_CHECKING:
+    import sleap_io as sio
 
 
 def _safe_len(provider: Any) -> int:
@@ -50,7 +51,8 @@ class Predictor:
             every :class:`InferenceLayer` subclass plus composed layers
             like :class:`TopDownLayer`.
         skeleton: Optional ``sio.Skeleton`` resolved from the training
-            config. Populated automatically by :func:`from_model_paths`.
+            config. Populated automatically by
+            :func:`~sleap_nn.inference.factory.get_predictor_from_model_paths`.
             Used as the default for ``predict(make_labels=True)`` and
             ``predict_to_file()`` when no explicit ``skeleton`` kwarg is
             passed.
@@ -74,8 +76,8 @@ class Predictor:
         multiple sources safely.
     """
 
-    layer: Any
-    skeleton: Optional[Any] = None
+    layer: Any  # TODO: unify layer types under a common Protocol
+    skeleton: Optional["sio.Skeleton"] = None
     batch_size: int = 4
     filter_config: FilterConfig = attrs.Factory(FilterConfig)
     paf_workers: int = 0
@@ -95,7 +97,7 @@ class Predictor:
         source: Any,
         frames: Optional[List[int]] = None,
         **provider_kwargs: Any,
-    ) -> tuple[Any, Optional[List[Any]]]:
+    ) -> tuple["Provider", Optional[List["sio.Video"]]]:
         """Wrap a source into a ``Provider`` + extract videos for label packaging.
 
         Returns ``(provider, videos)`` where ``videos`` is a list of
@@ -108,8 +110,21 @@ class Predictor:
             VideoProvider,
         )
 
-        if isinstance(source, Provider):
-            return source, None
+        if isinstance(source, (str, np.ndarray)):
+            if isinstance(source, str) and source.endswith(".slp"):
+                provider = LabelsProvider(
+                    labels=source,
+                    batch_size=self.batch_size,
+                    **provider_kwargs,
+                )
+                return provider, None
+            provider = VideoProvider(
+                video=source,
+                batch_size=self.batch_size,
+                frames=frames,
+                **provider_kwargs,
+            )
+            return provider, None
 
         if isinstance(source, sio.Video):
             provider = VideoProvider(
@@ -129,22 +144,6 @@ class Predictor:
             videos = list(source.videos) if source.videos else None
             return provider, videos
 
-        if isinstance(source, (str, np.ndarray)):
-            if isinstance(source, str) and source.endswith(".slp"):
-                provider = LabelsProvider(
-                    labels=source,
-                    batch_size=self.batch_size,
-                    **provider_kwargs,
-                )
-                return provider, None
-            provider = VideoProvider(
-                video=source,
-                batch_size=self.batch_size,
-                frames=frames,
-                **provider_kwargs,
-            )
-            return provider, None
-
         if hasattr(source, "__iter__"):
             return source, None
 
@@ -153,144 +152,18 @@ class Predictor:
             f"Pass an sio.Video, sio.Labels, file path string, or a Provider."
         )
 
-    # ──────────────────────────────────────────────────────────────────
-    # Factory: build a Predictor from one or more checkpoint paths
-    # ──────────────────────────────────────────────────────────────────
-
-    @classmethod
-    def from_model_paths(
-        cls,
-        model_paths: List[str],
-        *,
-        device: str = "cpu",
-        batch_size: int = 4,
-        backbone_ckpt_path: Optional[str] = None,
-        head_ckpt_path: Optional[str] = None,
-        peak_threshold: Union[float, List[float]] = 0.2,
-        integral_refinement: str = "integral",
-        integral_patch_size: int = 5,
-        max_instances: Optional[int] = None,
-        return_confmaps: bool = False,
-        preprocess_config: Optional[Any] = None,
-        anchor_part: Optional[str] = None,
-        filter_config: Optional["FilterConfig"] = None,
-        paf_workers: int = 0,
-        tracker_config: Optional["TrackerConfig"] = None,
-        centroid_only: bool = False,
-    ) -> "Predictor":
-        """Build a :class:`Predictor` from one or more model checkpoint paths.
-
-        Args:
-            model_paths: Directories containing ``training_config.{yaml,json}``
-                + ``best.ckpt``. For top-down, pass two paths (centroid +
-                centered-instance) in either order.
-            device: ``"cpu"``, ``"cuda"``, ``"mps"``, or ``"cuda:N"``.
-            batch_size: Default batch size for auto-constructed providers.
-            backbone_ckpt_path: Override backbone weights with this ``.ckpt``.
-            head_ckpt_path: Override head weights.
-            peak_threshold: Default peak threshold. ``List[float]`` for
-                top-down (``[centroid_thresh, keypoint_thresh]``). Can be
-                overridden per-call via ``predict(peak_threshold=...)``.
-            integral_refinement: ``"integral"`` or ``"none"``. Can be
-                overridden per-call.
-            integral_patch_size: Refinement patch size. Can be overridden
-                per-call.
-            max_instances: Cap on instances per frame. Can be overridden
-                per-call.
-            return_confmaps: Default for returning confidence maps. Can be
-                overridden per-call.
-            preprocess_config: OmegaConf overrides for preprocessing.
-                ``None`` uses the training config as-is.
-            anchor_part: Override centroid anchor node name.
-            filter_config: Post-inference :class:`FilterConfig`.
-            paf_workers: CPU workers for bottom-up PAF grouping.
-            tracker_config: :class:`TrackerConfig` for tracking.
-            centroid_only: Force centroid-only output even when a
-                centered-instance model is among ``model_paths``.
-        """
-        from sleap_nn.inference.factory import get_predictor_from_model_paths
-
-        return get_predictor_from_model_paths(
-            model_paths,
-            device=device,
-            batch_size=batch_size,
-            backbone_ckpt_path=backbone_ckpt_path,
-            head_ckpt_path=head_ckpt_path,
-            peak_threshold=peak_threshold,
-            integral_refinement=integral_refinement,
-            integral_patch_size=integral_patch_size,
-            max_instances=max_instances,
-            return_confmaps=return_confmaps,
-            preprocess_config=preprocess_config,
-            anchor_part=anchor_part,
-            filter_config=filter_config,
-            paf_workers=paf_workers,
-            tracker_config=tracker_config,
-            centroid_only=centroid_only,
-        )
-
-    @classmethod
-    def from_export_dir(
-        cls,
-        export_dir: Union[str, Any],
-        *,
-        runtime: str = "auto",
-        device: str = "auto",
-        batch_size: int = 4,
-        return_confmaps: bool = False,
-        filter_config: Optional["FilterConfig"] = None,
-        paf_workers: int = 0,
-        tracker_config: Optional["TrackerConfig"] = None,
-        max_instances: Optional[int] = None,
-        min_instance_peaks: float = 0,
-        min_line_scores: float = 0.25,
-    ) -> "Predictor":
-        """Build a :class:`Predictor` from an exported ONNX / TensorRT directory.
-
-        Args:
-            export_dir: Directory containing ``export_metadata.json`` +
-                ``model.onnx`` or ``model.trt``.
-            runtime: ``"auto"`` (prefer TRT), ``"onnx"``, or ``"tensorrt"``.
-            device: Device string.
-            batch_size: Default batch size.
-            return_confmaps: Return confidence maps on Outputs.
-            filter_config: Post-inference :class:`FilterConfig`.
-            paf_workers: CPU workers for bottom-up PAF grouping.
-            tracker_config: :class:`TrackerConfig` for tracking.
-            max_instances: Cap on instances per frame (bottom-up).
-            min_instance_peaks: Min peaks for a valid instance (bottom-up).
-            min_line_scores: Per-edge match threshold (bottom-up).
-        """
-        from sleap_nn.inference.factory import get_predictor_from_export_dir
-
-        return get_predictor_from_export_dir(
-            export_dir,
-            runtime=runtime,
-            device=device,
-            batch_size=batch_size,
-            return_confmaps=return_confmaps,
-            filter_config=filter_config,
-            paf_workers=paf_workers,
-            tracker_config=tracker_config,
-            max_instances=max_instances,
-            min_instance_peaks=min_instance_peaks,
-            min_line_scores=min_line_scores,
-        )
-
     @staticmethod
     def retrack(
-        labels: Any,
+        labels: "sio.Labels",
         tracker_config: TrackerConfig,
         clean_empty_frames: bool = False,
-    ) -> Any:
+    ) -> "sio.Labels":
         """Retrack an existing ``sio.Labels`` without running inference.
 
-        Pure tracking — useful when you already have predicted instances
-        in a ``.slp`` and just want to (re)apply a tracker. Mirrors the
-        legacy ``run_inference(model_paths=None, tracking=True, ...)``
-        path. The tracker runs once over the full LabeledFrame list;
-        post-tracking cleanup (cull / connect-single-breaks) is applied
-        per ``tracker_config``.
+        Pure tracking -- useful when you already have predicted instances
+        in a ``.slp`` and just want to (re)apply a tracker. The tracker
+        runs once over the full LabeledFrame list; post-tracking cleanup
+        (cull / connect-single-breaks) is applied per ``tracker_config``.
 
         Args:
             labels: A ``sio.Labels`` whose ``predicted_instances`` are
@@ -318,8 +191,8 @@ class Predictor:
         *,
         make_labels: bool = True,
         frames: Optional[List[int]] = None,
-        skeleton: Optional[Any] = None,
-        videos: Optional[List[Any]] = None,
+        skeleton: Optional["sio.Skeleton"] = None,
+        videos: Optional[List["sio.Video"]] = None,
         clean_empty_frames: bool = False,
         progress_callback: Optional[Callable[[int, int], None]] = None,
         peak_threshold: Optional[float] = None,
@@ -330,7 +203,7 @@ class Predictor:
         integral_patch_size: Optional[int] = None,
         return_confmaps: Optional[bool] = None,
         return_crops: Optional[bool] = None,
-    ) -> Union[List[Outputs], Any]:
+    ) -> Union[List[Outputs], "sio.Labels"]:
         """Run inference on a source.
 
         Args:
@@ -399,7 +272,7 @@ class Predictor:
         if self.skeleton is None:
             raise ValueError(
                 "make_labels=True requires a skeleton. Either pass "
-                "`skeleton=...` or build the Predictor via from_model_paths() "
+                "`skeleton=...` or build the Predictor via get_predictor_from_model_paths() "
                 "which sets it automatically from the training config."
             )
         labels = self.to_labels(outputs_list, videos=videos)
@@ -480,8 +353,8 @@ class Predictor:
         path: str,
         *,
         frames: Optional[List[int]] = None,
-        skeleton: Optional[Any] = None,
-        videos: Optional[List[Any]] = None,
+        skeleton: Optional["sio.Skeleton"] = None,
+        videos: Optional[List["sio.Video"]] = None,
         write_interval: int = 500,
         progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> str:
@@ -512,7 +385,7 @@ class Predictor:
         if self.skeleton is None:
             raise ValueError(
                 "predict_to_file requires a skeleton. Either pass "
-                "`skeleton=...` or build the Predictor via from_model_paths() "
+                "`skeleton=...` or build the Predictor via get_predictor_from_model_paths() "
                 "which sets it automatically from the training config."
             )
         from sleap_nn.inference.writer import IncrementalLabelsWriter
@@ -630,8 +503,8 @@ class Predictor:
     def to_labels(
         self,
         outputs_list: List[Outputs],
-        videos: Optional[List[Any]] = None,
-    ) -> Any:
+        videos: Optional[List["sio.Video"]] = None,
+    ) -> "sio.Labels":
         """Concatenate per-batch ``Outputs`` into a single ``sio.Labels``."""
         import sleap_io as sio
 

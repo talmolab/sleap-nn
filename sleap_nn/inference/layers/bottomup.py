@@ -15,20 +15,19 @@ The bottom-up model emits two heads: a multi-instance confidence map
 Steps 1-3 are GPU-friendly tensor ops; step 4 is a CPU-bound
 ``scipy.linear_sum_assignment`` + BFS instance assembly. The two phases
 are split into :meth:`_score_pafs_on_gpu` (GPU) and the free function
-:func:`sleap_nn.inference.streaming.group_scored_batch` (CPU). PR 9
-uses the split to ship a worker pool for the CPU phase; today's inline
-path simply calls them back-to-back inside :meth:`postprocess`.
+:func:`sleap_nn.inference.streaming.group_scored_batch` (CPU). The split
+enables a worker pool for the CPU phase; the inline path simply calls
+them back-to-back inside :meth:`postprocess`.
 """
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 
-from sleap_nn.data.resizing import apply_pad_to_stride, resize_image
 from sleap_nn.inference.layers.backends.base import ModelBackend
-from sleap_nn.inference.layers.base import ImageInput, InferenceLayer
+from sleap_nn.inference.layers.base import InferenceLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
 from sleap_nn.inference.ops.paf import PAFScorer
 from sleap_nn.inference.ops.peaks import find_local_peaks
@@ -80,33 +79,13 @@ class BottomUpLayer(InferenceLayer):
             preprocess_config=preprocess_config or PreprocessConfig(),
             postprocess_config=postprocess_config or PostprocessConfig(),
             output_stride=cms_output_stride,
+            max_stride=max_stride,
         )
         self.paf_scorer = paf_scorer
         self.cms_output_stride = cms_output_stride
         self.pafs_output_stride = pafs_output_stride
         self.max_instances = max_instances
-        self.max_stride = max_stride
         self.max_peaks_per_node = max_peaks_per_node
-
-    # ──────────────────────────────────────────────────────────────────
-    # Preprocess
-    # ──────────────────────────────────────────────────────────────────
-
-    def preprocess(self, image: ImageInput) -> Tuple[torch.Tensor, PreprocInfo]:
-        """Run the full legacy-parity preprocessing chain on a raw frame."""
-        x = self._to_4d_tensor(image)
-        scaled_5d, eff_scale, orig_hw = self._apply_full_preprocess(
-            x, max_stride=self.max_stride, unsqueeze_n_samples=True
-        )
-
-        info = PreprocInfo(
-            original_size=orig_hw,
-            processed_size=tuple(scaled_5d.shape[-2:]),
-            eff_scale=eff_scale,
-            input_scale=self.preprocess_config.scale,
-            output_stride=self.cms_output_stride,
-        )
-        return scaled_5d, info
 
     # ──────────────────────────────────────────────────────────────────
     # GPU stage — peaks + PAF line scoring
@@ -122,15 +101,10 @@ class BottomUpLayer(InferenceLayer):
         cms = raw_out["MultiInstanceConfmapsHead"]
         pafs = raw_out["PartAffinityFieldsHead"].permute(0, 2, 3, 1)  # (B, H, W, 2*E)
 
-        refinement = (
-            self.postprocess_config.refinement
-            if self.postprocess_config.refinement != "none"
-            else None
-        )
         peaks, peak_vals, sample_inds, peak_channel_inds = find_local_peaks(
             cms.detach(),
             threshold=self.postprocess_config.peak_threshold,
-            refinement=refinement,
+            refinement=self.postprocess_config.effective_refinement,
             integral_patch_size=self.postprocess_config.integral_patch_size,
         )
         peaks = peaks * self.cms_output_stride

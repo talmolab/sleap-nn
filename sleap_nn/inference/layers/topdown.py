@@ -4,7 +4,7 @@ Two-stage layer that detects instances by centroid, crops around each
 centroid, runs a centered-instance model on the crops, and lifts the
 crop-local keypoints back into image space via :func:`add_crop_offset`.
 
-Stage layout (from `12-design-review-and-revised-plan.md` §4.6):
+Stage layout:
 
 * **Stage A** — :class:`CentroidLayer` decides which centroids survive
   (peak threshold + max_instances cap).
@@ -125,8 +125,8 @@ class TopDownLayer:
             )
 
         # Stage 2: crop + run centered-instance model + un-crop.
-        # Legacy parity (see scratch/.../parity_audit/): crops must be
-        # extracted from the **sized** image (post-centroid sizematcher),
+        # Crops must be extracted from the **sized** image
+        # (post-centroid sizematcher),
         # not from the raw frame, because the centered_instance model was
         # trained on crops from sized frames. The same applies to centroid
         # coordinates used for bbox construction.

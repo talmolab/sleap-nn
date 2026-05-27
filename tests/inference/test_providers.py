@@ -15,7 +15,7 @@ import torch
 
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.predictor import Predictor
-from sleap_nn.inference.providers import LabelsProvider, Provider, VideoProvider
+from sleap_nn.inference.providers import LabelsProvider, VideoProvider
 from sleap_nn.inference.writer import IncrementalLabelsWriter
 
 DATA_ROOT = Path(__file__).resolve().parents[1] / "assets" / "datasets"
@@ -33,7 +33,7 @@ def test_video_provider_yields_frames_in_batches():
     """A 8-frame slice + batch_size=4 → 2 batches with frame indices 0..7."""
     provider = VideoProvider(video=str(VIDEO), batch_size=4, frames=list(range(8)))
     assert len(provider) == 2
-    assert isinstance(provider, Provider)
+    assert hasattr(provider, "__iter__") and hasattr(provider, "__len__")
     batches = list(provider)
     assert len(batches) == 2
     assert batches[0].images.shape[0] == 4
@@ -62,7 +62,7 @@ def test_labels_provider_yields_instances():
     """Labels provider attaches GT instances to each batch."""
     provider = LabelsProvider(labels=str(LABELS), batch_size=4)
     assert len(provider) >= 1
-    assert isinstance(provider, Provider)
+    assert hasattr(provider, "__iter__") and hasattr(provider, "__len__")
     batch = next(iter(provider))
     # GT instances are populated.
     assert batch.instances is not None

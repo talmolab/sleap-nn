@@ -14,9 +14,8 @@ from typing import Optional, Tuple
 import attrs
 import torch
 
-from sleap_nn.data.resizing import apply_pad_to_stride, resize_image
 from sleap_nn.inference.layers.backends.base import ModelBackend
-from sleap_nn.inference.layers.base import ImageInput, InferenceLayer
+from sleap_nn.inference.layers.base import InferenceLayer
 from sleap_nn.inference.layers.centroid import CentroidLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
 from sleap_nn.inference.layers.topdown import TopDownLayer
@@ -66,38 +65,18 @@ class CenteredInstanceMultiClassLayer(InferenceLayer):
             preprocess_config=preprocess_config or PreprocessConfig(),
             postprocess_config=postprocess_config or PostprocessConfig(),
             output_stride=output_stride,
+            max_stride=max_stride,
         )
-        self.max_stride = max_stride
-
-    def preprocess(self, image: ImageInput) -> Tuple[torch.Tensor, PreprocInfo]:
-        """Run the full legacy-parity preprocessing chain on crops/frames."""
-        x = self._to_4d_tensor(image)
-        scaled_5d, eff_scale, orig_hw = self._apply_full_preprocess(
-            x, max_stride=self.max_stride, unsqueeze_n_samples=True
-        )
-        info = PreprocInfo(
-            original_size=orig_hw,
-            processed_size=tuple(scaled_5d.shape[-2:]),
-            eff_scale=eff_scale,
-            input_scale=self.preprocess_config.scale,
-            output_stride=self.output_stride,
-        )
-        return scaled_5d, info
 
     def postprocess(self, raw_out: dict, info: PreprocInfo) -> Outputs:
         """Decode confmaps to keypoints; classify via ``ClassVectorsHead``."""
         cms = raw_out["CenteredInstanceConfmapsHead"]
         peak_class_probs = raw_out["ClassVectorsHead"]  # (n_crops, n_classes)
 
-        refinement = (
-            self.postprocess_config.refinement
-            if self.postprocess_config.refinement != "none"
-            else None
-        )
         peaks, vals = find_global_peaks(
             cms.detach(),
             threshold=self.postprocess_config.peak_threshold,
-            refinement=refinement,
+            refinement=self.postprocess_config.effective_refinement,
             integral_patch_size=self.postprocess_config.integral_patch_size,
         )
         peaks = peaks * info.output_stride

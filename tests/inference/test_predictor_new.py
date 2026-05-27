@@ -10,8 +10,8 @@ Coverage:
 5. Frame / video indices from the provider land on the resulting
    ``Outputs`` (so downstream label conversion sees them).
 6. ``make_labels=True`` requires ``skeleton`` (clear ``ValueError``).
-7. ``Provider`` protocol — ``isinstance(numpy_provider, Provider)``
-   returns ``True``.
+7. ``Provider`` protocol — ``NumpyProvider`` structurally satisfies the
+   ``Provider`` protocol (has ``__iter__`` and ``__len__``).
 8. Source dispatch: ``predict`` accepts ``sio.Video``, ``Provider``, etc.
 """
 
@@ -26,7 +26,7 @@ import torch
 from sleap_nn.inference.filters import FilterConfig
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.predictor import Predictor
-from sleap_nn.inference.providers import Batch, NumpyProvider, Provider
+from sleap_nn.inference.providers import Batch, NumpyProvider
 
 
 class _StubLayer:
@@ -62,9 +62,9 @@ def test_numpy_provider_yields_expected_batches():
 
 
 def test_numpy_provider_satisfies_provider_protocol():
-    """``isinstance(provider, Provider)`` confirms the structural type."""
+    """``NumpyProvider`` structurally satisfies the ``Provider`` protocol."""
     provider = NumpyProvider(images=np.zeros((1, 1, 4, 4), dtype=np.uint8))
-    assert isinstance(provider, Provider)
+    assert hasattr(provider, "__iter__") and hasattr(provider, "__len__")
 
 
 # ─────────────────────────────────────────────────────────────────────────

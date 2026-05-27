@@ -28,9 +28,13 @@ Usage::
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, List, Optional
 
 import sleap_io as sio
+
+if TYPE_CHECKING:
+    from sleap_nn.inference.filters import FilterConfig
+    from sleap_nn.inference.tracking import TrackerConfig
 
 
 def predict(
@@ -56,9 +60,9 @@ def predict(
     return_confmaps: bool = False,
     return_crops: bool = False,
     # Filtering
-    filter_config: Optional[Any] = None,
+    filter_config: Optional["FilterConfig"] = None,
     # Tracking
-    tracker_config: Optional[Any] = None,
+    tracker_config: Optional["TrackerConfig"] = None,
     # Output
     output_path: Optional[str] = None,
     clean_empty_frames: bool = False,
@@ -104,7 +108,10 @@ def predict(
     """
     import torch
 
-    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.factory import (
+        get_predictor_from_export_dir,
+        get_predictor_from_model_paths,
+    )
 
     if model_paths and export_dir:
         raise ValueError("Provide model_paths or export_dir, not both.")
@@ -134,9 +141,9 @@ def predict(
             build_kwargs["preprocess_config"] = preprocess_config
         if anchor_part is not None:
             build_kwargs["anchor_part"] = anchor_part
-        predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
+        predictor = get_predictor_from_model_paths(model_paths, **build_kwargs)
     else:
-        predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
+        predictor = get_predictor_from_export_dir(export_dir, **build_kwargs)
 
     # Run inference with prediction-time overrides
     labels = predictor.predict(

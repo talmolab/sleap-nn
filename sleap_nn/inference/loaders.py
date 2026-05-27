@@ -1,22 +1,22 @@
 """Standalone checkpoint loading for the inference factory.
 
-Forked from ``sleap_nn.inference.predictors`` (PR 28c of #508) so the
-factory no longer depends on the legacy ``*Predictor`` classes.
-
-Nothing user-facing here — the public API remains
+Nothing user-facing here -- the public API remains
 :class:`sleap_nn.inference.Predictor` +
-:func:`sleap_nn.inference.factory.from_model_paths`.
+:func:`sleap_nn.inference.factory.get_predictor_from_model_paths`.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union
 
 import attrs
 import torch
 from loguru import logger
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
+
+if TYPE_CHECKING:
+    import sleap_io as sio
 
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.config.utils import get_model_type_from_cfg
@@ -46,36 +46,32 @@ from sleap_nn.training.lightning_modules import (
 
 # ─────────────────────────────────────────────────────────────────────────
 # LoadedAssets — the bag of attributes the factory's _build_*_layer helpers
-# consume.  Exposes the same surface as the legacy *Predictor instances.
+# consume.
 # ─────────────────────────────────────────────────────────────────────────
 
 
 @attrs.define(eq=False, repr=False)
 class LoadedAssets:
-    """Everything the factory's ``_build_*_layer`` helpers need.
+    """Everything the factory's ``_build_*_layer`` helpers need."""
 
-    Attribute names deliberately mirror those on the legacy ``*Predictor``
-    instances so the existing helpers in ``factory.py`` work unchanged.
-    """
+    inference_model: Any  # Union of all *InferenceModel types
+    preprocess_config: "DictConfig"
+    skeletons: list["sio.Skeleton"]
 
-    inference_model: Any
-    preprocess_config: Any
-    skeletons: list
-
-    bottomup_config: Optional[Any] = None
+    bottomup_config: Optional["DictConfig"] = None
     backbone_type: Optional[str] = None
     max_stride: Optional[int] = None
 
-    centroid_config: Optional[Any] = None
-    confmap_config: Optional[Any] = None
+    centroid_config: Optional["DictConfig"] = None
+    confmap_config: Optional["DictConfig"] = None
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# L1 — per-checkpoint helpers (shared across all model types)
+# Per-checkpoint helpers (shared across all model types)
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def _load_training_config(ckpt_dir: str) -> Tuple[Any, bool]:
+def _load_training_config(ckpt_dir: str) -> tuple["DictConfig", bool]:
     """Load ``training_config.{yaml,json}``.
 
     Returns:
@@ -141,7 +137,7 @@ def _apply_ckpt_overrides(
 ) -> None:
     """Apply optional backbone / head checkpoint overrides.
 
-    Three branches (mirrors ``predictors.py`` logic):
+    Three branches:
     (a) both overrides → only ``.backbone`` keys from backbone_ckpt_path
     (b) backbone only  → all keys from backbone_ckpt_path
     (c) head only      → only ``.head_layers`` keys from head_ckpt_path
@@ -175,7 +171,7 @@ def _load_lightning_module(
     device: str,
     backbone_ckpt_path: Optional[str] = None,
     head_ckpt_path: Optional[str] = None,
-) -> Tuple[torch.nn.Module, Any, str]:
+) -> tuple[torch.nn.Module, "DictConfig", str]:
     """Generic per-checkpoint loader.
 
     Returns:
@@ -227,7 +223,7 @@ def _resolve_preprocess_config(preprocess_config: Any, training_config: Any) -> 
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# L2 — per-model-type builders (mirrors each _initialize_inference_model)
+# Per-model-type builders
 # ─────────────────────────────────────────────────────────────────────────
 
 
@@ -653,7 +649,7 @@ def _build_topdown_multiclass(
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Top-level entry — replaces LegacyPredictor.from_model_paths + _initialize
+# Top-level entry point
 # ─────────────────────────────────────────────────────────────────────────
 
 
@@ -668,19 +664,14 @@ def load_model_assets(
     integral_patch_size: int = 5,
     max_instances: Optional[int] = None,
     return_confmaps: bool = False,
-    preprocess_config: Optional[Any] = None,
+    preprocess_config: Optional["DictConfig"] = None,
     anchor_part: Optional[str] = None,
-) -> Tuple[LoadedAssets, List[str]]:
-    """Load checkpoints and build inference models, without the legacy Predictor.
-
-    This replaces the factory's previous delegation to
-    ``LegacyPredictor.from_model_paths()`` +
-    ``legacy_predictor._initialize_inference_model()``.
+) -> tuple[LoadedAssets, List[str]]:
+    """Load checkpoints and build inference models.
 
     Returns:
-        ``(loaded_assets, model_types)`` — the assets expose the same
-        attribute surface as the legacy predictor, and *model_types* is
-        the list of detected model types (one per path in *model_paths*).
+        ``(loaded_assets, model_types)`` — *model_types* is the list of
+        detected model types (one per path in *model_paths*).
     """
     if preprocess_config is None:
         preprocess_config = OmegaConf.create(

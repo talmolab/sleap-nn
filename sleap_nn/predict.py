@@ -294,8 +294,8 @@ def run_inference(
 
         * **Inference on a checkpoint**::
 
-              from sleap_nn.inference.predictor import Predictor
-              predictor = Predictor.from_model_paths([model_dir])
+              from sleap_nn.inference.factory import get_predictor_from_model_paths
+              predictor = get_predictor_from_model_paths([model_dir])
               labels = predictor.predict(provider, make_labels=True, ...)
 
         * **Streaming to disk**: ``predictor.predict_to_file(...)``
@@ -309,8 +309,8 @@ def run_inference(
 
     warnings.warn(
         "sleap_nn.predict.run_inference() is deprecated and will be removed "
-        "in a future release. Use sleap_nn.inference.predictor.Predictor — "
-        "either Predictor.from_model_paths(...).predict(...) for checkpoint "
+        "in a future release. Use the factory functions in sleap_nn.inference — "
+        "either get_predictor_from_model_paths(...).predict(...) for checkpoint "
         "inference, .predict_to_file(...) for disk-streaming, or "
         "Predictor.retrack(labels, tracker_config) for pure-tracking. "
         "See the function's deprecation note for full migration examples.",

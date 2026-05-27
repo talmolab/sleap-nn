@@ -1,6 +1,5 @@
 """``Outputs`` — the structured container produced by every ``InferenceLayer``.
 
-Replaces the dict-of-arrays that the current ``predictors.py`` returns.
 Single source of truth for what an inference call yields, how to manipulate
 its tensors (device, dtype, autograd), and how to reduce it to a slimmer
 form for cross-process transport.
@@ -14,9 +13,9 @@ Design constraints baked into the class:
 * Custom ``__repr__`` prints field shapes, not tensor contents — a fat
   ``Outputs`` would otherwise dump megabytes into stack traces.
 * ``slim()`` is a hard contract: the returned object MUST be pickleable.
-  This guarantees the multi-process post-processing path (PR 9 / #517) and
-  the streaming writer (PR 8 / #516) can ship ``Outputs`` between processes
-  without surprises. Enforced by tests.
+  This guarantees multi-process post-processing and the streaming writer
+  can ship ``Outputs`` between processes without surprises. Enforced by
+  tests.
 * No live references: every field is a value (tensor, ndarray, ints, the
   ``PreprocInfo`` struct). No ``InferenceLayer`` / ``Backend`` /
   ``LightningModule`` / file handle / generator. Enforced by tests.
@@ -24,13 +23,16 @@ Design constraints baked into the class:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import attrs
 import numpy as np
 import torch
 
 from sleap_nn.inference.preprocess_info import PreprocInfo
+
+if TYPE_CHECKING:
+    import sleap_io as sio
 
 # Heavy intermediate tensors that ``slim()`` drops — heavy as in
 # ``(B, N, H, W)`` confmaps that can be hundreds of MB per frame.
@@ -183,7 +185,7 @@ class Outputs:
                 kwargs[f.name] = val
         return Outputs(**kwargs)
 
-    def _map(self, fn) -> "Outputs":
+    def _map(self, fn: "Callable[[torch.Tensor], torch.Tensor]") -> "Outputs":
         """Apply ``fn`` to every tensor field, returning a new ``Outputs``.
 
         Tuples-of-tensors are mapped element-wise. Non-tensor fields pass
@@ -233,15 +235,15 @@ class Outputs:
         return 0
 
     # ═══════════════════════════════════════════════════════════════════
-    # sleap-io conversion (extended in PR 8 — minimal here for PR 4 use)
+    # sleap-io conversion
     # ═══════════════════════════════════════════════════════════════════
 
     def to_instances(
         self,
-        skeleton: "Any",
+        skeleton: "sio.Skeleton",
         batch_index: int = 0,
         anchor_ind: Optional[int] = None,
-    ) -> List[Any]:
+    ) -> list["sio.PredictedInstance"]:
         """Convert one batch slot into a list of ``sio.PredictedInstance``.
 
         Args:
@@ -317,10 +319,10 @@ class Outputs:
 
     def _to_instances_centroid_only(
         self,
-        skeleton: "Any",
+        skeleton: "sio.Skeleton",
         batch_index: int,
         anchor_ind: int,
-    ) -> List[Any]:
+    ) -> list["sio.PredictedInstance"]:
         """Centroid-only packaging: NaN-pad skeleton, centroid at ``anchor_ind``.
 
         See :meth:`to_instances` for semantics.
@@ -362,10 +364,10 @@ class Outputs:
 
     def to_labels(
         self,
-        skeleton: "Any",
-        videos: Optional[List[Any]] = None,
+        skeleton: "sio.Skeleton",
+        videos: Optional[list["sio.Video"]] = None,
         anchor_ind: Optional[int] = None,
-    ) -> Any:
+    ) -> "sio.Labels":
         """Convert this ``Outputs`` to a ``sleap_io.Labels``.
 
         Args:
@@ -380,9 +382,9 @@ class Outputs:
             non-empty batch slot.
 
         Notes:
-            Minimal implementation for the PR 4 single-instance proof of
-            pattern. PR 8 (``Predictor`` orchestrator) extends this with
-            full multi-video / per-frame metadata handling.
+            For full multi-video / per-frame metadata handling, use
+            :meth:`Predictor.predict` which aggregates per-batch
+            ``Outputs`` into a single ``sio.Labels``.
         """
         import sleap_io as sio
 

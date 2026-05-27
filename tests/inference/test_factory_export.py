@@ -1,4 +1,4 @@
-"""Tests for ``Predictor.from_export_dir`` (PR 18 — single-instance only).
+"""Tests for ``get_predictor_from_export_dir`` (PR 18 — single-instance only).
 
 The full export-dir factory dispatches on ``ExportMetadata.model_type``.
 This file exercises the ``"single_instance"`` path (the case where the
@@ -152,17 +152,6 @@ def test_from_export_dir_single_instance_predict_smoke(single_instance_export):
     assert out.pred_keypoints.shape[-2] == 2
 
 
-def test_predictor_classmethod_alias_matches_function(single_instance_export):
-    """``Predictor.from_export_dir`` and ``factory.from_export_dir`` are equivalent."""
-    from sleap_nn.inference.factory import get_predictor_from_export_dir as fn
-    from sleap_nn.inference.predictor import Predictor
-
-    direct = fn(single_instance_export, device="cpu")
-    via_classmethod = Predictor.from_export_dir(single_instance_export, device="cpu")
-
-    assert type(direct.layer) is type(via_classmethod.layer)
-
-
 def test_from_export_dir_single_instance_no_double_coord_ladder(tmp_path):
     """Export adapter must not re-apply ``output_stride`` / ``input_scale``.
 
@@ -245,14 +234,18 @@ def test_from_export_dir_unknown_runtime_raises(single_instance_export):
     from sleap_nn.inference.factory import get_predictor_from_export_dir
 
     with pytest.raises(ValueError, match="Unknown runtime"):
-        get_predictor_from_export_dir(single_instance_export, runtime="foo", device="cpu")
+        get_predictor_from_export_dir(
+            single_instance_export, runtime="foo", device="cpu"
+        )
 
 
 def test_from_export_dir_explicit_onnx_runtime(single_instance_export):
     """``runtime='onnx'`` works when the .onnx file exists."""
     from sleap_nn.inference.factory import get_predictor_from_export_dir
 
-    predictor = get_predictor_from_export_dir(single_instance_export, runtime="onnx", device="cpu")
+    predictor = get_predictor_from_export_dir(
+        single_instance_export, runtime="onnx", device="cpu"
+    )
     assert predictor.layer is not None
 
 
@@ -261,7 +254,9 @@ def test_from_export_dir_tensorrt_missing_engine_raises(single_instance_export):
     from sleap_nn.inference.factory import get_predictor_from_export_dir
 
     with pytest.raises(FileNotFoundError, match="model.trt"):
-        get_predictor_from_export_dir(single_instance_export, runtime="tensorrt", device="cpu")
+        get_predictor_from_export_dir(
+            single_instance_export, runtime="tensorrt", device="cpu"
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -642,7 +637,9 @@ def test_from_export_dir_bottomup_predict_smoke(bottomup_export):
     from sleap_nn.inference.factory import get_predictor_from_export_dir
     from sleap_nn.inference.providers import NumpyProvider
 
-    predictor = get_predictor_from_export_dir(bottomup_export, device="cpu", min_line_scores=-1.0)
+    predictor = get_predictor_from_export_dir(
+        bottomup_export, device="cpu", min_line_scores=-1.0
+    )
     images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
     provider = NumpyProvider(images=images, batch_size=1)
 

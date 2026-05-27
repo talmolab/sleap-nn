@@ -1,13 +1,9 @@
-"""``Provider`` protocol + concrete data sources for the new ``Predictor``.
+"""``Provider`` protocol + concrete data sources for ``Predictor``.
 
-A ``Provider`` is the new equivalent of the legacy ``LabelsReader`` /
-``VideoReader`` from ``sleap_nn.data.providers``. Two differences:
-
-* It's a protocol, not a base class — no inheritance required, anything
-  with the right shape works (existing legacy readers can be wrapped).
-* It returns batches of ``np.ndarray`` (raw images) plus per-batch
-  metadata (frame indices, video indices, optionally GT instances) —
-  not pre-formatted dicts. The new ``Predictor`` does the rest.
+A ``Provider`` yields batches of raw images plus per-batch metadata
+(frame indices, video indices, optionally GT instances). The
+``Predictor`` consumes these batches and routes them through an
+``InferenceLayer``.
 
 Three concrete implementations:
 
@@ -19,19 +15,19 @@ Three concrete implementations:
   don't duplicate decoding.
 * :class:`LabelsProvider` — wraps a ``.slp`` file; yields the labeled
   frames + their GT instances (needed for the ``use_gt_centroids`` /
-  ``use_gt_peaks`` paths in the new layers).
-
-The latter two land as follow-up commits on this branch — this commit
-ships only the protocol + ``NumpyProvider``.
+  ``use_gt_peaks`` layer paths).
 """
 
 from __future__ import annotations
 
-from typing import Iterator, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Iterator, Optional, Protocol, Union
 
 import attrs
 import numpy as np
 import torch
+
+if TYPE_CHECKING:
+    import sleap_io as sio
 
 
 @attrs.frozen
@@ -56,9 +52,8 @@ class Batch:
     instances: Optional[np.ndarray] = None
 
 
-@runtime_checkable
 class Provider(Protocol):
-    """Iterator-of-batches contract that the new ``Predictor`` consumes."""
+    """Iterator-of-batches contract that ``Predictor`` consumes."""
 
     def __iter__(self) -> Iterator[Batch]:
         """Yield ``Batch`` instances until the source is exhausted."""
@@ -101,13 +96,15 @@ class VideoProvider:
         (e.g., ``ensure_grayscale``).
     """
 
-    video: object  # str | sio.Video
+    video: "Union[str, sio.Video]"
     batch_size: int = 4
     frames: Optional[list[int]] = None
     dataset: Optional[str] = None
     input_format: Optional[str] = None
 
-    _sio_video: object = attrs.field(default=None, init=False, repr=False)
+    _sio_video: "Optional[sio.Video]" = attrs.field(
+        default=None, init=False, repr=False
+    )
     _frame_indices: list[int] = attrs.field(factory=list, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:
@@ -173,14 +170,16 @@ class LabelsProvider:
             least one predicted instance.
     """
 
-    labels: object  # str | sio.Labels
+    labels: "Union[str, sio.Labels]"
     batch_size: int = 4
     only_labeled_frames: bool = True
     only_suggested_frames: bool = False
     exclude_user_labeled: bool = False
     only_predicted_frames: bool = False
 
-    _sio_labels: object = attrs.field(default=None, init=False, repr=False)
+    _sio_labels: "Optional[sio.Labels]" = attrs.field(
+        default=None, init=False, repr=False
+    )
     _labeled_frames: list = attrs.field(factory=list, init=False, repr=False)
 
     def __attrs_post_init__(self) -> None:

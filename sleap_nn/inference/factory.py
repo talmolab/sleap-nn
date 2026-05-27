@@ -1,23 +1,21 @@
-"""Build a new :class:`Predictor` directly from model checkpoint paths.
-
-PR 11 of #508 (#519), updated in PR 28c to use :mod:`sleap_nn.inference.loaders`
-for checkpoint loading instead of delegating to the legacy ``*Predictor`` classes.
+"""Build a :class:`Predictor` from model checkpoint paths or export directories.
 
 The factory detects model types from ``training_config.{yaml,json}``, loads
 Lightning checkpoints + inference models via :func:`loaders.load_model_assets`,
-and wraps them with the new ``InferenceLayer`` subclasses. The legacy
-``sleap_nn.inference.predictors`` module is preserved for backwards compat but
-is no longer imported here.
+and wraps them with the appropriate ``InferenceLayer`` subclasses.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 from sleap_nn.inference.filters import FilterConfig
 from sleap_nn.inference.layers.backends import TorchBackend
 from sleap_nn.inference.tracking import TrackerConfig
+
+if TYPE_CHECKING:
+    from sleap_nn.export.metadata import ExportMetadata
 from sleap_nn.inference.layers.bottomup import BottomUpLayer
 from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLayer
 from sleap_nn.inference.layers.centered_instance import CenteredInstanceLayer
@@ -31,19 +29,19 @@ from sleap_nn.inference.layers.topdown_multiclass import (
 )
 
 # ─────────────────────────────────────────────────────────────────────────
-# Layer builders — one per model type, given a loaded legacy inference_model
+# Layer builders — one per model type, given a LoadedAssets instance
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def _legacy_pp_field(legacy_predictor: Any, name: str, default: Any = None) -> Any:
-    """Read a field from the legacy predictor's resolved ``preprocess_config``.
+def _pp_field(assets: Any, name: str, default: Any = None) -> Any:
+    """Read a field from the loaded assets' resolved ``preprocess_config``.
 
-    The legacy ``from_trained_models`` resolves None inputs from training
-    config before constructing the predictor, so by the time the factory
-    is called every field in ``preprocess_config`` is concrete. Supports
-    both ``OmegaConf.DictConfig`` and plain dict.
+    The loader resolves ``None`` inputs from the training config before
+    constructing the assets object, so by the time the factory is called
+    every field in ``preprocess_config`` is concrete. Supports both
+    ``OmegaConf.DictConfig`` and plain dict.
     """
-    cfg = getattr(legacy_predictor, "preprocess_config", None)
+    cfg = getattr(assets, "preprocess_config", None)
     if cfg is None:
         return default
     try:
@@ -54,7 +52,7 @@ def _legacy_pp_field(legacy_predictor: Any, name: str, default: Any = None) -> A
 
 
 def _build_single_instance_layer(predictor: Any, device: str) -> SingleInstanceLayer:
-    """Wrap legacy ``SingleInstanceInferenceModel`` with the new layer."""
+    """Wrap a ``SingleInstanceInferenceModel`` in an ``InferenceLayer``."""
     inf = predictor.inference_model
     return SingleInstanceLayer(
         backend=TorchBackend(model=inf.torch_model, device=device),
@@ -62,10 +60,10 @@ def _build_single_instance_layer(predictor: Any, device: str) -> SingleInstanceL
         max_stride=getattr(predictor, "max_stride", 1),
         preprocess_config=PreprocessConfig(
             scale=inf.input_scale,
-            max_height=_legacy_pp_field(predictor, "max_height"),
-            max_width=_legacy_pp_field(predictor, "max_width"),
-            ensure_rgb=_legacy_pp_field(predictor, "ensure_rgb"),
-            ensure_grayscale=_legacy_pp_field(predictor, "ensure_grayscale"),
+            max_height=_pp_field(predictor, "max_height"),
+            max_width=_pp_field(predictor, "max_width"),
+            ensure_rgb=_pp_field(predictor, "ensure_rgb"),
+            ensure_grayscale=_pp_field(predictor, "ensure_grayscale"),
         ),
         postprocess_config=PostprocessConfig(
             peak_threshold=inf.peak_threshold,
@@ -77,7 +75,7 @@ def _build_single_instance_layer(predictor: Any, device: str) -> SingleInstanceL
 
 
 def _build_bottomup_layer(predictor: Any, device: str) -> BottomUpLayer:
-    """Wrap legacy ``BottomUpInferenceModel`` with the new layer."""
+    """Wrap a ``BottomUpInferenceModel`` in an ``InferenceLayer``."""
     inf = predictor.inference_model
     max_stride = predictor.bottomup_config.model_config.backbone_config[
         predictor.backbone_type
@@ -92,10 +90,10 @@ def _build_bottomup_layer(predictor: Any, device: str) -> BottomUpLayer:
         max_peaks_per_node=inf.max_peaks_per_node,
         preprocess_config=PreprocessConfig(
             scale=inf.input_scale,
-            max_height=_legacy_pp_field(predictor, "max_height"),
-            max_width=_legacy_pp_field(predictor, "max_width"),
-            ensure_rgb=_legacy_pp_field(predictor, "ensure_rgb"),
-            ensure_grayscale=_legacy_pp_field(predictor, "ensure_grayscale"),
+            max_height=_pp_field(predictor, "max_height"),
+            max_width=_pp_field(predictor, "max_width"),
+            ensure_rgb=_pp_field(predictor, "ensure_rgb"),
+            ensure_grayscale=_pp_field(predictor, "ensure_grayscale"),
         ),
         postprocess_config=PostprocessConfig(
             peak_threshold=inf.peak_threshold,
@@ -111,7 +109,7 @@ def _build_bottomup_layer(predictor: Any, device: str) -> BottomUpLayer:
 def _build_bottomup_multiclass_layer(
     predictor: Any, device: str
 ) -> BottomUpMultiClassLayer:
-    """Wrap legacy ``BottomUpMultiClassInferenceModel`` with the new layer."""
+    """Wrap a ``BottomUpMultiClassInferenceModel`` in an ``InferenceLayer``."""
     inf = predictor.inference_model
     max_stride = predictor.bottomup_config.model_config.backbone_config[
         predictor.backbone_type
@@ -123,10 +121,10 @@ def _build_bottomup_multiclass_layer(
         max_stride=max_stride,
         preprocess_config=PreprocessConfig(
             scale=inf.input_scale,
-            max_height=_legacy_pp_field(predictor, "max_height"),
-            max_width=_legacy_pp_field(predictor, "max_width"),
-            ensure_rgb=_legacy_pp_field(predictor, "ensure_rgb"),
-            ensure_grayscale=_legacy_pp_field(predictor, "ensure_grayscale"),
+            max_height=_pp_field(predictor, "max_height"),
+            max_width=_pp_field(predictor, "max_width"),
+            ensure_rgb=_pp_field(predictor, "ensure_rgb"),
+            ensure_grayscale=_pp_field(predictor, "ensure_grayscale"),
         ),
         postprocess_config=PostprocessConfig(
             peak_threshold=inf.peak_threshold,
@@ -138,44 +136,44 @@ def _build_bottomup_multiclass_layer(
 
 
 def _build_centroid_layer(
-    legacy_centroid: Any,
+    centroid_model: Any,
     device: str,
-    legacy_predictor: Optional[Any] = None,
+    assets: Optional[Any] = None,
 ) -> CentroidLayer:
-    """Wrap legacy ``CentroidCrop`` with the new ``CentroidLayer``.
+    """Wrap a ``CentroidCrop`` model in a ``CentroidLayer``.
 
-    ``legacy_predictor``: optional reference to the outer predictor whose
-    resolved ``preprocess_config`` carries ``max_height/max_width/
-    ensure_rgb/ensure_grayscale``. The centroid layer applies the size-
-    matcher / channel-coercion chain matching legacy ``_make_pipeline_inputs``.
+    ``assets``: optional :class:`LoadedAssets` whose resolved
+    ``preprocess_config`` carries ``max_height/max_width/ensure_rgb/
+    ensure_grayscale``. The centroid layer applies the size-matcher /
+    channel-coercion chain matching ``_make_pipeline_inputs``.
     """
     return CentroidLayer(
-        backend=TorchBackend(model=legacy_centroid.torch_model, device=device),
-        output_stride=legacy_centroid.output_stride,
-        max_instances=legacy_centroid.max_instances,
-        max_stride=legacy_centroid.max_stride,
-        anchor_ind=legacy_centroid.anchor_ind,
+        backend=TorchBackend(model=centroid_model.torch_model, device=device),
+        output_stride=centroid_model.output_stride,
+        max_instances=centroid_model.max_instances,
+        max_stride=centroid_model.max_stride,
+        anchor_ind=centroid_model.anchor_ind,
         use_gt_centroids=False,
         preprocess_config=PreprocessConfig(
-            scale=legacy_centroid.input_scale,
-            max_height=_legacy_pp_field(legacy_predictor, "max_height"),
-            max_width=_legacy_pp_field(legacy_predictor, "max_width"),
-            ensure_rgb=_legacy_pp_field(legacy_predictor, "ensure_rgb"),
-            ensure_grayscale=_legacy_pp_field(legacy_predictor, "ensure_grayscale"),
+            scale=centroid_model.input_scale,
+            max_height=_pp_field(assets, "max_height"),
+            max_width=_pp_field(assets, "max_width"),
+            ensure_rgb=_pp_field(assets, "ensure_rgb"),
+            ensure_grayscale=_pp_field(assets, "ensure_grayscale"),
         ),
         postprocess_config=PostprocessConfig(
-            peak_threshold=legacy_centroid.peak_threshold,
-            refinement=legacy_centroid.refinement or "none",
-            integral_patch_size=legacy_centroid.integral_patch_size,
-            max_instances=legacy_centroid.max_instances,
+            peak_threshold=centroid_model.peak_threshold,
+            refinement=centroid_model.refinement or "none",
+            integral_patch_size=centroid_model.integral_patch_size,
+            max_instances=centroid_model.max_instances,
         ),
     )
 
 
 def _build_centered_instance_layer(
-    legacy_inst: Any, device: str
+    instance_model: Any, device: str
 ) -> CenteredInstanceLayer:
-    """Wrap legacy ``FindInstancePeaks`` with the new layer.
+    """Wrap a ``FindInstancePeaks`` model in a ``CenteredInstanceLayer``.
 
     No ``max_height/max_width`` forwarded: this layer receives per-instance
     crops (at the model's training ``crop_hw``) in the top-down composition,
@@ -184,36 +182,36 @@ def _build_centered_instance_layer(
     parent frame's channels.
     """
     return CenteredInstanceLayer(
-        backend=TorchBackend(model=legacy_inst.torch_model, device=device),
-        output_stride=legacy_inst.output_stride,
-        max_stride=legacy_inst.max_stride,
-        preprocess_config=PreprocessConfig(scale=legacy_inst.input_scale),
+        backend=TorchBackend(model=instance_model.torch_model, device=device),
+        output_stride=instance_model.output_stride,
+        max_stride=instance_model.max_stride,
+        preprocess_config=PreprocessConfig(scale=instance_model.input_scale),
         postprocess_config=PostprocessConfig(
-            peak_threshold=legacy_inst.peak_threshold,
-            refinement=legacy_inst.refinement or "none",
-            integral_patch_size=legacy_inst.integral_patch_size,
-            return_confmaps=getattr(legacy_inst, "return_confmaps", False),
+            peak_threshold=instance_model.peak_threshold,
+            refinement=instance_model.refinement or "none",
+            integral_patch_size=instance_model.integral_patch_size,
+            return_confmaps=getattr(instance_model, "return_confmaps", False),
         ),
     )
 
 
-def _build_centroid_layer_gt_only(legacy_predictor: Any, backend: Any) -> CentroidLayer:
+def _build_centroid_layer_gt_only(assets: Any, backend: Any) -> CentroidLayer:
     """Build a ``CentroidLayer`` that reads centroids from GT (no model forward).
 
     Used when ``model_paths`` contains only a centered-instance model.
-    Mirrors the legacy ``TopDownPredictor.from_trained_models(centroid_ckpt_path=None)``
-    path, which synthesizes a ``CentroidCrop(use_gt_centroids=True)`` that
-    reads centroids from the input batch's ``instances`` field (populated
-    by :class:`LabelsProvider` from a ``.slp`` source).
+    The layer reads centroids from the input batch's ``instances`` field
+    (populated by :class:`LabelsProvider` from a ``.slp`` source).
 
-    Required-but-unused ``backend``: :class:`CentroidLayer` validates the
-    backend against the :class:`ModelBackend` protocol at construction,
-    but the ``use_gt_centroids=True`` branch in
-    :meth:`CentroidLayer.predict` never invokes it. Reuse the
-    centered-instance layer's backend so the device matches and no extra
-    GPU memory is allocated.
+    Args:
+        assets: :class:`LoadedAssets` whose ``inference_model.centroid_crop``
+            provides the ``anchor_ind``.
+        backend: :class:`CentroidLayer` validates the backend against the
+            :class:`ModelBackend` protocol at construction, but the
+            ``use_gt_centroids=True`` branch never invokes it. Reuse the
+            centered-instance layer's backend so the device matches and no
+            extra GPU memory is allocated.
     """
-    legacy_centroid = legacy_predictor.inference_model.centroid_crop
+    centroid_model = assets.inference_model.centroid_crop
     return CentroidLayer(
         backend=backend,
         # Stride / max-instances / max-stride are model-side knobs the GT
@@ -221,7 +219,7 @@ def _build_centroid_layer_gt_only(legacy_predictor: Any, backend: Any) -> Centro
         output_stride=1,
         max_instances=None,
         max_stride=1,
-        anchor_ind=getattr(legacy_centroid, "anchor_ind", None),
+        anchor_ind=getattr(centroid_model, "anchor_ind", None),
         use_gt_centroids=True,
         # No preprocess on the GT path — centroids come from the batch.
         preprocess_config=PreprocessConfig(scale=1.0),
@@ -230,23 +228,23 @@ def _build_centroid_layer_gt_only(legacy_predictor: Any, backend: Any) -> Centro
 
 
 def _build_centered_instance_multiclass_layer(
-    legacy_inst: Any, device: str
+    instance_model: Any, device: str
 ) -> CenteredInstanceMultiClassLayer:
-    """Wrap legacy ``TopDownMultiClassFindInstancePeaks`` with the new layer.
+    """Wrap a ``TopDownMultiClassFindInstancePeaks`` model in a layer.
 
     See :func:`_build_centered_instance_layer` for why size-matcher
     fields are intentionally omitted.
     """
     return CenteredInstanceMultiClassLayer(
-        backend=TorchBackend(model=legacy_inst.torch_model, device=device),
-        output_stride=legacy_inst.output_stride,
-        max_stride=legacy_inst.max_stride,
-        preprocess_config=PreprocessConfig(scale=legacy_inst.input_scale),
+        backend=TorchBackend(model=instance_model.torch_model, device=device),
+        output_stride=instance_model.output_stride,
+        max_stride=instance_model.max_stride,
+        preprocess_config=PreprocessConfig(scale=instance_model.input_scale),
         postprocess_config=PostprocessConfig(
-            peak_threshold=legacy_inst.peak_threshold,
-            refinement=legacy_inst.refinement or "none",
-            integral_patch_size=legacy_inst.integral_patch_size,
-            return_confmaps=getattr(legacy_inst, "return_confmaps", False),
+            peak_threshold=instance_model.peak_threshold,
+            refinement=instance_model.refinement or "none",
+            integral_patch_size=instance_model.integral_patch_size,
+            return_confmaps=getattr(instance_model, "return_confmaps", False),
         ),
     )
 
@@ -254,9 +252,7 @@ def _build_centered_instance_multiclass_layer(
 def _build_topdown_layer(predictor: Any, device: str) -> TopDownLayer:
     """Compose ``CentroidLayer`` + ``CenteredInstanceLayer`` into a ``TopDownLayer``."""
     inf = predictor.inference_model
-    centroid_layer = _build_centroid_layer(
-        inf.centroid_crop, device, legacy_predictor=predictor
-    )
+    centroid_layer = _build_centroid_layer(inf.centroid_crop, device, assets=predictor)
     inst_layer = _build_centered_instance_layer(inf.instance_peaks, device)
     crop_h, crop_w = inf.centroid_crop.crop_hw
     return TopDownLayer(
@@ -271,9 +267,7 @@ def _build_topdown_multiclass_layer(
 ) -> TopDownMultiClassLayer:
     """Compose centroid + multi-class centered-instance into a multiclass topdown."""
     inf = predictor.inference_model
-    centroid_layer = _build_centroid_layer(
-        inf.centroid_crop, device, legacy_predictor=predictor
-    )
+    centroid_layer = _build_centroid_layer(inf.centroid_crop, device, assets=predictor)
     inst_layer = _build_centered_instance_multiclass_layer(inf.instance_peaks, device)
     crop_h, crop_w = inf.centroid_crop.crop_hw
     return TopDownMultiClassLayer(
@@ -307,7 +301,7 @@ def get_predictor_from_model_paths(
     tracker_config: Optional[TrackerConfig] = None,
     centroid_only: bool = False,
 ):
-    """Build a new :class:`Predictor` (PR 8) from one or more checkpoint paths.
+    """Build a :class:`Predictor` from one or more checkpoint paths.
 
     Args:
         model_paths: Directories with ``training_config.{yaml,json}`` +
@@ -356,7 +350,7 @@ def get_predictor_from_model_paths(
             combination of model types (e.g., two centroid models).
     """
     from sleap_nn.inference.loaders import load_model_assets
-    from sleap_nn.inference.predictor import Predictor as NewPredictor
+    from sleap_nn.inference.predictor import Predictor
 
     loaded, model_types = load_model_assets(
         model_paths,
@@ -381,7 +375,7 @@ def get_predictor_from_model_paths(
         layer = _build_centroid_layer(
             loaded.inference_model.centroid_crop,
             device,
-            legacy_predictor=loaded,
+            assets=loaded,
         )
     else:
         layer = _select_layer(loaded, model_types, device)
@@ -396,7 +390,7 @@ def get_predictor_from_model_paths(
         kwargs["filter_config"] = filter_config
     if tracker_config is not None:
         kwargs["tracker_config"] = tracker_config
-    return NewPredictor(**kwargs)
+    return Predictor(**kwargs)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -433,6 +427,7 @@ def get_predictor_from_export_dir(
         runtime: ``"auto"`` (prefer TRT when present, else ONNX),
             ``"onnx"``, or ``"tensorrt"``.
         device: Device string forwarded to the backend.
+        batch_size: Default batch size stored on the ``Predictor``.
         return_confmaps: Echo confmaps onto the resulting ``Outputs``
             when the wrapper exports a ``confmaps`` output. Layers gate
             on this flag.
@@ -455,21 +450,15 @@ def get_predictor_from_export_dir(
     Raises:
         FileNotFoundError: ``export_metadata.json`` or the model file
             isn't present at the expected path.
-        NotImplementedError: ``model_type`` is recognized but its export
-            adapter hasn't landed yet. As of PR 18 only
-            ``"single_instance"`` is supported; ``centroid`` /
-            ``centered_instance`` / top-down combined / bottom-up /
-            multiclass land in follow-up PRs.
         ValueError: ``runtime`` isn't recognized.
 
     Notes:
-        Skeleton hydration is *not* done here — call
         The skeleton is resolved automatically from the export's
         ``training_config.yaml`` (if present) or from the export
         metadata's ``node_names``.
     """
     from sleap_nn.export.metadata import ExportMetadata
-    from sleap_nn.inference.predictor import Predictor as NewPredictor
+    from sleap_nn.inference.predictor import Predictor
 
     export_dir = Path(export_dir)
 
@@ -504,10 +493,10 @@ def get_predictor_from_export_dir(
         kwargs["filter_config"] = filter_config
     if tracker_config is not None:
         kwargs["tracker_config"] = tracker_config
-    return NewPredictor(**kwargs)
+    return Predictor(**kwargs)
 
 
-def _skeleton_from_export(export_dir: Path, metadata: Any) -> Any:
+def _skeleton_from_export(export_dir: Path, metadata: "ExportMetadata") -> Any:
     """Best-effort skeleton from an export directory.
 
     Tries the embedded training config first (full skeleton with edges);
@@ -518,13 +507,14 @@ def _skeleton_from_export(export_dir: Path, metadata: Any) -> Any:
     training_cfg_path = export_dir / "training_config.yaml"
     if training_cfg_path.exists():
         try:
+            from omegaconf import OmegaConf
             from sleap_nn.inference.utils import get_skeleton_from_config
 
             cfg = OmegaConf.load(str(training_cfg_path))
             skels = get_skeleton_from_config(cfg.data_config.skeletons)
             if skels:
                 return skels[0]
-        except Exception:
+        except (KeyError, AttributeError, TypeError, ValueError, FileNotFoundError):
             pass
     if metadata.node_names:
         return sio.Skeleton(nodes=[sio.Node(name=n) for n in metadata.node_names])
@@ -591,10 +581,9 @@ def _select_export_layer(
     bypass the standard layer's coord ladder so transforms aren't
     double-applied.
 
-    Supported as of PR 21: every model type the export wrappers
-    produce — ``single_instance``, ``centroid``, ``centered_instance``,
-    ``topdown``, ``bottomup``, ``multi_class_topdown``,
-    ``multi_class_bottomup``.
+    Supports all model types: ``single_instance``, ``centroid``,
+    ``centered_instance``, ``topdown``, ``bottomup``,
+    ``multi_class_topdown``, ``multi_class_bottomup``.
     """
     from sleap_nn.inference.layers.exported import (
         ExportedBottomUpLayer,
@@ -660,48 +649,44 @@ def _select_export_layer(
     raise ValueError(f"Unrecognized model_type {model_type!r} in export_metadata.json.")
 
 
-def _select_layer(legacy_predictor: Any, model_types: List[str], device: str):
-    """Dispatch on detected model types → build the new layer composition."""
+def _select_layer(assets: Any, model_types: List[str], device: str):
+    """Dispatch on detected model types and build the appropriate layer composition."""
     if "single_instance" in model_types:
-        return _build_single_instance_layer(legacy_predictor, device)
+        return _build_single_instance_layer(assets, device)
     if "bottomup" in model_types:
-        return _build_bottomup_layer(legacy_predictor, device)
+        return _build_bottomup_layer(assets, device)
     if "multi_class_bottomup" in model_types:
-        return _build_bottomup_multiclass_layer(legacy_predictor, device)
+        return _build_bottomup_multiclass_layer(assets, device)
     has_centroid = "centroid" in model_types
     has_centered = "centered_instance" in model_types
     has_multi_centered = "multi_class_topdown" in model_types
     if has_centroid and has_centered:
-        return _build_topdown_layer(legacy_predictor, device)
+        return _build_topdown_layer(assets, device)
     if has_centroid and has_multi_centered:
-        return _build_topdown_multiclass_layer(legacy_predictor, device)
+        return _build_topdown_multiclass_layer(assets, device)
     if has_centroid:
         # Centroid-only inference (no stage-2 model). Returns a bare
         # ``CentroidLayer`` so ``Predictor.to_labels`` packages the output
         # with NaN-padded skeleton + centroid at the anchor node slot.
         return _build_centroid_layer(
-            legacy_predictor.inference_model.centroid_crop,
+            assets.inference_model.centroid_crop,
             device,
-            legacy_predictor=legacy_predictor,
+            assets=assets,
         )
     if has_centered:
         # Standalone centered-instance inference: no centroid model is
         # provided, so the centroid stage reads GT centroids from the
-        # batch's ``instances`` field (the ``LabelsProvider`` path). The
-        # legacy ``TopDownPredictor.from_trained_models(centroid_ckpt_path=None)``
-        # builds this composition; we mirror it here.
+        # batch's ``instances`` field (the ``LabelsProvider`` path).
         #
         # Required input source: a ``.slp`` file with labeled centroids
         # (``LabelsProvider``). Using ``VideoProvider`` will fail at
         # ``CentroidLayer.predict`` with "use_gt_centroids=True requires
-        # `instances` to be passed" — by design.
+        # `instances` to be passed" -- by design.
         inst_layer = _build_centered_instance_layer(
-            legacy_predictor.inference_model.instance_peaks, device
+            assets.inference_model.instance_peaks, device
         )
-        centroid_layer = _build_centroid_layer_gt_only(
-            legacy_predictor, inst_layer.backend
-        )
-        crop_h, crop_w = legacy_predictor.inference_model.centroid_crop.crop_hw
+        centroid_layer = _build_centroid_layer_gt_only(assets, inst_layer.backend)
+        crop_h, crop_w = assets.inference_model.centroid_crop.crop_hw
         return TopDownLayer(
             centroid_layer=centroid_layer,
             centered_instance_layer=inst_layer,
