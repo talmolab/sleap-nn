@@ -223,6 +223,7 @@ class TopDownLayer:
                 ),
                 pred_centroids=centroids_in_image_space,
                 pred_centroid_values=centroid_vals,
+                instance_scores=centroid_vals,
             )
 
         # Per-crop centroid coords (n_valid, 2) — sized space, for cropping.
@@ -255,8 +256,12 @@ class TopDownLayer:
         device = stage2_kpts_img.device
         n_nodes = stage2_kpts_img.shape[-2]
         full_kpts = torch.full((B, max_inst, n_nodes, 2), float("nan"), device=device)
+        full_crop_kpts = torch.full(
+            (B, max_inst, n_nodes, 2), float("nan"), device=device
+        )
         full_vals = torch.full((B, max_inst, n_nodes), float("nan"), device=device)
         full_kpts[valid_idx[:, 0], valid_idx[:, 1]] = stage2_kpts_img
+        full_crop_kpts[valid_idx[:, 0], valid_idx[:, 1]] = stage2_kpts_3d
         full_vals[valid_idx[:, 0], valid_idx[:, 1]] = (
             stage2_out.pred_peak_values.squeeze(1)
         )
@@ -277,11 +282,25 @@ class TopDownLayer:
             )
             full_crops[valid_idx[:, 0], valid_idx[:, 1]] = crops_on_device
 
+        # Instance scores: use stage-2 instance_scores (multiclass class-
+        # prob) when present, otherwise fall back to centroid confidence.
+        if stage2_out.instance_scores is not None:
+            full_instance_scores = torch.full(
+                (B, max_inst), float("nan"), device=device
+            )
+            full_instance_scores[valid_idx[:, 0], valid_idx[:, 1]] = (
+                stage2_out.instance_scores.squeeze(1)
+            )
+        else:
+            full_instance_scores = centroid_vals
+
         return Outputs(
             pred_keypoints=full_kpts,
+            pred_crop_keypoints=full_crop_kpts,
             pred_peak_values=full_vals,
             pred_centroids=centroids_in_image_space,
             pred_centroid_values=centroid_vals,
+            instance_scores=full_instance_scores,
             instance_bboxes=full_bboxes,
             crops=full_crops,
         )

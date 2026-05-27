@@ -178,7 +178,7 @@ def test_predictor_predict_no_make_labels_with_tracker_raises():
 def test_predictor_predict_applies_tracker_after_to_labels(
     skeleton, video, monkeypatch
 ):
-    """End-to-end: stub the per-batch path + ``_to_labels`` so ``predict()``
+    """End-to-end: stub the per-batch path + ``to_labels`` so ``predict()``
     produces a known untracked Labels, then verify ``apply_tracking``
     runs and the returned Labels has tracks set."""
     untracked = _make_labels(skeleton, video, frames=4, instances_per_frame=2)
@@ -193,7 +193,7 @@ def test_predictor_predict_applies_tracker_after_to_labels(
             return iter([])
 
     # Patch the class-level methods so ``predict()`` reaches the
-    # post-_to_labels tracking hook without needing a real model.
+    # post-to_labels tracking hook without needing a real model.
     monkeypatch.setattr(
         Predictor,
         "_batch_iter",
@@ -201,8 +201,8 @@ def test_predictor_predict_applies_tracker_after_to_labels(
     )
     monkeypatch.setattr(
         Predictor,
-        "_to_labels",
-        lambda self, outputs_list, videos=None, anchor_ind=None: untracked,
+        "to_labels",
+        lambda self, outputs_list, videos=None: untracked,
     )
 
     result = pred.predict(
@@ -215,7 +215,7 @@ def test_predictor_predict_applies_tracker_after_to_labels(
 
 
 def test_predictor_predict_clean_empty_frames_drops_empty(skeleton, video, monkeypatch):
-    """``clean_empty_frames=True`` drops empty LabeledFrames after _to_labels."""
+    """``clean_empty_frames=True`` drops empty LabeledFrames after to_labels."""
     import sleap_io as sio
 
     pred_inst = sio.PredictedInstance.from_numpy(
@@ -243,8 +243,8 @@ def test_predictor_predict_clean_empty_frames_drops_empty(skeleton, video, monke
     )
     monkeypatch.setattr(
         Predictor,
-        "_to_labels",
-        lambda self, outputs_list, videos=None, anchor_ind=None: raw_labels,
+        "to_labels",
+        lambda self, outputs_list, videos=None: raw_labels,
     )
 
     result = pred.predict(

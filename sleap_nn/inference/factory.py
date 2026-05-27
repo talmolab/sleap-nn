@@ -527,9 +527,7 @@ def _skeleton_from_export(export_dir: Path, metadata: Any) -> Any:
         except Exception:
             pass
     if metadata.node_names:
-        return sio.Skeleton(
-            nodes=[sio.Node(name=n) for n in metadata.node_names]
-        )
+        return sio.Skeleton(nodes=[sio.Node(name=n) for n in metadata.node_names])
     return None
 
 
@@ -679,7 +677,7 @@ def _select_layer(legacy_predictor: Any, model_types: List[str], device: str):
         return _build_topdown_multiclass_layer(legacy_predictor, device)
     if has_centroid:
         # Centroid-only inference (no stage-2 model). Returns a bare
-        # ``CentroidLayer`` so ``Predictor._to_labels`` packages the output
+        # ``CentroidLayer`` so ``Predictor.to_labels`` packages the output
         # with NaN-padded skeleton + centroid at the anchor node slot.
         return _build_centroid_layer(
             legacy_predictor.inference_model.centroid_crop,

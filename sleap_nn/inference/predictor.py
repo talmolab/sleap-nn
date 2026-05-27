@@ -19,6 +19,7 @@ Three usage tiers:
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Any, Callable, Iterator, List, Optional, Union
 
 import attrs
@@ -26,6 +27,7 @@ import numpy as np
 import torch
 
 from sleap_nn.inference.filters import FilterConfig, FilterPipeline
+from sleap_nn.inference.layers.configs import PostprocessConfig
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.providers import Provider
 from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
@@ -156,28 +158,124 @@ class Predictor:
     # ──────────────────────────────────────────────────────────────────
 
     @classmethod
-    def from_model_paths(cls, model_paths: List[str], **kwargs) -> "Predictor":
+    def from_model_paths(
+        cls,
+        model_paths: List[str],
+        *,
+        device: str = "cpu",
+        batch_size: int = 4,
+        backbone_ckpt_path: Optional[str] = None,
+        head_ckpt_path: Optional[str] = None,
+        peak_threshold: Union[float, List[float]] = 0.2,
+        integral_refinement: str = "integral",
+        integral_patch_size: int = 5,
+        max_instances: Optional[int] = None,
+        return_confmaps: bool = False,
+        preprocess_config: Optional[Any] = None,
+        anchor_part: Optional[str] = None,
+        filter_config: Optional["FilterConfig"] = None,
+        paf_workers: int = 0,
+        tracker_config: Optional["TrackerConfig"] = None,
+        centroid_only: bool = False,
+    ) -> "Predictor":
         """Build a :class:`Predictor` from one or more model checkpoint paths.
 
-        See :func:`sleap_nn.inference.factory.from_model_paths` for the
-        full kwarg surface. This classmethod is a thin alias so existing
-        callers can do ``Predictor.from_model_paths(...)`` without
-        knowing about the factory module.
+        Args:
+            model_paths: Directories containing ``training_config.{yaml,json}``
+                + ``best.ckpt``. For top-down, pass two paths (centroid +
+                centered-instance) in either order.
+            device: ``"cpu"``, ``"cuda"``, ``"mps"``, or ``"cuda:N"``.
+            batch_size: Default batch size for auto-constructed providers.
+            backbone_ckpt_path: Override backbone weights with this ``.ckpt``.
+            head_ckpt_path: Override head weights.
+            peak_threshold: Default peak threshold. ``List[float]`` for
+                top-down (``[centroid_thresh, keypoint_thresh]``). Can be
+                overridden per-call via ``predict(peak_threshold=...)``.
+            integral_refinement: ``"integral"`` or ``"none"``. Can be
+                overridden per-call.
+            integral_patch_size: Refinement patch size. Can be overridden
+                per-call.
+            max_instances: Cap on instances per frame. Can be overridden
+                per-call.
+            return_confmaps: Default for returning confidence maps. Can be
+                overridden per-call.
+            preprocess_config: OmegaConf overrides for preprocessing.
+                ``None`` uses the training config as-is.
+            anchor_part: Override centroid anchor node name.
+            filter_config: Post-inference :class:`FilterConfig`.
+            paf_workers: CPU workers for bottom-up PAF grouping.
+            tracker_config: :class:`TrackerConfig` for tracking.
+            centroid_only: Force centroid-only output even when a
+                centered-instance model is among ``model_paths``.
         """
         from sleap_nn.inference.factory import get_predictor_from_model_paths
 
-        return get_predictor_from_model_paths(model_paths, **kwargs)
+        return get_predictor_from_model_paths(
+            model_paths,
+            device=device,
+            batch_size=batch_size,
+            backbone_ckpt_path=backbone_ckpt_path,
+            head_ckpt_path=head_ckpt_path,
+            peak_threshold=peak_threshold,
+            integral_refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            max_instances=max_instances,
+            return_confmaps=return_confmaps,
+            preprocess_config=preprocess_config,
+            anchor_part=anchor_part,
+            filter_config=filter_config,
+            paf_workers=paf_workers,
+            tracker_config=tracker_config,
+            centroid_only=centroid_only,
+        )
 
     @classmethod
-    def from_export_dir(cls, export_dir: str, **kwargs) -> "Predictor":
-        """Build a :class:`Predictor` from an exported ``.onnx`` / ``.trt`` directory.
+    def from_export_dir(
+        cls,
+        export_dir: Union[str, Any],
+        *,
+        runtime: str = "auto",
+        device: str = "auto",
+        batch_size: int = 4,
+        return_confmaps: bool = False,
+        filter_config: Optional["FilterConfig"] = None,
+        paf_workers: int = 0,
+        tracker_config: Optional["TrackerConfig"] = None,
+        max_instances: Optional[int] = None,
+        min_instance_peaks: float = 0,
+        min_line_scores: float = 0.25,
+    ) -> "Predictor":
+        """Build a :class:`Predictor` from an exported ONNX / TensorRT directory.
 
-        See :func:`sleap_nn.inference.factory.from_export_dir` for the
-        full kwarg surface.
+        Args:
+            export_dir: Directory containing ``export_metadata.json`` +
+                ``model.onnx`` or ``model.trt``.
+            runtime: ``"auto"`` (prefer TRT), ``"onnx"``, or ``"tensorrt"``.
+            device: Device string.
+            batch_size: Default batch size.
+            return_confmaps: Return confidence maps on Outputs.
+            filter_config: Post-inference :class:`FilterConfig`.
+            paf_workers: CPU workers for bottom-up PAF grouping.
+            tracker_config: :class:`TrackerConfig` for tracking.
+            max_instances: Cap on instances per frame (bottom-up).
+            min_instance_peaks: Min peaks for a valid instance (bottom-up).
+            min_line_scores: Per-edge match threshold (bottom-up).
         """
         from sleap_nn.inference.factory import get_predictor_from_export_dir
 
-        return get_predictor_from_export_dir(export_dir, **kwargs)
+        return get_predictor_from_export_dir(
+            export_dir,
+            runtime=runtime,
+            device=device,
+            batch_size=batch_size,
+            return_confmaps=return_confmaps,
+            filter_config=filter_config,
+            paf_workers=paf_workers,
+            tracker_config=tracker_config,
+            max_instances=max_instances,
+            min_instance_peaks=min_instance_peaks,
+            min_line_scores=min_line_scores,
+        )
 
     @staticmethod
     def retrack(
@@ -224,6 +322,14 @@ class Predictor:
         videos: Optional[List[Any]] = None,
         clean_empty_frames: bool = False,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        peak_threshold: Optional[float] = None,
+        centroid_threshold: Optional[float] = None,
+        keypoint_threshold: Optional[float] = None,
+        max_instances: Optional[int] = None,
+        integral_refinement: Optional[str] = None,
+        integral_patch_size: Optional[int] = None,
+        return_confmaps: Optional[bool] = None,
+        return_crops: Optional[bool] = None,
     ) -> Union[List[Outputs], Any]:
         """Run inference on a source.
 
@@ -247,6 +353,19 @@ class Predictor:
                 returned ``sio.Labels``.
             progress_callback: Optional ``(processed_batches, total_batches)``
                 callback invoked after each batch.
+            peak_threshold: Override peak threshold for all stages. For
+                per-stage control on top-down models, use
+                ``centroid_threshold`` / ``keypoint_threshold`` instead.
+            centroid_threshold: Override peak threshold for the centroid
+                stage only (top-down models).
+            keypoint_threshold: Override peak threshold for the centered-
+                instance stage only (top-down models).
+            max_instances: Override max instances per frame.
+            integral_refinement: ``"integral"`` or ``"none"``.
+            integral_patch_size: Override integral refinement patch size.
+            return_confmaps: Override whether to return confidence maps.
+            return_crops: Override whether to return per-instance crops
+                (top-down only).
 
         Returns:
             ``sio.Labels`` (default) or ``List[Outputs]`` (when
@@ -256,7 +375,18 @@ class Predictor:
         if videos is None:
             videos = auto_videos
 
-        outputs_list = list(self._batch_iter(provider, progress_callback))
+        with self._postprocess_overrides(
+            peak_threshold=peak_threshold,
+            centroid_threshold=centroid_threshold,
+            keypoint_threshold=keypoint_threshold,
+            max_instances=max_instances,
+            integral_refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            return_confmaps=return_confmaps,
+            return_crops=return_crops,
+        ):
+            outputs_list = list(self._batch_iter(provider, progress_callback))
+
         if not make_labels:
             if self.tracker_config is not None:
                 raise ValueError(
@@ -272,11 +402,7 @@ class Predictor:
                 "`skeleton=...` or build the Predictor via from_model_paths() "
                 "which sets it automatically from the training config."
             )
-        labels = self._to_labels(
-            outputs_list,
-            videos=videos,
-            anchor_ind=self._packaging_anchor_ind(),
-        )
+        labels = self.to_labels(outputs_list, videos=videos)
         if self.tracker_config is not None:
             labels = apply_tracking(labels, self.tracker_config)
         if clean_empty_frames:
@@ -293,6 +419,14 @@ class Predictor:
         *,
         frames: Optional[List[int]] = None,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        peak_threshold: Optional[float] = None,
+        centroid_threshold: Optional[float] = None,
+        keypoint_threshold: Optional[float] = None,
+        max_instances: Optional[int] = None,
+        integral_refinement: Optional[str] = None,
+        integral_patch_size: Optional[int] = None,
+        return_confmaps: Optional[bool] = None,
+        return_crops: Optional[bool] = None,
     ) -> Iterator[Outputs]:
         """Yield one ``Outputs`` per batch from ``source``.
 
@@ -302,6 +436,15 @@ class Predictor:
             frames: Frame indices (only for video sources).
             progress_callback: Optional ``(processed_batches, total_batches)``
                 callback.
+            peak_threshold: Override peak threshold for all stages.
+            centroid_threshold: Override centroid stage threshold (top-down).
+            keypoint_threshold: Override centered-instance threshold (top-down).
+            max_instances: Override max instances per frame.
+            integral_refinement: ``"integral"`` or ``"none"``.
+            integral_patch_size: Override integral refinement patch size.
+            return_confmaps: Override whether to return confidence maps.
+            return_crops: Override whether to return per-instance crops
+                (top-down only).
         """
         if self.tracker_config is not None:
             raise ValueError(
@@ -310,10 +453,22 @@ class Predictor:
                 "full LabeledFrame list; use predict() instead."
             )
         provider, _ = self._make_provider(source, frames=frames)
-        if self.paf_workers > 0 and self._can_pipeline():
-            yield from self._predict_streaming_pipelined(provider, progress_callback)
-            return
-        yield from self._batch_iter(provider, progress_callback)
+        with self._postprocess_overrides(
+            peak_threshold=peak_threshold,
+            centroid_threshold=centroid_threshold,
+            keypoint_threshold=keypoint_threshold,
+            max_instances=max_instances,
+            integral_refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            return_confmaps=return_confmaps,
+            return_crops=return_crops,
+        ):
+            if self.paf_workers > 0 and self._can_pipeline():
+                yield from self._predict_streaming_pipelined(
+                    provider, progress_callback
+                )
+                return
+            yield from self._batch_iter(provider, progress_callback)
 
     # ──────────────────────────────────────────────────────────────────
     # Disk-streaming: write to a .slp incrementally
@@ -472,16 +627,16 @@ class Predictor:
             return outputs
         return attrs.evolve(outputs, **kwargs)
 
-    def _to_labels(
+    def to_labels(
         self,
         outputs_list: List[Outputs],
         videos: Optional[List[Any]] = None,
-        anchor_ind: Optional[int] = None,
     ) -> Any:
         """Concatenate per-batch ``Outputs`` into a single ``sio.Labels``."""
         import sleap_io as sio
 
         skeleton = self.skeleton
+        anchor_ind = self._packaging_anchor_ind()
         videos = list(videos) if videos else [None]
         all_lf: list = []
         for outputs in outputs_list:
@@ -503,3 +658,105 @@ class Predictor:
         if isinstance(self.layer, CentroidLayer):
             return self.layer.anchor_ind
         return None
+
+    # ──────────────────────────────────────────────────────────────────
+    # Prediction-time postprocess overrides
+    # ──────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _collect_postprocess_targets(layer: Any) -> list:
+        """Return all sub-layers that own a ``postprocess_config``."""
+        from sleap_nn.inference.layers.topdown import TopDownLayer
+
+        if isinstance(layer, TopDownLayer):
+            targets = [layer.centroid_layer, layer.centered_instance_layer]
+        elif hasattr(layer, "postprocess_config"):
+            targets = [layer]
+        else:
+            targets = []
+        return targets
+
+    @contextmanager
+    def _postprocess_overrides(
+        self,
+        peak_threshold: Optional[float] = None,
+        centroid_threshold: Optional[float] = None,
+        keypoint_threshold: Optional[float] = None,
+        max_instances: Optional[int] = None,
+        integral_refinement: Optional[str] = None,
+        integral_patch_size: Optional[int] = None,
+        return_confmaps: Optional[bool] = None,
+        return_crops: Optional[bool] = None,
+    ):
+        """Context manager that temporarily overrides postprocess configs.
+
+        For top-down layers, ``centroid_threshold`` applies to the centroid
+        stage and ``keypoint_threshold`` to the centered-instance stage.
+        ``peak_threshold`` sets both when the per-stage kwargs aren't given.
+        """
+        from sleap_nn.inference.layers.topdown import TopDownLayer
+
+        has_any = any(
+            v is not None
+            for v in (
+                peak_threshold,
+                centroid_threshold,
+                keypoint_threshold,
+                max_instances,
+                integral_refinement,
+                integral_patch_size,
+                return_confmaps,
+                return_crops,
+            )
+        )
+        if not has_any:
+            yield
+            return
+
+        saved: list[tuple[Any, PostprocessConfig]] = []
+        saved_return_crops: Optional[bool] = None
+
+        try:
+            targets = self._collect_postprocess_targets(self.layer)
+
+            for target in targets:
+                old_cfg = target.postprocess_config
+                saved.append((target, old_cfg))
+
+                overrides: dict = {}
+
+                # Threshold routing for top-down
+                if isinstance(self.layer, TopDownLayer):
+                    is_centroid = target is self.layer.centroid_layer
+                    if is_centroid:
+                        t = centroid_threshold or peak_threshold
+                    else:
+                        t = keypoint_threshold or peak_threshold
+                else:
+                    t = peak_threshold
+
+                if t is not None:
+                    overrides["peak_threshold"] = t
+                if max_instances is not None and hasattr(old_cfg, "max_instances"):
+                    overrides["max_instances"] = max_instances
+                if integral_refinement is not None:
+                    overrides["refinement"] = integral_refinement
+                if integral_patch_size is not None:
+                    overrides["integral_patch_size"] = integral_patch_size
+                if return_confmaps is not None:
+                    overrides["return_confmaps"] = return_confmaps
+
+                if overrides:
+                    target.postprocess_config = attrs.evolve(old_cfg, **overrides)
+
+            # return_crops lives on TopDownLayer, not on postprocess_config
+            if return_crops is not None and isinstance(self.layer, TopDownLayer):
+                saved_return_crops = self.layer.return_crops
+                self.layer.return_crops = return_crops
+
+            yield
+        finally:
+            for target, old_cfg in saved:
+                target.postprocess_config = old_cfg
+            if saved_return_crops is not None:
+                self.layer.return_crops = saved_return_crops

@@ -76,6 +76,7 @@ class Outputs:
 
     # ── Core predictions ─────────────────────────────────────────────
     pred_keypoints: Optional[torch.Tensor] = None  # (B, I, N, 2) in image (x, y)
+    pred_crop_keypoints: Optional[torch.Tensor] = None  # (B, I, N, 2) crop-local
     pred_peak_values: Optional[torch.Tensor] = None  # (B, I, N)
     pred_confmaps: Optional[torch.Tensor] = None  # (B, N, H, W) — heavy
     pred_pafs: Optional[torch.Tensor] = None  # (B, 2E, H, W) — heavy
