@@ -6,8 +6,8 @@ Each ``InferenceLayer`` subclass:
 2. Knows the model-type-specific preprocess + postprocess steps
 3. Exposes a uniform ``predict(image) -> Outputs`` API
 
-Direct numpy input is the headline new capability vs. today's pipeline:
-``layer.predict(np.ndarray)`` works without going through ``sio.Video``.
+Direct numpy input is supported: ``layer.predict(np.ndarray)`` works
+without going through ``sio.Video``.
 """
 
 from __future__ import annotations
@@ -50,6 +50,7 @@ class InferenceLayer(ABC):
         preprocess_config: PreprocessConfig,
         postprocess_config: PostprocessConfig,
         output_stride: int,
+        max_stride: int = 1,
     ) -> None:
         """Validate the backend protocol and stash configs."""
         if not isinstance(backend, ModelBackend):
@@ -60,14 +61,40 @@ class InferenceLayer(ABC):
         self.preprocess_config = preprocess_config
         self.postprocess_config = postprocess_config
         self.output_stride = output_stride
+        self.max_stride = max_stride
+
+    # Class-level attribute for ``_extract_confmaps``.  Subclasses that
+    # use confmap-based postprocessing should set this to the model's
+    # canonical head key (e.g. ``"SingleInstanceConfmapsHead"``).
+    _HEAD_OUTPUT_KEY: str = ""
 
     # ──────────────────────────────────────────────────────────────────
     # Subclass contract
     # ──────────────────────────────────────────────────────────────────
 
-    @abstractmethod
     def preprocess(self, image: ImageInput) -> Tuple[torch.Tensor, PreprocInfo]:
-        """Coerce raw input to ``(B, C, H, W)`` and capture coord-undo info."""
+        """Run the full preprocessing chain on a raw frame.
+
+        Delegates to :meth:`_apply_full_preprocess`:
+        ensure_rgb/grayscale -> per-sample sizematcher (records eff_scale) ->
+        input_scale -> pad_to_stride -> ``n_samples`` wrap.
+
+        Subclasses that need non-standard behaviour (e.g. a different
+        ``output_stride`` attribute or extra logic) can override this.
+        """
+        x = self._to_4d_tensor(image)
+        scaled_5d, eff_scale, orig_hw = self._apply_full_preprocess(
+            x, max_stride=self.max_stride, unsqueeze_n_samples=True
+        )
+
+        info = PreprocInfo(
+            original_size=orig_hw,
+            processed_size=tuple(scaled_5d.shape[-2:]),
+            eff_scale=eff_scale,
+            input_scale=self.preprocess_config.scale,
+            output_stride=self.output_stride,
+        )
+        return scaled_5d, info
 
     @abstractmethod
     def postprocess(self, raw_out: dict, info: PreprocInfo) -> Outputs:
@@ -100,21 +127,17 @@ class InferenceLayer(ABC):
         rank / channel-count / device contract as real inference, and
         cuDNN's algorithm cache is primed for the right shape.
 
-        Pre-PR-27 this called ``backend.warmup(shape=(1, 1, 64, 64))``
-        directly, bypassing ``preprocess`` entirely. On torch 2.9.1+cu128
-        the bottom-up / centroid Lightning ``forward`` ops do
-        ``torch.squeeze(img, dim=1)`` unconditionally, collapsing the
-        4D dummy to 3D ``(1, 64, 64)``. cuDNN cached an algorithm for
-        that degenerate shape; the next real ``(4, 1, 3, 384, 384)`` batch
-        re-used the cached algorithm and crashed mid-decoder with
-        ``input[B=1, C=36, 32, 16] expected 72 channels``. Audit:
-        ``scratch/2026-04-30-inference-refactor-implementation/cuda_bench/
-        channel_bug_*.log``.
+        When ``sample_shape`` is ``None`` (the default), a tiny raw frame
+        is synthesized and routed through the layer's full ``preprocess``
+        chain so cuDNN's algorithm cache is primed for the correct input
+        shape. This avoids shape-mismatch crashes that can occur when a
+        bare ``backend.warmup`` bypasses ``preprocess`` and cuDNN caches
+        an algorithm for a degenerate dummy shape.
 
         Args:
-            sample_shape: Legacy escape hatch. When provided, dispatches
-                straight to ``backend.warmup`` exactly as before. Prefer
-                the default (synthesized real frame) on cuda / mps.
+            sample_shape: Escape hatch. When provided, dispatches straight
+                to ``backend.warmup``. Prefer the default (synthesized
+                real frame) on cuda / mps.
         """
         if sample_shape is not None:
             self.backend.warmup(sample_shape)
@@ -141,13 +164,45 @@ class InferenceLayer(ABC):
 
     @property
     def warmup_input_shape(self) -> Tuple[int, ...]:
-        """Legacy warmup shape — only used when ``sample_shape`` is passed.
+        """Warmup shape -- only used when ``sample_shape`` is passed.
 
-        Retained for callers passing ``sample_shape`` to ``warmup``.
         The default ``warmup()`` path ignores this and synthesizes a real
         raw frame instead.
         """
         return (1, 1, 64, 64)
+
+    # ──────────────────────────────────────────────────────────────────
+    # Shared confmap extraction
+    # ──────────────────────────────────────────────────────────────────
+
+    # Key used by ``TorchBackend`` when the Lightning forward returns a
+    # bare ``Tensor`` (wrapped as ``{"output": tensor}``).
+    _TORCH_OUTPUT_KEY: str = "output"
+
+    def _extract_confmaps(self, raw_out: dict) -> torch.Tensor:
+        """Pull the confmap tensor out of the backend's dict.
+
+        ``TorchBackend`` wraps a tensor-returning Lightning forward under
+        ``"output"``; if the model returned a dict directly, we look for
+        the canonical head name stored in ``_HEAD_OUTPUT_KEY``.
+
+        Subclasses set ``_HEAD_OUTPUT_KEY`` to their model's canonical
+        head output key (e.g. ``"SingleInstanceConfmapsHead"``).
+        """
+        if self._TORCH_OUTPUT_KEY in raw_out:
+            return raw_out[self._TORCH_OUTPUT_KEY]
+        if self._HEAD_OUTPUT_KEY and self._HEAD_OUTPUT_KEY in raw_out:
+            return raw_out[self._HEAD_OUTPUT_KEY]
+        # Fall back to the single tensor in the dict, if there's exactly one.
+        tensors = [v for v in raw_out.values() if isinstance(v, torch.Tensor)]
+        if len(tensors) == 1:
+            return tensors[0]
+        head = self._HEAD_OUTPUT_KEY or "(not set)"
+        raise KeyError(
+            f"{type(self).__name__}.postprocess could not find confmaps in "
+            f"raw_out keys={list(raw_out.keys())}; expected "
+            f"'{self._TORCH_OUTPUT_KEY}' or '{head}'."
+        )
 
     # ──────────────────────────────────────────────────────────────────
     # Helpers shared by every subclass
@@ -167,9 +222,8 @@ class InferenceLayer(ABC):
 
         Returns ``(B, C, H, W)`` with the same dtype as the input. uint8
         inputs stay uint8 so subsequent ``tvf.resize`` calls produce
-        clean integer outputs (legacy parity — the eager float
-        conversion produced 255.00006... values that diverged from
-        legacy's clean uint8 path).
+        clean integer outputs (eager float conversion produces
+        255.00006... values that diverge from the clean uint8 path).
         """
         if isinstance(image, np.ndarray):
             t = torch.from_numpy(image)
@@ -202,11 +256,10 @@ class InferenceLayer(ABC):
     def _to_4d_float_tensor(cls, image: ImageInput) -> torch.Tensor:
         """Coerce to ``(B, C, H, W)`` ``torch.float32``.
 
-        Thin wrapper over :meth:`_to_4d_tensor` for backward compat with
-        callers that explicitly want float32 (older test fixtures, ONNX
-        backends that don't accept uint8). New layer ``preprocess()``
-        methods use ``_to_4d_tensor`` so the legacy uint8 → ``tvf.resize``
-        path is preserved bit-for-bit.
+        Thin wrapper over :meth:`_to_4d_tensor` for callers that
+        explicitly want float32 (ONNX backends that don't accept uint8,
+        GT-path helpers, etc.). Layer ``preprocess()`` methods use
+        ``_to_4d_tensor`` to preserve the uint8 ``tvf.resize`` path.
         """
         return cls._to_4d_tensor(image).float()
 
@@ -221,38 +274,32 @@ class InferenceLayer(ABC):
         max_stride: int = 1,
         unsqueeze_n_samples: bool = True,
     ) -> Tuple[torch.Tensor, torch.Tensor, Tuple[int, int]]:
-        """Run the legacy-parity preprocessing chain on a (B, C, H, W) tensor.
+        """Run the standard preprocessing chain on a (B, C, H, W) tensor.
 
-        Mirrors the legacy ``_make_pipeline_inputs`` per-frame chain
-        (``sleap_nn/inference/predictors.py:530-563``) plus the
-        ``apply_pad_to_stride`` hop from ``_run_inference_on_batch``.
         Each step short-circuits when its config field is the identity
         (``None``/``False``/``1.0``), so a raw-frame layer running on a
         properly-sized batch sees zero extra ops.
 
         Stages applied in order:
 
-        1. ``ensure_rgb`` / ``ensure_grayscale`` — channel coercion
-           (matches legacy lines 545-553).
+        1. ``ensure_rgb`` / ``ensure_grayscale`` -- channel coercion.
         2. Per-sample ``apply_sizematcher`` to
            ``(preprocess_config.max_height, preprocess_config.max_width)``,
-           returning a per-sample ``eff_scale`` for the coord-undo ladder
-           (matches legacy line 538-555).
-        3. ``resize_image`` by ``preprocess_config.scale`` — global input
-           scale (matches legacy line 600-604).
-        4. ``apply_pad_to_stride`` to ``max_stride`` (matches legacy line
-           607). Use the model's max_stride; ``1`` is a no-op.
+           returning a per-sample ``eff_scale`` for the coord-undo ladder.
+        3. ``resize_image`` by ``preprocess_config.scale`` -- global input
+           scale.
+        4. ``apply_pad_to_stride`` to ``max_stride``. Use the model's
+           max_stride; ``1`` is a no-op.
         5. ``unsqueeze(dim=1)`` to add the ``n_samples`` axis so the
            Lightning forward's unconditional ``squeeze(dim=1)`` resolves
            to the expected rank. Skip when the layer's forward accepts
-           4D directly (``single_instance`` has an ``ndim==5`` guard, so
-           we still wrap to match legacy bit-for-bit).
+           4D directly.
 
         Args:
             x: ``(B, C, H, W)`` float32 tensor from :meth:`_to_4d_float_tensor`.
             max_stride: Model's required input stride; the input is padded
                 bottom-right to a multiple of this. ``1`` is the identity.
-            unsqueeze_n_samples: When ``True`` (the legacy default for
+            unsqueeze_n_samples: When ``True`` (the default for
                 multi-instance layers) wraps with a ``(B, 1, C, H, W)``
                 ``n_samples`` axis. Top-down crops feed
                 :class:`CenteredInstanceLayer` post-crop and don't need

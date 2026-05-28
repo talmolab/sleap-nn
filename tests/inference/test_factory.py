@@ -1,21 +1,18 @@
-"""Tests for :func:`sleap_nn.inference.factory.from_model_paths`.
+"""Tests for :meth:`sleap_nn.inference.predictor.Predictor.from_model_paths`.
 
-The factory wraps the legacy ``inference.predictors.Predictor`` loader
-and re-emits a new ``Predictor`` with the appropriate layer composition.
+The factory detects model types from ``training_config.{yaml,json}``, loads
+Lightning checkpoints + inference models via :func:`loaders.load_model_assets`,
+and wraps them with the new ``InferenceLayer`` subclasses.
 
 Coverage:
 
 1. Each of the 5 supported model-type combinations builds a new
    ``Predictor`` whose layer is the expected type.
-2. ``Predictor.from_model_paths`` (classmethod) and the free
-   ``factory.from_model_paths`` produce equivalent objects.
-3. Each layer-type's ``predict()`` returns a structurally well-formed
+2. Each layer-type's ``predict()`` returns a structurally well-formed
    ``Outputs`` on a synthetic image (smoke test — full per-type parity
    vs the legacy ``InferenceModel.forward`` is already covered in
    ``tests/inference/layers/test_*.py``).
-4. The factory raises ``ValueError`` on an unsupported combination.
-5. Parity vs legacy ``inference_model.forward`` on the single-instance
-   checkpoint within 1e-4 atol / 1e-5 rtol.
+3. The factory raises ``ValueError`` on an unsupported combination.
 
 Performance: each ckpt-combo predictor is module-scoped so we only
 pay the Lightning checkpoint load cost once per CI run. Without this,
@@ -32,7 +29,7 @@ import numpy as np
 import pytest
 import torch
 
-from sleap_nn.inference.factory import from_model_paths
+from sleap_nn.inference.predictor import Predictor
 from sleap_nn.inference.layers.bottomup import BottomUpLayer
 from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLayer
 from sleap_nn.inference.layers.single_instance import SingleInstanceLayer
@@ -40,6 +37,9 @@ from sleap_nn.inference.layers.topdown import TopDownLayer
 from sleap_nn.inference.layers.topdown_multiclass import TopDownMultiClassLayer
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.predictor import Predictor
+
+# The factory functions are the canonical entry points:
+# Predictor.from_model_paths and Predictor.from_export_dir.
 
 CKPT_ROOT = Path(__file__).resolve().parents[1] / "assets" / "model_ckpts"
 SINGLE_CKPT = CKPT_ROOT / "minimal_instance_single_instance"
@@ -60,7 +60,7 @@ def single_predictor() -> Predictor:
     """Built once per module; reused across single-instance tests."""
     if not SINGLE_CKPT.exists():
         pytest.skip("single-instance ckpt absent")
-    p = from_model_paths([str(SINGLE_CKPT)], device="cpu")
+    p = Predictor.from_model_paths([str(SINGLE_CKPT)], device="cpu")
     yield p
     del p
     gc.collect()
@@ -71,7 +71,7 @@ def bottomup_predictor() -> Predictor:
     """Built once per module; reused across bottom-up tests."""
     if not BOTTOMUP_CKPT.exists():
         pytest.skip("bottomup ckpt absent")
-    p = from_model_paths([str(BOTTOMUP_CKPT)], device="cpu")
+    p = Predictor.from_model_paths([str(BOTTOMUP_CKPT)], device="cpu")
     yield p
     del p
     gc.collect()
@@ -82,7 +82,7 @@ def multiclass_bu_predictor() -> Predictor:
     """Built once per module; reused across multi-class bottom-up tests."""
     if not MULTICLASS_BU_CKPT.exists():
         pytest.skip("multiclass-bottomup ckpt absent")
-    p = from_model_paths([str(MULTICLASS_BU_CKPT)], device="cpu")
+    p = Predictor.from_model_paths([str(MULTICLASS_BU_CKPT)], device="cpu")
     yield p
     del p
     gc.collect()
@@ -93,7 +93,7 @@ def topdown_predictor() -> Predictor:
     """Built once per module; reused across top-down tests."""
     if not (CENTROID_CKPT.exists() and CENTERED_CKPT.exists()):
         pytest.skip("topdown ckpts absent")
-    p = from_model_paths(
+    p = Predictor.from_model_paths(
         [str(CENTROID_CKPT), str(CENTERED_CKPT)],
         device="cpu",
         peak_threshold=0.03,
@@ -109,7 +109,7 @@ def topdown_multiclass_predictor() -> Predictor:
     """Built once per module; reused across top-down multi-class tests."""
     if not (CENTROID_CKPT.exists() and MULTICLASS_TD_CKPT.exists()):
         pytest.skip("topdown-multiclass ckpts absent")
-    p = from_model_paths(
+    p = Predictor.from_model_paths(
         [str(CENTROID_CKPT), str(MULTICLASS_TD_CKPT)],
         device="cpu",
         peak_threshold=0.03,
@@ -152,25 +152,7 @@ def test_factory_builds_topdown_multiclass_layer(topdown_multiclass_predictor):
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 2. Classmethod equivalence
-# ─────────────────────────────────────────────────────────────────────────
-
-
-def test_classmethod_matches_factory_function(single_predictor):
-    """``Predictor.from_model_paths(...)`` builds the same kind of object.
-
-    Uses the module-scoped factory predictor on one side and a fresh
-    classmethod call on the other; freed at end of test.
-    """
-    via_classmethod = Predictor.from_model_paths([str(SINGLE_CKPT)], device="cpu")
-    assert type(via_classmethod) is type(single_predictor)
-    assert type(via_classmethod.layer) is type(single_predictor.layer)
-    del via_classmethod
-    gc.collect()
-
-
-# ─────────────────────────────────────────────────────────────────────────
-# 3. End-to-end smoke: layer.predict produces valid Outputs
+# 2. End-to-end smoke: layer.predict produces valid Outputs
 # ─────────────────────────────────────────────────────────────────────────
 
 
@@ -203,7 +185,7 @@ def test_factory_topdown_predict_smoke(topdown_predictor):
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 4. Error path
+# 3. Error path
 # ─────────────────────────────────────────────────────────────────────────
 
 
@@ -215,14 +197,14 @@ def test_factory_centered_instance_only_uses_gt_centroids():
     no centroid model in ``model_paths`` → the centroid stage reads GT
     centroids from the input batch (``LabelsProvider``-only source).
     """
-    p = from_model_paths([str(CENTERED_CKPT)], device="cpu")
+    p = Predictor.from_model_paths([str(CENTERED_CKPT)], device="cpu")
     assert isinstance(p.layer, TopDownLayer)
     assert p.layer.centroid_layer.use_gt_centroids is True
 
 
 def test_factory_rejects_unrecognized_model_type():
     """Truly unrecognized model type → clear ``ValueError`` from ``_select_layer``."""
-    from sleap_nn.inference.factory import _select_layer
+    from sleap_nn.inference.predictor import _select_layer
 
     class _FakeLegacyPredictor:
         inference_model = None

@@ -1,4 +1,4 @@
-"""``SingleInstanceLayer`` — proof-of-pattern for the InferenceLayer abstraction.
+"""``SingleInstanceLayer`` — single-pose-per-frame inference.
 
 Single-instance models predict one pose per frame from a confmap-only head.
 The layer:
@@ -10,14 +10,11 @@ The layer:
 3. Decodes confmaps to keypoints via :mod:`sleap_nn.inference.ops.peaks`.
 4. Reverses the coord ladder via :mod:`sleap_nn.inference.ops.coord` so
    ``Outputs.pred_keypoints`` is in original-image space.
-
-Parity test: this layer's output on a fixed input matches the corresponding
-slice of the PR 0 ``single_instance.pkl`` golden bit-for-bit.
 """
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Optional
 
 import attrs
 import torch
@@ -34,11 +31,6 @@ from sleap_nn.inference.ops.peaks import find_global_peaks
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.preprocess_info import PreprocInfo
 
-# Lightning's SingleInstance forward returns a Tensor; TorchBackend wraps it
-# as ``{"output": ...}``. ONNX/TRT wrappers (PR 7) emit baked peak fields.
-_TORCH_OUTPUT_KEY = "output"
-_HEAD_OUTPUT_KEY = "SingleInstanceConfmapsHead"
-
 
 class SingleInstanceLayer(InferenceLayer):
     """Single-pose-per-frame inference layer.
@@ -52,6 +44,8 @@ class SingleInstanceLayer(InferenceLayer):
         max_stride: Backbone-network stride; inputs are padded bottom-right
             to a multiple of this in ``preprocess``. Default ``1`` (no pad).
     """
+
+    _HEAD_OUTPUT_KEY: str = "SingleInstanceConfmapsHead"
 
     def __init__(
         self,
@@ -67,40 +61,8 @@ class SingleInstanceLayer(InferenceLayer):
             preprocess_config=preprocess_config or PreprocessConfig(),
             postprocess_config=postprocess_config or PostprocessConfig(),
             output_stride=output_stride,
+            max_stride=max_stride,
         )
-        self.max_stride = max_stride
-
-    # ──────────────────────────────────────────────────────────────────
-    # Preprocess
-    # ──────────────────────────────────────────────────────────────────
-
-    def preprocess(self, image: ImageInput) -> Tuple[torch.Tensor, PreprocInfo]:
-        """Run the full legacy-parity chain and capture coord-undo info.
-
-        Steps via :meth:`InferenceLayer._apply_full_preprocess`:
-        ensure_rgb/grayscale → sizematcher → input_scale → pad_to_stride →
-        ``n_samples`` wrap. The single-instance Lightning forward has an
-        ``ndim==5`` guard so the wrap is benign there; we still apply it
-        to match the legacy ``_make_pipeline_inputs`` shape contract bit-
-        for-bit.
-        """
-        x = self._to_4d_tensor(image)
-        B = x.shape[0]
-        scaled_5d, eff_scale, orig_hw = self._apply_full_preprocess(
-            x, max_stride=self.max_stride, unsqueeze_n_samples=True
-        )
-        processed_hw = tuple(scaled_5d.shape[-2:])
-
-        info = PreprocInfo(
-            original_size=orig_hw,
-            processed_size=processed_hw,
-            eff_scale=eff_scale,
-            input_scale=self.preprocess_config.scale,
-            output_stride=self.output_stride,
-            pad_amount=(0, 0),
-            crop_offsets=None,
-        )
-        return scaled_5d, info
 
     # ──────────────────────────────────────────────────────────────────
     # Postprocess
@@ -109,7 +71,7 @@ class SingleInstanceLayer(InferenceLayer):
     def postprocess(self, raw_out: dict, info: PreprocInfo) -> Outputs:
         """Decode confmaps → keypoints, reverse coord ladder, build ``Outputs``.
 
-        On a baked-postproc backend (ONNX/TRT in PR 7) ``raw_out`` already
+        On a baked-postproc backend (ONNX/TRT) ``raw_out`` already
         contains ``peaks`` + ``peak_vals``; we skip ``find_global_peaks``
         and only apply the coord ladder.
         """
@@ -119,15 +81,10 @@ class SingleInstanceLayer(InferenceLayer):
             confmaps = raw_out.get("confmaps")
         else:
             confmaps = self._extract_confmaps(raw_out)
-            refinement = (
-                self.postprocess_config.refinement
-                if self.postprocess_config.refinement != "none"
-                else None
-            )
             peaks, vals = find_global_peaks(
                 confmaps.detach(),
                 threshold=self.postprocess_config.peak_threshold,
-                refinement=refinement,
+                refinement=self.postprocess_config.effective_refinement,
                 integral_patch_size=self.postprocess_config.integral_patch_size,
             )
 
@@ -149,25 +106,3 @@ class SingleInstanceLayer(InferenceLayer):
         if self.postprocess_config.return_confmaps and confmaps is not None:
             outputs = attrs.evolve(outputs, pred_confmaps=confmaps.detach())
         return outputs
-
-    @staticmethod
-    def _extract_confmaps(raw_out: dict) -> torch.Tensor:
-        """Pull the confmap tensor out of the backend's dict.
-
-        ``TorchBackend`` wraps a tensor-returning Lightning forward under
-        ``"output"``; if the model returned a dict directly, we look for
-        the canonical head name.
-        """
-        if _TORCH_OUTPUT_KEY in raw_out:
-            return raw_out[_TORCH_OUTPUT_KEY]
-        if _HEAD_OUTPUT_KEY in raw_out:
-            return raw_out[_HEAD_OUTPUT_KEY]
-        # Fall back to the single tensor in the dict, if there's exactly one.
-        tensors = [v for v in raw_out.values() if isinstance(v, torch.Tensor)]
-        if len(tensors) == 1:
-            return tensors[0]
-        raise KeyError(
-            f"SingleInstanceLayer.postprocess could not find confmaps in raw_out "
-            f"keys={list(raw_out.keys())}; expected '{_TORCH_OUTPUT_KEY}' or "
-            f"'{_HEAD_OUTPUT_KEY}'."
-        )
