@@ -78,68 +78,7 @@ def test_returns_outputs_with_canonical_shape():
     assert out.pred_keypoints.shape[0] == 1
 
 
-@pytest.mark.skipif(
-    not MULTICLASS_BU_CKPT.exists(), reason="multiclass-bottomup checkpoint not present"
-)
-def test_parity_vs_legacy():
-    """Match ``BottomUpMultiClassInferenceModel.forward`` within tolerance."""
-    predictor = _build_predictor()
-    layer = _build_layer(predictor)
-    legacy = predictor.inference_model
-    legacy.eval()
-
-    # The legacy ``BottomUpMultiClassInferenceModel.forward`` does NOT
-    # resize its input — it expects the image to already be at the model's
-    # native (pre-input-scale) size, with the data loader having done the
-    # resize upstream. The new layer's ``preprocess`` does the resize itself
-    # so the user can pass an original-resolution image. To test parity, we
-    # feed the legacy a pre-resized image and the new layer the original.
-    from sleap_nn.data.resizing import resize_image as _resize
-
-    rng = np.random.default_rng(0)
-    image = rng.integers(0, 255, size=(2, 1, 1, 384, 384)).astype(np.uint8)
-    image_t = torch.from_numpy(image).float()  # (B, 1, C, H, W) original
-
-    image_legacy = _resize(image_t.squeeze(1), legacy.input_scale).unsqueeze(1)
-    legacy_input = {
-        "image": image_legacy,
-        "frame_idx": torch.tensor([0, 1], dtype=torch.float32),
-        "video_idx": torch.tensor([0, 0], dtype=torch.float32),
-        "orig_size": torch.tensor([[384.0, 384.0], [384.0, 384.0]]),
-        "eff_scale": torch.ones(2),
-    }
-    with torch.no_grad():
-        legacy_out_list = legacy(legacy_input)
-    legacy_out = legacy_out_list[0]
-    # Legacy returns ``pred_instance_peaks`` as a list of per-batch tensors
-    # (because of the per-batch eff_scale division loop). Stack to compare.
-    legacy_peaks = torch.stack(legacy_out["pred_instance_peaks"], dim=0)
-    legacy_vals = legacy_out["pred_peak_values"]
-    legacy_scores = legacy_out["instance_scores"]
-
-    new_outputs = layer.predict(image_t.squeeze(1))
-
-    np.testing.assert_allclose(
-        new_outputs.pred_keypoints.numpy(),
-        legacy_peaks.numpy(),
-        equal_nan=True,
-        atol=PARITY_ATOL,
-        rtol=PARITY_RTOL,
-        err_msg="pred_keypoints drifted vs legacy BottomUpMultiClass",
-    )
-    np.testing.assert_allclose(
-        new_outputs.pred_peak_values.numpy(),
-        legacy_vals.numpy(),
-        equal_nan=True,
-        atol=PARITY_ATOL,
-        rtol=PARITY_RTOL,
-        err_msg="pred_peak_values drifted vs legacy BottomUpMultiClass",
-    )
-    np.testing.assert_allclose(
-        new_outputs.instance_scores.numpy(),
-        legacy_scores.numpy(),
-        equal_nan=True,
-        atol=PARITY_ATOL,
-        rtol=PARITY_RTOL,
-        err_msg="instance_scores drifted vs legacy BottomUpMultiClass",
-    )
+# Per-layer "parity vs legacy BottomUpMultiClassInferenceModel.forward"
+# was removed: end-to-end parity is captured at the top of the stack
+# via the PR 0 goldens. Locking each layer to legacy byte-for-byte
+# also locks in float-op-ordering quirks we may want to change later.

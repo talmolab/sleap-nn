@@ -167,62 +167,7 @@ def test_centroid_nms_dedupes_close_centroids(monkeypatch):
     assert torch.isnan(out.pred_keypoints[0, 1]).all()
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# Parity vs PR 0 topdown golden
-# ─────────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.skipif(
-    not CENTROID_CKPT.exists() or not CENTERED_CKPT.exists(),
-    reason="topdown checkpoints not present",
-)
-def test_topdown_layer_parity_vs_pr0_golden():
-    """Run the new TopDownLayer on a deterministic input and verify the
-    keypoints land within tolerance of what the legacy pipeline produces.
-
-    We don't compare against the PR 0 golden directly because that golden
-    is the *full predictor's* output (with per-detection rebatching). Here
-    we compare against the legacy pipeline run on the same input.
-    """
-    from sleap_nn.inference.predictors import Predictor
-
-    rng = np.random.default_rng(42)
-    image = rng.integers(0, 255, size=(2, 1, 1, 384, 384)).astype(np.uint8)
-    image_t = torch.from_numpy(image).float()
-
-    # Run new layer
-    layer = _build_layer()
-    new_out = layer.predict(image_t.squeeze(1))  # (B, C, H, W)
-    new_centroids = new_out.pred_centroids.numpy()  # (B, max_inst, 2)
-
-    # Run legacy and pull centroids from the centroid_crop output.
-    predictor = Predictor.from_model_paths(
-        [str(CENTROID_CKPT), str(CENTERED_CKPT)],
-        device="cpu",
-        peak_threshold=0.03,
-        max_instances=6,
-        preprocess_config=NEUTRAL_PREPROCESS,
-    )
-    predictor._initialize_inference_model()
-    legacy_centroid = predictor.inference_model.centroid_crop
-    legacy_centroid.eval()
-    legacy_centroid.return_crops = False
-    legacy_input = {
-        "image": image_t,
-        "frame_idx": torch.tensor([0, 1], dtype=torch.float32),
-        "video_idx": torch.tensor([0, 0], dtype=torch.float32),
-        "orig_size": torch.tensor([[384.0, 384.0], [384.0, 384.0]]),
-        "eff_scale": torch.ones(2),
-    }
-    with torch.no_grad():
-        legacy_out = legacy_centroid(legacy_input)
-    legacy_centroids = legacy_out["centroids"].squeeze(1).numpy()
-
-    np.testing.assert_allclose(
-        new_centroids,
-        legacy_centroids,
-        equal_nan=True,
-        atol=PARITY_ATOL,
-        rtol=PARITY_RTOL,
-        err_msg="TopDownLayer pred_centroids drifted vs legacy centroid_crop",
-    )
+# Per-stage "parity vs legacy CentroidCrop.forward" was removed:
+# end-to-end byte-for-byte parity is captured at the top of the stack
+# via the PR 0 goldens (the topdown golden is captured there directly
+# from the full predictor and is the canonical comparison point).
