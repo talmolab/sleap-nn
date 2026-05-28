@@ -1033,21 +1033,12 @@ def _run_inference_impl(**kwargs):
             paf_workers=paf_workers,
         )
 
-    # ── In-memory new-flow path (PR 13) ────────────────────────────────
-    # When the requested flags don't need anything the legacy ``run_inference``
-    # alone can do (tracking, suggested-frame filtering, GUI progress reporter,
-    # backbone/head ckpt overrides), route through the new
-    # :func:`Predictor.from_model_paths(...).predict(...)` flow. The legacy
-    # path stays available as a fallback for everything else.
+    # ── In-memory new-flow path (PR 13–16) ─────────────────────────────
+    # As of PR 16 the new flow handles every documented flag, so this
+    # always routes here. The legacy ``run_inference`` body is kept for
+    # backward-compat external callers and is removed in PR 17.
     if _can_use_new_in_memory_flow(kwargs):
         return _run_in_memory_new_flow(kwargs, paf_workers=paf_workers)
-
-    if paf_workers > 0:
-        logger.warning(
-            "--paf-workers > 0 currently has no effect on the legacy "
-            "predict path; pass --stream-to-file or use a simpler config "
-            "(no tracking, no advanced frame filtering) to use the worker pool."
-        )
 
     return run_inference(**kwargs)
 
@@ -1055,49 +1046,139 @@ def _run_inference_impl(**kwargs):
 def _can_use_new_in_memory_flow(kwargs: dict) -> bool:
     """Return True iff the new factory + Predictor.predict can serve this call.
 
-    The new flow currently supports the basics: a video / labels source,
-    one or two .ckpt model dirs, optional ``frames`` list, and the
-    standard preprocess overrides. It does NOT yet handle tracking,
-    suggested-frame / predicted-frame filtering, or the GUI progress
-    reporter. Anything in those categories falls through to legacy.
+    As of PR 16 the new flow handles every documented flag combination
+    that ``run_inference`` ever supported:
+
+    * Video or ``.slp`` source · one or more ``.ckpt`` model dirs
+    * ``--backbone_ckpt_path`` / ``--head_ckpt_path`` (threaded through
+      the factory's existing kwargs).
+    * ``--tracking`` + every tracking knob (via :class:`TrackerConfig`).
+    * Every ``--filter_*`` knob (via :class:`FilterConfig`).
+    * The four frame-selection flags (``only_suggested_frames`` /
+      ``exclude_user_labeled`` / ``only_predicted_frames`` /
+      ``no_empty_frames``).
+    * ``--gui`` (JSON progress emission via ``progress_callback``).
+    * Tracking-only retrack (no ``model_paths``, ``--tracking`` set,
+      ``.slp`` data path) — handled by :meth:`Predictor.retrack`.
+
+    The function returns ``True`` whenever any of these combinations is
+    requested. The legacy ``run_inference`` is no longer reached during
+    normal CLI use; the body is kept for one release as a deprecation
+    target and removed in PR 17.
     """
-    if kwargs.get("tracking"):
-        return False
-    for flag in (
-        "only_suggested_frames",
-        "exclude_user_labeled",
-        "only_predicted_frames",
-        "no_empty_frames",
-        "gui",
-    ):
-        if kwargs.get(flag):
-            return False
-    if kwargs.get("backbone_ckpt_path") or kwargs.get("head_ckpt_path"):
-        # Layer-level checkpoint overrides aren't piped through the new
-        # factory yet; the legacy loader handles them today.
-        return False
-    if not kwargs.get("model_paths"):
-        return False
     return True
+
+
+def _resolve_device(value: object) -> str:
+    """Resolve a CLI ``--device`` value to a concrete torch device string.
+
+    The legacy :func:`sleap_nn.predict.run_inference` resolves ``"auto"``
+    before any checkpoint loading; the new flow needs the same so
+    ``torch.load(map_location="auto")`` doesn't blow up on the legacy
+    factory loader.
+    """
+    if hasattr(value, "type"):
+        value = str(value)
+    if value in (None, "", "auto"):
+        import torch
+
+        if torch.cuda.is_available():
+            return "cuda"
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return "mps"
+        return "cpu"
+    return str(value)
+
+
+def _build_filter_config(kwargs: dict) -> "object":
+    """Build a :class:`FilterConfig` from the CLI ``--filter_*`` flags.
+
+    Returns ``None`` when every knob is at its default — the
+    :class:`Predictor`'s default ``FilterConfig()`` is the no-op
+    identity, so we save a few attrs constructions in the common case.
+    """
+    from sleap_nn.inference.filters import FilterConfig
+
+    overlapping = bool(kwargs.get("filter_overlapping"))
+    min_visible_nodes = int(kwargs.get("filter_min_visible_nodes") or 0)
+    min_visible_node_fraction = float(
+        kwargs.get("filter_min_visible_node_fraction") or 0.0
+    )
+    min_mean_node_score = float(kwargs.get("filter_min_mean_node_score") or 0.0)
+    min_instance_score = float(kwargs.get("filter_min_instance_score") or 0.0)
+    if not (
+        overlapping
+        or min_visible_nodes
+        or min_visible_node_fraction
+        or min_mean_node_score
+        or min_instance_score
+    ):
+        return None
+    return FilterConfig(
+        overlapping=overlapping,
+        overlapping_method=kwargs.get("filter_overlapping_method", "iou"),
+        overlapping_threshold=float(
+            kwargs.get("filter_overlapping_threshold", 0.8) or 0.8
+        ),
+        min_visible_nodes=min_visible_nodes,
+        min_visible_node_fraction=min_visible_node_fraction,
+        min_mean_node_score=min_mean_node_score,
+        min_instance_score=min_instance_score,
+    )
+
+
+def _build_tracker_config(kwargs: dict) -> "object":
+    """Build a :class:`TrackerConfig` from the CLI ``--tracking_*`` flags."""
+    from sleap_nn.inference.tracking import TrackerConfig
+
+    return TrackerConfig(
+        window_size=kwargs.get("tracking_window_size", 5),
+        min_new_track_points=kwargs.get("min_new_track_points", 0),
+        candidates_method=kwargs.get("candidates_method", "fixed_window"),
+        min_match_points=kwargs.get("min_match_points", 0),
+        features=kwargs.get("features", "keypoints"),
+        scoring_method=kwargs.get("scoring_method", "oks"),
+        scoring_reduction=kwargs.get("scoring_reduction", "mean"),
+        robust_best_instance=kwargs.get("robust_best_instance", 1.0),
+        track_matching_method=kwargs.get("track_matching_method", "hungarian"),
+        max_tracks=kwargs.get("max_tracks"),
+        use_flow=kwargs.get("use_flow", False),
+        of_img_scale=kwargs.get("of_img_scale", 1.0),
+        of_window_size=kwargs.get("of_window_size", 21),
+        of_max_levels=kwargs.get("of_max_levels", 3),
+        tracking_target_instance_count=kwargs.get("tracking_target_instance_count"),
+        tracking_pre_cull_to_target=kwargs.get("tracking_pre_cull_to_target", 0),
+        tracking_pre_cull_iou_threshold=kwargs.get(
+            "tracking_pre_cull_iou_threshold", 0.0
+        ),
+        tracking_clean_instance_count=kwargs.get("tracking_clean_instance_count", 0),
+        tracking_clean_iou_threshold=kwargs.get("tracking_clean_iou_threshold", 0.0),
+        post_connect_single_breaks=kwargs.get("post_connect_single_breaks", False),
+    )
 
 
 def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     """Run the new ``Predictor`` flow synchronously and save the resulting Labels.
 
-    This is the in-memory counterpart to :func:`_run_stream_to_file`:
-    same factory, same providers, but ``predict()`` instead of
-    ``predict_to_file()`` so the result lives in memory until the final
-    ``Labels.save()`` call.
+    Routes to :meth:`Predictor.retrack` for the tracking-only retrack
+    case (no ``model_paths``, ``--tracking`` set, ``.slp`` data path);
+    otherwise builds a ``Predictor`` via the factory and calls
+    :meth:`Predictor.predict`.
     """
     from pathlib import Path
 
     import sleap_io as sio
 
     from sleap_nn.inference.factory import from_model_paths
+    from sleap_nn.inference.predictor import Predictor as NewPredictor
     from sleap_nn.inference.providers import LabelsProvider, VideoProvider
 
+    # ── Tracking-only retrack: no model_paths, --tracking on a .slp ────
+    if not kwargs.get("model_paths") and kwargs.get("tracking"):
+        return _run_retrack_only(kwargs, NewPredictor)
+
     factory_kwargs = {
-        "device": kwargs.get("device", "auto"),
+        "device": _resolve_device(kwargs.get("device")),
         "peak_threshold": kwargs.get("peak_threshold", 0.2),
         "integral_refinement": kwargs.get("integral_refinement", "integral"),
         "integral_patch_size": kwargs.get("integral_patch_size", 5),
@@ -1106,15 +1187,26 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         "anchor_part": kwargs.get("anchor_part"),
         "paf_workers": paf_workers,
     }
+    if kwargs.get("backbone_ckpt_path"):
+        factory_kwargs["backbone_ckpt_path"] = kwargs["backbone_ckpt_path"]
+    if kwargs.get("head_ckpt_path"):
+        factory_kwargs["head_ckpt_path"] = kwargs["head_ckpt_path"]
+    if kwargs.get("tracking"):
+        factory_kwargs["tracker_config"] = _build_tracker_config(kwargs)
+    filter_config = _build_filter_config(kwargs)
+    if filter_config is not None:
+        factory_kwargs["filter_config"] = filter_config
     predictor = from_model_paths(kwargs["model_paths"], **factory_kwargs)
 
     src = Path(kwargs["data_path"])
-    only_labeled = bool(kwargs.get("only_labeled_frames"))
     if src.suffix == ".slp":
         provider = LabelsProvider(
             labels=str(src),
             batch_size=kwargs.get("batch_size", 4),
-            only_labeled_frames=only_labeled,
+            only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
+            only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
+            exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
+            only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
         )
         loaded = sio.load_slp(str(src))
         skeleton = loaded.skeletons[0]
@@ -1133,12 +1225,103 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         videos = [sio.load_video(str(src))]
 
     labels = predictor.predict(
-        provider, make_labels=True, skeleton=skeleton, videos=videos
+        provider,
+        make_labels=True,
+        skeleton=skeleton,
+        videos=videos,
+        clean_empty_frames=bool(kwargs.get("no_empty_frames")),
+        progress_callback=_gui_progress_callback() if kwargs.get("gui") else None,
     )
 
     output_path = kwargs.get("output_path") or f"{src}.slp"
     labels.save(output_path)
     return labels
+
+
+def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
+    """Pure-tracking retrack of an existing ``.slp`` (no inference)."""
+    from pathlib import Path
+
+    import sleap_io as sio
+
+    src = Path(kwargs["data_path"])
+    if src.suffix != ".slp":
+        raise click.UsageError(
+            "Tracking-only mode requires --data_path to be a .slp file. "
+            "Pass --model_paths to run inference + tracking."
+        )
+
+    labels = sio.load_slp(str(src))
+
+    # video_index filter (optional)
+    video_index = kwargs.get("video_index")
+    if video_index is not None and video_index < len(labels.videos):
+        target_video = labels.videos[video_index]
+        labels = sio.Labels(
+            videos=labels.videos,
+            skeletons=labels.skeletons,
+            labeled_frames=labels.find(video=target_video),
+        )
+
+    # frames filter (optional)
+    frames = kwargs.get("frames")
+    if frames:
+        wanted = set(frames)
+        labels = sio.Labels(
+            videos=labels.videos,
+            skeletons=labels.skeletons,
+            labeled_frames=[
+                lf for lf in labels.labeled_frames if lf.frame_idx in wanted
+            ],
+        )
+
+    tracker_config = _build_tracker_config(kwargs)
+    out = predictor_cls.retrack(
+        labels,
+        tracker_config,
+        clean_empty_frames=bool(kwargs.get("no_empty_frames")),
+    )
+    output_path = kwargs.get("output_path") or f"{src}.slp"
+    out.save(output_path)
+    return out
+
+
+def _gui_progress_callback():
+    """Build a JSON-progress emitter compatible with the legacy ``--gui`` mode.
+
+    Emits one JSON line per batch with ``n_processed`` / ``n_total`` /
+    ``rate`` / ``eta``, throttled to ~4Hz so a downstream GUI process
+    can read progress via stdout. Matches the format used by the legacy
+    ``Predictor._predict_generator_gui`` exactly.
+    """
+    import json
+    from time import time as _now
+
+    state = {"start": _now(), "last": 0.0, "processed_at_last": 0}
+
+    def cb(processed: int, total: int) -> None:
+        now = _now()
+        is_last = total > 0 and processed >= total
+        if not is_last and (now - state["last"]) < 0.25:
+            return
+        elapsed = now - state["start"]
+        rate = processed / elapsed if elapsed > 0 else 0.0
+        remaining = max(total - processed, 0) if total > 0 else 0
+        eta = remaining / rate if rate > 0 else 0.0
+        print(
+            json.dumps(
+                {
+                    "n_processed": processed,
+                    "n_total": total if total > 0 else None,
+                    "rate": round(rate, 1),
+                    "eta": round(eta, 1),
+                }
+            ),
+            flush=True,
+        )
+        state["last"] = now
+
+    return cb
 
 
 def _run_stream_to_file(
@@ -1161,6 +1344,12 @@ def _run_stream_to_file(
             "lands in a follow-up PR. Drop --stream-to-file to use the "
             "legacy in-memory path with tracking."
         )
+    if kwargs.get("no_empty_frames"):
+        raise click.UsageError(
+            "--no_empty_frames is incompatible with --stream-to-file: "
+            "streaming writes each batch to disk and cannot drop empty "
+            "frames after the fact. Drop --stream-to-file to use it."
+        )
     if not kwargs.get("model_paths"):
         raise click.UsageError("--model_paths is required for --stream-to-file.")
     data_path = kwargs.get("data_path")
@@ -1175,7 +1364,7 @@ def _run_stream_to_file(
     from sleap_nn.inference.providers import LabelsProvider, VideoProvider
 
     factory_kwargs = {
-        "device": kwargs.get("device", "auto"),
+        "device": _resolve_device(kwargs.get("device")),
         "peak_threshold": kwargs.get("peak_threshold", 0.2),
         "integral_refinement": kwargs.get("integral_refinement", "integral"),
         "integral_patch_size": kwargs.get("integral_patch_size", 5),
@@ -1189,13 +1378,21 @@ def _run_stream_to_file(
         factory_kwargs["backbone_ckpt_path"] = kwargs["backbone_ckpt_path"]
     if kwargs.get("head_ckpt_path"):
         factory_kwargs["head_ckpt_path"] = kwargs["head_ckpt_path"]
+    filter_config = _build_filter_config(kwargs)
+    if filter_config is not None:
+        factory_kwargs["filter_config"] = filter_config
 
     predictor = from_model_paths(kwargs["model_paths"], **factory_kwargs)
 
     src = Path(data_path)
     if src.suffix == ".slp":
         provider = LabelsProvider(
-            labels=str(src), batch_size=kwargs.get("batch_size", 4)
+            labels=str(src),
+            batch_size=kwargs.get("batch_size", 4),
+            only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
+            only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
+            exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
+            only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
         )
         labels = sio.load_slp(str(src))
         skeleton = labels.skeletons[0]
@@ -1215,6 +1412,7 @@ def _run_stream_to_file(
         path=str(stream_to_file),
         skeleton=skeleton,
         write_interval=write_interval,
+        progress_callback=_gui_progress_callback() if kwargs.get("gui") else None,
     )
 
 
