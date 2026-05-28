@@ -464,41 +464,45 @@ def _select_export_layer(
     backend: Any,
     return_confmaps: bool,
 ):
-    """Dispatch on ``metadata.model_type`` → build the right export layer.
+    """Dispatch on ``metadata.model_type`` → build the right export adapter.
 
-    As of PR 18 only ``single_instance`` is supported. Other types
-    raise ``NotImplementedError`` and continue using the legacy
-    ``sleap_nn.export.inference.predict`` driver in the meantime.
+    Export adapters live in :mod:`sleap_nn.inference.layers.exported` —
+    thin translators that consume the wrapper's already-postprocessed
+    output (peaks already in original-image space) and produce a
+    structured :class:`Outputs`. They intentionally bypass the standard
+    layer's coord ladder so transforms aren't double-applied.
+
+    Supported as of PR 19: ``single_instance``, ``centroid``,
+    ``centered_instance``, ``topdown``. Bottom-up + multiclass land in
+    follow-up PRs.
     """
+    from sleap_nn.inference.layers.exported import (
+        ExportedCenteredInstanceLayer,
+        ExportedCentroidLayer,
+        ExportedSingleInstanceLayer,
+        ExportedTopDownLayer,
+    )
+
     model_type = metadata.model_type
 
     if model_type == "single_instance":
-        return SingleInstanceLayer(
-            backend=backend,
-            output_stride=metadata.output_stride,
-            preprocess_config=PreprocessConfig(scale=metadata.input_scale),
-            postprocess_config=PostprocessConfig(
-                peak_threshold=(
-                    metadata.peak_threshold
-                    if metadata.peak_threshold is not None
-                    else 0.2
-                ),
-                refinement="none",  # peak-finding is baked into the export graph
-                return_confmaps=return_confmaps,
-            ),
+        return ExportedSingleInstanceLayer(
+            backend=backend, return_confmaps=return_confmaps
         )
+    if model_type == "centered_instance":
+        return ExportedCenteredInstanceLayer(
+            backend=backend, return_confmaps=return_confmaps
+        )
+    if model_type == "centroid":
+        return ExportedCentroidLayer(backend=backend)
+    if model_type == "topdown":
+        return ExportedTopDownLayer(backend=backend)
 
-    if model_type in {
-        "centroid",
-        "centered_instance",
-        "topdown",
-        "bottomup",
-        "multi_class_bottomup",
-        "multi_class_topdown",
-    }:
+    if model_type in {"bottomup", "multi_class_bottomup", "multi_class_topdown"}:
         raise NotImplementedError(
             f"from_export_dir: model_type={model_type!r} adapter not yet "
-            f"implemented. Currently supported: 'single_instance'. Use the "
+            f"implemented. Currently supported: 'single_instance', "
+            f"'centroid', 'centered_instance', 'topdown'. Use the "
             f"legacy `sleap_nn.export.inference.predict(...)` for other "
             f"model types until follow-up PRs land."
         )
