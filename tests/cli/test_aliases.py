@@ -17,11 +17,36 @@ from click.testing import CliRunner
 from sleap_nn.cli import cli
 
 
+def _mock_new_flow():
+    """Patches that make the new in-memory flow a no-op for fast CLI tests."""
+    from unittest.mock import MagicMock
+
+    stub_predictor = MagicMock()
+    stub_predictor.predict.return_value = MagicMock()
+    return [
+        patch(
+            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
+        ),
+        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
+        patch("sleap_nn.inference.providers.VideoProvider"),
+        patch("sleap_io.load_video"),
+    ]
+
+
 def test_track_emits_deprecation_warning():
-    """``sleap-nn track`` runs the legacy flow but emits a DeprecationWarning."""
+    """``sleap-nn track`` emits a DeprecationWarning before delegating.
+
+    The warning is emitted in the ``track`` command body before any
+    impl runs, so the routing destination doesn't matter — we just
+    need the impl to not crash.
+    """
     runner = CliRunner()
-    with patch("sleap_nn.predict.run_inference") as mock_run:
-        mock_run.return_value = None
+    with (
+        _mock_new_flow()[0] as mock_factory,
+        _mock_new_flow()[1],
+        _mock_new_flow()[2],
+        _mock_new_flow()[3],
+    ):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             result = runner.invoke(
@@ -35,7 +60,6 @@ def test_track_emits_deprecation_warning():
                 ],
             )
         assert result.exit_code == 0, result.output
-        assert mock_run.called
         deprecations = [x for x in w if issubclass(x.category, DeprecationWarning)]
         assert any(
             "sleap-nn track" in str(d.message) and "infer" in str(d.message)
@@ -43,8 +67,13 @@ def test_track_emits_deprecation_warning():
         ), [str(d.message) for d in deprecations]
 
 
-def test_track_and_infer_reach_same_run_inference_kwargs():
-    """``track`` and ``infer`` produce identical kwargs to ``run_inference``."""
+def test_track_and_infer_reach_same_factory_kwargs():
+    """``track`` and ``infer`` produce identical kwargs to the new factory.
+
+    PR 16 routes everything through ``Predictor.from_model_paths``, so
+    we assert kwarg equality on that call instead of the legacy
+    ``run_inference``.
+    """
     runner = CliRunner()
     args_common = [
         "--data_path",
@@ -59,22 +88,26 @@ def test_track_and_infer_reach_same_run_inference_kwargs():
         "0.15",
     ]
 
-    with patch("sleap_nn.predict.run_inference") as mock_run:
-        mock_run.return_value = None
-        runner.invoke(cli, ["infer"] + args_common)
-        infer_kwargs = dict(mock_run.call_args[1])
+    def _capture(cmd: str):
+        from unittest.mock import MagicMock
 
-    with patch("sleap_nn.predict.run_inference") as mock_run:
-        mock_run.return_value = None
-        # Suppress the DeprecationWarning during the test.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            runner.invoke(cli, ["track"] + args_common)
-        track_kwargs = dict(mock_run.call_args[1])
+        stub_predictor = MagicMock()
+        stub_predictor.predict.return_value = MagicMock()
+        with (
+            patch(
+                "sleap_nn.inference.factory.from_model_paths",
+                return_value=stub_predictor,
+            ) as mock_factory,
+            patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
+            patch("sleap_nn.inference.providers.VideoProvider"),
+            patch("sleap_io.load_video"),
+        ):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                runner.invoke(cli, [cmd] + args_common)
+            return dict(mock_factory.call_args[1])
 
-    # Both should reach the same kwargs (modulo the new-flag stripping
-    # already done by both paths).
-    assert infer_kwargs == track_kwargs
+    assert _capture("infer") == _capture("track")
 
 
 def test_export_predict_top_level_still_works():
