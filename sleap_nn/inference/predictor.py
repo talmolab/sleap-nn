@@ -684,13 +684,15 @@ class Predictor:
                     **provider_kwargs,
                 )
                 return provider, None
+            video = sio.Video(source) if isinstance(source, str) else None
             provider = VideoProvider(
                 video=source,
                 batch_size=self.batch_size,
                 frames=frames,
                 **provider_kwargs,
             )
-            return provider, None
+            videos = [video] if video is not None else None
+            return provider, videos
 
         if isinstance(source, sio.Video):
             provider = VideoProvider(

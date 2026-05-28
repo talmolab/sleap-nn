@@ -1215,7 +1215,8 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
             only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
         )
     elif src.suffix != ".slp" and (
-        kwargs.get("video_dataset") or kwargs.get("video_input_format")
+        kwargs.get("video_dataset")
+        or kwargs.get("video_input_format", "channels_last") != "channels_last"
     ):
         source = VideoProvider(
             video=str(src),
