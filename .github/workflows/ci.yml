@@ -38,7 +38,11 @@ jobs:
         run: uv run --frozen --extra torch-cpu ruff check sleap_nn/
 
   tests:
-    timeout-minutes: 30
+    # Windows runs ~29 min on this matrix (slow VMs + torch-on-Windows).
+    # 30 was right at the edge and timed out mid-pytest-summary; 45
+    # gives headroom for normal CI load variance without masking real
+    # hangs (which would still saturate the budget).
+    timeout-minutes: 45
     env:
       CUDA_VISIBLE_DEVICES: ""
       USE_CUDA: "0"
