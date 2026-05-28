@@ -99,11 +99,23 @@ def test_predict_streaming_cpu(model_type):
 # ──────────────────────────────────────────────────────────────────────
 
 
-_HAS_MPS = (
-    hasattr(torch.backends, "mps")
-    and torch.backends.mps.is_available()
-    and torch.backends.mps.is_built()
-)
+def _mps_usable() -> bool:
+    """Check MPS is available AND has enough memory for inference."""
+    if not (
+        hasattr(torch.backends, "mps")
+        and torch.backends.mps.is_available()
+        and torch.backends.mps.is_built()
+    ):
+        return False
+    try:
+        t = torch.zeros(1, device="mps")
+        del t
+        return True
+    except RuntimeError:
+        return False
+
+
+_HAS_MPS = _mps_usable()
 
 
 @pytest.mark.skipif(not _HAS_MPS, reason="MPS not available")
