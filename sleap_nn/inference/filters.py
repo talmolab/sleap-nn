@@ -166,7 +166,11 @@ class FilterPipeline:
         """Drop instances by score (instance-level + mean-node-score)."""
         if outputs.pred_keypoints is None:
             return outputs
-        keep = torch.ones(outputs.pred_keypoints.shape[:2], dtype=torch.bool)  # (B, I)
+        keep = torch.ones(
+            outputs.pred_keypoints.shape[:2],
+            dtype=torch.bool,
+            device=outputs.pred_keypoints.device,
+        )  # (B, I)
         if min_instance_score > 0.0 and outputs.instance_scores is not None:
             keep &= outputs.instance_scores >= min_instance_score
         if min_mean_node_score > 0.0 and outputs.pred_peak_values is not None:
@@ -193,12 +197,13 @@ class FilterPipeline:
         if outputs.pred_keypoints is None:
             return outputs
         B, I, _N, _ = outputs.pred_keypoints.shape
+        dev = outputs.pred_keypoints.device
         scores = (
             outputs.instance_scores
             if outputs.instance_scores is not None
-            else torch.zeros(B, I)
+            else torch.zeros(B, I, device=dev)
         )
-        keep_mask = torch.ones(B, I, dtype=torch.bool)
+        keep_mask = torch.ones(B, I, dtype=torch.bool, device=dev)
         for b in range(B):
             valid_b = ~torch.isnan(outputs.pred_keypoints[b]).all(dim=-1).all(dim=-1)
             if valid_b.sum() <= 1:

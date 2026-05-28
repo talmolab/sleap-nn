@@ -349,7 +349,7 @@ def test_repr_is_compact_no_tensor_contents():
     o = _full_outputs()
     s = repr(o)
     assert s.startswith("Outputs(")
-    # Pre-emptively cap at a reasonable size — fat ``Outputs`` should still
+    # Preemptively cap at a reasonable size — fat ``Outputs`` should still
     # produce a one-or-two-liner repr.
     assert len(s) < 4000, f"repr too long: {len(s)}"
     # Must not contain raw tensor numerical content
