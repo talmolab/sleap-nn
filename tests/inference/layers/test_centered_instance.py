@@ -77,59 +77,13 @@ def _build_layer(predictor) -> CenteredInstanceLayer:
     )
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# 1. Parity vs legacy FindInstancePeaks (model path)
-# ─────────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.skipif(
-    not CENTERED_CKPT.exists(), reason="centered-instance checkpoint not present"
-)
-def test_centered_instance_layer_parity_vs_legacy_model_path():
-    """Layer's pred_keypoints match legacy ``FindInstancePeaks.forward``."""
-    predictor = _build_predictor()
-    layer = _build_layer(predictor)
-    legacy = predictor.inference_model.instance_peaks
-    legacy.eval()
-
-    rng = np.random.default_rng(0)
-    crops = rng.integers(0, 255, size=(2, 1, 1, 96, 96)).astype(np.uint8)
-    crops_t = torch.from_numpy(crops).float()  # (N, 1, C, cH, cW)
-
-    legacy_input = {
-        "instance_image": crops_t,
-        "instance_bbox": torch.zeros(2, 1, 4, 2),
-        "eff_scale": torch.ones(2),
-    }
-    with torch.no_grad():
-        legacy_out = legacy(legacy_input)
-    legacy_peaks = legacy_out["pred_instance_peaks"]
-    legacy_vals = legacy_out["pred_peak_values"]
-
-    new_outputs = layer.predict(crops_t.squeeze(1))  # (N, C, cH, cW)
-    new_peaks = new_outputs.pred_keypoints.squeeze(1)
-    new_vals = new_outputs.pred_peak_values.squeeze(1)
-
-    np.testing.assert_allclose(
-        new_peaks.numpy(),
-        legacy_peaks.numpy(),
-        equal_nan=True,
-        atol=PARITY_ATOL,
-        rtol=PARITY_RTOL,
-        err_msg="pred_keypoints drifted vs legacy FindInstancePeaks",
-    )
-    np.testing.assert_allclose(
-        new_vals.numpy(),
-        legacy_vals.numpy(),
-        equal_nan=True,
-        atol=PARITY_ATOL,
-        rtol=PARITY_RTOL,
-        err_msg="pred_peak_values drifted vs legacy FindInstancePeaks",
-    )
+# Per-layer "parity vs legacy FindInstancePeaks.forward" was removed:
+# end-to-end byte-for-byte parity is captured at the top of the stack
+# via the PR 0 goldens.
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 2. GT path: matches centroid → nearest GT instance
+# 1. GT path: matches centroid → nearest GT instance
 # ─────────────────────────────────────────────────────────────────────────
 
 
