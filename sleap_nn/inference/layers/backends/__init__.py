@@ -1,15 +1,14 @@
 """Runtime backends for inference layers.
 
-Currently exported:
+Exported:
 
 - :class:`ModelBackend` — Protocol every backend implements.
 - :class:`TorchBackend` — PyTorch ``nn.Module`` runtime with optional
   compile / FP16 / Conv-BN fusion.
-- :class:`ONNXBackend` — ONNX Runtime backend (PR 7 / #515). Wraps an
-  exported ``.onnx`` file; peak finding is baked into the graph.
-
-PR 7 also adds ``TensorRTBackend`` (CUDA-only, requires ``tensorrt``
-extra) — landing as a follow-up commit on the same branch.
+- :class:`ONNXBackend` — ONNX Runtime backend. Wraps an exported
+  ``.onnx`` file; peak finding is baked into the graph.
+- :class:`TensorRTBackend` — TensorRT backend (CUDA-only, requires
+  ``tensorrt`` extra).
 """
 
 from sleap_nn.inference.layers.backends.base import ModelBackend

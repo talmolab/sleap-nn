@@ -687,12 +687,13 @@ class CentroidConfMapsConfig:
     """Centroid configuration map.
 
     Attributes:
-        anchor_part: (str) Node name to use as the anchor point. If None, the midpoint of the
-            bounding box of all visible instance points will be used as the anchor. The bounding
-            box midpoint will also be used if the anchor part is specified but not visible in the
-            instance. Setting a reliable anchor point can significantly improve topdown model
-            accuracy as they benefit from a consistent geometry of the body parts relative to the
-            center of the image. Default is None.
+        anchor_part: (str) Node name to use as the anchor point. If None, the
+            NaN-ignoring mean of all visible instance nodes will be used as the
+            anchor. The same mean-of-visible-nodes fallback is used when the
+            anchor part is specified but not visible in the instance. Setting a
+            reliable anchor point can significantly improve topdown model
+            accuracy as they benefit from a consistent geometry of the body parts
+            relative to the center of the image. Default is None.
         sigma: (float) Spread of the Gaussian distribution of the confidence maps as a
             scalar float. Smaller values are more precise but may be difficult to learn as
             they have a lower density within the image space. Larger values are easier to
@@ -721,12 +722,13 @@ class CenteredInstanceConfMapsConfig:
             configured to produce. The number of parts determines the number of channels
             in the output. If not specified, all body parts in the skeleton will be used.
             This config does not apply for 'PartAffinityFieldsHead'.
-        anchor_part: (str) Node name to use as the anchor point. If None, the midpoint of the
-            bounding box of all visible instance points will be used as the anchor. The bounding
-            box midpoint will also be used if the anchor part is specified but not visible in the
-            instance. Setting a reliable anchor point can significantly improve topdown model
-            accuracy as they benefit from a consistent geometry of the body parts relative to the
-            center of the image. Default is None.
+        anchor_part: (str) Node name to use as the anchor point. If None, the
+            NaN-ignoring mean of all visible instance nodes will be used as the
+            anchor. The same mean-of-visible-nodes fallback is used when the
+            anchor part is specified but not visible in the instance. Setting a
+            reliable anchor point can significantly improve topdown model
+            accuracy as they benefit from a consistent geometry of the body parts
+            relative to the center of the image. Default is None.
         sigma: (float) Spread of the Gaussian distribution of the confidence maps as a
             scalar float. Smaller values are more precise but may be difficult to learn
             as they have a lower density within the image space. Larger values are
