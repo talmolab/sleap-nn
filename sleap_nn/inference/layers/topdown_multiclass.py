@@ -14,9 +14,8 @@ from typing import Optional, Tuple
 import attrs
 import torch
 
-from sleap_nn.data.resizing import apply_pad_to_stride, resize_image
 from sleap_nn.inference.layers.backends.base import ModelBackend
-from sleap_nn.inference.layers.base import ImageInput, InferenceLayer
+from sleap_nn.inference.layers.base import InferenceLayer
 from sleap_nn.inference.layers.centroid import CentroidLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
 from sleap_nn.inference.layers.topdown import TopDownLayer
@@ -66,44 +65,18 @@ class CenteredInstanceMultiClassLayer(InferenceLayer):
             preprocess_config=preprocess_config or PreprocessConfig(),
             postprocess_config=postprocess_config or PostprocessConfig(),
             output_stride=output_stride,
+            max_stride=max_stride,
         )
-        self.max_stride = max_stride
-
-    def preprocess(self, image: ImageInput) -> Tuple[torch.Tensor, PreprocInfo]:
-        """Resize + max-stride pad, wrap to 5D for Lightning forward."""
-        x = self._to_4d_float_tensor(image)
-        B, _C, H, W = x.shape
-        scaled = (
-            resize_image(x, self.preprocess_config.scale)
-            if self.preprocess_config.scale != 1.0
-            else x
-        )
-        if self.max_stride != 1:
-            scaled = apply_pad_to_stride(scaled, self.max_stride)
-        scaled_5d = scaled.unsqueeze(1)
-        info = PreprocInfo(
-            original_size=(H, W),
-            processed_size=tuple(scaled.shape[-2:]),
-            eff_scale=torch.ones(B, device=scaled.device),
-            input_scale=self.preprocess_config.scale,
-            output_stride=self.output_stride,
-        )
-        return scaled_5d, info
 
     def postprocess(self, raw_out: dict, info: PreprocInfo) -> Outputs:
         """Decode confmaps to keypoints; classify via ``ClassVectorsHead``."""
         cms = raw_out["CenteredInstanceConfmapsHead"]
         peak_class_probs = raw_out["ClassVectorsHead"]  # (n_crops, n_classes)
 
-        refinement = (
-            self.postprocess_config.refinement
-            if self.postprocess_config.refinement != "none"
-            else None
-        )
         peaks, vals = find_global_peaks(
             cms.detach(),
             threshold=self.postprocess_config.peak_threshold,
-            refinement=refinement,
+            refinement=self.postprocess_config.effective_refinement,
             integral_patch_size=self.postprocess_config.integral_patch_size,
         )
         peaks = peaks * info.output_stride
@@ -154,6 +127,7 @@ class TopDownMultiClassLayer(TopDownLayer):
         crop_size: Tuple[int, int],
         centroid_nms: bool = False,
         centroid_nms_threshold: float = 0.5,
+        return_crops: bool = False,
     ) -> None:
         """Forward to ``TopDownLayer`` after type-checking the inner layer."""
         if not isinstance(centered_instance_layer, CenteredInstanceMultiClassLayer):
@@ -168,4 +142,5 @@ class TopDownMultiClassLayer(TopDownLayer):
             crop_size=crop_size,
             centroid_nms=centroid_nms,
             centroid_nms_threshold=centroid_nms_threshold,
+            return_crops=return_crops,
         )

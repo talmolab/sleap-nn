@@ -27,7 +27,7 @@ import torch
 
 import sleap_io as sio
 
-from sleap_nn.inference.factory import from_model_paths
+from sleap_nn.inference.predictor import Predictor
 from sleap_nn.inference.filters import FilterConfig, FilterPipeline
 from sleap_nn.inference.layers.centroid import CentroidLayer
 from sleap_nn.inference.outputs import Outputs
@@ -47,7 +47,7 @@ CENTERED_CKPT = CKPT_ROOT / "minimal_instance_centered_instance"
 @pytest.mark.skipif(not CENTROID_CKPT.exists(), reason="centroid ckpt absent")
 def test_from_model_paths_centroid_only_auto_detect():
     """One centroid model_path → Predictor wraps a ``CentroidLayer``."""
-    predictor = from_model_paths([str(CENTROID_CKPT)], device="cpu")
+    predictor = Predictor.from_model_paths([str(CENTROID_CKPT)], device="cpu")
     assert isinstance(predictor, Predictor)
     assert isinstance(predictor.layer, CentroidLayer)
 

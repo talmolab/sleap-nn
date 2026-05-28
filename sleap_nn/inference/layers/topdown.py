@@ -4,7 +4,7 @@ Two-stage layer that detects instances by centroid, crops around each
 centroid, runs a centered-instance model on the crops, and lifts the
 crop-local keypoints back into image space via :func:`add_crop_offset`.
 
-Stage layout (from `12-design-review-and-revised-plan.md` §4.6):
+Stage layout:
 
 * **Stage A** — :class:`CentroidLayer` decides which centroids survive
   (peak threshold + max_instances cap).
@@ -45,6 +45,9 @@ class TopDownLayer:
             animals where the centroid model emits two centroids per
             animal.
         centroid_nms_threshold: bbox-IoU threshold for the centroid NMS.
+        return_crops: When ``True``, store the per-instance crops on
+            ``Outputs.crops`` as a ``(B, I, C, cH, cW)`` tensor.
+            Disabled by default to save memory.
 
     Notes:
         Not an :class:`InferenceLayer` subclass — composes two layers
@@ -60,6 +63,7 @@ class TopDownLayer:
         crop_size: Tuple[int, int],
         centroid_nms: bool = False,
         centroid_nms_threshold: float = 0.5,
+        return_crops: bool = False,
     ) -> None:
         """Stash the inner layers and crop knobs."""
         self.centroid_layer = centroid_layer
@@ -67,6 +71,7 @@ class TopDownLayer:
         self.crop_size = crop_size
         self.centroid_nms = centroid_nms
         self.centroid_nms_threshold = centroid_nms_threshold
+        self.return_crops = return_crops
 
     def predict(
         self,
@@ -120,8 +125,53 @@ class TopDownLayer:
             )
 
         # Stage 2: crop + run centered-instance model + un-crop.
-        x = self.centroid_layer._to_4d_float_tensor(image)
-        return self._run_stage_2(x, centroids, centroid_vals, valid_mask)
+        # Crops must be extracted from the **sized** image
+        # (post-centroid sizematcher),
+        # not from the raw frame, because the centered_instance model was
+        # trained on crops from sized frames. The same applies to centroid
+        # coordinates used for bbox construction.
+        #
+        # Steps:
+        # 1. Re-apply the centroid layer's sizematcher to the raw image to
+        #    obtain ``x_sized`` and per-sample ``eff_scale``.
+        # 2. Convert ``centroids`` (in original-image space) back to sized
+        #    space by multiplying by ``eff_scale``.
+        # 3. Crop + run stage 2 in sized space.
+        # 4. Divide final keypoints + bboxes by ``eff_scale`` to land in
+        #    original-image space.
+        x_raw = self.centroid_layer._to_4d_tensor(image)
+        x_sized, eff_scale = self._sizematch_like_centroid_layer(x_raw)
+        sized_centroids = centroids * eff_scale.view(-1, 1, 1).to(centroids.device)
+        return self._run_stage_2(
+            x_sized, sized_centroids, centroid_vals, valid_mask, eff_scale=eff_scale
+        )
+
+    def _sizematch_like_centroid_layer(
+        self, x_raw: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Re-apply the centroid layer's sizematcher to a raw image.
+
+        Returns ``(x_sized, eff_scale)`` where ``eff_scale`` is the per-
+        sample scale factor used by the centroid layer's preprocess. If
+        ``max_height``/``max_width`` aren't set on the centroid layer's
+        ``preprocess_config``, this is a no-op (eff_scale=1).
+        """
+        from sleap_nn.data.resizing import apply_sizematcher
+
+        cfg = self.centroid_layer.preprocess_config
+        B = x_raw.shape[0]
+        if cfg.max_height is None and cfg.max_width is None:
+            return x_raw, torch.ones(B, dtype=torch.float32, device=x_raw.device)
+
+        sized_list: list = []
+        eff_list: list = []
+        for b in range(B):
+            r, scale = apply_sizematcher(x_raw[b], cfg.max_height, cfg.max_width)
+            sized_list.append(r)
+            eff_list.append(float(scale))
+        x_sized = torch.stack(sized_list, dim=0)
+        eff_scale = torch.tensor(eff_list, dtype=torch.float32, device=x_raw.device)
+        return x_sized, eff_scale
 
     # ──────────────────────────────────────────────────────────────────
     # Stage 2: crop extraction + centered-instance forward + un-crop
@@ -133,14 +183,33 @@ class TopDownLayer:
         centroids: torch.Tensor,
         centroid_vals: torch.Tensor,
         valid_mask: torch.Tensor,
+        eff_scale: Optional[torch.Tensor] = None,
     ) -> Outputs:
-        """Crop around valid centroids, run model, lift back to image space."""
+        """Crop around valid centroids, run model, lift back to image space.
+
+        ``image_4d`` and ``centroids`` are expected in **sized** space (after
+        the centroid layer's sizematcher). After cropping + stage-2 forward,
+        the final keypoints + bboxes are divided by per-sample ``eff_scale``
+        to land in original-image space. ``pred_centroids`` on the returned
+        ``Outputs`` is in original space too (callers pass the sized
+        centroids in for cropping; we store the original-space version).
+        """
         B, max_inst, _ = centroids.shape
         crop_h, crop_w = self.crop_size
 
         # Flatten valid (b, i) pairs into per-crop indices.
         valid_idx = valid_mask.nonzero(as_tuple=False)  # (n_valid, 2) — (b, i)
         n_valid = valid_idx.shape[0]
+
+        if eff_scale is None:
+            eff_scale = torch.ones(B, dtype=torch.float32, device=centroids.device)
+        else:
+            eff_scale = eff_scale.to(centroids.device)
+
+        # Centroids passed in are in sized space (so cropping is correct);
+        # store the original-space centroids on the ``Outputs`` for downstream
+        # callers (matches the legacy ``pred_centroids`` contract).
+        centroids_in_image_space = centroids / eff_scale.view(-1, 1, 1)
 
         if n_valid == 0:
             # Nothing to crop. Return all-NaN keypoints with the right shape.
@@ -152,13 +221,16 @@ class TopDownLayer:
                 pred_peak_values=torch.full(
                     (B, max_inst, n_nodes), float("nan"), device=centroids.device
                 ),
-                pred_centroids=centroids,
+                pred_centroids=centroids_in_image_space,
                 pred_centroid_values=centroid_vals,
+                instance_scores=centroid_vals,
             )
 
-        # Per-crop centroid coords (n_valid, 2)
+        # Per-crop centroid coords (n_valid, 2) — sized space, for cropping.
         valid_centroids = centroids[valid_idx[:, 0], valid_idx[:, 1]]
         sample_inds = valid_idx[:, 0]  # (n_valid,)
+        # Per-crop eff_scale, for converting final keypoints to image space.
+        per_crop_eff_scale = eff_scale[sample_inds]  # (n_valid,)
 
         # Build bboxes (n_valid, 4, 2) and crop the source image.
         bboxes = make_centered_bboxes(valid_centroids, crop_h, crop_w)
@@ -171,7 +243,11 @@ class TopDownLayer:
         # written for ``(N, n_nodes, 2)``) broadcasts cleanly.
         stage2_kpts_3d = stage2_out.pred_keypoints.squeeze(1)  # (n_valid, n_nodes, 2)
         crop_topleft = bboxes[:, 0, :]  # (n_valid, 2)
-        stage2_kpts_img = add_crop_offset(stage2_kpts_3d, crop_topleft)
+        stage2_kpts_sized = add_crop_offset(stage2_kpts_3d, crop_topleft)
+
+        # Sized-space → image-space.
+        stage2_kpts_img = stage2_kpts_sized / per_crop_eff_scale.view(-1, 1, 1)
+        bboxes_img = bboxes / per_crop_eff_scale.view(-1, 1, 1)
 
         # Scatter (n_valid, ...) back into (B, max_inst, ...). Invalid slots
         # stay NaN (the canonical "no peak" sentinel). Allocate on the model's
@@ -180,22 +256,53 @@ class TopDownLayer:
         device = stage2_kpts_img.device
         n_nodes = stage2_kpts_img.shape[-2]
         full_kpts = torch.full((B, max_inst, n_nodes, 2), float("nan"), device=device)
+        full_crop_kpts = torch.full(
+            (B, max_inst, n_nodes, 2), float("nan"), device=device
+        )
         full_vals = torch.full((B, max_inst, n_nodes), float("nan"), device=device)
         full_kpts[valid_idx[:, 0], valid_idx[:, 1]] = stage2_kpts_img
+        full_crop_kpts[valid_idx[:, 0], valid_idx[:, 1]] = stage2_kpts_3d
         full_vals[valid_idx[:, 0], valid_idx[:, 1]] = (
             stage2_out.pred_peak_values.squeeze(1)
         )
 
         # Reshape bboxes back to (B, max_inst, 4, 2) for downstream debug.
         full_bboxes = torch.full((B, max_inst, 4, 2), float("nan"), device=device)
-        full_bboxes[valid_idx[:, 0], valid_idx[:, 1]] = bboxes
+        full_bboxes[valid_idx[:, 0], valid_idx[:, 1]] = bboxes_img
+
+        # Optionally scatter crops into (B, max_inst, C, cH, cW).
+        full_crops = None
+        if self.return_crops:
+            C = crops.shape[1]
+            crops_on_device = crops.to(device)
+            full_crops = torch.zeros(
+                (B, max_inst, C, crop_h, crop_w),
+                dtype=crops.dtype,
+                device=device,
+            )
+            full_crops[valid_idx[:, 0], valid_idx[:, 1]] = crops_on_device
+
+        # Instance scores: use stage-2 instance_scores (multiclass class-
+        # prob) when present, otherwise fall back to centroid confidence.
+        if stage2_out.instance_scores is not None:
+            full_instance_scores = torch.full(
+                (B, max_inst), float("nan"), device=device
+            )
+            full_instance_scores[valid_idx[:, 0], valid_idx[:, 1]] = (
+                stage2_out.instance_scores.squeeze(1)
+            )
+        else:
+            full_instance_scores = centroid_vals
 
         return Outputs(
             pred_keypoints=full_kpts,
+            pred_crop_keypoints=full_crop_kpts,
             pred_peak_values=full_vals,
-            pred_centroids=centroids,
+            pred_centroids=centroids_in_image_space,
             pred_centroid_values=centroid_vals,
+            instance_scores=full_instance_scores,
             instance_bboxes=full_bboxes,
+            crops=full_crops,
         )
 
     # ──────────────────────────────────────────────────────────────────
