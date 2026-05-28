@@ -934,7 +934,7 @@ def predict(
 
     from sleap_nn.cli import _resolve_device
     from sleap_nn.export.metadata import ExportMetadata
-    from sleap_nn.inference.factory import from_export_dir as _from_export_dir
+    from sleap_nn.inference.predictor import Predictor
     from sleap_nn.inference.providers import VideoProvider
     from sleap_nn.inference.utils import get_skeleton_from_config
 
@@ -1017,7 +1017,7 @@ def predict(
             frames=list(range(n_total)),
         )
 
-        predictor = _from_export_dir(
+        predictor = Predictor.from_export_dir(
             export_dir=export_dir,
             runtime=runtime,
             device=_resolve_device(device),
