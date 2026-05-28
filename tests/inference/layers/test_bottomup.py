@@ -103,84 +103,13 @@ def test_bottomup_layer_returns_outputs_with_fixed_shape():
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 2. Parity vs legacy BottomUpInferenceModel
+# 2. return_confmaps + return_pafs
 # ─────────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.skipif(
-    not BOTTOMUP_CKPT.exists(), reason="bottomup checkpoint not present"
-)
-def test_bottomup_layer_parity_vs_legacy():
-    """``BottomUpLayer.predict`` matches ``BottomUpInferenceModel.forward``."""
-    predictor = _build_predictor()
-    layer = _build_layer(predictor)
-    legacy = predictor.inference_model
-    legacy.eval()
-
-    rng = np.random.default_rng(0)
-    image = rng.integers(0, 255, size=(2, 1, 1, 384, 384)).astype(np.uint8)
-    image_t = torch.from_numpy(image).float()  # (B, 1, C, H, W)
-
-    legacy_input = {
-        "image": image_t,
-        "frame_idx": torch.tensor([0, 1], dtype=torch.float32),
-        "video_idx": torch.tensor([0, 0], dtype=torch.float32),
-        "orig_size": torch.tensor([[384.0, 384.0], [384.0, 384.0]]),
-        "eff_scale": torch.ones(2),
-    }
-    with torch.no_grad():
-        legacy_out_list = legacy(legacy_input)
-    legacy_out = legacy_out_list[0]
-    legacy_peaks = legacy_out["pred_instance_peaks"]
-    legacy_vals = legacy_out["pred_peak_values"]
-    legacy_scores = legacy_out["instance_scores"]
-
-    new_outputs = layer.predict(image_t.squeeze(1))  # (B, C, H, W)
-
-    # The legacy returns variable-shape lists per batch; the new layer
-    # NaN-pads to a uniform max_instances. Compare per-batch by trimming
-    # the new layer's output to the legacy's instance count.
-    for b in range(2):
-        legacy_n = int(legacy_peaks[b].shape[0])
-        if legacy_n == 0:
-            assert torch.isnan(
-                new_outputs.pred_keypoints[b]
-            ).all(), (
-                f"batch {b}: legacy returned 0 instances; new layer should be all NaN"
-            )
-            continue
-        new_b_peaks = new_outputs.pred_keypoints[b, :legacy_n]
-        new_b_vals = new_outputs.pred_peak_values[b, :legacy_n]
-        new_b_scores = new_outputs.instance_scores[b, :legacy_n]
-        np.testing.assert_allclose(
-            new_b_peaks.numpy(),
-            legacy_peaks[b].numpy(),
-            equal_nan=True,
-            atol=PARITY_ATOL,
-            rtol=PARITY_RTOL,
-            err_msg=f"batch {b}: pred_keypoints drifted vs legacy BottomUp",
-        )
-        np.testing.assert_allclose(
-            new_b_vals.numpy(),
-            legacy_vals[b].numpy(),
-            equal_nan=True,
-            atol=PARITY_ATOL,
-            rtol=PARITY_RTOL,
-            err_msg=f"batch {b}: pred_peak_values drifted vs legacy BottomUp",
-        )
-        np.testing.assert_allclose(
-            new_b_scores.numpy(),
-            legacy_scores[b].numpy(),
-            equal_nan=True,
-            atol=PARITY_ATOL,
-            rtol=PARITY_RTOL,
-            err_msg=f"batch {b}: instance_scores drifted vs legacy BottomUp",
-        )
-
-
-# ─────────────────────────────────────────────────────────────────────────
-# 3. return_confmaps + return_pafs
-# ─────────────────────────────────────────────────────────────────────────
+#
+# Per-layer "parity vs legacy BottomUpInferenceModel.forward" was
+# removed: it loaded a real checkpoint and ran the model end-to-end
+# twice (~430s on Mac CI). End-to-end byte-for-byte parity vs main is
+# captured once at the top of the stack via the PR 0 goldens.
 
 
 @pytest.mark.skipif(
