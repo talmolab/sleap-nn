@@ -817,6 +817,69 @@ def test_track_command(
     assert len(labels) == 100
 
 
+def test_track_command_retrack_only_uses_new_flow(
+    centered_instance_video,
+    minimal_instance_centered_instance_ckpt,
+    minimal_instance_centroid_ckpt,
+    tmp_path,
+):
+    """End-to-end retrack-only: first produce predictions, then re-track."""
+    import subprocess
+
+    # Step 1: produce a tracked .slp via the inference + tracking path.
+    pred_slp = f"{tmp_path}/preds.slp"
+    inference_cmd = [
+        "uv",
+        "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
+        "sleap-nn",
+        "infer",
+        "--model_paths",
+        minimal_instance_centroid_ckpt,
+        "--model_paths",
+        minimal_instance_centered_instance_ckpt,
+        "--data_path",
+        centered_instance_video.as_posix(),
+        "--max_instances",
+        "2",
+        "--output_path",
+        pred_slp,
+        "--frames",
+        "0-9",
+        "--device",
+        "cpu",
+    ]
+    subprocess.run(inference_cmd, check=True, capture_output=True, text=True)
+    assert Path(pred_slp).exists()
+
+    # Step 2: retrack with NO model_paths (pure tracking-only path).
+    retracked_slp = f"{tmp_path}/retracked.slp"
+    retrack_cmd = [
+        "uv",
+        "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
+        "sleap-nn",
+        "infer",
+        "--data_path",
+        pred_slp,
+        "--tracking",
+        "--tracking_window_size",
+        "5",
+        "--output_path",
+        retracked_slp,
+    ]
+    subprocess.run(retrack_cmd, check=True, capture_output=True, text=True)
+    assert Path(retracked_slp).exists()
+
+    out = sio.load_slp(retracked_slp)
+    # Retrack preserves the frame count.
+    assert len(out) == 10
+
+
 def test_track_command_with_tracking_uses_new_flow(
     centered_instance_video,
     minimal_instance_centered_instance_ckpt,
