@@ -940,22 +940,33 @@ def train(
     help="Output JSON progress for GUI integration instead of Rich progress bar.",
 )
 def track(**kwargs):
-    """Run Inference and Tracking workflow.
+    """Run Inference and Tracking workflow (legacy pipeline).
 
-    .. deprecated::
-       Use ``sleap-nn infer`` instead. The ``track`` alias will be
-       removed in a future release. This is currently equivalent to
-       ``sleap-nn infer`` (PR 10 of #508 / #518).
+    This command uses the legacy ``run_inference`` pipeline. For the new
+    inference pipeline, use ``sleap-nn infer``.
     """
-    import warnings
+    from sleap_nn.predict import frame_list, run_inference
 
-    warnings.warn(
-        "`sleap-nn track` is deprecated; use `sleap-nn infer` instead. "
-        "Aliases will be removed in v0.3.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return _run_inference_impl(**kwargs)
+    if "model_paths" in kwargs and kwargs["model_paths"]:
+        kwargs["model_paths"] = list(kwargs["model_paths"])
+    else:
+        kwargs["model_paths"] = None
+
+    if "frames" in kwargs and kwargs["frames"]:
+        kwargs["frames"] = frame_list(kwargs["frames"])
+    else:
+        kwargs["frames"] = None
+
+    # Pop new-pipeline-only flags that track doesn't use
+    kwargs.pop("paf_workers", None)
+    kwargs.pop("cpu_workers", None)
+    kwargs.pop("stream_to_file", None)
+    kwargs.pop("write_interval", None)
+    kwargs.pop("centroid_only", None)
+    kwargs.pop("centroid_peak_threshold", None)
+    kwargs.pop("gui", None)
+
+    return run_inference(**kwargs)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -981,19 +992,13 @@ def track(**kwargs):
 
 
 def _run_inference_impl(**kwargs):
-    """Shared implementation for ``infer`` / ``predict`` / ``track``.
+    """Implementation for ``sleap-nn infer`` (new pipeline only).
 
     Coerces tuple-shaped multi-options into lists, parses the
-    ``--frames`` string into a list of int frame indices, validates the
-    new PR 10 flags, and routes to the right backend:
-
-    * ``--stream-to-file`` set → builds a new :class:`Predictor` via
-      :meth:`Predictor.from_model_paths` and writes
-      incrementally with :meth:`Predictor.predict_to_file` (PR 12).
-    * Otherwise → delegates to the legacy ``run_inference`` flow
-      (which still owns tracking, frame filtering, GUI progress, etc.).
+    ``--frames`` string into a list of int frame indices, and routes to
+    the new :class:`Predictor`-based pipeline.
     """
-    from sleap_nn.predict import frame_list, run_inference
+    from sleap_nn.predict import frame_list
 
     paf_workers = kwargs.pop("paf_workers", 0) or 0
     cpu_workers = kwargs.pop("cpu_workers", None)
@@ -1033,40 +1038,8 @@ def _run_inference_impl(**kwargs):
             paf_workers=paf_workers,
         )
 
-    # ── In-memory new-flow path (PR 13–16) ─────────────────────────────
-    # As of PR 16 the new flow handles every documented flag, so this
-    # always routes here. The legacy ``run_inference`` body is kept for
-    # backward-compat external callers and is removed in PR 17.
-    if _can_use_new_in_memory_flow(kwargs):
-        return _run_in_memory_new_flow(kwargs, paf_workers=paf_workers)
+    return _run_in_memory_new_flow(kwargs, paf_workers=paf_workers)
 
-    return run_inference(**kwargs)
-
-
-def _can_use_new_in_memory_flow(kwargs: dict) -> bool:
-    """Return True iff the new factory + Predictor.predict can serve this call.
-
-    As of PR 16 the new flow handles every documented flag combination
-    that ``run_inference`` ever supported:
-
-    * Video or ``.slp`` source · one or more ``.ckpt`` model dirs
-    * ``--backbone_ckpt_path`` / ``--head_ckpt_path`` (threaded through
-      the factory's existing kwargs).
-    * ``--tracking`` + every tracking knob (via :class:`TrackerConfig`).
-    * Every ``--filter_*`` knob (via :class:`FilterConfig`).
-    * The four frame-selection flags (``only_suggested_frames`` /
-      ``exclude_user_labeled`` / ``only_predicted_frames`` /
-      ``no_empty_frames``).
-    * ``--gui`` (JSON progress emission via ``progress_callback``).
-    * Tracking-only retrack (no ``model_paths``, ``--tracking`` set,
-      ``.slp`` data path) — handled by :meth:`Predictor.retrack`.
-
-    The function returns ``True`` whenever any of these combinations is
-    requested. The legacy ``run_inference`` is no longer reached during
-    normal CLI use; the body is kept for one release as a deprecation
-    target and removed in PR 17.
-    """
-    return True
 
 
 def _resolve_device(value: object) -> str:

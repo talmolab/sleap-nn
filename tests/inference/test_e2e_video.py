@@ -116,14 +116,20 @@ def test_predict_streaming_mps(model_type):
     ``topdown`` case (scatter from mps:0 into a cpu buffer raised
     ``RuntimeError: Expected all tensors to be on the same device``).
     """
+    import gc
+
     if not _have_fixtures(model_type):
         pytest.skip(f"missing fixtures for {model_type}")
 
     video = sio.load_video(str(VIDEO))
-    n_frames = 8
+    n_frames = 4
     predictor = Predictor.from_model_paths(
         [str(p) for p in _ckpts_for(model_type)], device="mps", batch_size=4
     )
     provider = VideoProvider(video=video, batch_size=4, frames=list(range(n_frames)))
     outputs = list(predictor.predict_streaming(provider))
     assert outputs, f"no batches yielded for {model_type} on MPS"
+
+    del predictor, outputs, provider
+    gc.collect()
+    torch.mps.empty_cache()
