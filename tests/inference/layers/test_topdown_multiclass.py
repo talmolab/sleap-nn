@@ -66,58 +66,9 @@ def _build_inst_layer(predictor) -> CenteredInstanceMultiClassLayer:
     )
 
 
-@pytest.mark.skipif(
-    not MULTICLASS_TD_CKPT.exists(), reason="multiclass-topdown checkpoint not present"
-)
-def test_centered_instance_multiclass_layer_parity_vs_legacy():
-    """Per-crop output matches legacy ``TopDownMultiClassFindInstancePeaks``."""
-    predictor = _build_predictor()
-    layer = _build_inst_layer(predictor)
-    legacy = predictor.inference_model.instance_peaks
-    legacy.eval()
-
-    rng = np.random.default_rng(0)
-    crops = rng.integers(0, 255, size=(2, 1, 1, 96, 96)).astype(np.uint8)
-    crops_t = torch.from_numpy(crops).float()
-
-    legacy_input = {
-        "instance_image": crops_t,
-        "instance_bbox": torch.zeros(2, 1, 4, 2),
-        "eff_scale": torch.ones(2),
-    }
-    with torch.no_grad():
-        legacy_out = legacy(legacy_input)
-    legacy_peaks = legacy_out["pred_instance_peaks"]
-    legacy_vals = legacy_out["pred_peak_values"]
-    legacy_scores = legacy_out["instance_scores"]
-
-    new_outputs = layer.predict(crops_t.squeeze(1))
-    new_peaks = new_outputs.pred_keypoints.squeeze(1)
-    new_vals = new_outputs.pred_peak_values.squeeze(1)
-    new_scores = new_outputs.instance_scores.squeeze(1)
-
-    np.testing.assert_allclose(
-        new_peaks.numpy(),
-        legacy_peaks.numpy(),
-        equal_nan=True,
-        atol=PARITY_ATOL,
-        rtol=PARITY_RTOL,
-        err_msg="pred_keypoints drifted vs legacy MultiClass topdown",
-    )
-    np.testing.assert_allclose(
-        new_vals.numpy(),
-        legacy_vals.numpy(),
-        equal_nan=True,
-        atol=PARITY_ATOL,
-        rtol=PARITY_RTOL,
-    )
-    np.testing.assert_allclose(
-        new_scores.numpy(),
-        legacy_scores.numpy(),
-        equal_nan=True,
-        atol=PARITY_ATOL,
-        rtol=PARITY_RTOL,
-    )
+# Per-layer "parity vs legacy TopDownMultiClassFindInstancePeaks.forward"
+# was removed: end-to-end byte-for-byte parity is captured at the top
+# of the stack via the PR 0 goldens.
 
 
 @pytest.mark.skipif(

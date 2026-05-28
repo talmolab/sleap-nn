@@ -163,11 +163,22 @@ class LabelsProvider:
         batch_size: Frames per yielded ``Batch``.
         only_labeled_frames: Yield only frames that have at least one
             user-supplied instance (default ``True``).
+        only_suggested_frames: Yield only frames listed in
+            ``labels.suggestions`` that don't already have a user
+            instance. Mutually exclusive with the other ``only_*`` /
+            ``exclude_*`` modes.
+        exclude_user_labeled: Skip any frame that has a user instance.
+            Mutually exclusive with ``only_labeled_frames``.
+        only_predicted_frames: Yield only frames that already have at
+            least one predicted instance.
     """
 
     labels: object  # str | sio.Labels
     batch_size: int = 4
     only_labeled_frames: bool = True
+    only_suggested_frames: bool = False
+    exclude_user_labeled: bool = False
+    only_predicted_frames: bool = False
 
     _sio_labels: object = attrs.field(default=None, init=False, repr=False)
     _labeled_frames: list = attrs.field(factory=list, init=False, repr=False)
@@ -181,33 +192,87 @@ class LabelsProvider:
         else:
             self._sio_labels = sio.load_slp(str(self.labels))
 
-        if self.only_labeled_frames:
+        if self.only_labeled_frames and self.exclude_user_labeled:
+            raise ValueError(
+                "only_labeled_frames=True and exclude_user_labeled=True are "
+                "mutually exclusive."
+            )
+
+        if self.only_suggested_frames:
+            self._labeled_frames = self._collect_suggested_frames(sio)
+        elif self.only_predicted_frames:
+            self._labeled_frames = [
+                lf
+                for lf in self._sio_labels.labeled_frames
+                if lf.has_predicted_instances
+            ]
+        elif self.exclude_user_labeled:
+            self._labeled_frames = [
+                lf
+                for lf in self._sio_labels.labeled_frames
+                if not lf.has_user_instances
+            ]
+        elif self.only_labeled_frames:
             self._labeled_frames = [
                 lf for lf in self._sio_labels.labeled_frames if len(lf.instances) > 0
             ]
         else:
             self._labeled_frames = list(self._sio_labels.labeled_frames)
 
+    def _collect_suggested_frames(self, sio) -> list:
+        """Return new ``LabeledFrame``s for unlabeled suggestions.
+
+        Mirrors the legacy ``LabelsReader`` semantics: walks
+        ``labels.suggestions`` and emits a fresh empty ``LabeledFrame``
+        for any suggestion whose frame doesn't already have a user
+        instance.
+        """
+        out: list = []
+        for suggestion in self._sio_labels.suggestions:
+            existing = self._sio_labels.find(suggestion.video, suggestion.frame_idx)
+            if not existing or not existing[0].has_user_instances:
+                out.append(
+                    sio.LabeledFrame(
+                        video=suggestion.video, frame_idx=suggestion.frame_idx
+                    )
+                )
+        return out
+
     def __iter__(self) -> Iterator[Batch]:
-        """Yield batches; each ``Batch.instances`` carries GT keypoints."""
+        """Yield batches; each ``Batch.instances`` carries GT keypoints.
+
+        For frames with no instances (e.g. ``only_suggested_frames``
+        emits empty placeholders), ``Batch.instances`` is ``None`` so
+        downstream layers that don't need GT (single-instance,
+        top-down with centroid model, bottom-up) skip the GT-shaped
+        kwargs entirely.
+        """
         for start in range(0, len(self._labeled_frames), self.batch_size):
             stop = min(start + self.batch_size, len(self._labeled_frames))
             chunk = self._labeled_frames[start:stop]
             frames = np.stack([lf.image for lf in chunk], axis=0)
 
-            # Pad GT instances to a uniform max_instances per batch so
-            # downstream layer code can work with fixed shapes.
             max_inst = max(len(lf.instances) for lf in chunk)
-            n_nodes = (
-                len(chunk[0].instances[0].skeleton.nodes) if chunk[0].instances else 1
-            )
-            instances = np.full(
-                (len(chunk), max_inst, n_nodes, 2), np.nan, dtype=np.float32
-            )
-            for i, lf in enumerate(chunk):
-                for j, inst in enumerate(lf.instances):
-                    pts = np.asarray(inst.numpy(), dtype=np.float32)
-                    instances[i, j, : pts.shape[0]] = pts
+            if max_inst == 0:
+                instances = None
+            else:
+                # Pad GT instances to a uniform max_instances per batch so
+                # downstream layer code can work with fixed shapes.
+                n_nodes = next(
+                    (
+                        len(lf.instances[0].skeleton.nodes)
+                        for lf in chunk
+                        if lf.instances
+                    ),
+                    1,
+                )
+                instances = np.full(
+                    (len(chunk), max_inst, n_nodes, 2), np.nan, dtype=np.float32
+                )
+                for i, lf in enumerate(chunk):
+                    for j, inst in enumerate(lf.instances):
+                        pts = np.asarray(inst.numpy(), dtype=np.float32)
+                        instances[i, j, : pts.shape[0]] = pts
 
             frame_idxs = np.array([lf.frame_idx for lf in chunk], dtype=np.int64)
             yield Batch(

@@ -288,7 +288,36 @@ def run_inference(
         Returns `sio.Labels` object if `make_labels` is True. Else this function returns
             a list of Dictionaries with the predictions.
 
+    .. deprecated::
+        This function is deprecated and slated for removal in a future
+        release. Prefer the new flow:
+
+        * **Inference on a checkpoint**::
+
+              from sleap_nn.inference.predictor import Predictor
+              predictor = Predictor.from_model_paths([model_dir])
+              labels = predictor.predict(provider, make_labels=True, ...)
+
+        * **Streaming to disk**: ``predictor.predict_to_file(...)``
+        * **Pure-tracking retrack**: ``Predictor.retrack(labels, tracker_config)``
+
+        ``sleap-nn infer`` / ``sleap-nn track`` already route through the
+        new flow internally; this function is the only remaining
+        Python-level legacy entry point.
     """
+    import warnings
+
+    warnings.warn(
+        "sleap_nn.predict.run_inference() is deprecated and will be removed "
+        "in a future release. Use sleap_nn.inference.predictor.Predictor — "
+        "either Predictor.from_model_paths(...).predict(...) for checkpoint "
+        "inference, .predict_to_file(...) for disk-streaming, or "
+        "Predictor.retrack(labels, tracker_config) for pure-tracking. "
+        "See the function's deprecation note for full migration examples.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     preprocess_config = {  # if not given, then use from training config
         "ensure_rgb": ensure_rgb,
         "ensure_grayscale": ensure_grayscale,
