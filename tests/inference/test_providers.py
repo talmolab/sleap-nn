@@ -73,6 +73,98 @@ def test_labels_provider_yields_instances():
     assert batch.images.shape[0] == batch.instances.shape[0]
 
 
+def test_labels_provider_only_labeled_and_exclude_user_labeled_mutually_exclusive():
+    """``only_labeled_frames=True`` + ``exclude_user_labeled=True`` raises."""
+    import sleap_io as sio
+
+    labels = sio.Labels(videos=[], skeletons=[], labeled_frames=[])
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        LabelsProvider(
+            labels=labels,
+            only_labeled_frames=True,
+            exclude_user_labeled=True,
+        )
+
+
+def test_labels_provider_exclude_user_labeled_drops_user_frames():
+    """``exclude_user_labeled=True`` drops frames with user instances."""
+    import sleap_io as sio
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="dummy.mp4")
+    user_inst = sio.Instance.from_numpy(
+        np.array([[0.0, 0.0], [1.0, 1.0]], dtype=np.float32), skeleton=skel
+    )
+    pred_inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[2.0, 2.0], [3.0, 3.0]], dtype=np.float32),
+        skeleton=skel,
+        score=0.9,
+    )
+    lf_user = sio.LabeledFrame(video=video, frame_idx=0, instances=[user_inst])
+    lf_pred = sio.LabeledFrame(video=video, frame_idx=1, instances=[pred_inst])
+    labels = sio.Labels(
+        videos=[video], skeletons=[skel], labeled_frames=[lf_user, lf_pred]
+    )
+
+    provider = LabelsProvider(
+        labels=labels, exclude_user_labeled=True, only_labeled_frames=False
+    )
+    assert len(provider._labeled_frames) == 1
+    assert provider._labeled_frames[0].frame_idx == 1
+
+
+def test_labels_provider_only_predicted_frames_keeps_only_predicted():
+    """``only_predicted_frames=True`` keeps only frames with predicted instances."""
+    import sleap_io as sio
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="dummy.mp4")
+    pred_inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[0.0, 0.0], [1.0, 1.0]], dtype=np.float32),
+        skeleton=skel,
+        score=0.9,
+    )
+    lf_empty = sio.LabeledFrame(video=video, frame_idx=0, instances=[])
+    lf_pred = sio.LabeledFrame(video=video, frame_idx=1, instances=[pred_inst])
+    labels = sio.Labels(
+        videos=[video], skeletons=[skel], labeled_frames=[lf_empty, lf_pred]
+    )
+
+    provider = LabelsProvider(
+        labels=labels, only_predicted_frames=True, only_labeled_frames=False
+    )
+    assert [lf.frame_idx for lf in provider._labeled_frames] == [1]
+
+
+def test_labels_provider_only_suggested_frames_yields_unlabeled_suggestions():
+    """``only_suggested_frames=True`` yields unlabeled suggestions only."""
+    import sleap_io as sio
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="dummy.mp4")
+    user_inst = sio.Instance.from_numpy(
+        np.array([[0.0, 0.0], [1.0, 1.0]], dtype=np.float32), skeleton=skel
+    )
+    lf_with_user = sio.LabeledFrame(video=video, frame_idx=2, instances=[user_inst])
+    labels = sio.Labels(
+        videos=[video],
+        skeletons=[skel],
+        labeled_frames=[lf_with_user],
+        suggestions=[
+            sio.SuggestionFrame(video=video, frame_idx=2),  # already user-labeled
+            sio.SuggestionFrame(video=video, frame_idx=5),  # unlabeled
+        ],
+    )
+
+    provider = LabelsProvider(
+        labels=labels, only_suggested_frames=True, only_labeled_frames=False
+    )
+    # Only the unlabeled suggestion (frame_idx=5) survives.
+    assert [lf.frame_idx for lf in provider._labeled_frames] == [5]
+    # The yielded LabeledFrame is fresh + empty.
+    assert len(provider._labeled_frames[0].instances) == 0
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # IncrementalLabelsWriter
 # ─────────────────────────────────────────────────────────────────────────
