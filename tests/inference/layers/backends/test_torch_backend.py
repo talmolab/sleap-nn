@@ -14,9 +14,10 @@ Coverage:
 5. Device validation warnings — ``UserWarning`` text matches the locked
    acceptance criteria from the PR 3 issue body for CUDA + ``use_compile``,
    CUDA + ``use_fp16``, MPS + ``use_compile`` (downgrade), MPS + ``use_fp16``.
-6. Compile guard for #527: when the swint ``torch.fx.wrap`` registry is
-   contaminated, ``use_compile=True`` raises ``RuntimeError`` with a
-   message pointing at #527.
+6. Regression test for #527: importing ``sleap_nn.architectures.swint`` must
+   not register a torch.fx wrap that resolves to a missing name in this
+   module's globals (which is what previously broke ``torch.compile`` for
+   every backbone with ``KeyError: '_patch_merging_pad'``).
 """
 
 from __future__ import annotations
@@ -302,45 +303,50 @@ def test_cuda_fp16_warns_with_smallbatch_text():
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 6. #527 compile guard
+# 6. #527 regression
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def test_compile_guard_raises_when_swint_fx_wrap_registered():
-    """Importing ``sleap_nn.architectures.swint`` registers
-    ``_patch_merging_pad`` into ``torch.fx._symbolic_trace._wrapped_fns_to_patch``
-    at module-import time. While that contamination is present (which is
-    always, since the predictor stack imports swint), ``use_compile=True``
-    must raise ``RuntimeError`` pointing at issue #527 — not silently
-    succeed and crash on the first forward.
+def test_swint_does_not_register_broken_fx_wraps():
+    """Regression test for issue #527.
+
+    The bug: ``sleap_nn/architectures/swint.py`` previously called
+    ``torch.fx.wrap("_patch_merging_pad")`` (and two others) at module-import
+    time. Those wraps registered ``(id(sleap_nn_swint_globals), name)`` into
+    ``torch.fx._symbolic_trace._wrapped_fns_to_patch`` — but ``_patch_merging_pad``
+    et al. are *not* defined in this module's globals (they're imported from
+    torchvision only inside :class:`SwinTransformerEncoder`). When
+    ``torch.compile``'s dynamo backend iterated the registry and did
+    ``frame_dict[name]`` it raised ``KeyError: '_patch_merging_pad'`` — even
+    when compiling a UNet that never touched SwinT, because importing any
+    sleap-nn subpackage pulled this module in transitively.
+
+    This test enforces the post-fix invariant: every FX wrap entry that
+    points at ``sleap_nn.architectures.swint``'s globals must resolve to
+    an actual callable in those globals. (The torchvision-owned wraps are
+    fine and untouched: ``_patch_merging_pad`` is genuinely defined in
+    torchvision's swin_transformer module.)
     """
-    # Force the import to ensure the registry is populated.
-    import sleap_nn.architectures.swint  # noqa: F401
+    import sleap_nn.architectures.swint as swint_mod
 
-    from sleap_nn.inference.layers.backends.torch_backend import (
-        _swint_fx_wrap_blocks_compile,
-    )
+    from torch.fx._symbolic_trace import _wrapped_fns_to_patch
 
-    assert _swint_fx_wrap_blocks_compile(), (
-        "swint torch.fx.wrap should be registered after import — guard test "
-        "below would be a false-pass without this prerequisite"
-    )
-
-    if not _has_cuda():
-        # The guard fires regardless of device, so we exercise it on CPU when
-        # CUDA isn't available (the device-feature warning path doesn't
-        # gate the guard).
-        device = "cpu"
-    else:
-        device = "cuda"
-
-    with pytest.raises(RuntimeError, match="issue #527"):
-        TorchBackend(model=_TinyConvModel(), device=device, use_compile=True)
+    sleap_nn_globals_id = id(vars(swint_mod))
+    sleap_nn_wraps = [
+        name
+        for (gid, name), frame_dict in _wrapped_fns_to_patch.items()
+        if gid == sleap_nn_globals_id
+    ]
+    for name in sleap_nn_wraps:
+        assert hasattr(swint_mod, name), (
+            f"#527 regression: sleap_nn.architectures.swint registered FX "
+            f"wrap for {name!r} but the name is not defined in this module — "
+            f"dynamo will KeyError on compile."
+        )
 
 
-def test_compile_guard_does_not_block_use_compile_false():
-    """The default path — ``use_compile=False`` — is never affected by the
-    swint registry state. Sanity check."""
+def test_use_compile_false_is_default_and_does_not_compile():
+    """The default path — ``use_compile=False`` — never compiles."""
     import sleap_nn.architectures.swint  # noqa: F401
 
     backend = TorchBackend(model=_TinyConvModel(), device="cpu", use_compile=False)

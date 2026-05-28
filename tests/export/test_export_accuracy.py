@@ -32,8 +32,17 @@ from tests.export.conftest import (
 # ---------------------------------------------------------------------------
 
 _ASSETS = Path(__file__).resolve().parents[1] / "assets"
-_BOTTOMUP_CKPT = _ASSETS / "model_ckpts" / "minimal_instance_bottomup"
-_VIDEO = _ASSETS / "datasets" / "centered_pair_small.mp4"
+_CKPTS = _ASSETS / "model_ckpts"
+_BOTTOMUP_CKPT = _CKPTS / "minimal_instance_bottomup"
+_SINGLE_INSTANCE_CKPT = _CKPTS / "minimal_instance_single_instance"
+_CENTROID_CKPT = _CKPTS / "minimal_instance_centroid"
+_CENTERED_INSTANCE_CKPT = _CKPTS / "minimal_instance_centered_instance"
+_MULTICLASS_BOTTOMUP_CKPT = _CKPTS / "minimal_instance_multiclass_bottomup"
+_MULTICLASS_CI_CKPT = _CKPTS / "minimal_instance_multiclass_centered_instance"
+_VIDEO_1CH = _ASSETS / "datasets" / "centered_pair_small.mp4"  # grayscale
+_VIDEO_3CH = _ASSETS / "datasets" / "small_robot.mp4"  # RGB
+_VIDEO = _VIDEO_1CH  # legacy alias for bottom-up tests
+_SLP = _ASSETS / "datasets" / "minimal_instance.pkg.slp"
 
 # Inference parameters shared between PyTorch and ONNX paths
 _N_FRAMES = 10
@@ -119,16 +128,29 @@ def onnx_bottomup_labels(exported_bottomup_onnx_dir, video_path):
     """Run ONNX inference on the test video and return Labels."""
     pytest.importorskip("onnxruntime")
 
-    from sleap_nn.export.inference import predict
+    from omegaconf import OmegaConf
 
-    labels, stats = predict(
-        export_dir=exported_bottomup_onnx_dir,
-        video_path=video_path,
-        runtime="onnx",
-        device="cpu",
-        batch_size=4,
-        n_frames=_N_FRAMES,
-        peak_conf_threshold=_PEAK_THRESHOLD,
+    from sleap_nn.export.cli import _find_training_config_for_predict
+    from sleap_nn.export.metadata import ExportMetadata
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.providers import VideoProvider
+    from sleap_nn.inference.utils import get_skeleton_from_config
+
+    metadata = ExportMetadata.load(exported_bottomup_onnx_dir / "export_metadata.json")
+    cfg_path = _find_training_config_for_predict(
+        exported_bottomup_onnx_dir, metadata.model_type
+    )
+    cfg = OmegaConf.load(cfg_path.as_posix())
+    skeleton = get_skeleton_from_config(cfg.data_config.skeletons)[0]
+
+    sio_video = sio.Video.from_filename(str(video_path))
+    n_total = min(_N_FRAMES, len(sio_video))
+    provider = VideoProvider(video=sio_video, batch_size=4, frames=list(range(n_total)))
+    predictor = Predictor.from_export_dir(
+        export_dir=exported_bottomup_onnx_dir, runtime="onnx", device="cpu"
+    )
+    labels = predictor.predict(
+        provider, make_labels=True, skeleton=skeleton, videos=[sio_video]
     )
     assert isinstance(labels, sio.Labels)
     return labels
@@ -310,6 +332,304 @@ class TestBottomUpONNXAccuracy:
             f"(baseline max=0.0). This suggests a coordinate scaling or offset "
             f"bug in the export pipeline."
         )
+
+
+# ---------------------------------------------------------------------------
+# Reusable helpers for multi-model-type parity tests
+# ---------------------------------------------------------------------------
+
+
+def _export_ckpts_to_onnx(
+    ckpt_paths: list[Path],
+    export_dir: Path,
+    extra_args: list[str] | None = None,
+) -> Path:
+    """Export checkpoint(s) to ONNX via the CLI and return the export dir."""
+    from sleap_nn.export.cli import export
+
+    runner = CliRunner()
+    args = [str(p) for p in ckpt_paths] + [
+        "-o",
+        str(export_dir),
+        "--format",
+        "onnx",
+        "--device",
+        "cpu",
+    ]
+    if extra_args:
+        args.extend(extra_args)
+    result = runner.invoke(export, args)
+    assert result.exit_code == 0, f"Export failed:\n{result.output}\n{result.exception}"
+    assert (export_dir / "model.onnx").exists()
+    return export_dir
+
+
+def _pytorch_labels(
+    ckpt_paths: list[Path],
+    source: Path,
+    n_frames: int = _N_FRAMES,
+    peak_threshold: float = _PEAK_THRESHOLD,
+) -> sio.Labels:
+    """Run PyTorch inference via the new ``predict()`` entry point."""
+    from sleap_nn.inference.run import predict
+
+    return predict(
+        str(source),
+        model_paths=[str(p) for p in ckpt_paths],
+        peak_threshold=peak_threshold,
+        integral_refinement=None,
+        device="cpu",
+        frames=list(range(n_frames)),
+    )
+
+
+def _onnx_labels(
+    export_dir: Path,
+    source: Path,
+    n_frames: int = _N_FRAMES,
+) -> sio.Labels:
+    """Run ONNX inference via ``Predictor.from_export_dir``."""
+    from sleap_nn.inference.predictor import Predictor
+
+    predictor = Predictor.from_export_dir(
+        export_dir=export_dir, runtime="onnx", device="cpu"
+    )
+    video = sio.load_video(str(source))
+    return predictor.predict(video, frames=list(range(n_frames)))
+
+
+def _collect_distances(labels_a: sio.Labels, labels_b: sio.Labels) -> np.ndarray:
+    """Match instances between two Labels and return all keypoint distances."""
+    frames_a = _frames_by_idx(labels_a)
+    frames_b = _frames_by_idx(labels_b)
+    common = sorted(set(frames_a.keys()) & set(frames_b.keys()))
+
+    all_dists = []
+    for idx in common:
+        pairs = _match_instances_for_frame(frames_a[idx], frames_b[idx])
+        for pts_a, pts_b in pairs:
+            d = np.linalg.norm(pts_a - pts_b, axis=-1)
+            all_dists.extend(d[~np.isnan(d)].tolist())
+    return np.array(all_dists) if all_dists else np.array([])
+
+
+# ---------------------------------------------------------------------------
+# Single-instance ONNX parity
+# ---------------------------------------------------------------------------
+
+
+@requires_onnx
+@requires_onnxruntime
+class TestSingleInstanceONNXAccuracy:
+    """PyTorch vs ONNX parity for single-instance models.
+
+    The single-instance ONNX wrapper bakes ``input_scale`` into the
+    TorchScript trace as a constant, which introduces small rounding
+    differences vs the PyTorch path's dynamic rescaling. Max per-keypoint
+    deviation is ~12 px on the test fixture; the threshold is set at 15 px
+    (well below the 100+ px that a real coordinate-scaling bug produces).
+    """
+
+    # Wider than the generic 10 px ceiling because of traced input_scale.
+    _MAX_DIST_PX = 15.0
+
+    @pytest.fixture(scope="class")
+    def exported_dir(self, tmp_path_factory):
+        pytest.importorskip("onnx")
+        d = tmp_path_factory.mktemp("export_si_onnx")
+        return _export_ckpts_to_onnx([_SINGLE_INSTANCE_CKPT], d)
+
+    @pytest.fixture(scope="class")
+    def pt_labels(self):
+        return _pytorch_labels([_SINGLE_INSTANCE_CKPT], _VIDEO_3CH)
+
+    @pytest.fixture(scope="class")
+    def onnx_labels(self, exported_dir):
+        return _onnx_labels(exported_dir, _VIDEO_3CH)
+
+    def test_both_produce_predictions(self, pt_labels, onnx_labels):
+        assert len(pt_labels.labeled_frames) > 0
+        assert len(onnx_labels.labeled_frames) > 0
+
+    def test_instance_counts_match(self, pt_labels, onnx_labels):
+        pt_total = sum(len(lf.instances) for lf in pt_labels.labeled_frames)
+        onnx_total = sum(len(lf.instances) for lf in onnx_labels.labeled_frames)
+        assert pt_total == onnx_total, f"PyTorch={pt_total}, ONNX={onnx_total}"
+
+    def test_keypoint_distances_bounded(self, pt_labels, onnx_labels):
+        dists = _collect_distances(pt_labels, onnx_labels)
+        if len(dists) == 0:
+            pytest.skip("No matched keypoints")
+        threshold = _BASELINE_DIST_PX + _WARN_ABOVE_BASELINE_PX
+        assert (
+            np.median(dists) <= threshold
+        ), f"Median distance {np.median(dists):.2f} px > {threshold} px"
+
+    def test_no_catastrophic_errors(self, pt_labels, onnx_labels):
+        dists = _collect_distances(pt_labels, onnx_labels)
+        if len(dists) == 0:
+            pytest.skip("No matched keypoints")
+        assert (
+            np.max(dists) <= self._MAX_DIST_PX
+        ), f"Max distance {np.max(dists):.2f} px > {self._MAX_DIST_PX} px"
+
+
+# ---------------------------------------------------------------------------
+# Top-down (centroid + centered-instance) ONNX parity
+# ---------------------------------------------------------------------------
+
+
+@requires_onnx
+@requires_onnxruntime
+class TestTopDownONNXAccuracy:
+    """PyTorch vs ONNX parity for top-down (combined centroid + CI) models."""
+
+    @pytest.fixture(scope="class")
+    def exported_dir(self, tmp_path_factory):
+        pytest.importorskip("onnx")
+        d = tmp_path_factory.mktemp("export_td_onnx")
+        return _export_ckpts_to_onnx([_CENTROID_CKPT, _CENTERED_INSTANCE_CKPT], d)
+
+    @pytest.fixture(scope="class")
+    def pt_labels(self):
+        return _pytorch_labels([_CENTROID_CKPT, _CENTERED_INSTANCE_CKPT], _VIDEO_1CH)
+
+    @pytest.fixture(scope="class")
+    def onnx_labels(self, exported_dir):
+        return _onnx_labels(exported_dir, _VIDEO_1CH)
+
+    def test_both_produce_predictions(self, pt_labels, onnx_labels):
+        assert len(pt_labels.labeled_frames) > 0
+        assert len(onnx_labels.labeled_frames) > 0
+
+    def test_instance_count_deviation(self, pt_labels, onnx_labels):
+        pt_frames = _frames_by_idx(pt_labels)
+        onnx_frames = _frames_by_idx(onnx_labels)
+        common = sorted(set(pt_frames.keys()) & set(onnx_frames.keys()))
+        diffs = [
+            abs(len(pt_frames[i].instances) - len(onnx_frames[i].instances))
+            for i in common
+        ]
+        assert np.mean(diffs) <= 1.0, f"Mean count diff {np.mean(diffs):.2f}"
+
+    def test_keypoint_distances_bounded(self, pt_labels, onnx_labels):
+        dists = _collect_distances(pt_labels, onnx_labels)
+        if len(dists) == 0:
+            pytest.skip("No matched keypoints")
+        threshold = _BASELINE_DIST_PX + _WARN_ABOVE_BASELINE_PX
+        assert (
+            np.median(dists) <= threshold
+        ), f"Median distance {np.median(dists):.2f} px > {threshold} px"
+
+    def test_no_catastrophic_errors(self, pt_labels, onnx_labels):
+        dists = _collect_distances(pt_labels, onnx_labels)
+        if len(dists) == 0:
+            pytest.skip("No matched keypoints")
+        assert np.max(dists) <= 10.0, f"Max distance {np.max(dists):.2f} px > 10 px"
+
+
+# ---------------------------------------------------------------------------
+# Multi-class bottom-up ONNX parity
+# ---------------------------------------------------------------------------
+
+
+@requires_onnx
+@requires_onnxruntime
+class TestMultiClassBottomUpONNXAccuracy:
+    """PyTorch vs ONNX parity for multi-class bottom-up models."""
+
+    @pytest.fixture(scope="class")
+    def exported_dir(self, tmp_path_factory):
+        pytest.importorskip("onnx")
+        d = tmp_path_factory.mktemp("export_mcbu_onnx")
+        return _export_ckpts_to_onnx([_MULTICLASS_BOTTOMUP_CKPT], d)
+
+    @pytest.fixture(scope="class")
+    def pt_labels(self):
+        return _pytorch_labels([_MULTICLASS_BOTTOMUP_CKPT], _VIDEO_1CH)
+
+    @pytest.fixture(scope="class")
+    def onnx_labels(self, exported_dir):
+        return _onnx_labels(exported_dir, _VIDEO_1CH)
+
+    def test_both_produce_predictions(self, pt_labels, onnx_labels):
+        assert len(pt_labels.labeled_frames) > 0
+        assert len(onnx_labels.labeled_frames) > 0
+
+    def test_instance_count_deviation(self, pt_labels, onnx_labels):
+        pt_frames = _frames_by_idx(pt_labels)
+        onnx_frames = _frames_by_idx(onnx_labels)
+        common = sorted(set(pt_frames.keys()) & set(onnx_frames.keys()))
+        diffs = [
+            abs(len(pt_frames[i].instances) - len(onnx_frames[i].instances))
+            for i in common
+        ]
+        assert np.mean(diffs) <= 1.0, f"Mean count diff {np.mean(diffs):.2f}"
+
+    def test_keypoint_distances_bounded(self, pt_labels, onnx_labels):
+        dists = _collect_distances(pt_labels, onnx_labels)
+        if len(dists) == 0:
+            pytest.skip("No matched keypoints")
+        threshold = _BASELINE_DIST_PX + _WARN_ABOVE_BASELINE_PX
+        assert (
+            np.median(dists) <= threshold
+        ), f"Median distance {np.median(dists):.2f} px > {threshold} px"
+
+    def test_no_catastrophic_errors(self, pt_labels, onnx_labels):
+        dists = _collect_distances(pt_labels, onnx_labels)
+        if len(dists) == 0:
+            pytest.skip("No matched keypoints")
+        assert np.max(dists) <= 10.0, f"Max distance {np.max(dists):.2f} px > 10 px"
+
+
+# ---------------------------------------------------------------------------
+# Multi-class top-down ONNX parity
+# ---------------------------------------------------------------------------
+
+
+@requires_onnx
+@requires_onnxruntime
+class TestMultiClassTopDownONNXAccuracy:
+    """PyTorch vs ONNX parity for multi-class top-down (combined) models.
+
+    The minimal test fixtures produce very few (or zero) detections on the
+    short test video, so we verify that both paths agree rather than
+    requiring a minimum detection count.
+    """
+
+    @pytest.fixture(scope="class")
+    def exported_dir(self, tmp_path_factory):
+        pytest.importorskip("onnx")
+        d = tmp_path_factory.mktemp("export_mctd_onnx")
+        return _export_ckpts_to_onnx([_CENTROID_CKPT, _MULTICLASS_CI_CKPT], d)
+
+    @pytest.fixture(scope="class")
+    def pt_labels(self):
+        return _pytorch_labels([_CENTROID_CKPT, _MULTICLASS_CI_CKPT], _VIDEO_1CH)
+
+    @pytest.fixture(scope="class")
+    def onnx_labels(self, exported_dir):
+        return _onnx_labels(exported_dir, _VIDEO_1CH)
+
+    def test_both_agree_on_detection_count(self, pt_labels, onnx_labels):
+        pt_total = sum(len(lf.instances) for lf in pt_labels.labeled_frames)
+        onnx_total = sum(len(lf.instances) for lf in onnx_labels.labeled_frames)
+        assert abs(pt_total - onnx_total) <= 2, f"PyTorch={pt_total}, ONNX={onnx_total}"
+
+    def test_keypoint_distances_bounded(self, pt_labels, onnx_labels):
+        dists = _collect_distances(pt_labels, onnx_labels)
+        if len(dists) == 0:
+            pytest.skip("No matched keypoints (both flows produced empty)")
+        threshold = _BASELINE_DIST_PX + _WARN_ABOVE_BASELINE_PX
+        assert (
+            np.median(dists) <= threshold
+        ), f"Median distance {np.median(dists):.2f} px > {threshold} px"
+
+    def test_no_catastrophic_errors(self, pt_labels, onnx_labels):
+        dists = _collect_distances(pt_labels, onnx_labels)
+        if len(dists) == 0:
+            pytest.skip("No matched keypoints (both flows produced empty)")
+        assert np.max(dists) <= 10.0, f"Max distance {np.max(dists):.2f} px > 10 px"
 
 
 # ---------------------------------------------------------------------------

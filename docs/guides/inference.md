@@ -613,6 +613,10 @@ The directory should contain:
     sleap-nn track -i video.mp4 -m models/ --batch_size 16
     ```
 
+    **Tune opt-in flags** — see the [Inference Performance](inference-performance.md)
+    guide for FP16 / `torch.compile` / `paf_workers` recommendations
+    backed by benchmark data on each model type.
+
     **For production speed**, consider [ONNX/TensorRT export](export.md).
 
 ??? question "Progress bar not moving / seems stuck"
@@ -624,6 +628,7 @@ The directory should contain:
 
 ## Next Steps
 
+- [:octicons-arrow-right-24: Performance](inference-performance.md) - Tune throughput on GPUs
 - [:octicons-arrow-right-24: Evaluation](evaluation.md) - Assess model performance
 - [:octicons-arrow-right-24: Tracking](tracking.md) - Assign IDs across frames
 - [:octicons-arrow-right-24: Export](export.md) - Deploy models

@@ -1,4 +1,4 @@
-"""Tests for ``sleap-nn infer`` — the unified inference command (PR 10 #518).
+"""Tests for ``sleap-nn infer`` -- the unified inference command (PR 10 #518).
 
 Coverage:
 
@@ -8,13 +8,13 @@ Coverage:
 3. The four PR-10 new flags are accepted: ``--paf-workers``, the legacy
    alias ``--cpu-workers``, ``--stream-to-file``, ``--write-interval``,
    and the alias ``--peak-conf-threshold``.
-4. ``run_inference`` is invoked with the legacy option surface (no PR-10
-   new flags leak into its kwargs).
+4. ``predict()`` from ``sleap_nn.inference.run`` is invoked with the
+   correct kwargs.
 """
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
@@ -39,33 +39,16 @@ def test_infer_command_help_renders():
         assert flag in result.output, f"missing {flag} in `infer --help`"
 
 
-def _stub_new_flow():
-    """Build a (stub_predictor, list_of_patches) for fast CLI-only tests."""
-    from unittest.mock import MagicMock
-
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
-    return stub_predictor
-
-
 def test_infer_accepts_legacy_track_flag_surface():
     """Every flag wired into ``track`` is accepted by ``infer`` too.
 
-    Mocks the new factory and asserts the right kwargs propagate through.
+    Mocks ``predict()`` and asserts the right kwargs propagate through.
     """
-    from unittest.mock import MagicMock
-
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
     runner = CliRunner()
-    with (
-        patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
-        ) as mock_factory,
-        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
-        patch("sleap_nn.inference.providers.VideoProvider"),
-        patch("sleap_io.load_video"),
-    ):
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
         result = runner.invoke(
             cli,
             [
@@ -91,8 +74,8 @@ def test_infer_accepts_legacy_track_flag_surface():
             ],
         )
         assert result.exit_code == 0, result.output
-        assert mock_factory.called
-        kw = mock_factory.call_args[1]
+        assert mock_predict.called
+        kw = mock_predict.call_args[1]
         assert kw["batch_size"] == 8
         assert kw["max_instances"] == 2
         assert abs(kw["peak_threshold"] - 0.3) < 1e-9
@@ -105,19 +88,11 @@ def test_infer_accepts_legacy_track_flag_surface():
 
 def test_infer_peak_conf_threshold_alias():
     """``--peak-conf-threshold`` is an alias for ``--peak_threshold``."""
-    from unittest.mock import MagicMock
-
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
     runner = CliRunner()
-    with (
-        patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
-        ) as mock_factory,
-        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
-        patch("sleap_nn.inference.providers.VideoProvider"),
-        patch("sleap_io.load_video"),
-    ):
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
         result = runner.invoke(
             cli,
             [
@@ -131,33 +106,26 @@ def test_infer_peak_conf_threshold_alias():
             ],
         )
         assert result.exit_code == 0, result.output
-        assert abs(mock_factory.call_args[1]["peak_threshold"] - 0.42) < 1e-9
+        assert abs(mock_predict.call_args[1]["peak_threshold"] - 0.42) < 1e-9
 
 
-def test_infer_simple_case_uses_new_factory_flow(tmp_path):
-    """``sleap-nn infer`` without tracking/special flags routes to the new factory.
+def test_infer_simple_case_uses_predict(tmp_path):
+    """``sleap-nn infer`` without tracking/special flags routes to ``predict()``.
 
-    PR 13 wires the simple case to ``Predictor.from_model_paths(...).predict(...)``
-    instead of the legacy ``run_inference``. This test mocks the factory
-    + skeleton resolution + a stub predictor, and verifies that path is
-    taken end-to-end (Labels.save called).
+    PR 27 wires the simple case to ``sleap_nn.inference.run.predict(...)``
+    instead of the legacy ``run_inference``. This test mocks ``predict()``
+    and verifies that path is taken end-to-end.
     """
-    from unittest.mock import MagicMock
-
     out = tmp_path / "out.slp"
     runner = CliRunner()
 
-    stub_labels = MagicMock()
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = stub_labels
     with (
-        patch("sleap_nn.inference.factory.from_model_paths") as mock_factory,
-        patch("sleap_nn.cli._skeleton_from_predictor") as mock_skel,
-        patch("sleap_nn.inference.providers.VideoProvider"),
+        patch(
+            "sleap_nn.inference.run.predict",
+            return_value=MagicMock(),
+        ) as mock_predict,
         patch("sleap_nn.predict.run_inference") as mock_run_inference,
     ):
-        mock_factory.return_value = stub_predictor
-        mock_skel.return_value = object()
         result = runner.invoke(
             cli,
             [
@@ -171,35 +139,32 @@ def test_infer_simple_case_uses_new_factory_flow(tmp_path):
             ],
         )
     assert result.exit_code == 0, result.output
-    assert mock_factory.called, "new factory was not called for simple infer case"
-    assert stub_predictor.predict.called
-    assert stub_labels.save.called
+    assert mock_predict.called, "predict() was not called for simple infer case"
+    # Source is the first positional arg (a VideoProvider for .mp4 files
+    # because the CLI default video_input_format="channels_last" is truthy).
+    source = mock_predict.call_args[0][0]
+    assert hasattr(source, "video") or isinstance(source, str)
+    assert mock_predict.call_args[1]["output_path"] == str(out)
     # The legacy run_inference should NOT have been called for this case.
     assert not mock_run_inference.called
 
 
-def test_infer_with_tracking_uses_new_factory_flow(tmp_path):
-    """``--tracking`` now routes through the new factory (PR 14).
+def test_infer_with_tracking_uses_predict(tmp_path):
+    """``--tracking`` now routes through ``predict()`` (PR 27).
 
-    The factory receives a ``tracker_config`` and the legacy
+    The predict call receives a ``tracker_config`` and the legacy
     ``run_inference`` is NOT called.
     """
-    from unittest.mock import MagicMock
-
     out = tmp_path / "out.slp"
     runner = CliRunner()
 
-    stub_labels = MagicMock()
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = stub_labels
     with (
-        patch("sleap_nn.inference.factory.from_model_paths") as mock_factory,
-        patch("sleap_nn.cli._skeleton_from_predictor") as mock_skel,
-        patch("sleap_nn.inference.providers.VideoProvider"),
+        patch(
+            "sleap_nn.inference.run.predict",
+            return_value=MagicMock(),
+        ) as mock_predict,
         patch("sleap_nn.predict.run_inference") as mock_run,
     ):
-        mock_factory.return_value = stub_predictor
-        mock_skel.return_value = object()
         result = runner.invoke(
             cli,
             [
@@ -220,35 +185,30 @@ def test_infer_with_tracking_uses_new_factory_flow(tmp_path):
             ],
         )
         assert result.exit_code == 0, result.output
-        assert mock_factory.called
+        assert mock_predict.called
         assert not mock_run.called
-        cfg = mock_factory.call_args[1]["tracker_config"]
+        cfg = mock_predict.call_args[1]["tracker_config"]
         assert cfg.window_size == 7
         assert cfg.candidates_method == "local_queues"
         assert cfg.max_tracks == 3
 
 
-def test_infer_with_tracking_plus_filter_uses_new_factory_flow(tmp_path):
-    """``--tracking`` + ``--filter_*`` now route through the new factory (PR 15).
+def test_infer_with_tracking_plus_filter_uses_predict(tmp_path):
+    """``--tracking`` + ``--filter_*`` now route through ``predict()`` (PR 27).
 
-    The factory should receive both a ``tracker_config`` and a
+    The call should receive both a ``tracker_config`` and a
     ``filter_config`` reflecting the CLI flags.
     """
-    from unittest.mock import MagicMock
-
     out = tmp_path / "out.slp"
     runner = CliRunner()
 
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
     with (
-        patch("sleap_nn.inference.factory.from_model_paths") as mock_factory,
-        patch("sleap_nn.cli._skeleton_from_predictor") as mock_skel,
-        patch("sleap_nn.inference.providers.VideoProvider"),
+        patch(
+            "sleap_nn.inference.run.predict",
+            return_value=MagicMock(),
+        ) as mock_predict,
         patch("sleap_nn.predict.run_inference") as mock_run,
     ):
-        mock_factory.return_value = stub_predictor
-        mock_skel.return_value = object()
         result = runner.invoke(
             cli,
             [
@@ -268,9 +228,9 @@ def test_infer_with_tracking_plus_filter_uses_new_factory_flow(tmp_path):
             ],
         )
         assert result.exit_code == 0, result.output
-        assert mock_factory.called
+        assert mock_predict.called
         assert not mock_run.called
-        kw = mock_factory.call_args[1]
+        kw = mock_predict.call_args[1]
         assert kw["tracker_config"] is not None
         assert kw["filter_config"] is not None
         fc = kw["filter_config"]
@@ -281,20 +241,13 @@ def test_infer_with_tracking_plus_filter_uses_new_factory_flow(tmp_path):
 
 def test_infer_with_filter_flags_builds_filter_config(tmp_path):
     """``--filter_min_visible_nodes`` etc. build a ``FilterConfig`` for the new flow."""
-    from unittest.mock import MagicMock
-
     out = tmp_path / "out.slp"
     runner = CliRunner()
 
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
-    with (
-        patch("sleap_nn.inference.factory.from_model_paths") as mock_factory,
-        patch("sleap_nn.cli._skeleton_from_predictor"),
-        patch("sleap_nn.inference.providers.VideoProvider"),
-        patch("sleap_nn.predict.run_inference"),
-    ):
-        mock_factory.return_value = stub_predictor
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
         result = runner.invoke(
             cli,
             [
@@ -314,7 +267,7 @@ def test_infer_with_filter_flags_builds_filter_config(tmp_path):
             ],
         )
         assert result.exit_code == 0, result.output
-        fc = mock_factory.call_args[1]["filter_config"]
+        fc = mock_predict.call_args[1]["filter_config"]
         assert fc.min_visible_nodes == 3
         assert abs(fc.min_mean_node_score - 0.4) < 1e-9
         assert abs(fc.min_instance_score - 0.6) < 1e-9
@@ -322,20 +275,13 @@ def test_infer_with_filter_flags_builds_filter_config(tmp_path):
 
 def test_infer_no_empty_frames_passes_clean_flag(tmp_path):
     """``--no_empty_frames`` propagates as ``clean_empty_frames=True`` to predict()."""
-    from unittest.mock import MagicMock
-
     out = tmp_path / "out.slp"
     runner = CliRunner()
 
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
-    with (
-        patch("sleap_nn.inference.factory.from_model_paths") as mock_factory,
-        patch("sleap_nn.cli._skeleton_from_predictor"),
-        patch("sleap_nn.inference.providers.VideoProvider"),
-        patch("sleap_nn.predict.run_inference"),
-    ):
-        mock_factory.return_value = stub_predictor
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
         result = runner.invoke(
             cli,
             [
@@ -350,27 +296,23 @@ def test_infer_no_empty_frames_passes_clean_flag(tmp_path):
             ],
         )
         assert result.exit_code == 0, result.output
-        kw = stub_predictor.predict.call_args[1]
+        kw = mock_predict.call_args[1]
         assert kw["clean_empty_frames"] is True
 
 
-def test_infer_only_suggested_frames_routes_to_new_flow(tmp_path):
-    """``--only_suggested_frames`` goes through the new flow + LabelsProvider."""
-    from unittest.mock import MagicMock
-
+def test_infer_only_suggested_frames_routes_to_predict(tmp_path):
+    """``--only_suggested_frames`` goes through ``predict()`` + LabelsProvider."""
     out = tmp_path / "out.slp"
     runner = CliRunner()
 
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
     with (
-        patch("sleap_nn.inference.factory.from_model_paths") as mock_factory,
+        patch(
+            "sleap_nn.inference.run.predict",
+            return_value=MagicMock(),
+        ) as mock_predict,
         patch("sleap_nn.inference.providers.LabelsProvider") as mock_provider,
-        patch("sleap_io.load_slp") as mock_load,
         patch("sleap_nn.predict.run_inference") as mock_run,
     ):
-        mock_factory.return_value = stub_predictor
-        mock_load.return_value = MagicMock(skeletons=[object()], videos=[object()])
         result = runner.invoke(
             cli,
             [
@@ -385,27 +327,22 @@ def test_infer_only_suggested_frames_routes_to_new_flow(tmp_path):
             ],
         )
         assert result.exit_code == 0, result.output
-        assert mock_factory.called
+        assert mock_predict.called
         assert not mock_run.called
+        # The source (first positional arg) should be the LabelsProvider instance.
+        source = mock_predict.call_args[0][0]
+        assert source == mock_provider.return_value
         provider_kwargs = mock_provider.call_args[1]
         assert provider_kwargs["only_suggested_frames"] is True
 
 
 def test_infer_gui_emits_json_progress(tmp_path):
     """``--gui`` wires a JSON-progress callback through to ``predict()``."""
-    from unittest.mock import MagicMock
-
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
     runner = CliRunner()
-    with (
-        patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
-        ),
-        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
-        patch("sleap_nn.inference.providers.VideoProvider"),
-        patch("sleap_io.load_video"),
-    ):
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
         result = runner.invoke(
             cli,
             [
@@ -418,7 +355,7 @@ def test_infer_gui_emits_json_progress(tmp_path):
             ],
         )
         assert result.exit_code == 0, result.output
-        cb = stub_predictor.predict.call_args[1]["progress_callback"]
+        cb = mock_predict.call_args[1]["progress_callback"]
         assert cb is not None
         # The callback should emit a JSON line on stdout (final 100%).
         import contextlib
@@ -435,20 +372,12 @@ def test_infer_gui_emits_json_progress(tmp_path):
 
 
 def test_infer_without_gui_no_progress_callback(tmp_path):
-    """No ``--gui`` ⇒ ``predict()`` receives ``progress_callback=None``."""
-    from unittest.mock import MagicMock
-
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
+    """No ``--gui`` => ``predict()`` does not receive ``progress_callback``."""
     runner = CliRunner()
-    with (
-        patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
-        ),
-        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
-        patch("sleap_nn.inference.providers.VideoProvider"),
-        patch("sleap_io.load_video"),
-    ):
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
         result = runner.invoke(
             cli,
             [
@@ -460,24 +389,17 @@ def test_infer_without_gui_no_progress_callback(tmp_path):
             ],
         )
         assert result.exit_code == 0, result.output
-        assert stub_predictor.predict.call_args[1]["progress_callback"] is None
+        # progress_callback should not be in kwargs (only added when --gui is set).
+        assert "progress_callback" not in mock_predict.call_args[1]
 
 
-def test_infer_backbone_and_head_ckpt_paths_thread_to_factory(tmp_path):
-    """``--backbone_ckpt_path`` / ``--head_ckpt_path`` reach the factory."""
-    from unittest.mock import MagicMock
-
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
+def test_infer_backbone_and_head_ckpt_paths_thread_to_predict(tmp_path):
+    """``--backbone_ckpt_path`` / ``--head_ckpt_path`` reach ``predict()``."""
     runner = CliRunner()
-    with (
-        patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
-        ) as mock_factory,
-        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
-        patch("sleap_nn.inference.providers.VideoProvider"),
-        patch("sleap_io.load_video"),
-    ):
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
         result = runner.invoke(
             cli,
             [
@@ -493,15 +415,13 @@ def test_infer_backbone_and_head_ckpt_paths_thread_to_factory(tmp_path):
             ],
         )
         assert result.exit_code == 0, result.output
-        kw = mock_factory.call_args[1]
+        kw = mock_predict.call_args[1]
         assert kw["backbone_ckpt_path"] == "/fake/backbone.ckpt"
         assert kw["head_ckpt_path"] == "/fake/head.ckpt"
 
 
 def test_infer_retrack_only_dispatches_to_predictor_retrack(tmp_path):
-    """``--tracking`` + no ``model_paths`` + .slp data → ``Predictor.retrack``."""
-    from unittest.mock import MagicMock
-
+    """``--tracking`` + no ``model_paths`` + .slp data -> ``Predictor.retrack``."""
     runner = CliRunner()
     fake_labels = MagicMock()
     fake_labels.videos = []
@@ -540,18 +460,10 @@ def test_infer_retrack_only_dispatches_to_predictor_retrack(tmp_path):
 
 def test_infer_paf_workers_zero_no_warning(tmp_path):
     """``--paf-workers 0`` is the default, must not emit a warning."""
-    from unittest.mock import MagicMock
-
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
     runner = CliRunner()
-    with (
-        patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
-        ),
-        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
-        patch("sleap_nn.inference.providers.VideoProvider"),
-        patch("sleap_io.load_video"),
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
     ):
         result = runner.invoke(
             cli,
