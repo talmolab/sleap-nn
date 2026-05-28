@@ -94,61 +94,13 @@ def _build_layer(predictor) -> CentroidLayer:
     )
 
 
-# ─────────────────────────────────────────────────────────────────────────
-# 1. Parity vs legacy CentroidCrop on a deterministic input
-# ─────────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.skipif(
-    not CENTROID_CKPT.exists(), reason="centroid checkpoint not present"
-)
-def test_centroid_layer_parity_vs_legacy_model_path():
-    """``CentroidLayer.predict(image)`` matches ``CentroidCrop.forward({...})``."""
-    predictor = _build_predictor()
-    layer = _build_layer(predictor)
-    legacy = predictor.inference_model.centroid_crop
-    legacy.eval()
-    legacy.return_crops = False
-    legacy.use_gt_centroids = False
-
-    rng = np.random.default_rng(0)
-    image = rng.integers(0, 255, size=(2, 1, 1, 384, 384)).astype(np.uint8)
-    image_t = torch.from_numpy(image).float()  # (B, n_samples, C, H, W)
-
-    legacy_input = {
-        "image": image_t,
-        "frame_idx": torch.tensor([0, 1], dtype=torch.float32),
-        "video_idx": torch.tensor([0, 0], dtype=torch.float32),
-        "orig_size": torch.tensor([[384.0, 384.0], [384.0, 384.0]]),
-        "eff_scale": torch.ones(2),
-    }
-    with torch.no_grad():
-        legacy_out = legacy(legacy_input)
-    legacy_centroids = legacy_out["centroids"].squeeze(1)  # (B, max_inst, 2)
-    legacy_vals = legacy_out["centroid_vals"]  # (B, max_inst)
-
-    new_outputs = layer.predict(image_t.squeeze(1))  # (B, C, H, W)
-
-    np.testing.assert_allclose(
-        new_outputs.pred_centroids.numpy(),
-        legacy_centroids.numpy(),
-        equal_nan=True,
-        atol=PARITY_ATOL,
-        rtol=PARITY_RTOL,
-        err_msg="pred_centroids drifted vs legacy CentroidCrop",
-    )
-    np.testing.assert_allclose(
-        new_outputs.pred_centroid_values.numpy(),
-        legacy_vals.numpy(),
-        equal_nan=True,
-        atol=PARITY_ATOL,
-        rtol=PARITY_RTOL,
-        err_msg="pred_centroid_values drifted vs legacy CentroidCrop",
-    )
+# Per-layer "parity vs legacy CentroidCrop.forward" was removed:
+# end-to-end byte-for-byte parity is captured at the top of the stack
+# via the PR 0 goldens.
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 2. Direct numpy / torch APIs
+# 1. Direct numpy / torch APIs
 # ─────────────────────────────────────────────────────────────────────────
 
 
