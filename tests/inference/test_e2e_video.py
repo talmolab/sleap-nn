@@ -25,7 +25,7 @@ import torch
 
 import sleap_io as sio
 
-from sleap_nn.inference.factory import get_predictor_from_model_paths
+from sleap_nn.inference.predictor import Predictor
 from sleap_nn.inference.providers import VideoProvider
 
 CKPT_ROOT = Path(__file__).resolve().parents[1] / "assets" / "model_ckpts"
@@ -73,7 +73,7 @@ def test_predict_streaming_cpu(model_type):
 
     video = sio.load_video(str(VIDEO))
     n_frames = 8  # keep small — this is a correctness check, not a perf bench
-    predictor = get_predictor_from_model_paths(
+    predictor = Predictor.from_model_paths(
         [str(p) for p in _ckpts_for(model_type)], device="cpu", batch_size=4
     )
     provider = VideoProvider(video=video, batch_size=4, frames=list(range(n_frames)))
@@ -121,7 +121,7 @@ def test_predict_streaming_mps(model_type):
 
     video = sio.load_video(str(VIDEO))
     n_frames = 8
-    predictor = get_predictor_from_model_paths(
+    predictor = Predictor.from_model_paths(
         [str(p) for p in _ckpts_for(model_type)], device="mps", batch_size=4
     )
     provider = VideoProvider(video=video, batch_size=4, frames=list(range(n_frames)))

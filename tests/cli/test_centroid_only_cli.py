@@ -4,8 +4,8 @@ Covers:
 
 1. ``--centroid-only`` is exposed in ``sleap-nn infer --help``.
 2. Setting ``--centroid-only`` threads ``centroid_only=True`` into the
-   factory ``from_model_paths`` call.
-3. Omitting the flag leaves ``centroid_only`` out of the factory kwargs
+   ``predict()`` call.
+3. Omitting the flag leaves ``centroid_only`` out of the predict kwargs
    (auto-detect handles the single-centroid case).
 4. ``--centroid_only`` (underscore variant) is also accepted.
 """
@@ -19,13 +19,6 @@ from click.testing import CliRunner
 from sleap_nn.cli import cli
 
 
-def _patches():
-    """Standard CLI-only patch set: mock factory + skeleton + provider."""
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
-    return stub_predictor
-
-
 def test_centroid_only_flag_in_infer_help():
     """``--centroid-only`` appears in the help output of ``sleap-nn infer``."""
     runner = CliRunner()
@@ -34,18 +27,13 @@ def test_centroid_only_flag_in_infer_help():
     assert "--centroid-only" in result.output or "--centroid_only" in result.output
 
 
-def test_centroid_only_flag_propagates_to_factory():
-    """``--centroid-only`` → ``centroid_only=True`` in ``from_model_paths`` kwargs."""
-    stub_predictor = _patches()
+def test_centroid_only_flag_propagates_to_predict():
+    """``--centroid-only`` -> ``centroid_only=True`` in ``predict()`` kwargs."""
     runner = CliRunner()
-    with (
-        patch(
-            "sleap_nn.inference.factory.get_predictor_from_model_paths", return_value=stub_predictor
-        ) as mock_factory,
-        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
-        patch("sleap_nn.inference.providers.VideoProvider"),
-        patch("sleap_io.load_video"),
-    ):
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
         result = runner.invoke(
             cli,
             [
@@ -62,23 +50,18 @@ def test_centroid_only_flag_propagates_to_factory():
             ],
         )
         assert result.exit_code == 0, result.output
-        assert mock_factory.called
-        kw = mock_factory.call_args[1]
+        assert mock_predict.called
+        kw = mock_predict.call_args[1]
         assert kw.get("centroid_only") is True
 
 
 def test_centroid_only_flag_omitted_is_default_off():
-    """Without ``--centroid-only``, the factory call doesn't set centroid_only."""
-    stub_predictor = _patches()
+    """Without ``--centroid-only``, the predict call doesn't set centroid_only."""
     runner = CliRunner()
-    with (
-        patch(
-            "sleap_nn.inference.factory.get_predictor_from_model_paths", return_value=stub_predictor
-        ) as mock_factory,
-        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
-        patch("sleap_nn.inference.providers.VideoProvider"),
-        patch("sleap_io.load_video"),
-    ):
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
         result = runner.invoke(
             cli,
             [
@@ -92,23 +75,18 @@ def test_centroid_only_flag_omitted_is_default_off():
             ],
         )
         assert result.exit_code == 0, result.output
-        kw = mock_factory.call_args[1]
-        # Either absent or explicitly False — auto-detect path.
+        kw = mock_predict.call_args[1]
+        # Either absent or explicitly False -- auto-detect path.
         assert kw.get("centroid_only", False) is False
 
 
 def test_centroid_only_underscore_variant_accepted():
     """``--centroid_only`` (underscore) and ``--centroid-only`` (dash) both work."""
-    stub_predictor = _patches()
     runner = CliRunner()
-    with (
-        patch(
-            "sleap_nn.inference.factory.get_predictor_from_model_paths", return_value=stub_predictor
-        ) as mock_factory,
-        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
-        patch("sleap_nn.inference.providers.VideoProvider"),
-        patch("sleap_io.load_video"),
-    ):
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
         result = runner.invoke(
             cli,
             [
@@ -123,5 +101,5 @@ def test_centroid_only_underscore_variant_accepted():
             ],
         )
         assert result.exit_code == 0, result.output
-        kw = mock_factory.call_args[1]
+        kw = mock_predict.call_args[1]
         assert kw.get("centroid_only") is True

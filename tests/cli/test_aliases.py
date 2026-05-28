@@ -21,15 +21,12 @@ def _mock_new_flow():
     """Patches that make the new in-memory flow a no-op for fast CLI tests."""
     from unittest.mock import MagicMock
 
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
+    stub_labels = MagicMock()
     return [
         patch(
-            "sleap_nn.inference.factory.get_predictor_from_model_paths", return_value=stub_predictor
+            "sleap_nn.inference.run.predict",
+            return_value=stub_labels,
         ),
-        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
-        patch("sleap_nn.inference.providers.VideoProvider"),
-        patch("sleap_io.load_video"),
     ]
 
 
@@ -41,12 +38,7 @@ def test_track_emits_deprecation_warning():
     need the impl to not crash.
     """
     runner = CliRunner()
-    with (
-        _mock_new_flow()[0] as mock_factory,
-        _mock_new_flow()[1],
-        _mock_new_flow()[2],
-        _mock_new_flow()[3],
-    ):
+    with (_mock_new_flow()[0] as mock_predict,):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             result = runner.invoke(
@@ -67,12 +59,11 @@ def test_track_emits_deprecation_warning():
         ), [str(d.message) for d in deprecations]
 
 
-def test_track_and_infer_reach_same_factory_kwargs():
-    """``track`` and ``infer`` produce identical kwargs to the new factory.
+def test_track_and_infer_reach_same_predict_kwargs():
+    """``track`` and ``infer`` produce identical kwargs to ``predict()``.
 
-    PR 16 routes everything through ``Predictor.from_model_paths``, so
-    we assert kwarg equality on that call instead of the legacy
-    ``run_inference``.
+    PR 27 routes everything through ``sleap_nn.inference.run.predict``, so
+    we assert kwarg equality on that call.
     """
     runner = CliRunner()
     args_common = [
@@ -91,21 +82,14 @@ def test_track_and_infer_reach_same_factory_kwargs():
     def _capture(cmd: str):
         from unittest.mock import MagicMock
 
-        stub_predictor = MagicMock()
-        stub_predictor.predict.return_value = MagicMock()
-        with (
-            patch(
-                "sleap_nn.inference.factory.get_predictor_from_model_paths",
-                return_value=stub_predictor,
-            ) as mock_factory,
-            patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
-            patch("sleap_nn.inference.providers.VideoProvider"),
-            patch("sleap_io.load_video"),
-        ):
+        with patch(
+            "sleap_nn.inference.run.predict",
+            return_value=MagicMock(),
+        ) as mock_predict:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", DeprecationWarning)
                 runner.invoke(cli, [cmd] + args_common)
-            return dict(mock_factory.call_args[1])
+            return dict(mock_predict.call_args[1])
 
     assert _capture("infer") == _capture("track")
 

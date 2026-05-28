@@ -1,6 +1,6 @@
 """Tests for the rewired ``sleap-nn predict`` CLI command (PR 22 of #508).
 
-The body now routes through :func:`sleap_nn.inference.factory.from_export_dir`
+The body now routes through :meth:`Predictor.from_export_dir`
 and :class:`sleap_nn.inference.predictor.Predictor`. These tests exercise the
 wiring directly via mocks so they don't require a real exported model. The
 end-to-end "exports a model, runs predict, asserts SLP output" coverage lives
@@ -65,7 +65,7 @@ def _patch_predictor_for_predict(model_type: str = "single_instance"):
 class TestPredictWiring:
     """The rewired ``predict`` command goes through ``from_export_dir``."""
 
-    @patch("sleap_nn.inference.factory.get_predictor_from_export_dir")
+    @patch("sleap_nn.inference.predictor.Predictor.from_export_dir")
     @patch("sleap_io.Video.from_filename")
     def test_routes_through_from_export_dir(
         self, mock_video_cls, mock_from_export_dir, tmp_path
@@ -119,7 +119,7 @@ class TestPredictWiring:
         assert kwargs["min_line_scores"] == 0.3
         assert kwargs["paf_workers"] == 0
 
-    @patch("sleap_nn.inference.factory.get_predictor_from_export_dir")
+    @patch("sleap_nn.inference.predictor.Predictor.from_export_dir")
     @patch("sleap_io.Video.from_filename")
     def test_warns_on_baked_in_flags(
         self, mock_video_cls, mock_from_export_dir, tmp_path
@@ -157,7 +157,7 @@ class TestPredictWiring:
         assert "--peak-conf-threshold=0.7" in result.output
         assert "--max-edge-length-ratio=0.5" in result.output
 
-    @patch("sleap_nn.inference.factory.get_predictor_from_export_dir")
+    @patch("sleap_nn.inference.predictor.Predictor.from_export_dir")
     @patch("sleap_io.Video.from_filename")
     def test_default_baked_in_flags_silent(
         self, mock_video_cls, mock_from_export_dir, tmp_path

@@ -49,6 +49,8 @@ def predict(
     head_ckpt_path: Optional[str] = None,
     preprocess_config: Optional[Any] = None,
     anchor_part: Optional[str] = None,
+    paf_workers: int = 0,
+    centroid_only: bool = False,
     # Prediction-time (can vary per call)
     frames: Optional[List[int]] = None,
     peak_threshold: Optional[float] = None,
@@ -84,6 +86,9 @@ def predict(
         head_ckpt_path: Optional head weight override.
         preprocess_config: Optional OmegaConf preprocessing overrides.
         anchor_part: Override centroid anchor node name.
+        paf_workers: CPU worker processes for bottom-up PAF grouping.
+        centroid_only: Force centroid-only output even when a
+            centered-instance model is among ``model_paths``.
         frames: Frame indices to predict. ``None`` = all.
         peak_threshold: Override peak threshold for all stages.
         centroid_threshold: Override centroid-stage threshold (top-down).
@@ -108,10 +113,7 @@ def predict(
     """
     import torch
 
-    from sleap_nn.inference.factory import (
-        get_predictor_from_export_dir,
-        get_predictor_from_model_paths,
-    )
+    from sleap_nn.inference.predictor import Predictor
 
     if model_paths and export_dir:
         raise ValueError("Provide model_paths or export_dir, not both.")
@@ -126,7 +128,11 @@ def predict(
         )
 
     # Build predictor
-    build_kwargs: dict = {"device": device, "batch_size": batch_size}
+    build_kwargs: dict = {
+        "device": device,
+        "batch_size": batch_size,
+        "paf_workers": paf_workers,
+    }
     if filter_config is not None:
         build_kwargs["filter_config"] = filter_config
     if tracker_config is not None:
@@ -141,9 +147,11 @@ def predict(
             build_kwargs["preprocess_config"] = preprocess_config
         if anchor_part is not None:
             build_kwargs["anchor_part"] = anchor_part
-        predictor = get_predictor_from_model_paths(model_paths, **build_kwargs)
+        if centroid_only:
+            build_kwargs["centroid_only"] = True
+        predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
     else:
-        predictor = get_predictor_from_export_dir(export_dir, **build_kwargs)
+        predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
 
     # Run inference with prediction-time overrides
     labels = predictor.predict(

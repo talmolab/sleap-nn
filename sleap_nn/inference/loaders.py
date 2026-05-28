@@ -1,8 +1,8 @@
-"""Standalone checkpoint loading for the inference factory.
+"""Standalone checkpoint loading for the inference pipeline.
 
 Nothing user-facing here -- the public API remains
-:class:`sleap_nn.inference.Predictor` +
-:func:`sleap_nn.inference.factory.get_predictor_from_model_paths`.
+:class:`sleap_nn.inference.Predictor` via
+:meth:`Predictor.from_model_paths`.
 """
 
 from __future__ import annotations
