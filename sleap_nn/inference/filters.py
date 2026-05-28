@@ -109,10 +109,25 @@ class FilterPipeline:
                 min_mean_node_score=cfg.min_mean_node_score,
             )
         if cfg.overlapping:
+            method = cfg.overlapping_method
+            if (
+                method == "oks"
+                and outputs.pred_keypoints is None
+                and outputs.pred_centroids is not None
+            ):
+                import warnings
+
+                warnings.warn(
+                    "OKS NMS is not meaningful for centroid-only outputs "
+                    "(no keypoints to compute keypoint similarity); falling "
+                    "back to IoU.",
+                    stacklevel=2,
+                )
+                method = "iou"
             outputs = self._filter_overlapping(
                 outputs,
                 threshold=cfg.overlapping_threshold,
-                method=cfg.overlapping_method,
+                method=method,
             )
         return outputs
 

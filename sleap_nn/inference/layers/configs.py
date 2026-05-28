@@ -6,6 +6,8 @@ layer subclass; ``PreprocessConfig`` mirrors the ``data_config.preprocessing``
 section of the training config so layer factories can populate it directly.
 """
 
+from __future__ import annotations
+
 from typing import Literal, Optional, Tuple
 
 import attrs
@@ -42,12 +44,12 @@ class PreprocessConfig:
 class PostprocessConfig:
     """Knobs that govern how raw model outputs become keypoints.
 
-    Distinct from the post-inference ``FilterConfig`` (PR 8): this struct
-    governs the *decoding* step (peak finding, integral refinement, NMS),
-    while ``FilterConfig`` filters the keypoints that come out the other
-    side. ``peak_threshold`` here decides which confmap pixels become
-    peaks; ``min_peak_value`` in ``FilterConfig`` filters peaks the
-    decoder already returned.
+    Distinct from the post-inference ``FilterConfig``: this struct governs
+    the *decoding* step (peak finding, integral refinement, NMS), while
+    ``FilterConfig`` filters the keypoints that come out the other side.
+    ``peak_threshold`` here decides which confmap pixels become peaks;
+    ``min_peak_value`` in ``FilterConfig`` filters peaks the decoder
+    already returned.
 
     Attributes:
         peak_threshold: Minimum confmap activation to consider a peak.
@@ -75,3 +77,13 @@ class PostprocessConfig:
     return_paf_graph: bool = False
     return_class_maps: bool = False
     return_class_vectors: bool = False
+
+    @property
+    def effective_refinement(self) -> Optional[str]:
+        """Return the refinement string or ``None`` when ``"none"``.
+
+        Every postprocess site needs ``refinement=None`` (not the string
+        ``"none"``) to disable refinement. This property centralises that
+        coercion.
+        """
+        return self.refinement if self.refinement != "none" else None

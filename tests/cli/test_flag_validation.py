@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import warnings
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
@@ -90,20 +90,12 @@ def test_cpu_workers_alias_emits_deprecation_warning():
     """``--cpu-workers`` warns and is wired through (mapped to paf_workers).
 
     The deprecation fires in ``_run_inference_impl`` regardless of which
-    backend serves the request — we just need the impl to not crash.
+    backend serves the request -- we just need the impl to not crash.
     """
-    from unittest.mock import MagicMock
-
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
     runner = CliRunner()
-    with (
-        patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
-        ),
-        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
-        patch("sleap_nn.inference.providers.VideoProvider"),
-        patch("sleap_io.load_video"),
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
     ):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
@@ -133,18 +125,10 @@ def test_paf_workers_positive_does_not_warn_on_new_flow():
     PR 16 routes everything through the new flow; the old "no effect on
     legacy path" warning is gone.
     """
-    from unittest.mock import MagicMock
-
-    stub_predictor = MagicMock()
-    stub_predictor.predict.return_value = MagicMock()
     runner = CliRunner()
-    with (
-        patch(
-            "sleap_nn.inference.factory.from_model_paths", return_value=stub_predictor
-        ),
-        patch("sleap_nn.cli._skeleton_from_predictor", return_value=object()),
-        patch("sleap_nn.inference.providers.VideoProvider"),
-        patch("sleap_io.load_video"),
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
     ):
         result = runner.invoke(
             cli,
@@ -166,23 +150,21 @@ def test_stream_to_file_invokes_new_predictor_flow(tmp_path):
     """``--stream-to-file`` reaches ``Predictor.predict_to_file``.
 
     Patches the factory to return a stub Predictor whose
-    ``predict_to_file`` records that it was called — confirms the CLI
+    ``predict_to_file`` records that it was called -- confirms the CLI
     routes through the new flow rather than the legacy ``run_inference``.
     """
-    from unittest.mock import MagicMock, patch
-
     out = tmp_path / "out.slp"
     runner = CliRunner()
 
     stub_predictor = MagicMock()
     stub_predictor.predict_to_file.return_value = str(out)
     with (
-        patch("sleap_nn.inference.factory.from_model_paths") as mock_factory,
-        patch("sleap_nn.cli._skeleton_from_predictor") as mock_skel,
+        patch(
+            "sleap_nn.inference.predictor.Predictor.from_model_paths"
+        ) as mock_factory,
         patch("sleap_nn.inference.providers.VideoProvider"),
     ):
         mock_factory.return_value = stub_predictor
-        mock_skel.return_value = object()
         result = runner.invoke(
             cli,
             [

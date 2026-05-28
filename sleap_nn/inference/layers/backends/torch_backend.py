@@ -8,7 +8,7 @@ Defaults (from `12-design-review-and-revised-plan.md` §2 + CUDA validation):
 
 - ``warmup_iterations = 1`` — default ON; 73× cold-start ratio on MPS
 - ``fuse_layers      = False`` — opt-in; ≈0% on the test UNets
-- ``use_compile      = False`` — opt-in; **also broken upstream** by #527
+- ``use_compile      = False`` — opt-in
 - ``use_fp16         = False`` — opt-in; tensor-core only, regresses at
   small batch on CUDA (0.65× FP32 at batch=1, 1.5× at batch=16)
 
@@ -18,9 +18,6 @@ Warnings emitted on construction (verified by tests):
 - ``UserWarning`` on CUDA with ``use_fp16=True`` — drift + small-batch perf
 - ``UserWarning`` on MPS with ``use_compile=True`` — disables and downgrades
 - ``UserWarning`` on MPS with ``use_fp16=True`` — no tensor cores, no win
-- ``RuntimeError`` if ``use_compile=True`` while the swint ``torch.fx.wrap``
-  registry is contaminated (#527 workaround). Raises with a clear message
-  pointing at the upstream issue so users know it's not a config bug.
 """
 
 from __future__ import annotations
@@ -31,34 +28,6 @@ from typing import Any, Dict, Optional, Tuple, Union
 import attrs
 import torch
 import torch.nn as nn
-
-# ──────────────────────────────────────────────────────────────────────────
-# #527 workaround — detect the contaminated fx.wrap registry
-# ──────────────────────────────────────────────────────────────────────────
-
-
-_FX_WRAPPED_NAMES = ("_patch_merging_pad", "_get_relative_position_bias")
-
-
-def _swint_fx_wrap_blocks_compile() -> bool:
-    """Detect the swint ``torch.fx.wrap`` registry contamination from #527.
-
-    ``sleap_nn/architectures/swint.py`` calls ``torch.fx.wrap(...)`` at
-    module-import time, which globally registers function names into
-    ``torch.fx._symbolic_trace._wrapped_fns_to_patch``. The dynamo backend
-    used by ``torch.compile`` chokes on these unknown names — even when the
-    wrapped functions are never actually called by the model under compile.
-
-    Returns ``True`` iff the registry is contaminated. Tested directly so we
-    don't have to actually attempt a compile to detect breakage.
-    """
-    try:
-        from torch.fx._symbolic_trace import _wrapped_fns_to_patch
-    except ImportError:
-        return False
-    registered = {entry[1] for entry in _wrapped_fns_to_patch}
-    return any(name in registered for name in _FX_WRAPPED_NAMES)
-
 
 # ──────────────────────────────────────────────────────────────────────────
 # TorchBackend
@@ -75,8 +44,7 @@ class TorchBackend:
             ``nn.Module`` works.
         device: ``"cpu"``, ``"cuda"``, ``"cuda:N"``, or ``"mps"``.
         use_compile: Wrap the model in ``torch.compile``. CUDA-only.
-            Emits a numeric-drift warning. Raises ``RuntimeError`` if the
-            swint fx.wrap registry is contaminated (see #527).
+            Emits a numeric-drift warning.
         compile_mode: Forwarded to ``torch.compile`` when enabled.
         use_fp16: Run the forward pass in float16. CUDA-only;
             counter-productive at batch < 4. Emits a drift warning.
@@ -110,22 +78,10 @@ class TorchBackend:
         if self.fuse_layers:
             self._fuse_conv_bn()
 
-        if self.use_compile:
-            if _swint_fx_wrap_blocks_compile():
-                raise RuntimeError(
-                    "torch.compile is currently blocked by the swint torch.fx.wrap "
-                    "registry contamination (see issue #527). Importing "
-                    "sleap_nn.architectures.swint registers '_patch_merging_pad' "
-                    "into torch.fx._symbolic_trace._wrapped_fns_to_patch at "
-                    "module-import time, which dynamo's compile pipeline cannot "
-                    "handle even on non-SwinT checkpoints. Workaround: leave "
-                    "use_compile=False until #527 lands. "
-                    "Tracking: https://github.com/talmolab/sleap-nn/issues/527"
-                )
-            if self.device != "mps":
-                self._compiled = torch.compile(
-                    self.model, mode=self.compile_mode, dynamic=False
-                )
+        if self.use_compile and self.device != "mps":
+            self._compiled = torch.compile(
+                self.model, mode=self.compile_mode, dynamic=False
+            )
 
     # ──────────────────────────────────────────────────────────────────
     # Protocol surface
@@ -199,8 +155,8 @@ class TorchBackend:
         - MPS + ``torch.compile``: unreliable; force ``use_compile=False``.
         - MPS + FP16: kernels exist but tensor cores don't — no speedup;
           we keep ``use_fp16`` enabled but warn.
-        - CUDA + ``torch.compile``: works (when #527 isn't blocking);
-          warn about graph fusion changing numerics.
+        - CUDA + ``torch.compile``: works; warn about graph fusion changing
+          numerics.
         - CUDA + FP16: warn about ~4e-3 drift and small-batch regression.
         """
         if self.device == "mps":
