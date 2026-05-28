@@ -54,8 +54,8 @@ class CentroidCrop(L.LightningModule):
         use_gt_centroids: If `True`, then the crops are generated using ground-truth centroids.
             If `False`, then centroids are predicted using a trained centroid model.
         anchor_ind: The index of the node to use as the anchor for the centroid. If not
-            provided or if not present in the instance, the midpoint of the bounding box
-            is used instead.
+            provided or if not present in the instance, the NaN-ignoring mean of all
+            visible nodes is used instead.
 
     """
 

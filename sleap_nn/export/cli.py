@@ -943,9 +943,35 @@ def predict(
 
     VIDEO_PATH is the path to the video file to process.
     """
-    import sleap_io as sio
+    import time
 
-    from sleap_nn.export.inference import predict as _predict
+    import sleap_io as sio
+    from omegaconf import OmegaConf
+
+    from sleap_nn.cli import _resolve_device
+    from sleap_nn.export.metadata import ExportMetadata
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.providers import VideoProvider
+    from sleap_nn.inference.utils import get_skeleton_from_config
+
+    # Flags whose effect is now baked into the exported ONNX/TRT graph at
+    # export time. Kept for surface compatibility — warn if non-default so
+    # callers who actually relied on these know they're no-ops here.
+    _baked_in = []
+    if max_edge_length_ratio != 0.25:
+        _baked_in.append(f"--max-edge-length-ratio={max_edge_length_ratio}")
+    if dist_penalty_weight != 1.0:
+        _baked_in.append(f"--dist-penalty-weight={dist_penalty_weight}")
+    if n_points != 10:
+        _baked_in.append(f"--n-points={n_points}")
+    if peak_conf_threshold != 0.2:
+        _baked_in.append(f"--peak-conf-threshold={peak_conf_threshold}")
+    if _baked_in:
+        click.echo(
+            f"\n  WARNING: {', '.join(_baked_in)} ignored — these are baked "
+            f"into the exported graph at `sleap-nn export` time. Re-export "
+            f"the model with the desired values to change them.\n"
+        )
 
     click.echo(f"Processing video: {video_path}")
     click.echo(f"  Export dir: {export_dir}")
@@ -983,29 +1009,61 @@ def predict(
                     f"performance degradation.\n"
                 )
 
-    def _progress(processed, total):
-        click.echo(f"\r  Processed {processed}/{total} frames...", nl=False)
-
     try:
-        labels, stats = _predict(
-            export_dir=export_dir,
-            video_path=video_path,
-            runtime=runtime,
-            device=device,
+        metadata_path = export_dir / "export_metadata.json"
+        if not metadata_path.exists():
+            raise FileNotFoundError(f"Metadata not found: {metadata_path}")
+        metadata = ExportMetadata.load(metadata_path)
+
+        cfg_path = _find_training_config_for_predict(export_dir, metadata.model_type)
+        if cfg_path.suffix in {".yaml", ".yml"}:
+            cfg = OmegaConf.load(cfg_path.as_posix())
+        else:
+            from sleap_nn.config.training_job_config import TrainingJobConfig
+
+            cfg = TrainingJobConfig.load_sleap_config(cfg_path.as_posix())
+        skeletons = get_skeleton_from_config(cfg.data_config.skeletons)
+        skeleton = skeletons[0]
+
+        sio_video = sio.Video.from_filename(video_path.as_posix())
+        n_total = len(sio_video) if n_frames is None else min(n_frames, len(sio_video))
+        provider = VideoProvider(
+            video=sio_video,
             batch_size=batch_size,
-            n_frames=n_frames,
-            max_edge_length_ratio=max_edge_length_ratio,
-            dist_penalty_weight=dist_penalty_weight,
-            n_points=n_points,
+            frames=list(range(n_total)),
+        )
+
+        predictor = Predictor.from_export_dir(
+            export_dir=export_dir,
+            runtime=runtime,
+            device=_resolve_device(device),
+            max_instances=max_instances,
             min_instance_peaks=min_instance_peaks,
             min_line_scores=min_line_scores,
-            peak_conf_threshold=peak_conf_threshold,
-            max_instances=max_instances,
-            cpu_workers=cpu_workers,
+            paf_workers=cpu_workers,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        raise click.ClickException(str(e))
+
+    n_total_batches = (n_total + batch_size - 1) // batch_size
+
+    def _progress(processed_batches, total_batches):
+        # Convert batch counts to frame counts for user-friendly progress.
+        processed_frames = min(processed_batches * batch_size, n_total)
+        click.echo(f"\r  Processed {processed_frames}/{n_total} frames...", nl=False)
+
+    t0 = time.perf_counter()
+    try:
+        labels = predictor.predict(
+            provider,
+            make_labels=True,
+            skeleton=skeleton,
+            videos=[sio_video],
             progress_callback=_progress,
         )
     except (FileNotFoundError, ValueError) as e:
         raise click.ClickException(str(e))
+    total_time = time.perf_counter() - t0
 
     click.echo()  # Newline after progress
 
@@ -1013,13 +1071,55 @@ def predict(
     output_path = output or video_path.with_suffix(".predictions.slp")
     sio.save_file(labels, output_path.as_posix())
 
+    fps = (n_total / total_time) if total_time > 0 else float("nan")
     click.echo(f"\nInference complete:")
-    click.echo(f"  Total time: {stats['total_time']:.2f}s")
-    click.echo(f"  Inference time: {stats['infer_time']:.2f}s")
-    click.echo(f"  Post-processing time: {stats['post_time']:.2f}s")
-    click.echo(f"  FPS: {stats['fps']:.2f}")
+    click.echo(f"  Total time: {total_time:.2f}s")
+    click.echo(f"  FPS: {fps:.2f}")
     click.echo(f"  Frames with predictions: {len(labels.labeled_frames)}")
     click.echo(f"  Output saved to: {output_path}")
+
+
+def _find_training_config_for_predict(export_dir: Path, model_type: str) -> Path:
+    """Locate the training config file in an export directory.
+
+    Mirrors the legacy resolution order so the new flow can find configs
+    written by every supported exporter (top-down stores its centered-
+    instance config under a suffixed name, multiclass top-down stores it
+    under another).
+
+    Raises:
+        FileNotFoundError: If no training config is found.
+    """
+    candidates: list[Path] = []
+    if model_type == "topdown":
+        candidates.extend(
+            [
+                export_dir / "training_config_centered_instance.yaml",
+                export_dir / "training_config_centered_instance.json",
+            ]
+        )
+    elif model_type == "multi_class_topdown_combined":
+        candidates.extend(
+            [
+                export_dir / "training_config_multi_class_topdown.yaml",
+                export_dir / "training_config_multi_class_topdown.json",
+            ]
+        )
+    candidates.extend(
+        [
+            export_dir / "training_config.yaml",
+            export_dir / "training_config.json",
+            export_dir / f"training_config_{model_type}.yaml",
+            export_dir / f"training_config_{model_type}.json",
+        ]
+    )
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        f"No training_config found in {export_dir} for model_type={model_type}."
+    )
 
 
 def _copy_training_config(

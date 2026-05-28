@@ -11,7 +11,7 @@ configuration once and forward it as plain data, the same shape as
 
 Why labels-in / labels-out: the tracker is stateful across frames and
 operates on ``sio.PredictedInstance`` objects, so the natural seam is
-*after* :meth:`Predictor._to_labels` converts ``Outputs`` to
+*after* :meth:`Predictor.to_labels` converts ``Outputs`` to
 ``LabeledFrame``s. ``apply_tracking`` builds a fresh ``Tracker`` per
 call (no shared state across ``predict()`` invocations) and runs it
 in submission order.

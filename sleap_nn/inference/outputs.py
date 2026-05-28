@@ -1,6 +1,5 @@
 """``Outputs`` — the structured container produced by every ``InferenceLayer``.
 
-Replaces the dict-of-arrays that the current ``predictors.py`` returns.
 Single source of truth for what an inference call yields, how to manipulate
 its tensors (device, dtype, autograd), and how to reduce it to a slimmer
 form for cross-process transport.
@@ -14,9 +13,9 @@ Design constraints baked into the class:
 * Custom ``__repr__`` prints field shapes, not tensor contents — a fat
   ``Outputs`` would otherwise dump megabytes into stack traces.
 * ``slim()`` is a hard contract: the returned object MUST be pickleable.
-  This guarantees the multi-process post-processing path (PR 9 / #517) and
-  the streaming writer (PR 8 / #516) can ship ``Outputs`` between processes
-  without surprises. Enforced by tests.
+  This guarantees multi-process post-processing and the streaming writer
+  can ship ``Outputs`` between processes without surprises. Enforced by
+  tests.
 * No live references: every field is a value (tensor, ndarray, ints, the
   ``PreprocInfo`` struct). No ``InferenceLayer`` / ``Backend`` /
   ``LightningModule`` / file handle / generator. Enforced by tests.
@@ -24,13 +23,16 @@ Design constraints baked into the class:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import attrs
 import numpy as np
 import torch
 
 from sleap_nn.inference.preprocess_info import PreprocInfo
+
+if TYPE_CHECKING:
+    import sleap_io as sio
 
 # Heavy intermediate tensors that ``slim()`` drops — heavy as in
 # ``(B, N, H, W)`` confmaps that can be hundreds of MB per frame.
@@ -67,18 +69,6 @@ class Outputs:
         ``B`` = batch size, ``I`` = max instances, ``N`` = nodes,
         ``C`` = classes, ``H``/``W`` = spatial dims, ``E`` = number of edges.
         ``NaN`` indicates missing/invalid predictions in keypoint fields.
-
-    Rank-contract note (intentional divergence from legacy):
-        ``pred_keypoints`` is always ``(B, I, N, 2)`` — single-instance
-        layers emit ``I=1`` rather than collapsing the instance axis.
-        Legacy ``SingleInstanceInferenceModel.forward`` returned
-        ``(B, N, 2)`` (rank 3, no instance dim); the new flow keeps the
-        instance axis present so all model types share one schema and
-        downstream consumers can iterate ``outputs.pred_keypoints[b, i]``
-        without branching on model type. Same idea for
-        ``pred_peak_values`` (``(B, I, N)`` always) and the multi-instance
-        fields. Callers that previously read legacy rank-3 outputs need
-        an explicit ``.squeeze(1)`` to recover the old shape.
     """
 
     # ── Images (optional; None unless explicitly requested) ──────────
@@ -88,6 +78,7 @@ class Outputs:
 
     # ── Core predictions ─────────────────────────────────────────────
     pred_keypoints: Optional[torch.Tensor] = None  # (B, I, N, 2) in image (x, y)
+    pred_crop_keypoints: Optional[torch.Tensor] = None  # (B, I, N, 2) crop-local
     pred_peak_values: Optional[torch.Tensor] = None  # (B, I, N)
     pred_confmaps: Optional[torch.Tensor] = None  # (B, N, H, W) — heavy
     pred_pafs: Optional[torch.Tensor] = None  # (B, 2E, H, W) — heavy
@@ -194,7 +185,7 @@ class Outputs:
                 kwargs[f.name] = val
         return Outputs(**kwargs)
 
-    def _map(self, fn) -> "Outputs":
+    def _map(self, fn: "Callable[[torch.Tensor], torch.Tensor]") -> "Outputs":
         """Apply ``fn`` to every tensor field, returning a new ``Outputs``.
 
         Tuples-of-tensors are mapped element-wise. Non-tensor fields pass
@@ -244,20 +235,26 @@ class Outputs:
         return 0
 
     # ═══════════════════════════════════════════════════════════════════
-    # sleap-io conversion (extended in PR 8 — minimal here for PR 4 use)
+    # sleap-io conversion
     # ═══════════════════════════════════════════════════════════════════
 
     def to_instances(
         self,
-        skeleton: "Any",
+        skeleton: "sio.Skeleton",
         batch_index: int = 0,
-    ) -> List[Any]:
+        anchor_ind: Optional[int] = None,
+    ) -> list["sio.PredictedInstance"]:
         """Convert one batch slot into a list of ``sio.PredictedInstance``.
 
         Args:
             skeleton: ``sleap_io.Skeleton`` describing nodes/edges.
             batch_index: Which sample in the batch to convert. Defaults to 0
                 (the common single-frame call site).
+            anchor_ind: Centroid-only packaging — when ``pred_keypoints`` is
+                None but ``pred_centroids`` is populated, this index decides
+                which skeleton-node slot receives the centroid coordinate
+                (all other slots are NaN). ``None`` defaults to node 0.
+                Ignored when ``pred_keypoints`` is populated.
 
         Returns:
             One ``sio.PredictedInstance`` per non-NaN instance slot.
@@ -267,8 +264,22 @@ class Outputs:
             assumed to already be in original-image space. Per-keypoint
             scores come from ``pred_peak_values``; per-instance scores
             from ``instance_scores`` if present, else mean of node scores.
+
+            **Centroid-only mode** (``pred_keypoints is None`` and
+            ``pred_centroids is not None``): packages each predicted
+            centroid into a ``PredictedInstance`` with the centroid
+            coordinate at ``anchor_ind`` (or node 0 if unset) and NaN at
+            every other node. Per-instance score = centroid value.
         """
         import sleap_io as sio
+
+        # Centroid-only branch: synthesize NaN-padded keypoints from centroids.
+        if self.pred_keypoints is None and self.pred_centroids is not None:
+            return self._to_instances_centroid_only(
+                skeleton=skeleton,
+                batch_index=batch_index,
+                anchor_ind=anchor_ind if anchor_ind is not None else 0,
+            )
 
         if self.pred_keypoints is None:
             return []
@@ -306,33 +317,83 @@ class Outputs:
             )
         return instances
 
+    def _to_instances_centroid_only(
+        self,
+        skeleton: "sio.Skeleton",
+        batch_index: int,
+        anchor_ind: int,
+    ) -> list["sio.PredictedInstance"]:
+        """Centroid-only packaging: NaN-pad skeleton, centroid at ``anchor_ind``.
+
+        See :meth:`to_instances` for semantics.
+        """
+        import sleap_io as sio
+
+        centroids = self.pred_centroids[batch_index].detach().cpu().numpy()  # (I, 2)
+        cvals = (
+            self.pred_centroid_values[batch_index].detach().cpu().numpy()
+            if self.pred_centroid_values is not None
+            else np.full((centroids.shape[0],), np.nan, dtype=np.float32)
+        )
+
+        n_nodes = len(skeleton.nodes)
+        if not 0 <= anchor_ind < n_nodes:
+            raise ValueError(
+                f"anchor_ind={anchor_ind} is out of range for skeleton with "
+                f"{n_nodes} nodes."
+            )
+
+        instances: List[sio.PredictedInstance] = []
+        for i in range(centroids.shape[0]):
+            if np.all(np.isnan(centroids[i])):
+                continue
+            kpts = np.full((n_nodes, 2), np.nan, dtype=np.float32)
+            kpts[anchor_ind] = centroids[i]
+            point_scores = np.full((n_nodes,), np.nan, dtype=np.float32)
+            point_scores[anchor_ind] = float(cvals[i])
+            inst_score = float(cvals[i]) if not np.isnan(cvals[i]) else 0.0
+            instances.append(
+                sio.PredictedInstance.from_numpy(
+                    points_data=kpts,
+                    point_scores=point_scores,
+                    score=inst_score,
+                    skeleton=skeleton,
+                )
+            )
+        return instances
+
     def to_labels(
         self,
-        skeleton: "Any",
-        videos: Optional[List[Any]] = None,
-    ) -> Any:
+        skeleton: "sio.Skeleton",
+        videos: Optional[list["sio.Video"]] = None,
+        anchor_ind: Optional[int] = None,
+    ) -> "sio.Labels":
         """Convert this ``Outputs`` to a ``sleap_io.Labels``.
 
         Args:
             skeleton: ``sleap_io.Skeleton`` describing nodes/edges.
             videos: List of ``sio.Video`` indexed by ``video_indices``.
                 Defaults to a single ``None`` placeholder.
+            anchor_ind: Forwarded to :meth:`to_instances` for centroid-only
+                packaging. Ignored when ``pred_keypoints`` is populated.
 
         Returns:
             A ``sleap_io.Labels`` containing one ``LabeledFrame`` per
             non-empty batch slot.
 
         Notes:
-            Minimal implementation for the PR 4 single-instance proof of
-            pattern. PR 8 (``Predictor`` orchestrator) extends this with
-            full multi-video / per-frame metadata handling.
+            For full multi-video / per-frame metadata handling, use
+            :meth:`Predictor.predict` which aggregates per-batch
+            ``Outputs`` into a single ``sio.Labels``.
         """
         import sleap_io as sio
 
         videos = list(videos) if videos else [None]
         labeled_frames: List[sio.LabeledFrame] = []
         for b in range(self.batch_size):
-            instances = self.to_instances(skeleton=skeleton, batch_index=b)
+            instances = self.to_instances(
+                skeleton=skeleton, batch_index=b, anchor_ind=anchor_ind
+            )
             if not instances:
                 continue
             frame_idx = (
