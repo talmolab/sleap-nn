@@ -24,33 +24,43 @@ from sleap_nn.inference.ops.crops import crop_bboxes, make_centered_bboxes
 
 
 def morphological_dilation(image: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
-    """Apply morphological dilation using max pooling.
+    """Compute the per-pixel max over the 8-neighborhood (excluding center).
 
-    Pure-PyTorch replacement for ``kornia.morphology.dilation``. For
-    non-maximum suppression, this computes the max of 8 neighbors (excluding
-    the center pixel — the kernel is zero at center, one elsewhere).
+    Used by :func:`find_local_peaks_rough` as the NMS dilation step. The
+    ``kernel`` argument is preserved for API compatibility but is currently
+    ignored — the 8-neighbor pattern is hardcoded so the function lowers
+    cleanly to ``torch.stack + max``, which exports to ONNX (PR 5 of #508
+    rewrote the original ``Tensor.unfold`` formulation that the legacy ONNX
+    exporter rejected).
 
     Args:
         image: Input tensor of shape ``(B, 1, H, W)``.
-        kernel: Dilation kernel (3×3 expected for NMS).
+        kernel: Legacy 3×3 NMS kernel; unused. Kept so existing callers
+            continue to work without modification.
 
     Returns:
-        Dilated tensor with the same shape as the input.
+        Same shape as ``image``; each output pixel is the max over its
+        eight neighbors in the input (out-of-image neighbors are ``-inf``,
+        i.e. pad-with-minimum).
     """
+    del kernel  # see docstring
     padded = F.pad(image, (1, 1, 1, 1), mode="constant", value=float("-inf"))
-
-    # Shape after the two unfolds: (B, 1, H, W, 3, 3)
-    patches = padded.unfold(2, 3, 1).unfold(3, 3, 1)
-    b, c, h, w, _, _ = patches.shape
-    patches = patches.reshape(b, c, h, w, -1)
-
-    kernel_flat = kernel.reshape(-1).to(patches.device)
-    kernel_mask = kernel_flat > 0
-
-    patches_masked = patches.clone()
-    patches_masked[..., ~kernel_mask] = float("-inf")
-
-    return patches_masked.max(dim=-1)[0]
+    # Stack the eight 1-pixel shifts of the padded image. Each slice shape is
+    # (B, 1, H, W); stacked dim 0 has length 8.
+    eight = torch.stack(
+        [
+            padded[..., :-2, :-2],  # NW
+            padded[..., :-2, 1:-1],  # N
+            padded[..., :-2, 2:],  # NE
+            padded[..., 1:-1, :-2],  # W
+            padded[..., 1:-1, 2:],  # E (center skipped)
+            padded[..., 2:, :-2],  # SW
+            padded[..., 2:, 1:-1],  # S
+            padded[..., 2:, 2:],  # SE
+        ],
+        dim=0,
+    )
+    return eight.max(dim=0)[0]
 
 
 def integral_regression(
@@ -92,20 +102,31 @@ def find_global_peaks_rough(
     """
     max_values, _max_indices_y = torch.max(cms, dim=2, keepdim=True)
     max_values, max_indices_x = torch.max(max_values, dim=3, keepdim=True)
-    max_indices_x = max_indices_x.squeeze(dim=(2, 3))
+    # Drop dims one at a time so the ONNX exporter can lower each Squeeze
+    # node independently (a single ``dim=(2, 3)`` argument is not supported).
+    max_indices_x = max_indices_x.squeeze(3).squeeze(2)
 
     amax_values, _amax_indices_x = torch.max(cms, dim=3, keepdim=True)
     amax_values, amax_indices_y = torch.max(amax_values, dim=2, keepdim=True)
-    amax_indices_y = amax_indices_y.squeeze(dim=(2, 3))
+    amax_indices_y = amax_indices_y.squeeze(3).squeeze(2)
 
     peak_points = torch.cat(
         [max_indices_x.unsqueeze(-1), amax_indices_y.unsqueeze(-1)], dim=-1
     ).to(torch.float32)
     max_values = max_values.squeeze(-1).squeeze(-1)
 
+    # Below-threshold positions get NaN coords + zero value. We use
+    # ``torch.where`` rather than boolean-mask in-place assignment so this
+    # function exports to ONNX cleanly (PR 5 of #508).
     below_threshold_mask = max_values < threshold
-    peak_points[below_threshold_mask] = float("nan")
-    max_values[below_threshold_mask] = float(0)
+    peak_points = torch.where(
+        below_threshold_mask.unsqueeze(-1).expand_as(peak_points),
+        torch.full_like(peak_points, float("nan")),
+        peak_points,
+    )
+    max_values = torch.where(
+        below_threshold_mask, torch.zeros_like(max_values), max_values
+    )
     return peak_points, max_values
 
 
