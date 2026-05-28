@@ -1041,7 +1041,6 @@ def _run_inference_impl(**kwargs):
     return _run_in_memory_new_flow(kwargs, paf_workers=paf_workers)
 
 
-
 def _resolve_device(value: object) -> str:
     """Resolve a CLI ``--device`` value to a concrete torch device string.
 
