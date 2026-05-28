@@ -128,11 +128,11 @@ def test_legacy_predictor_internal_use_restores_state():
 )
 def test_factory_from_model_paths_does_not_emit_legacy_deprecation():
     """Factory delegation must not leak the legacy module's DeprecationWarning."""
-    from sleap_nn.inference.factory import from_model_paths
+    from sleap_nn.inference.predictor import Predictor
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        from_model_paths(model_paths=[str(SINGLE_CKPT)], device="cpu")
+        Predictor.from_model_paths(model_paths=[str(SINGLE_CKPT)], device="cpu")
 
     leaked = [
         w

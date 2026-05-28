@@ -940,22 +940,33 @@ def train(
     help="Output JSON progress for GUI integration instead of Rich progress bar.",
 )
 def track(**kwargs):
-    """Run Inference and Tracking workflow.
+    """Run Inference and Tracking workflow (legacy pipeline).
 
-    .. deprecated::
-       Use ``sleap-nn infer`` instead. The ``track`` alias will be
-       removed in a future release. This is currently equivalent to
-       ``sleap-nn infer`` (PR 10 of #508 / #518).
+    This command uses the legacy ``run_inference`` pipeline. For the new
+    inference pipeline, use ``sleap-nn infer``.
     """
-    import warnings
+    from sleap_nn.predict import frame_list, run_inference
 
-    warnings.warn(
-        "`sleap-nn track` is deprecated; use `sleap-nn infer` instead. "
-        "Aliases will be removed in v0.3.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return _run_inference_impl(**kwargs)
+    if "model_paths" in kwargs and kwargs["model_paths"]:
+        kwargs["model_paths"] = list(kwargs["model_paths"])
+    else:
+        kwargs["model_paths"] = None
+
+    if "frames" in kwargs and kwargs["frames"]:
+        kwargs["frames"] = frame_list(kwargs["frames"])
+    else:
+        kwargs["frames"] = None
+
+    # Pop new-pipeline-only flags that track doesn't use
+    kwargs.pop("paf_workers", None)
+    kwargs.pop("cpu_workers", None)
+    kwargs.pop("stream_to_file", None)
+    kwargs.pop("write_interval", None)
+    kwargs.pop("centroid_only", None)
+    kwargs.pop("centroid_peak_threshold", None)
+    kwargs.pop("gui", None)
+
+    return run_inference(**kwargs)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -981,19 +992,13 @@ def track(**kwargs):
 
 
 def _run_inference_impl(**kwargs):
-    """Shared implementation for ``infer`` / ``predict`` / ``track``.
+    """Implementation for ``sleap-nn infer`` (new pipeline only).
 
     Coerces tuple-shaped multi-options into lists, parses the
-    ``--frames`` string into a list of int frame indices, validates the
-    new PR 10 flags, and routes to the right backend:
-
-    * ``--stream-to-file`` set → builds a new :class:`Predictor` via
-      :func:`sleap_nn.inference.factory.from_model_paths` and writes
-      incrementally with :meth:`Predictor.predict_to_file` (PR 12).
-    * Otherwise → delegates to the legacy ``run_inference`` flow
-      (which still owns tracking, frame filtering, GUI progress, etc.).
+    ``--frames`` string into a list of int frame indices, and routes to
+    the new :class:`Predictor`-based pipeline.
     """
-    from sleap_nn.predict import frame_list, run_inference
+    from sleap_nn.predict import frame_list
 
     paf_workers = kwargs.pop("paf_workers", 0) or 0
     cpu_workers = kwargs.pop("cpu_workers", None)
@@ -1033,40 +1038,7 @@ def _run_inference_impl(**kwargs):
             paf_workers=paf_workers,
         )
 
-    # ── In-memory new-flow path (PR 13–16) ─────────────────────────────
-    # As of PR 16 the new flow handles every documented flag, so this
-    # always routes here. The legacy ``run_inference`` body is kept for
-    # backward-compat external callers and is removed in PR 17.
-    if _can_use_new_in_memory_flow(kwargs):
-        return _run_in_memory_new_flow(kwargs, paf_workers=paf_workers)
-
-    return run_inference(**kwargs)
-
-
-def _can_use_new_in_memory_flow(kwargs: dict) -> bool:
-    """Return True iff the new factory + Predictor.predict can serve this call.
-
-    As of PR 16 the new flow handles every documented flag combination
-    that ``run_inference`` ever supported:
-
-    * Video or ``.slp`` source · one or more ``.ckpt`` model dirs
-    * ``--backbone_ckpt_path`` / ``--head_ckpt_path`` (threaded through
-      the factory's existing kwargs).
-    * ``--tracking`` + every tracking knob (via :class:`TrackerConfig`).
-    * Every ``--filter_*`` knob (via :class:`FilterConfig`).
-    * The four frame-selection flags (``only_suggested_frames`` /
-      ``exclude_user_labeled`` / ``only_predicted_frames`` /
-      ``no_empty_frames``).
-    * ``--gui`` (JSON progress emission via ``progress_callback``).
-    * Tracking-only retrack (no ``model_paths``, ``--tracking`` set,
-      ``.slp`` data path) — handled by :meth:`Predictor.retrack`.
-
-    The function returns ``True`` whenever any of these combinations is
-    requested. The legacy ``run_inference`` is no longer reached during
-    normal CLI use; the body is kept for one release as a deprecation
-    target and removed in PR 17.
-    """
-    return True
+    return _run_in_memory_new_flow(kwargs, paf_workers=paf_workers)
 
 
 def _resolve_device(value: object) -> str:
@@ -1088,6 +1060,23 @@ def _resolve_device(value: object) -> str:
             return "mps"
         return "cpu"
     return str(value)
+
+
+def _build_preprocess_config(kwargs: dict):
+    """Build an OmegaConf preprocess override from CLI flags, or ``None``."""
+    from omegaconf import OmegaConf
+
+    overrides = {
+        "ensure_rgb": kwargs.get("ensure_rgb"),
+        "ensure_grayscale": kwargs.get("ensure_grayscale"),
+        "max_height": kwargs.get("max_height"),
+        "max_width": kwargs.get("max_width"),
+        "scale": kwargs.get("input_scale"),
+        "crop_size": kwargs.get("crop_size"),
+    }
+    if any(v is not None for v in overrides.values()):
+        return OmegaConf.create(overrides)
+    return None
 
 
 def _build_filter_config(kwargs: dict) -> "object":
@@ -1158,51 +1147,38 @@ def _build_tracker_config(kwargs: dict) -> "object":
 
 
 def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
-    """Run the new ``Predictor`` flow synchronously and save the resulting Labels.
+    """Run the new ``predict()`` flow synchronously and save the resulting Labels.
 
     Routes to :meth:`Predictor.retrack` for the tracking-only retrack
     case (no ``model_paths``, ``--tracking`` set, ``.slp`` data path);
-    otherwise builds a ``Predictor`` via the factory and calls
-    :meth:`Predictor.predict`.
+    otherwise delegates to :func:`sleap_nn.inference.run.predict`.
     """
     from pathlib import Path
 
-    import sleap_io as sio
-
-    from sleap_nn.inference.factory import from_model_paths
-    from sleap_nn.inference.predictor import Predictor as NewPredictor
-    from sleap_nn.inference.providers import LabelsProvider, VideoProvider
+    from sleap_nn.inference.predictor import Predictor
 
     # ── Tracking-only retrack: no model_paths, --tracking on a .slp ────
     if not kwargs.get("model_paths") and kwargs.get("tracking"):
-        return _run_retrack_only(kwargs, NewPredictor)
+        return _run_retrack_only(kwargs, Predictor)
 
-    factory_kwargs = {
-        "device": _resolve_device(kwargs.get("device")),
-        "peak_threshold": kwargs.get("peak_threshold", 0.2),
-        "integral_refinement": kwargs.get("integral_refinement", "integral"),
-        "integral_patch_size": kwargs.get("integral_patch_size", 5),
-        "batch_size": kwargs.get("batch_size", 4),
-        "max_instances": kwargs.get("max_instances"),
-        "anchor_part": kwargs.get("anchor_part"),
-        "paf_workers": paf_workers,
-    }
-    if kwargs.get("backbone_ckpt_path"):
-        factory_kwargs["backbone_ckpt_path"] = kwargs["backbone_ckpt_path"]
-    if kwargs.get("head_ckpt_path"):
-        factory_kwargs["head_ckpt_path"] = kwargs["head_ckpt_path"]
-    if kwargs.get("tracking"):
-        factory_kwargs["tracker_config"] = _build_tracker_config(kwargs)
-    if kwargs.get("centroid_only"):
-        factory_kwargs["centroid_only"] = True
-    filter_config = _build_filter_config(kwargs)
-    if filter_config is not None:
-        factory_kwargs["filter_config"] = filter_config
-    predictor = from_model_paths(kwargs["model_paths"], **factory_kwargs)
+    from sleap_nn.inference.providers import LabelsProvider, VideoProvider
+    from sleap_nn.inference.run import predict
 
     src = Path(kwargs["data_path"])
-    if src.suffix == ".slp":
-        provider = LabelsProvider(
+
+    # Build source: use a provider when CLI-specific filtering or
+    # video kwargs are needed, otherwise pass the raw path.
+    has_slp_filters = any(
+        kwargs.get(k)
+        for k in (
+            "only_labeled_frames",
+            "only_suggested_frames",
+            "exclude_user_labeled",
+            "only_predicted_frames",
+        )
+    )
+    if src.suffix == ".slp" and has_slp_filters:
+        source = LabelsProvider(
             labels=str(src),
             batch_size=kwargs.get("batch_size", 4),
             only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
@@ -1210,34 +1186,57 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
             exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
             only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
         )
-        loaded = sio.load_slp(str(src))
-        skeleton = loaded.skeletons[0]
-        videos = list(loaded.videos)
-    else:
-        provider = VideoProvider(
+    elif src.suffix != ".slp" and (
+        kwargs.get("video_dataset")
+        or kwargs.get("video_input_format", "channels_last") != "channels_last"
+    ):
+        source = VideoProvider(
             video=str(src),
             batch_size=kwargs.get("batch_size", 4),
             frames=kwargs.get("frames"),
             dataset=kwargs.get("video_dataset"),
             input_format=kwargs.get("video_input_format"),
         )
-        skeleton = _skeleton_from_predictor(predictor, kwargs["model_paths"][0])
-        # ``Labels.save()`` traverses ``video.backend``; pass the loaded
-        # ``sio.Video`` so the saved .slp has a real backend reference.
-        videos = [sio.load_video(str(src))]
+    else:
+        source = str(src)
 
-    labels = predictor.predict(
-        provider,
-        make_labels=True,
-        skeleton=skeleton,
-        videos=videos,
-        clean_empty_frames=bool(kwargs.get("no_empty_frames")),
-        progress_callback=_gui_progress_callback() if kwargs.get("gui") else None,
-    )
+    peak_thresh = kwargs.get("peak_threshold", 0.2)
+    centroid_thresh = kwargs.get("centroid_peak_threshold") or peak_thresh
 
-    output_path = kwargs.get("output_path") or f"{src}.slp"
-    labels.save(output_path)
-    return labels
+    predict_kwargs: dict = {
+        "model_paths": kwargs["model_paths"],
+        "device": _resolve_device(kwargs.get("device")),
+        "batch_size": kwargs.get("batch_size", 4),
+        "paf_workers": paf_workers,
+        "peak_threshold": peak_thresh,
+        "centroid_threshold": centroid_thresh,
+        "keypoint_threshold": peak_thresh,
+        "integral_refinement": kwargs.get("integral_refinement", "integral"),
+        "integral_patch_size": kwargs.get("integral_patch_size", 5),
+        "max_instances": kwargs.get("max_instances"),
+        "anchor_part": kwargs.get("anchor_part"),
+        "frames": kwargs.get("frames"),
+        "clean_empty_frames": bool(kwargs.get("no_empty_frames")),
+        "output_path": kwargs.get("output_path") or f"{src}.slp",
+    }
+    preprocess_config = _build_preprocess_config(kwargs)
+    if preprocess_config is not None:
+        predict_kwargs["preprocess_config"] = preprocess_config
+    if kwargs.get("backbone_ckpt_path"):
+        predict_kwargs["backbone_ckpt_path"] = kwargs["backbone_ckpt_path"]
+    if kwargs.get("head_ckpt_path"):
+        predict_kwargs["head_ckpt_path"] = kwargs["head_ckpt_path"]
+    if kwargs.get("tracking"):
+        predict_kwargs["tracker_config"] = _build_tracker_config(kwargs)
+    if kwargs.get("centroid_only"):
+        predict_kwargs["centroid_only"] = True
+    filter_config = _build_filter_config(kwargs)
+    if filter_config is not None:
+        predict_kwargs["filter_config"] = filter_config
+    if kwargs.get("gui"):
+        predict_kwargs["progress_callback"] = _gui_progress_callback()
+
+    return predict(source, **predict_kwargs)
 
 
 def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
@@ -1360,9 +1359,7 @@ def _run_stream_to_file(
 
     from pathlib import Path
 
-    import sleap_io as sio
-
-    from sleap_nn.inference.factory import from_model_paths
+    from sleap_nn.inference.predictor import Predictor
     from sleap_nn.inference.providers import LabelsProvider, VideoProvider
 
     factory_kwargs = {
@@ -1376,6 +1373,9 @@ def _run_stream_to_file(
         "anchor_part": kwargs.get("anchor_part"),
         "paf_workers": paf_workers,
     }
+    preprocess_config = _build_preprocess_config(kwargs)
+    if preprocess_config is not None:
+        factory_kwargs["preprocess_config"] = preprocess_config
     if kwargs.get("backbone_ckpt_path"):
         factory_kwargs["backbone_ckpt_path"] = kwargs["backbone_ckpt_path"]
     if kwargs.get("head_ckpt_path"):
@@ -1386,7 +1386,7 @@ def _run_stream_to_file(
     if filter_config is not None:
         factory_kwargs["filter_config"] = filter_config
 
-    predictor = from_model_paths(kwargs["model_paths"], **factory_kwargs)
+    predictor = Predictor.from_model_paths(kwargs["model_paths"], **factory_kwargs)
 
     src = Path(data_path)
     if src.suffix == ".slp":
@@ -1398,8 +1398,6 @@ def _run_stream_to_file(
             exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
             only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
         )
-        labels = sio.load_slp(str(src))
-        skeleton = labels.skeletons[0]
     else:
         provider = VideoProvider(
             video=str(src),
@@ -1408,28 +1406,13 @@ def _run_stream_to_file(
             dataset=kwargs.get("video_dataset"),
             input_format=kwargs.get("video_input_format"),
         )
-        # Skeleton comes from the model's training_config — pull via the layer.
-        skeleton = _skeleton_from_predictor(predictor, kwargs["model_paths"][0])
 
     return predictor.predict_to_file(
         provider,
         path=str(stream_to_file),
-        skeleton=skeleton,
         write_interval=write_interval,
         progress_callback=_gui_progress_callback() if kwargs.get("gui") else None,
     )
-
-
-def _skeleton_from_predictor(predictor, model_path: str):
-    """Extract a ``sleap_io.Skeleton`` from the model's ``training_config``."""
-    from omegaconf import OmegaConf
-
-    from sleap_nn.inference.utils import get_skeleton_from_config
-
-    cfg_path = Path(model_path) / "training_config.yaml"
-    cfg = OmegaConf.load(cfg_path.as_posix())
-    skeletons = get_skeleton_from_config(cfg.data_config.skeletons)
-    return skeletons[0]
 
 
 def _common_inference_options(f):
@@ -1562,6 +1545,15 @@ def _common_inference_options(f):
             type=float,
             default=0.2,
             help="Min confmap value for a valid peak. --peak-conf-threshold is an alias.",
+        ),
+        click.option(
+            "--centroid_peak_threshold",
+            type=float,
+            default=None,
+            help=(
+                "Override peak threshold for the centroid stage only (top-down). "
+                "Defaults to --peak_threshold when not set."
+            ),
         ),
         click.option("--filter_overlapping", is_flag=True, default=False),
         click.option(
