@@ -136,6 +136,10 @@ def test_centroid_nms_dedupes_close_centroids(monkeypatch):
 
     centroid_layer.predict = fake_predict  # type: ignore[assignment]
     centroid_layer._to_4d_float_tensor = staticmethod(CentroidLayer._to_4d_float_tensor)
+    centroid_layer._to_4d_tensor = staticmethod(CentroidLayer._to_4d_tensor)
+    # PR 27: TopDownLayer reads preprocess_config off the centroid_layer
+    # to re-apply sizematcher when cropping. Stub a no-op config here.
+    centroid_layer.preprocess_config = PreprocessConfig()
 
     inst_layer = CenteredInstanceLayer.__new__(CenteredInstanceLayer)
     inst_layer.use_gt_peaks = False

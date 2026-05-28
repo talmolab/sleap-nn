@@ -37,18 +37,6 @@ from sleap_nn.data.custom_datasets import (
 )
 from sleap_nn.config.training_job_config import TrainingJobConfig
 
-# Mac CI hangs reproducibly somewhere in this file — Lightning trainer
-# processes don't always terminate cleanly on GitHub-hosted Mac runners
-# (observed three 30-minute hangs across PR 1 + PR 8 of #508). The
-# tests run cleanly on Linux + Windows, so coverage is preserved. We
-# skip the whole module on darwin to keep the Mac CI lane free for the
-# inference-refactor work to land.
-pytestmark = pytest.mark.skipif(
-    sys.platform == "darwin",
-    reason="Lightning trainer processes hang intermittently on Mac CI; "
-    "covered by the Linux + Windows lanes",
-)
-
 
 @pytest.fixture
 def caplog(caplog: LogCaptureFixture):
