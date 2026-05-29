@@ -546,12 +546,18 @@ class ExportedBottomUpMultiClassLayer:
         n_classes: Number of identity classes (= ``I`` in the output).
         input_scale: Wrapper's baked-in ``input_scale``. Used to
             unscale predicted points back to original-image space.
+        peak_conf_threshold: Optional runtime peak-confidence threshold.
+            When set, peaks whose confidence is ``<= peak_conf_threshold``
+            are dropped before class grouping (legacy parity — the legacy
+            exported multi-class bottom-up path gated peaks the same way,
+            #582). ``None`` keeps every peak the wrapper emitted.
     """
 
     backend: Any
     n_nodes: int
     n_classes: int
     input_scale: float = 1.0
+    peak_conf_threshold: Optional[float] = None
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend, flatten + group peaks by class, build ``Outputs``."""
@@ -563,6 +569,9 @@ class ExportedBottomUpMultiClassLayer:
         peaks = raw["peaks"]  # (B, n_nodes, k, 2)
         peak_vals = raw["peak_vals"]  # (B, n_nodes, k)
         peak_mask = raw["peak_mask"].bool()  # (B, n_nodes, k)
+        # Runtime peak-confidence gate before class grouping (legacy parity).
+        if self.peak_conf_threshold is not None:
+            peak_mask = peak_mask & (peak_vals > self.peak_conf_threshold)
         class_probs_raw = raw["class_probs"]  # (B, n_nodes, k, n_classes)
 
         B, n_nodes, k, _ = peaks.shape

@@ -477,3 +477,88 @@ def test_infer_paf_workers_zero_no_warning(tmp_path):
         )
         assert result.exit_code == 0, result.output
         assert "paf-workers > 0" not in result.output
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# #582 — candidates_method defaulting (infer auto-switch + track regression)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_infer_max_tracks_auto_switches_to_local_queues():
+    """`infer --max_tracks N` with no explicit method defaults to local_queues.
+
+    Drives the real CLI wiring (#582): the infer option default is None so
+    _build_tracker_config can switch fixed_window -> local_queues for max_tracks.
+    """
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.inference.run.predict", return_value=MagicMock()
+    ) as mock_predict:
+        result = runner.invoke(
+            cli,
+            [
+                "infer",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--tracking",
+                "--max_tracks",
+                "3",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        cfg = mock_predict.call_args[1]["tracker_config"]
+        assert cfg.candidates_method == "local_queues"
+        assert cfg.max_tracks == 3
+
+
+def test_infer_explicit_fixed_window_with_max_tracks_respected():
+    """An explicit `--candidates_method fixed_window` is not overridden (#582)."""
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.inference.run.predict", return_value=MagicMock()
+    ) as mock_predict:
+        result = runner.invoke(
+            cli,
+            [
+                "infer",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--tracking",
+                "--candidates_method",
+                "fixed_window",
+                "--max_tracks",
+                "3",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_predict.call_args[1]["tracker_config"].candidates_method == (
+            "fixed_window"
+        )
+
+
+def test_track_command_candidates_method_defaults_fixed_window():
+    """Legacy `track --tracking` keeps the fixed_window default (no None crash).
+
+    Regression guard for #582: the new flow's option was changed to default
+    None, which must NOT leak into the legacy `track` command (its option must
+    stay 'fixed_window', else run_inference -> Tracker.from_config(None) crashes).
+    """
+    runner = CliRunner()
+    with patch("sleap_nn.predict.run_inference", return_value=MagicMock()) as mock_run:
+        result = runner.invoke(
+            cli,
+            [
+                "track",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--tracking",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_run.call_args[1]["candidates_method"] == "fixed_window"

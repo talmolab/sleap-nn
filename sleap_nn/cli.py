@@ -822,8 +822,8 @@ def train(
 @click.option(
     "--candidates_method",
     type=str,
-    default=None,
-    help="Either of `fixed_window` or `local_queues`. In fixed window method, candidates from the last `window_size` frames. In local queues, last `window_size` instances for each track ID is considered for matching against the current detection. Defaults to `fixed_window`, or to `local_queues` when `--max_tracks` is set (since `max_tracks` is only honored by `local_queues`).",
+    default="fixed_window",
+    help="Either of `fixed_window` or `local_queues`. In fixed window method, candidates from the last `window_size` frames. In local queues, last `window_size` instances for each track ID is considered for matching against the current detection.",
 )
 @click.option(
     "--min_match_points",
@@ -1605,7 +1605,10 @@ def _common_inference_options(f):
         click.option("--integral_refinement", type=str, default="integral"),
         click.option("--tracking_window_size", type=int, default=5),
         click.option("--min_new_track_points", type=int, default=0),
-        click.option("--candidates_method", type=str, default="fixed_window"),
+        # Default None (not "fixed_window") so _build_tracker_config can tell
+        # "user didn't choose a method" from an explicit choice, and default it
+        # to local_queues when --max_tracks is set (#582).
+        click.option("--candidates_method", type=str, default=None),
         click.option("--min_match_points", type=int, default=0),
         click.option("--features", type=str, default="keypoints"),
         click.option("--scoring_method", type=str, default="oks"),

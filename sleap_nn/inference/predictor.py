@@ -515,6 +515,7 @@ def _select_export_layer(
             n_nodes=int(metadata.n_nodes),
             n_classes=int(metadata.n_classes),
             input_scale=float(metadata.input_scale),
+            peak_conf_threshold=peak_conf_threshold,
         )
 
     raise ValueError(f"Unrecognized model_type {model_type!r} in export_metadata.json.")
@@ -721,12 +722,13 @@ class Predictor:
         backend = _build_export_backend(runtime, model_path, device)
 
         # Default the runtime peak-confidence threshold to the value baked at
-        # export time, matching legacy export inference (#582).
-        resolved_peak_conf = (
-            peak_conf_threshold
-            if peak_conf_threshold is not None
-            else getattr(metadata, "peak_threshold", None)
-        )
+        # export time, falling back to legacy's 0.2 when the metadata carries no
+        # baked threshold (matches legacy export inference, #582).
+        if peak_conf_threshold is not None:
+            resolved_peak_conf = peak_conf_threshold
+        else:
+            meta_thr = getattr(metadata, "peak_threshold", None)
+            resolved_peak_conf = meta_thr if meta_thr is not None else 0.2
         layer = _select_export_layer(
             metadata=metadata,
             backend=backend,
@@ -883,11 +885,26 @@ class Predictor:
                 raise ValueError("predict() received an empty list of sources.")
             sub_providers: list = []
             all_videos: list = []
+            video_offsets: list = []
             for sub in source:
                 sub_provider, sub_videos = self._make_provider(sub, **provider_kwargs)
                 sub_providers.append(sub_provider)
-                all_videos.extend(sub_videos if sub_videos else [None])
-            return MultiVideoProvider(providers=sub_providers), all_videos
+                # Each source starts at the current end of the merged video
+                # list; its own (possibly multi-video) indices are offset by
+                # this. Substitute a placeholder when a sub-source has no
+                # derivable video so frames never reference a None video
+                # (unserializable) — matches the writer's placeholder.
+                video_offsets.append(len(all_videos))
+                if sub_videos:
+                    all_videos.extend(sub_videos)
+                else:
+                    all_videos.append(sio.Video(filename="unknown", backend=None))
+            return (
+                MultiVideoProvider(
+                    providers=sub_providers, video_offsets=video_offsets
+                ),
+                all_videos,
+            )
 
         if hasattr(source, "__iter__"):
             return source, None

@@ -28,6 +28,7 @@ from concurrent.futures import Future, ProcessPoolExecutor
 from typing import Any, Iterator, List, Optional, Tuple
 
 import attrs
+import numpy as np
 import torch
 
 from sleap_nn.inference.outputs import Outputs
@@ -221,8 +222,12 @@ def group_scored_batch(scored: ScoredBatch, params: GroupingParams) -> Outputs:
             params.max_instances is not None
             and int(instances_b.shape[0]) > max_instances
         ):
-            sort_key = torch.nan_to_num(scores_b, nan=float("-inf"))
-            order = torch.argsort(sort_key, descending=True)
+            # Top-N by instance score, descending. Replicate legacy exactly
+            # (``np.argsort(instance_scores)[::-1][:max]``) so tie-order and
+            # NaN handling match the legacy live + export truncation. scores_b
+            # is already CPU here (group_instances returns CPU tensors).
+            order_np = np.argsort(scores_b.detach().cpu().numpy())[::-1]
+            order = torch.from_numpy(order_np.copy())
             instances_b = instances_b[order]
             vals_b = vals_b[order]
             scores_b = scores_b[order]

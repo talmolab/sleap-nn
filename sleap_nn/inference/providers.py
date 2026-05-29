@@ -309,33 +309,47 @@ class LabelsProvider:
 
 @attrs.define
 class MultiVideoProvider:
-    """Concatenate several providers, re-stamping per-source video indices.
+    """Concatenate several providers, OFFSETTING per-source video indices.
 
     Wraps an ordered list of already-built providers (one per input source)
-    and yields their batches in order, OVERRIDING each batch's
-    ``video_indices`` with the source ordinal (0 for the first source's
-    batches, 1 for the second, ...). Single-source providers each emit their
-    own 0-based ``video_indices`` (e.g. :class:`VideoProvider` hardcodes
-    zeros), so they must be replaced — not offset — to attribute every frame
-    to the correct video in a merged multi-video ``.slp`` (#582).
+    and yields their batches in order, shifting each batch's
+    ``video_indices`` by that source's starting global video index. Each
+    sub-provider emits its own local video indices (``VideoProvider`` always
+    0; a ``LabelsProvider`` over a multi-video ``.slp`` emits per-frame
+    0..N-1), so adding the per-source offset attributes every frame to the
+    correct video in the merged multi-video ``.slp`` — and supports both
+    single-video and multi-video sources in the list (#582).
 
     Args:
         providers: Ordered list of per-source :class:`Provider` instances.
             Build these via ``Predictor._make_provider`` so source-type
             dispatch stays in one place.
+        video_offsets: Parallel list giving each source's starting index
+            into the merged ``videos`` list (i.e. the cumulative video count
+            of the preceding sources). Defaults to ``0, 1, 2, ...`` (one
+            video per source) when omitted.
     """
 
     providers: list
+    video_offsets: Optional[list] = None
+
+    def _offsets(self) -> list:
+        if self.video_offsets is not None:
+            return list(self.video_offsets)
+        return list(range(len(self.providers)))
 
     def __iter__(self) -> Iterator[Batch]:
-        """Yield each sub-provider's batches with the source ordinal stamped."""
-        for source_idx, provider in enumerate(self.providers):
+        """Yield each sub-provider's batches with its video offset applied."""
+        offsets = self._offsets()
+        for provider, offset in zip(self.providers, offsets):
             for batch in provider:
                 n = int(batch.images.shape[0])
-                yield attrs.evolve(
-                    batch,
-                    video_indices=np.full(n, source_idx, dtype=np.int64),
-                )
+                if batch.video_indices is not None:
+                    local = np.asarray(batch.video_indices, dtype=np.int64)
+                    vid = local + offset
+                else:
+                    vid = np.full(n, offset, dtype=np.int64)
+                yield attrs.evolve(batch, video_indices=vid)
 
     def __len__(self) -> int:
         """Total batches across all sub-providers (or ``-1`` if any unknown)."""
