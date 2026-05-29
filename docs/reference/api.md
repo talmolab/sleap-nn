@@ -59,6 +59,15 @@ train(
 
 ## Inference
 
+!!! tip "New inference API"
+    The examples below use the legacy `run_inference` entry point. The current
+    public inference surface is `from sleap_nn.inference import Predictor, predict`
+    — see the [Inference API guide](../guides/inference-api.md) for the
+    `Predictor` / `Outputs` / `FilterConfig` / `TrackerConfig` workflow. In
+    particular, the raw outputs returned by the new pipeline are
+    [`Outputs`](../guides/inference-api.md#the-outputs-dataclass) objects, not
+    the per-frame dicts shown under "Get Raw Outputs" below.
+
 ### Basic Inference
 
 ```python

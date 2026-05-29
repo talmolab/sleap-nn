@@ -1,6 +1,8 @@
 import torch
 import sleap_io as sio
 from sleap_nn.data.instance_centroids import (
+    find_points_bbox_midpoint,
+    find_points_mean,
     generate_centroids,
 )
 from sleap_nn.data.providers import process_lf
@@ -38,3 +40,35 @@ def test_generate_centroids(minimal_instance):
     centroids = generate_centroids(partial_instance, 1).int()
     gt = torch.Tensor([[[152, 158], [203, 131], [torch.nan, torch.nan]]]).int()
     assert torch.equal(centroids, gt)
+
+
+def test_generate_centroids_anchor_none_uses_mean_of_visible_nodes():
+    """`anchor_ind=None` falls back to mean of visible nodes (not bbox midpoint).
+
+    The two diverge on skewed instances (e.g., long tails / sprawled limbs).
+    """
+    # One node at (10, 10) skews bbox-midpoint vs mean.
+    points = torch.tensor(
+        [[[0.0, 0.0], [0.0, 0.0], [10.0, 10.0]]],  # (1 instance, 3 nodes, 2)
+    )
+
+    centroids = generate_centroids(points, anchor_ind=None)
+    expected_mean = torch.tensor([[10.0 / 3, 10.0 / 3]])
+    torch.testing.assert_close(centroids, expected_mean)
+
+    # And distinct from what bbox-midpoint would return.
+    bbox_mid = find_points_bbox_midpoint(points)
+    assert not torch.allclose(centroids, bbox_mid)
+
+
+def test_find_points_mean_ignores_nan():
+    """`find_points_mean` excludes NaN nodes; all-NaN → NaN."""
+    points = torch.tensor(
+        [
+            [[1.0, 2.0], [3.0, 4.0], [torch.nan, torch.nan]],
+            [[torch.nan, torch.nan], [torch.nan, torch.nan], [torch.nan, torch.nan]],
+        ]
+    )
+    means = find_points_mean(points)
+    assert torch.allclose(means[0], torch.tensor([2.0, 3.0]))
+    assert torch.isnan(means[1]).all()

@@ -10,6 +10,8 @@ Task-oriented guides for common workflows.
 | &nbsp;&nbsp;&nbsp;&nbsp;[Monitoring](monitoring.md) | WandB, visualizations, epoch-end evaluation |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Multi-GPU](multi-gpu.md) | Scale training across multiple GPUs |
 | [Inference](inference.md) | Run predictions on videos and label files |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Python API](inference-api.md) | `Predictor` / `predict` / `Outputs` for embedding inference in code |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Centroid-Only](centroid-only-inference.md) | Run a centroid model standalone |
 | [Evaluation](evaluation.md) | Assess model performance with metrics |
 | [Tracking](tracking.md) | Assign consistent IDs across frames |
 | [Export](export.md) | ONNX/TensorRT for production inference |

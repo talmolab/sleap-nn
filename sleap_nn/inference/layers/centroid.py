@@ -1,0 +1,276 @@
+"""``CentroidLayer`` — predicts instance centroids from a confmap model.
+
+Single-stage layer used either standalone (centroid-only inference) or
+composed with :class:`CenteredInstanceLayer` to form :class:`TopDownLayer`.
+
+The ``use_gt_centroids=True`` flag skips the centroid model and reads
+ground-truth centroids directly from a ``LabelsReader`` batch's
+``"instances"`` field. Used for top-down inference when only the
+centered_instance model is available.
+
+The two GT fallback paths live on different layers:
+
+* ``CentroidLayer.use_gt_centroids=True`` — GT *centroids* feed cropping
+  for a real centered_instance model.
+* ``CenteredInstanceLayer.use_gt_peaks=True`` — GT *keypoints* fill stage
+  2 when only a centroid model is available.
+
+Each is independently configurable on the layer that owns the role the
+GT data plays.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+import attrs
+import torch
+
+from sleap_nn.data.instance_centroids import generate_centroids
+from sleap_nn.inference.layers.backends.base import ModelBackend
+from sleap_nn.inference.layers.base import ImageInput, InferenceLayer
+from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
+from sleap_nn.inference.ops.coord import (
+    undo_eff_scale,
+    undo_input_scale,
+    undo_stride,
+)
+from sleap_nn.inference.ops.peaks import find_local_peaks
+from sleap_nn.inference.outputs import Outputs
+from sleap_nn.inference.preprocess_info import PreprocInfo
+
+
+class CentroidLayer(InferenceLayer):
+    """Centroid prediction layer.
+
+    Args:
+        backend: Runtime backend for the centroid model. Required even when
+            ``use_gt_centroids=True`` (the layer keeps the backend interface
+            uniform; it just doesn't call it on the GT path).
+        output_stride: Confmap → input-pixel stride from the head config.
+        max_instances: Cap on returned centroids per frame. Below-cap results
+            are NaN-padded; above-cap are truncated by ``topk`` confidence.
+        max_stride: Maximum stride the model requires the input to be
+            divisible by. Padding is applied bottom-right after the
+            preprocess input-scale resize.
+        anchor_ind: Skeleton-node index to use as the centroid anchor when
+            ``use_gt_centroids=True``. ``None`` falls back to the NaN-ignoring
+            mean of all visible nodes for each instance.
+        use_gt_centroids: When ``True``, skip the model and read centroids
+            from a batch's ``"instances"`` field (the LabelsReader path).
+        preprocess_config / postprocess_config: Standard knobs.
+    """
+
+    _HEAD_OUTPUT_KEY: str = "CentroidConfmapsHead"
+
+    def __init__(
+        self,
+        backend: ModelBackend,
+        output_stride: int,
+        max_instances: Optional[int] = None,
+        max_stride: int = 1,
+        anchor_ind: Optional[int] = None,
+        use_gt_centroids: bool = False,
+        preprocess_config: Optional[PreprocessConfig] = None,
+        postprocess_config: Optional[PostprocessConfig] = None,
+    ) -> None:
+        """Compose the layer with default empty configs when omitted."""
+        super().__init__(
+            backend=backend,
+            preprocess_config=preprocess_config or PreprocessConfig(),
+            postprocess_config=postprocess_config
+            or PostprocessConfig(
+                max_instances=max_instances,
+            ),
+            output_stride=output_stride,
+            max_stride=max_stride,
+        )
+        self.max_instances = max_instances
+        self.anchor_ind = anchor_ind
+        self.use_gt_centroids = use_gt_centroids
+
+    # ──────────────────────────────────────────────────────────────────
+    # predict(): override to handle the use_gt_centroids branch
+    # ──────────────────────────────────────────────────────────────────
+
+    def predict(
+        self,
+        image: ImageInput,
+        instances: Optional[torch.Tensor] = None,
+    ) -> Outputs:
+        """Run centroid prediction on ``image``.
+
+        Args:
+            image: ``np.ndarray`` or ``torch.Tensor`` in any of the shapes
+                accepted by :meth:`InferenceLayer._to_4d_float_tensor`.
+            instances: ``(B, max_instances, n_nodes, 2)`` GT instance
+                keypoints. Required when ``use_gt_centroids=True``;
+                ignored otherwise.
+
+        Returns:
+            ``Outputs`` populated with ``pred_centroids`` and
+            ``pred_centroid_values`` (and optionally ``pred_confmaps`` if
+            the postprocess config asks for it).
+        """
+        if self.use_gt_centroids:
+            if instances is None:
+                raise ValueError(
+                    "use_gt_centroids=True requires `instances` to be passed "
+                    "(typically from a LabelsReader's ground-truth field)."
+                )
+            return self._predict_from_gt(image, instances)
+        return super().predict(image)
+
+    def _predict_from_gt(self, image: ImageInput, instances: torch.Tensor) -> Outputs:
+        """Compute centroids from GT instances, no model forward.
+
+        Mirrors the legacy ``CentroidCrop(use_gt_centroids=True)`` branch:
+        ``generate_centroids`` reduces ``(B, max_inst, n_nodes, 2)`` GT
+        keypoints to ``(B, max_inst, 2)`` centroids. NaN-padded instance
+        slots stay NaN; corresponding centroid_values are NaN-masked.
+        Truncated/padded to ``self.max_instances`` if set.
+        """
+        x = self._to_4d_float_tensor(image)
+        B = x.shape[0]
+        H, W = x.shape[-2], x.shape[-1]
+
+        centroids = generate_centroids(instances, anchor_ind=self.anchor_ind)
+        # ``centroids`` shape: ``(B, max_inst, 2)`` (3D — same rank as
+        # ``Outputs.pred_centroids``).
+        device = centroids.device
+        n_valid = centroids.shape[1]
+
+        # Confidence = 1.0 where centroid is valid, NaN where padded.
+        nan_mask = torch.isnan(centroids).any(dim=-1)  # (B, max_inst)
+        centroid_vals = torch.where(
+            nan_mask,
+            torch.full((B, n_valid), float("nan"), device=device),
+            torch.ones((B, n_valid), device=device),
+        )
+
+        # Honor ``self.max_instances`` cap; pad-with-NaN or truncate to it.
+        max_inst = self.max_instances or n_valid
+        if max_inst > n_valid:
+            pad_n = max_inst - n_valid
+            centroids = torch.cat(
+                [
+                    centroids,
+                    torch.full((B, pad_n, 2), float("nan"), device=device),
+                ],
+                dim=1,
+            )
+            centroid_vals = torch.cat(
+                [
+                    centroid_vals,
+                    torch.full((B, pad_n), float("nan"), device=device),
+                ],
+                dim=1,
+            )
+        elif max_inst < n_valid:
+            centroids = centroids[:, :max_inst]
+            centroid_vals = centroid_vals[:, :max_inst]
+
+        info = PreprocInfo(
+            original_size=(H, W),
+            processed_size=(H, W),
+            eff_scale=torch.ones(B, device=device),
+            input_scale=1.0,
+            output_stride=1,
+        )
+        return Outputs(
+            pred_centroids=centroids,
+            pred_centroid_values=centroid_vals,
+            preprocess_info=info,
+        )
+
+    # ──────────────────────────────────────────────────────────────────
+    # postprocess(): find_local_peaks + coord ladder + topk + NaN pad
+    # ──────────────────────────────────────────────────────────────────
+
+    def postprocess(self, raw_out: dict, info: PreprocInfo) -> Outputs:
+        """Decode confmaps → centroids; coord-unscale; topk + NaN-pad.
+
+        Mirrors the legacy ``CentroidCrop.forward()`` shape contract:
+        returns ``(B, max_instances, 2)`` centroids and ``(B, max_instances)``
+        values, NaN-padded where no detection.
+        """
+        if self.backend.does_baked_postproc:
+            peaks = raw_out["peaks"]
+            peak_vals = raw_out["peak_vals"]
+            sample_inds = raw_out.get("peak_sample_inds")
+            confmaps = raw_out.get("confmaps")
+            if sample_inds is None:
+                raise KeyError(
+                    "baked-postproc backend must return peak_sample_inds for "
+                    "the centroid layer (multi-peak per sample)."
+                )
+        else:
+            confmaps = self._extract_confmaps(raw_out)
+            peaks, peak_vals, sample_inds, _channel_inds = find_local_peaks(
+                confmaps.detach(),
+                threshold=self.postprocess_config.peak_threshold,
+                refinement=self.postprocess_config.effective_refinement,
+                integral_patch_size=self.postprocess_config.integral_patch_size,
+            )
+
+        # Coord ladder: confmap → input pixels → original-image pixels.
+        peaks = undo_stride(peaks, info.output_stride)
+        peaks = undo_input_scale(peaks, info.input_scale)
+
+        B = (
+            info.processed_size and info.processed_size[0]
+        )  # not used; B from sample_inds
+        # Determine batch size from confmaps shape (always available on Torch).
+        if confmaps is not None:
+            B = int(confmaps.shape[0])
+        else:
+            B = int(sample_inds.max().item()) + 1 if sample_inds.numel() else 1
+
+        max_instances = self.max_instances or self._infer_max_instances(sample_inds)
+        if max_instances == 0:
+            max_instances = 1  # always emit at least one slot for shape stability
+
+        # Allocate the padded outputs on the same device as the peaks so the
+        # scatter below doesn't trip the device check on cuda / mps. Falling
+        # back to CPU produces correct results on CPU but silently routes
+        # cuda / mps results through CPU (or errors on a downstream scatter).
+        device = peaks.device
+        padded_peaks = torch.full((B, max_instances, 2), float("nan"), device=device)
+        padded_vals = torch.full((B, max_instances), float("nan"), device=device)
+
+        for b in range(B):
+            mask = sample_inds == b
+            sample_peaks = peaks[mask]  # (n_b, 2)
+            sample_vals = peak_vals[mask]  # (n_b,)
+            if sample_peaks.numel() == 0:
+                continue
+            if sample_peaks.shape[0] > max_instances:
+                sample_vals, idx = torch.topk(sample_vals, max_instances)
+                sample_peaks = sample_peaks[idx]
+            n = sample_peaks.shape[0]
+            padded_peaks[b, :n] = sample_peaks
+            padded_vals[b, :n] = sample_vals
+
+        # Reverse the per-sample sizematcher last (matches legacy ordering).
+        padded_peaks = undo_eff_scale(padded_peaks, info.eff_scale)
+
+        outputs = Outputs(
+            pred_centroids=padded_peaks,
+            pred_centroid_values=padded_vals,
+            preprocess_info=info,
+        )
+        if self.postprocess_config.return_confmaps and confmaps is not None:
+            outputs = attrs.evolve(outputs, pred_confmaps=confmaps.detach())
+        return outputs
+
+    # ──────────────────────────────────────────────────────────────────
+    # Helpers
+    # ──────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _infer_max_instances(sample_inds: torch.Tensor) -> int:
+        """Find the busiest sample's peak count."""
+        if sample_inds.numel() == 0:
+            return 0
+        counts = torch.bincount(sample_inds.long())
+        return int(counts.max().item())
