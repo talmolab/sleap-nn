@@ -9,6 +9,179 @@ from sleap_nn.train import train, run_training as main
 import sleap_io as sio
 
 
+def test_run_centroid_split_eval_routing(monkeypatch, tmp_path):
+    """Centroid post-training eval uses the NEW flow + centroid match method.
+
+    Exercises ONLY the per-split centroid routing in
+    ``sleap_nn.train._run_centroid_split_eval`` (no real training/inference):
+    asserts it calls the NEW ``predict`` with ``centroid_only=True`` (and no
+    ``make_labels`` kwarg, since the new predict hardcodes it), calls
+    ``run_evaluation`` with ``match_method="centroid"`` + the configured
+    ``anchor_part``/``match_threshold``, and does NOT KeyError on the missing
+    OKS keys (centroid metrics only has detection/distance metrics).
+    """
+    import sleap_nn.train as train_mod
+    import sleap_nn.inference.run as run_mod
+
+    captured = {}
+
+    class _FakeLabels:
+        def __len__(self):
+            return 1  # non-empty -> eval proceeds
+
+    def fake_predict(*args, **kwargs):
+        captured["predict_args"] = args
+        captured["predict_kwargs"] = kwargs
+        return _FakeLabels()
+
+    def fake_run_evaluation(*args, **kwargs):
+        captured["eval_kwargs"] = kwargs
+        # Centroid-mode metrics: detection_metrics + distance_metrics ONLY.
+        # Intentionally NO voc_metrics/mOKS/pck/visibility keys -- the helper
+        # must not touch them.
+        return {
+            "detection_metrics": {
+                "precision": 0.9,
+                "recall": 0.8,
+                "f1": 0.85,
+                "n_tp": 9,
+                "n_fp": 1,
+                "n_fn": 2,
+            },
+            "distance_metrics": {"avg": 3.0, "p50": 2.0, "p90": 5.0},
+        }
+
+    # The helper lazily imports `predict` from sleap_nn.inference.run inside the
+    # branch, so patch it on that module; run_evaluation is imported into
+    # sleap_nn.train at module load, so patch it there.
+    monkeypatch.setattr(run_mod, "predict", fake_predict)
+    monkeypatch.setattr(train_mod, "run_evaluation", fake_run_evaluation)
+
+    config = OmegaConf.create(
+        {
+            "model_config": {
+                "head_configs": {
+                    "single_instance": None,
+                    "centered_instance": None,
+                    "bottomup": None,
+                    "centroid": {
+                        "confmaps": {
+                            "anchor_part": "B",
+                            "sigma": 1.5,
+                            "output_stride": 2,
+                        }
+                    },
+                }
+            },
+            "trainer_config": {"eval": {"match_threshold": 25.0}},
+        }
+    )
+
+    run_path = Path(tmp_path) / "run"
+    pred_path = run_path / "labels_pr.val.0.slp"
+    metrics_path = run_path / "metrics.val.0.npz"
+
+    metrics = train_mod._run_centroid_split_eval(
+        config=config,
+        d_name="val.0",
+        path="gt.slp",
+        run_path=run_path,
+        pred_path=pred_path,
+        metrics_path=metrics_path,
+        device="cpu",
+    )
+
+    # NEW predict flow: source positional, centroid_only=True, no make_labels.
+    assert captured["predict_args"] == ("gt.slp",)
+    pk = captured["predict_kwargs"]
+    assert pk["centroid_only"] is True
+    assert pk["model_paths"] == [run_path]
+    assert pk["peak_threshold"] == 0.2
+    assert pk["device"] == "cpu"
+    assert pk["output_path"] == pred_path
+    assert "make_labels" not in pk
+
+    # Centroid evaluation routing: match_method + anchor_part + threshold.
+    ek = captured["eval_kwargs"]
+    assert ek["match_method"] == "centroid"
+    assert ek["anchor_part"] == "B"
+    assert ek["match_threshold"] == 25.0
+    assert ek["ground_truth_path"] == "gt.slp"
+    assert ek["predicted_path"] == pred_path.as_posix()
+    assert ek["save_metrics"] == metrics_path.as_posix()
+
+    # Returned centroid metrics dict has no OKS keys; helper must not have
+    # raised a KeyError accessing them.
+    assert "voc_metrics" not in metrics
+    assert "detection_metrics" in metrics
+
+
+def test_run_centroid_split_eval_defaults_and_empty(monkeypatch, tmp_path):
+    """Defaults: match_threshold falls back to 50.0; empty preds skip eval."""
+    import sleap_nn.train as train_mod
+    import sleap_nn.inference.run as run_mod
+
+    captured = {}
+
+    class _EmptyLabels:
+        def __len__(self):
+            return 0  # empty -> eval is skipped
+
+    # ----- empty predictions: run_evaluation must NOT be called -----
+    monkeypatch.setattr(run_mod, "predict", lambda *a, **k: _EmptyLabels())
+
+    def fail_eval(*a, **k):  # pragma: no cover - should not be called
+        raise AssertionError("run_evaluation should not run for empty preds")
+
+    monkeypatch.setattr(train_mod, "run_evaluation", fail_eval)
+
+    config_empty = OmegaConf.create(
+        {
+            "model_config": {
+                "head_configs": {
+                    "centroid": {"confmaps": {"anchor_part": None}},
+                }
+            },
+            "trainer_config": {},
+        }
+    )
+    out = train_mod._run_centroid_split_eval(
+        config=config_empty,
+        d_name="train.0",
+        path="gt.slp",
+        run_path=Path(tmp_path) / "run",
+        pred_path=Path(tmp_path) / "p.slp",
+        metrics_path=Path(tmp_path) / "m.npz",
+        device="cpu",
+    )
+    assert out is None
+
+    # ----- no eval config: match_threshold defaults to 50.0; anchor None -----
+    class _Labels:
+        def __len__(self):
+            return 1
+
+    monkeypatch.setattr(run_mod, "predict", lambda *a, **k: _Labels())
+
+    def ok_eval(*a, **k):
+        captured["eval_kwargs"] = k
+        return {"detection_metrics": {}, "distance_metrics": {}}
+
+    monkeypatch.setattr(train_mod, "run_evaluation", ok_eval)
+
+    train_mod._run_centroid_split_eval(
+        config=config_empty,
+        d_name="train.0",
+        path="gt.slp",
+        run_path=Path(tmp_path) / "run",
+        pred_path=Path(tmp_path) / "p.slp",
+        metrics_path=Path(tmp_path) / "m.npz",
+        device="cpu",
+    )
+    assert captured["eval_kwargs"]["match_threshold"] == 50.0
+    assert captured["eval_kwargs"]["anchor_part"] is None
+
+
 @pytest.fixture
 def sample_cfg(minimal_instance, tmp_path):
     config = DictConfig(

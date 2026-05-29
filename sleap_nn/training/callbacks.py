@@ -1299,64 +1299,10 @@ class EpochEndEvaluationCallback(Callback):
                 wandb_logger.experiment.summary[summary_key] = value
 
 
-def match_centroids(
-    pred_centroids: "np.ndarray",
-    gt_centroids: "np.ndarray",
-    max_distance: float = 50.0,
-) -> tuple:
-    """Match predicted centroids to ground truth using Hungarian algorithm.
-
-    Args:
-        pred_centroids: Predicted centroid locations, shape (n_pred, 2).
-        gt_centroids: Ground truth centroid locations, shape (n_gt, 2).
-        max_distance: Maximum distance threshold for valid matches (in pixels).
-
-    Returns:
-        Tuple of:
-            - matched_pred_indices: Indices of matched predictions
-            - matched_gt_indices: Indices of matched ground truth
-            - unmatched_pred_indices: Indices of unmatched predictions (false positives)
-            - unmatched_gt_indices: Indices of unmatched ground truth (false negatives)
-    """
-    import numpy as np
-    from scipy.optimize import linear_sum_assignment
-    from scipy.spatial.distance import cdist
-
-    n_pred = len(pred_centroids)
-    n_gt = len(gt_centroids)
-
-    # Handle edge cases
-    if n_pred == 0 and n_gt == 0:
-        return np.array([]), np.array([]), np.array([]), np.array([])
-    if n_pred == 0:
-        return np.array([]), np.array([]), np.array([]), np.arange(n_gt)
-    if n_gt == 0:
-        return np.array([]), np.array([]), np.arange(n_pred), np.array([])
-
-    # Compute pairwise distances
-    cost_matrix = cdist(pred_centroids, gt_centroids)
-
-    # Run Hungarian algorithm for optimal matching
-    pred_indices, gt_indices = linear_sum_assignment(cost_matrix)
-
-    # Filter matches that exceed max_distance
-    matched_pred = []
-    matched_gt = []
-    for p_idx, g_idx in zip(pred_indices, gt_indices):
-        if cost_matrix[p_idx, g_idx] <= max_distance:
-            matched_pred.append(p_idx)
-            matched_gt.append(g_idx)
-
-    matched_pred = np.array(matched_pred)
-    matched_gt = np.array(matched_gt)
-
-    # Find unmatched indices
-    all_pred = set(range(n_pred))
-    all_gt = set(range(n_gt))
-    unmatched_pred = np.array(list(all_pred - set(matched_pred)))
-    unmatched_gt = np.array(list(all_gt - set(matched_gt)))
-
-    return matched_pred, matched_gt, unmatched_pred, unmatched_gt
+# `match_centroids` now lives in `sleap_nn.evaluation` (centroid-only distance
+# evaluation subsystem). Re-exported here so existing callback imports/tests
+# keep working.
+from sleap_nn.evaluation import match_centroids  # noqa: E402
 
 
 class CentroidEvaluationCallback(Callback):

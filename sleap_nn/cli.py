@@ -1166,13 +1166,28 @@ def _build_tracker_config(kwargs: dict) -> "object":
     if (pcsb or pre_cull) and target is None:
         target = max_instances
 
+    # --features / --scoring_method default to None (sentinel for "user left the
+    # default"). Record whether they were set so apply_tracking can substitute
+    # single-node / centroid defaults; fall back to the historical
+    # keypoints/oks defaults for the effective values when unset (#586).
+    features = kwargs.get("features")
+    scoring_method = kwargs.get("scoring_method")
+    features_explicit = features is not None
+    scoring_method_explicit = scoring_method is not None
+    if features is None:
+        features = "keypoints"
+    if scoring_method is None:
+        scoring_method = "oks"
+
     return TrackerConfig(
         window_size=kwargs.get("tracking_window_size", 5),
         min_new_track_points=kwargs.get("min_new_track_points", 0),
         candidates_method=candidates_method,
         min_match_points=kwargs.get("min_match_points", 0),
-        features=kwargs.get("features", "keypoints"),
-        scoring_method=kwargs.get("scoring_method", "oks"),
+        features=features,
+        scoring_method=scoring_method,
+        features_explicit=features_explicit,
+        scoring_method_explicit=scoring_method_explicit,
         scoring_reduction=kwargs.get("scoring_reduction", "mean"),
         robust_best_instance=kwargs.get("robust_best_instance", 1.0),
         track_matching_method=kwargs.get("track_matching_method", "hungarian"),
@@ -1841,8 +1856,19 @@ def _common_inference_options(f):
         # to local_queues when --max_tracks is set (#582).
         click.option("--candidates_method", type=str, default=None),
         click.option("--min_match_points", type=int, default=0),
-        click.option("--features", type=str, default="keypoints"),
-        click.option("--scoring_method", type=str, default="oks"),
+        # Default None (not "keypoints"/"oks") so _build_tracker_config can tell
+        # "user left the default" from an explicit choice, mirroring the
+        # --candidates_method default=None pattern. A single-node / centroid
+        # model then resolves these to centroids/euclidean_dist in
+        # apply_tracking (#586).
+        click.option("--features", type=str, default=None),
+        click.option(
+            "--scoring_method",
+            type=str,
+            default=None,
+            help="Track association scoring method. Single-node / centroid "
+            "models resolve to euclidean_dist when left unset.",
+        ),
         click.option("--scoring_reduction", type=str, default="mean"),
         click.option("--robust_best_instance", type=float, default=1.0),
         click.option("--track_matching_method", type=str, default="hungarian"),
@@ -1956,6 +1982,25 @@ def infer(**kwargs):
     "--user_labels_only/--no-user_labels_only",
     default=True,
     help="Only evaluate user-labeled frames (default: True)",
+)
+@click.option(
+    "--match_method",
+    type=click.Choice(["oks", "centroid", "auto"]),
+    default="auto",
+    help=(
+        "Matching method: 'oks' (full-skeleton), 'centroid' (single-point "
+        "pixel-distance), or 'auto' (centroid when the prediction skeleton is "
+        "single-node). Default: auto."
+    ),
+)
+@click.option(
+    "--anchor_part",
+    type=str,
+    default=None,
+    help=(
+        "GT skeleton node used to compute ground-truth centroids in centroid "
+        "mode. Defaults to the mean of visible nodes when absent (#586)."
+    ),
 )
 def eval(**kwargs):
     """Run evaluation workflow."""

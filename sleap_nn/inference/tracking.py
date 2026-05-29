@@ -75,6 +75,15 @@ class TrackerConfig:
     tracking_clean_iou_threshold: float = 0.0
     post_connect_single_breaks: bool = False
 
+    # Single-node (centroid) default resolution ─────────────────────────
+    # True (the default) means the user explicitly chose ``scoring_method`` /
+    # ``features`` — direct constructors keep current behavior. The CLI sets
+    # these False when the corresponding flag was left at its sentinel, which
+    # lets ``apply_tracking`` substitute single-node-appropriate defaults
+    # (``euclidean_dist`` / ``centroids``) for a 1-node skeleton.
+    scoring_method_explicit: bool = True
+    features_explicit: bool = True
+
 
 def apply_tracking(
     labels: sio.Labels,
@@ -132,13 +141,36 @@ def apply_tracking(
             config.max_tracks,
         )
 
+    # Single-node (centroid) default resolution. A centroid model collapses to
+    # a 1-node Skeleton(['centroid']) (#586); OKS/keypoints are degenerate on a
+    # single point, so unless the caller explicitly chose otherwise, substitute
+    # euclidean-distance scoring on centroid features. Compute on locals — the
+    # frozen config is never mutated. Multi-node / multi-skeleton: unchanged.
+    effective_scoring_method = config.scoring_method
+    effective_features = config.features
+    if len(labels.skeletons) == 1 and len(labels.skeletons[0].nodes) == 1:
+        if not config.scoring_method_explicit:
+            effective_scoring_method = "euclidean_dist"
+        if not config.features_explicit:
+            effective_features = "centroids"
+        if (
+            effective_scoring_method != config.scoring_method
+            or effective_features != config.features
+        ):
+            logger.info(
+                "Single-node skeleton detected; applying centroid tracking "
+                "defaults: scoring_method=%r, features=%r.",
+                effective_scoring_method,
+                effective_features,
+            )
+
     tracker = Tracker.from_config(
         window_size=config.window_size,
         min_new_track_points=config.min_new_track_points,
         candidates_method=config.candidates_method,
         min_match_points=config.min_match_points,
-        features=config.features,
-        scoring_method=config.scoring_method,
+        features=effective_features,
+        scoring_method=effective_scoring_method,
         scoring_reduction=config.scoring_reduction,
         robust_best_instance=config.robust_best_instance,
         track_matching_method=config.track_matching_method,
