@@ -1450,6 +1450,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#centroid-only-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Centroid-Only (points)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#bottom-up" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6306,6 +6317,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#centroid-only-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Centroid-Only (points)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#bottom-up" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6503,6 +6525,29 @@
 <td><a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_centered_instance_unet_large_rf.yaml">centered_instance_unet_large</a></td>
 <td>UNet</td>
 <td>Stage 2, Large</td>
+</tr>
+</tbody>
+</table>
+<h3 id="centroid-only-points">Centroid-Only (points)<a class="headerlink" href="#centroid-only-points" title="Permanent link">&para;</a></h3>
+<p>First-class single-stage "animals-as-points" model: one centroid per animal, no
+per-keypoint pose. This is a <strong>standalone</strong> centroid model — distinct from the
+top-down stage-1 centroid configs above, which are paired with a
+centered-instance model and trained on downscaled crops. Trains at full
+resolution; inference collapses to a single-node <code>'centroid'</code> skeleton. See the
+<a href="../../guides/centroid-only-inference/">Centroid-Only Inference guide</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Config</th>
+<th>Backbone</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_centroid_unet_standalone.yaml">centroid_unet_standalone</a></td>
+<td>UNet</td>
+<td>Standalone, full-res, NOT top-down stage-1</td>
 </tr>
 </tbody>
 </table>
