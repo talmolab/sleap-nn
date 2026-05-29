@@ -23,7 +23,16 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterator, List, Optional, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Iterator,
+    List,
+    NamedTuple,
+    Optional,
+    Union,
+)
 
 import attrs
 import numpy as np
@@ -45,6 +54,21 @@ from sleap_nn.inference.layers.topdown_multiclass import (
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.providers import Provider
 from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
+
+
+class _CentroidPackaging(NamedTuple):
+    """Single-source centroid output-packaging decision.
+
+    Resolved once per :class:`Predictor` (see ``_resolve_centroid_packaging``)
+    and threaded identically into in-memory ``to_labels`` and the streaming
+    writer so all output paths agree.
+    """
+
+    collapse_skeleton: Optional[Any]  # 1-node sio.Skeleton, or None (no collapse)
+    anchor_ind: Optional[int]
+    emit_centroid: str  # "instance" | "centroid" | "both"
+    source: str  # sio.Centroid.source method tag
+
 
 if TYPE_CHECKING:
     import sleap_io as sio
@@ -571,6 +595,9 @@ class Predictor:
     # #530 gap: the new flow previously wrote no provenance).
     model_paths: Optional[List[str]] = None
     device: Optional[str] = None
+    # Centroid-only output representation: "instance" (default; single-node
+    # PredictedInstance), "centroid" (sio.PredictedCentroid), or "both".
+    emit_centroid: str = "instance"
 
     @property
     def filter_pipeline(self) -> FilterPipeline:
@@ -601,6 +628,7 @@ class Predictor:
         paf_workers: int = 0,
         tracker_config: Optional["TrackerConfig"] = None,
         centroid_only: bool = False,
+        emit_centroid: str = "instance",
         max_edge_length_ratio: float = 0.25,
         dist_penalty_weight: float = 1.0,
         n_points: int = 10,
@@ -631,6 +659,10 @@ class Predictor:
             tracker_config: :class:`TrackerConfig` for tracking.
             centroid_only: Force centroid-only output even when a
                 centered-instance model is among ``model_paths``.
+            emit_centroid: Centroid-only output representation: ``"instance"``
+                (default; single-node ``PredictedInstance``), ``"centroid"``
+                (``sio.PredictedCentroid``), or ``"both"``. Honored only for
+                centroid-only layers.
             max_edge_length_ratio: Bottom-up PAF max edge length ratio.
             dist_penalty_weight: Bottom-up PAF distance penalty weight.
             n_points: Bottom-up PAF line integration sample count.
@@ -681,6 +713,7 @@ class Predictor:
             "paf_workers": paf_workers,
             "model_paths": [str(p) for p in model_paths],
             "device": device,
+            "emit_centroid": emit_centroid,
         }
         if filter_config is not None:
             kwargs["filter_config"] = filter_config
@@ -1041,6 +1074,20 @@ class Predictor:
         """
         from datetime import datetime
 
+        # Tracking operates on sio.PredictedInstance objects; centroid emission
+        # (emit_centroid != 'instance') puts predictions in LabeledFrame.centroids
+        # as sio.PredictedCentroid, which the tracker would silently drop. Fail
+        # fast rather than lose data.
+        if self.tracker_config is not None and self.emit_centroid != "instance":
+            raise ValueError(
+                "Tracking is incompatible with emit_centroid="
+                f"{self.emit_centroid!r}: the tracker operates on "
+                "sio.PredictedInstance objects, but this mode emits "
+                "sio.PredictedCentroid objects (in LabeledFrame.centroids) that "
+                "would be dropped. Use emit_centroid='instance' (the default) "
+                "for tracking."
+            )
+
         provider, auto_videos = self._make_provider(source, frames=frames)
         if videos is None:
             videos = auto_videos
@@ -1235,11 +1282,16 @@ class Predictor:
         # `videos` (possibly None) is used (#582).
         if videos is None:
             videos = derived
+        pkg = self._resolve_centroid_packaging()
         writer = IncrementalLabelsWriter(
             path=path,
             skeleton=self.skeleton,
             videos=videos,
             write_interval=write_interval,
+            anchor_ind=pkg.anchor_ind,
+            collapse_skeleton=pkg.collapse_skeleton,
+            emit_centroid=pkg.emit_centroid,
+            source=pkg.source,
         )
         _prov_start = datetime.now()
         with writer:
@@ -1384,9 +1436,15 @@ class Predictor:
         import sleap_io as sio
 
         skeleton = self.skeleton
-        anchor_ind = self._packaging_anchor_ind()
+        pkg = self._resolve_centroid_packaging()
         tracks = self._multiclass_tracks()
         videos = list(videos) if videos else [None]
+        # When a standalone centroid model collapses to a 1-node 'centroid'
+        # skeleton, that is the skeleton attached to emitted instances and to
+        # Labels.skeletons; otherwise the original training skeleton is kept.
+        out_skeleton = (
+            pkg.collapse_skeleton if pkg.collapse_skeleton is not None else skeleton
+        )
         all_lf: list = []
         used_tracks: list = []
         seen_track_ids: set = set()
@@ -1394,8 +1452,11 @@ class Predictor:
             sub = outputs.to_labels(
                 skeleton=skeleton,
                 videos=videos,
-                anchor_ind=anchor_ind,
+                anchor_ind=pkg.anchor_ind,
                 tracks=tracks,
+                collapse_skeleton=pkg.collapse_skeleton,
+                emit_centroid=pkg.emit_centroid,
+                source=pkg.source,
             )
             all_lf.extend(sub.labeled_frames)
             for trk in sub.tracks:
@@ -1406,7 +1467,7 @@ class Predictor:
         labels = sio.Labels(
             labeled_frames=all_lf,
             videos=valid_videos,
-            skeletons=[skeleton],
+            skeletons=[out_skeleton],
         )
         if used_tracks:
             labels.tracks = used_tracks
@@ -1430,12 +1491,53 @@ class Predictor:
 
     def _packaging_anchor_ind(self) -> Optional[int]:
         """Anchor-node slot for centroid-only output packaging."""
-        from sleap_nn.inference.layers.centroid import CentroidLayer
         from sleap_nn.inference.layers.exported import ExportedCentroidLayer
 
         if isinstance(self.layer, (CentroidLayer, ExportedCentroidLayer)):
             return self.layer.anchor_ind
         return None
+
+    def _is_centroid_only_layer(self) -> bool:
+        """``True`` iff ``layer`` is a standalone centroid layer."""
+        from sleap_nn.inference.layers.exported import ExportedCentroidLayer
+
+        return isinstance(self.layer, (CentroidLayer, ExportedCentroidLayer))
+
+    def _resolve_centroid_packaging(self) -> _CentroidPackaging:
+        """Resolve the single-source centroid output-packaging decision.
+
+        For a centroid-only layer trained on a MULTI-node skeleton, the output
+        collapses to a 1-node 'centroid' skeleton (``sio.get_centroid_skeleton()``);
+        a genuinely 1-node model is left as-is (``collapse_skeleton=None``). The
+        ``source`` tag mirrors the #586 anchor-fallback semantics. For
+        non-centroid layers, emission is forced to ``"instance"`` and no
+        collapse occurs.
+        """
+        from sleap_nn.inference.centroid_convert import centroid_source_for_anchor
+
+        if not self._is_centroid_only_layer():
+            return _CentroidPackaging(
+                collapse_skeleton=None,
+                anchor_ind=None,
+                emit_centroid="instance",
+                source=centroid_source_for_anchor(None),
+            )
+        anchor_ind = self._packaging_anchor_ind()
+        node_names = (
+            list(self.skeleton.node_names) if self.skeleton is not None else None
+        )
+        source = centroid_source_for_anchor(anchor_ind, node_names)
+        collapse_skeleton = None
+        if self.skeleton is not None and len(self.skeleton.nodes) > 1:
+            import sleap_io as sio
+
+            collapse_skeleton = sio.get_centroid_skeleton()
+        return _CentroidPackaging(
+            collapse_skeleton=collapse_skeleton,
+            anchor_ind=anchor_ind,
+            emit_centroid=self.emit_centroid,
+            source=source,
+        )
 
     # ──────────────────────────────────────────────────────────────────
     # Prediction-time postprocess overrides
