@@ -659,3 +659,361 @@ def test_load_metrics(single_instance_with_metrics_ckpt, tmp_path):
     loaded_old = load_metrics(old_format_dir, split="val")
     assert loaded_old["mOKS"]["mOKS"] == 0.75
     assert loaded_old["voc_metrics"]["oks_voc.mAP"] == 0.6
+
+
+# ---------------------------------------------------------------------------
+# Centroid-only / single-node distance evaluation
+# ---------------------------------------------------------------------------
+
+from sleap_nn.evaluation import compute_gt_centroids, run_evaluation, match_centroids
+from sleap_nn.data.instance_centroids import generate_centroids
+
+
+@pytest.mark.parametrize("anchor_ind", [None, 0, 1])
+def test_compute_gt_centroids_parity_with_generate_centroids(anchor_ind):
+    """compute_gt_centroids must EXACTLY mirror generate_centroids (#586)."""
+    # Multi-node poses: anchor-visible, anchor-NaN->mean, all-NaN.
+    poses = np.array(
+        [
+            # Anchor visible (all nodes visible).
+            [[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]],
+            # Anchor (node 0 and node 1) NaN -> mean of visible nodes.
+            [[np.nan, np.nan], [np.nan, np.nan], [5.0, 7.0]],
+            # All nodes NaN -> NaN centroid.
+            [[np.nan, np.nan], [np.nan, np.nan], [np.nan, np.nan]],
+            # Partially visible, anchor present for ind 0/1.
+            [[1.0, 2.0], [3.0, 4.0], [np.nan, np.nan]],
+        ],
+        dtype=np.float32,
+    )
+
+    expected = generate_centroids(
+        torch.from_numpy(poses), anchor_ind=anchor_ind
+    ).numpy()
+    got = compute_gt_centroids(poses, anchor_ind=anchor_ind)
+
+    np.testing.assert_allclose(got, expected, rtol=1e-5, atol=1e-5, equal_nan=True)
+
+
+@pytest.mark.parametrize("anchor_ind", [None, 0])
+def test_compute_gt_centroids_single_node(anchor_ind):
+    """Parity on 1-node poses (the collapsed centroid skeleton case)."""
+    poses = np.array(
+        [
+            [[12.0, 34.0]],
+            [[np.nan, np.nan]],
+        ],
+        dtype=np.float32,
+    )
+    expected = generate_centroids(
+        torch.from_numpy(poses), anchor_ind=anchor_ind
+    ).numpy()
+    got = compute_gt_centroids(poses, anchor_ind=anchor_ind)
+    np.testing.assert_allclose(got, expected, rtol=1e-5, atol=1e-5, equal_nan=True)
+
+
+def test_compute_gt_centroids_anchor_nan_falls_back_to_mean():
+    """When the anchor node is NaN, fall back to mean-of-visible (not bbox)."""
+    # Single instance, anchor (node 0) is NaN.
+    pose = np.array([[np.nan, np.nan], [0.0, 0.0], [10.0, 20.0]], dtype=np.float32)
+    got = compute_gt_centroids(pose, anchor_ind=0)
+    # Mean of the two visible nodes = (5, 10). Bbox midpoint would also be
+    # (5, 10) here, so use an asymmetric extra node to disambiguate.
+    pose2 = np.array(
+        [[np.nan, np.nan], [0.0, 0.0], [0.0, 0.0], [9.0, 30.0]], dtype=np.float32
+    )
+    got2 = compute_gt_centroids(pose2, anchor_ind=0)
+    # Mean of visible = (3, 10); bbox midpoint would be (4.5, 15).
+    np.testing.assert_allclose(got, [5.0, 10.0])
+    np.testing.assert_allclose(got2, [3.0, 10.0])
+
+
+def _make_centroid_labels(minimal_instance):
+    """Build (gt_multi_node, pred_single_node) labels for centroid eval.
+
+    GT is a 3-node skeleton; predictions use a single-node ('centroid')
+    skeleton. Two GT instances should match two predicted centroids; one GT is
+    a false negative (no nearby prediction); one prediction is a false positive
+    (just beyond the match threshold).
+    """
+    gt_skeleton = sio.Skeleton(
+        nodes=["head", "thorax", "abdomen"],
+        edges=[("head", "thorax"), ("thorax", "abdomen")],
+    )
+    centroid_skeleton = sio.get_centroid_skeleton()
+
+    min_labels = sio.load_slp(minimal_instance)
+    video = min_labels.videos[0]
+
+    # GT instance A: mean of visible nodes = (10, 10).
+    gt_a = sio.Instance.from_numpy(
+        points_data=np.array([[0.0, 0.0], [10.0, 10.0], [20.0, 20.0]]),
+        skeleton=gt_skeleton,
+    )
+    # GT instance B: mean of visible nodes = (100, 100).
+    gt_b = sio.Instance.from_numpy(
+        points_data=np.array([[90.0, 90.0], [100.0, 100.0], [110.0, 110.0]]),
+        skeleton=gt_skeleton,
+    )
+    # GT instance C: mean = (500, 500) -> false negative (no nearby pred).
+    gt_c = sio.Instance.from_numpy(
+        points_data=np.array([[490.0, 490.0], [500.0, 500.0], [510.0, 510.0]]),
+        skeleton=gt_skeleton,
+    )
+
+    gt_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[gt_a, gt_b, gt_c])
+    gt_labels = sio.Labels(
+        videos=[video], skeletons=[gt_skeleton], labeled_frames=[gt_lf]
+    )
+
+    # Pred near A (dist ~3 px) and near B (dist ~4 px) -> true positives.
+    pred_a = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[13.0, 10.0]]),
+        skeleton=centroid_skeleton,
+        point_scores=np.array([0.9]),
+        score=0.9,
+    )
+    pred_b = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[100.0, 96.0]]),
+        skeleton=centroid_skeleton,
+        point_scores=np.array([0.8]),
+        score=0.8,
+    )
+    # Pred just beyond threshold from C: C is at (500, 500); place pred at
+    # (560, 500) -> dist 60 > threshold 50 -> false positive (+ C is FN).
+    pred_fp = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[560.0, 500.0]]),
+        skeleton=centroid_skeleton,
+        point_scores=np.array([0.7]),
+        score=0.7,
+    )
+
+    pred_lf = sio.LabeledFrame(
+        video=video, frame_idx=0, instances=[pred_a, pred_b, pred_fp]
+    )
+    pred_labels = sio.Labels(
+        videos=[video], skeletons=[centroid_skeleton], labeled_frames=[pred_lf]
+    )
+
+    return gt_labels, pred_labels
+
+
+def test_evaluator_centroid_match(minimal_instance):
+    """Evaluator(match_method='centroid') TP/FP/FN + detection + distance."""
+    gt_labels, pred_labels = _make_centroid_labels(minimal_instance)
+
+    evaluator = Evaluator(
+        gt_labels,
+        pred_labels,
+        match_threshold=50.0,
+        match_method="centroid",
+        anchor_ind=None,  # mean-of-visible-nodes centroid
+    )
+
+    # 2 true positives, 1 false positive (pred_fp), 1 false negative (gt_c).
+    assert len(evaluator.positive_pairs) == 2
+    assert len(evaluator.false_positives) == 1
+    assert len(evaluator.false_negatives) == 1
+
+    det = evaluator.detection_metrics()
+    assert det["n_tp"] == 2
+    assert det["n_fp"] == 1
+    assert det["n_fn"] == 1
+    # precision = 2/3, recall = 2/3, f1 = 2/3.
+    np.testing.assert_allclose(det["precision"], 2 / 3)
+    np.testing.assert_allclose(det["recall"], 2 / 3)
+    np.testing.assert_allclose(det["f1"], 2 / 3)
+
+    # Localization distances: A=3 px, B=4 px.
+    np.testing.assert_allclose(sorted(evaluator.dists_dict["dists"]), [3.0, 4.0])
+    np.testing.assert_allclose(det["avg"], 3.5)
+    for key in ("p50", "p75", "p90", "p95", "p99"):
+        assert not np.isnan(det[key])
+
+    # evaluate() returns only detection + distance metrics (no OKS/PCK/etc.).
+    metrics = evaluator.evaluate()
+    assert set(metrics.keys()) == {"detection_metrics", "distance_metrics"}
+    assert "voc_metrics" not in metrics
+    assert "mOKS" not in metrics
+
+
+def test_evaluator_centroid_handles_fully_occluded_gt(minimal_instance):
+    """Regression: a fully-occluded (all-NaN) GT instance must NOT crash
+    centroid matching (scipy cdist/linear_sum_assignment reject NaN). It is
+    counted as a false negative."""
+    gt_skeleton = sio.Skeleton(
+        nodes=["head", "thorax", "abdomen"],
+        edges=[("head", "thorax"), ("thorax", "abdomen")],
+    )
+    centroid_skeleton = sio.get_centroid_skeleton()
+    video = sio.load_slp(minimal_instance).videos[0]
+
+    gt_match = sio.Instance.from_numpy(
+        points_data=np.array([[0.0, 0.0], [10.0, 10.0], [20.0, 20.0]]),  # mean (10,10)
+        skeleton=gt_skeleton,
+    )
+    gt_occluded = sio.Instance.from_numpy(
+        points_data=np.full((3, 2), np.nan),  # fully occluded -> centroid NaN
+        skeleton=gt_skeleton,
+    )
+    gt_lf = sio.LabeledFrame(
+        video=video, frame_idx=0, instances=[gt_match, gt_occluded]
+    )
+    gt_labels = sio.Labels(
+        videos=[video], skeletons=[gt_skeleton], labeled_frames=[gt_lf]
+    )
+    pred = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[11.0, 10.0]]),  # ~1px from gt_match
+        skeleton=centroid_skeleton,
+        point_scores=np.array([0.9]),
+        score=0.9,
+    )
+    pred_labels = sio.Labels(
+        videos=[video],
+        skeletons=[centroid_skeleton],
+        labeled_frames=[sio.LabeledFrame(video=video, frame_idx=0, instances=[pred])],
+    )
+
+    # Must not raise.
+    evaluator = Evaluator(
+        gt_labels,
+        pred_labels,
+        match_threshold=50.0,
+        match_method="centroid",
+        anchor_ind=None,
+    )
+    det = evaluator.detection_metrics()
+    assert (det["n_tp"], det["n_fp"], det["n_fn"]) == (1, 0, 1)
+
+
+def test_evaluator_centroid_middle_occluded_fn_attribution(minimal_instance):
+    """An occluded GT between two matched GTs: the NaN-filter index map must
+    keep TP/FN attribution and matched distances correct."""
+    gt_skeleton = sio.Skeleton(nodes=["a", "b"], edges=[("a", "b")])
+    centroid_skeleton = sio.get_centroid_skeleton()
+    video = sio.load_slp(minimal_instance).videos[0]
+
+    gt_a = sio.Instance.from_numpy(
+        points_data=np.array([[10.0, 10.0], [10.0, 10.0]]), skeleton=gt_skeleton
+    )
+    gt_mid = sio.Instance.from_numpy(
+        points_data=np.full((2, 2), np.nan), skeleton=gt_skeleton
+    )
+    gt_c = sio.Instance.from_numpy(
+        points_data=np.array([[200.0, 200.0], [200.0, 200.0]]), skeleton=gt_skeleton
+    )
+    gt_labels = sio.Labels(
+        videos=[video],
+        skeletons=[gt_skeleton],
+        labeled_frames=[
+            sio.LabeledFrame(video=video, frame_idx=0, instances=[gt_a, gt_mid, gt_c])
+        ],
+    )
+    pred_a = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[12.0, 10.0]]),  # ~2px from gt_a
+        skeleton=centroid_skeleton,
+        point_scores=np.array([0.9]),
+        score=0.9,
+    )
+    pred_c = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[200.0, 205.0]]),  # 5px from gt_c
+        skeleton=centroid_skeleton,
+        point_scores=np.array([0.8]),
+        score=0.8,
+    )
+    pred_labels = sio.Labels(
+        videos=[video],
+        skeletons=[centroid_skeleton],
+        labeled_frames=[
+            sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_a, pred_c])
+        ],
+    )
+
+    evaluator = Evaluator(
+        gt_labels,
+        pred_labels,
+        match_threshold=50.0,
+        match_method="centroid",
+        anchor_ind=None,
+    )
+    det = evaluator.detection_metrics()
+    assert (det["n_tp"], det["n_fp"], det["n_fn"]) == (2, 0, 1)
+    np.testing.assert_allclose(sorted(evaluator.dists_dict["dists"]), [2.0, 5.0])
+
+
+def test_evaluator_centroid_pred_just_beyond_threshold(minimal_instance):
+    """A prediction just beyond threshold becomes FP + its GT becomes FN."""
+    gt_skeleton = sio.Skeleton(nodes=["a", "b"], edges=[("a", "b")])
+    centroid_skeleton = sio.get_centroid_skeleton()
+    min_labels = sio.load_slp(minimal_instance)
+    video = min_labels.videos[0]
+
+    # GT centroid (mean of visible) at (50, 50).
+    gt = sio.Instance.from_numpy(
+        points_data=np.array([[40.0, 50.0], [60.0, 50.0]]),
+        skeleton=gt_skeleton,
+    )
+    gt_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[gt])
+    gt_labels = sio.Labels(
+        videos=[video], skeletons=[gt_skeleton], labeled_frames=[gt_lf]
+    )
+
+    # Pred at (61, 50) -> dist 11 from GT centroid.
+    pred = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[61.0, 50.0]]),
+        skeleton=centroid_skeleton,
+        point_scores=np.array([0.9]),
+        score=0.9,
+    )
+    pred_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred])
+    pred_labels = sio.Labels(
+        videos=[video], skeletons=[centroid_skeleton], labeled_frames=[pred_lf]
+    )
+
+    # threshold 10 < dist 11 -> FP + FN, no match.
+    evaluator = Evaluator(
+        gt_labels, pred_labels, match_threshold=10.0, match_method="centroid"
+    )
+    assert len(evaluator.positive_pairs) == 0
+    assert len(evaluator.false_positives) == 1
+    assert len(evaluator.false_negatives) == 1
+    det = evaluator.detection_metrics()
+    assert det["precision"] == 0.0
+    assert det["recall"] == 0.0
+    assert det["f1"] == 0.0
+    assert np.isnan(det["avg"])
+
+    # threshold 12 > dist 11 -> matched.
+    evaluator2 = Evaluator(
+        gt_labels, pred_labels, match_threshold=12.0, match_method="centroid"
+    )
+    assert len(evaluator2.positive_pairs) == 1
+    assert len(evaluator2.false_positives) == 0
+    assert len(evaluator2.false_negatives) == 0
+    np.testing.assert_allclose(evaluator2.detection_metrics()["avg"], 11.0)
+
+
+def test_run_evaluation_auto_detects_centroid(minimal_instance, tmp_path):
+    """run_evaluation auto-detects centroid mode for a single-node prediction."""
+    gt_labels, pred_labels = _make_centroid_labels(minimal_instance)
+
+    gt_path = tmp_path / "gt.slp"
+    pred_path = tmp_path / "pred.slp"
+    sio.save_slp(gt_labels, gt_path.as_posix())
+    sio.save_slp(pred_labels, pred_path.as_posix())
+
+    metrics = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pred_path.as_posix(),
+        match_method="auto",
+        user_labels_only=False,
+    )
+
+    # Centroid mode -> detection + distance metrics, no OKS VOC keys.
+    assert set(metrics.keys()) == {"detection_metrics", "distance_metrics"}
+    assert "voc_metrics" not in metrics
+    assert "mOKS" not in metrics
+    det = metrics["detection_metrics"]
+    assert det["n_tp"] == 2
+    assert det["n_fp"] == 1
+    assert det["n_fn"] == 1

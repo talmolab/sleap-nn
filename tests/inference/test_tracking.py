@@ -269,3 +269,125 @@ def test_predictor_with_tracker_picklable_round_trip():
     restored_cfg = pickle.loads(pickle.dumps(pred.tracker_config))
     assert restored_cfg.window_size == 11
     assert restored_cfg.max_tracks == 4
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Single-node (centroid) tracking default resolution (#586)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _capture_from_config_kwargs(monkeypatch):
+    """Patch ``Tracker.from_config`` to record the kwargs it receives.
+
+    Returns a dict that ``apply_tracking`` fills in with the resolved
+    ``features`` / ``scoring_method`` (and friends). The stub returns a
+    Tracker whose ``track`` is a no-op so ``apply_tracking`` runs end-to-end
+    without exercising real association logic.
+    """
+    import sleap_nn.tracking.tracker as tracker_mod
+
+    captured: dict = {}
+
+    class _NoopTracker:
+        def track(self, untracked_instances, frame_idx, image=None):
+            return list(untracked_instances)
+
+    def _fake_from_config(cls, **kwargs):
+        captured.update(kwargs)
+        return _NoopTracker()
+
+    monkeypatch.setattr(
+        tracker_mod.Tracker,
+        "from_config",
+        classmethod(_fake_from_config),
+    )
+    return captured
+
+
+def test_apply_tracking_single_node_resolves_centroid_defaults(video, monkeypatch):
+    """1-node Skeleton(['centroid']) + non-explicit config → euclidean/centroids."""
+    centroid_skel = sio.Skeleton(nodes=["centroid"])
+    pts = np.array([[5.0, 5.0]], dtype=np.float32)
+    lf = sio.LabeledFrame(
+        video=video,
+        frame_idx=0,
+        instances=[
+            sio.PredictedInstance.from_numpy(
+                points_data=pts, skeleton=centroid_skel, score=0.9
+            )
+        ],
+    )
+    labels = sio.Labels(videos=[video], skeletons=[centroid_skel], labeled_frames=[lf])
+    captured = _capture_from_config_kwargs(monkeypatch)
+
+    apply_tracking(
+        labels,
+        TrackerConfig(scoring_method_explicit=False, features_explicit=False),
+    )
+
+    assert captured["scoring_method"] == "euclidean_dist"
+    assert captured["features"] == "centroids"
+
+
+def test_apply_tracking_multi_node_keeps_defaults(skeleton, video, monkeypatch):
+    """Multi-node skeleton + non-explicit config → keep oks/keypoints."""
+    labels = _make_labels(skeleton, video, frames=1, instances_per_frame=1)
+    captured = _capture_from_config_kwargs(monkeypatch)
+
+    apply_tracking(
+        labels,
+        TrackerConfig(scoring_method_explicit=False, features_explicit=False),
+    )
+
+    assert captured["scoring_method"] == "oks"
+    assert captured["features"] == "keypoints"
+
+
+def test_apply_tracking_single_node_explicit_not_overridden(video, monkeypatch):
+    """1-node skeleton + explicit scoring_method='oks' → NOT overridden."""
+    centroid_skel = sio.Skeleton(nodes=["centroid"])
+    pts = np.array([[5.0, 5.0]], dtype=np.float32)
+    lf = sio.LabeledFrame(
+        video=video,
+        frame_idx=0,
+        instances=[
+            sio.PredictedInstance.from_numpy(
+                points_data=pts, skeleton=centroid_skel, score=0.9
+            )
+        ],
+    )
+    labels = sio.Labels(videos=[video], skeletons=[centroid_skel], labeled_frames=[lf])
+    captured = _capture_from_config_kwargs(monkeypatch)
+
+    # scoring_method explicit (default True) → keep 'oks'; features left
+    # non-explicit → still resolve to 'centroids'.
+    apply_tracking(
+        labels,
+        TrackerConfig(
+            scoring_method="oks",
+            scoring_method_explicit=True,
+            features_explicit=False,
+        ),
+    )
+
+    assert captured["scoring_method"] == "oks"
+    assert captured["features"] == "centroids"
+
+
+def test_build_tracker_config_explicit_sentinels():
+    """_build_tracker_config records *_explicit from kwargs presence (#586)."""
+    from sleap_nn.cli import _build_tracker_config
+
+    # Both unset (CLI sentinel None) → not explicit, fall back to oks/keypoints.
+    cfg = _build_tracker_config({"features": None, "scoring_method": None})
+    assert cfg.features_explicit is False
+    assert cfg.scoring_method_explicit is False
+    assert cfg.features == "keypoints"
+    assert cfg.scoring_method == "oks"
+
+    # Both set explicitly → explicit, values forwarded verbatim.
+    cfg2 = _build_tracker_config({"features": "bboxes", "scoring_method": "iou"})
+    assert cfg2.features_explicit is True
+    assert cfg2.scoring_method_explicit is True
+    assert cfg2.features == "bboxes"
+    assert cfg2.scoring_method == "iou"

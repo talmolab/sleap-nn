@@ -127,6 +127,24 @@ class FilterPipeline:
                     stacklevel=2,
                 )
             else:
+                # OKS on a single-node keypoint tensor is degenerate (the
+                # per-keypoint scale is derived from the instance's own bbox
+                # area, which is 0 for one point — _oks's internal <2-visible
+                # guard would make every score 0). Fall back to IoU so the
+                # NMS still does something meaningful (#586).
+                if (
+                    method == "oks"
+                    and outputs.pred_keypoints is not None
+                    and outputs.pred_keypoints.shape[-2] < 2
+                ):
+                    import warnings
+
+                    warnings.warn(
+                        "OKS overlap NMS is degenerate for single-node "
+                        "(centroid) keypoints; falling back to IoU.",
+                        stacklevel=2,
+                    )
+                    method = "iou"
                 outputs = self._filter_overlapping(
                     outputs,
                     threshold=cfg.overlapping_threshold,

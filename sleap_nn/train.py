@@ -16,7 +16,96 @@ from sleap_nn.config.get_config import (
     get_model_config,
     get_data_config,
 )
+from sleap_nn.config.utils import get_model_type_from_cfg
 from sleap_nn.system_info import get_startup_info_string
+
+
+def _run_centroid_split_eval(
+    config: DictConfig,
+    d_name: str,
+    path: str,
+    run_path: Path,
+    pred_path: Path,
+    metrics_path: Path,
+    device: str,
+):
+    """Run post-training eval for a single split of a centroid-only model.
+
+    Centroid-only models use the NEW inference flow
+    (``sleap_nn.inference.run.predict``), which collapses a multi-node skeleton
+    to a single ``centroid`` node, and centroid-mode evaluation
+    (``run_evaluation(match_method="centroid", ...)``). The centroid metrics
+    dict only has ``detection_metrics`` + ``distance_metrics`` (no
+    ``voc_metrics``/``mOKS``/``pck``/``visibility`` keys), so every access here
+    is guarded and the OKS mAP line is intentionally NOT logged.
+
+    Args:
+        config: Training configuration.
+        d_name: Split name, e.g. ``"train.0"``/``"val.0"``/``"test.0"``.
+        path: Path to the ground-truth ``.slp`` for this split.
+        run_path: The ``<ckpt_dir>/<run_name>`` directory (the centroid model).
+        pred_path: Output path for the predicted ``.slp``.
+        metrics_path: Output path for the saved metrics ``.npz``.
+        device: Torch device string to run inference on.
+
+    Returns:
+        The metrics dict returned by ``run_evaluation`` (centroid mode), or
+        ``None`` if there were no predicted frames (eval skipped).
+    """
+    # Lazy import of the NEW inference flow (centroid-only standalone path).
+    from sleap_nn.inference.run import predict as predict_new
+
+    # NOTE: the new predict has NO `make_labels` param (it hardcodes
+    # make_labels=True) and takes `source` positionally (not data_path=).
+    pred_labels = predict_new(
+        path,
+        model_paths=[run_path],
+        centroid_only=True,
+        peak_threshold=0.2,
+        device=device,
+        output_path=pred_path,
+    )
+
+    if not len(pred_labels):
+        logger.info(
+            f"Skipping eval on `{d_name}` dataset as there are no labeled frames..."
+        )
+        return None
+
+    # Anchor part defining the centroid's meaning (#586). Guard the access in
+    # case the head config is missing/partial.
+    anchor_part = OmegaConf.select(
+        config, "model_config.head_configs.centroid.confmaps.anchor_part", default=None
+    )
+    # Pixel match threshold from the eval config if present, else 50.0.
+    match_threshold = OmegaConf.select(
+        config, "trainer_config.eval.match_threshold", default=None
+    )
+    if match_threshold is None:
+        match_threshold = 50.0
+
+    metrics = run_evaluation(
+        ground_truth_path=path,
+        predicted_path=pred_path.as_posix(),
+        match_method="centroid",
+        anchor_part=anchor_part,
+        match_threshold=match_threshold,
+        save_metrics=metrics_path.as_posix(),
+    )
+
+    # Centroid metrics: detection_metrics + distance_metrics only. Guard every
+    # key access (no oks_voc.* / mOKS / pck / visibility keys exist here).
+    det = metrics.get("detection_metrics", {}) if metrics is not None else {}
+    dist = metrics.get("distance_metrics", {}) if metrics is not None else {}
+    logger.info(f"---------Evaluation on `{d_name}` dataset (centroid)---------")
+    logger.info(f"Detection precision: {det.get('precision')}")
+    logger.info(f"Detection recall: {det.get('recall')}")
+    logger.info(f"Detection f1: {det.get('f1')}")
+    logger.info(f"Average distance: {dist.get('avg')}")
+    logger.info(f"p90 dist: {dist.get('p90')}")
+    logger.info(f"p50 dist: {dist.get('p50')}")
+
+    return metrics
 
 
 def run_training(
@@ -83,10 +172,27 @@ def run_training(
                 for idx, test_path in enumerate(test_paths):
                     data_paths[f"test.{idx}"] = test_path
 
+            # Determine the model type once before the per-split eval loop so
+            # centroid-only models can route to the NEW inference + centroid
+            # evaluation flow (the legacy predictors path is not used for them).
+            model_type = get_model_type_from_cfg(trainer.config)
+
             for d_name, path in data_paths.items():
                 # d_name is now in format: "train.0", "val.0", "test.0", etc.
                 pred_path = run_path / f"labels_pr.{d_name}.slp"
                 metrics_path = run_path / f"metrics.{d_name}.npz"
+
+                if model_type == "centroid":
+                    _run_centroid_split_eval(
+                        config=trainer.config,
+                        d_name=d_name,
+                        path=path,
+                        run_path=run_path,
+                        pred_path=pred_path,
+                        metrics_path=metrics_path,
+                        device=str(trainer.trainer.strategy.root_device),
+                    )
+                    continue
 
                 pred_labels = predict(
                     data_path=path,

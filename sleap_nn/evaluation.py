@@ -9,6 +9,112 @@ import click
 from pathlib import Path
 
 
+def compute_gt_centroids(
+    instance_gt_points: np.ndarray, anchor_ind: Optional[int]
+) -> np.ndarray:
+    """Compute ground-truth centroids mirroring ``generate_centroids`` in numpy.
+
+    This is the numpy mirror of
+    :func:`sleap_nn.data.instance_centroids.generate_centroids`. The centroid's
+    MEANING is defined by that function (see also #586): when the configured
+    anchor node is present (non-NaN) it is that node; otherwise the centroid
+    falls back to the NaN-ignoring MEAN of visible nodes (NOT the bounding-box
+    midpoint). The fallback is computed via ``np.nanmean`` over the node axis,
+    and is NaN only when every node of an instance is NaN.
+
+    Args:
+        instance_gt_points: Ground-truth keypoints of shape ``(n_instances,
+            n_nodes, 2)`` or ``(n_nodes, 2)``. Missing/occluded nodes are NaN.
+        anchor_ind: Index of the node to use as the anchor. If ``None``, or if
+            the anchor node is NaN for a given instance, the centroid falls back
+            to the NaN-ignoring mean of visible nodes for that instance.
+
+    Returns:
+        Centroids of shape ``(n_instances, 2)`` (or ``(2,)`` for a single
+        instance input), reducing the node axis.
+    """
+    points = np.asarray(instance_gt_points, dtype=np.float64)
+
+    if anchor_ind is not None:
+        centroids = points[..., anchor_ind, :].copy()
+    else:
+        centroids = np.full(points.shape[:-2] + (2,), np.nan, dtype=points.dtype)
+
+    missing_anchors = np.isnan(centroids).any(axis=-1)
+    if np.any(missing_anchors):
+        # NaN-ignoring mean of visible nodes. np.nanmean over the node axis
+        # yields NaN only when all nodes for that instance are NaN (matching
+        # find_points_mean). Suppress the all-NaN-slice RuntimeWarning.
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            mean_fallback = np.nanmean(points, axis=-2)
+        centroids[missing_anchors] = mean_fallback[missing_anchors]
+
+    return centroids
+
+
+def match_centroids(
+    pred_centroids: "np.ndarray",
+    gt_centroids: "np.ndarray",
+    max_distance: float = 50.0,
+) -> tuple:
+    """Match predicted centroids to ground truth using Hungarian algorithm.
+
+    Args:
+        pred_centroids: Predicted centroid locations, shape (n_pred, 2).
+        gt_centroids: Ground truth centroid locations, shape (n_gt, 2).
+        max_distance: Maximum distance threshold for valid matches (in pixels).
+
+    Returns:
+        Tuple of:
+            - matched_pred_indices: Indices of matched predictions
+            - matched_gt_indices: Indices of matched ground truth
+            - unmatched_pred_indices: Indices of unmatched predictions (false positives)
+            - unmatched_gt_indices: Indices of unmatched ground truth (false negatives)
+    """
+    import numpy as np
+    from scipy.optimize import linear_sum_assignment
+    from scipy.spatial.distance import cdist
+
+    n_pred = len(pred_centroids)
+    n_gt = len(gt_centroids)
+
+    # Handle edge cases
+    if n_pred == 0 and n_gt == 0:
+        return np.array([]), np.array([]), np.array([]), np.array([])
+    if n_pred == 0:
+        return np.array([]), np.array([]), np.array([]), np.arange(n_gt)
+    if n_gt == 0:
+        return np.array([]), np.array([]), np.arange(n_pred), np.array([])
+
+    # Compute pairwise distances
+    cost_matrix = cdist(pred_centroids, gt_centroids)
+
+    # Run Hungarian algorithm for optimal matching
+    pred_indices, gt_indices = linear_sum_assignment(cost_matrix)
+
+    # Filter matches that exceed max_distance
+    matched_pred = []
+    matched_gt = []
+    for p_idx, g_idx in zip(pred_indices, gt_indices):
+        if cost_matrix[p_idx, g_idx] <= max_distance:
+            matched_pred.append(p_idx)
+            matched_gt.append(g_idx)
+
+    matched_pred = np.array(matched_pred)
+    matched_gt = np.array(matched_gt)
+
+    # Find unmatched indices
+    all_pred = set(range(n_pred))
+    all_gt = set(range(n_gt))
+    unmatched_pred = np.array(list(all_pred - set(matched_pred)))
+    unmatched_gt = np.array(list(all_gt - set(matched_gt)))
+
+    return matched_pred, matched_gt, unmatched_pred, unmatched_gt
+
+
 @attrs.define(auto_attribs=True, slots=True)
 class MatchInstance:
     """Class to have a new structure for sio.Instance object."""
@@ -442,10 +548,19 @@ class Evaluator:
             keypoint similarity; see `compute_oks` function for details.
         oks_scale: The scale to use for calculating object
             keypoint similarity; see `compute_oks` function for details.
-        match_threshold: The threshold to use on oks scores when determining
-            which instances match between ground truth and predicted frames.
+        match_threshold: The threshold to use when determining which instances
+            match between ground truth and predicted frames. For
+            ``match_method="oks"`` this is an OKS threshold; for
+            ``match_method="centroid"`` this is a PIXEL distance threshold.
         user_labels_only: If False, predicted instances in the ground truth frame may be
             considered for matching.
+        match_method: Either ``"oks"`` (default, full-skeleton OKS matching) or
+            ``"centroid"`` (single-point distance matching for centroid-only /
+            single-node predictions).
+        anchor_ind: For ``match_method="centroid"``, the index of the GT
+            skeleton node used to compute each ground-truth centroid (see
+            :func:`compute_gt_centroids` and #586). ``None`` falls back to the
+            NaN-ignoring mean of visible nodes.
 
     """
 
@@ -457,6 +572,8 @@ class Evaluator:
         oks_scale: Optional[float] = None,
         match_threshold: float = 0,
         user_labels_only: bool = True,
+        match_method: str = "oks",
+        anchor_ind: Optional[int] = None,
     ):
         """Initialize the Evaluator class with ground-truth and predicted labels."""
         self.ground_truth_instances = ground_truth_instances
@@ -465,6 +582,10 @@ class Evaluator:
         self.oks_stddev = oks_stddev
         self.oks_scale = oks_scale
         self.user_labels_only = user_labels_only
+        self.match_method = match_method
+        self.anchor_ind = anchor_ind
+        # Populated only in centroid mode.
+        self.false_positives = []
 
         self._process_frames()
 
@@ -477,6 +598,10 @@ class Evaluator:
             logger.error(message)
             raise Exception(message)
 
+        if self.match_method == "centroid":
+            self._process_frames_centroid()
+            return
+
         self.positive_pairs, self.false_negatives = match_frame_pairs(
             self.frame_pairs,
             stddev=self.oks_stddev,
@@ -485,6 +610,107 @@ class Evaluator:
         )
 
         self.dists_dict = compute_dists(self.positive_pairs)
+
+    def _process_frames_centroid(self):
+        """Match predicted vs GT centroids by pixel distance (per frame).
+
+        Each predicted instance is collapsed to its single centroid point (its
+        sole visible point / node-0 for a 1-node prediction). Ground-truth
+        centroids are computed via :func:`compute_gt_centroids` to exactly
+        mirror the centroid target used during training (#586). Matching uses
+        :func:`match_centroids` with ``self.match_threshold`` as a PIXEL
+        distance. Populates ``positive_pairs`` as ``(gt_inst, pr_inst, dist)``
+        3-tuples, ``false_negatives`` (unmatched GT), and ``false_positives``
+        (unmatched predictions).
+        """
+        self.positive_pairs = []
+        self.false_negatives = []
+        self.false_positives = []
+
+        for frame_gt, frame_pr in self.frame_pairs:
+            gt_match_instances = get_instances(frame_gt)
+            pr_match_instances = get_instances(frame_pr)
+
+            # Collapse each predicted instance to its single centroid point.
+            pred_centroids = np.array(
+                [
+                    self._collapse_pred_centroid(m.instance.numpy())
+                    for m in pr_match_instances
+                ]
+            ).reshape(-1, 2)
+
+            # GT centroids mirror generate_centroids exactly (#586).
+            gt_centroids = np.array(
+                [
+                    compute_gt_centroids(m.instance.numpy(), self.anchor_ind)
+                    for m in gt_match_instances
+                ]
+            ).reshape(-1, 2)
+
+            # Drop NaN centroids before Hungarian matching: scipy's cdist /
+            # linear_sum_assignment reject NaN, and a fully-occluded (all-NaN)
+            # GT instance is common in real labels. Index maps translate the
+            # filtered match indices back to the original instance lists so
+            # FN/FP/positive-pair attribution stays correct. (A NaN-row GT is
+            # counted as an automatic false negative — matching the legacy
+            # CentroidEvaluationCallback; a NaN-row prediction is not a real
+            # detection and is simply excluded.)
+            gt_valid = ~np.isnan(gt_centroids).any(axis=1)
+            pred_valid = ~np.isnan(pred_centroids).any(axis=1)
+            gt_map = np.flatnonzero(gt_valid)
+            pred_map = np.flatnonzero(pred_valid)
+
+            matched_pred, matched_gt, unmatched_pred, unmatched_gt = match_centroids(
+                pred_centroids[pred_valid],
+                gt_centroids[gt_valid],
+                max_distance=self.match_threshold,
+            )
+
+            for p_local, g_local in zip(matched_pred, matched_gt):
+                p_idx = int(pred_map[int(p_local)])
+                g_idx = int(gt_map[int(g_local)])
+                dist = float(
+                    np.linalg.norm(pred_centroids[p_idx] - gt_centroids[g_idx])
+                )
+                self.positive_pairs.append(
+                    (gt_match_instances[g_idx], pr_match_instances[p_idx], dist)
+                )
+
+            for g_local in unmatched_gt:
+                self.false_negatives.append(
+                    gt_match_instances[int(gt_map[int(g_local)])]
+                )
+            # Fully-occluded (all-NaN) GT instances -> automatic false negatives.
+            for g_idx in np.flatnonzero(~gt_valid):
+                self.false_negatives.append(gt_match_instances[int(g_idx)])
+
+            for p_local in unmatched_pred:
+                self.false_positives.append(
+                    pr_match_instances[int(pred_map[int(p_local)])]
+                )
+
+        # Build the dists dict directly from matched-pair centroid distances so
+        # distance_metrics() works uniformly across match methods.
+        dists = np.array([dist for _, _, dist in self.positive_pairs])
+        self.dists_dict = {
+            "dists": dists,
+            "frame_idxs": [gt.frame_idx for gt, _, _ in self.positive_pairs],
+            "video_paths": [gt.video_path for gt, _, _ in self.positive_pairs],
+        }
+
+    @staticmethod
+    def _collapse_pred_centroid(points: np.ndarray) -> np.ndarray:
+        """Collapse a predicted instance to its single centroid point.
+
+        For a 1-node ('centroid') prediction this is node-0. For predictions
+        with multiple nodes (e.g. a single-instance model used as a detector)
+        we take the single visible point, falling back to node-0.
+        """
+        points = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+        visible = ~np.isnan(points).any(axis=-1)
+        if visible.any():
+            return points[np.argmax(visible)]
+        return points[0]
 
     def voc_metrics(
         self,
@@ -607,7 +833,13 @@ class Evaluator:
             "frame_idxs": self.dists_dict["frame_idxs"],
             "video_paths": self.dists_dict["video_paths"],
             "dists": dists,
-            "avg": np.nanmean(dists),
+            # Guard the empty / all-NaN matched set (zero true positives in a
+            # split) so np.nanmean doesn't emit a "Mean of empty slice" warning.
+            "avg": (
+                float(np.nanmean(dists))
+                if np.asarray(dists).size and not np.all(np.isnan(dists))
+                else np.nan
+            ),
             "p50": np.nan,
             "p75": np.nan,
             "p90": np.nan,
@@ -620,6 +852,57 @@ class Evaluator:
             non_nans = dists[is_non_nan]
             for ptile in (50, 75, 90, 95, 99):
                 results[f"p{ptile}"] = np.percentile(non_nans, ptile)
+
+        return results
+
+    def detection_metrics(self) -> dict:
+        """Compute detection metrics for centroid-only / single-point matching.
+
+        Reuses the same aggregation as
+        ``CentroidEvaluationCallback._compute_metrics``: precision/recall/F1
+        over TP/FP/FN counts, plus localization-error percentiles over the
+        Euclidean distances of the matched centroid pairs. Intended for
+        ``match_method="centroid"``.
+
+        Returns:
+            A dict with ``precision``, ``recall``, ``f1``, ``n_tp``, ``n_fp``,
+            ``n_fn`` and localization-error percentiles ``avg``/``p50``/``p75``/
+            ``p90``/``p95``/``p99`` (NaN when there are no matched pairs).
+        """
+        n_tp = len(self.positive_pairs)
+        n_fp = len(self.false_positives)
+        n_fn = len(self.false_negatives)
+
+        precision = n_tp / (n_tp + n_fp) if (n_tp + n_fp) > 0 else 0.0
+        recall = n_tp / (n_tp + n_fn) if (n_tp + n_fn) > 0 else 0.0
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall) > 0
+            else 0.0
+        )
+
+        dists = self.dists_dict["dists"]
+        results = {
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "n_tp": n_tp,
+            "n_fp": n_fp,
+            "n_fn": n_fn,
+            "avg": np.nan,
+            "p50": np.nan,
+            "p75": np.nan,
+            "p90": np.nan,
+            "p95": np.nan,
+            "p99": np.nan,
+        }
+
+        is_non_nan = ~np.isnan(dists) if len(dists) else np.array([], dtype=bool)
+        if np.any(is_non_nan):
+            non_nans = dists[is_non_nan]
+            results["avg"] = float(np.mean(non_nans))
+            for ptile in (50, 75, 90, 95, 99):
+                results[f"p{ptile}"] = float(np.percentile(non_nans, ptile))
 
         return results
 
@@ -685,6 +968,17 @@ class Evaluator:
 
     def evaluate(self):
         """Return the evaluation metrics."""
+        if self.match_method == "centroid":
+            # Single-node / centroid-only: OKS/PCK/mOKS/visibility are
+            # degenerate for one node, so we only report detection +
+            # distance metrics. We intentionally do NOT compute OKS for a
+            # single node (no magic OKS-scale constant) — the OKS path stays
+            # only for match_method="oks".
+            return {
+                "detection_metrics": self.detection_metrics(),
+                "distance_metrics": self.distance_metrics(),
+            }
+
         metrics = {}
         metrics["voc_metrics"] = self.voc_metrics(match_score_by="oks")
         metrics["voc_metrics"].update(self.voc_metrics(match_score_by="pck"))
@@ -801,6 +1095,40 @@ def load_metrics(
     return _load_npz_metrics(metrics_path)
 
 
+def _resolve_anchor_ind(
+    skeleton: "sio.Skeleton", anchor_part: Optional[str]
+) -> Optional[int]:
+    """Resolve an anchor node name to its index in the GT skeleton.
+
+    Mirrors the anchor resolution in
+    ``sleap_nn.inference.predictor`` (#582): returns the node index when
+    ``anchor_part`` is present in the skeleton node names, else ``None`` (which
+    drives the mean-of-visible-nodes fallback in :func:`compute_gt_centroids`).
+    """
+    if anchor_part is None or skeleton is None:
+        return None
+    node_names = list(getattr(skeleton, "node_names", []) or [])
+    if anchor_part in node_names:
+        return node_names.index(anchor_part)
+    logger.warning(
+        f"Anchor part {anchor_part!r} not found in GT skeleton node_names: "
+        f"{node_names}. Falling back to mean-of-visible-nodes centroid."
+    )
+    return None
+
+
+def _is_single_node_skeleton(skeleton: "sio.Skeleton") -> bool:
+    """Return True if the skeleton is a single-node (centroid-like) skeleton.
+
+    Detects ``sio.get_centroid_skeleton()`` (node_names == ['centroid']) as well
+    as any other single-node skeleton.
+    """
+    if skeleton is None:
+        return False
+    node_names = list(getattr(skeleton, "node_names", []) or [])
+    return len(node_names) == 1
+
+
 def run_evaluation(
     ground_truth_path: str,
     predicted_path: str,
@@ -809,8 +1137,29 @@ def run_evaluation(
     match_threshold: float = 0,
     user_labels_only: bool = True,
     save_metrics: Optional[str] = None,
+    match_method: str = "oks",
+    anchor_part: Optional[str] = None,
 ):
-    """Evaluate SLEAP-NN model predictions against ground truth labels."""
+    """Evaluate SLEAP-NN model predictions against ground truth labels.
+
+    Args:
+        ground_truth_path: Path to the ground-truth ``.slp`` file.
+        predicted_path: Path to the predicted ``.slp`` file.
+        oks_stddev: OKS standard deviation (OKS mode only).
+        oks_scale: OKS scale override (OKS mode only).
+        match_threshold: Matching threshold. OKS threshold for OKS mode; PIXEL
+            distance for centroid mode. In centroid mode, if the caller leaves
+            the OKS default of ``0.0`` it is bumped to ``50.0`` px.
+        user_labels_only: If False, predicted instances in the GT frame may be
+            matched.
+        save_metrics: Optional ``.npz`` path to save metrics to.
+        match_method: ``"oks"``, ``"centroid"``, or ``"auto"``. ``"auto"``
+            switches to centroid mode when the PREDICTION skeleton is a
+            single-node skeleton (e.g. ``sio.get_centroid_skeleton()``).
+        anchor_part: Name of the GT skeleton node used to compute GT centroids
+            (centroid mode). Resolved against the GT skeleton; ``None`` (or an
+            absent name) falls back to the mean of visible nodes (#586).
+    """
     logger.info("Loading ground truth labels...")
     ground_truth_instances = sio.load_slp(ground_truth_path)
     logger.info(
@@ -824,6 +1173,32 @@ def run_evaluation(
         f"  Predictions: {len(predicted_instances.videos)} videos, "
         f"{len(predicted_instances.labeled_frames)} frames"
     )
+
+    # Auto-detect centroid mode from the PREDICTION skeleton.
+    pred_skeleton = (
+        predicted_instances.skeletons[0] if predicted_instances.skeletons else None
+    )
+    if match_method == "auto":
+        if _is_single_node_skeleton(pred_skeleton):
+            match_method = "centroid"
+            logger.info(
+                "Auto-detected centroid mode (single-node prediction skeleton)."
+            )
+        else:
+            match_method = "oks"
+
+    # Resolve the anchor node against the GT skeleton (mirror predictor.py).
+    gt_skeleton = (
+        ground_truth_instances.skeletons[0]
+        if ground_truth_instances.skeletons
+        else None
+    )
+    anchor_ind = _resolve_anchor_ind(gt_skeleton, anchor_part)
+
+    # In centroid mode, default the (pixel) match threshold to 50.0 if the
+    # caller left the OKS default of 0.0.
+    if match_method == "centroid" and match_threshold == 0:
+        match_threshold = 50.0
 
     logger.info("Matching videos and frames...")
     # Get match stats before creating evaluator
@@ -840,6 +1215,8 @@ def run_evaluation(
         oks_scale=oks_scale,
         match_threshold=match_threshold,
         user_labels_only=user_labels_only,
+        match_method=match_method,
+        anchor_ind=anchor_ind,
     )
     logger.info(
         f"  Frame pairs: {len(evaluator.frame_pairs)}, "
@@ -849,6 +1226,31 @@ def run_evaluation(
 
     logger.info("Computing evaluation metrics...")
     metrics = evaluator.evaluate()
+
+    if match_method == "centroid":
+        # Centroid mode: report detection + distance metrics only (no
+        # oks_voc.*/mOKS/PCK/visibility keys exist).
+        det = metrics["detection_metrics"]
+        dist = metrics["distance_metrics"]
+        logger.info("Evaluation Results (centroid mode):")
+        logger.info(f"  Precision: {det['precision']:.4f}")
+        logger.info(f"  Recall: {det['recall']:.4f}")
+        logger.info(f"  F1: {det['f1']:.4f}")
+        logger.info(f"  Counts: TP={det['n_tp']}, FP={det['n_fp']}, FN={det['n_fn']}")
+        logger.info(f"  Average Distance: {dist['avg']:.2f} px")
+        logger.info(f"  dist.p50: {dist['p50']:.2f} px")
+        logger.info(f"  dist.p90: {dist['p90']:.2f} px")
+        logger.info(f"  dist.p95: {dist['p95']:.2f} px")
+        logger.info(f"  dist.p99: {dist['p99']:.2f} px")
+
+        if save_metrics:
+            logger.info(f"Saving metrics to {save_metrics}...")
+            save_path = Path(save_metrics)
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(save_path, **{"metrics": metrics})
+            logger.info(f"Metrics saved successfully to {save_path}")
+
+        return metrics
 
     # Compute PCK at specific thresholds (5 and 10 pixels)
     dists = metrics["distance_metrics"]["dists"]
