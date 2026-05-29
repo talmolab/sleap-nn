@@ -256,6 +256,18 @@ class ModelSelectScreen(Widget):
             id="opt-topdown",
         )
 
+        # Centroid (standalone) - single point per animal, ONE config.
+        yield ModelTypeOption(
+            pipeline_type="centroid_only",
+            title="Centroid (single point per animal)",
+            description="Detect one point per animal directly (no keypoint refinement stage).",
+            details="Best for: Single-node skeletons / animal counting / tracking a single landmark.",
+            is_recommended=rec.pipeline.recommended == "centroid_only",
+            is_two_stage=False,
+            classes="model-option",
+            id="opt-centroid-only",
+        )
+
         # Bottom-Up
         bottomup_disabled = stats.num_edges == 0
         is_bottomup_rec = rec.pipeline.recommended in [
@@ -320,18 +332,19 @@ class ModelSelectScreen(Widget):
         if self._state:
             # Check if identity is enabled
             checkbox = self.query_one("#identity-checkbox", Checkbox)
-            if checkbox.value:
-                if pipeline_type == "centroid":
-                    self._state._pipeline = "multi_class_topdown"
-                elif pipeline_type == "bottomup":
-                    self._state._pipeline = "multi_class_bottomup"
-                else:
-                    self._state._pipeline = pipeline_type
+            # The standalone centroid model has no multi-class variant — the
+            # identity checkbox must NOT upgrade it. Only the paired top-down
+            # ``centroid`` and ``bottomup`` map to their multi_class variants.
+            if checkbox.value and pipeline_type == "centroid":
+                self._state._pipeline = "multi_class_topdown"
+            elif checkbox.value and pipeline_type == "bottomup":
+                self._state._pipeline = "multi_class_bottomup"
             else:
                 self._state._pipeline = pipeline_type
 
-            # Update input scale based on pipeline type (web app behavior)
-            # Top-down centroid uses lower scale (0.5), others use full scale (1.0)
+            # Update input scale based on pipeline type (web app behavior).
+            # Top-down stage-1 centroid uses lower scale (0.5); the standalone
+            # centroid_only and other single-stage models use full scale (1.0).
             is_topdown = self._state._pipeline in [
                 "centroid",
                 "centered_instance",
@@ -340,6 +353,11 @@ class ModelSelectScreen(Widget):
             if is_topdown:
                 self._state._input_scale = 0.5  # Lower scale for centroid
                 self._state._sigma = 5.0  # Larger sigma for centroid
+                self._state._output_stride = 2
+            elif self._state._pipeline == "centroid_only":
+                # Standalone centroid: full resolution, tighter sigma.
+                self._state._input_scale = 1.0
+                self._state._sigma = 2.5
                 self._state._output_stride = 2
             else:
                 self._state._input_scale = 1.0  # Full scale for other models
@@ -375,6 +393,13 @@ class ModelSelectScreen(Widget):
                 "  [yellow]1. Centroid Model[/yellow] - Detects animal centers in full images\n"
                 "  [yellow]2. Centered Instance Model[/yellow] - Detects keypoints in cropped regions\n"
                 "You'll configure both models and get [bold]2 YAML configs[/bold]."
+            )
+        elif pipeline_type == "centroid_only":
+            info_widget.update(
+                "[bold cyan]Centroid Pipeline (standalone)[/bold cyan]\n"
+                "Trains [bold]one model[/bold] that detects a single point per animal\n"
+                "(anchor node, or mean of visible nodes). No keypoint-refinement stage.\n"
+                "You'll get [bold]1 YAML config[/bold] file."
             )
         elif pipeline_type == "bottomup":
             info_widget.update(

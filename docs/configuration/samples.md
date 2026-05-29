@@ -26,6 +26,19 @@ Two-stage: centroid detection + pose estimation.
 | [centered_instance_unet_medium](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_centered_instance_unet_medium_rf.yaml) | UNet | Stage 2, Medium |
 | [centered_instance_unet_large](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_centered_instance_unet_large_rf.yaml) | UNet | Stage 2, Large |
 
+### Centroid-Only (points)
+
+First-class single-stage "animals-as-points" model: one centroid per animal, no
+per-keypoint pose. This is a **standalone** centroid model — distinct from the
+top-down stage-1 centroid configs above, which are paired with a
+centered-instance model and trained on downscaled crops. Trains at full
+resolution; inference collapses to a single-node `'centroid'` skeleton. See the
+[Centroid-Only Inference guide](../guides/centroid-only-inference.md).
+
+| Config | Backbone | Notes |
+|--------|----------|-------|
+| [centroid_unet_standalone](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_centroid_unet_standalone.yaml) | UNet | Standalone, full-res, NOT top-down stage-1 |
+
 ### Bottom-Up
 
 Single-stage multi-instance.

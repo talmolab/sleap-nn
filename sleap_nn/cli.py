@@ -2072,6 +2072,7 @@ def _register_export_commands():
     type=click.Choice(
         [
             "single_instance",
+            "centroid",
             "bottomup",
             "topdown",
             "multi_class_bottomup",
@@ -2079,7 +2080,11 @@ def _register_export_commands():
         ]
     ),
     default=None,
-    help="Override model pipeline type. 'topdown' generates paired centroid + centered_instance configs.",
+    help=(
+        "Override model pipeline type. 'centroid' generates a single STANDALONE "
+        "centroid config (one point per animal); 'topdown' generates paired "
+        "centroid + centered_instance configs."
+    ),
 )
 @click.option(
     "--show-yaml",
@@ -2124,9 +2129,16 @@ def config(
 
         # Apply overrides
         if pipeline:
-            # 'topdown' is a CLI alias for the centroid stage, which triggers
-            # paired centroid + centered_instance config generation.
-            gen.pipeline("centroid" if pipeline == "topdown" else pipeline)
+            # 'topdown' is a CLI alias for the centroid STAGE (is_topdown=True),
+            # which triggers paired centroid + centered_instance generation.
+            # 'centroid' is the STANDALONE single-config centroid model
+            # (is_topdown=False), emitted via the "centroid_only" pipeline.
+            if pipeline == "topdown":
+                gen.pipeline("centroid")
+            elif pipeline == "centroid":
+                gen.pipeline("centroid_only")
+            else:
+                gen.pipeline(pipeline)
 
         if show_yaml:
             click.echo(gen.to_yaml())

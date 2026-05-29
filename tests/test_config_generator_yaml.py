@@ -32,6 +32,13 @@ GOLDEN_DIR = Path("tests/assets/generated_configs")
 PLACEHOLDER_PATH = "/path/to/labels.slp"
 
 
+# ``centroid_only`` is a single-stage STANDALONE centroid pipeline whose head
+# key remains the canonical ``centroid`` (so ``get_model_type_from_cfg`` returns
+# 'centroid'). It is golden-tested but is NOT part of ``PIPELINES`` for the
+# "head key == pipeline name" oneof test (its head key differs from its name).
+GOLDEN_PIPELINES = PIPELINES + ["centroid_only"]
+
+
 def _build_config(pipeline: str) -> dict:
     """Build a config for ``pipeline`` and normalize the labels path."""
     gen = ConfigGenerator.from_slp(FIXTURE_SLP).auto().pipeline(pipeline)
@@ -40,7 +47,7 @@ def _build_config(pipeline: str) -> dict:
     return yaml.safe_load(OmegaConf.to_yaml(cfg))
 
 
-@pytest.mark.parametrize("pipeline", PIPELINES)
+@pytest.mark.parametrize("pipeline", GOLDEN_PIPELINES)
 def test_yaml_matches_golden(pipeline):
     """Generated YAML for each pipeline matches the checked-in golden.
 
@@ -50,8 +57,9 @@ def test_yaml_matches_golden(pipeline):
         from sleap_nn.config_generator.generator import ConfigGenerator
         from omegaconf import OmegaConf
         from pathlib import Path
-        for p in ['single_instance', 'centroid', 'centered_instance',
-                  'bottomup', 'multi_class_bottomup', 'multi_class_topdown']:
+        for p in ['single_instance', 'centroid', 'centroid_only',
+                  'centered_instance', 'bottomup', 'multi_class_bottomup',
+                  'multi_class_topdown']:
             gen = ConfigGenerator.from_slp(
                 'tests/assets/datasets/minimal_instance.pkg.slp'
             ).auto().pipeline(p)
@@ -68,7 +76,7 @@ def test_yaml_matches_golden(pipeline):
     assert actual == expected
 
 
-@pytest.mark.parametrize("pipeline", PIPELINES)
+@pytest.mark.parametrize("pipeline", GOLDEN_PIPELINES)
 def test_exactly_one_backbone_active(pipeline):
     """Generated YAML has exactly one non-null backbone (oneof contract)."""
     cfg = _build_config(pipeline)
@@ -86,7 +94,7 @@ def test_exactly_one_head_active(pipeline):
     assert active == [pipeline]
 
 
-@pytest.mark.parametrize("pipeline", PIPELINES)
+@pytest.mark.parametrize("pipeline", GOLDEN_PIPELINES)
 def test_round_trips_through_model_trainer(pipeline):
     """Generated config is accepted by the canonical ModelTrainer.
 
@@ -202,3 +210,167 @@ def test_augmentation_uses_canonical_field_names():
                 "contrast_p",
             }
             assert "limit" not in k
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Standalone "centroid_only" pipeline (single-config centroid model)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def test_centroid_only_emits_single_centroid_head():
+    """centroid_only emits ONE config with only the canonical ``centroid`` head.
+
+    Head key is ``centroid`` (not ``centroid_only``) so ``get_model_type_from_cfg``
+    returns 'centroid' and the inference flow auto-detects a centroid model.
+    """
+    cfg = _build_config("centroid_only")
+    heads = cfg["model_config"]["head_configs"]
+    active = [k for k, v in heads.items() if v is not None]
+    assert active == ["centroid"]
+    confmaps = heads["centroid"]["confmaps"]
+    assert confmaps["sigma"] == 2.5
+    assert confmaps["output_stride"] == 2
+
+
+def test_centroid_only_full_res_no_crop():
+    """centroid_only is full resolution (scale 1.0) with no crop_size."""
+    cfg = _build_config("centroid_only")
+    preproc = cfg["data_config"]["preprocessing"]
+    assert preproc["scale"] == 1.0
+    assert preproc["crop_size"] is None
+    # Non-cropped preprocessing emits max_height/max_width (not a CI crop block).
+    assert "max_height" in preproc
+    assert "max_width" in preproc
+
+
+def test_centroid_only_resolves_to_centroid_model_type():
+    """The generated centroid_only config resolves to model_type 'centroid'."""
+    from omegaconf import OmegaConf
+
+    from sleap_nn.config.utils import get_model_type_from_cfg
+
+    gen = ConfigGenerator.from_slp(FIXTURE_SLP).auto().pipeline("centroid_only")
+    cfg = gen.build()
+    assert get_model_type_from_cfg(cfg) == "centroid"
+
+
+def test_centroid_only_is_not_topdown_but_centroid_is():
+    """is_topdown is False for centroid_only (single config) and True for centroid."""
+    standalone = ConfigGenerator.from_slp(FIXTURE_SLP).auto().pipeline("centroid_only")
+    assert standalone.is_topdown is False
+
+    paired = ConfigGenerator.from_slp(FIXTURE_SLP).auto().pipeline("centroid")
+    assert paired.is_topdown is True
+
+
+def test_centroid_only_save_emits_single_file(tmp_path):
+    """save() writes ONE file for centroid_only vs TWO for the paired centroid."""
+    out = tmp_path / "cfg.yaml"
+
+    gen = ConfigGenerator.from_slp(FIXTURE_SLP).auto().pipeline("centroid_only")
+    gen.save(str(out))
+    assert out.exists()
+    # No paired centroid/centered_instance split files.
+    assert not (tmp_path / "cfg_centroid.yaml").exists()
+    assert not (tmp_path / "cfg_centered_instance.yaml").exists()
+
+    # By contrast, the paired top-down ``centroid`` pipeline dual-emits.
+    out2 = tmp_path / "td.yaml"
+    paired = ConfigGenerator.from_slp(FIXTURE_SLP).auto().pipeline("centroid")
+    paired.save(str(out2))
+    assert (tmp_path / "td_centroid.yaml").exists()
+    assert (tmp_path / "td_centered_instance.yaml").exists()
+    assert not out2.exists()
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Recommender: single-node multi-instance -> centroid_only
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _make_stats(num_nodes: int, num_edges: int = 0) -> "DatasetStats":
+    """Build a multi-instance DatasetStats with small animals (~10% of frame)."""
+    from sleap_nn.config_generator.analyzer import DatasetStats
+
+    node_names = [f"n{i}" for i in range(num_nodes)]
+    return DatasetStats(
+        slp_path="x.slp",
+        num_labeled_frames=10,
+        num_videos=1,
+        max_height=1000,
+        max_width=1000,
+        num_channels=1,
+        max_instances_per_frame=3,  # multi-instance
+        avg_instances_per_frame=3.0,
+        max_bbox_size=100.0,
+        avg_bbox_size=100.0,  # ~10% of 1000 -> small animals
+        avg_bbox_diagonal=140.0,
+        num_nodes=num_nodes,
+        num_edges=num_edges,
+        node_names=node_names,
+        edges=[],
+        has_tracks=False,
+        num_tracks=0,
+        estimated_total_bytes=0,
+    )
+
+
+def test_recommender_single_node_multi_instance_picks_centroid_only():
+    """A single-node multi-instance skeleton recommends 'centroid_only'."""
+    from sleap_nn.config_generator.recommender import recommend_pipeline
+
+    rec = recommend_pipeline(_make_stats(num_nodes=1))
+    assert rec.recommended == "centroid_only"
+    assert rec.requires_second_model is False
+    assert rec.reason  # non-empty explanation
+
+
+def test_recommender_multi_node_small_animals_still_centroid():
+    """A multi-node small-animal skeleton still recommends the paired 'centroid'."""
+    from sleap_nn.config_generator.recommender import recommend_pipeline
+
+    rec = recommend_pipeline(_make_stats(num_nodes=5))
+    assert rec.recommended == "centroid"
+    assert rec.requires_second_model is True
+
+
+def test_recommend_config_centroid_only_sigma_no_crop():
+    """recommend_config for a single-node dataset uses tight sigma, no crop_size."""
+    from sleap_nn.config_generator.recommender import recommend_config
+
+    rec = recommend_config(_make_stats(num_nodes=1))
+    assert rec.pipeline.recommended == "centroid_only"
+    assert rec.sigma == 2.5
+    assert rec.crop_size is None
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# CLI: `config ... --pipeline centroid` -> single standalone config file
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def test_cli_config_pipeline_centroid_writes_single_file(tmp_path):
+    """`config --pipeline centroid` writes ONE config resolving to 'centroid'."""
+    from click.testing import CliRunner
+    from omegaconf import OmegaConf
+
+    from sleap_nn.cli import config as config_cmd
+    from sleap_nn.config.utils import get_model_type_from_cfg
+
+    out = tmp_path / "out.yaml"
+    runner = CliRunner()
+    result = runner.invoke(
+        config_cmd,
+        [FIXTURE_SLP, "--auto", "--pipeline", "centroid", "-o", str(out)],
+    )
+    assert result.exit_code == 0, result.output
+
+    # Single standalone file — no paired split files.
+    assert out.exists()
+    assert not (tmp_path / "out_centroid.yaml").exists()
+    assert not (tmp_path / "out_centered_instance.yaml").exists()
+
+    cfg = OmegaConf.load(str(out))
+    assert get_model_type_from_cfg(cfg) == "centroid"
+    assert cfg.data_config.preprocessing.scale == 1.0
+    assert cfg.data_config.preprocessing.crop_size is None

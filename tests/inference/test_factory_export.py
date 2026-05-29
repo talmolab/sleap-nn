@@ -493,6 +493,159 @@ def test_centroid_adapter_nan_pads_invalid_slots(centroid_export):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Standalone-centroid export → single-node 'centroid' collapse (PR III)
+#
+# The export runtime must match the checkpoint path: a centroid model
+# trained on a MULTI-node skeleton collapses its predicted Labels to a
+# single-node 'centroid' skeleton (sio.get_centroid_skeleton()), with the
+# #586 source tag derived from the export's real node_names / anchor_part.
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_centroid_export_skeleton_resolves_to_full_node_names(centroid_export):
+    """``from_export_dir`` carries the full (multi-node) training skeleton.
+
+    The collapse decision in ``_resolve_centroid_packaging`` keys off
+    ``len(skeleton.nodes) > 1`` AND the source tag needs the real node
+    names, so the predictor must NOT pre-collapse the skeleton at load.
+    """
+    from sleap_nn.inference.predictor import Predictor
+
+    predictor = Predictor.from_export_dir(centroid_export, device="cpu")
+    # centroid_export metadata declares a 2-node skeleton (n0, n1).
+    assert predictor.skeleton is not None
+    assert list(predictor.skeleton.node_names) == ["n0", "n1"]
+
+
+def test_centroid_export_collapses_to_single_node_centroid(centroid_export):
+    """Multi-node centroid export → predicted skeleton is single-node 'centroid'.
+
+    Mirrors the checkpoint path (``from_model_paths(centroid_only=True)``):
+    the standalone centroid model's output Labels collapse to a 1-node
+    'centroid' skeleton and a single-node ``PredictedInstance``.
+    """
+    import sleap_io as sio
+
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.providers import NumpyProvider
+
+    predictor = Predictor.from_export_dir(centroid_export, device="cpu")
+
+    # The packaging decision should engage collapse (>1 training node) and
+    # default to the mean-of-visible / center_of_mass source (anchor_part
+    # is unset in this export).
+    pkg = predictor._resolve_centroid_packaging()
+    assert pkg.collapse_skeleton is not None
+    assert list(pkg.collapse_skeleton.node_names) == ["centroid"]
+    assert pkg.anchor_ind is None
+    assert pkg.source == "center_of_mass"
+    assert pkg.emit_centroid == "instance"
+
+    images = np.random.randint(0, 256, (1, 1, 16, 16), dtype=np.uint8)
+    provider = NumpyProvider(images=images, batch_size=1)
+    labels = predictor.predict(provider, make_labels=True)
+
+    assert len(labels.skeletons) == 1
+    assert list(labels.skeletons[0].node_names) == ["centroid"]
+    for lf in labels.labeled_frames:
+        for inst in lf.instances:
+            assert isinstance(inst, sio.PredictedInstance)
+            assert len(inst.points) == 1
+            assert list(inst.skeleton.node_names) == ["centroid"]
+
+
+def test_centroid_export_anchor_part_round_trip(tmp_path):
+    """``anchor_part`` in metadata resolves to anchor_ind + ``anchor:<name>`` source."""
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.layers.exported import ExportedCentroidLayer
+
+    export_dir = tmp_path / "centroid_anchor_export"
+    export_dir.mkdir()
+    _export_tiny_centroid(export_dir, max_instances=4, n_nodes=2)
+    # Re-write metadata with a real anchor node name (node index 1).
+    meta_path = _write_metadata(export_dir, model_type="centroid", n_nodes=2)
+    meta = json.loads(meta_path.read_text())
+    meta["anchor_part"] = "n1"
+    meta_path.write_text(json.dumps(meta))
+
+    predictor = Predictor.from_export_dir(export_dir, device="cpu")
+    assert isinstance(predictor.layer, ExportedCentroidLayer)
+    # node_names ["n0", "n1"] → anchor "n1" → index 1.
+    assert predictor.layer.anchor_ind == 1
+
+    pkg = predictor._resolve_centroid_packaging()
+    assert pkg.anchor_ind == 1
+    assert pkg.source == "anchor:n1"
+    assert list(pkg.collapse_skeleton.node_names) == ["centroid"]
+
+
+def test_centroid_export_bad_anchor_part_raises(tmp_path):
+    """An ``anchor_part`` not in ``node_names`` raises a clear ``ValueError``."""
+    from sleap_nn.inference.predictor import Predictor
+
+    export_dir = tmp_path / "centroid_bad_anchor_export"
+    export_dir.mkdir()
+    _export_tiny_centroid(export_dir, max_instances=4, n_nodes=2)
+    meta_path = _write_metadata(export_dir, model_type="centroid", n_nodes=2)
+    meta = json.loads(meta_path.read_text())
+    meta["anchor_part"] = "does_not_exist"
+    meta_path.write_text(json.dumps(meta))
+
+    with pytest.raises(ValueError, match="not found in export node_names"):
+        Predictor.from_export_dir(export_dir, device="cpu")
+
+
+@pytest.mark.parametrize("emit", ["instance", "centroid", "both"])
+def test_centroid_export_emit_centroid_threads_through(centroid_export, emit):
+    """``from_export_dir(emit_centroid=...)`` controls the output representation.
+
+    Uses a deterministically-constructed ``Outputs`` (one valid centroid) so
+    the packaging path is exercised without depending on the synthetic ONNX
+    model's stochastic peak validity. The predictor's own
+    ``_resolve_centroid_packaging`` (collapse + source + emit) drives the
+    conversion via ``to_labels``.
+    """
+    import sleap_io as sio
+
+    from sleap_nn.inference.outputs import Outputs
+    from sleap_nn.inference.predictor import Predictor
+
+    predictor = Predictor.from_export_dir(
+        centroid_export, device="cpu", emit_centroid=emit
+    )
+    assert predictor.emit_centroid == emit
+    assert predictor._resolve_centroid_packaging().emit_centroid == emit
+
+    # One frame, one guaranteed-valid centroid at (5, 7).
+    outputs = Outputs(
+        pred_centroids=torch.tensor([[[5.0, 7.0]]]),
+        pred_centroid_values=torch.tensor([[0.9]]),
+        instance_valid=torch.tensor([[True]]),
+        frame_indices=torch.tensor([0]),
+        video_indices=torch.tensor([0]),
+    )
+    labels = predictor.to_labels([outputs], videos=[None])
+
+    # Collapse always engages for this multi-node export.
+    assert list(labels.skeletons[0].node_names) == ["centroid"]
+
+    has_instance = any(
+        isinstance(inst, sio.PredictedInstance)
+        for lf in labels.labeled_frames
+        for inst in lf.instances
+    )
+    has_centroid = any(getattr(lf, "centroids", None) for lf in labels.labeled_frames)
+    if emit == "instance":
+        assert has_instance
+        assert not has_centroid
+    elif emit == "centroid":
+        assert has_centroid
+        assert not has_instance
+    else:  # both
+        assert has_instance and has_centroid
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Bottom-up synthetic export (PR 20)
 # ──────────────────────────────────────────────────────────────────────
 

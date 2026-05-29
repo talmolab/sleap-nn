@@ -504,8 +504,23 @@ class ConfigState:
         self._ensure_rgb = bool(is_pretrained and self.stats.num_channels == 1)
         self._ensure_grayscale = False
 
+        # Standalone centroid model: full resolution, tighter sigma, single
+        # config (NO centered-instance/_ci_* second stage). Distinct from the
+        # top-down stage-1 centroid (0.5/5.0).
+        if self._pipeline == "centroid_only":
+            self._input_scale = 1.0
+            self._sigma = 2.5
+            self._output_stride = 2
+
+            # Floor max_stride by RF coverage at full scale (no rebucket).
+            scaled_max_animal_size = self.stats.max_bbox_size * self._input_scale
+            coverage_stride = self._compute_max_stride_for_animal_size(
+                scaled_max_animal_size
+            )
+            self._max_stride = max(self._max_stride, coverage_stride)
+
         # Set defaults for top-down models
-        if self.is_topdown:
+        elif self.is_topdown:
             # Centroid model defaults - lower scale is OK for detecting centers
             self._input_scale = 0.5
             self._sigma = 5.0

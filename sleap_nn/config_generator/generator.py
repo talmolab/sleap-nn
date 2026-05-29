@@ -370,6 +370,9 @@ class ConfigGenerator:
 
         - ``centroid``: centroid stage of top-down — main preprocessing,
           scale=0.5, sigma=5.0, output_stride=2.
+        - ``centroid_only``: STANDALONE centroid model (one config, no paired
+          centered_instance) — main preprocessing, scale=1.0, sigma=2.5,
+          output_stride=2. Emits the same ``centroid`` head as ``centroid``.
         - ``centered_instance``, ``multi_class_topdown``: CI stage of top-down —
           CI preprocessing (crop_size), scale=1.0, sigma=2.5, output_stride=2.
         - ``single_instance``, ``bottomup``, ``multi_class_bottomup``: main
@@ -386,6 +389,14 @@ class ConfigGenerator:
         if pipeline == "centroid":
             self._input_scale = 0.5
             self._sigma = 5.0
+            self._output_stride = 2
+            self._recalculate_max_stride()
+        elif pipeline == "centroid_only":
+            # Standalone centroid model: run at full resolution (no
+            # crop-and-refine second stage), tighter sigma than the top-down
+            # stage-1 centroid (0.5/5.0). One config, non-cropped preprocessing.
+            self._input_scale = 1.0
+            self._sigma = 2.5
             self._output_stride = 2
             self._recalculate_max_stride()
         elif pipeline in ("centered_instance", "multi_class_topdown"):
@@ -840,7 +851,13 @@ class ConfigGenerator:
                 }
             }
 
-        elif self._pipeline == "centroid":
+        elif self._pipeline in ("centroid", "centroid_only"):
+            # Both the top-down stage-1 ``centroid`` pipeline and the standalone
+            # ``centroid_only`` pipeline emit the SAME canonical ``centroid`` head
+            # (head key stays "centroid"), so ``get_model_type_from_cfg`` returns
+            # 'centroid' and the inference flow auto-detects either as a centroid
+            # model. They differ only in preprocessing/scale defaults (see
+            # ``pipeline()``).
             head_configs["centroid"] = {
                 "confmaps": {
                     "anchor_part": self._anchor_part,

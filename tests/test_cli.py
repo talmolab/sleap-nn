@@ -344,11 +344,19 @@ class TestConfigCommand:
         assert not (tmp_path / "cfg_centroid.yaml").exists()
         assert not (tmp_path / "cfg_centered_instance.yaml").exists()
 
-    @pytest.mark.parametrize("removed", ["centroid", "centered_instance"])
-    def test_internal_pipeline_names_not_exposed(
-        self, minimal_instance, tmp_path, removed
+    def test_pipeline_centroid_writes_single_standalone_config(
+        self, minimal_instance, tmp_path
     ):
-        """Internal stage names (centroid, centered_instance) are not valid CLI choices."""
+        """`--pipeline centroid` is the STANDALONE single-config centroid model.
+
+        Unlike `topdown` (paired), it writes exactly ONE config that resolves to
+        model_type 'centroid' (full-res, no crop_size).
+        """
+        from omegaconf import OmegaConf
+
+        from sleap_nn.config.utils import get_model_type_from_cfg
+
+        out = tmp_path / "cfg.yaml"
         runner = CliRunner()
         result = runner.invoke(
             cli,
@@ -357,7 +365,37 @@ class TestConfigCommand:
                 str(minimal_instance),
                 "--auto",
                 "--pipeline",
-                removed,
+                "centroid",
+                "-o",
+                str(out),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert out.exists()
+        # No paired top-down split files.
+        assert not (tmp_path / "cfg_centroid.yaml").exists()
+        assert not (tmp_path / "cfg_centered_instance.yaml").exists()
+
+        cfg = OmegaConf.load(str(out))
+        assert get_model_type_from_cfg(cfg) == "centroid"
+        assert cfg.data_config.preprocessing.scale == 1.0
+        assert cfg.data_config.preprocessing.crop_size is None
+
+    def test_internal_pipeline_names_not_exposed(self, minimal_instance, tmp_path):
+        """Internal stage name ``centered_instance`` is not a valid CLI choice.
+
+        (``centroid`` IS exposed now — it's the standalone single-config model;
+        ``centered_instance`` remains an internal top-down stage only.)
+        """
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "config",
+                str(minimal_instance),
+                "--auto",
+                "--pipeline",
+                "centered_instance",
                 "-o",
                 str(tmp_path / "cfg.yaml"),
             ],
@@ -376,6 +414,7 @@ class TestConfigCommand:
         assert result.exit_code == 0
         for choice in [
             "single_instance",
+            "centroid",
             "bottomup",
             "topdown",
             "multi_class_bottomup",
