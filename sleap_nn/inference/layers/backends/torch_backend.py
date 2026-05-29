@@ -204,9 +204,9 @@ class TorchBackend:
                 )
             if self.use_fp16:
                 warnings.warn(
-                    "FP16 trades precision for speed. This backend uses explicit "
-                    "half-precision casting (model.half() + tensor.half()), not "
-                    "torch.autocast. Measured max-abs-diff vs FP32 on the test "
+                    "FP16 trades precision for speed. This backend runs the heavy "
+                    "ops in half precision via torch.autocast (fp32 master weights "
+                    "preserved). Measured max-abs-diff vs FP32 on the test "
                     "single-instance UNet (A40, batch 1-16): ~4e-3. Note: FP16 is "
                     "*counterproductive at small batch* — at batch=1 it ran 0.65× "
                     "the FP32 speed because tensor cores aren't saturated and "

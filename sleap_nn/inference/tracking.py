@@ -138,7 +138,8 @@ def apply_tracking(
     tracked_lfs: list = []
     # Track in temporal order. The tracker is stateful across frames (sliding
     # candidate window + optional flow), so frames MUST be visited sorted by
-    # (video, frame_idx) — legacy run_tracker sorted before tracking. Iterating
+    # (video, frame_idx) — legacy sorted frames (in the predictors'
+    # _make_labeled_frames_from_generator) before tracking. Iterating
     # in raw ``labeled_frames`` submission order (e.g. for a .slp whose frames
     # are unordered, or multi-video) produces wrong track assignments
     # (#530 audit: tracking parity / track-only retrack ordering).

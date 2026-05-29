@@ -76,7 +76,12 @@ def crop_bboxes(
     # when the bbox top-left is negative AND fractional (an instance overhanging
     # the top/left image edge), shifting the crop fed to the centered-instance
     # model. ``trunc(x + half) - half`` is identical to ``.long()`` for the
-    # integer-aligned case and matches legacy on the border case (#530 audit).
+    # integer-aligned case and reproduces legacy for all REACHABLE centroids
+    # (model peaks/centroids are >= 0). NOTE: for off-frame centroids <= -1 px,
+    # legacy additionally clamps the padded patch index to 0 (a further 1 px
+    # shift) that this does not replicate; that far-out-of-bounds clamp
+    # divergence is unreachable via the model path and tracked in the #530
+    # follow-ups (#584).
     half_xy = torch.tensor(
         [width // 2, height // 2], device=device, dtype=bboxes_on_device.dtype
     )
