@@ -61,6 +61,28 @@ def test_generate_centroids_anchor_none_uses_mean_of_visible_nodes():
     assert not torch.allclose(centroids, bbox_mid)
 
 
+def test_generate_centroids_missing_anchor_node_fallback():
+    """A NaN (occluded) anchor node falls back to the mean of visible nodes.
+
+    Pins the post-#530 anchor-fallback convention (mean of visible nodes, not
+    the bbox midpoint) on the per-instance missing-anchor path — distinct from
+    the ``anchor_ind=None`` path. Uses a skewed instance (one far node) so the
+    mean and the bbox midpoint differ, locking the intended behavior (#582).
+    This is a shared module (training + GT-centroid inference) kept consistent
+    between the two; the bbox-midpoint vs mean-of-visible choice is tracked in
+    #586 for a later revisit.
+    """
+    # 4 nodes; anchor (index 0) is NaN. Visible nodes (0,0),(0,0),(12,12).
+    points = torch.tensor(
+        [[[float("nan"), float("nan")], [0.0, 0.0], [0.0, 0.0], [12.0, 12.0]]]
+    )
+    centroids = generate_centroids(points, anchor_ind=0)
+    # mean of visible = (4, 4); bbox midpoint would be (6, 6).
+    torch.testing.assert_close(centroids, torch.tensor([[4.0, 4.0]]))
+    bbox_mid = find_points_bbox_midpoint(points)
+    assert not torch.allclose(centroids, bbox_mid)
+
+
 def test_find_points_mean_ignores_nan():
     """`find_points_mean` excludes NaN nodes; all-NaN → NaN."""
     points = torch.tensor(

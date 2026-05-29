@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 import attrs
+import numpy as np
 import torch
 
 from sleap_nn.inference.layers.backends.base import ModelBackend
@@ -31,6 +32,11 @@ class BottomUpMultiClassLayer(InferenceLayer):
         cms_output_stride: Stride for ``MultiInstanceConfmapsHead``.
         class_maps_output_stride: Stride for ``ClassMapsHead``.
         max_stride: Max stride the model requires for input divisibility.
+        max_instances: Cap on instances per frame. Since each instance slot is
+            a fixed class index, the cap is applied by NaN-masking the
+            lowest-scoring class slots (not by reordering), preserving the
+            ``slot == class`` identity used for track assignment (legacy parity,
+            #582).
         preprocess_config / postprocess_config: Standard knobs.
         class_names: Ordered class names from
             ``multi_class_bottomup.class_maps.classes``. Used by the predictor
@@ -44,6 +50,7 @@ class BottomUpMultiClassLayer(InferenceLayer):
         cms_output_stride: int,
         class_maps_output_stride: int,
         max_stride: int = 1,
+        max_instances: Optional[int] = None,
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
         class_names: Optional[List[str]] = None,
@@ -58,6 +65,7 @@ class BottomUpMultiClassLayer(InferenceLayer):
         )
         self.cms_output_stride = cms_output_stride
         self.class_maps_output_stride = class_maps_output_stride
+        self.max_instances = max_instances
         self.class_names = list(class_names) if class_names is not None else None
 
     # ──────────────────────────────────────────────────────────────────
@@ -110,6 +118,25 @@ class BottomUpMultiClassLayer(InferenceLayer):
         instance_scores = torch.nanmean(peak_scores, dim=-1)
         instance_tracking_scores = torch.nanmean(class_probs, dim=-1)
 
+        # Cap instances per frame by NaN-masking the lowest-scoring class slots,
+        # preserving slot==class identity (legacy parity — legacy sorted by
+        # score and truncated to max_instances after class assignment). A
+        # predict-time override (postprocess_config) takes precedence over the
+        # build-time value (#582).
+        max_instances = getattr(self.postprocess_config, "max_instances", None)
+        if max_instances is None:
+            max_instances = self.max_instances
+        if max_instances is not None:
+            instances, peak_scores, instance_scores, instance_tracking_scores = (
+                self._cap_instances_by_score(
+                    instances,
+                    peak_scores,
+                    instance_scores,
+                    instance_tracking_scores,
+                    max_instances,
+                )
+            )
+
         outputs = Outputs(
             pred_keypoints=instances,
             pred_peak_values=peak_scores,
@@ -122,3 +149,42 @@ class BottomUpMultiClassLayer(InferenceLayer):
         if self.postprocess_config.return_class_maps:
             outputs = attrs.evolve(outputs, pred_class_maps=class_maps.detach())
         return outputs
+
+    @staticmethod
+    def _cap_instances_by_score(
+        instances: torch.Tensor,
+        peak_scores: torch.Tensor,
+        instance_scores: torch.Tensor,
+        instance_tracking_scores: torch.Tensor,
+        max_instances: int,
+    ) -> tuple:
+        """NaN-mask the lowest-scoring class slots beyond ``max_instances``.
+
+        Per frame, the present classes are those with a non-NaN
+        ``instance_score`` (a class with no assigned peaks has an all-NaN peak
+        row → NaN score). When more than ``max_instances`` classes are present,
+        the lowest-scoring ones are masked out (keypoints / peak values /
+        scores set to NaN) so the frame yields at most ``max_instances``
+        instances, while every surviving instance keeps its original class slot
+        (and therefore its track). Mirrors the legacy top-N-by-score truncation
+        without reordering.
+        """
+        B = instance_scores.shape[0]
+        for b in range(B):
+            scores_b = instance_scores[b]  # (n_classes,)
+            valid = ~torch.isnan(scores_b)
+            n_valid = int(valid.sum().item())
+            if n_valid <= max_instances:
+                continue
+            # Rank present classes by score (descending) and keep the top
+            # ``max_instances``. NaN scores sort last via argsort, matching the
+            # legacy ``np.argsort(scores)[::-1]`` selection.
+            order = np.argsort(scores_b.detach().cpu().numpy())[::-1]
+            keep = torch.as_tensor(order[:max_instances].copy(), dtype=torch.long)
+            drop_mask = torch.ones(scores_b.shape[0], dtype=torch.bool)
+            drop_mask[keep] = False
+            instances[b, drop_mask] = float("nan")
+            peak_scores[b, drop_mask] = float("nan")
+            instance_scores[b, drop_mask] = float("nan")
+            instance_tracking_scores[b, drop_mask] = float("nan")
+        return instances, peak_scores, instance_scores, instance_tracking_scores

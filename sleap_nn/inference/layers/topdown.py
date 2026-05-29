@@ -121,7 +121,10 @@ class TopDownLayer:
                     "TopDownLayer with use_gt_peaks=True requires `instances`."
                 )
             return self.centered_instance_layer.predict(
-                crops=None, centroids=centroids, instances=instances
+                crops=None,
+                centroids=centroids,
+                instances=instances,
+                centroid_vals=centroid_vals,
             )
 
         # Stage 2: crop + run centered-instance model + un-crop.

@@ -1117,32 +1117,68 @@ def _build_filter_config(kwargs: dict) -> "object":
 
 
 def _build_tracker_config(kwargs: dict) -> "object":
-    """Build a :class:`TrackerConfig` from the CLI ``--tracking_*`` flags."""
+    """Build a :class:`TrackerConfig` from the CLI ``--tracking_*`` flags.
+
+    Replicates the legacy ``run_inference`` edge-layer defaulting (see
+    ``sleap_nn/predict.py`` pre-#530) so the new ``infer`` flow behaves
+    identically (#582):
+
+    * ``--max_tracks`` with no ``--candidates_method`` defaults the method to
+      ``local_queues`` (``max_tracks`` is silently ignored by ``fixed_window``).
+    * ``--post_connect_single_breaks`` / ``--tracking_pre_cull_to_target`` with
+      only ``--max_instances`` (no explicit ``--tracking_target_instance_count``)
+      derive the target count from ``max_instances`` instead of crashing /
+      silently no-op'ing.
+    * ``--post_connect_single_breaks`` with no ``--max_tracks`` derives
+      ``max_tracks`` from ``max_instances`` (legacy track-only default).
+    """
     from sleap_nn.inference.tracking import TrackerConfig
+
+    max_instances = kwargs.get("max_instances")
+    target = kwargs.get("tracking_target_instance_count")
+    max_tracks = kwargs.get("max_tracks")
+    pre_cull = kwargs.get("tracking_pre_cull_to_target", 0)
+    pcsb = kwargs.get("post_connect_single_breaks", False)
+
+    # Default candidates_method to local_queues when max_tracks is set but the
+    # user did not explicitly choose a method (the click default is None).
+    candidates_method = kwargs.get("candidates_method")
+    if candidates_method is None:
+        candidates_method = "local_queues" if max_tracks is not None else "fixed_window"
+
+    # Legacy: post_connect_single_breaks defaults max_tracks from max_instances.
+    if pcsb and max_tracks is None:
+        max_tracks = max_instances
+
+    # Legacy: post_connect / pre_cull derive the target count from max_instances
+    # when not given explicitly (leaves target=None when both are None, so the
+    # apply_tracking gate raises exactly as legacy did).
+    if (pcsb or pre_cull) and target is None:
+        target = max_instances
 
     return TrackerConfig(
         window_size=kwargs.get("tracking_window_size", 5),
         min_new_track_points=kwargs.get("min_new_track_points", 0),
-        candidates_method=kwargs.get("candidates_method", "fixed_window"),
+        candidates_method=candidates_method,
         min_match_points=kwargs.get("min_match_points", 0),
         features=kwargs.get("features", "keypoints"),
         scoring_method=kwargs.get("scoring_method", "oks"),
         scoring_reduction=kwargs.get("scoring_reduction", "mean"),
         robust_best_instance=kwargs.get("robust_best_instance", 1.0),
         track_matching_method=kwargs.get("track_matching_method", "hungarian"),
-        max_tracks=kwargs.get("max_tracks"),
+        max_tracks=max_tracks,
         use_flow=kwargs.get("use_flow", False),
         of_img_scale=kwargs.get("of_img_scale", 1.0),
         of_window_size=kwargs.get("of_window_size", 21),
         of_max_levels=kwargs.get("of_max_levels", 3),
-        tracking_target_instance_count=kwargs.get("tracking_target_instance_count"),
-        tracking_pre_cull_to_target=kwargs.get("tracking_pre_cull_to_target", 0),
+        tracking_target_instance_count=target,
+        tracking_pre_cull_to_target=pre_cull,
         tracking_pre_cull_iou_threshold=kwargs.get(
             "tracking_pre_cull_iou_threshold", 0.0
         ),
         tracking_clean_instance_count=kwargs.get("tracking_clean_instance_count", 0),
         tracking_clean_iou_threshold=kwargs.get("tracking_clean_iou_threshold", 0.0),
-        post_connect_single_breaks=kwargs.get("post_connect_single_breaks", False),
+        post_connect_single_breaks=pcsb,
     )
 
 
@@ -1569,7 +1605,10 @@ def _common_inference_options(f):
         click.option("--integral_refinement", type=str, default="integral"),
         click.option("--tracking_window_size", type=int, default=5),
         click.option("--min_new_track_points", type=int, default=0),
-        click.option("--candidates_method", type=str, default="fixed_window"),
+        # Default None (not "fixed_window") so _build_tracker_config can tell
+        # "user didn't choose a method" from an explicit choice, and default it
+        # to local_queues when --max_tracks is set (#582).
+        click.option("--candidates_method", type=str, default=None),
         click.option("--min_match_points", type=int, default=0),
         click.option("--features", type=str, default="keypoints"),
         click.option("--scoring_method", type=str, default="oks"),

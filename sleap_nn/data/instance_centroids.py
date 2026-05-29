@@ -74,6 +74,13 @@ def generate_centroids(
     Returns:
         The centroids of the instances. The output will be of shape (..., 2),
         reducing the rank of the input by 1. NaNs will be ignored in the calculation.
+
+    Note:
+        The missing/occluded-anchor fallback is the mean of visible nodes
+        (``find_points_mean``). Pre-#530 this was the bounding-box midpoint
+        (``find_points_bbox_midpoint``). The two modes are tracked for a future
+        revisit in https://github.com/talmolab/sleap-nn/issues/586 — keep this
+        consistent with the centroid target generated during training.
     """
     if anchor_ind is not None:
         centroids = points[..., anchor_ind, :].clone()

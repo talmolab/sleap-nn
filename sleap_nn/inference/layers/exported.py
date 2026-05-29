@@ -39,15 +39,32 @@ from sleap_nn.inference.layers.base import InferenceLayer
 from sleap_nn.inference.outputs import Outputs
 
 
-def _to_4d_uint8_tensor(image: Any) -> torch.Tensor:
-    """Coerce an image input to ``(B, C, H, W)`` uint8 (channel-first).
+def _to_4d_tensor_for_export(image: Any) -> torch.Tensor:
+    """Coerce an image input to ``(B, C, H, W)`` channel-first, preserving dtype.
 
-    Mirrors :meth:`InferenceLayer._to_4d_float_tensor` shape-wise, but
-    keeps the dtype as the runtime expects (``ONNXBackend`` casts to
-    its declared input dtype, typically ``uint8``, before invoking the
-    session).
+    Uses the dtype-preserving :meth:`InferenceLayer._to_4d_tensor` so a uint8
+    input stays uint8 (matching the legacy exporter's uint8 NCHW fast path)
+    instead of being force-cast to float32. Each backend re-casts to its
+    engine's declared input dtype: ``ONNXBackend`` via ``np.astype`` and
+    ``TensorRTBackend`` via ``x.to(...)``, so any input dtype is accepted.
     """
-    return InferenceLayer._to_4d_float_tensor(image)
+    return InferenceLayer._to_4d_tensor(image)
+
+
+def _raw_to_cpu(raw: dict) -> dict:
+    """Move every tensor in a backend output dict to CPU.
+
+    The grouping-based adapters build index/output tensors on the default
+    (CPU) device and index them with masks derived from the backend output.
+    ``ONNXBackend`` returns CPU tensors, but ``TensorRTBackend`` returns CUDA
+    tensors, which makes those mixed-device index/assign ops crash on a GPU
+    host (invisible to CPU-only CI). Legacy export inference moved all engine
+    outputs to CPU before grouping; mirror that here (#582). No-op on CPU.
+    """
+    return {
+        k: (v.detach().cpu() if isinstance(v, torch.Tensor) else v)
+        for k, v in raw.items()
+    }
 
 
 @attrs.define
@@ -75,7 +92,7 @@ class ExportedSingleInstanceLayer:
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend and translate to :class:`Outputs`."""
-        x = _to_4d_uint8_tensor(image)
+        x = _to_4d_tensor_for_export(image)
         raw = self.backend(x)
         peaks = raw["peaks"]  # (B, N, 2)
         vals = raw["peak_vals"]  # (B, N)
@@ -113,7 +130,7 @@ class ExportedCenteredInstanceLayer:
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend and translate to :class:`Outputs`."""
-        x = _to_4d_uint8_tensor(image)
+        x = _to_4d_tensor_for_export(image)
         raw = self.backend(x)
         peaks = raw["peaks"]  # (B_crops, N, 2)
         vals = raw["peak_vals"]
@@ -143,13 +160,19 @@ class ExportedCentroidLayer:
     Args:
         backend: A :class:`ModelBackend` whose
             ``does_baked_postproc`` is ``True``.
+        anchor_ind: Skeleton node index the centroid represents (resolved
+            from ``ExportMetadata.anchor_part``). Read at packaging time by
+            ``Predictor._packaging_anchor_ind`` so the centroid lands on the
+            configured anchor node rather than node 0 (#582). ``None`` (old
+            exports without ``anchor_part``) keeps the node-0 behavior.
     """
 
     backend: Any
+    anchor_ind: Optional[int] = None
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend and translate to :class:`Outputs`."""
-        x = _to_4d_uint8_tensor(image)
+        x = _to_4d_tensor_for_export(image)
         raw = self.backend(x)
         centroids = raw["centroids"].clone()  # (B, I, 2)
         centroid_vals = raw["centroid_vals"].clone()  # (B, I)
@@ -202,6 +225,11 @@ class ExportedBottomUpLayer:
         min_instance_peaks: Drop assembled instances with fewer peaks.
         min_line_scores: Per-edge match threshold (forwarded to
             :class:`PAFScorer`).
+        peak_conf_threshold: Optional runtime peak-confidence threshold. When
+            set, PAF candidate connections whose src or dst peak confidence is
+            ``<= peak_conf_threshold`` are dropped before grouping (legacy
+            parity for the runtime threshold override, #582). ``None`` keeps
+            every candidate the wrapper emitted.
     """
 
     backend: Any
@@ -212,15 +240,16 @@ class ExportedBottomUpLayer:
     max_instances: Optional[int] = None
     min_instance_peaks: float = 0
     min_line_scores: float = 0.25
+    peak_conf_threshold: Optional[float] = None
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend, translate to ``ScoredBatch``, run CPU grouping."""
         from sleap_nn.inference.preprocess_info import PreprocInfo
         from sleap_nn.inference.streaming import GroupingParams, group_scored_batch
 
-        x = _to_4d_uint8_tensor(image)
+        x = _to_4d_tensor_for_export(image)
         B, _C, H, W = x.shape
-        raw = self.backend(x)
+        raw = _raw_to_cpu(self.backend(x))
 
         info = PreprocInfo(
             original_size=(H, W),
@@ -314,6 +343,14 @@ class ExportedBottomUpLayer:
                 src_compact = global_to_compact[src_global]
                 dst_compact = global_to_compact[dst_global]
                 ok = (src_compact >= 0) & (dst_compact >= 0)
+                # Runtime peak-confidence gate: drop candidate connections whose
+                # src/dst peak confidence is below the threshold (legacy parity,
+                # #582). The wrapper already baked a peak threshold, so this can
+                # only tighten further.
+                if self.peak_conf_threshold is not None:
+                    pv_flat = peak_vals[b].reshape(-1)
+                    thr = self.peak_conf_threshold
+                    ok = ok & (pv_flat[src_global] > thr) & (pv_flat[dst_global] > thr)
                 if not ok.any():
                     continue
                 sample_edge_inds.append(
@@ -374,7 +411,7 @@ class ExportedTopDownLayer:
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend and translate to :class:`Outputs`."""
-        x = _to_4d_uint8_tensor(image)
+        x = _to_4d_tensor_for_export(image)
         raw = self.backend(x)
         centroids = raw["centroids"].clone()
         centroid_vals = raw["centroid_vals"].clone()
@@ -430,8 +467,8 @@ class ExportedTopDownMultiClassLayer:
         """Run the backend, run softmax + Hungarian, build :class:`Outputs`."""
         from sleap_nn.inference.ops.identity import get_class_inds_from_vectors
 
-        x = _to_4d_uint8_tensor(image)
-        raw = self.backend(x)
+        x = _to_4d_tensor_for_export(image)
+        raw = _raw_to_cpu(self.backend(x))
 
         centroids = raw["centroids"]
         centroid_vals = raw["centroid_vals"]
@@ -509,23 +546,32 @@ class ExportedBottomUpMultiClassLayer:
         n_classes: Number of identity classes (= ``I`` in the output).
         input_scale: Wrapper's baked-in ``input_scale``. Used to
             unscale predicted points back to original-image space.
+        peak_conf_threshold: Optional runtime peak-confidence threshold.
+            When set, peaks whose confidence is ``<= peak_conf_threshold``
+            are dropped before class grouping (legacy parity — the legacy
+            exported multi-class bottom-up path gated peaks the same way,
+            #582). ``None`` keeps every peak the wrapper emitted.
     """
 
     backend: Any
     n_nodes: int
     n_classes: int
     input_scale: float = 1.0
+    peak_conf_threshold: Optional[float] = None
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend, flatten + group peaks by class, build ``Outputs``."""
         from sleap_nn.inference.ops.identity import group_class_peaks
 
-        x = _to_4d_uint8_tensor(image)
-        raw = self.backend(x)
+        x = _to_4d_tensor_for_export(image)
+        raw = _raw_to_cpu(self.backend(x))
 
         peaks = raw["peaks"]  # (B, n_nodes, k, 2)
         peak_vals = raw["peak_vals"]  # (B, n_nodes, k)
         peak_mask = raw["peak_mask"].bool()  # (B, n_nodes, k)
+        # Runtime peak-confidence gate before class grouping (legacy parity).
+        if self.peak_conf_threshold is not None:
+            peak_mask = peak_mask & (peak_vals > self.peak_conf_threshold)
         class_probs_raw = raw["class_probs"]  # (B, n_nodes, k, n_classes)
 
         B, n_nodes, k, _ = peaks.shape

@@ -30,11 +30,14 @@ What this does NOT cover:
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 import attrs
 
 import sleap_io as sio
+
+logger = logging.getLogger(__name__)
 
 
 @attrs.frozen(eq=False)
@@ -106,12 +109,27 @@ def apply_tracking(
     )
     from sleap_nn.tracking.utils import cull_instances
 
-    if config.post_connect_single_breaks and not (
-        config.tracking_target_instance_count or config.max_tracks
-    ):
+    # Both post_connect_single_breaks and a non-zero pre-cull target require an
+    # explicit tracking_target_instance_count (legacy parity — max_tracks was
+    # NEVER accepted as a substitute; the CLI edge layer derives the target from
+    # --max_instances before this point, see cli._build_tracker_config). #582.
+    if (
+        config.post_connect_single_breaks or config.tracking_pre_cull_to_target
+    ) and not config.tracking_target_instance_count:
         raise ValueError(
-            "post_connect_single_breaks=True requires "
-            "tracking_target_instance_count to be set."
+            "post_connect_single_breaks=True and tracking_pre_cull_to_target "
+            "require tracking_target_instance_count to be set."
+        )
+
+    # max_tracks is only honored by the local_queues candidate maker; the
+    # fixed_window default silently ignores it. The CLI auto-switches to
+    # local_queues, but a library caller can still hit this — warn rather than
+    # silently drop the cap (#582).
+    if config.max_tracks is not None and config.candidates_method == "fixed_window":
+        logger.warning(
+            "max_tracks=%s is set but candidates_method='fixed_window' ignores "
+            "it. Use candidates_method='local_queues' to honor max_tracks.",
+            config.max_tracks,
         )
 
     tracker = Tracker.from_config(

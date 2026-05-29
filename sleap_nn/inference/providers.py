@@ -212,11 +212,26 @@ class LabelsProvider:
                 if not lf.has_user_instances
             ]
         elif self.only_labeled_frames:
+            # Keep only frames with >=1 USER (ground-truth) instance, and drop
+            # predicted-only frames. Legacy LabelsReader restricted GT to user
+            # instances; using lf.instances here would feed PredictedInstances
+            # into the GT-centroid / GT-peaks paths (#582).
             self._labeled_frames = [
-                lf for lf in self._sio_labels.labeled_frames if len(lf.instances) > 0
+                lf for lf in self._sio_labels.labeled_frames if lf.has_user_instances
             ]
         else:
             self._labeled_frames = list(self._sio_labels.labeled_frames)
+
+    def _frame_instances(self, lf) -> list:
+        """Instances to expose as GT for a frame.
+
+        In ``only_labeled_frames`` mode (the GT-fallback paths), expose only the
+        USER instances so PredictedInstances are never treated as ground truth
+        (legacy parity, #582). All other modes expose every instance.
+        """
+        if self.only_labeled_frames:
+            return list(lf.user_instances)
+        return list(lf.instances)
 
     def _collect_suggested_frames(self, sio) -> list:
         """Return new ``LabeledFrame``s for unlabeled suggestions.
@@ -251,25 +266,22 @@ class LabelsProvider:
             chunk = self._labeled_frames[start:stop]
             frames = np.stack([lf.image for lf in chunk], axis=0)
 
-            max_inst = max(len(lf.instances) for lf in chunk)
+            inst_lists = [self._frame_instances(lf) for lf in chunk]
+            max_inst = max(len(insts) for insts in inst_lists)
             if max_inst == 0:
                 instances = None
             else:
                 # Pad GT instances to a uniform max_instances per batch so
                 # downstream layer code can work with fixed shapes.
                 n_nodes = next(
-                    (
-                        len(lf.instances[0].skeleton.nodes)
-                        for lf in chunk
-                        if lf.instances
-                    ),
+                    (len(insts[0].skeleton.nodes) for insts in inst_lists if insts),
                     1,
                 )
                 instances = np.full(
                     (len(chunk), max_inst, n_nodes, 2), np.nan, dtype=np.float32
                 )
-                for i, lf in enumerate(chunk):
-                    for j, inst in enumerate(lf.instances):
+                for i, insts in enumerate(inst_lists):
+                    for j, inst in enumerate(insts):
                         pts = np.asarray(inst.numpy(), dtype=np.float32)
                         instances[i, j, : pts.shape[0]] = pts
 
@@ -293,6 +305,61 @@ class LabelsProvider:
         """Number of batches over the (filtered) labeled-frame list."""
         n = len(self._labeled_frames)
         return (n + self.batch_size - 1) // self.batch_size
+
+
+@attrs.define
+class MultiVideoProvider:
+    """Concatenate several providers, OFFSETTING per-source video indices.
+
+    Wraps an ordered list of already-built providers (one per input source)
+    and yields their batches in order, shifting each batch's
+    ``video_indices`` by that source's starting global video index. Each
+    sub-provider emits its own local video indices (``VideoProvider`` always
+    0; a ``LabelsProvider`` over a multi-video ``.slp`` emits per-frame
+    0..N-1), so adding the per-source offset attributes every frame to the
+    correct video in the merged multi-video ``.slp`` — and supports both
+    single-video and multi-video sources in the list (#582).
+
+    Args:
+        providers: Ordered list of per-source :class:`Provider` instances.
+            Build these via ``Predictor._make_provider`` so source-type
+            dispatch stays in one place.
+        video_offsets: Parallel list giving each source's starting index
+            into the merged ``videos`` list (i.e. the cumulative video count
+            of the preceding sources). Defaults to ``0, 1, 2, ...`` (one
+            video per source) when omitted.
+    """
+
+    providers: list
+    video_offsets: Optional[list] = None
+
+    def _offsets(self) -> list:
+        if self.video_offsets is not None:
+            return list(self.video_offsets)
+        return list(range(len(self.providers)))
+
+    def __iter__(self) -> Iterator[Batch]:
+        """Yield each sub-provider's batches with its video offset applied."""
+        offsets = self._offsets()
+        for provider, offset in zip(self.providers, offsets):
+            for batch in provider:
+                n = int(batch.images.shape[0])
+                if batch.video_indices is not None:
+                    local = np.asarray(batch.video_indices, dtype=np.int64)
+                    vid = local + offset
+                else:
+                    vid = np.full(n, offset, dtype=np.int64)
+                yield attrs.evolve(batch, video_indices=vid)
+
+    def __len__(self) -> int:
+        """Total batches across all sub-providers (or ``-1`` if any unknown)."""
+        total = 0
+        for provider in self.providers:
+            n = len(provider)
+            if n < 0:
+                return -1
+            total += n
+        return total
 
 
 @attrs.define
