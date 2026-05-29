@@ -62,6 +62,11 @@ class FilterConfig:
             lower-scoring overlap is dropped.
         overlapping_method: ``"iou"`` (bbox IoU) or ``"oks"`` (keypoint
             OKS) for the overlap similarity metric.
+        min_centroid_distance: Centroid-only de-duplication radius in pixels.
+            Greedy NMS drops any predicted centroid within this distance of a
+            higher-scored kept centroid. ``0.0`` disables. Use this (not
+            ``overlapping``) for centroid-only output, since bbox-IoU / OKS are
+            degenerate for single points.
     """
 
     min_peak_value: float = 0.0
@@ -72,6 +77,7 @@ class FilterConfig:
     overlapping: bool = False
     overlapping_threshold: float = 0.8
     overlapping_method: Literal["iou", "oks"] = "iou"
+    min_centroid_distance: float = 0.0
 
 
 @attrs.define
@@ -110,25 +116,24 @@ class FilterPipeline:
             )
         if cfg.overlapping:
             method = cfg.overlapping_method
-            if (
-                method == "oks"
-                and outputs.pred_keypoints is None
-                and outputs.pred_centroids is not None
-            ):
+            if outputs.pred_keypoints is None and outputs.pred_centroids is not None:
                 import warnings
 
                 warnings.warn(
-                    "OKS NMS is not meaningful for centroid-only outputs "
-                    "(no keypoints to compute keypoint similarity); falling "
-                    "back to IoU.",
+                    "overlapping NMS (iou/oks) is not meaningful for "
+                    "centroid-only outputs (single points have degenerate "
+                    "bbox-IoU / OKS); use FilterConfig.min_centroid_distance "
+                    "for centroid de-duplication. Skipping overlap NMS.",
                     stacklevel=2,
                 )
-                method = "iou"
-            outputs = self._filter_overlapping(
-                outputs,
-                threshold=cfg.overlapping_threshold,
-                method=method,
-            )
+            else:
+                outputs = self._filter_overlapping(
+                    outputs,
+                    threshold=cfg.overlapping_threshold,
+                    method=method,
+                )
+        if cfg.min_centroid_distance > 0.0:
+            outputs = self._filter_centroid_distance(outputs, cfg.min_centroid_distance)
         return outputs
 
     @classmethod
@@ -180,7 +185,24 @@ class FilterPipeline:
     ) -> Outputs:
         """Drop instances by score (instance-level + mean-node-score)."""
         if outputs.pred_keypoints is None:
-            return outputs
+            # Centroid-only: gate on the per-instance centroid value (or
+            # ``instance_scores`` when present). Mean-node-score is undefined
+            # for a single point and is skipped.
+            if outputs.pred_centroids is None or min_instance_score <= 0.0:
+                return outputs
+            scores = (
+                outputs.instance_scores
+                if outputs.instance_scores is not None
+                else outputs.pred_centroid_values
+            )
+            if scores is None:
+                return outputs
+            # NaN scores (empty slots) compare False, so they are not dropped
+            # here; they are already NaN centroids and ignored at packaging.
+            # NaN scores are not a valid pass of a positive gate; drop them too
+            # (a valid centroid always carries a finite value upstream).
+            drop = (scores < min_instance_score) | torch.isnan(scores)  # (B, I)
+            return FilterPipeline._nan_out_where(drop, outputs)
         keep = torch.ones(
             outputs.pred_keypoints.shape[:2],
             dtype=torch.bool,
@@ -313,4 +335,60 @@ class FilterPipeline:
             scores = outputs.instance_scores.clone()
             scores[drop_mask] = float("nan")
             kwargs["instance_scores"] = scores
+        # Centroid-only fields: dropped slots must vanish here too, or they
+        # reappear at packaging (to_instances/to_centroids skip only NaN slots).
+        if outputs.pred_centroids is not None:
+            cen = outputs.pred_centroids.clone()
+            cen[drop_mask] = float("nan")
+            kwargs["pred_centroids"] = cen
+        if outputs.pred_centroid_values is not None:
+            cvals = outputs.pred_centroid_values.clone()
+            cvals[drop_mask] = float("nan")
+            kwargs["pred_centroid_values"] = cvals
         return attrs.evolve(outputs, **kwargs)
+
+    @staticmethod
+    def _filter_centroid_distance(outputs: Outputs, min_distance: float) -> Outputs:
+        """Greedy NMS on predicted centroids by Euclidean distance.
+
+        For each frame, sort centroids by score (``pred_centroid_values``, else
+        ``instance_scores``) descending and drop any centroid within
+        ``min_distance`` pixels of an already-kept (higher-scored) centroid.
+        No-op when there are no centroids.
+        """
+        if outputs.pred_centroids is None:
+            return outputs
+        B, I, _ = outputs.pred_centroids.shape
+        dev = outputs.pred_centroids.device
+        if outputs.pred_centroid_values is not None:
+            scores = outputs.pred_centroid_values
+        elif outputs.instance_scores is not None:
+            scores = outputs.instance_scores
+        else:
+            scores = torch.zeros(B, I, device=dev)
+        thresh_sq = float(min_distance) ** 2
+        drop_mask = torch.zeros(B, I, dtype=torch.bool, device=dev)
+        for b in range(B):
+            cen_b = outputs.pred_centroids[b]  # (I, 2)
+            valid_b = ~torch.isnan(cen_b).any(dim=-1)  # (I,)
+            if valid_b.sum() <= 1:
+                continue
+            # Sort by score desc; NaN scores sort last (treated as -inf).
+            sb = scores[b].clone()
+            sb = torch.where(torch.isnan(sb), torch.full_like(sb, float("-inf")), sb)
+            order = sb.argsort(descending=True)
+            kept: list[int] = []
+            for idx in order.tolist():
+                if not valid_b[idx]:
+                    continue
+                p = cen_b[idx]
+                too_close = False
+                for k in kept:
+                    if ((p - cen_b[k]) ** 2).sum().item() < thresh_sq:
+                        too_close = True
+                        break
+                if too_close:
+                    drop_mask[b, idx] = True
+                else:
+                    kept.append(idx)
+        return FilterPipeline._nan_out_where(drop_mask, outputs)

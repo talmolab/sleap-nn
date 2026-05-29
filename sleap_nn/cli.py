@@ -965,8 +965,13 @@ def track(**kwargs):
     kwargs.pop("cpu_workers", None)
     kwargs.pop("stream_to_file", None)
     kwargs.pop("write_interval", None)
+    # New-flow-only flags, inert here. `track` cannot do centroid-only
+    # inference; a lone centroid model is rejected downstream by run_inference
+    # with a message pointing to `sleap-nn infer`.
     kwargs.pop("centroid_only", None)
     kwargs.pop("centroid_peak_threshold", None)
+    kwargs.pop("centroid_output", None)
+    kwargs.pop("filter_min_centroid_distance", None)
 
     return run_inference(**kwargs)
 
@@ -1097,12 +1102,14 @@ def _build_filter_config(kwargs: dict) -> "object":
     )
     min_mean_node_score = float(kwargs.get("filter_min_mean_node_score") or 0.0)
     min_instance_score = float(kwargs.get("filter_min_instance_score") or 0.0)
+    min_centroid_distance = float(kwargs.get("filter_min_centroid_distance") or 0.0)
     if not (
         overlapping
         or min_visible_nodes
         or min_visible_node_fraction
         or min_mean_node_score
         or min_instance_score
+        or min_centroid_distance
     ):
         return None
     return FilterConfig(
@@ -1115,6 +1122,7 @@ def _build_filter_config(kwargs: dict) -> "object":
         min_visible_node_fraction=min_visible_node_fraction,
         min_mean_node_score=min_mean_node_score,
         min_instance_score=min_instance_score,
+        min_centroid_distance=min_centroid_distance,
     )
 
 
@@ -1345,6 +1353,8 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         predict_kwargs["tracker_config"] = _build_tracker_config(kwargs)
     if kwargs.get("centroid_only"):
         predict_kwargs["centroid_only"] = True
+    if kwargs.get("centroid_output") and kwargs["centroid_output"] != "instance":
+        predict_kwargs["emit_centroid"] = kwargs["centroid_output"]
     filter_config = _build_filter_config(kwargs)
     if filter_config is not None:
         predict_kwargs["filter_config"] = filter_config
@@ -1571,6 +1581,8 @@ def _run_stream_to_file(
         factory_kwargs["head_ckpt_path"] = kwargs["head_ckpt_path"]
     if kwargs.get("centroid_only"):
         factory_kwargs["centroid_only"] = True
+    if kwargs.get("centroid_output") and kwargs["centroid_output"] != "instance":
+        factory_kwargs["emit_centroid"] = kwargs["centroid_output"]
     filter_config = _build_filter_config(kwargs)
     if filter_config is not None:
         factory_kwargs["filter_config"] = filter_config
@@ -1694,9 +1706,24 @@ def _common_inference_options(f):
                 "Force centroid-only output. Required only when both a "
                 "centroid and a centered-instance model are configured but "
                 "you want centroid-only predictions; if model_paths contains "
-                "a single centroid model, this mode is auto-detected. "
-                "Output skeleton is NaN-padded; centroid lands on the "
-                "configured anchor node (or node 0 if unset)."
+                "a single centroid model, this mode is auto-detected. For a "
+                "model trained on a multi-node skeleton, output collapses to a "
+                "single-node 'centroid' skeleton; use --centroid-output to "
+                "choose the representation."
+            ),
+        ),
+        click.option(
+            "--centroid-output",
+            "--centroid_output",
+            "centroid_output",
+            type=click.Choice(["instance", "centroid", "both"]),
+            default="instance",
+            show_default=True,
+            help=(
+                "Centroid-only output representation: 'instance' (single-node "
+                "PredictedInstance, loadable by the current frontend), "
+                "'centroid' (sio.PredictedCentroid in LabeledFrame.centroids), "
+                "or 'both'. Only meaningful for centroid-only models."
             ),
         ),
         click.option(
@@ -1794,6 +1821,18 @@ def _common_inference_options(f):
         click.option("--filter_min_visible_node_fraction", type=float, default=0.0),
         click.option("--filter_min_mean_node_score", type=float, default=0.0),
         click.option("--filter_min_instance_score", type=float, default=0.0),
+        click.option(
+            "--filter_min_centroid_distance",
+            type=float,
+            default=0.0,
+            help=(
+                "Centroid-only de-duplication radius in pixels: greedy NMS drops "
+                "any predicted centroid within this distance of a higher-scored "
+                "kept centroid. 0 disables. Use this (not --filter_overlapping) "
+                "for centroid-only output, since bbox-IoU/OKS are degenerate for "
+                "single points."
+            ),
+        ),
         click.option("--integral_refinement", type=str, default="integral"),
         click.option("--tracking_window_size", type=int, default=5),
         click.option("--min_new_track_points", type=int, default=0),

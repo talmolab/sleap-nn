@@ -267,6 +267,8 @@ class Outputs:
         batch_index: int = 0,
         anchor_ind: Optional[int] = None,
         tracks: Optional[list["sio.Track"]] = None,
+        *,
+        collapse_skeleton: Optional["sio.Skeleton"] = None,
     ) -> list["sio.PredictedInstance"]:
         """Convert one batch slot into a list of ``sio.PredictedInstance``.
 
@@ -288,6 +290,11 @@ class Outputs:
                 ``instance_tracking_scores``. Matches legacy
                 ``TopDownMultiClass`` / ``BottomUpMultiClass`` packaging.
                 ``None`` for non-multiclass paths.
+            collapse_skeleton: Centroid-only collapse — when supplied (a 1-node
+                'centroid' skeleton), standalone-centroid output is packaged on
+                it with the centroid at node 0, instead of NaN-padding the
+                multi-node ``skeleton``. ``None`` keeps the legacy NaN-pad
+                behavior on ``skeleton``.
 
         Returns:
             One ``sio.PredictedInstance`` per non-NaN instance slot.
@@ -307,8 +314,17 @@ class Outputs:
         """
         import sleap_io as sio
 
-        # Centroid-only branch: synthesize NaN-padded keypoints from centroids.
+        # Centroid-only branch: synthesize keypoints from centroids. When a
+        # ``collapse_skeleton`` (a 1-node 'centroid' skeleton) is supplied, the
+        # standalone-centroid output collapses to that single node (anchor 0)
+        # rather than NaN-padding the original multi-node skeleton.
         if self.pred_keypoints is None and self.pred_centroids is not None:
+            if collapse_skeleton is not None:
+                return self._to_instances_centroid_only(
+                    skeleton=collapse_skeleton,
+                    batch_index=batch_index,
+                    anchor_ind=0,
+                )
             return self._to_instances_centroid_only(
                 skeleton=skeleton,
                 batch_index=batch_index,
@@ -423,7 +439,7 @@ class Outputs:
 
         instances: List[sio.PredictedInstance] = []
         for i in range(centroids.shape[0]):
-            if np.all(np.isnan(centroids[i])):
+            if np.isnan(centroids[i]).any():
                 continue
             kpts = np.full((n_nodes, 2), np.nan, dtype=np.float32)
             kpts[anchor_ind] = centroids[i]
@@ -440,12 +456,75 @@ class Outputs:
             )
         return instances
 
+    def to_centroids(
+        self,
+        batch_index: int = 0,
+        *,
+        source: str = "center_of_mass",
+        tracks: Optional[list["sio.Track"]] = None,
+    ) -> list["sio.PredictedCentroid"]:
+        """Convert one batch slot's centroids into ``sio.PredictedCentroid``s.
+
+        Centroid-only packaging alternative to :meth:`to_instances`: each
+        non-NaN centroid becomes a ``sio.PredictedCentroid`` (stored in
+        ``LabeledFrame.centroids``) carrying the centroid value as its
+        instance-level ``score`` and a ``source`` method tag (#586-consistent).
+        Returns ``[]`` when there are no centroids.
+
+        Args:
+            batch_index: Which sample in the batch to convert.
+            source: ``sio.Centroid.source`` method tag (see
+                :func:`sleap_nn.inference.centroid_convert.centroid_source_for_anchor`).
+            tracks: Optional per-slot ``sio.Track`` registry (tracking).
+        """
+        if self.pred_centroids is None:
+            return []
+        from sleap_nn.inference.centroid_convert import build_predicted_centroid
+
+        centroids = self.pred_centroids[batch_index].detach().cpu().numpy()  # (I, 2)
+        cvals = (
+            self.pred_centroid_values[batch_index].detach().cpu().numpy()
+            if self.pred_centroid_values is not None
+            else np.full((centroids.shape[0],), np.nan, dtype=np.float32)
+        )
+        tracking_scores = (
+            self.instance_tracking_scores[batch_index].detach().cpu().numpy()
+            if self.instance_tracking_scores is not None
+            else None
+        )
+        out: List["sio.PredictedCentroid"] = []
+        for i in range(centroids.shape[0]):
+            if np.isnan(centroids[i]).any():
+                continue
+            score = float(cvals[i]) if not np.isnan(cvals[i]) else 0.0
+            track = tracks[i] if (tracks is not None and i < len(tracks)) else None
+            tscore = (
+                float(tracking_scores[i])
+                if tracking_scores is not None and not np.isnan(tracking_scores[i])
+                else None
+            )
+            out.append(
+                build_predicted_centroid(
+                    centroids[i, 0],
+                    centroids[i, 1],
+                    score,
+                    track=track,
+                    tracking_score=tscore,
+                    source=source,
+                )
+            )
+        return out
+
     def to_labels(
         self,
         skeleton: "sio.Skeleton",
         videos: Optional[list["sio.Video"]] = None,
         anchor_ind: Optional[int] = None,
         tracks: Optional[list["sio.Track"]] = None,
+        *,
+        collapse_skeleton: Optional["sio.Skeleton"] = None,
+        emit_centroid: str = "instance",
+        source: str = "center_of_mass",
     ) -> "sio.Labels":
         """Convert this ``Outputs`` to a ``sleap_io.Labels``.
 
@@ -459,6 +538,15 @@ class Outputs:
                 class. Forwarded to :meth:`to_instances`; the tracks that get
                 used are registered on the returned ``sio.Labels.tracks``.
                 ``None`` for non-multiclass paths.
+            collapse_skeleton: When set (a 1-node 'centroid' skeleton), a
+                standalone centroid model's output is packaged on it instead of
+                the original multi-node ``skeleton`` and ``Labels.skeletons`` is
+                set to it. ``None`` keeps the original skeleton.
+            emit_centroid: Output representation for centroid-only packaging:
+                ``"instance"`` (default; single-node ``PredictedInstance``),
+                ``"centroid"`` (``sio.PredictedCentroid`` into
+                ``LabeledFrame.centroids``), or ``"both"``.
+            source: ``sio.Centroid.source`` method tag for emitted centroids.
 
         Returns:
             A ``sleap_io.Labels`` containing one ``LabeledFrame`` per
@@ -472,17 +560,41 @@ class Outputs:
         import sleap_io as sio
 
         videos = list(videos) if videos else [None]
+        # Skeleton attached to emitted PredictedInstances and to Labels.skeletons.
+        # ``collapse_skeleton`` (a 1-node 'centroid' skeleton) wins when a
+        # standalone centroid model trained on a multi-node skeleton collapses.
+        pkg_skeleton = collapse_skeleton if collapse_skeleton is not None else skeleton
+        want_instances = emit_centroid in ("instance", "both")
+        want_centroids = emit_centroid in ("centroid", "both")
         labeled_frames: List[sio.LabeledFrame] = []
         used_tracks: List["sio.Track"] = []
         seen_track_ids: set[int] = set()
         for b in range(self.batch_size):
-            instances = self.to_instances(
-                skeleton=skeleton, batch_index=b, anchor_ind=anchor_ind, tracks=tracks
+            instances = (
+                self.to_instances(
+                    skeleton=skeleton,
+                    batch_index=b,
+                    anchor_ind=anchor_ind,
+                    tracks=tracks,
+                    collapse_skeleton=collapse_skeleton,
+                )
+                if want_instances
+                else []
             )
-            if not instances:
+            centroids = (
+                self.to_centroids(batch_index=b, source=source, tracks=tracks)
+                if want_centroids
+                else []
+            )
+            if not instances and not centroids:
                 continue
             for inst in instances:
                 trk = getattr(inst, "track", None)
+                if trk is not None and id(trk) not in seen_track_ids:
+                    seen_track_ids.add(id(trk))
+                    used_tracks.append(trk)
+            for cen in centroids:
+                trk = getattr(cen, "track", None)
                 if trk is not None and id(trk) not in seen_track_ids:
                     seen_track_ids.add(id(trk))
                     used_tracks.append(trk)
@@ -516,13 +628,14 @@ class Outputs:
                     video=video,
                     frame_idx=frame_idx,
                     instances=instances,
+                    centroids=centroids,
                 )
             )
         valid_videos = [v for v in videos if v is not None]
         labels = sio.Labels(
             labeled_frames=labeled_frames,
             videos=valid_videos,
-            skeletons=[skeleton],
+            skeletons=[pkg_skeleton],
         )
         if used_tracks:
             labels.tracks = used_tracks

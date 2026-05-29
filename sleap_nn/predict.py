@@ -550,6 +550,36 @@ def run_inference(
             )
 
     else:
+        # Centroid-only models are unsupported on this legacy pipeline: a lone
+        # centroid model builds a GT-dependent FindInstancePeaksGroundTruth stage
+        # (predictors.py), silently substituting ground-truth centroids and only
+        # "predicting" labeled frames. Redirect to the new `infer` flow instead of
+        # producing misleading GT-copied output.
+        if model_paths:
+            from sleap_nn.config.utils import get_model_type_from_cfg
+            from sleap_nn.inference.loaders import _load_training_config
+
+            _types = []
+            for _mp in model_paths:
+                try:
+                    _cfg, _ = _load_training_config(_mp)
+                    _types.append(get_model_type_from_cfg(config=_cfg))
+                except (
+                    Exception
+                ):  # noqa: BLE001 - fail open; only block the exact lone-centroid case
+                    _types.append(None)
+            if _types == ["centroid"]:
+                raise ValueError(
+                    "Centroid-only inference is not supported by the legacy "
+                    "`track` / `run_inference` pipeline (it would silently "
+                    "substitute ground-truth centroids and require labeled "
+                    "frames). Use the new flow instead:\n"
+                    "  sleap-nn infer --data_path <video|.slp> --model_paths <centroid_dir>\n"
+                    "or, from Python:\n"
+                    "  from sleap_nn.inference.run import predict\n"
+                    "  predict(src, model_paths=[centroid_dir], centroid_only=True)"
+                )
+
         start_inf_time = time()
         start_datetime = datetime.now()
         start_timestamp = str(start_datetime)

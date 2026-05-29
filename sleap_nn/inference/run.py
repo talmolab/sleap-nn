@@ -51,6 +51,7 @@ def predict(
     anchor_part: Optional[str] = None,
     paf_workers: int = 0,
     centroid_only: bool = False,
+    emit_centroid: str = "instance",
     # Bottom-up PAF grouping knobs (construction-time; plain bottom-up only)
     max_edge_length_ratio: float = 0.25,
     dist_penalty_weight: float = 1.0,
@@ -99,6 +100,9 @@ def predict(
         paf_workers: CPU worker processes for bottom-up PAF grouping.
         centroid_only: Force centroid-only output even when a
             centered-instance model is among ``model_paths``.
+        emit_centroid: Centroid-only output representation: ``"instance"``
+            (default; single-node ``PredictedInstance``, frontend-compatible),
+            ``"centroid"`` (``sio.PredictedCentroid``), or ``"both"``.
         max_edge_length_ratio: Bottom-up PAF max edge length ratio.
         dist_penalty_weight: Bottom-up PAF distance penalty weight.
         n_points: Bottom-up PAF line integration sample count.
@@ -147,6 +151,14 @@ def predict(
             else "mps" if torch.backends.mps.is_available() else "cpu"
         )
 
+    if tracker_config is not None and emit_centroid != "instance":
+        raise ValueError(
+            "Tracking is incompatible with emit_centroid="
+            f"{emit_centroid!r}: tracking operates on sio.PredictedInstance "
+            "objects, but this mode emits sio.PredictedCentroid objects. Use "
+            "emit_centroid='instance' (the default) for tracking."
+        )
+
     # Build predictor
     build_kwargs: dict = {
         "device": device,
@@ -169,6 +181,8 @@ def predict(
             build_kwargs["anchor_part"] = anchor_part
         if centroid_only:
             build_kwargs["centroid_only"] = True
+        if emit_centroid != "instance":
+            build_kwargs["emit_centroid"] = emit_centroid
         # Bottom-up PAF knobs configure the scorer at load time (#583); inert
         # for non-bottom-up models (load_model_assets forwards them only there).
         build_kwargs["max_edge_length_ratio"] = max_edge_length_ratio

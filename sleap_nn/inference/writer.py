@@ -61,6 +61,13 @@ class IncrementalLabelsWriter:
     # Provenance dict attached to the finalized Labels. May be set after
     # construction (e.g. once end-of-run timestamps are known). #583.
     provenance: Optional[dict] = None
+    # Centroid-only packaging — threaded from
+    # ``Predictor._resolve_centroid_packaging`` so the streamed ``.slp`` matches
+    # the in-memory ``predict()`` output (collapse + sio.Centroid emission).
+    anchor_ind: Optional[int] = None
+    collapse_skeleton: Optional[Any] = None
+    emit_centroid: str = "instance"
+    source: str = "center_of_mass"
 
     _buffer: List[Any] = attrs.field(factory=list, init=False, repr=False)
     _all_frames: List[Any] = attrs.field(factory=list, init=False, repr=False)
@@ -100,7 +107,14 @@ class IncrementalLabelsWriter:
 
         slim = outputs.slim()
         videos = self._resolve_videos()
-        sub = slim.to_labels(skeleton=self.skeleton, videos=videos)
+        sub = slim.to_labels(
+            skeleton=self.skeleton,
+            videos=videos,
+            anchor_ind=self.anchor_ind,
+            collapse_skeleton=self.collapse_skeleton,
+            emit_centroid=self.emit_centroid,
+            source=self.source,
+        )
         self._buffer.extend(sub.labeled_frames)
 
         if len(self._buffer) >= self.write_interval:
@@ -177,7 +191,7 @@ class IncrementalLabelsWriter:
         labels = sio.Labels(
             labeled_frames=self._all_frames,
             videos=videos,
-            skeletons=[self.skeleton],
+            skeletons=[self.collapse_skeleton or self.skeleton],
             provenance=self.provenance or {},
         )
         tmp = self.tmp_path

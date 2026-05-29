@@ -510,6 +510,7 @@ def _build_topdown(
             input_scale=centroid_config.data_config.preprocessing.scale,
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             use_gt_centroids=False,
+            anchor_ind=anchor_ind,
         )
 
     # Build FindInstancePeaks
@@ -660,6 +661,7 @@ def _build_topdown_multiclass(
             input_scale=centroid_config.data_config.preprocessing.scale,
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             use_gt_centroids=False,
+            anchor_ind=anchor_ind,
         )
 
     max_stride_inst = confmap_config.model_config.backbone_config[
