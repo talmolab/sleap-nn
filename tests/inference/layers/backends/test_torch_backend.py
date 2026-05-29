@@ -482,7 +482,9 @@ def test_fuse_layers_default_off_is_bit_exact():
     # BN is untouched.
     assert isinstance(backend.model.body[1], nn.BatchNorm2d)
     out = backend(x)
-    torch.testing.assert_close(out["output"], ref, atol=0, rtol=0)
+    # Tight (not literally 0): macOS Accelerate BLAS can differ from the eager
+    # reference by ~ULP; a real fusion change would be orders of magnitude larger.
+    torch.testing.assert_close(out["output"], ref, atol=1e-5, rtol=1e-4)
 
 
 class _ReorderedConvBNModel(nn.Module):
@@ -529,4 +531,6 @@ def test_fuse_layers_does_not_misfuse_on_reordered_forward():
 
     out = backend(x)
     # Output must be unchanged vs the unfused eager model — no silent mis-fuse.
-    torch.testing.assert_close(out["output"], ref, atol=0, rtol=0)
+    # Tight (not 0): the buggy mis-fuse produced ~1.7 abs diff, while
+    # cross-platform BLAS (macOS Accelerate) differs from eager by ~ULP.
+    torch.testing.assert_close(out["output"], ref, atol=1e-5, rtol=1e-4)

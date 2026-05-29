@@ -171,9 +171,13 @@ def test_full_pipeline_parity(label, models, source, n, thr, max_inst, device):
             both = lvis & nvis
             if both.any():
                 drift = float(np.abs(lp[both] - npp[both]).max())
+                # Sub-pixel tolerance, ~100x tighter than the legacy test's 1px
+                # tier. 1e-2 (not 5e-3) absorbs cross-platform float differences
+                # (macOS Accelerate BLAS gives ~5e-3 on top-down) while still
+                # catching any real coordinate-ladder regression.
                 assert (
-                    drift < 5e-3
-                ), f"[{label}/{device}] coord drift {drift} px exceeds 5e-3"
+                    drift < 1e-2
+                ), f"[{label}/{device}] coord drift {drift} px exceeds 1e-2"
             if np.isfinite(ls) and np.isfinite(ns):
                 assert (
                     abs(ls - ns) < 1e-2
