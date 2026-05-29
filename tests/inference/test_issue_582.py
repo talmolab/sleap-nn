@@ -35,6 +35,7 @@ from sleap_nn.inference.streaming import (
 
 CKPT_ROOT = Path(__file__).resolve().parents[1] / "assets" / "model_ckpts"
 BOTTOMUP_CKPT = CKPT_ROOT / "minimal_instance_bottomup"
+MULTICLASS_BOTTOMUP_CKPT = CKPT_ROOT / "minimal_instance_multiclass_bottomup"
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -156,6 +157,69 @@ def test_bottomup_predict_time_max_instances_override():
         predictor.layer.postprocess_config, max_instances=2
     )
     assert predictor.layer.grouping_params().max_instances == 2
+
+
+def test_multiclass_bottomup_cap_masks_lowest_score_keeping_class_slots():
+    """max_instances masks lowest-scoring CLASS slots, preserving slot==class."""
+    from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLayer
+
+    # 1 frame, 3 classes, 1 node.
+    instances = torch.tensor(
+        [[[[0.0, 0.0]], [[10.0, 10.0]], [[20.0, 20.0]]]]
+    )  # (1, 3, 1, 2)
+    peak_scores = torch.tensor([[[0.3], [0.9], [0.6]]])  # (1, 3, 1)
+    instance_scores = torch.tensor([[0.3, 0.9, 0.6]])
+    tracking_scores = torch.tensor([[0.3, 0.9, 0.6]])
+
+    inst, _pv, isc, _ts = BottomUpMultiClassLayer._cap_instances_by_score(
+        instances.clone(),
+        peak_scores.clone(),
+        instance_scores.clone(),
+        tracking_scores.clone(),
+        max_instances=1,
+    )
+    # Class 1 (score 0.9) survives in its own slot; classes 0 and 2 masked.
+    assert torch.isnan(isc[0, 0]) and torch.isnan(isc[0, 2])
+    assert float(isc[0, 1]) == pytest.approx(0.9)
+    assert not torch.isnan(inst[0, 1]).any()
+    assert torch.isnan(inst[0, 0]).all() and torch.isnan(inst[0, 2]).all()
+
+
+def test_multiclass_bottomup_cap_noop_when_present_within_cap():
+    """A class with no peaks (NaN score) doesn't count toward the cap."""
+    from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLayer
+
+    instances = torch.tensor([[[[0.0, 0.0]], [[1.0, 1.0]], [[2.0, 2.0]]]])
+    peak_scores = torch.tensor([[[0.3], [float("nan")], [0.9]]])
+    instance_scores = torch.tensor([[0.3, float("nan"), 0.9]])
+    tracking_scores = torch.tensor([[0.3, float("nan"), 0.9]])
+
+    inst, _pv, isc, _ts = BottomUpMultiClassLayer._cap_instances_by_score(
+        instances.clone(),
+        peak_scores.clone(),
+        instance_scores.clone(),
+        tracking_scores.clone(),
+        max_instances=2,
+    )
+    # Only 2 present classes (0 and 2) <= cap -> nothing masked.
+    assert float(isc[0, 0]) == pytest.approx(0.3)
+    assert float(isc[0, 2]) == pytest.approx(0.9)
+    assert not torch.isnan(inst[0, 0]).any()
+
+
+@pytest.mark.skipif(
+    not MULTICLASS_BOTTOMUP_CKPT.exists(),
+    reason="multiclass bottomup checkpoint asset not present",
+)
+def test_from_model_paths_threads_max_instances_to_multiclass_bottomup_layer():
+    """max_instances reaches the BottomUpMultiClassLayer (#582)."""
+    predictor = Predictor.from_model_paths(
+        [str(MULTICLASS_BOTTOMUP_CKPT)],
+        device="cpu",
+        peak_threshold=0.2,
+        max_instances=1,
+    )
+    assert predictor.layer.max_instances == 1
 
 
 # ─────────────────────────────────────────────────────────────────────────

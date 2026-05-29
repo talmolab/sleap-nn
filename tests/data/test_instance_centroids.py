@@ -68,8 +68,9 @@ def test_generate_centroids_missing_anchor_node_fallback():
     the bbox midpoint) on the per-instance missing-anchor path — distinct from
     the ``anchor_ind=None`` path. Uses a skewed instance (one far node) so the
     mean and the bbox midpoint differ, locking the intended behavior (#582).
-    This is a shared module (training + GT-centroid inference); see the #582 PR
-    discussion for the intent confirmation.
+    This is a shared module (training + GT-centroid inference) kept consistent
+    between the two; the bbox-midpoint vs mean-of-visible choice is tracked in
+    #586 for a later revisit.
     """
     # 4 nodes; anchor (index 0) is NaN. Visible nodes (0,0),(0,0),(12,12).
     points = torch.tensor(

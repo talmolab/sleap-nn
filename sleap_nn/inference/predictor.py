@@ -178,6 +178,7 @@ def _build_bottomup_multiclass_layer(
         cms_output_stride=inf.cms_output_stride,
         class_maps_output_stride=inf.class_maps_output_stride,
         max_stride=max_stride,
+        max_instances=getattr(predictor, "max_instances", None),
         class_names=_multiclass_class_names(predictor, "multi_class_bottomup"),
         preprocess_config=PreprocessConfig(
             scale=inf.input_scale,

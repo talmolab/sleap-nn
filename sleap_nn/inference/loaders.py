@@ -340,6 +340,7 @@ def _build_bottomup_multiclass(
     peak_threshold: float,
     integral_refinement: str,
     integral_patch_size: int,
+    max_instances: Optional[int],
     return_confmaps: bool,
     preprocess_config: Any,
 ) -> LoadedAssets:
@@ -371,6 +372,7 @@ def _build_bottomup_multiclass(
         skeletons=skeletons,
         bottomup_config=config,
         backbone_type=backbone_type,
+        max_instances=max_instances,
     )
 
 
@@ -719,7 +721,9 @@ def load_model_assets(
 
     elif "multi_class_bottomup" in model_types:
         path = model_paths[model_types.index("multi_class_bottomup")]
-        assets = _build_bottomup_multiclass(path, **common_kwargs)
+        assets = _build_bottomup_multiclass(
+            path, max_instances=max_instances, **common_kwargs
+        )
 
     elif (
         "centroid" in model_types
