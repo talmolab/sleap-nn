@@ -136,7 +136,18 @@ def apply_tracking(
 
     needs_image = config.use_flow
     tracked_lfs: list = []
-    for lf in labels.labeled_frames:
+    # Track in temporal order. The tracker is stateful across frames (sliding
+    # candidate window + optional flow), so frames MUST be visited sorted by
+    # (video, frame_idx) — legacy run_tracker sorted before tracking. Iterating
+    # in raw ``labeled_frames`` submission order (e.g. for a .slp whose frames
+    # are unordered, or multi-video) produces wrong track assignments
+    # (#530 audit: tracking parity / track-only retrack ordering).
+    video_order = {id(v): i for i, v in enumerate(labels.videos)}
+    ordered_lfs = sorted(
+        labels.labeled_frames,
+        key=lambda lf: (video_order.get(id(lf.video), 0), lf.frame_idx),
+    )
+    for lf in ordered_lfs:
         instances: list = []
         if lf.has_user_instances:
             instances_to_track = lf.user_instances

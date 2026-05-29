@@ -8,7 +8,7 @@ PAFs. Instance grouping is by class identity (via
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 import attrs
 import torch
@@ -32,6 +32,10 @@ class BottomUpMultiClassLayer(InferenceLayer):
         class_maps_output_stride: Stride for ``ClassMapsHead``.
         max_stride: Max stride the model requires for input divisibility.
         preprocess_config / postprocess_config: Standard knobs.
+        class_names: Ordered class names from
+            ``multi_class_bottomup.class_maps.classes``. Used by the predictor
+            to build the ``sio.Track`` registry for identity packaging. The
+            grouped instance slot ``i`` corresponds to ``class_names[i]``.
     """
 
     def __init__(
@@ -42,6 +46,7 @@ class BottomUpMultiClassLayer(InferenceLayer):
         max_stride: int = 1,
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
+        class_names: Optional[List[str]] = None,
     ) -> None:
         """Compose the layer with the two output strides."""
         super().__init__(
@@ -53,6 +58,7 @@ class BottomUpMultiClassLayer(InferenceLayer):
         )
         self.cms_output_stride = cms_output_stride
         self.class_maps_output_stride = class_maps_output_stride
+        self.class_names = list(class_names) if class_names is not None else None
 
     # ──────────────────────────────────────────────────────────────────
     # Postprocess (class-maps based grouping)
@@ -93,15 +99,22 @@ class BottomUpMultiClassLayer(InferenceLayer):
         if not torch.all(eff == 1.0):
             instances = instances / eff.view(-1, 1, 1, 1)
 
-        # class_probs is (B, n_classes, n_nodes) — reduce over the node axis
-        # to satisfy the (B, I) instance_scores contract that downstream
-        # filters + Outputs.to_instances expect. Matches topdown_multiclass.
-        instance_scores = torch.nanmean(class_probs, dim=-1)
+        # Legacy parity (predictors.py:2987-3010): per instance ``i`` (which
+        # IS the class index for class-maps grouping),
+        #   score = np.nanmean(confs)        # mean of the confmap peak values
+        #   tracking_score = np.nanmean(class_score)  # mean class probability
+        # Both are reduced over the node axis to satisfy the (B, I) contract
+        # that downstream filters + Outputs.to_instances expect. Carrying them
+        # in separate fields keeps ``score`` (instance_scores) distinct from
+        # ``tracking_score`` (instance_tracking_scores).
+        instance_scores = torch.nanmean(peak_scores, dim=-1)
+        instance_tracking_scores = torch.nanmean(class_probs, dim=-1)
 
         outputs = Outputs(
             pred_keypoints=instances,
             pred_peak_values=peak_scores,
             instance_scores=instance_scores,
+            instance_tracking_scores=instance_tracking_scores,
             preprocess_info=info,
         )
         if self.postprocess_config.return_confmaps:

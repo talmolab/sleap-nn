@@ -267,21 +267,35 @@ class FilterPipeline:
         return inter / union if union > 0 else 0.0
 
     @staticmethod
-    def _oks(a: torch.Tensor, b: torch.Tensor, sigma: float = 0.05) -> float:
-        """Object-Keypoint Similarity between two keypoint sets (NaN-aware)."""
-        valid = (~torch.isnan(a).any(dim=-1)) & (~torch.isnan(b).any(dim=-1))
+    def _oks(a: torch.Tensor, b: torch.Tensor, kappa: float = 0.1) -> float:
+        """Object-Keypoint Similarity between two keypoint sets (NaN-aware).
+
+        Bit-for-bit port of legacy ``_compute_oks`` in
+        ``sleap_nn/inference/postprocessing.py`` (on ``main``): the per-keypoint
+        scale is the bounding-box *area* of instance ``a`` (its own valid
+        keypoints), the falloff constant is ``kappa=0.1``, and the result is the
+        mean over keypoints visible in *both* instances of
+        ``exp(-d^2 / (2 * scale_area * kappa^2))``.
+        """
+        valid_a = ~torch.isnan(a).any(dim=-1)
+        valid_b = ~torch.isnan(b).any(dim=-1)
+        valid = valid_a & valid_b
         if valid.sum() == 0:
             return 0.0
-        d2 = ((a - b) ** 2).sum(dim=-1)
-        # Normalize by a rough scale (bbox diag of ``a``).
-        a_xy = a[~torch.isnan(a).any(dim=-1)]
-        if a_xy.numel() == 0:
+        # Scale from the bbox *area* of instance ``a``'s own valid keypoints.
+        a_xy = a[valid_a]
+        if a_xy.shape[0] < 2:
             return 0.0
-        scale = (a_xy.max(dim=0).values - a_xy.min(dim=0).values).pow(2).sum().sqrt()
-        if scale.item() == 0:
+        mins = a_xy.min(dim=0).values
+        maxs = a_xy.max(dim=0).values
+        bbox_w = maxs[0] - mins[0]
+        bbox_h = maxs[1] - mins[1]
+        scale_sq = bbox_w * bbox_h
+        if scale_sq.item() <= 0:
             return 0.0
-        e = torch.exp(-d2 / (2 * (scale * sigma) ** 2))
-        return (e[valid].sum() / valid.sum()).item()
+        d2 = ((a[valid] - b[valid]) ** 2).sum(dim=-1)
+        oks_per_kpt = torch.exp(-d2 / (2 * scale_sq * kappa**2))
+        return oks_per_kpt.mean().item()
 
     @staticmethod
     def _nan_out_where(drop_mask: torch.Tensor, outputs: Outputs) -> Outputs:

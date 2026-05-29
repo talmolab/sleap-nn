@@ -1,8 +1,16 @@
 """``TorchBackend`` — wrap any ``nn.Module`` (or Lightning module) for inference.
 
 Concrete ``ModelBackend`` for PyTorch. Adds opt-in optimizations
-(``torch.compile``, FP16 autocast, Conv+BN fusion, GPU warmup) gated
-behind benchmark-informed defaults.
+(``torch.compile``, FP16 half-precision casting, Conv+BN fusion, GPU
+warmup) gated behind benchmark-informed defaults.
+
+FP16 here uses ``torch.autocast`` (CUDA only): when ``use_fp16=True`` the
+heavy conv / matmul ops run in half precision under an autocast context
+while fp32 master weights and fp32-sensitive reductions are preserved;
+outputs are cast back to float32 for downstream postprocessing. Autocast is
+robust to model ``forward`` methods that change dtype internally (e.g.
+``image / 255.0`` normalization) — a destructive ``model.half()`` would
+instead raise an Input/weight dtype mismatch on those.
 
 Defaults (from `12-design-review-and-revised-plan.md` §2 + CUDA validation):
 
@@ -46,8 +54,10 @@ class TorchBackend:
         use_compile: Wrap the model in ``torch.compile``. CUDA-only.
             Emits a numeric-drift warning.
         compile_mode: Forwarded to ``torch.compile`` when enabled.
-        use_fp16: Run the forward pass in float16. CUDA-only;
-            counter-productive at batch < 4. Emits a drift warning.
+        use_fp16: Run the heavy forward ops in float16 via ``torch.autocast``
+            (CUDA only; fp32 master weights preserved, outputs cast back to
+            fp32). Opt-in; benefits tensor-core hardware only.
+            CUDA-only; counter-productive at batch < 4. Emits a drift warning.
         fuse_layers: Fold ``Conv2d → BatchNorm2d`` pairs in-place. Negligible
             speedup on the test UNets; opt-in.
         warmup_iterations: Number of dummy forwards to run inside
@@ -78,6 +88,14 @@ class TorchBackend:
         if self.fuse_layers:
             self._fuse_conv_bn()
 
+        # FP16 is applied at forward time via ``torch.autocast`` (CUDA only) —
+        # see ``__call__``. We deliberately do NOT call ``model.half()``: a
+        # destructive whole-model half cast raises an Input/weight dtype
+        # mismatch on any ``forward`` that changes dtype internally (e.g.
+        # ``image / 255.0`` normalization or an explicit ``.float()``) and gives
+        # worse numerics than autocast's fp32 master weights. MPS/CPU keep fp32
+        # (MPS has half kernels but no tensor cores — no win, warned above).
+
         if self.use_compile and self.device != "mps":
             self._compiled = torch.compile(
                 self.model, mode=self.compile_mode, dynamic=False
@@ -97,22 +115,28 @@ class TorchBackend:
         model = self._compiled if self._compiled is not None else self.model
         x = x.to(self.device, non_blocking=True)
 
-        if self.use_fp16 and x.is_floating_point() and "cuda" in self.device:
-            x = x.half()
-
+        # FP16 (CUDA only) runs the heavy conv / matmul ops in half precision
+        # via ``torch.autocast`` while keeping fp32 master weights and fp32
+        # reductions. Autocast is robust to ``forward`` methods that change
+        # dtype internally (``image / 255.0`` normalization, an explicit
+        # ``.float()``, etc.) — a destructive ``model.half()`` would instead
+        # raise an Input/weight dtype mismatch on those. Outputs are cast back
+        # to fp32 below so downstream peak-finding sees fp32 confmaps.
+        use_autocast = self.use_fp16 and "cuda" in self.device
         with torch.inference_mode():
-            out = model(x)
+            if use_autocast:
+                with torch.autocast(device_type="cuda", dtype=torch.float16):
+                    out = model(x)
+            else:
+                out = model(x)
 
-        # Convert back to fp32 if the upstream Lightning forward returned a
-        # tensor — the wrapping layer expects fp32 confmaps regardless of
-        # backend dtype.
         if isinstance(out, torch.Tensor):
-            if self.use_fp16 and out.dtype == torch.float16:
+            if use_autocast and out.dtype == torch.float16:
                 out = out.float()
             return {"output": out}
 
         if isinstance(out, dict):
-            if self.use_fp16:
+            if use_autocast:
                 out = {
                     k: (
                         v.float()
@@ -132,12 +156,9 @@ class TorchBackend:
         """Prime the backend with ``warmup_iterations`` dummy forwards."""
         if self.device == "cpu":
             return
-        dtype = (
-            torch.float16
-            if (self.use_fp16 and "cuda" in self.device)
-            else torch.float32
-        )
-        dummy = torch.zeros(input_shape, device=self.device, dtype=dtype)
+        # Autocast handles the fp16 path internally, so the warmup dummy stays
+        # fp32 (matching the dtype of the real preprocessed input).
+        dummy = torch.zeros(input_shape, device=self.device, dtype=torch.float32)
         for _ in range(self.warmup_iterations):
             self(dummy)
         if "cuda" in self.device:
@@ -183,38 +204,61 @@ class TorchBackend:
                 )
             if self.use_fp16:
                 warnings.warn(
-                    "FP16 trades precision for speed. Measured max-abs-diff vs "
-                    "FP32 on the test single-instance UNet (A40, batch 1-16): "
-                    "~4e-3 (autocast and model.half() are equivalent). Note: "
-                    "FP16 is *counterproductive at small batch* — at batch=1 "
-                    "it ran 0.65× the FP32 speed because tensor cores aren't "
-                    "saturated and kernel-launch overhead dominates. Validate "
-                    "parity tests AND speed at your actual batch size before "
-                    "enabling.",
+                    "FP16 trades precision for speed. This backend uses explicit "
+                    "half-precision casting (model.half() + tensor.half()), not "
+                    "torch.autocast. Measured max-abs-diff vs FP32 on the test "
+                    "single-instance UNet (A40, batch 1-16): ~4e-3. Note: FP16 is "
+                    "*counterproductive at small batch* — at batch=1 it ran 0.65× "
+                    "the FP32 speed because tensor cores aren't saturated and "
+                    "kernel-launch overhead dominates. Validate parity tests AND "
+                    "speed at your actual batch size before enabling.",
                     stacklevel=3,
                 )
 
     def _fuse_conv_bn(self) -> None:
-        """Fold sequential ``Conv2d → BatchNorm2d`` pairs in-place.
+        """Fold ``Conv2d → BatchNorm2d`` pairs in-place inside Sequentials.
 
-        Walks the module tree and replaces each (Conv2d, BatchNorm2d) pair
-        with a single fused Conv2d using
-        ``torch.nn.utils.fusion.fuse_conv_bn_eval``. Skips pairs where the
-        BN tracks running stats and ``training`` mode is on (would be
-        unsafe).
+        Fusion is restricted to ``nn.Sequential`` blocks, where execution
+        order is guaranteed to match registration order.
+
+        Why only ``nn.Sequential``? ``named_children()`` yields submodules in
+        *registration* order, which is **not** the same as *execution* order
+        for a module with a custom ``forward`` that reorders or skips
+        submodules. Fusing a (Conv2d, BatchNorm2d) pair that happens to be
+        registered consecutively — but is not actually applied consecutively
+        in ``forward`` — folds the BN into the wrong conv and replaces the BN
+        with ``nn.Identity()``, silently changing the model's output (observed
+        max-abs-diff up to ~1.7 on a model whose ``forward`` reorders).
+
+        ``nn.Sequential`` is the one container whose ``forward`` is *defined*
+        to run children in registration order, so adjacency there genuinely
+        implies "executed consecutively". We therefore only fuse Conv→BN pairs
+        that are immediate neighbours inside an ``nn.Sequential`` and skip
+        every other module — preferring a missed (~0% win) fusion over a
+        silent mis-fuse. The sleap-nn UNet backbones build their Conv→BN
+        stacks as ``nn.Sequential`` blocks, so the useful fusions are still
+        covered.
+
+        ``fuse_conv_bn_eval`` requires eval mode (running stats frozen); the
+        backend has already called ``model.eval()`` before this runs.
         """
         from torch.nn.utils.fusion import fuse_conv_bn_eval
 
         def _fuse_in(parent: nn.Module) -> None:
-            children: Any = list(parent.named_children())
-            for i, (name, child) in enumerate(children):
+            # Recurse into every child first so nested Sequentials get fused.
+            for child in parent.children():
                 _fuse_in(child)
-                if (
-                    i + 1 < len(children)
-                    and isinstance(child, nn.Conv2d)
-                    and isinstance(children[i + 1][1], nn.BatchNorm2d)
-                ):
-                    bn_name, bn = children[i + 1]
+
+            # Only Sequential guarantees registration order == execution
+            # order, so it is the only place adjacency is safe to fuse.
+            if not isinstance(parent, nn.Sequential):
+                return
+
+            entries: Any = list(parent.named_children())
+            for i in range(len(entries) - 1):
+                name, child = entries[i]
+                bn_name, bn = entries[i + 1]
+                if isinstance(child, nn.Conv2d) and isinstance(bn, nn.BatchNorm2d):
                     fused = fuse_conv_bn_eval(child, bn)
                     setattr(parent, name, fused)
                     setattr(parent, bn_name, nn.Identity())

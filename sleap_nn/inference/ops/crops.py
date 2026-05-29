@@ -69,11 +69,20 @@ def crop_bboxes(
     device = images.device
     bboxes_on_device = bboxes.to(device)
 
-    # Floor the top-left so we sample integer pixel positions exactly. This
-    # preserves the old ``.to(torch.long)`` truncation behavior for sub-pixel
-    # centroid-driven crops, keeping topdown end-to-end parity with prior
-    # output bit-exactly.
-    crop_topleft = bboxes_on_device[:, 0, :].long()  # (n, 2) -- (x, y)
+    # Reproduce the LEGACY crop top-left exactly. Legacy padded each side by
+    # ``dim // 2`` and indexed the unfold patch grid at ``trunc(top_left + half)``;
+    # in original-image coords that is ``trunc(top_left + half) - half``. Plain
+    # ``.long()`` (truncate-toward-zero) on the raw top-left diverges by one pixel
+    # when the bbox top-left is negative AND fractional (an instance overhanging
+    # the top/left image edge), shifting the crop fed to the centered-instance
+    # model. ``trunc(x + half) - half`` is identical to ``.long()`` for the
+    # integer-aligned case and matches legacy on the border case (#530 audit).
+    half_xy = torch.tensor(
+        [width // 2, height // 2], device=device, dtype=bboxes_on_device.dtype
+    )
+    crop_topleft = (bboxes_on_device[:, 0, :] + half_xy).to(
+        torch.long
+    ) - half_xy.long()  # (n, 2) -- (x, y)
 
     # Pad the source image with zeros so out-of-bounds samples become 0.
     # The pad amount is at least ``max(width, height)`` so any in-image

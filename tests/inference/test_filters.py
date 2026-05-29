@@ -18,6 +18,7 @@ Coverage:
 
 from __future__ import annotations
 
+import math
 import pickle
 
 import pytest
@@ -204,6 +205,133 @@ def test_overlapping_oks_method_runs():
     # Method runs without raising; at least one instance survives.
     visible_count = (~torch.isnan(out.pred_keypoints).all(dim=(-2, -1))).sum().item()
     assert visible_count >= 1
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 7b. OKS parity with legacy ``_compute_oks`` (postprocessing.py on ``main``)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _legacy_oks(points_a, points_b, kappa: float = 0.1) -> float:
+    """Reference reimplementation of legacy ``_compute_oks`` (pure Python).
+
+    Mirrors ``sleap_nn/inference/postprocessing.py::_compute_oks`` on ``main``:
+    scale is the bbox *area* of instance ``a`` (its own valid keypoints),
+    falloff constant ``kappa=0.1``, mean over jointly-visible keypoints of
+    ``exp(-d^2 / (2 * scale_area * kappa^2))``.
+    """
+    valid_a = [not (math.isnan(x) or math.isnan(y)) for x, y in points_a]
+    valid_b = [not (math.isnan(x) or math.isnan(y)) for x, y in points_b]
+    valid = [va and vb for va, vb in zip(valid_a, valid_b)]
+    if not any(valid):
+        return 0.0
+    pts_a_valid = [points_a[i] for i in range(len(points_a)) if valid_a[i]]
+    if len(pts_a_valid) < 2:
+        return 0.0
+    xs = [p[0] for p in pts_a_valid]
+    ys = [p[1] for p in pts_a_valid]
+    bbox_w = max(xs) - min(xs)
+    bbox_h = max(ys) - min(ys)
+    scale_sq = bbox_w * bbox_h
+    if scale_sq <= 0:
+        return 0.0
+    per_kpt = []
+    for i in range(len(points_a)):
+        if not valid[i]:
+            continue
+        dx = points_a[i][0] - points_b[i][0]
+        dy = points_a[i][1] - points_b[i][1]
+        d_sq = dx * dx + dy * dy
+        per_kpt.append(math.exp(-d_sq / (2 * scale_sq * kappa**2)))
+    return float(sum(per_kpt) / len(per_kpt))
+
+
+def test_oks_matches_legacy_formula_by_hand():
+    """``FilterPipeline._oks`` equals the legacy bbox-area/kappa=0.1 OKS value.
+
+    Two overlapping instances with known keypoints. Instance A bbox is
+    [0,0]..[10,10] → area = 100. With kappa=0.1, the per-keypoint denominator
+    is ``2 * 100 * 0.1**2 = 2.0``.
+
+    Keypoints (A vs B):
+      node0: (0,0)   vs (0,0)    → d^2 = 0   → exp(0)        = 1.0
+      node1: (10,0)  vs (12,0)   → d^2 = 4   → exp(-4/2)     = exp(-2)
+      node2: (0,10)  vs (3,14)   → d^2 = 25  → exp(-25/2)    = exp(-12.5)
+      node3: (10,10) vs (10,10)  → d^2 = 0   → exp(0)        = 1.0
+    OKS = mean of the four = (1 + e^-2 + e^-12.5 + 1) / 4.
+    """
+    a = [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0), (10.0, 10.0)]
+    b = [(0.0, 0.0), (12.0, 0.0), (3.0, 14.0), (10.0, 10.0)]
+
+    # Hand-computed expected value.
+    expected = (1.0 + math.exp(-2.0) + math.exp(-12.5) + 1.0) / 4.0
+
+    a_t = torch.tensor(a, dtype=torch.float64)
+    b_t = torch.tensor(b, dtype=torch.float64)
+    got = FilterPipeline._oks(a_t, b_t)
+
+    # Matches both the by-hand value and the legacy reference reimplementation.
+    assert got == pytest.approx(expected, abs=1e-9)
+    assert got == pytest.approx(_legacy_oks(a, b), abs=1e-9)
+
+
+def test_oks_scale_from_instance_a_only():
+    """Scale uses A's own valid keypoints, even where B is NaN there.
+
+    Legacy derives the bbox scale from ``points_a[valid_a]`` (instance A's own
+    valid keypoints), NOT from the jointly-visible set. Here node1 is NaN in B,
+    so it does not contribute to the OKS mean, but it MUST still expand A's bbox
+    (and thus the scale) exactly as legacy does.
+    """
+    a = [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0), (10.0, 10.0)]
+    b = [(0.0, 0.0), (float("nan"), float("nan")), (3.0, 14.0), (10.0, 10.0)]
+
+    # Jointly-visible nodes: 0, 2, 3. Scale still from A's full bbox (area 100).
+    #   node0: d^2 = 0       → 1.0
+    #   node2: d^2 = 9+16=25 → exp(-25/2) = exp(-12.5)
+    #   node3: d^2 = 0       → 1.0
+    expected = (1.0 + math.exp(-12.5) + 1.0) / 3.0
+
+    a_t = torch.tensor(a, dtype=torch.float64)
+    b_t = torch.tensor(b, dtype=torch.float64)
+    got = FilterPipeline._oks(a_t, b_t)
+
+    assert got == pytest.approx(expected, abs=1e-9)
+    assert got == pytest.approx(_legacy_oks(a, b), abs=1e-9)
+
+
+def test_oks_nms_keeps_same_instance_as_legacy():
+    """OKS NMS keeps the higher-scoring instance legacy would keep.
+
+    Two near-identical instances (OKS well above threshold). Legacy greedy NMS
+    sorts by score descending, keeps the top one, and drops the other because
+    ``oks > threshold``. The refactored pipeline must keep the same instance.
+    """
+    # Instance 0 (score 0.9) and instance 1 (score 0.5) are nearly coincident.
+    a = [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0), (10.0, 10.0)]
+    b = [(0.1, 0.1), (10.1, 0.0), (0.0, 10.1), (10.1, 10.1)]
+
+    oks_ab = _legacy_oks(a, b)
+    threshold = 0.5
+    assert oks_ab > threshold  # legacy would suppress the lower-scoring one
+
+    kpts = torch.tensor([[a, b]], dtype=torch.float64)
+    o = Outputs(
+        pred_keypoints=kpts,
+        pred_peak_values=torch.ones(1, 2, 4, dtype=torch.float64),
+        instance_scores=torch.tensor([[0.9, 0.5]], dtype=torch.float64),
+    )
+    out = FilterPipeline(
+        FilterConfig(
+            overlapping=True,
+            overlapping_threshold=threshold,
+            overlapping_method="oks",
+        )
+    )(o)
+
+    # Higher-scoring instance 0 kept; instance 1 dropped — same as legacy.
+    assert not torch.isnan(out.pred_keypoints[0, 0]).any()
+    assert torch.isnan(out.pred_keypoints[0, 1]).all()
 
 
 # ─────────────────────────────────────────────────────────────────────────

@@ -89,6 +89,11 @@ class Outputs:
     instance_scores: Optional[torch.Tensor] = None  # (B, I)
     instance_valid: Optional[torch.Tensor] = None  # (B, I), bool
     instance_bboxes: Optional[torch.Tensor] = None  # (B, I, 4, 2)
+    # Per-instance tracking score, separate from ``score``. Multi-class
+    # models carry the class probability here (legacy ``tracking_score``)
+    # while ``instance_scores`` holds the legacy base score (centroid /
+    # mean-confidence). ``None`` for non-multiclass paths.
+    instance_tracking_scores: Optional[torch.Tensor] = None  # (B, I)
 
     # ── Multi-class predictions ──────────────────────────────────────
     pred_class_vectors: Optional[torch.Tensor] = None  # (B, I, N, C)
@@ -243,6 +248,7 @@ class Outputs:
         skeleton: "sio.Skeleton",
         batch_index: int = 0,
         anchor_ind: Optional[int] = None,
+        tracks: Optional[list["sio.Track"]] = None,
     ) -> list["sio.PredictedInstance"]:
         """Convert one batch slot into a list of ``sio.PredictedInstance``.
 
@@ -255,6 +261,15 @@ class Outputs:
                 which skeleton-node slot receives the centroid coordinate
                 (all other slots are NaN). ``None`` defaults to node 0.
                 Ignored when ``pred_keypoints`` is populated.
+            tracks: Multi-class identity packaging — a list of ``sio.Track``
+                indexed by class. When provided, each instance is assigned
+                ``tracks[class_ind]`` (top-down multi-class, where the class
+                index is carried per-instance in ``pred_class_inds``) or
+                ``tracks[i]`` (bottom-up multi-class, where the instance slot
+                ``i`` *is* the class), and ``tracking_score`` is read from
+                ``instance_tracking_scores``. Matches legacy
+                ``TopDownMultiClass`` / ``BottomUpMultiClass`` packaging.
+                ``None`` for non-multiclass paths.
 
         Returns:
             One ``sio.PredictedInstance`` per non-NaN instance slot.
@@ -263,7 +278,8 @@ class Outputs:
             Coordinates are taken verbatim from ``pred_keypoints`` —
             assumed to already be in original-image space. Per-keypoint
             scores come from ``pred_peak_values``; per-instance scores
-            from ``instance_scores`` if present, else mean of node scores.
+            from ``instance_scores`` if present, else the SUM of node scores
+            (``np.nansum``), matching legacy ``SingleInstancePredictor``.
 
             **Centroid-only mode** (``pred_keypoints is None`` and
             ``pred_centroids is not None``): packages each predicted
@@ -295,24 +311,68 @@ class Outputs:
             if self.instance_scores is not None
             else None
         )
+        # Multi-class identity packaging metadata (None for plain paths).
+        tracking_scores = (
+            self.instance_tracking_scores[batch_index].detach().cpu().numpy()
+            if self.instance_tracking_scores is not None
+            else None
+        )
+        # Per-instance class index for top-down multi-class. ``pred_class_inds``
+        # is ``(B, I, N)`` (the same class for every node of an instance), so
+        # node 0 carries the per-instance class. Bottom-up multi-class does not
+        # set this — there the instance slot ``i`` IS the class (see below).
+        class_inds = (
+            self.pred_class_inds[batch_index].detach().cpu().numpy()
+            if self.pred_class_inds is not None
+            else None
+        )
 
         instances: List[sio.PredictedInstance] = []
         for i in range(kpts.shape[0]):
             if np.all(np.isnan(kpts[i])):
                 continue
+            # Per-instance score fallback (single-instance models, which don't
+            # populate ``instance_scores``) must match legacy
+            # ``SingleInstancePredictor``: ``np.nansum(pred_values)`` — the SUM
+            # of node confidences, NOT the mean (#530 audit F-SCORE /
+            # predictors.py:1937). ``np.nansum`` of an all-NaN row is 0.0.
             inst_score = (
                 float(instance_scores[i])
                 if instance_scores is not None
-                else (
-                    float(np.nanmean(vals[i])) if not np.all(np.isnan(vals[i])) else 0.0
-                )
+                else float(np.nansum(vals[i]))
             )
+
+            # Multi-class track + tracking_score assignment. Legacy parity:
+            #   - TopDownMultiClass (predictors.py:3808-3880): track =
+            #     tracks[class_ind]; tracking_score = class probability;
+            #     score = centroid value.
+            #   - BottomUpMultiClass (predictors.py:2987-3010): track =
+            #     tracks[i] (by instance order); tracking_score =
+            #     mean class score; score = mean confidence.
+            track = None
+            tracking_score = None
+            if tracks is not None:
+                # Top-down carries an explicit per-instance class index; bottom-up
+                # uses the instance slot ``i`` directly as the class (legacy
+                # ``tracks[i]``).
+                cls_ind = int(class_inds[i, 0]) if class_inds is not None else i
+                if 0 <= cls_ind < len(tracks):
+                    track = tracks[cls_ind]
+                if tracking_scores is not None:
+                    tracking_score = float(tracking_scores[i])
+
+            kwargs: Dict[str, Any] = {}
+            if track is not None:
+                kwargs["track"] = track
+            if tracking_score is not None:
+                kwargs["tracking_score"] = tracking_score
             instances.append(
                 sio.PredictedInstance.from_numpy(
                     points_data=kpts[i],
                     point_scores=vals[i],
                     score=inst_score,
                     skeleton=skeleton,
+                    **kwargs,
                 )
             )
         return instances
@@ -367,6 +427,7 @@ class Outputs:
         skeleton: "sio.Skeleton",
         videos: Optional[list["sio.Video"]] = None,
         anchor_ind: Optional[int] = None,
+        tracks: Optional[list["sio.Track"]] = None,
     ) -> "sio.Labels":
         """Convert this ``Outputs`` to a ``sleap_io.Labels``.
 
@@ -376,6 +437,10 @@ class Outputs:
                 Defaults to a single ``None`` placeholder.
             anchor_ind: Forwarded to :meth:`to_instances` for centroid-only
                 packaging. Ignored when ``pred_keypoints`` is populated.
+            tracks: Multi-class identity ``sio.Track`` registry indexed by
+                class. Forwarded to :meth:`to_instances`; the tracks that get
+                used are registered on the returned ``sio.Labels.tracks``.
+                ``None`` for non-multiclass paths.
 
         Returns:
             A ``sleap_io.Labels`` containing one ``LabeledFrame`` per
@@ -390,12 +455,19 @@ class Outputs:
 
         videos = list(videos) if videos else [None]
         labeled_frames: List[sio.LabeledFrame] = []
+        used_tracks: List["sio.Track"] = []
+        seen_track_ids: set[int] = set()
         for b in range(self.batch_size):
             instances = self.to_instances(
-                skeleton=skeleton, batch_index=b, anchor_ind=anchor_ind
+                skeleton=skeleton, batch_index=b, anchor_ind=anchor_ind, tracks=tracks
             )
             if not instances:
                 continue
+            for inst in instances:
+                trk = getattr(inst, "track", None)
+                if trk is not None and id(trk) not in seen_track_ids:
+                    seen_track_ids.add(id(trk))
+                    used_tracks.append(trk)
             frame_idx = (
                 int(self.frame_indices[b].item())
                 if self.frame_indices is not None
@@ -414,8 +486,11 @@ class Outputs:
                 )
             )
         valid_videos = [v for v in videos if v is not None]
-        return sio.Labels(
+        labels = sio.Labels(
             labeled_frames=labeled_frames,
             videos=valid_videos,
             skeletons=[skeleton],
         )
+        if used_tracks:
+            labels.tracks = used_tracks
+        return labels

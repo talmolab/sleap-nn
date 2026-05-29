@@ -73,6 +73,39 @@ def _pp_field(assets: Any, name: str, default: Any = None) -> Any:
     return val if val is not None else default
 
 
+def _multiclass_class_names(assets: Any, head_type: str) -> Optional[List[str]]:
+    """Ordered class names for a multi-class head from the training config.
+
+    Mirrors legacy ``predictors.py`` track construction:
+
+    * ``multi_class_topdown`` →
+      ``confmap_config.model_config.head_configs.multi_class_topdown.class_vectors.classes``
+      (TopDownMultiClass, predictors.py:3808-3811).
+    * ``multi_class_bottomup`` →
+      ``bottomup_config.model_config.head_configs.multi_class_bottomup.class_maps.classes``
+      (BottomUpMultiClass, predictors.py:2966-2969).
+
+    Returns ``None`` when the config or class list is unavailable.
+    """
+    if head_type == "multi_class_topdown":
+        cfg = getattr(assets, "confmap_config", None)
+        sub_key = "class_vectors"
+    elif head_type == "multi_class_bottomup":
+        cfg = getattr(assets, "bottomup_config", None)
+        sub_key = "class_maps"
+    else:
+        return None
+    if cfg is None:
+        return None
+    try:
+        classes = cfg.model_config.head_configs[head_type][sub_key]["classes"]
+    except (KeyError, AttributeError, TypeError):
+        return None
+    if classes is None:
+        return None
+    return [str(c) for c in classes]
+
+
 def _build_single_instance_layer(predictor: Any, device: str) -> SingleInstanceLayer:
     """Wrap a ``SingleInstanceInferenceModel`` in an ``InferenceLayer``."""
     inf = predictor.inference_model
@@ -141,6 +174,7 @@ def _build_bottomup_multiclass_layer(
         cms_output_stride=inf.cms_output_stride,
         class_maps_output_stride=inf.class_maps_output_stride,
         max_stride=max_stride,
+        class_names=_multiclass_class_names(predictor, "multi_class_bottomup"),
         preprocess_config=PreprocessConfig(
             scale=inf.input_scale,
             max_height=_pp_field(predictor, "max_height"),
@@ -220,13 +254,14 @@ def _build_centroid_layer_gt_only(assets: Any, backend: Any) -> CentroidLayer:
 
 
 def _build_centered_instance_multiclass_layer(
-    instance_model: Any, device: str
+    instance_model: Any, device: str, class_names: Optional[List[str]] = None
 ) -> CenteredInstanceMultiClassLayer:
     """Wrap a ``TopDownMultiClassFindInstancePeaks`` model in a layer."""
     return CenteredInstanceMultiClassLayer(
         backend=TorchBackend(model=instance_model.torch_model, device=device),
         output_stride=instance_model.output_stride,
         max_stride=instance_model.max_stride,
+        class_names=class_names,
         preprocess_config=PreprocessConfig(scale=instance_model.input_scale),
         postprocess_config=PostprocessConfig(
             peak_threshold=instance_model.peak_threshold,
@@ -256,7 +291,11 @@ def _build_topdown_multiclass_layer(
     """Compose centroid + multi-class centered-instance into a multiclass topdown."""
     inf = predictor.inference_model
     centroid_layer = _build_centroid_layer(inf.centroid_crop, device, assets=predictor)
-    inst_layer = _build_centered_instance_multiclass_layer(inf.instance_peaks, device)
+    inst_layer = _build_centered_instance_multiclass_layer(
+        inf.instance_peaks,
+        device,
+        class_names=_multiclass_class_names(predictor, "multi_class_topdown"),
+    )
     crop_h, crop_w = inf.centroid_crop.crop_hw
     return TopDownMultiClassLayer(
         centroid_layer=centroid_layer,
@@ -1078,19 +1117,48 @@ class Predictor:
 
         skeleton = self.skeleton
         anchor_ind = self._packaging_anchor_ind()
+        tracks = self._multiclass_tracks()
         videos = list(videos) if videos else [None]
         all_lf: list = []
+        used_tracks: list = []
+        seen_track_ids: set = set()
         for outputs in outputs_list:
             sub = outputs.to_labels(
-                skeleton=skeleton, videos=videos, anchor_ind=anchor_ind
+                skeleton=skeleton,
+                videos=videos,
+                anchor_ind=anchor_ind,
+                tracks=tracks,
             )
             all_lf.extend(sub.labeled_frames)
+            for trk in sub.tracks:
+                if id(trk) not in seen_track_ids:
+                    seen_track_ids.add(id(trk))
+                    used_tracks.append(trk)
         valid_videos = [v for v in videos if v is not None]
-        return sio.Labels(
+        labels = sio.Labels(
             labeled_frames=all_lf,
             videos=valid_videos,
             skeletons=[skeleton],
         )
+        if used_tracks:
+            labels.tracks = used_tracks
+        return labels
+
+    def _multiclass_tracks(self) -> Optional[list["sio.Track"]]:
+        """Build the ``sio.Track`` registry for multi-class identity packaging.
+
+        Reads ``class_names`` off the (possibly composed) multi-class layer —
+        populated at build time from the training config — and constructs one
+        ``sio.Track`` per class, ordered by class index. Returns ``None`` for
+        non-multiclass layers. Matches legacy ``predictors.py`` track
+        construction (TopDownMultiClass:3808-3811, BottomUpMultiClass:2966).
+        """
+        import sleap_io as sio
+
+        class_names = getattr(self.layer, "class_names", None)
+        if not class_names:
+            return None
+        return [sio.Track(name=str(name)) for name in class_names]
 
     def _packaging_anchor_ind(self) -> Optional[int]:
         """Anchor-node slot for centroid-only output packaging."""

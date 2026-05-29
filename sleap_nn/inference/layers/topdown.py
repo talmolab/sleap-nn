@@ -238,6 +238,20 @@ class TopDownLayer:
 
         # Run centered-instance model on the crops.
         stage2_out = self.centered_instance_layer.predict(crops)
+
+        # All downstream arithmetic + scatter must run on the device where the
+        # centered-instance model actually executed. In the GT-centroid path the
+        # centroids / eff_scale / valid_mask arrive on CPU while the model runs on
+        # cuda (or mps), so normalize every metadata tensor onto the model device
+        # here to avoid cross-device RuntimeErrors (#530 audit F-CUDA: crashes at
+        # the per_crop_eff_scale divide and the instance_scores scatter).
+        device = stage2_out.pred_keypoints.device
+        valid_idx = valid_idx.to(device)
+        per_crop_eff_scale = per_crop_eff_scale.to(device)
+        centroid_vals = centroid_vals.to(device)
+        centroids_in_image_space = centroids_in_image_space.to(device)
+        bboxes = bboxes.to(device)
+
         # ``stage2_out.pred_keypoints`` shape: ``(n_valid, 1, n_nodes, 2)``;
         # squeeze the ``I=1`` instance dim so ``add_crop_offset`` (which is
         # written for ``(N, n_nodes, 2)``) broadcasts cleanly.
@@ -282,17 +296,64 @@ class TopDownLayer:
             )
             full_crops[valid_idx[:, 0], valid_idx[:, 1]] = crops_on_device
 
-        # Instance scores: use stage-2 instance_scores (multiclass class-
-        # prob) when present, otherwise fall back to centroid confidence.
+        # Instance scores: use stage-2 instance_scores when present, otherwise
+        # fall back to centroid confidence. For multi-class top-down the inner
+        # layer leaves ``instance_scores`` unset (so we land in the centroid
+        # fallback here — legacy ``score = centroid_val``,
+        # predictors.py:3808-3880) and instead carries the class probability in
+        # ``instance_tracking_scores`` (scattered below as the tracking score).
         if stage2_out.instance_scores is not None:
             full_instance_scores = torch.full(
                 (B, max_inst), float("nan"), device=device
             )
             full_instance_scores[valid_idx[:, 0], valid_idx[:, 1]] = (
-                stage2_out.instance_scores.squeeze(1)
+                stage2_out.instance_scores.squeeze(1).to(device)
             )
         else:
             full_instance_scores = centroid_vals
+
+        # Multi-class identity: scatter the per-instance class index and the
+        # class-probability tracking score into the (B, max_inst, ...) layout.
+        # Plain top-down leaves both ``None`` (no class fields).
+        #
+        # CRITICAL parity detail: the class assignment (Hungarian matching in
+        # ``get_class_inds_from_vectors``) must run PER FRAME, not jointly over
+        # all crops in the batch. Legacy ``TopDownMultiClass`` classifies each
+        # frame's crops independently (topdown.py:723-733 invoked once per
+        # frame). The composed multi-class inner layer instead hands us the raw
+        # per-crop class vectors in ``pred_class_probs`` (shape
+        # ``(n_valid, 1, n_classes)``); we group those by frame (``sample_inds``)
+        # and classify each group here so cross-frame crops never compete for
+        # the same class slot.
+        full_class_inds = None
+        full_tracking_scores = None
+        if stage2_out.pred_class_probs is not None:
+            from sleap_nn.inference.ops.identity import get_class_inds_from_vectors
+
+            n_cls_nodes = full_vals.shape[-1]
+            full_class_inds = torch.full(
+                (B, max_inst, n_cls_nodes), -1, dtype=torch.int64, device=device
+            )
+            full_tracking_scores = torch.full(
+                (B, max_inst), float("nan"), device=device
+            )
+            # Raw per-crop softmax vectors aligned with ``valid_idx`` rows.
+            crop_class_vectors = stage2_out.pred_class_probs.squeeze(1)  # (n_valid, C)
+            crop_b = valid_idx[:, 0]
+            crop_i = valid_idx[:, 1]
+            for b in torch.unique(crop_b):
+                rows = (crop_b == b).nonzero(as_tuple=False).flatten()
+                vecs = crop_class_vectors[rows]  # (n_crops_in_frame, C)
+                cls_inds, cls_probs = get_class_inds_from_vectors(vecs)
+                cls_inds = cls_inds.to(device)
+                cls_probs = cls_probs.to(device)
+                inst_slots = crop_i[rows]
+                # Per-instance class index, broadcast across the node axis to
+                # match the ``(B, I, N)`` ``pred_class_inds`` contract.
+                full_class_inds[b, inst_slots] = cls_inds.view(-1, 1).expand(
+                    -1, n_cls_nodes
+                )
+                full_tracking_scores[b, inst_slots] = cls_probs
 
         return Outputs(
             pred_keypoints=full_kpts,
@@ -301,7 +362,9 @@ class TopDownLayer:
             pred_centroids=centroids_in_image_space,
             pred_centroid_values=centroid_vals,
             instance_scores=full_instance_scores,
+            instance_tracking_scores=full_tracking_scores,
             instance_bboxes=full_bboxes,
+            pred_class_inds=full_class_inds,
             crops=full_crops,
         )
 

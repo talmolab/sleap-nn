@@ -39,6 +39,11 @@ class CenteredInstanceMultiClassLayer(InferenceLayer):
         max_stride: Max stride for input divisibility (preprocess pads
             bottom-right).
         preprocess_config / postprocess_config: Standard knobs.
+        class_names: Ordered class names from
+            ``multi_class_topdown.class_vectors.classes``. Used by the
+            predictor to build the ``sio.Track`` registry for identity
+            packaging; an instance's class index (from ``ClassVectorsHead``)
+            indexes into this list.
 
     Notes:
         Class-level ``use_gt_peaks = False``: the multi-class variant does
@@ -58,6 +63,7 @@ class CenteredInstanceMultiClassLayer(InferenceLayer):
         max_stride: int = 1,
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
+        class_names: Optional[list[str]] = None,
     ) -> None:
         """Compose the layer with the standard centered-instance config."""
         super().__init__(
@@ -67,6 +73,7 @@ class CenteredInstanceMultiClassLayer(InferenceLayer):
             output_stride=output_stride,
             max_stride=max_stride,
         )
+        self.class_names = list(class_names) if class_names is not None else None
 
     def postprocess(self, raw_out: dict, info: PreprocInfo) -> Outputs:
         """Decode confmaps to keypoints; classify via ``ClassVectorsHead``."""
@@ -86,19 +93,39 @@ class CenteredInstanceMultiClassLayer(InferenceLayer):
         if not torch.all(eff == 1.0):
             peaks = peaks / eff.view(-1, 1, 1)
 
+        # NOTE on frame grouping: the legacy multi-class top-down classifies
+        # crops PER FRAME — ``get_class_inds_from_vectors`` runs Hungarian
+        # assignment over each frame's crops independently (topdown.py:723-733
+        # is called once per frame via ``CentroidCrop._generate_crops``, which
+        # builds one ``instance_image`` batch per frame). When this layer is
+        # composed inside ``TopDownMultiClassLayer``, crops from *all* frames in
+        # a batch arrive flattened in a single forward, so classifying them
+        # jointly here would mis-assign across frame boundaries. We therefore
+        # carry the raw per-crop class vectors in ``pred_class_probs`` and let
+        # ``TopDownLayer._run_stage_2`` redo the assignment per frame using the
+        # crop→frame mapping it owns. The pre-classified fields below are still
+        # populated for the standalone (single-frame) layer path.
         class_inds, class_probs = get_class_inds_from_vectors(peak_class_probs)
 
         # Reshape peaks to canonical (B=n_crops, I=1, N, 2) Outputs shape.
         peaks_BIN2 = peaks.unsqueeze(1)
         vals_BIN = vals.unsqueeze(1)
         class_inds_BIN = class_inds.unsqueeze(1)  # (n_crops, 1)
-        class_probs_BI = class_probs.unsqueeze(1)  # (n_crops, 1)
+        class_probs_BI = class_probs.unsqueeze(1).to(peaks.device)  # (n_crops, 1)
+        # Raw per-crop softmax vectors, canonical (n_crops, I=1, n_classes).
+        class_vectors_BIC = peak_class_probs.detach().unsqueeze(1).to(peaks.device)
 
+        # Legacy parity (predictors.py:3808-3880): the per-instance ``score``
+        # is the centroid confidence (added in ``TopDownLayer._run_stage_2``),
+        # and the class probability is the ``tracking_score``. So carry the
+        # class prob as ``instance_tracking_scores`` here and leave
+        # ``instance_scores`` unset so stage 2 falls back to ``centroid_vals``.
         outputs = Outputs(
             pred_keypoints=peaks_BIN2,
             pred_peak_values=vals_BIN,
             pred_class_inds=class_inds_BIN.unsqueeze(-1).expand(-1, -1, peaks.shape[1]),
-            instance_scores=class_probs_BI,
+            pred_class_probs=class_vectors_BIC,
+            instance_tracking_scores=class_probs_BI,
             preprocess_info=info,
         )
         if self.postprocess_config.return_confmaps:
@@ -144,3 +171,8 @@ class TopDownMultiClassLayer(TopDownLayer):
             centroid_nms_threshold=centroid_nms_threshold,
             return_crops=return_crops,
         )
+
+    @property
+    def class_names(self) -> Optional[list[str]]:
+        """Class names from the inner multi-class centered-instance layer."""
+        return self.centered_instance_layer.class_names

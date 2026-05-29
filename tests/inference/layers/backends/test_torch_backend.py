@@ -302,6 +302,72 @@ def test_cuda_fp16_warns_with_smallbatch_text():
     assert matched, "expected the small-batch regression warning text"
 
 
+class _NormalizingUint8Model(nn.Module):
+    """Mimics the production forward: receives a uint8 tensor, normalizes it
+    *inside* forward (``/ 255.0``), then runs a conv — exactly the path where
+    fp16 used to be a silent no-op (the uint8 input skipped the half cast)."""
+
+    def __init__(self, in_ch: int = 1, out_ch: int = 4) -> None:
+        super().__init__()
+        self.conv = nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if not torch.is_floating_point(x):
+            x = x.float() / 255.0
+        elif x.max() > 1.0:
+            x = x / 255.0
+        return self.conv(x)
+
+
+@pytest.mark.skipif(not _has_cuda(), reason="CUDA not available")
+def test_cuda_fp16_actually_runs_half_on_uint8_path():
+    """``use_fp16=True`` must genuinely run the model in half precision on the
+    standard uint8 inference path, producing finite outputs close to fp32.
+
+    fp16 is opt-in and changes numerics, so this asserts the run *succeeds*
+    and is loosely close to fp32 — NOT bit-exact parity. Before the fix the
+    uint8 input skipped the half cast and the half model raised a dtype
+    mismatch (or fp16 was a silent no-op).
+    """
+    torch.manual_seed(0)
+    x_u8 = torch.randint(0, 256, (2, 1, 16, 16), dtype=torch.uint8)
+
+    # fp32 reference.
+    fp32_model = _NormalizingUint8Model().eval()
+    fp32_backend = TorchBackend(model=fp32_model, device="cuda", use_fp16=False)
+    fp32_out = fp32_backend(x_u8)["output"]
+    assert fp32_out.dtype == torch.float32
+
+    # fp16 run: same weights, half precision.
+    fp16_model = _NormalizingUint8Model().eval()
+    fp16_model.load_state_dict(fp32_model.state_dict())
+    with pytest.warns(UserWarning):
+        fp16_backend = TorchBackend(model=fp16_model, device="cuda", use_fp16=True)
+    # Autocast keeps fp32 master weights (non-destructive) — the half precision
+    # happens per-op inside ``torch.autocast``, not by mutating the model.
+    assert next(fp16_backend.model.parameters()).dtype == torch.float32
+
+    fp16_out = fp16_backend(x_u8)["output"]
+    # Output is cast back to float32 for downstream postprocess.
+    assert fp16_out.dtype == torch.float32
+    # Finite and loosely close to fp32 (numerics differ; this is opt-in).
+    assert torch.isfinite(fp16_out).all()
+    torch.testing.assert_close(fp16_out, fp32_out, atol=1e-1, rtol=1e-1)
+
+
+@pytest.mark.skipif(not _has_cuda(), reason="CUDA not available")
+def test_cuda_fp16_default_off_is_bit_exact_vs_eager():
+    """Default path (no fp16) on CUDA stays bit-exact vs the eager model."""
+    torch.manual_seed(0)
+    x_u8 = torch.randint(0, 256, (1, 1, 16, 16), dtype=torch.uint8)
+    model = _NormalizingUint8Model().eval().cuda()
+    eager = model(x_u8.cuda())
+
+    backend = TorchBackend(model=model, device="cuda", use_fp16=False)
+    out = backend(x_u8)["output"]
+    torch.testing.assert_close(out, eager, atol=0, rtol=0)
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # 6. #527 regression
 # ─────────────────────────────────────────────────────────────────────────
@@ -358,24 +424,109 @@ def test_use_compile_false_is_default_and_does_not_compile():
 # ─────────────────────────────────────────────────────────────────────────
 
 
-class _ConvBNModel(nn.Module):
+def _set_nontrivial_bn_stats(bn: nn.BatchNorm2d) -> None:
+    """Give a BN non-identity running stats / affine params.
+
+    Makes a mis-fuse (folding into the wrong conv + dropping the BN) produce
+    a *large* output delta instead of one masked by near-identity stats.
+    """
+    bn.running_mean.data = torch.tensor([1.0, -2.0, 0.5, 3.0])
+    bn.running_var.data = torch.tensor([4.0, 0.25, 2.0, 9.0])
+    bn.weight.data = torch.tensor([2.0, 0.5, 1.5, 0.8])
+    bn.bias.data = torch.tensor([0.1, -0.3, 0.2, 0.4])
+
+
+class _SequentialConvBNModel(nn.Module):
+    """Conv2d -> BatchNorm2d inside an ``nn.Sequential`` (execution order
+    is guaranteed to match registration order — the safe-to-fuse case)."""
+
     def __init__(self) -> None:
         super().__init__()
-        self.conv = nn.Conv2d(1, 4, 3, padding=1, bias=False)
-        self.bn = nn.BatchNorm2d(4)
+        self.body = nn.Sequential(
+            nn.Conv2d(1, 4, 3, padding=1, bias=False),
+            nn.BatchNorm2d(4),
+        )
+        _set_nontrivial_bn_stats(self.body[1])
 
     def forward(self, x):
-        return self.bn(self.conv(x.float()))
+        return self.body(x.float())
 
 
 def test_fuse_layers_replaces_bn_with_identity():
-    """``fuse_layers=True`` collapses Conv2d + BN into a fused Conv2d."""
-    model = _ConvBNModel()
-    # warm BN's running stats so the fold is well-defined
-    model.eval()
+    """``fuse_layers=True`` collapses a Sequential Conv2d + BN into a fused
+    Conv2d (BN replaced with ``Identity``) without changing the output."""
+    model = _SequentialConvBNModel()
+    model.eval()  # running stats frozen so the fold is well-defined
+
+    x = torch.randn(1, 1, 8, 8)
+    ref = model(x).detach().clone()
+
     backend = TorchBackend(model=model, device="cpu", fuse_layers=True)
-    # The BN should have been replaced with Identity.
-    assert isinstance(backend.model.bn, nn.Identity)
-    # Forward pass still works.
-    out = backend(torch.zeros(1, 1, 8, 8))
+    # The BN inside the Sequential should have been replaced with Identity.
+    assert isinstance(backend.model.body[1], nn.Identity)
+    # Forward pass still works and is numerically equivalent to unfused.
+    out = backend(x)
     assert out["output"].shape == (1, 4, 8, 8)
+    torch.testing.assert_close(out["output"], ref, atol=1e-5, rtol=1e-4)
+
+
+def test_fuse_layers_default_off_is_bit_exact():
+    """Default (``fuse_layers=False``) leaves the model untouched and the
+    forward bit-exact vs the eager model."""
+    model = _SequentialConvBNModel()
+    model.eval()
+    x = torch.randn(1, 1, 8, 8)
+    ref = model(x).detach().clone()
+
+    backend = TorchBackend(model=model, device="cpu")  # fuse_layers defaults False
+    # BN is untouched.
+    assert isinstance(backend.model.body[1], nn.BatchNorm2d)
+    out = backend(x)
+    torch.testing.assert_close(out["output"], ref, atol=0, rtol=0)
+
+
+class _ReorderedConvBNModel(nn.Module):
+    """A model whose ``forward`` applies BN to a *different* conv than the one
+    registered immediately before it.
+
+    Registration order is ``conv_a, bn, conv_b`` but ``forward`` computes
+    ``bn(conv_b(x))`` — so a naive registration-order fuse would fold ``bn``
+    into ``conv_a`` (which isn't even on the forward path) and drop the BN
+    that genuinely follows ``conv_b``, silently corrupting the output.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv_a = nn.Conv2d(1, 4, 3, padding=1, bias=False)
+        self.bn = nn.BatchNorm2d(4)
+        self.conv_b = nn.Conv2d(1, 4, 3, padding=1, bias=False)
+        _set_nontrivial_bn_stats(self.bn)
+
+    def forward(self, x):
+        return self.bn(self.conv_b(x.float()))
+
+
+def test_fuse_layers_does_not_misfuse_on_reordered_forward():
+    """Regression: fusion must NOT fold a Conv→BN pair that is adjacent by
+    *registration* order but not by *execution* order.
+
+    The (formerly buggy) registration-order walk produced a max-abs-diff of
+    ~1.7 here. The Sequential-only guard must leave this model's output
+    bit-exact vs. unfused.
+    """
+    model = _ReorderedConvBNModel()
+    model.eval()
+    x = torch.randn(1, 1, 8, 8)
+    ref = model(x).detach().clone()
+
+    backend = TorchBackend(model=model, device="cpu", fuse_layers=True)
+
+    # The BN must be left intact (NOT replaced with Identity) since it cannot
+    # be proven to execute right after a conv.
+    assert isinstance(backend.model.bn, nn.BatchNorm2d)
+    assert isinstance(backend.model.conv_a, nn.Conv2d)
+    assert isinstance(backend.model.conv_b, nn.Conv2d)
+
+    out = backend(x)
+    # Output must be unchanged vs the unfused eager model — no silent mis-fuse.
+    torch.testing.assert_close(out["output"], ref, atol=0, rtol=0)
