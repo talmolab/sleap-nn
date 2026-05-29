@@ -409,3 +409,21 @@ class PafGroupingPool:
         while self._pending:
             frame_idx, future = self._pending.pop(0)
             yield frame_idx, future.result()
+
+    def __len__(self) -> int:
+        """Number of submitted-but-not-yet-drained batches (in-flight depth)."""
+        return len(self._pending)
+
+    def drain_one(self) -> "Optional[Tuple[int, Outputs]]":
+        """Pop + block on the OLDEST pending batch (FIFO); ``None`` if empty.
+
+        Lets a caller interleave ``submit`` and drain to bound the number of
+        in-flight batches (true O(window) streaming) while preserving the same
+        submission-order yield as :meth:`iter_completed`. Because submission is
+        sequential on the main thread, the oldest future is always real, so
+        this never deadlocks.
+        """
+        if not self._pending:
+            return None
+        frame_idx, future = self._pending.pop(0)
+        return frame_idx, future.result()

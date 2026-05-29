@@ -330,6 +330,15 @@ class TopDownLayer:
         # the same class slot.
         full_class_inds = None
         full_tracking_scores = None
+        full_class_vectors = None
+        # Whether the caller requested the raw class vectors on the output
+        # (predict-time return_class_vectors override, #583). Without scattering
+        # them here, the composed top-down output silently dropped them.
+        want_class_vectors = getattr(
+            getattr(self.centered_instance_layer, "postprocess_config", None),
+            "return_class_vectors",
+            False,
+        )
         if stage2_out.pred_class_probs is not None:
             from sleap_nn.inference.ops.identity import get_class_inds_from_vectors
 
@@ -342,6 +351,11 @@ class TopDownLayer:
             )
             # Raw per-crop softmax vectors aligned with ``valid_idx`` rows.
             crop_class_vectors = stage2_out.pred_class_probs.squeeze(1)  # (n_valid, C)
+            if want_class_vectors:
+                n_classes = int(crop_class_vectors.shape[-1])
+                full_class_vectors = torch.full(
+                    (B, max_inst, n_classes), float("nan"), device=device
+                )
             crop_b = valid_idx[:, 0]
             crop_i = valid_idx[:, 1]
             for b in torch.unique(crop_b):
@@ -357,6 +371,8 @@ class TopDownLayer:
                     -1, n_cls_nodes
                 )
                 full_tracking_scores[b, inst_slots] = cls_probs
+                if full_class_vectors is not None:
+                    full_class_vectors[b, inst_slots] = vecs.to(device)
 
         return Outputs(
             pred_keypoints=full_kpts,
@@ -368,6 +384,7 @@ class TopDownLayer:
             instance_tracking_scores=full_tracking_scores,
             instance_bboxes=full_bboxes,
             pred_class_inds=full_class_inds,
+            pred_class_vectors=full_class_vectors,
             crops=full_crops,
         )
 

@@ -288,6 +288,11 @@ def _build_bottomup(
     max_instances: Optional[int],
     return_confmaps: bool,
     preprocess_config: Any,
+    max_edge_length_ratio: float = 0.25,
+    dist_penalty_weight: float = 1.0,
+    n_points: int = 10,
+    min_instance_peaks: Union[int, float] = 0,
+    min_line_scores: float = 0.25,
 ) -> LoadedAssets:
     module, config, backbone_type = _load_lightning_module(
         BottomUpLightningModule,
@@ -301,6 +306,9 @@ def _build_bottomup(
 
     preprocess_config = _resolve_preprocess_config(preprocess_config, config)
 
+    # Thread the bottom-up PAF grouping knobs from the CLI/API into the scorer
+    # (legacy ran_inference set these on the live scorer; the new infer flow
+    # silently dropped them). #583.
     paf_scorer = PAFScorer.from_config(
         config=OmegaConf.create(
             {
@@ -308,6 +316,11 @@ def _build_bottomup(
                 "pafs": config.model_config.head_configs.bottomup["pafs"],
             }
         ),
+        max_edge_length_ratio=max_edge_length_ratio,
+        dist_penalty_weight=dist_penalty_weight,
+        n_points=n_points,
+        min_instance_peaks=min_instance_peaks,
+        min_line_scores=min_line_scores,
     )
 
     inference_model = BottomUpInferenceModel(
@@ -674,8 +687,19 @@ def load_model_assets(
     return_confmaps: bool = False,
     preprocess_config: Optional["DictConfig"] = None,
     anchor_part: Optional[str] = None,
+    max_edge_length_ratio: float = 0.25,
+    dist_penalty_weight: float = 1.0,
+    n_points: int = 10,
+    min_instance_peaks: Union[int, float] = 0,
+    min_line_scores: float = 0.25,
 ) -> tuple[LoadedAssets, List[str]]:
     """Load checkpoints and build inference models.
+
+    The five bottom-up PAF grouping knobs (``max_edge_length_ratio``,
+    ``dist_penalty_weight``, ``n_points``, ``min_instance_peaks``,
+    ``min_line_scores``) are forwarded ONLY to the plain bottom-up builder
+    (legacy applied them only to ``BottomUpPredictor``); they are inert for
+    other model types.
 
     Returns:
         ``(loaded_assets, model_types)`` — *model_types* is the list of
@@ -717,7 +741,16 @@ def load_model_assets(
 
     elif "bottomup" in model_types:
         path = model_paths[model_types.index("bottomup")]
-        assets = _build_bottomup(path, max_instances=max_instances, **common_kwargs)
+        assets = _build_bottomup(
+            path,
+            max_instances=max_instances,
+            max_edge_length_ratio=max_edge_length_ratio,
+            dist_penalty_weight=dist_penalty_weight,
+            n_points=n_points,
+            min_instance_peaks=min_instance_peaks,
+            min_line_scores=min_line_scores,
+            **common_kwargs,
+        )
 
     elif "multi_class_bottomup" in model_types:
         path = model_paths[model_types.index("multi_class_bottomup")]

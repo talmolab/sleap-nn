@@ -10,9 +10,13 @@ Three usage tiers:
   ``Outputs`` if ``make_labels=False``). Loads everything into memory;
   use for short videos / interactive sessions.
 * :meth:`predict_streaming` — yields one ``Outputs`` per batch as a
-  generator. Memory stays O(tracker_window).
-* :meth:`predict_to_file` — disk-streaming write of a ``.slp`` via
-  :class:`IncrementalLabelsWriter`. Memory stays O(write_interval).
+  generator; nothing is retained across batches, so memory stays
+  O(batch) (with ``paf_workers>0``, O(in-flight window)). Tracking is
+  not supported here (it needs the full frame list); use :meth:`predict`.
+* :meth:`predict_to_file` — buffered write of a ``.slp`` via
+  :class:`IncrementalLabelsWriter`. Heavy tensors are dropped per batch;
+  the (slimmed) ``LabeledFrame``s accumulate until finalize (see that
+  class for the memory note).
 """
 
 from __future__ import annotations
@@ -597,6 +601,11 @@ class Predictor:
         paf_workers: int = 0,
         tracker_config: Optional["TrackerConfig"] = None,
         centroid_only: bool = False,
+        max_edge_length_ratio: float = 0.25,
+        dist_penalty_weight: float = 1.0,
+        n_points: int = 10,
+        min_instance_peaks: Union[int, float] = 0,
+        min_line_scores: float = 0.25,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -622,6 +631,12 @@ class Predictor:
             tracker_config: :class:`TrackerConfig` for tracking.
             centroid_only: Force centroid-only output even when a
                 centered-instance model is among ``model_paths``.
+            max_edge_length_ratio: Bottom-up PAF max edge length ratio.
+            dist_penalty_weight: Bottom-up PAF distance penalty weight.
+            n_points: Bottom-up PAF line integration sample count.
+            min_instance_peaks: Bottom-up min peaks for a valid instance.
+            min_line_scores: Bottom-up per-edge match threshold. (These five
+                are applied only to plain bottom-up models.)
         """
         from sleap_nn.inference.loaders import load_model_assets
 
@@ -637,6 +652,11 @@ class Predictor:
             return_confmaps=return_confmaps,
             preprocess_config=preprocess_config,
             anchor_part=anchor_part,
+            max_edge_length_ratio=max_edge_length_ratio,
+            dist_penalty_weight=dist_penalty_weight,
+            n_points=n_points,
+            min_instance_peaks=min_instance_peaks,
+            min_line_scores=min_line_scores,
         )
 
         if centroid_only:
@@ -966,6 +986,10 @@ class Predictor:
         integral_patch_size: Optional[int] = None,
         return_confmaps: Optional[bool] = None,
         return_crops: Optional[bool] = None,
+        return_pafs: Optional[bool] = None,
+        return_paf_graph: Optional[bool] = None,
+        return_class_maps: Optional[bool] = None,
+        return_class_vectors: Optional[bool] = None,
     ) -> Union[List[Outputs], "sio.Labels"]:
         """Run inference on a source.
 
@@ -1002,6 +1026,14 @@ class Predictor:
             return_confmaps: Override whether to return confidence maps.
             return_crops: Override whether to return per-instance crops
                 (top-down only).
+            return_pafs: Override whether to return part-affinity fields
+                (bottom-up).
+            return_paf_graph: Override whether to return the PAF graph
+                (bottom-up).
+            return_class_maps: Override whether to return class maps
+                (multi-class bottom-up).
+            return_class_vectors: Override whether to return class vectors
+                (multi-class top-down).
 
         Returns:
             ``sio.Labels`` (default) or ``List[Outputs]`` (when
@@ -1023,6 +1055,10 @@ class Predictor:
             integral_patch_size=integral_patch_size,
             return_confmaps=return_confmaps,
             return_crops=return_crops,
+            return_pafs=return_pafs,
+            return_paf_graph=return_paf_graph,
+            return_class_maps=return_class_maps,
+            return_class_vectors=return_class_vectors,
         ):
             outputs_list = list(self._batch_iter(provider, progress_callback))
         _prov_end = datetime.now()
@@ -1082,6 +1118,10 @@ class Predictor:
         integral_patch_size: Optional[int] = None,
         return_confmaps: Optional[bool] = None,
         return_crops: Optional[bool] = None,
+        return_pafs: Optional[bool] = None,
+        return_paf_graph: Optional[bool] = None,
+        return_class_maps: Optional[bool] = None,
+        return_class_vectors: Optional[bool] = None,
     ) -> Iterator[Outputs]:
         """Yield one ``Outputs`` per batch from ``source``.
 
@@ -1100,6 +1140,14 @@ class Predictor:
             return_confmaps: Override whether to return confidence maps.
             return_crops: Override whether to return per-instance crops
                 (top-down only).
+            return_pafs: Override whether to return part-affinity fields
+                (bottom-up).
+            return_paf_graph: Override whether to return the PAF graph
+                (bottom-up).
+            return_class_maps: Override whether to return class maps
+                (multi-class bottom-up).
+            return_class_vectors: Override whether to return class vectors
+                (multi-class top-down).
         """
         if self.tracker_config is not None:
             raise ValueError(
@@ -1117,6 +1165,10 @@ class Predictor:
             integral_patch_size=integral_patch_size,
             return_confmaps=return_confmaps,
             return_crops=return_crops,
+            return_pafs=return_pafs,
+            return_paf_graph=return_paf_graph,
+            return_class_maps=return_class_maps,
+            return_class_vectors=return_class_vectors,
         ):
             if self.paf_workers > 0 and self._can_pipeline():
                 yield from self._predict_streaming_pipelined(
@@ -1140,11 +1192,13 @@ class Predictor:
         write_interval: int = 500,
         progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> str:
-        """Run inference and stream results to a ``.slp`` file.
+        """Run inference and write results to a ``.slp`` file.
 
-        Memory stays O(``write_interval``) — outputs are slimmed and
-        converted to LabeledFrames per batch; heavy tensors are dropped
-        immediately.
+        Each batch's ``Outputs`` is slimmed and converted to LabeledFrames
+        immediately, so the heavy intermediate tensors (confmaps, PAFs) are
+        dropped right away. The slimmed LabeledFrames accumulate until the
+        file is finalized at close (see :class:`IncrementalLabelsWriter` for
+        the memory note).
 
         Args:
             source: ``sio.Video``, ``sio.Labels``, video path string, or
@@ -1170,6 +1224,8 @@ class Predictor:
                 "`skeleton=...` or build the Predictor via Predictor.from_model_paths() "
                 "which sets it automatically from the training config."
             )
+        from datetime import datetime
+
         from sleap_nn.inference.writer import IncrementalLabelsWriter
 
         provider, derived = self._make_provider(source, frames=frames)
@@ -1179,16 +1235,27 @@ class Predictor:
         # `videos` (possibly None) is used (#582).
         if videos is None:
             videos = derived
-        with IncrementalLabelsWriter(
+        writer = IncrementalLabelsWriter(
             path=path,
             skeleton=self.skeleton,
             videos=videos,
             write_interval=write_interval,
-        ) as writer:
+        )
+        _prov_start = datetime.now()
+        with writer:
             for outputs in self.predict_streaming(
                 provider, progress_callback=progress_callback
             ):
                 writer.write(outputs)
+            # Attach provenance before the context exit finalizes the .slp, so
+            # the streamed output carries lineage like the in-memory path (#583).
+            writer.provenance = self._build_inference_provenance(
+                source=source,
+                start_time=_prov_start,
+                end_time=datetime.now(),
+                n_frames=writer.frame_count,
+                inference_params={"batch_size": self.batch_size},
+            )
         return path
 
     # ──────────────────────────────────────────────────────────────────
@@ -1249,7 +1316,15 @@ class Predictor:
         params = layer.grouping_params()
         total = _safe_len(provider)
 
+        # Bound the number of in-flight batches so memory stays O(window),
+        # not O(whole video). Submitting every batch before draining (the old
+        # behavior) kept all ScoredBatch payloads + cached batches resident at
+        # once (#583). Keep a small multiple of n_workers in flight so workers
+        # stay fed; drain the OLDEST completed result (FIFO) before submitting
+        # more, preserving submission-order output.
+        max_in_flight = max(2 * self.paf_workers, self.paf_workers + 1)
         meta: dict[int, Any] = {}
+        completed = 0
         with PafGroupingPool(
             n_workers=self.paf_workers, grouping_params=params
         ) as pool:
@@ -1259,10 +1334,22 @@ class Predictor:
                 scored = layer._score_pafs_on_gpu(raw, info)
                 pool.submit(ordinal, scored)
                 meta[ordinal] = batch
-            completed = 0
-            for ordinal, outputs in pool.iter_completed():
+                while len(pool) >= max_in_flight:
+                    done_ordinal, outputs = pool.drain_one()
+                    outputs = pipeline(outputs)
+                    outputs = self._stamp_metadata(outputs, meta.pop(done_ordinal))
+                    yield outputs
+                    completed += 1
+                    if progress_callback is not None:
+                        progress_callback(completed, total)
+            # Drain the remaining in-flight batches.
+            while True:
+                result = pool.drain_one()
+                if result is None:
+                    break
+                done_ordinal, outputs = result
                 outputs = pipeline(outputs)
-                outputs = self._stamp_metadata(outputs, meta.pop(ordinal))
+                outputs = self._stamp_metadata(outputs, meta.pop(done_ordinal))
                 yield outputs
                 completed += 1
                 if progress_callback is not None:
@@ -1378,6 +1465,10 @@ class Predictor:
         integral_patch_size: Optional[int] = None,
         return_confmaps: Optional[bool] = None,
         return_crops: Optional[bool] = None,
+        return_pafs: Optional[bool] = None,
+        return_paf_graph: Optional[bool] = None,
+        return_class_maps: Optional[bool] = None,
+        return_class_vectors: Optional[bool] = None,
     ):
         """Context manager that temporarily overrides postprocess configs.
 
@@ -1398,6 +1489,10 @@ class Predictor:
                 integral_patch_size,
                 return_confmaps,
                 return_crops,
+                return_pafs,
+                return_paf_graph,
+                return_class_maps,
+                return_class_vectors,
             )
         )
         if not has_any:
@@ -1436,6 +1531,16 @@ class Predictor:
                     overrides["integral_patch_size"] = integral_patch_size
                 if return_confmaps is not None:
                     overrides["return_confmaps"] = return_confmaps
+                # The remaining intermediate-tensor toggles all live on
+                # PostprocessConfig; guard with hasattr defensively (#583).
+                for _name, _val in (
+                    ("return_pafs", return_pafs),
+                    ("return_paf_graph", return_paf_graph),
+                    ("return_class_maps", return_class_maps),
+                    ("return_class_vectors", return_class_vectors),
+                ):
+                    if _val is not None and hasattr(old_cfg, _name):
+                        overrides[_name] = _val
 
                 if overrides:
                     target.postprocess_config = attrs.evolve(old_cfg, **overrides)

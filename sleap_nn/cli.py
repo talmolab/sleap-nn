@@ -957,14 +957,16 @@ def track(**kwargs):
     else:
         kwargs["frames"] = None
 
-    # Pop new-pipeline-only flags that track doesn't use
+    # Pop new-pipeline-only flags that track doesn't use. NOTE: `gui` is NOT
+    # popped — legacy run_inference accepts+honors it (predict.py sets
+    # predictor.gui, switching to JSON-per-line progress); popping it silently
+    # dropped `track --gui` GUI integration (#583).
     kwargs.pop("paf_workers", None)
     kwargs.pop("cpu_workers", None)
     kwargs.pop("stream_to_file", None)
     kwargs.pop("write_interval", None)
     kwargs.pop("centroid_only", None)
     kwargs.pop("centroid_peak_threshold", None)
-    kwargs.pop("gui", None)
 
     return run_inference(**kwargs)
 
@@ -1182,6 +1184,44 @@ def _build_tracker_config(kwargs: dict) -> "object":
     )
 
 
+def _scope_labels_to_video(labels, video_index: int, frames=None):
+    """Scope a ``Labels`` to one video (re-indexed to slot 0), optionally + frames.
+
+    Returns ``(scoped_labels, target_video)``. Raises ``click.UsageError`` for an
+    out-of-range ``video_index``. Carries the video's ``suggestions`` and the
+    source ``provenance`` so ``--video_index`` composes with
+    ``--only_suggested_frames`` / ``--frames`` and preserves input lineage
+    (legacy parity, #583).
+    """
+    import sleap_io as sio
+
+    if video_index >= len(labels.videos):
+        raise click.UsageError(
+            f"--video_index {video_index} is out of range: the .slp has "
+            f"{len(labels.videos)} video(s)."
+        )
+    target = labels.videos[video_index]
+    wanted = set(frames) if frames else None
+    lfs = [
+        lf
+        for lf in labels.find(video=target)
+        if wanted is None or lf.frame_idx in wanted
+    ]
+    suggestions = [
+        s
+        for s in (getattr(labels, "suggestions", None) or [])
+        if s.video is target and (wanted is None or s.frame_idx in wanted)
+    ]
+    scoped = sio.Labels(
+        videos=[target],
+        skeletons=labels.skeletons,
+        labeled_frames=lfs,
+        suggestions=suggestions,
+        provenance=dict(getattr(labels, "provenance", None) or {}),
+    )
+    return scoped, target
+
+
 def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     """Run the new ``predict()`` flow synchronously and save the resulting Labels.
 
@@ -1213,7 +1253,33 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
             "only_predicted_frames",
         )
     )
-    if src.suffix == ".slp" and has_slp_filters:
+    # Suffix for the auto-derived output filename when --video_index scopes a
+    # single video of a multi-video .slp (legacy parity, so per-video runs don't
+    # collide on one output path). Stays None for the non-video_index case. #583.
+    scoped_video_name = None
+    video_index = kwargs.get("video_index")
+    if src.suffix == ".slp" and video_index is not None:
+        import sleap_io as sio
+
+        # Scope to the requested video (re-indexed to slot 0 so its frames map to
+        # videos[0] and avoid an out-of-range video index in packaging). The
+        # frames pass through a pre-built LabelsProvider, so the real Video is not
+        # re-attached on output (same as the has_slp_filters path); the output is
+        # video-name-suffixed instead. Carries suggestions + the --frames filter.
+        scoped, target_video = _scope_labels_to_video(
+            sio.load_slp(str(src)), video_index, frames=kwargs.get("frames")
+        )
+        source = LabelsProvider(
+            labels=scoped,
+            batch_size=kwargs.get("batch_size", 4),
+            only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
+            only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
+            exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
+            only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
+        )
+        _vfn = getattr(target_video, "filename", None)
+        scoped_video_name = Path(str(_vfn)).stem if _vfn else f"video_{video_index}"
+    elif src.suffix == ".slp" and has_slp_filters:
         source = LabelsProvider(
             labels=str(src),
             batch_size=kwargs.get("batch_size", 4),
@@ -1253,7 +1319,20 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         "anchor_part": kwargs.get("anchor_part"),
         "frames": kwargs.get("frames"),
         "clean_empty_frames": bool(kwargs.get("no_empty_frames")),
-        "output_path": kwargs.get("output_path") or f"{src}.slp",
+        "output_path": (
+            kwargs.get("output_path")
+            or (
+                f"{src.with_suffix('')}.{scoped_video_name}.predictions.slp"
+                if scoped_video_name is not None
+                else f"{src}.slp"
+            )
+        ),
+        # Bottom-up PAF grouping knobs (inert for non-bottom-up models). #583.
+        "max_edge_length_ratio": kwargs.get("max_edge_length_ratio", 0.25),
+        "dist_penalty_weight": kwargs.get("dist_penalty_weight", 1.0),
+        "n_points": kwargs.get("n_points", 10),
+        "min_instance_peaks": kwargs.get("min_instance_peaks", 0),
+        "min_line_scores": kwargs.get("min_line_scores", 0.25),
     }
     preprocess_config = _build_preprocess_config(kwargs)
     if preprocess_config is not None:
@@ -1269,10 +1348,19 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     filter_config = _build_filter_config(kwargs)
     if filter_config is not None:
         predict_kwargs["filter_config"] = filter_config
+
     if kwargs.get("gui"):
         predict_kwargs["progress_callback"] = _gui_progress_callback()
+        return predict(source, **predict_kwargs)
 
-    return predict(source, **predict_kwargs)
+    # Non-gui: show a Rich progress bar (parity with legacy `track`'s default
+    # progress UX; the plumbing was wired but no callback was attached). #583.
+    cb, progress = _rich_progress_callback()
+    predict_kwargs["progress_callback"] = cb
+    try:
+        return predict(source, **predict_kwargs)
+    finally:
+        progress.stop()
 
 
 def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
@@ -1290,19 +1378,13 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
 
     labels = sio.load_slp(str(src))
 
-    # video_index filter (optional)
+    # Scope by --video_index (raises on out-of-range, like the inference paths)
+    # and/or --frames, carrying suggestions + the source provenance. #583.
     video_index = kwargs.get("video_index")
-    if video_index is not None and video_index < len(labels.videos):
-        target_video = labels.videos[video_index]
-        labels = sio.Labels(
-            videos=labels.videos,
-            skeletons=labels.skeletons,
-            labeled_frames=labels.find(video=target_video),
-        )
-
-    # frames filter (optional)
     frames = kwargs.get("frames")
-    if frames:
+    if video_index is not None:
+        labels, _ = _scope_labels_to_video(labels, video_index, frames=frames)
+    elif frames:
         wanted = set(frames)
         labels = sio.Labels(
             videos=labels.videos,
@@ -1310,13 +1392,31 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
             labeled_frames=[
                 lf for lf in labels.labeled_frames if lf.frame_idx in wanted
             ],
+            suggestions=labels.suggestions,
+            provenance=dict(getattr(labels, "provenance", None) or {}),
         )
 
+    import attrs as _attrs
+
+    from sleap_nn.inference.provenance import build_tracking_only_provenance
+
     tracker_config = _build_tracker_config(kwargs)
+    _start = datetime.now()
     out = predictor_cls.retrack(
         labels,
         tracker_config,
         clean_empty_frames=bool(kwargs.get("no_empty_frames")),
+    )
+    # Attach tracking-only provenance to the retracked .slp (legacy parity —
+    # apply_tracking leaves provenance to the caller, and the legacy track path
+    # set it; the new retrack flow previously saved with empty provenance). #583.
+    out.provenance = build_tracking_only_provenance(
+        input_labels=labels,
+        input_path=str(src),
+        start_time=_start,
+        end_time=datetime.now(),
+        tracking_params=_attrs.asdict(tracker_config),
+        frames_processed=len(out.labeled_frames),
     )
     output_path = kwargs.get("output_path") or f"{src}.slp"
     out.save(output_path)
@@ -1359,6 +1459,53 @@ def _gui_progress_callback():
         state["last"] = now
 
     return cb
+
+
+def _rich_progress_callback():
+    """Build a Rich progress bar callback for the non-``--gui`` ``infer`` path.
+
+    Returns ``(callback, progress)`` where ``callback(processed, total)`` has
+    the per-batch signature the new pipeline uses. The ``Progress`` is started
+    immediately (so "Predicting..." shows right away) and the caller MUST stop
+    it in a ``finally`` block so the bar closes cleanly on success or error.
+    A ``total <= 0`` (length-less provider) renders an indeterminate bar.
+
+    ``rich`` is imported lazily so it doesn't slow ``--help``; the columns
+    mirror the legacy ``track`` look-and-feel without importing the heavy
+    legacy ``predictors`` module. Progress is counted in batches (the new
+    callback reports batches, not frames). #583.
+    """
+    from rich.progress import (
+        BarColumn,
+        MofNCompleteColumn,
+        Progress,
+        TaskProgressColumn,
+        TimeElapsedColumn,
+        TimeRemainingColumn,
+    )
+
+    progress = Progress(
+        "[progress.description]{task.description}",
+        BarColumn(),
+        TaskProgressColumn(),
+        MofNCompleteColumn(),
+        "ETA:",
+        TimeRemainingColumn(),
+        "Elapsed:",
+        TimeElapsedColumn(),
+        refresh_per_second=4,
+    )
+    task = progress.add_task("Predicting...", total=None)
+    progress.start()
+    state = {"total_set": False}
+
+    def cb(processed: int, total: int) -> None:
+        if not state["total_set"] and total and total > 0:
+            progress.update(task, total=total)
+            state["total_set"] = True
+        progress.update(task, completed=processed)
+
+    return cb, progress
 
 
 def _run_stream_to_file(
@@ -1408,6 +1555,12 @@ def _run_stream_to_file(
         "return_confmaps": False,
         "anchor_part": kwargs.get("anchor_part"),
         "paf_workers": paf_workers,
+        # Bottom-up PAF grouping knobs (inert for non-bottom-up models). #583.
+        "max_edge_length_ratio": kwargs.get("max_edge_length_ratio", 0.25),
+        "dist_penalty_weight": kwargs.get("dist_penalty_weight", 1.0),
+        "n_points": kwargs.get("n_points", 10),
+        "min_instance_peaks": kwargs.get("min_instance_peaks", 0),
+        "min_line_scores": kwargs.get("min_line_scores", 0.25),
     }
     preprocess_config = _build_preprocess_config(kwargs)
     if preprocess_config is not None:
@@ -1425,7 +1578,25 @@ def _run_stream_to_file(
     predictor = Predictor.from_model_paths(kwargs["model_paths"], **factory_kwargs)
 
     src = Path(data_path)
-    if src.suffix == ".slp":
+    video_index = kwargs.get("video_index")
+    if src.suffix == ".slp" and video_index is not None:
+        # Scope streaming inference to the requested video of a multi-video .slp
+        # (re-indexed to videos[0] so frames map correctly). Carries suggestions
+        # + the --frames filter. #583.
+        import sleap_io as sio
+
+        scoped, _target_video = _scope_labels_to_video(
+            sio.load_slp(str(src)), video_index, frames=kwargs.get("frames")
+        )
+        provider = LabelsProvider(
+            labels=scoped,
+            batch_size=kwargs.get("batch_size", 4),
+            only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
+            only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
+            exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
+            only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
+        )
+    elif src.suffix == ".slp":
         provider = LabelsProvider(
             labels=str(src),
             batch_size=kwargs.get("batch_size", 4),
@@ -1443,12 +1614,25 @@ def _run_stream_to_file(
             input_format=kwargs.get("video_input_format"),
         )
 
-    return predictor.predict_to_file(
-        provider,
-        path=str(stream_to_file),
-        write_interval=write_interval,
-        progress_callback=_gui_progress_callback() if kwargs.get("gui") else None,
-    )
+    if kwargs.get("gui"):
+        return predictor.predict_to_file(
+            provider,
+            path=str(stream_to_file),
+            write_interval=write_interval,
+            progress_callback=_gui_progress_callback(),
+        )
+
+    # Non-gui: Rich progress bar, stopped cleanly in finally (#583).
+    cb, progress = _rich_progress_callback()
+    try:
+        return predictor.predict_to_file(
+            provider,
+            path=str(stream_to_file),
+            write_interval=write_interval,
+            progress_callback=cb,
+        )
+    finally:
+        progress.stop()
 
 
 def _common_inference_options(f):
@@ -1572,7 +1756,15 @@ def _common_inference_options(f):
         click.option("--n_points", type=int, default=10),
         click.option("--min_instance_peaks", type=float, default=0),
         click.option("--min_line_scores", type=float, default=0.25),
-        click.option("--queue_maxsize", type=int, default=32),
+        click.option(
+            "--queue_maxsize",
+            type=int,
+            default=32,
+            hidden=True,
+            help="[no-op] Retained for CLI compatibility; ignored by the new "
+            "inference pipeline (which has no frame-buffer queue). The legacy "
+            "`sleap-nn track` path still honors it.",
+        ),
         click.option("--crop_size", type=int, default=None),
         click.option(
             "--peak_threshold",
@@ -1652,9 +1844,10 @@ def _common_inference_options(f):
             type=str,
             default=None,
             help=(
-                "Stream predictions incrementally to this .slp path "
-                "(memory stays O(write-interval)). Triggers the new "
-                "Predictor.predict_to_file flow."
+                "Write predictions to this .slp path via the new "
+                "Predictor.predict_to_file flow. Heavy intermediate tensors "
+                "(confmaps/PAFs) are dropped per batch; the .slp is written "
+                "once at the end."
             ),
         ),
         click.option(
@@ -1663,8 +1856,8 @@ def _common_inference_options(f):
             type=int,
             default=None,
             help=(
-                "Number of LabeledFrames to buffer before flushing to "
-                "disk when --stream-to-file is set. Default: 500."
+                "How often (in frames) to slim+convert buffered outputs to "
+                "LabeledFrames when --stream-to-file is set. Default: 500."
             ),
         ),
     ]
