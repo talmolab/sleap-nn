@@ -201,20 +201,17 @@ class CenteredInstanceLayer(InferenceLayer):
 
         Centered-instance returns one keypoint set per crop. The Outputs
         canonical shape is ``(B, I=1, N, 2)`` where ``I=1`` because the
-        crop is per-instance.
+        crop is per-instance. Always runs the torch decode path: this layer
+        is only built with a ``TorchBackend``; the exported path uses
+        :class:`ExportedCenteredInstanceLayer` (no double coord ladder; #584).
         """
-        if self.backend.does_baked_postproc:
-            peaks = raw_out["peaks"]
-            vals = raw_out["peak_vals"]
-            confmaps = raw_out.get("confmaps")
-        else:
-            confmaps = self._extract_confmaps(raw_out)
-            peaks, vals = find_global_peaks(
-                confmaps.detach(),
-                threshold=self.postprocess_config.peak_threshold,
-                refinement=self.postprocess_config.effective_refinement,
-                integral_patch_size=self.postprocess_config.integral_patch_size,
-            )
+        confmaps = self._extract_confmaps(raw_out)
+        peaks, vals = find_global_peaks(
+            confmaps.detach(),
+            threshold=self.postprocess_config.peak_threshold,
+            refinement=self.postprocess_config.effective_refinement,
+            integral_patch_size=self.postprocess_config.integral_patch_size,
+        )
 
         peaks = undo_stride(peaks, info.output_stride)
         peaks = undo_input_scale(peaks, info.input_scale)

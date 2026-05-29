@@ -160,6 +160,10 @@ class Outputs:
                 out[f.name] = val.detach().cpu().numpy()
             elif isinstance(val, tuple) and val and isinstance(val[0], torch.Tensor):
                 out[f.name] = tuple(t.detach().cpu().numpy() for t in val)
+            elif isinstance(val, PreprocInfo):
+                # Keep as a PreprocInfo (callers rely on this) but move its
+                # nested tensors to CPU (#584).
+                out[f.name] = val.cpu()
             else:
                 out[f.name] = val
         return out
@@ -186,6 +190,10 @@ class Outputs:
                 kwargs[f.name] = val.detach().cpu()
             elif isinstance(val, tuple) and val and isinstance(val[0], torch.Tensor):
                 kwargs[f.name] = tuple(t.detach().cpu() for t in val)
+            elif isinstance(val, PreprocInfo):
+                # Move the nested eff_scale / crop_offsets to CPU so the slimmed
+                # Outputs is genuinely pickle-safe for spawn workers (#584).
+                kwargs[f.name] = val.cpu()
             else:
                 kwargs[f.name] = val
         return Outputs(**kwargs)
@@ -203,6 +211,16 @@ class Outputs:
                 kwargs[f.name] = fn(val)
             elif isinstance(val, tuple) and val and isinstance(val[0], torch.Tensor):
                 kwargs[f.name] = tuple(fn(t) for t in val)
+            elif isinstance(val, PreprocInfo):
+                # Apply the same map to the nested tensors so .to(device)/.cpu()/
+                # .detach() carry PreprocInfo along (#584).
+                kwargs[f.name] = attrs.evolve(
+                    val,
+                    eff_scale=fn(val.eff_scale),
+                    crop_offsets=(
+                        fn(val.crop_offsets) if val.crop_offsets is not None else None
+                    ),
+                )
             else:
                 kwargs[f.name] = val
         return Outputs(**kwargs)

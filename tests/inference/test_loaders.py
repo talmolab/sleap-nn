@@ -258,3 +258,41 @@ def test_load_model_assets_unsupported_type(tmp_path):
     OmegaConf.save(fake_config, str(tmp_path / "training_config.yaml"))
     with pytest.raises((ValueError, KeyError)):
         load_model_assets([str(tmp_path)], device="cpu")
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# #584 — legacy SLEAP<=1.4 JSON-config loader path (is_legacy=True)
+# ─────────────────────────────────────────────────────────────────────────
+
+LEGACY_ROOT = Path(__file__).resolve().parents[1] / "assets" / "legacy_models"
+LEGACY_SINGLE = LEGACY_ROOT / "minimal_robot.UNet.single_instance"
+
+
+def test_load_training_config_detects_legacy_json():
+    """A SLEAP<=1.4 dir (training_config.json) is detected as legacy (#584)."""
+    if not LEGACY_SINGLE.exists():
+        pytest.skip("legacy SLEAP<=1.4 fixture not present")
+    _cfg, is_legacy = _load_training_config(str(LEGACY_SINGLE))
+    assert is_legacy is True
+
+
+def test_load_model_assets_legacy_single_instance():
+    """load_model_assets loads a SLEAP<=1.4 single-instance model end-to-end (#584).
+
+    Exercises the previously-untested is_legacy branch (JSON config +
+    TF->torch weight conversion).
+    """
+    if not LEGACY_SINGLE.exists():
+        pytest.skip("legacy SLEAP<=1.4 fixture not present")
+    try:
+        assets, model_types = load_model_assets([str(LEGACY_SINGLE)], device="cpu")
+    except ImportError as e:  # optional legacy-conversion deps missing
+        pytest.skip(f"legacy conversion deps unavailable: {e}")
+    try:
+        assert model_types == ["single_instance"]
+        assert isinstance(assets, LoadedAssets)
+        assert assets.inference_model is not None
+        assert assets.skeletons
+    finally:
+        del assets
+        gc.collect()

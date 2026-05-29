@@ -326,11 +326,12 @@ class InferenceLayer(ABC):
         B, _C, H, W = x.shape
         orig_hw = (H, W)
 
-        # 1. Channel coercion.
-        if cfg.ensure_grayscale and x.shape[-3] != 1:
-            x = convert_to_grayscale(x)
-        elif cfg.ensure_rgb and x.shape[-3] != 3:
+        # 1. Channel coercion. Check ensure_rgb first to match legacy precedence
+        # when both are set (a misconfiguration PreprocessConfig now rejects). #584.
+        if cfg.ensure_rgb and x.shape[-3] != 3:
             x = convert_to_rgb(x)
+        elif cfg.ensure_grayscale and x.shape[-3] != 1:
+            x = convert_to_grayscale(x)
 
         # 2. Per-sample sizematcher → eff_scale.
         if cfg.max_height is not None or cfg.max_width is not None:

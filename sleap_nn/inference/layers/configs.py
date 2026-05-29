@@ -27,8 +27,9 @@ class PreprocessConfig:
         max_height: Resize so height ≤ this (preserves aspect ratio). ``None``
             means no max.
         max_width: Same for width.
-        scale: Multiplicative input-scale factor applied via
-            :func:`apply_input_scale` after size matching. ``1.0`` is identity.
+        scale: Multiplicative input-scale factor applied (after size matching)
+            via :func:`sleap_nn.data.resizing.resize_image` (``tvf.resize``) on
+            the live ckpt path. ``1.0`` is identity.
         crop_size: Top-down stage 2 only — square crop side length.
     """
 
@@ -38,6 +39,14 @@ class PreprocessConfig:
     max_width: Optional[int] = None
     scale: float = 1.0
     crop_size: Optional[Tuple[int, int]] = None
+
+    def __attrs_post_init__(self) -> None:
+        """Reject the contradictory ``ensure_rgb=True`` + ``ensure_grayscale=True``."""
+        if self.ensure_rgb and self.ensure_grayscale:
+            raise ValueError(
+                "ensure_rgb and ensure_grayscale cannot both be True; choose one "
+                "(or leave both None to keep the source channel count)."
+            )
 
 
 @attrs.frozen
