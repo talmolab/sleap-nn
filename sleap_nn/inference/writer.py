@@ -1,11 +1,12 @@
-"""``IncrementalLabelsWriter`` — disk-streaming write of a ``.slp``.
+"""``IncrementalLabelsWriter`` — buffered write of a ``.slp``.
 
 The legacy predictor accumulates every frame's predictions in memory
 before writing to disk. For long videos (100k frames × hundreds of MB
 of confmaps) that's an OOM risk. This writer accepts ``Outputs`` one
-batch at a time, accumulates ``LabeledFrame`` objects in a small ring,
-flushes them to disk every ``write_interval`` batches, and finalizes
-with an atomic rename so a crash mid-write doesn't corrupt the output.
+batch at a time and ``slim()``s each before converting to
+``LabeledFrame``s, so the heavy intermediate tensors (confmaps, PAFs)
+are dropped immediately — the dominant memory sink. It finalizes with
+an atomic rename so a crash mid-write doesn't corrupt the output.
 
 Two design constraints from the design doc:
 
@@ -14,10 +15,13 @@ Two design constraints from the design doc:
 * **Resume-friendly** — closed writers can be re-opened to append. Not
   implemented in this commit (deferred to a follow-up).
 
-Memory contract: at most ``write_interval`` ``LabeledFrame`` objects
-held in memory at once. ``Outputs`` from previous batches go through
-``slim()`` before being converted, so heavy intermediate tensors
-(confmaps, PAFs) are dropped.
+Memory note: ``Outputs`` are slim()-ed per write so heavy tensors are
+dropped right away. NOTE: until sleap-io exposes an incremental ``.slp``
+append surface, the (lightweight) ``LabeledFrame`` objects accumulate
+in memory and the ``.slp`` is written once at :meth:`close`/finalize —
+peak memory is therefore O(n_frames) of *slimmed* frames, not
+O(``write_interval``). ``write_interval`` currently controls only the
+slim/convert cadence, not a per-flush disk write.
 """
 
 from __future__ import annotations
@@ -37,8 +41,10 @@ class IncrementalLabelsWriter:
             rename on ``close()``.
         skeleton: ``sio.Skeleton`` for instance conversion.
         videos: Optional list of ``sio.Video`` indexed by ``video_indices``.
-        write_interval: Flush to disk every ``write_interval`` batches.
-            Smaller = lower memory, more I/O. Default 500 frames.
+        write_interval: Convert + slim buffered ``Outputs`` to
+            ``LabeledFrame``s every ``write_interval`` frames; the
+            consolidated ``.slp`` is written once at :meth:`close` (no
+            per-flush disk write until sleap-io supports incremental append).
 
     Usage::
 
@@ -52,6 +58,9 @@ class IncrementalLabelsWriter:
     skeleton: Any
     videos: Optional[List[Any]] = None
     write_interval: int = 500
+    # Provenance dict attached to the finalized Labels. May be set after
+    # construction (e.g. once end-of-run timestamps are known). #583.
+    provenance: Optional[dict] = None
 
     _buffer: List[Any] = attrs.field(factory=list, init=False, repr=False)
     _all_frames: List[Any] = attrs.field(factory=list, init=False, repr=False)
@@ -64,6 +73,11 @@ class IncrementalLabelsWriter:
     def tmp_path(self) -> Path:
         """The intermediate ``.tmp`` path written to before atomic rename."""
         return Path(self.path).with_suffix(Path(self.path).suffix + ".tmp")
+
+    @property
+    def frame_count(self) -> int:
+        """Number of ``LabeledFrame``s buffered + accumulated so far."""
+        return len(self._all_frames) + len(self._buffer)
 
     def __enter__(self) -> "IncrementalLabelsWriter":
         """Context manager entry — return self."""
@@ -164,6 +178,7 @@ class IncrementalLabelsWriter:
             labeled_frames=self._all_frames,
             videos=videos,
             skeletons=[self.skeleton],
+            provenance=self.provenance or {},
         )
         tmp = self.tmp_path
         tmp.parent.mkdir(parents=True, exist_ok=True)

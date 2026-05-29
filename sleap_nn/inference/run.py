@@ -51,6 +51,12 @@ def predict(
     anchor_part: Optional[str] = None,
     paf_workers: int = 0,
     centroid_only: bool = False,
+    # Bottom-up PAF grouping knobs (construction-time; plain bottom-up only)
+    max_edge_length_ratio: float = 0.25,
+    dist_penalty_weight: float = 1.0,
+    n_points: int = 10,
+    min_instance_peaks: float = 0,
+    min_line_scores: float = 0.25,
     # Prediction-time (can vary per call)
     frames: Optional[List[int]] = None,
     peak_threshold: Optional[float] = None,
@@ -61,6 +67,10 @@ def predict(
     integral_patch_size: Optional[int] = None,
     return_confmaps: bool = False,
     return_crops: bool = False,
+    return_pafs: bool = False,
+    return_paf_graph: bool = False,
+    return_class_maps: bool = False,
+    return_class_vectors: bool = False,
     # Filtering
     filter_config: Optional["FilterConfig"] = None,
     # Tracking
@@ -89,6 +99,12 @@ def predict(
         paf_workers: CPU worker processes for bottom-up PAF grouping.
         centroid_only: Force centroid-only output even when a
             centered-instance model is among ``model_paths``.
+        max_edge_length_ratio: Bottom-up PAF max edge length ratio.
+        dist_penalty_weight: Bottom-up PAF distance penalty weight.
+        n_points: Bottom-up PAF line integration sample count.
+        min_instance_peaks: Bottom-up min peaks for a valid instance.
+        min_line_scores: Bottom-up per-edge match threshold. (These five
+            apply only to plain bottom-up models.)
         frames: Frame indices to predict. ``None`` = all.
         peak_threshold: Override peak threshold for all stages.
         centroid_threshold: Override centroid-stage threshold (top-down).
@@ -98,6 +114,10 @@ def predict(
         integral_patch_size: Refinement patch size.
         return_confmaps: Keep confidence maps on Outputs.
         return_crops: Keep per-instance crops on Outputs (top-down).
+        return_pafs: Keep part-affinity fields on Outputs (bottom-up).
+        return_paf_graph: Keep the PAF graph on Outputs (bottom-up).
+        return_class_maps: Keep class maps on Outputs (multi-class bottom-up).
+        return_class_vectors: Keep class vectors on Outputs (multi-class top-down).
         filter_config: Post-inference :class:`FilterConfig`.
         tracker_config: :class:`TrackerConfig` for tracking.
         output_path: If set, save the Labels to this ``.slp`` path.
@@ -149,6 +169,13 @@ def predict(
             build_kwargs["anchor_part"] = anchor_part
         if centroid_only:
             build_kwargs["centroid_only"] = True
+        # Bottom-up PAF knobs configure the scorer at load time (#583); inert
+        # for non-bottom-up models (load_model_assets forwards them only there).
+        build_kwargs["max_edge_length_ratio"] = max_edge_length_ratio
+        build_kwargs["dist_penalty_weight"] = dist_penalty_weight
+        build_kwargs["n_points"] = n_points
+        build_kwargs["min_instance_peaks"] = min_instance_peaks
+        build_kwargs["min_line_scores"] = min_line_scores
         predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
     else:
         predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
@@ -168,6 +195,10 @@ def predict(
         integral_patch_size=integral_patch_size,
         return_confmaps=return_confmaps,
         return_crops=return_crops,
+        return_pafs=return_pafs,
+        return_paf_graph=return_paf_graph,
+        return_class_maps=return_class_maps,
+        return_class_vectors=return_class_vectors,
     )
 
     if output_path is not None:

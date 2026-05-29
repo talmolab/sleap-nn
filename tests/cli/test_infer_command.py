@@ -371,8 +371,12 @@ def test_infer_gui_emits_json_progress(tmp_path):
         assert parsed["n_total"] == 10
 
 
-def test_infer_without_gui_no_progress_callback(tmp_path):
-    """No ``--gui`` => ``predict()`` does not receive ``progress_callback``."""
+def test_infer_without_gui_attaches_rich_progress_callback(tmp_path):
+    """No ``--gui`` => ``predict()`` gets a (non-JSON) Rich progress callback (#583)."""
+    import io
+    import json
+    from contextlib import redirect_stdout
+
     runner = CliRunner()
     with patch(
         "sleap_nn.inference.run.predict",
@@ -389,8 +393,17 @@ def test_infer_without_gui_no_progress_callback(tmp_path):
             ],
         )
         assert result.exit_code == 0, result.output
-        # progress_callback should not be in kwargs (only added when --gui is set).
-        assert "progress_callback" not in mock_predict.call_args[1]
+        cb = mock_predict.call_args[1].get("progress_callback")
+        assert cb is not None and callable(cb)
+        # It is the Rich callback, NOT the --gui JSON emitter: driving it must
+        # not print a JSON line to stdout.
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cb(1, 4)
+        out = buf.getvalue().strip()
+        if out:
+            with __import__("pytest").raises(json.JSONDecodeError):
+                json.loads(out)
 
 
 def test_infer_backbone_and_head_ckpt_paths_thread_to_predict(tmp_path):
@@ -562,3 +575,218 @@ def test_track_command_candidates_method_defaults_fixed_window():
         )
         assert result.exit_code == 0, result.output
         assert mock_run.call_args[1]["candidates_method"] == "fixed_window"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# #583 — CLI feature preservation
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_track_gui_forwards_to_run_inference():
+    """`track --gui` forwards gui=True to run_inference (no longer popped). #583."""
+    runner = CliRunner()
+    with patch("sleap_nn.predict.run_inference", return_value=MagicMock()) as mock_run:
+        result = runner.invoke(
+            cli,
+            [
+                "track",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--gui",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_run.call_args[1]["gui"] is True
+
+
+def test_track_no_gui_defaults_false():
+    """Without --gui, track forwards gui=False."""
+    runner = CliRunner()
+    with patch("sleap_nn.predict.run_inference", return_value=MagicMock()) as mock_run:
+        result = runner.invoke(
+            cli,
+            ["track", "--data_path", "/fake/x.mp4", "--model_paths", "/fake/m"],
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_run.call_args[1]["gui"] is False
+
+
+def test_infer_paf_knobs_thread_to_predict():
+    """The 5 bottom-up PAF knobs reach run.predict (no longer silent no-ops). #583."""
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.inference.run.predict", return_value=MagicMock()
+    ) as mock_predict:
+        result = runner.invoke(
+            cli,
+            [
+                "infer",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--max_edge_length_ratio",
+                "0.3",
+                "--dist_penalty_weight",
+                "2.0",
+                "--n_points",
+                "7",
+                "--min_instance_peaks",
+                "2",
+                "--min_line_scores",
+                "0.4",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        kw = mock_predict.call_args[1]
+        assert abs(kw["max_edge_length_ratio"] - 0.3) < 1e-9
+        assert abs(kw["dist_penalty_weight"] - 2.0) < 1e-9
+        assert kw["n_points"] == 7
+        assert kw["min_instance_peaks"] == 2
+        assert abs(kw["min_line_scores"] - 0.4) < 1e-9
+
+
+def test_infer_queue_maxsize_accepted_but_not_forwarded():
+    """`--queue_maxsize` is accepted (compat) but never forwarded to predict. #583."""
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.inference.run.predict", return_value=MagicMock()
+    ) as mock_predict:
+        result = runner.invoke(
+            cli,
+            [
+                "infer",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--queue_maxsize",
+                "64",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert "queue_maxsize" not in mock_predict.call_args[1]
+
+
+def test_infer_queue_maxsize_hidden_in_help():
+    """The no-op --queue_maxsize is hidden from `infer --help`. #583."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["infer", "--help"])
+    assert result.exit_code == 0
+    assert "--queue_maxsize" not in result.output
+
+
+def test_infer_video_index_scopes_and_names_output():
+    """`infer --video_index 1` scopes to that video + suffixes the output. #583."""
+    import sleap_io as sio
+
+    from sleap_nn.inference.providers import LabelsProvider
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    v0 = sio.Video(filename="a.mp4")
+    v1 = sio.Video(filename="b.mp4")
+    fake = sio.Labels(videos=[v0, v1], skeletons=[skel], labeled_frames=[])
+
+    runner = CliRunner()
+    with (
+        patch("sleap_io.load_slp", return_value=fake),
+        patch("sleap_nn.inference.run.predict", return_value=MagicMock()) as mock_pred,
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "infer",
+                "--data_path",
+                "/fake/x.slp",
+                "--model_paths",
+                "/fake/model",
+                "--video_index",
+                "1",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        source = mock_pred.call_args[0][0]
+        assert isinstance(source, LabelsProvider)
+        # Output filename is suffixed with the scoped video's name (legacy parity).
+        assert mock_pred.call_args[1]["output_path"].endswith("b.predictions.slp")
+
+
+def test_infer_video_index_out_of_range_errors():
+    """An out-of-range --video_index is a clear UsageError. #583."""
+    import sleap_io as sio
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    fake = sio.Labels(
+        videos=[sio.Video(filename="a.mp4")], skeletons=[skel], labeled_frames=[]
+    )
+    runner = CliRunner()
+    with (
+        patch("sleap_io.load_slp", return_value=fake),
+        patch("sleap_nn.inference.run.predict", return_value=MagicMock()),
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "infer",
+                "--data_path",
+                "/fake/x.slp",
+                "--model_paths",
+                "/fake/model",
+                "--video_index",
+                "5",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "out of range" in result.output
+
+
+def test_infer_retrack_only_sets_tracking_provenance(tmp_path):
+    """Retrack-only writes tracking-only provenance to the saved .slp. #583."""
+    import numpy as np
+    import sleap_io as sio
+
+    skel = sio.Skeleton(nodes=["head", "tail"])
+    video = sio.Video(filename="d.mp4")
+    pts = np.array([[0.0, 0.0], [10.0, 0.0]], dtype=np.float32)
+    lfs = [
+        sio.LabeledFrame(
+            video=video,
+            frame_idx=i,
+            instances=[
+                sio.PredictedInstance.from_numpy(
+                    points_data=pts, skeleton=skel, score=0.9
+                )
+            ],
+        )
+        for i in range(3)
+    ]
+    fake = sio.Labels(
+        videos=[video],
+        skeletons=[skel],
+        labeled_frames=lfs,
+        provenance={"filename": "/path/preds.slp"},
+    )
+    out_path = tmp_path / "retracked.slp"
+    runner = CliRunner()
+    with patch("sleap_io.load_slp", return_value=fake):
+        result = runner.invoke(
+            cli,
+            [
+                "infer",
+                "--data_path",
+                "/fake/preds.slp",
+                "--tracking",
+                "--tracking_window_size",
+                "9",
+                "--output_path",
+                str(out_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+    reloaded = sio.load_slp(str(out_path))
+    assert reloaded.provenance.get("pipeline_type") == "tracking_only"
+    assert "sleap_nn_version" in reloaded.provenance
+    assert "tracking_start_timestamp" in reloaded.provenance
+    assert reloaded.provenance.get("tracking_config", {}).get("window_size") == 9
