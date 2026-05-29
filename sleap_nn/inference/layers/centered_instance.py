@@ -83,6 +83,7 @@ class CenteredInstanceLayer(InferenceLayer):
         crops: ImageInput,
         centroids: Optional[torch.Tensor] = None,
         instances: Optional[torch.Tensor] = None,
+        centroid_vals: Optional[torch.Tensor] = None,
     ) -> Outputs:
         """Run keypoint prediction.
 
@@ -95,6 +96,10 @@ class CenteredInstanceLayer(InferenceLayer):
                 nearest GT instance.
             instances: ``(B, max_inst, n_nodes, 2)`` GT keypoints from a
                 LabelsReader. Required on the GT path.
+            centroid_vals: ``(B, max_inst)`` centroid confidences from the
+                centroid model. Carried through as the instance score on the
+                GT path (legacy parity — legacy reported ``score=centroid_val``);
+                falls back to all-ones when not provided.
 
         Returns:
             ``Outputs`` populated with ``pred_keypoints`` and
@@ -107,7 +112,7 @@ class CenteredInstanceLayer(InferenceLayer):
                     "to be passed (the layer matches each centroid to its "
                     "nearest GT instance)."
                 )
-            return self._predict_from_gt(centroids, instances)
+            return self._predict_from_gt(centroids, instances, centroid_vals)
         return super().predict(crops)
 
     # ──────────────────────────────────────────────────────────────────
@@ -115,13 +120,20 @@ class CenteredInstanceLayer(InferenceLayer):
     # ──────────────────────────────────────────────────────────────────
 
     def _predict_from_gt(
-        self, centroids: torch.Tensor, instances: torch.Tensor
+        self,
+        centroids: torch.Tensor,
+        instances: torch.Tensor,
+        centroid_vals: Optional[torch.Tensor] = None,
     ) -> Outputs:
         """Match each centroid to its nearest GT instance; return GT keypoints.
 
         Mirrors the legacy ``FindInstancePeaksGroundTruth.forward`` matching:
         for each centroid, find the GT instance whose nearest keypoint to
         the centroid is closest, then emit that instance's keypoints.
+
+        When ``centroid_vals`` is given, those confidences are reported as the
+        per-instance score (and ``pred_centroid_values``), matching legacy
+        ``score=centroid_val``; otherwise both fall back to all-ones.
         """
         # ``centroids``: (B, max_inst, 2) — already in image-space.
         # ``instances``: (B, max_inst, n_nodes, 2) — GT keypoints.
@@ -162,11 +174,22 @@ class CenteredInstanceLayer(InferenceLayer):
             matched_vals,
         )
 
+        # Report the real centroid confidence as the instance score (legacy
+        # parity — legacy used score=centroid_val). Fall back to all-ones when
+        # the caller didn't supply centroid_vals. NaN-padded centroid slots get
+        # a NaN score so empty slots don't report a spurious value.
+        if centroid_vals is not None:
+            cvals = centroid_vals.to(device=device, dtype=torch.float32)
+        else:
+            cvals = torch.ones(B, max_inst, device=device)
+        cvals = torch.where(nan_centroid, torch.full_like(cvals, float("nan")), cvals)
+
         return Outputs(
             pred_keypoints=matched_kpts,
             pred_peak_values=matched_vals,
             pred_centroids=centroids,
-            pred_centroid_values=torch.ones(B, max_inst, device=device),
+            pred_centroid_values=cvals,
+            instance_scores=cvals,
         )
 
     # ──────────────────────────────────────────────────────────────────

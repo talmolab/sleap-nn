@@ -56,6 +56,9 @@ class IncrementalLabelsWriter:
     _buffer: List[Any] = attrs.field(factory=list, init=False, repr=False)
     _all_frames: List[Any] = attrs.field(factory=list, init=False, repr=False)
     _closed: bool = attrs.field(default=False, init=False, repr=False)
+    _resolved_videos: Optional[List[Any]] = attrs.field(
+        default=None, init=False, repr=False
+    )
 
     @property
     def tmp_path(self) -> Path:
@@ -90,7 +93,7 @@ class IncrementalLabelsWriter:
             self._flush()
 
     def _resolve_videos(self) -> List[Any]:
-        """Return a list of Videos for label conversion.
+        """Return a list of Videos for label conversion (memoized).
 
         ``sio.Labels.save`` cannot serialize ``LabeledFrame`` objects
         whose ``video`` is ``None``, so when the caller didn't supply a
@@ -98,14 +101,25 @@ class IncrementalLabelsWriter:
         ``Video`` placeholder. The placeholder serializes cleanly and
         stays loadable via ``sio.load_slp``; users typically rebind a
         real ``Video`` after load.
+
+        The result is computed once and cached so ``write()`` (per batch)
+        and ``_finalize()`` share the **same** ``Video`` object(s). Minting
+        a fresh placeholder per call produced N+1 distinct videos, so every
+        frame referenced a ``Video`` absent from the saved ``Labels.videos``
+        list — a corrupt multi-video ``.slp`` (#582).
         """
         import sleap_io as sio
+
+        if self._resolved_videos is not None:
+            return self._resolved_videos
 
         if self.videos:
             real = [v for v in self.videos if v is not None]
             if real:
-                return real
-        return [sio.Video(filename="unknown", backend=None)]
+                self._resolved_videos = real
+                return self._resolved_videos
+        self._resolved_videos = [sio.Video(filename="unknown", backend=None)]
+        return self._resolved_videos
 
     def close(self) -> None:
         """Flush the remaining buffer + atomic-rename ``.tmp`` → final path.

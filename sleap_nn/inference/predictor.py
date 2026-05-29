@@ -140,7 +140,11 @@ def _build_bottomup_layer(predictor: Any, device: str) -> BottomUpLayer:
         paf_scorer=inf.paf_scorer,
         cms_output_stride=inf.cms_output_stride,
         pafs_output_stride=inf.pafs_output_stride,
-        max_instances=getattr(inf, "max_instances", None),
+        # ``max_instances`` is carried on the LoadedAssets (the legacy
+        # ``BottomUpInferenceModel`` has no such field), so read it from the
+        # assets, not the inference model — otherwise the cap is silently
+        # dropped for the from_model_paths path (#582).
+        max_instances=getattr(predictor, "max_instances", None),
         max_stride=max_stride,
         max_peaks_per_node=inf.max_peaks_per_node,
         preprocess_config=PreprocessConfig(
@@ -239,7 +243,16 @@ def _build_centered_instance_layer(
 
 
 def _build_centroid_layer_gt_only(assets: Any, backend: Any) -> CentroidLayer:
-    """Build a ``CentroidLayer`` that reads centroids from GT (no model forward)."""
+    """Build a ``CentroidLayer`` that reads centroids from GT (no model forward).
+
+    Populates the sizematcher fields (``max_height`` / ``max_width`` /
+    ``ensure_rgb`` / ``ensure_grayscale``) from the resolved preprocess config so
+    the centered-instance-only (GT-centroid) path sizematches each frame the same
+    way the model path does. Dropping them diverged from legacy whenever the
+    centered-instance config set max_height/max_width (#582). ``scale`` stays 1.0:
+    the GT path only re-applies max_height/max_width (not input_scale), and the
+    centered-instance layer applies its own input_scale to the crops.
+    """
     centroid_model = assets.inference_model.centroid_crop
     return CentroidLayer(
         backend=backend,
@@ -248,7 +261,13 @@ def _build_centroid_layer_gt_only(assets: Any, backend: Any) -> CentroidLayer:
         max_stride=1,
         anchor_ind=getattr(centroid_model, "anchor_ind", None),
         use_gt_centroids=True,
-        preprocess_config=PreprocessConfig(scale=1.0),
+        preprocess_config=PreprocessConfig(
+            scale=1.0,
+            max_height=_pp_field(assets, "max_height"),
+            max_width=_pp_field(assets, "max_width"),
+            ensure_rgb=_pp_field(assets, "ensure_rgb"),
+            ensure_grayscale=_pp_field(assets, "ensure_grayscale"),
+        ),
         postprocess_config=PostprocessConfig(),
     )
 
@@ -419,6 +438,7 @@ def _select_export_layer(
     max_instances: Optional[int] = None,
     min_instance_peaks: float = 0,
     min_line_scores: float = 0.25,
+    peak_conf_threshold: Optional[float] = None,
 ):
     """Dispatch on ``metadata.model_type`` to build the right export adapter."""
     from sleap_nn.inference.layers.exported import (
@@ -442,7 +462,21 @@ def _select_export_layer(
             backend=backend, return_confmaps=return_confmaps
         )
     if model_type == "centroid":
-        return ExportedCentroidLayer(backend=backend)
+        # Resolve the configured anchor node so the centroid lands on it at
+        # packaging time, mirroring legacy export inference (#582). Old exports
+        # without `anchor_part` keep anchor_ind=None (node-0 fallback).
+        anchor_part = getattr(metadata, "anchor_part", None)
+        anchor_ind = None
+        if anchor_part is not None:
+            node_names = list(getattr(metadata, "node_names", []) or [])
+            if anchor_part in node_names:
+                anchor_ind = node_names.index(anchor_part)
+            else:
+                raise ValueError(
+                    f"Anchor part {anchor_part!r} not found in export node_names: "
+                    f"{node_names}."
+                )
+        return ExportedCentroidLayer(backend=backend, anchor_ind=anchor_ind)
     if model_type == "topdown":
         return ExportedTopDownLayer(backend=backend)
     if model_type == "bottomup":
@@ -460,6 +494,7 @@ def _select_export_layer(
             max_instances=max_instances,
             min_instance_peaks=min_instance_peaks,
             min_line_scores=min_line_scores,
+            peak_conf_threshold=peak_conf_threshold,
         )
     if model_type in ("multi_class_topdown", "multi_class_topdown_combined"):
         if metadata.n_classes is None:
@@ -646,6 +681,7 @@ class Predictor:
         max_instances: Optional[int] = None,
         min_instance_peaks: float = 0,
         min_line_scores: float = 0.25,
+        peak_conf_threshold: Optional[float] = None,
     ) -> "Predictor":
         """Build a :class:`Predictor` from an exported ONNX/TensorRT directory.
 
@@ -662,6 +698,12 @@ class Predictor:
             max_instances: Cap on instances per frame (bottom-up).
             min_instance_peaks: Min peaks for a valid instance (bottom-up).
             min_line_scores: Per-edge match threshold (bottom-up).
+            peak_conf_threshold: Runtime peak-confidence threshold for the
+                exported bottom-up path. Gates PAF candidate connections by the
+                src/dst peak confidence (legacy parity). Defaults to the
+                threshold baked at export time (``metadata.peak_threshold``).
+                Note the wrapper already bakes a peak threshold during peak
+                finding, so this can only *tighten* beyond the baked value.
         """
         from sleap_nn.export.metadata import ExportMetadata
 
@@ -678,6 +720,13 @@ class Predictor:
         runtime, model_path = _resolve_export_runtime(export_dir, runtime)
         backend = _build_export_backend(runtime, model_path, device)
 
+        # Default the runtime peak-confidence threshold to the value baked at
+        # export time, matching legacy export inference (#582).
+        resolved_peak_conf = (
+            peak_conf_threshold
+            if peak_conf_threshold is not None
+            else getattr(metadata, "peak_threshold", None)
+        )
         layer = _select_export_layer(
             metadata=metadata,
             backend=backend,
@@ -685,6 +734,7 @@ class Predictor:
             max_instances=max_instances,
             min_instance_peaks=min_instance_peaks,
             min_line_scores=min_line_scores,
+            peak_conf_threshold=resolved_peak_conf,
         )
 
         skeleton = _skeleton_from_export(export_dir, metadata)
@@ -820,6 +870,24 @@ class Predictor:
             )
             videos = list(source.videos) if source.videos else None
             return provider, videos
+
+        if isinstance(source, (list, tuple)):
+            # Multi-source input: predict([v1, v2, v3]) -> one merged Labels with
+            # monotonically increasing per-frame video_indices (#582). Recurse to
+            # reuse per-type dispatch, then concatenate. Per-source frame
+            # selection is not expressible for a flat list, so `frames` is not
+            # applied here (build providers explicitly if you need it).
+            from sleap_nn.inference.providers import MultiVideoProvider
+
+            if len(source) == 0:
+                raise ValueError("predict() received an empty list of sources.")
+            sub_providers: list = []
+            all_videos: list = []
+            for sub in source:
+                sub_provider, sub_videos = self._make_provider(sub, **provider_kwargs)
+                sub_providers.append(sub_provider)
+                all_videos.extend(sub_videos if sub_videos else [None])
+            return MultiVideoProvider(providers=sub_providers), all_videos
 
         if hasattr(source, "__iter__"):
             return source, None
@@ -1086,7 +1154,13 @@ class Predictor:
             )
         from sleap_nn.inference.writer import IncrementalLabelsWriter
 
-        provider, _ = self._make_provider(source, frames=frames)
+        provider, derived = self._make_provider(source, frames=frames)
+        # Preserve the real source video(s) on the streamed .slp instead of the
+        # 'unknown' placeholder. Mirrors the in-memory predict() path; for a
+        # pre-built Provider source `derived` is None so the caller-supplied
+        # `videos` (possibly None) is used (#582).
+        if videos is None:
+            videos = derived
         with IncrementalLabelsWriter(
             path=path,
             skeleton=self.skeleton,
@@ -1252,8 +1326,9 @@ class Predictor:
     def _packaging_anchor_ind(self) -> Optional[int]:
         """Anchor-node slot for centroid-only output packaging."""
         from sleap_nn.inference.layers.centroid import CentroidLayer
+        from sleap_nn.inference.layers.exported import ExportedCentroidLayer
 
-        if isinstance(self.layer, CentroidLayer):
+        if isinstance(self.layer, (CentroidLayer, ExportedCentroidLayer)):
             return self.layer.anchor_ind
         return None
 

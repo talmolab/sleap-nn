@@ -211,6 +211,21 @@ def group_scored_batch(scored: ScoredBatch, params: GroupingParams) -> Outputs:
         instances_b = predicted_instances[b]  # (n_b, n_nodes, 2)
         vals_b = predicted_peak_scores[b]  # (n_b, n_nodes)
         scores_b = predicted_instance_scores[b]  # (n_b,)
+        # When an explicit cap is set and there are more instances than the
+        # cap, keep the TOP-N by instance score (legacy parity — both the live
+        # predictors.py path and the export top-k select by score descending),
+        # not the first-N in grouping/assembly order. Only reorder when we are
+        # actually truncating, so uncapped output keeps its assembly order
+        # (preserves the parity goldens). NaN scores sort last.
+        if (
+            params.max_instances is not None
+            and int(instances_b.shape[0]) > max_instances
+        ):
+            sort_key = torch.nan_to_num(scores_b, nan=float("-inf"))
+            order = torch.argsort(sort_key, descending=True)
+            instances_b = instances_b[order]
+            vals_b = vals_b[order]
+            scores_b = scores_b[order]
         n = min(int(instances_b.shape[0]), max_instances)
         if n == 0:
             continue

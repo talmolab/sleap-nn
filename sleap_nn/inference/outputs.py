@@ -478,9 +478,24 @@ class Outputs:
                 if self.video_indices is not None
                 else 0
             )
+            # Map the per-frame video index to its Video. For genuine multi-video
+            # output, an out-of-range index is a provider/packaging mismatch and
+            # must be loud rather than silently wrapping onto the wrong video
+            # (the old `% len(videos)` masked exactly that bug). The single-video
+            # / placeholder case stays lenient (#582).
+            if video_idx < len(videos):
+                video = videos[video_idx]
+            elif len(videos) == 1:
+                video = videos[0]
+            else:
+                raise IndexError(
+                    f"video_index {video_idx} is out of range for {len(videos)} "
+                    "videos; the provider emitted a video index with no matching "
+                    "video."
+                )
             labeled_frames.append(
                 sio.LabeledFrame(
-                    video=videos[video_idx % len(videos)] if videos else None,
+                    video=video,
                     frame_idx=frame_idx,
                     instances=instances,
                 )

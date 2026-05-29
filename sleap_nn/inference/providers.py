@@ -212,11 +212,26 @@ class LabelsProvider:
                 if not lf.has_user_instances
             ]
         elif self.only_labeled_frames:
+            # Keep only frames with >=1 USER (ground-truth) instance, and drop
+            # predicted-only frames. Legacy LabelsReader restricted GT to user
+            # instances; using lf.instances here would feed PredictedInstances
+            # into the GT-centroid / GT-peaks paths (#582).
             self._labeled_frames = [
-                lf for lf in self._sio_labels.labeled_frames if len(lf.instances) > 0
+                lf for lf in self._sio_labels.labeled_frames if lf.has_user_instances
             ]
         else:
             self._labeled_frames = list(self._sio_labels.labeled_frames)
+
+    def _frame_instances(self, lf) -> list:
+        """Instances to expose as GT for a frame.
+
+        In ``only_labeled_frames`` mode (the GT-fallback paths), expose only the
+        USER instances so PredictedInstances are never treated as ground truth
+        (legacy parity, #582). All other modes expose every instance.
+        """
+        if self.only_labeled_frames:
+            return list(lf.user_instances)
+        return list(lf.instances)
 
     def _collect_suggested_frames(self, sio) -> list:
         """Return new ``LabeledFrame``s for unlabeled suggestions.
@@ -251,25 +266,22 @@ class LabelsProvider:
             chunk = self._labeled_frames[start:stop]
             frames = np.stack([lf.image for lf in chunk], axis=0)
 
-            max_inst = max(len(lf.instances) for lf in chunk)
+            inst_lists = [self._frame_instances(lf) for lf in chunk]
+            max_inst = max(len(insts) for insts in inst_lists)
             if max_inst == 0:
                 instances = None
             else:
                 # Pad GT instances to a uniform max_instances per batch so
                 # downstream layer code can work with fixed shapes.
                 n_nodes = next(
-                    (
-                        len(lf.instances[0].skeleton.nodes)
-                        for lf in chunk
-                        if lf.instances
-                    ),
+                    (len(insts[0].skeleton.nodes) for insts in inst_lists if insts),
                     1,
                 )
                 instances = np.full(
                     (len(chunk), max_inst, n_nodes, 2), np.nan, dtype=np.float32
                 )
-                for i, lf in enumerate(chunk):
-                    for j, inst in enumerate(lf.instances):
+                for i, insts in enumerate(inst_lists):
+                    for j, inst in enumerate(insts):
                         pts = np.asarray(inst.numpy(), dtype=np.float32)
                         instances[i, j, : pts.shape[0]] = pts
 
@@ -293,6 +305,47 @@ class LabelsProvider:
         """Number of batches over the (filtered) labeled-frame list."""
         n = len(self._labeled_frames)
         return (n + self.batch_size - 1) // self.batch_size
+
+
+@attrs.define
+class MultiVideoProvider:
+    """Concatenate several providers, re-stamping per-source video indices.
+
+    Wraps an ordered list of already-built providers (one per input source)
+    and yields their batches in order, OVERRIDING each batch's
+    ``video_indices`` with the source ordinal (0 for the first source's
+    batches, 1 for the second, ...). Single-source providers each emit their
+    own 0-based ``video_indices`` (e.g. :class:`VideoProvider` hardcodes
+    zeros), so they must be replaced — not offset — to attribute every frame
+    to the correct video in a merged multi-video ``.slp`` (#582).
+
+    Args:
+        providers: Ordered list of per-source :class:`Provider` instances.
+            Build these via ``Predictor._make_provider`` so source-type
+            dispatch stays in one place.
+    """
+
+    providers: list
+
+    def __iter__(self) -> Iterator[Batch]:
+        """Yield each sub-provider's batches with the source ordinal stamped."""
+        for source_idx, provider in enumerate(self.providers):
+            for batch in provider:
+                n = int(batch.images.shape[0])
+                yield attrs.evolve(
+                    batch,
+                    video_indices=np.full(n, source_idx, dtype=np.int64),
+                )
+
+    def __len__(self) -> int:
+        """Total batches across all sub-providers (or ``-1`` if any unknown)."""
+        total = 0
+        for provider in self.providers:
+            n = len(provider)
+            if n < 0:
+                return -1
+            total += n
+        return total
 
 
 @attrs.define

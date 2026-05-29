@@ -65,6 +65,11 @@ class LoadedAssets:
     centroid_config: Optional["DictConfig"] = None
     confmap_config: Optional["DictConfig"] = None
 
+    # Cap on instances per frame. Threaded through to the bottom-up grouping
+    # stage (the legacy ``BottomUpInferenceModel`` has no such field, so the
+    # value is carried on the assets and read by ``_build_bottomup_layer``).
+    max_instances: Optional[int] = None
+
 
 # ─────────────────────────────────────────────────────────────────────────
 # Per-checkpoint helpers (shared across all model types)
@@ -322,6 +327,7 @@ def _build_bottomup(
         skeletons=skeletons,
         bottomup_config=config,
         backbone_type=backbone_type,
+        max_instances=max_instances,
     )
 
 

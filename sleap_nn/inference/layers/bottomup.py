@@ -192,6 +192,12 @@ class BottomUpLayer(InferenceLayer):
 
         The result is picklable and can be sent to a worker process.
         """
+        # Prefer a predict-time override (set on ``postprocess_config`` by
+        # ``Predictor._postprocess_overrides``) over the build-time value
+        # carried on ``self.max_instances`` (#582).
+        max_instances = getattr(self.postprocess_config, "max_instances", None)
+        if max_instances is None:
+            max_instances = self.max_instances
         return GroupingParams(
             paf_scorer_kwargs={
                 "part_names": list(self.paf_scorer.part_names),
@@ -203,7 +209,7 @@ class BottomUpLayer(InferenceLayer):
                 "min_instance_peaks": self.paf_scorer.min_instance_peaks,
                 "min_line_scores": self.paf_scorer.min_line_scores,
             },
-            max_instances=self.max_instances,
+            max_instances=max_instances,
             return_confmaps=self.postprocess_config.return_confmaps,
             return_pafs=self.postprocess_config.return_pafs,
             return_paf_graph=self.postprocess_config.return_paf_graph,
