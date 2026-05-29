@@ -525,6 +525,11 @@ class Predictor:
     filter_config: FilterConfig = attrs.Factory(FilterConfig)
     paf_workers: int = 0
     tracker_config: Optional[TrackerConfig] = None
+    # Provenance metadata (populated by the factories; attached to the saved /
+    # returned Labels by predict() so .slp files carry inference lineage —
+    # #530 gap: the new flow previously wrote no provenance).
+    model_paths: Optional[List[str]] = None
+    device: Optional[str] = None
 
     @property
     def filter_pipeline(self) -> FilterPipeline:
@@ -617,6 +622,8 @@ class Predictor:
             "skeleton": skeleton,
             "batch_size": batch_size,
             "paf_workers": paf_workers,
+            "model_paths": [str(p) for p in model_paths],
+            "device": device,
         }
         if filter_config is not None:
             kwargs["filter_config"] = filter_config
@@ -686,6 +693,8 @@ class Predictor:
             "skeleton": skeleton,
             "batch_size": batch_size,
             "paf_workers": paf_workers,
+            "model_paths": [str(export_dir)],
+            "device": device,
         }
         if filter_config is not None:
             kwargs["filter_config"] = filter_config
@@ -696,6 +705,56 @@ class Predictor:
     # ──────────────────────────────────────────────────────────────────
     # Source dispatch: sio.Video / sio.Labels / str / Provider
     # ──────────────────────────────────────────────────────────────────
+
+    def _needs_gt_instances(self) -> bool:
+        """Whether the configured layer consumes ground-truth instances.
+
+        GT-fallback layers (``CentroidLayer(use_gt_centroids=True)`` /
+        ``CenteredInstanceLayer(use_gt_peaks=True)``) require frames that carry
+        user instances, so a ``.slp`` source must be restricted to labeled
+        frames. The normal (real-model) path predicts ALL frames, matching the
+        legacy ``LabelsReader`` default (#530 audit: new flow wrongly defaulted
+        to labeled-only).
+        """
+        layer = self.layer
+        candidates = [layer]
+        for sub in ("centroid_layer", "centered_instance_layer"):
+            inner = getattr(layer, sub, None)
+            if inner is not None:
+                candidates.append(inner)
+        return any(
+            getattr(c, "use_gt_centroids", False) or getattr(c, "use_gt_peaks", False)
+            for c in candidates
+        )
+
+    def _build_inference_provenance(
+        self,
+        *,
+        source: Any,
+        start_time: Any,
+        end_time: Any,
+        n_frames: int,
+        inference_params: dict,
+    ) -> dict:
+        """Provenance dict for the saved/returned Labels (#530 gap fix)."""
+        from sleap_nn.inference.provenance import build_inference_provenance
+
+        tracking_params = (
+            attrs.asdict(self.tracker_config)
+            if self.tracker_config is not None
+            else None
+        )
+        return build_inference_provenance(
+            model_paths=self.model_paths,
+            model_type=type(self.layer).__name__,
+            device=self.device,
+            start_time=start_time,
+            end_time=end_time,
+            input_path=source if isinstance(source, str) else None,
+            frames_processed=n_frames,
+            inference_params=inference_params,
+            tracking_params=tracking_params,
+        )
 
     def _make_provider(
         self,
@@ -717,12 +776,20 @@ class Predictor:
 
         if isinstance(source, (str, np.ndarray)):
             if isinstance(source, str) and source.endswith(".slp"):
+                # Load once so we can both build the provider AND attach the
+                # real videos to the output Labels — legacy parity: predicted
+                # frames must reference the source video, not be dropped
+                # (#530 audit: .slp path returned videos=None).
+                labels = sio.load_slp(source)
+                provider_kwargs.setdefault(
+                    "only_labeled_frames", self._needs_gt_instances()
+                )
                 provider = LabelsProvider(
-                    labels=source,
+                    labels=labels,
                     batch_size=self.batch_size,
                     **provider_kwargs,
                 )
-                return provider, None
+                return provider, (list(labels.videos) if labels.videos else None)
             video = sio.Video(source) if isinstance(source, str) else None
             provider = VideoProvider(
                 video=source,
@@ -743,6 +810,9 @@ class Predictor:
             return provider, [source]
 
         if isinstance(source, sio.Labels):
+            provider_kwargs.setdefault(
+                "only_labeled_frames", self._needs_gt_instances()
+            )
             provider = LabelsProvider(
                 labels=source,
                 batch_size=self.batch_size,
@@ -851,10 +921,13 @@ class Predictor:
             ``sio.Labels`` (default) or ``List[Outputs]`` (when
             ``make_labels=False``).
         """
+        from datetime import datetime
+
         provider, auto_videos = self._make_provider(source, frames=frames)
         if videos is None:
             videos = auto_videos
 
+        _prov_start = datetime.now()
         with self._postprocess_overrides(
             peak_threshold=peak_threshold,
             centroid_threshold=centroid_threshold,
@@ -866,6 +939,7 @@ class Predictor:
             return_crops=return_crops,
         ):
             outputs_list = list(self._batch_iter(provider, progress_callback))
+        _prov_end = datetime.now()
 
         if not make_labels:
             if self.tracker_config is not None:
@@ -887,6 +961,21 @@ class Predictor:
             labels = apply_tracking(labels, self.tracker_config)
         if clean_empty_frames:
             labels.clean(frames=True, skeletons=False)
+        labels.provenance = self._build_inference_provenance(
+            source=source,
+            start_time=_prov_start,
+            end_time=_prov_end,
+            n_frames=len(labels.labeled_frames),
+            inference_params={
+                "peak_threshold": peak_threshold,
+                "centroid_threshold": centroid_threshold,
+                "keypoint_threshold": keypoint_threshold,
+                "max_instances": max_instances,
+                "integral_refinement": integral_refinement,
+                "integral_patch_size": integral_patch_size,
+                "batch_size": self.batch_size,
+            },
+        )
         return labels
 
     # ──────────────────────────────────────────────────────────────────
