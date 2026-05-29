@@ -251,32 +251,40 @@ def group_scored_batch(scored: ScoredBatch, params: GroupingParams) -> Outputs:
             outputs, pred_pafs=scored.pafs.permute(0, 3, 1, 2).contiguous()
         )
     if params.return_paf_graph:
-        outputs = attrs.evolve(
-            outputs,
-            pred_paf_graph=(
-                (
-                    torch.cat(list(scored.cms_peaks), dim=0)
-                    if scored.cms_peaks
-                    else torch.empty(0, 2)
-                ),
-                (
-                    torch.cat(list(scored.edge_inds), dim=0)
-                    if scored.edge_inds
-                    else torch.empty(0, dtype=torch.int32)
-                ),
-                (
-                    torch.cat(list(scored.edge_peak_inds), dim=0)
-                    if scored.edge_peak_inds
-                    else torch.empty(0, 2, dtype=torch.int32)
-                ),
-                (
-                    torch.cat(list(scored.line_scores), dim=0)
-                    if scored.line_scores
-                    else torch.empty(0)
-                ),
-            ),
-        )
+        outputs = attrs.evolve(outputs, pred_paf_graph=_paf_graph_from_scored(scored))
     return outputs
+
+
+def _paf_graph_from_scored(scored: ScoredBatch) -> tuple:
+    """Build the ``(peaks, edge_inds, edge_peak_inds, line_scores)`` PAF graph.
+
+    Shared by the main grouping path and the ``skip_paf`` short-circuit so both
+    emit the same structure when ``return_paf_graph`` is set (legacy emitted it
+    on the skip path too; #584). On the skip path the edge lists are empty, so
+    the edge tensors resolve to the empty sentinels — matching legacy.
+    """
+    return (
+        (
+            torch.cat(list(scored.cms_peaks), dim=0)
+            if scored.cms_peaks
+            else torch.empty(0, 2)
+        ),
+        (
+            torch.cat(list(scored.edge_inds), dim=0)
+            if scored.edge_inds
+            else torch.empty(0, dtype=torch.int32)
+        ),
+        (
+            torch.cat(list(scored.edge_peak_inds), dim=0)
+            if scored.edge_peak_inds
+            else torch.empty(0, 2, dtype=torch.int32)
+        ),
+        (
+            torch.cat(list(scored.line_scores), dim=0)
+            if scored.line_scores
+            else torch.empty(0)
+        ),
+    )
 
 
 def _empty_outputs(
@@ -300,6 +308,10 @@ def _empty_outputs(
         outputs = attrs.evolve(
             outputs, pred_pafs=scored.pafs.permute(0, 3, 1, 2).contiguous()
         )
+    if params.return_paf_graph:
+        # Emit the (peaks + empty-edge) PAF graph the legacy skip path emitted
+        # so return_paf_graph isn't silently dropped on skip_paf (#584).
+        outputs = attrs.evolve(outputs, pred_paf_graph=_paf_graph_from_scored(scored))
     return outputs
 
 

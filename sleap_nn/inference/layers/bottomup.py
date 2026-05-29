@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import Optional
 
 import torch
+from loguru import logger
 
 from sleap_nn.inference.layers.backends.base import ModelBackend
 from sleap_nn.inference.layers.base import InferenceLayer
@@ -127,8 +128,18 @@ class BottomUpLayer(InferenceLayer):
         if self.max_peaks_per_node is not None:
             for ch_inds in cms_peak_channel_inds:
                 for ni in range(n_nodes):
-                    if int((ch_inds == ni).sum().item()) > self.max_peaks_per_node:
+                    n_peaks = int((ch_inds == ni).sum().item())
+                    if n_peaks > self.max_peaks_per_node:
                         skip_paf = True
+                        # Surface the skip (legacy logged it); an over-limit node
+                        # usually means an under-trained / noisy model (#584).
+                        logger.warning(
+                            "Skipping PAF scoring for a bottom-up batch: node "
+                            f"{ni} has {n_peaks} peaks "
+                            f"(max_peaks_per_node={self.max_peaks_per_node}). "
+                            "Instances will be all-NaN; the model may need more "
+                            "training or a higher peak threshold."
+                        )
                         break
                 if skip_paf:
                     break

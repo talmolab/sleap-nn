@@ -31,8 +31,11 @@ class PreprocInfo:
             handed to the model.
         eff_scale: Per-sample size-matcher scale factor. Stored as a 1-D
             tensor ``(B,)``; broadcast against ``(B, ...)`` coords.
-        input_scale: Scalar applied via :func:`apply_input_scale` before the
-            forward pass. ``1.0`` is identity.
+        input_scale: Scalar input-scale factor. The live ckpt preprocess applies
+            it via :func:`sleap_nn.data.resizing.resize_image` (torchvision
+            ``tvf.resize``) in :meth:`InferenceLayer.preprocess`; the ops-level
+            :func:`sleap_nn.inference.ops.coord.apply_input_scale` is an
+            export/ONNX-only variant. ``1.0`` is identity.
         output_stride: Confmap → input-pixel stride. ``>= 1``.
         pad_amount: ``(pad_h, pad_w)`` padding added to reach a stride-aligned
             shape. Currently informational; not used in coord ops.
@@ -47,6 +50,24 @@ class PreprocInfo:
     output_stride: int = 1
     pad_amount: Tuple[int, int] = (0, 0)
     crop_offsets: Optional[torch.Tensor] = None
+
+    def cpu(self) -> "PreprocInfo":
+        """Return a copy with nested tensors detached + moved to CPU.
+
+        Frozen value type, so this returns a new instance. Used by
+        ``Outputs.slim()`` / ``.cpu()`` to honor the CPU/pickle-transport
+        contract (the nested ``eff_scale`` / ``crop_offsets`` were previously
+        left on-device, breaking spawn-based workers, #584).
+        """
+        return attrs.evolve(
+            self,
+            eff_scale=self.eff_scale.detach().cpu(),
+            crop_offsets=(
+                self.crop_offsets.detach().cpu()
+                if self.crop_offsets is not None
+                else None
+            ),
+        )
 
     def __repr__(self) -> str:
         """Compact summary — never prints tensor contents."""

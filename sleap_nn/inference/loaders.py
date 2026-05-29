@@ -448,6 +448,9 @@ def _build_topdown(
     # Resolve preprocess_config from both training configs. The confmap
     # config supplies crop_size (absent from centroid training configs),
     # so resolve centroid first, then confmap to fill remaining Nones.
+    # Capture whether the caller explicitly supplied a crop_size so the confmap
+    # default below does not override an intentional user value.
+    user_crop_size = preprocess_config.crop_size
     if centroid_config is not None:
         preprocess_config = _resolve_preprocess_config(
             preprocess_config, centroid_config
@@ -456,6 +459,13 @@ def _build_topdown(
         preprocess_config = _resolve_preprocess_config(
             preprocess_config, confmap_config
         )
+        # crop_size is a centered-instance property: force it from the confmap
+        # config so a stray non-null centroid crop_size can't win — but only
+        # when the caller didn't supply an explicit crop_size (legacy parity;
+        # #584).
+        confmap_crop = confmap_config.data_config.preprocessing.crop_size
+        if user_crop_size is None and confmap_crop is not None:
+            preprocess_config.crop_size = confmap_crop
 
     # Resolve anchor_ind
     if anchor_part is not None:
@@ -589,6 +599,9 @@ def _build_topdown_multiclass(
         )
         skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
 
+    # Capture whether the caller explicitly supplied a crop_size so the confmap
+    # default below does not override an intentional user value.
+    user_crop_size = preprocess_config.crop_size
     if centroid_config is not None:
         preprocess_config = _resolve_preprocess_config(
             preprocess_config, centroid_config
@@ -597,6 +610,13 @@ def _build_topdown_multiclass(
         preprocess_config = _resolve_preprocess_config(
             preprocess_config, confmap_config
         )
+        # crop_size is a centered-instance property: force it from the confmap
+        # config so a stray non-null centroid crop_size can't win — but only
+        # when the caller didn't supply an explicit crop_size (legacy parity;
+        # #584).
+        confmap_crop = confmap_config.data_config.preprocessing.crop_size
+        if user_crop_size is None and confmap_crop is not None:
+            preprocess_config.crop_size = confmap_crop
 
     # Resolve anchor_ind
     if anchor_part is not None:
@@ -735,6 +755,12 @@ def load_model_assets(
         preprocess_config=preprocess_config,
     )
 
+    # Dispatch on detected model type. The order (bottomup checked before the
+    # topdown family) differs from legacy but is inert for parity: each model
+    # path is exactly one type and bottom-up is a single-stage model never
+    # combined with a centroid/centered-instance pair, so the branches are
+    # mutually exclusive (a mixed bottomup+topdown path list is not a supported
+    # workflow and falls through to the final ValueError). #584.
     if "single_instance" in model_types:
         path = model_paths[model_types.index("single_instance")]
         assets = _build_single_instance(path, **common_kwargs)

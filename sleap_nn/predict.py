@@ -569,28 +569,36 @@ def run_inference(
 
         logger.info(f"Using device: {device}")
 
-        # initializes the inference model
-        predictor = Predictor.from_model_paths(
-            model_paths,
-            backbone_ckpt_path=backbone_ckpt_path,
-            head_ckpt_path=head_ckpt_path,
-            peak_threshold=peak_threshold,
-            integral_refinement=integral_refinement,
-            integral_patch_size=integral_patch_size,
-            batch_size=batch_size,
-            max_instances=max_instances,
-            return_confmaps=return_confmaps,
-            device=device,
-            preprocess_config=OmegaConf.create(preprocess_config),
-            anchor_part=anchor_part,
-            filter_overlapping=filter_overlapping,
-            filter_overlapping_threshold=filter_overlapping_threshold,
-            filter_overlapping_method=filter_overlapping_method,
-            filter_min_visible_nodes=filter_min_visible_nodes,
-            filter_min_visible_node_fraction=filter_min_visible_node_fraction,
-            filter_min_mean_node_score=filter_min_mean_node_score,
-            filter_min_instance_score=filter_min_instance_score,
-        )
+        # initializes the inference model. run_inference already emits its own
+        # deprecation notice above, so suppress the nested DeprecationWarning the
+        # legacy Predictor.from_model_paths would raise — callers see one message
+        # instead of two (#584). Use the module's own threading-local guard
+        # (a module= warnings filter can't match it because the warning is
+        # issued with stacklevel pointing at the caller).
+        from sleap_nn.inference.predictors import legacy_predictor_internal_use
+
+        with legacy_predictor_internal_use():
+            predictor = Predictor.from_model_paths(
+                model_paths,
+                backbone_ckpt_path=backbone_ckpt_path,
+                head_ckpt_path=head_ckpt_path,
+                peak_threshold=peak_threshold,
+                integral_refinement=integral_refinement,
+                integral_patch_size=integral_patch_size,
+                batch_size=batch_size,
+                max_instances=max_instances,
+                return_confmaps=return_confmaps,
+                device=device,
+                preprocess_config=OmegaConf.create(preprocess_config),
+                anchor_part=anchor_part,
+                filter_overlapping=filter_overlapping,
+                filter_overlapping_threshold=filter_overlapping_threshold,
+                filter_overlapping_method=filter_overlapping_method,
+                filter_min_visible_nodes=filter_min_visible_nodes,
+                filter_min_visible_node_fraction=filter_min_visible_node_fraction,
+                filter_min_mean_node_score=filter_min_mean_node_score,
+                filter_min_instance_score=filter_min_instance_score,
+            )
 
         # Set GUI mode for progress output
         predictor.gui = gui

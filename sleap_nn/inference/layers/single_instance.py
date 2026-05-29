@@ -71,22 +71,20 @@ class SingleInstanceLayer(InferenceLayer):
     def postprocess(self, raw_out: dict, info: PreprocInfo) -> Outputs:
         """Decode confmaps → keypoints, reverse coord ladder, build ``Outputs``.
 
-        On a baked-postproc backend (ONNX/TRT) ``raw_out`` already
-        contains ``peaks`` + ``peak_vals``; we skip ``find_global_peaks``
-        and only apply the coord ladder.
+        This layer always runs the torch decode path: it is only ever built
+        with a ``TorchBackend`` (``does_baked_postproc=False``). The exported
+        ONNX/TRT path uses the separate :class:`ExportedSingleInstanceLayer`
+        adapter, which returns already-final peaks without the coord ladder —
+        so this method must NOT special-case a baked backend (doing so would
+        double-apply the ladder; #584).
         """
-        if self.backend.does_baked_postproc:
-            peaks = raw_out["peaks"]
-            vals = raw_out["peak_vals"]
-            confmaps = raw_out.get("confmaps")
-        else:
-            confmaps = self._extract_confmaps(raw_out)
-            peaks, vals = find_global_peaks(
-                confmaps.detach(),
-                threshold=self.postprocess_config.peak_threshold,
-                refinement=self.postprocess_config.effective_refinement,
-                integral_patch_size=self.postprocess_config.integral_patch_size,
-            )
+        confmaps = self._extract_confmaps(raw_out)
+        peaks, vals = find_global_peaks(
+            confmaps.detach(),
+            threshold=self.postprocess_config.peak_threshold,
+            refinement=self.postprocess_config.effective_refinement,
+            integral_patch_size=self.postprocess_config.integral_patch_size,
+        )
 
         # Coord ladder: confmap pixels → input pixels → original-image pixels.
         peaks = undo_stride(peaks, info.output_stride)

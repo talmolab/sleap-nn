@@ -1511,13 +1511,23 @@ class Predictor:
 
                 overrides: dict = {}
 
-                # Threshold routing for top-down
+                # Threshold routing for top-down. Use explicit None checks so an
+                # explicit 0.0 override ("accept all peaks") is honored rather
+                # than swallowed by a falsy `or` (#584).
                 if isinstance(self.layer, TopDownLayer):
                     is_centroid = target is self.layer.centroid_layer
                     if is_centroid:
-                        t = centroid_threshold or peak_threshold
+                        t = (
+                            centroid_threshold
+                            if centroid_threshold is not None
+                            else peak_threshold
+                        )
                     else:
-                        t = keypoint_threshold or peak_threshold
+                        t = (
+                            keypoint_threshold
+                            if keypoint_threshold is not None
+                            else peak_threshold
+                        )
                 else:
                     t = peak_threshold
 

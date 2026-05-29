@@ -80,9 +80,10 @@ import sys
 # ─────────────────────────────────────────────────────────────────────────
 # All public entry points in this module emit a ``DeprecationWarning`` so
 # external callers can migrate to ``sleap_nn.inference.predictor.Predictor``.
-# The loader module still uses these classes for checkpoint loading, so it
-# wraps its delegation calls in :func:`legacy_predictor_internal_use` to
-# suppress the warning while delegating.
+# :func:`legacy_predictor_internal_use` is a context manager that suppresses
+# that warning for code that still calls the legacy ``*Predictor`` classmethods
+# internally. (Note: ``sleap_nn.inference.loaders`` does NOT delegate to these
+# classmethods — it loads checkpoints directly — so it does not use it.)
 
 _LEGACY_INTERNAL_USE = threading.local()
 
@@ -102,11 +103,11 @@ _DEPRECATION_MESSAGE = (
 def legacy_predictor_internal_use():
     """Silence :class:`DeprecationWarning` from legacy ``*Predictor`` entries.
 
-    ``sleap_nn.inference.loaders`` still delegates Lightning checkpoint loading
-    to this module's ``from_trained_models`` classmethods. The new
-    ``Predictor.from_model_paths`` IS the migration path, so warning every
-    time it runs would be spurious noise. Wrap loader delegation calls with
-    this context manager.
+    For code that intentionally calls the legacy ``*Predictor.from_trained_models``
+    classmethods internally (so the warning would be spurious noise). Wrap such
+    calls with this context manager. ``sleap_nn.inference.loaders`` does NOT use
+    it — it loads checkpoints directly without going through the legacy
+    classmethods.
     """
     prev = getattr(_LEGACY_INTERNAL_USE, "active", False)
     _LEGACY_INTERNAL_USE.active = True

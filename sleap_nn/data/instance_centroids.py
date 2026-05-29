@@ -17,7 +17,11 @@ def find_points_mean(points: torch.Tensor) -> torch.Tensor:
         output row is NaN.
     """
     mask = ~torch.isnan(points)
-    counts = mask.any(dim=-1).sum(dim=-1, keepdim=True).clamp(min=1).to(points.dtype)
+    # Count non-NaN values PER AXIS so each coordinate's mean divides by the
+    # number of non-NaN values on that axis. Counting per-point (mask.any)
+    # biased the mean toward 0 when only one coordinate of a point was NaN
+    # (#584). For the common all-or-nothing-per-point case the two are equal.
+    counts = mask.sum(dim=-2).clamp(min=1).to(points.dtype)  # (..., 2)
     safe = torch.where(mask, points, torch.zeros_like(points))
     means = safe.sum(dim=-2) / counts
     all_nan = (~mask.any(dim=-1)).all(dim=-1, keepdim=True)

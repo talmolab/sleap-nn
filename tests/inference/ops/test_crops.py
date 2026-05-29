@@ -109,3 +109,24 @@ def test_crop_bboxes_border_case_differs_from_naive_trunc():
     legacy_tl_x = int(np.trunc(float(bbox[0, 0, 0]) + cw // 2)) - cw // 2
     assert naive_tl_x != legacy_tl_x  # the two strategies genuinely differ here
     np.testing.assert_array_equal(crop, legacy)
+
+
+def test_crop_bboxes_far_out_of_bounds_is_zero_filled():
+    """Far/extreme out-of-bounds crops are zero-filled (pins current behavior, #584).
+
+    The near-edge negative-fractional case is covered above; this pins the
+    far-OOB clamp so a future change to the shared crop op is caught.
+    """
+    h = w = 20
+    ch = cw = 6
+    image = _ramp_image(h, w)
+    # Centroids far outside the image on both sides.
+    centroids = torch.tensor(
+        [[1000.0, 1000.0], [-1000.0, -1000.0]], dtype=torch.float32
+    )
+    bboxes = make_centered_bboxes(centroids, ch, cw)
+    sample_inds = torch.zeros(centroids.shape[0], dtype=torch.long)
+    crops = crop_bboxes(image, bboxes, sample_inds).numpy()
+    assert crops.shape[0] == 2
+    # Entirely outside -> all-zero (no real pixels sampled).
+    np.testing.assert_array_equal(crops, np.zeros_like(crops))

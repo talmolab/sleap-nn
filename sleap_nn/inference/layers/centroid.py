@@ -194,37 +194,23 @@ class CentroidLayer(InferenceLayer):
         returns ``(B, max_instances, 2)`` centroids and ``(B, max_instances)``
         values, NaN-padded where no detection.
         """
-        if self.backend.does_baked_postproc:
-            peaks = raw_out["peaks"]
-            peak_vals = raw_out["peak_vals"]
-            sample_inds = raw_out.get("peak_sample_inds")
-            confmaps = raw_out.get("confmaps")
-            if sample_inds is None:
-                raise KeyError(
-                    "baked-postproc backend must return peak_sample_inds for "
-                    "the centroid layer (multi-peak per sample)."
-                )
-        else:
-            confmaps = self._extract_confmaps(raw_out)
-            peaks, peak_vals, sample_inds, _channel_inds = find_local_peaks(
-                confmaps.detach(),
-                threshold=self.postprocess_config.peak_threshold,
-                refinement=self.postprocess_config.effective_refinement,
-                integral_patch_size=self.postprocess_config.integral_patch_size,
-            )
+        # Always the torch decode path: this layer is only built with a
+        # ``TorchBackend``; the exported path uses ``ExportedCentroidLayer``
+        # (so no double coord ladder, #584).
+        confmaps = self._extract_confmaps(raw_out)
+        peaks, peak_vals, sample_inds, _channel_inds = find_local_peaks(
+            confmaps.detach(),
+            threshold=self.postprocess_config.peak_threshold,
+            refinement=self.postprocess_config.effective_refinement,
+            integral_patch_size=self.postprocess_config.integral_patch_size,
+        )
 
         # Coord ladder: confmap → input pixels → original-image pixels.
         peaks = undo_stride(peaks, info.output_stride)
         peaks = undo_input_scale(peaks, info.input_scale)
 
-        B = (
-            info.processed_size and info.processed_size[0]
-        )  # not used; B from sample_inds
-        # Determine batch size from confmaps shape (always available on Torch).
-        if confmaps is not None:
-            B = int(confmaps.shape[0])
-        else:
-            B = int(sample_inds.max().item()) + 1 if sample_inds.numel() else 1
+        # Batch size from confmaps shape (always available on the torch path).
+        B = int(confmaps.shape[0])
 
         max_instances = self.max_instances or self._infer_max_instances(sample_inds)
         if max_instances == 0:
