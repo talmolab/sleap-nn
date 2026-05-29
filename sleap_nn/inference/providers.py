@@ -274,10 +274,18 @@ class LabelsProvider:
                         instances[i, j, : pts.shape[0]] = pts
 
             frame_idxs = np.array([lf.frame_idx for lf in chunk], dtype=np.int64)
+            # Attribute each frame to the index of ITS video in the Labels'
+            # video list so multi-video .slp predictions land on the correct
+            # video (legacy parity; #530 audit: this was hardcoded to 0, so
+            # every frame was mis-assigned to videos[0]).
+            vid_index = {id(v): i for i, v in enumerate(self._sio_labels.videos)}
+            video_idxs = np.array(
+                [vid_index.get(id(lf.video), 0) for lf in chunk], dtype=np.int64
+            )
             yield Batch(
                 images=frames,
                 frame_indices=frame_idxs,
-                video_indices=np.zeros(len(chunk), dtype=np.int64),
+                video_indices=video_idxs,
                 instances=instances,
             )
 
