@@ -43,6 +43,16 @@ class TestPredictCommandHelp:
             "predict" in result.output.lower() or "inference" in result.output.lower()
         )
 
+    def test_predict_command_exposes_centroid_output(self):
+        """The predict command exposes --centroid-output for centroid models."""
+        from sleap_nn.export.cli import predict
+
+        runner = CliRunner()
+        result = runner.invoke(predict, ["--help"])
+
+        assert result.exit_code == 0
+        assert "--centroid-output" in result.output
+
 
 @requires_onnx
 class TestExportCommand:
@@ -220,6 +230,80 @@ class TestExportCommand:
             or "error" in result.output.lower()
             or "not found" in result.output.lower()
         )
+
+
+class TestTwoCentroidGuard:
+    """Two centroid directories is an error (no onnx dependency required).
+
+    The guard fires before any model load, so it needs no export deps.
+    """
+
+    def test_two_centroid_dirs_raises(self, minimal_instance_centroid_ckpt, tmp_path):
+        """Passing the same centroid dir twice raises a clear ClickException."""
+        from sleap_nn.export.cli import export
+
+        runner = CliRunner()
+        result = runner.invoke(
+            export,
+            [
+                str(minimal_instance_centroid_ckpt),
+                str(minimal_instance_centroid_ckpt),
+                "-o",
+                str(tmp_path / "out"),
+                "--no-verify",
+            ],
+        )
+
+        assert result.exit_code != 0
+        # Clear, specific message — not the generic combination fallthrough.
+        assert "two centroid model directories" in result.output.lower()
+
+
+@requires_onnx
+class TestCentroidExportConsistency:
+    """Standalone centroid export → metadata consistency (requires onnx)."""
+
+    def test_standalone_centroid_metadata(
+        self, minimal_instance_centroid_ckpt, tmp_path
+    ):
+        """A single centroid dir exports metadata with model_type='centroid'.
+
+        Asserts node_names carries the full (multi-node) training skeleton and
+        anchor_part round-trips (None for this fixture, which has no anchor).
+        """
+        from omegaconf import OmegaConf
+
+        from sleap_nn.export.cli import export
+        from sleap_nn.export.metadata import ExportMetadata
+        from sleap_nn.export.utils import resolve_anchor_part, resolve_node_names
+
+        output_dir = tmp_path / "export_standalone_centroid"
+        runner = CliRunner()
+        result = runner.invoke(
+            export,
+            [
+                str(minimal_instance_centroid_ckpt),
+                "-o",
+                str(output_dir),
+                "--format",
+                "onnx",
+                "--no-verify",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+
+        meta = ExportMetadata.load(output_dir / "export_metadata.json")
+        assert meta.model_type == "centroid"
+
+        cfg = OmegaConf.load(
+            (minimal_instance_centroid_ckpt / "training_config.yaml").as_posix()
+        )
+        assert meta.node_names == resolve_node_names(cfg, "centroid")
+        assert meta.anchor_part == resolve_anchor_part(cfg, "centroid")
+        # The full training skeleton must be preserved for the #586 source tag
+        # (the runtime collapses to a single 'centroid' node at packaging time,
+        # not in the metadata).
+        assert len(meta.node_names) > 1
 
 
 @requires_onnx

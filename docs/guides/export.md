@@ -108,6 +108,35 @@ sleap-nn export models/multi_class_bottomup \
     -o exports/multiclass --format onnx
 ```
 
+### Standalone Centroid
+
+A standalone centroid model (a first-class single-stage "animals-as-points"
+pipeline, *not* a top-down stage-1) exports from a **single** directory. The
+exported runtime reads the full training skeleton from `training_config.yaml`
+and collapses the output to a single-node `'centroid'` skeleton, bit-for-bit
+identical to the checkpoint flow.
+
+```bash
+# Export one centroid directory (NOT a centroid + centered_instance pair).
+sleap-nn export models/centroid -o exports/centroid --format onnx
+
+# Run the exported model. Choose the output representation with --centroid-output:
+#   instance (default) -> single-node PredictedInstance (frontend-compatible)
+#   centroid           -> sio.PredictedCentroid
+#   both               -> both
+sleap-nn predict exports/centroid video.mp4 -o centroids.slp \
+    --centroid-output instance
+```
+
+!!! note "One directory only"
+    Passing two centroid directories raises an error — that pattern is almost
+    always a mistake (you likely meant a centroid + centered-instance top-down
+    bundle). Pass a single centroid directory for a standalone export.
+
+See the [Centroid-Only Inference guide](centroid-only-inference.md) for the
+full train → infer → eval → export workflow and the output representation
+contract.
+
 ---
 
 ## Inference Options
@@ -122,6 +151,12 @@ sleap-nn predict EXPORT_DIR VIDEO [options]
 | `-r`, `--runtime` | Inference runtime | `auto`, `onnx`, `tensorrt` | `auto` |
 | `-b`, `--batch-size` | Batch size | `INT` | `4` |
 | `-n`, `--n-frames` | Frames to process (0=all) | `INT` | `0` |
+| `--centroid-output` | Standalone-centroid output representation | `instance`, `centroid`, `both` | `instance` |
+
+!!! tip "Running unexported checkpoints"
+    To run inference on a trained checkpoint directory (not an exported
+    ONNX/TensorRT model), prefer the unified [`sleap-nn infer`](inference.md)
+    entry point. `sleap-nn predict` here runs an **exported** model directory.
 
 ### Examples
 
@@ -191,7 +226,7 @@ exports/my_model/
 - **TensorRT engines are GPU-specific** - Regenerate for different hardware
 - **Fixed image size** - Height/width set at export time
 - **Bottom-up grouping on CPU** - PAF matching can't be GPU-accelerated
-- **No standalone centroid/instance** - Use combined top-down or Python API
+- **No standalone centered-instance** - Export a combined top-down bundle (a standalone *centroid* model exports fine — see [Standalone Centroid](#standalone-centroid))
 
 ---
 

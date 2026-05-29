@@ -13,6 +13,7 @@ from sleap_nn.config_generator.analyzer import DatasetStats, ViewType
 PipelineType = Literal[
     "single_instance",
     "centroid",
+    "centroid_only",
     "centered_instance",
     "bottomup",
     "multi_class_bottomup",
@@ -120,6 +121,23 @@ def recommend_pipeline(stats: DatasetStats) -> PipelineRecommendation:
             requires_second_model=False,
         )
 
+    # Multi-instance with a single-node skeleton: there are no keypoints to
+    # crop-and-refine, so the only meaningful detection target is the centroid
+    # itself. Recommend a STANDALONE centroid model (one config, no second
+    # centered-instance stage) rather than the paired top-down bundle.
+    if stats.num_nodes == 1:
+        single_node_alternatives: List[PipelineType] = ["bottomup"]
+        if stats.has_identity:
+            single_node_alternatives.append("multi_class_bottomup")
+        return PipelineRecommendation(
+            recommended="centroid_only",
+            reason="Single-node skeleton - a standalone centroid model detects "
+            "the one point per animal directly (no second model needed)",
+            alternatives=single_node_alternatives,
+            warnings=[],
+            requires_second_model=False,
+        )
+
     # Multi-instance: small animals -> top-down
     if stats.animal_to_frame_ratio < 0.20:
         # Small animals - recommend top-down
@@ -196,7 +214,9 @@ def _recommend_sigma(stats: DatasetStats, pipeline: PipelineType) -> Tuple[float
     Returns:
         Tuple of (sigma, reason).
     """
-    if pipeline == "bottomup":
+    if pipeline == "centroid_only":
+        return (2.5, "Tighter sigma for precise standalone centroid localization")
+    elif pipeline == "bottomup":
         return (2.5, "Tighter sigma for multi-instance disambiguation")
     elif stats.max_bbox_size < 50:
         return (2.5, "Small animals need precise localization")

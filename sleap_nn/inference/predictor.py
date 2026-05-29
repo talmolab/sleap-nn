@@ -737,6 +737,7 @@ class Predictor:
         min_instance_peaks: float = 0,
         min_line_scores: float = 0.25,
         peak_conf_threshold: Optional[float] = None,
+        emit_centroid: str = "instance",
     ) -> "Predictor":
         """Build a :class:`Predictor` from an exported ONNX/TensorRT directory.
 
@@ -759,6 +760,12 @@ class Predictor:
                 threshold baked at export time (``metadata.peak_threshold``).
                 Note the wrapper already bakes a peak threshold during peak
                 finding, so this can only *tighten* beyond the baked value.
+            emit_centroid: Centroid-only output representation for an exported
+                standalone centroid model: ``"instance"`` (default; single-node
+                ``PredictedInstance``, frontend-compatible), ``"centroid"``
+                (``sio.PredictedCentroid``), or ``"both"``. Honored only for
+                ``ExportedCentroidLayer``; mirrors ``from_model_paths`` so the
+                exported runtime matches the checkpoint path.
         """
         from sleap_nn.export.metadata import ExportMetadata
 
@@ -801,6 +808,7 @@ class Predictor:
             "paf_workers": paf_workers,
             "model_paths": [str(export_dir)],
             "device": device,
+            "emit_centroid": emit_centroid,
         }
         if filter_config is not None:
             kwargs["filter_config"] = filter_config

@@ -140,6 +140,18 @@ def export(
     model_types = [resolve_model_type(cfg) for cfg in cfgs]
     backbone_types = [resolve_backbone_type(cfg) for cfg in cfgs]
 
+    # A standalone centroid model is exported from a SINGLE directory; passing two
+    # centroid dirs is almost always a mistake (the user likely meant centroid +
+    # centered_instance for a top-down bundle). Catch it with a clear message
+    # rather than letting it fall through to the generic combination error.
+    if len(model_paths) == 2 and all(mt == "centroid" for mt in model_types):
+        raise click.ClickException(
+            "Received two centroid model directories. A standalone centroid model "
+            "is exported from a single directory; a top-down bundle pairs a centroid "
+            "directory with a centered_instance (or multi_class_topdown) directory. "
+            "Pass one centroid directory for a standalone centroid export."
+        )
+
     if len(model_paths) == 1:
         model_path = model_paths[0]
         cfg = cfgs[0]
@@ -919,6 +931,17 @@ def export(
     "When > 0, inference and PAF grouping run in a producer-consumer pipeline. "
     "0 = sequential (legacy) mode.",
 )
+@click.option(
+    "--centroid-output",
+    "--centroid_output",
+    "centroid_output",
+    type=click.Choice(["instance", "centroid", "both"], case_sensitive=False),
+    default="instance",
+    show_default=True,
+    help="Output representation for a standalone centroid model: 'instance' "
+    "(single-node PredictedInstance, frontend-compatible), 'centroid' "
+    "(sio.PredictedCentroid), or 'both'. Ignored for non-centroid models.",
+)
 def predict(
     export_dir: Path,
     video_path: Path,
@@ -935,6 +958,7 @@ def predict(
     peak_conf_threshold: float,
     max_instances: Optional[int],
     cpu_workers: int,
+    centroid_output: str,
 ) -> None:
     """Run inference on exported models and save predictions to SLP.
 
@@ -1041,6 +1065,7 @@ def predict(
             min_instance_peaks=min_instance_peaks,
             min_line_scores=min_line_scores,
             paf_workers=cpu_workers,
+            emit_centroid=centroid_output.lower(),
         )
     except (FileNotFoundError, ValueError) as e:
         raise click.ClickException(str(e))

@@ -1,136 +1,220 @@
 # Centroid-only inference
 
 Run a trained centroid model standalone — without a paired centered-instance
-model — and save the predicted centroids to a `.slp` file. Useful when you
-only need instance localization (no pose), or as a quick sanity check on a
-centroid model in isolation.
+model — and save the predicted centroids to a `.slp` file. This is a
+first-class single-stage pipeline ("animals as points"): use it when you only
+need instance localization, tracking, or counting (no per-keypoint pose), or
+as a quick sanity check on a centroid model in isolation.
 
-## Quick start
+A standalone centroid model is trained exactly like any other head — see the
+[`config_centroid_unet_standalone.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_centroid_unet_standalone.yaml)
+sample. Training is node-count-agnostic: a single-node skeleton works directly,
+and a multi-node skeleton works too (its centroids collapse to a single point
+at inference).
 
-### CLI
+## Output representation contract
 
-```bash
-# Auto-detected: single centroid model_path → centroid-only output.
-sleap-nn infer video.mp4 \
-    --model_paths models/centroid/ \
-    --output_path centroids.slp
+The predicted `.slp` uses a **single-node `'centroid'` skeleton**
+(`sio.get_centroid_skeleton()`) — *not* the full training skeleton NaN-padded
+at every non-anchor node. Each detection is one point.
 
-# Explicit override: both models configured, but only want centroids.
-sleap-nn infer video.mp4 \
-    --model_paths models/centroid/ \
-    --model_paths models/centered_instance/ \
-    --centroid-only \
-    --output_path centroids.slp
-```
-
-### Python
-
-```python
-from sleap_nn.inference import Predictor
-
-# Auto-detect.
-predictor = Predictor.from_model_paths(["models/centroid/"])
-labels = predictor.predict("video.mp4")
-labels.save("centroids.slp")
-
-# Explicit override on a two-model setup.
-predictor = Predictor.from_model_paths(
-    ["models/centroid/", "models/centered_instance/"],
-    centroid_only=True,
-)
-```
-
-## Output structure: anchor node + NaN padding
-
-The output `.slp` uses the **full skeleton** from training (every node
-position is present in every `PredictedInstance`), but only the anchor node
-slot is populated:
-
-- **Anchor node** (configured `anchor_part`, or node 0 if unset): receives
-  the predicted centroid coordinate. The per-keypoint score equals the
-  centroid confidence value.
-- **Every other node**: NaN for both coordinates and scores.
-- **Per-instance score** (`PredictedInstance.score`): centroid confidence.
-
-This packaging plugs into every standard `.slp` consumer (sleap-io readers,
-metrics, viewers) — NaN is the natural "not predicted" marker and downstream
-tools degrade gracefully.
+- When the model was trained on a **multi-node** skeleton, inference
+  automatically collapses the output to the 1-node `'centroid'` skeleton
+  (`Predictor._resolve_centroid_packaging` engages when the head is a
+  centroid layer and the training skeleton has more than one node).
+- By **default** each detection is a single-node `PredictedInstance` on the
+  `'centroid'` skeleton, with the centroid confidence as both the per-node and
+  per-instance score. This is loadable by the current SLEAP frontend with no
+  changes.
 
 ```python
 import sleap_io as sio
-import numpy as np
 
 labels = sio.load_slp("centroids.slp")
+assert [n.name for n in labels.skeletons[0].nodes] == ["centroid"]
 for frame in labels:
     for inst in frame.instances:
-        pts = inst.numpy()                  # (n_nodes, 2)
-        anchor_xy = pts[0]                  # anchor node — populated
-        rest = pts[1:]                      # all other nodes — NaN
-        assert np.all(np.isnan(rest))
+        (x, y) = inst.numpy()[0]   # the centroid point
 ```
 
-## Anchor-node convention
+### Opt-in `sio.PredictedCentroid` emission
 
-The anchor node is resolved in this priority order, falling back gracefully:
+If you prefer the dedicated centroid object over a single-node instance, opt in
+with `--centroid-output` (CLI) / `emit_centroid` (Python). The choices are:
 
-1. **`anchor_part`** in `training_config.yaml` (model head config).
-2. **Node 0** if `anchor_part` is unset (documented default).
+| Value | Output |
+|-------|--------|
+| `instance` (default) | Single-node `PredictedInstance` on the `'centroid'` skeleton. Frontend-compatible. |
+| `centroid` | `sio.PredictedCentroid` in `LabeledFrame.centroids` (carries an instance-level score and a `source` tag). |
+| `both` | Both representations. |
 
-Note that the *centroid value itself* — the (x, y) that the model is trained
-to predict and that comes out at inference — uses a separate fallback when
-`anchor_part` is unset: the **NaN-ignoring mean of all visible nodes** in
-each instance (see [`generate_centroids`](../reference/sleap_nn/data/instance_centroids.md)).
+The `source` tag on a `PredictedCentroid` mirrors the trained target's meaning
+(see the [anchor convention](#anchor-node-convention-586) below): an explicit
+anchor records `"anchor:<node>"`; no anchor records `"center_of_mass"`.
+
+## End-to-end workflow
+
+### 1. Train
+
+Train a standalone centroid head (full-resolution, no cropping). Start from the
+[standalone sample config](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_centroid_unet_standalone.yaml)
+or generate one (`sleap-nn config --pipeline centroid ...`):
+
+```bash
+sleap-nn train --config-name config_centroid_unet_standalone.yaml
+```
+
+### 2. Infer
+
+`sleap-nn infer` auto-detects a centroid-only model when `--model_paths` points
+to a single centroid directory. `--centroid_only` is only needed when you also
+pass a centered-instance model but want centroid-only output.
+
+```bash
+# Auto-detected: a lone centroid model directory → centroid-only output.
+sleap-nn infer \
+    -i video.mp4 \
+    -m models/centroid/ \
+    -o centroids.slp
+
+# Emit sio.PredictedCentroid objects instead of single-node instances.
+sleap-nn infer \
+    -i video.mp4 \
+    -m models/centroid/ \
+    -o centroids.slp \
+    --centroid-output centroid
+
+# Explicit override: both models configured, but only want centroids.
+sleap-nn infer \
+    -i video.mp4 \
+    -m models/centroid/ \
+    -m models/centered_instance/ \
+    --centroid_only \
+    -o centroids.slp
+```
+
+```python
+from sleap_nn.inference.run import predict
+
+# Auto-detect a lone centroid directory.
+labels = predict(
+    data_path="video.mp4",
+    model_paths=["models/centroid/"],
+    output_path="centroids.slp",
+)
+
+# Explicit override on a two-model setup, emitting PredictedCentroid objects.
+labels = predict(
+    data_path="video.mp4",
+    model_paths=["models/centroid/", "models/centered_instance/"],
+    centroid_only=True,
+    emit_centroid="centroid",
+)
+```
+
+### 3. Evaluate
+
+Use distance-based matching for centroids — OKS is degenerate for a single
+point (it needs the full keypoint set and per-node scales). `--match_method
+auto` already selects centroid matching when the prediction skeleton is
+single-node, but you can request it explicitly:
+
+```bash
+sleap-nn eval \
+    -g labels.gt.slp \
+    -p centroids.slp \
+    --match_method centroid
+```
+
+Ground-truth centroids are computed with `generate_centroids` — the configured
+`--anchor_part` if given, otherwise the NaN-ignoring mean of visible nodes
+(#586). This is the same definition used to build training targets, so GT and
+predictions agree.
+
+### 4. Export and run exported inference
+
+Standalone centroid export works end-to-end (ONNX and TensorRT). Export a
+single centroid directory, then run the exported model with the same output
+representation choices:
+
+```bash
+# Export a standalone centroid model.
+sleap-nn export models/centroid -o exports/centroid --format onnx
+
+# Run the exported model. --centroid-output mirrors the checkpoint flow.
+sleap-nn predict exports/centroid video.mp4 -o centroids.slp \
+    --centroid-output instance
+```
+
+```python
+from sleap_nn.inference.predictor import Predictor
+
+predictor = Predictor.from_export_dir(
+    "exports/centroid",
+    runtime="onnx",
+    device="cpu",
+    emit_centroid="centroid",
+)
+labels = predictor.predict("video.mp4")
+```
+
+The exported runtime reads the full training skeleton from
+`training_config.yaml` and applies the same collapse, so the output is
+bit-for-bit identical to the checkpoint path. See the
+[Export guide](export.md#standalone-centroid) for details.
+
+## Anchor-node convention (#586)
+
+The centroid's *meaning* is defined by
+[`generate_centroids`](../reference/sleap_nn/data/instance_centroids.md) — the
+same function used for training-target generation and GT-centroid evaluation:
+
+1. **`anchor_part`** in `training_config.yaml` (the centroid head config): the
+   centroid is that node when visible.
+2. **`anchor_part` unset** (recommended for a 1-node skeleton, where the sole
+   node *is* the centroid): the centroid is the **NaN-ignoring mean of all
+   visible nodes** in each instance.
+
 This is project-wide convention as of v0.3 — earlier versions used the
-**bounding-box midpoint**, which differs on asymmetric instances (long
-tails, sprawled limbs).
-
-If you trained a centroid model on the old bbox-midpoint convention, the GT
-centroid targets for partial instances shift slightly. Re-training is
-recommended if `anchor_part` was unset in your training config; otherwise
-behavior is unchanged.
+**bounding-box midpoint**, which differs on asymmetric instances (long tails,
+sprawled limbs). If you trained a centroid model on the old bbox-midpoint
+convention with `anchor_part` unset, the GT centroid targets for partial
+instances shift slightly; re-training is recommended.
 
 ## Interaction with filtering, tracking, and metrics
 
 ### Filtering
 
-All `FilterConfig` knobs apply to centroid-only outputs:
+`FilterConfig` knobs apply to centroid-only outputs:
 
 - **`min_instance_score`**: filters on the centroid confidence value.
-- **`min_visible_nodes` / `min_visible_node_fraction`**: use with caution —
-  centroid-only outputs always have `n_nodes - 1` NaN nodes per instance,
-  so a threshold > 1 will drop every instance.
-- **`overlapping` with `overlapping_method="iou"`**: works; bbox-IoU on
-  point centroids is effectively an exact-duplicate filter.
-- **`overlapping` with `overlapping_method="oks"`**: emits a
-  `UserWarning` and falls back to IoU. OKS needs keypoints, which are
-  NaN in centroid-only outputs.
+- **`min_visible_nodes` / `min_visible_node_fraction`**: a single-node
+  detection has exactly one visible node, so keep any threshold `<= 1`.
+- **`overlapping` with `overlapping_method="oks"`**: emits a `UserWarning` and
+  falls back to IoU. OKS needs the full keypoint set, which a centroid lacks.
 
 ### Tracking
 
-Use `features="centroids"` and a centroid-compatible scoring method
-(`scoring_method="euclidean_dist"` is the natural choice):
+Use `features="centroids"`. For a single-node skeleton the scoring method
+auto-resolves to `euclidean_dist` (pixel distance between centroids); OKS /
+keypoint scoring is degenerate on a single point
+(`sleap_nn/inference/tracking.py`).
 
 ```python
 from sleap_nn.inference.tracking import TrackerConfig
 
 tracker_config = TrackerConfig(
     features="centroids",
+    # scoring_method auto-resolves to "euclidean_dist" for single-node;
+    # set it explicitly if you want to be sure.
     scoring_method="euclidean_dist",
     window_size=5,
     track_matching_method="hungarian",
 )
-
-predictor = Predictor.from_model_paths(
-    ["models/centroid/"],
-    tracker_config=tracker_config,
-)
 ```
-
-`features="keypoints"` will technically run but only sees the anchor node;
-this is rarely what you want.
 
 ### Metrics
 
-Standard sleap-io metrics that expect full skeletons (OKS, PCK) will compute
-NaN for every non-anchor node. Centroid-centric metrics (instance count,
-centroid localization error) work as expected.
+Distance-based metrics (centroid localization error, instance count) work as
+expected. OKS/PCK expect the full keypoint set and are degenerate for points —
+use `--match_method centroid` (above) for evaluation.
