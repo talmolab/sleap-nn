@@ -8,13 +8,13 @@
       
       
       
-        <link rel="canonical" href="https://nn.sleap.ai/dev/api/data/augmentation/">
+        <link rel="canonical" href="https://nn.sleap.ai/dev/api/inference/centroid_convert/">
       
       
-        <link rel="prev" href="../">
+        <link rel="prev" href="../bottomup/">
       
       
-        <link rel="next" href="../confidence_maps/">
+        <link rel="next" href="../filters/">
       
       
         
@@ -25,7 +25,7 @@
     
     
       
-        <title>augmentation - sleap-nn documentation</title>
+        <title>centroid_convert - sleap-nn documentation</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sleap_nn.data.augmentation" class="md-skip">
+        <a href="#sleap_nn.inference.centroid_convert" class="md-skip">
           Skip to content
         </a>
       
@@ -119,7 +119,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              augmentation
+              centroid_convert
             
           </span>
         </div>
@@ -2917,8 +2917,6 @@
                 
   
   
-    
-  
   
   
     
@@ -2931,15 +2929,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_5" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_5" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../../data/" class="md-nav__link ">
               
   
   
@@ -2963,7 +2961,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_6_1_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2978,35 +2976,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    augmentation
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../data/augmentation/" class="md-nav__link">
         
   
   
@@ -3022,63 +2995,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#sleap_nn.data.augmentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        augmentation
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="augmentation">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#sleap_nn.data.augmentation.apply_geometric_augmentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        apply_geometric_augmentation
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sleap_nn.data.augmentation.apply_intensity_augmentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        apply_intensity_augmentation
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -3091,7 +3007,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../confidence_maps/" class="md-nav__link">
+      <a href="../../data/confidence_maps/" class="md-nav__link">
         
   
   
@@ -3119,7 +3035,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../custom_datasets/" class="md-nav__link">
+      <a href="../../data/custom_datasets/" class="md-nav__link">
         
   
   
@@ -3147,7 +3063,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../edge_maps/" class="md-nav__link">
+      <a href="../../data/edge_maps/" class="md-nav__link">
         
   
   
@@ -3175,7 +3091,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../identity/" class="md-nav__link">
+      <a href="../../data/identity/" class="md-nav__link">
         
   
   
@@ -3203,7 +3119,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../instance_centroids/" class="md-nav__link">
+      <a href="../../data/instance_centroids/" class="md-nav__link">
         
   
   
@@ -3231,7 +3147,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../instance_cropping/" class="md-nav__link">
+      <a href="../../data/instance_cropping/" class="md-nav__link">
         
   
   
@@ -3259,7 +3175,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../normalization/" class="md-nav__link">
+      <a href="../../data/normalization/" class="md-nav__link">
         
   
   
@@ -3287,7 +3203,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../providers/" class="md-nav__link">
+      <a href="../../data/providers/" class="md-nav__link">
         
   
   
@@ -3315,7 +3231,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../resizing/" class="md-nav__link">
+      <a href="../../data/resizing/" class="md-nav__link">
         
   
   
@@ -3343,7 +3259,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../skia_augmentation/" class="md-nav__link">
+      <a href="../../data/skia_augmentation/" class="md-nav__link">
         
   
   
@@ -3371,7 +3287,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../utils/" class="md-nav__link">
+      <a href="../../data/utils/" class="md-nav__link">
         
   
   
@@ -3997,8 +3913,10 @@
                 
   
   
+    
   
   
+  
     
     
     
@@ -4009,15 +3927,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_8" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_8" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../inference/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -4041,7 +3959,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_8_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_8_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_6_1_8">
             <span class="md-nav__icon md-icon"></span>
             
@@ -4059,7 +3977,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/bottomup/" class="md-nav__link">
+      <a href="../bottomup/" class="md-nav__link">
         
   
   
@@ -4084,10 +4002,35 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../inference/centroid_convert/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    centroid_convert
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -4103,6 +4046,63 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#sleap_nn.inference.centroid_convert" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        centroid_convert
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="centroid_convert">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sleap_nn.inference.centroid_convert.build_predicted_centroid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_predicted_centroid
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sleap_nn.inference.centroid_convert.centroid_source_for_anchor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        centroid_source_for_anchor
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -4115,7 +4115,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/filters/" class="md-nav__link">
+      <a href="../filters/" class="md-nav__link">
         
   
   
@@ -4143,7 +4143,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/identity/" class="md-nav__link">
+      <a href="../identity/" class="md-nav__link">
         
   
   
@@ -4188,7 +4188,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../inference/layers/" class="md-nav__link ">
+            <a href="../layers/" class="md-nav__link ">
               
   
   
@@ -4247,7 +4247,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../inference/layers/backends/" class="md-nav__link ">
+            <a href="../layers/backends/" class="md-nav__link ">
               
   
   
@@ -4289,7 +4289,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/backends/base/" class="md-nav__link">
+      <a href="../layers/backends/base/" class="md-nav__link">
         
   
   
@@ -4317,7 +4317,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/backends/onnx_backend/" class="md-nav__link">
+      <a href="../layers/backends/onnx_backend/" class="md-nav__link">
         
   
   
@@ -4345,7 +4345,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/backends/tensorrt_backend/" class="md-nav__link">
+      <a href="../layers/backends/tensorrt_backend/" class="md-nav__link">
         
   
   
@@ -4373,7 +4373,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/backends/torch_backend/" class="md-nav__link">
+      <a href="../layers/backends/torch_backend/" class="md-nav__link">
         
   
   
@@ -4409,7 +4409,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/base/" class="md-nav__link">
+      <a href="../layers/base/" class="md-nav__link">
         
   
   
@@ -4437,7 +4437,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/bottomup/" class="md-nav__link">
+      <a href="../layers/bottomup/" class="md-nav__link">
         
   
   
@@ -4465,7 +4465,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/bottomup_multiclass/" class="md-nav__link">
+      <a href="../layers/bottomup_multiclass/" class="md-nav__link">
         
   
   
@@ -4493,7 +4493,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/centered_instance/" class="md-nav__link">
+      <a href="../layers/centered_instance/" class="md-nav__link">
         
   
   
@@ -4521,7 +4521,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/centroid/" class="md-nav__link">
+      <a href="../layers/centroid/" class="md-nav__link">
         
   
   
@@ -4549,7 +4549,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/configs/" class="md-nav__link">
+      <a href="../layers/configs/" class="md-nav__link">
         
   
   
@@ -4577,7 +4577,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/exported/" class="md-nav__link">
+      <a href="../layers/exported/" class="md-nav__link">
         
   
   
@@ -4605,7 +4605,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/single_instance/" class="md-nav__link">
+      <a href="../layers/single_instance/" class="md-nav__link">
         
   
   
@@ -4633,7 +4633,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/topdown/" class="md-nav__link">
+      <a href="../layers/topdown/" class="md-nav__link">
         
   
   
@@ -4661,7 +4661,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/topdown_multiclass/" class="md-nav__link">
+      <a href="../layers/topdown_multiclass/" class="md-nav__link">
         
   
   
@@ -4697,7 +4697,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/loaders/" class="md-nav__link">
+      <a href="../loaders/" class="md-nav__link">
         
   
   
@@ -4742,7 +4742,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../inference/ops/" class="md-nav__link ">
+            <a href="../ops/" class="md-nav__link ">
               
   
   
@@ -4784,7 +4784,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/ops/coord/" class="md-nav__link">
+      <a href="../ops/coord/" class="md-nav__link">
         
   
   
@@ -4812,7 +4812,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/ops/crops/" class="md-nav__link">
+      <a href="../ops/crops/" class="md-nav__link">
         
   
   
@@ -4840,7 +4840,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/ops/filters/" class="md-nav__link">
+      <a href="../ops/filters/" class="md-nav__link">
         
   
   
@@ -4868,7 +4868,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/ops/identity/" class="md-nav__link">
+      <a href="../ops/identity/" class="md-nav__link">
         
   
   
@@ -4896,7 +4896,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/ops/paf/" class="md-nav__link">
+      <a href="../ops/paf/" class="md-nav__link">
         
   
   
@@ -4924,7 +4924,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/ops/peaks/" class="md-nav__link">
+      <a href="../ops/peaks/" class="md-nav__link">
         
   
   
@@ -4960,7 +4960,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/outputs/" class="md-nav__link">
+      <a href="../outputs/" class="md-nav__link">
         
   
   
@@ -4988,7 +4988,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/paf_grouping/" class="md-nav__link">
+      <a href="../paf_grouping/" class="md-nav__link">
         
   
   
@@ -5016,7 +5016,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/peak_finding/" class="md-nav__link">
+      <a href="../peak_finding/" class="md-nav__link">
         
   
   
@@ -5044,7 +5044,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/postprocessing/" class="md-nav__link">
+      <a href="../postprocessing/" class="md-nav__link">
         
   
   
@@ -5072,7 +5072,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/predictor/" class="md-nav__link">
+      <a href="../predictor/" class="md-nav__link">
         
   
   
@@ -5100,7 +5100,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/predictors/" class="md-nav__link">
+      <a href="../predictors/" class="md-nav__link">
         
   
   
@@ -5128,7 +5128,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/preprocess_info/" class="md-nav__link">
+      <a href="../preprocess_info/" class="md-nav__link">
         
   
   
@@ -5156,7 +5156,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/provenance/" class="md-nav__link">
+      <a href="../provenance/" class="md-nav__link">
         
   
   
@@ -5184,7 +5184,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/providers/" class="md-nav__link">
+      <a href="../providers/" class="md-nav__link">
         
   
   
@@ -5212,7 +5212,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/run/" class="md-nav__link">
+      <a href="../run/" class="md-nav__link">
         
   
   
@@ -5240,7 +5240,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/single_instance/" class="md-nav__link">
+      <a href="../single_instance/" class="md-nav__link">
         
   
   
@@ -5268,7 +5268,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/streaming/" class="md-nav__link">
+      <a href="../streaming/" class="md-nav__link">
         
   
   
@@ -5296,7 +5296,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/topdown/" class="md-nav__link">
+      <a href="../topdown/" class="md-nav__link">
         
   
   
@@ -5324,7 +5324,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/tracking/" class="md-nav__link">
+      <a href="../tracking/" class="md-nav__link">
         
   
   
@@ -5352,7 +5352,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/utils/" class="md-nav__link">
+      <a href="../utils/" class="md-nav__link">
         
   
   
@@ -5380,7 +5380,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/writer/" class="md-nav__link">
+      <a href="../writer/" class="md-nav__link">
         
   
   
@@ -6152,22 +6152,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#sleap_nn.data.augmentation" class="md-nav__link">
+  <a href="#sleap_nn.inference.centroid_convert" class="md-nav__link">
     <span class="md-ellipsis">
       
-        augmentation
+        centroid_convert
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="augmentation">
+    <nav class="md-nav" aria-label="centroid_convert">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#sleap_nn.data.augmentation.apply_geometric_augmentation" class="md-nav__link">
+  <a href="#sleap_nn.inference.centroid_convert.build_predicted_centroid" class="md-nav__link">
     <span class="md-ellipsis">
       
-        apply_geometric_augmentation
+        build_predicted_centroid
       
     </span>
   </a>
@@ -6175,10 +6175,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#sleap_nn.data.augmentation.apply_intensity_augmentation" class="md-nav__link">
+  <a href="#sleap_nn.inference.centroid_convert.centroid_source_for_anchor" class="md-nav__link">
     <span class="md-ellipsis">
       
-        apply_intensity_augmentation
+        centroid_source_for_anchor
       
     </span>
   </a>
@@ -6210,22 +6210,39 @@
   
 
 
-  <h1>augmentation</h1>
+  <h1>centroid_convert</h1>
 
 <div class="doc doc-object doc-module">
 
 
 
-<h2 id="sleap_nn.data.augmentation" class="doc doc-heading">
-            <code>sleap_nn.data.augmentation</code>
+<h2 id="sleap_nn.inference.centroid_convert" class="doc doc-heading">
+            <code>sleap_nn.inference.centroid_convert</code>
 
 
-<a href="#sleap_nn.data.augmentation" class="headerlink" title="Permanent link">&para;</a></h2>
+<a href="#sleap_nn.inference.centroid_convert" class="headerlink" title="Permanent link">&para;</a></h2>
 
     <div class="doc doc-contents first">
 
-        <p>This module implements data pipeline blocks for augmentation operations.</p>
-<p>Uses Skia (skia-python) for ~1.5x faster augmentation compared to Kornia.</p>
+        <p>Conversion helpers for centroid-only output representation.</p>
+<p>Single place that owns the mapping between sleap-nn's centroid predictions
+and <code>sleap_io</code> objects, so the representation (single-node <code>PredictedInstance</code>
+vs <code>sio.PredictedCentroid</code>) and the <code>source</code> tag stay consistent across
+<code>outputs.py</code> / <code>predictor.py</code> / <code>writer.py</code>.</p>
+<p><strong>#586 consistency.</strong> The centroid's <em>meaning</em> is defined by
+<code>sleap_nn/data/instance_centroids.py::generate_centroids</code> (shared by training
+target generation AND GT-centroid inference). Its fallback when the configured
+anchor is missing/occluded is the NaN-ignoring mean of visible nodes
+(<code>find_points_mean</code>). The <code>source</code> tag we record mirrors that and the
+<code>sio.Centroid.from_instance(method=...)</code> vocabulary:</p>
+<ul>
+<li>an explicit, configured anchor node  -&gt; <code>"anchor:&lt;node&gt;"</code></li>
+<li>no anchor configured (mean-of-visible) -&gt; <code>"center_of_mass"</code></li>
+<li>(reserved) bbox-midpoint fallback      -&gt; <code>"bbox_center"</code></li>
+</ul>
+<p>so the recorded metadata never contradicts the trained target. If #586 later
+makes the fallback config-selectable, extend <code>centroid_source_for_anchor</code> in
+lockstep with <code>generate_centroids</code>.</p>
 
 
 
@@ -6248,18 +6265,18 @@
       </thead>
       <tbody>
             <tr class="doc-section-item">
-              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;apply_geometric_augmentation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;image&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;instances&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;rotation_min&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=-&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;15.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;rotation_max&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;15.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;rotation_p&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;scale_min&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.9&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;scale_max&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;1.1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;scale_p&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;translate_width&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.02&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;translate_height&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.02&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;translate_p&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;affine_p&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;erase_scale_min&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.0001&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;erase_scale_max&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.01&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;erase_ratio_min&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;erase_ratio_max&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;erase_p&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;mixup_lambda_min&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.01&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;mixup_lambda_max&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.05&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;mixup_p&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.data.augmentation.apply_geometric_augmentation&lt;/code&gt;)" href="#sleap_nn.data.augmentation.apply_geometric_augmentation">apply_geometric_augmentation</a></code></td>
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;build_predicted_centroid&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;y&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;score&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;track&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;tracking_score&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;source&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;CENTER_OF_MASS&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.inference.centroid_convert.build_predicted_centroid&lt;/code&gt;)" href="#sleap_nn.inference.centroid_convert.build_predicted_centroid">build_predicted_centroid</a></code></td>
               <td>
                 <div class="doc-md-description">
-                  <p>Apply geometric augmentation on image and instances.</p>
+                  <p>Construct a <code>sio.PredictedCentroid</code> from a predicted centroid peak.</p>
                 </div>
               </td>
             </tr>
             <tr class="doc-section-item">
-              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;apply_intensity_augmentation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;image&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;instances&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;uniform_noise_min&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;uniform_noise_max&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.04&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;uniform_noise_p&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;gaussian_noise_mean&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;gaussian_noise_std&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.02&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;gaussian_noise_p&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;contrast_min&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.9&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;contrast_max&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;1.1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;contrast_p&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;brightness_min&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.9&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;brightness_max&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;1.1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;brightness_p&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.data.augmentation.apply_intensity_augmentation&lt;/code&gt;)" href="#sleap_nn.data.augmentation.apply_intensity_augmentation">apply_intensity_augmentation</a></code></td>
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;centroid_source_for_anchor&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;anchor_ind&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;node_names&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.inference.centroid_convert.centroid_source_for_anchor&lt;/code&gt;)" href="#sleap_nn.inference.centroid_convert.centroid_source_for_anchor">centroid_source_for_anchor</a></code></td>
               <td>
                 <div class="doc-md-description">
-                  <p>Apply intensity augmentation on image and instances.</p>
+                  <p>Return the <code>sio.Centroid.source</code> tag for a centroid model.</p>
                 </div>
               </td>
             </tr>
@@ -6284,15 +6301,15 @@
 <div class="doc doc-object doc-function">
 
 
-<h3 id="sleap_nn.data.augmentation.apply_geometric_augmentation" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">apply_geometric_augmentation</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">instances</span><span class="p">,</span> <span class="n">rotation_min</span><span class="o">=-</span><span class="mf">15.0</span><span class="p">,</span> <span class="n">rotation_max</span><span class="o">=</span><span class="mf">15.0</span><span class="p">,</span> <span class="n">rotation_p</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">scale_min</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">scale_max</span><span class="o">=</span><span class="mf">1.1</span><span class="p">,</span> <span class="n">scale_p</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">translate_width</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span> <span class="n">translate_height</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span> <span class="n">translate_p</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">affine_p</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">erase_scale_min</span><span class="o">=</span><span class="mf">0.0001</span><span class="p">,</span> <span class="n">erase_scale_max</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span> <span class="n">erase_ratio_min</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">erase_ratio_max</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">erase_p</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">mixup_lambda_min</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span> <span class="n">mixup_lambda_max</span><span class="o">=</span><span class="mf">0.05</span><span class="p">,</span> <span class="n">mixup_p</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span></code>
+<h3 id="sleap_nn.inference.centroid_convert.build_predicted_centroid" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">build_predicted_centroid</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">score</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">track</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">tracking_score</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">source</span><span class="o">=</span><span class="n">CENTER_OF_MASS</span><span class="p">)</span></code>
 
-<a href="#sleap_nn.data.augmentation.apply_geometric_augmentation" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#sleap_nn.inference.centroid_convert.build_predicted_centroid" class="headerlink" title="Permanent link">&para;</a></h3>
 
 
     <div class="doc doc-contents ">
 
-        <p>Apply geometric augmentation on image and instances.</p>
+        <p>Construct a <code>sio.PredictedCentroid</code> from a predicted centroid peak.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -6308,14 +6325,14 @@
       <tbody>
           <tr class="doc-section-item">
             <td>
-                <code>image</code>
+                <code>x</code>
             </td>
             <td>
-                  <code><span title="torch.Tensor">Tensor</span></code>
+                  <code><span title="float">float</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Input image. Shape: (n_samples, C, H, W)</p>
+                <p>Centroid x-coordinate in original-image pixels.</p>
               </div>
             </td>
             <td>
@@ -6324,14 +6341,14 @@
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>instances</code>
+                <code>y</code>
             </td>
             <td>
-                  <code><span title="torch.Tensor">Tensor</span></code>
+                  <code><span title="float">float</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Input keypoints. (n_samples, n_instances, n_nodes, 2) or (n_samples, n_nodes, 2)</p>
+                <p>Centroid y-coordinate in original-image pixels.</p>
               </div>
             </td>
             <td>
@@ -6340,47 +6357,30 @@
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>rotation_min</code>
+                <code>score</code>
             </td>
             <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
+                  <code><span title="float">float</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Minimum rotation angle in degrees. Default: -15.0.</p>
+                <p>Per-instance confidence (the centroid peak value).</p>
               </div>
             </td>
             <td>
-                  <code>-15.0</code>
+                <em>required</em>
             </td>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>rotation_max</code>
+                <code>track</code>
             </td>
             <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Maximum rotation angle in degrees. Default: 15.0.</p>
-              </div>
-            </td>
-            <td>
-                  <code>15.0</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>rotation_p</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
+                  <code><span title="typing.Optional">Optional</span>[&#39;sio.Track&#39;]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Probability of applying random rotation independently. If None,
-falls back to affine_p for bundled behavior. Default: None.</p>
+                <p>Optional <code>sio.Track</code> assignment.</p>
               </div>
             </td>
             <td>
@@ -6389,47 +6389,14 @@ falls back to affine_p for bundled behavior. Default: None.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>scale_min</code>
+                <code>tracking_score</code>
             </td>
             <td>
                   <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Minimum scaling factor for isotropic scaling. Default: 0.9.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.9</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>scale_max</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Maximum scaling factor for isotropic scaling. Default: 1.1.</p>
-              </div>
-            </td>
-            <td>
-                  <code>1.1</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>scale_p</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Probability of applying random scaling independently. If None,
-falls back to affine_p for bundled behavior. Default: None.</p>
+                <p>Optional per-instance tracking score.</p>
               </div>
             </td>
             <td>
@@ -6438,196 +6405,18 @@ falls back to affine_p for bundled behavior. Default: None.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>translate_width</code>
+                <code>source</code>
             </td>
             <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Maximum absolute fraction for horizontal translation. Default: 0.02.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.02</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>translate_height</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
+                  <code><span title="str">str</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Maximum absolute fraction for vertical translation. Default: 0.02.</p>
+                <p>The <code>source</code> method tag (see :func:<code>centroid_source_for_anchor</code>).</p>
               </div>
             </td>
             <td>
-                  <code>0.02</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>translate_p</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Probability of applying random translation independently. If None,
-falls back to affine_p for bundled behavior. Default: None.</p>
-              </div>
-            </td>
-            <td>
-                  <code>None</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>affine_p</code>
-            </td>
-            <td>
-                  <code><span title="float">float</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Probability of applying random affine transformations (rotation, scale,
-translate bundled). Used when individual *_p params are None. Default: 0.0.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.0</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>erase_scale_min</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Minimum value of range of proportion of erased area against input image. Default: 0.0001.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.0001</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>erase_scale_max</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Maximum value of range of proportion of erased area against input image. Default: 0.01.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.01</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>erase_ratio_min</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Minimum value of range of aspect ratio of erased area. Default: 1.</p>
-              </div>
-            </td>
-            <td>
-                  <code>1</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>erase_ratio_max</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Maximum value of range of aspect ratio of erased area. Default: 1.</p>
-              </div>
-            </td>
-            <td>
-                  <code>1</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>erase_p</code>
-            </td>
-            <td>
-                  <code><span title="float">float</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Probability of applying random erase. Default: 0.0.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.0</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>mixup_lambda_min</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Minimum mixup strength value. Default: 0.01.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.01</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>mixup_lambda_max</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Maximum mixup strength value. Default: 0.05.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.05</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>mixup_p</code>
-            </td>
-            <td>
-                  <code><span title="float">float</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Probability of applying random mixup v2. Default: 0.0.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.0</code>
+                  <code><span title="sleap_nn.inference.centroid_convert.CENTER_OF_MASS">CENTER_OF_MASS</span></code>
             </td>
           </tr>
       </tbody>
@@ -6645,11 +6434,13 @@ translate bundled). Used when individual *_p params are None. Default: 0.0.</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                  <code><span title="typing.Tuple">Tuple</span>[<span title="torch.Tensor">Tensor</span>, <span title="torch.Tensor">Tensor</span>]</code>
+                  <code>&#39;sio.PredictedCentroid&#39;</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Returns tuple: (image, instances) with augmentation applied.</p>
+                <p>A <code>sio.PredictedCentroid</code>. <code>PredictedCentroid</code> carries only an
+instance-level <code>score</code> (no per-node slot), per the representation
+contract.</p>
               </div>
             </td>
           </tr>
@@ -6658,8 +6449,9 @@ translate bundled). Used when individual *_p params are None. Default: 0.0.</p>
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>sleap_nn/data/augmentation.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-70"> 70</a></span>
+              <summary>Source code in <code>sleap_nn/inference/centroid_convert.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-69"> 69</a></span>
+<span class="normal"><a href="#__codelineno-0-70"> 70</a></span>
 <span class="normal"><a href="#__codelineno-0-71"> 71</a></span>
 <span class="normal"><a href="#__codelineno-0-72"> 72</a></span>
 <span class="normal"><a href="#__codelineno-0-73"> 73</a></span>
@@ -6695,119 +6487,44 @@ translate bundled). Used when individual *_p params are None. Default: 0.0.</p>
 <span class="normal"><a href="#__codelineno-0-103">103</a></span>
 <span class="normal"><a href="#__codelineno-0-104">104</a></span>
 <span class="normal"><a href="#__codelineno-0-105">105</a></span>
-<span class="normal"><a href="#__codelineno-0-106">106</a></span>
-<span class="normal"><a href="#__codelineno-0-107">107</a></span>
-<span class="normal"><a href="#__codelineno-0-108">108</a></span>
-<span class="normal"><a href="#__codelineno-0-109">109</a></span>
-<span class="normal"><a href="#__codelineno-0-110">110</a></span>
-<span class="normal"><a href="#__codelineno-0-111">111</a></span>
-<span class="normal"><a href="#__codelineno-0-112">112</a></span>
-<span class="normal"><a href="#__codelineno-0-113">113</a></span>
-<span class="normal"><a href="#__codelineno-0-114">114</a></span>
-<span class="normal"><a href="#__codelineno-0-115">115</a></span>
-<span class="normal"><a href="#__codelineno-0-116">116</a></span>
-<span class="normal"><a href="#__codelineno-0-117">117</a></span>
-<span class="normal"><a href="#__codelineno-0-118">118</a></span>
-<span class="normal"><a href="#__codelineno-0-119">119</a></span>
-<span class="normal"><a href="#__codelineno-0-120">120</a></span>
-<span class="normal"><a href="#__codelineno-0-121">121</a></span>
-<span class="normal"><a href="#__codelineno-0-122">122</a></span>
-<span class="normal"><a href="#__codelineno-0-123">123</a></span>
-<span class="normal"><a href="#__codelineno-0-124">124</a></span>
-<span class="normal"><a href="#__codelineno-0-125">125</a></span>
-<span class="normal"><a href="#__codelineno-0-126">126</a></span>
-<span class="normal"><a href="#__codelineno-0-127">127</a></span>
-<span class="normal"><a href="#__codelineno-0-128">128</a></span>
-<span class="normal"><a href="#__codelineno-0-129">129</a></span>
-<span class="normal"><a href="#__codelineno-0-130">130</a></span>
-<span class="normal"><a href="#__codelineno-0-131">131</a></span>
-<span class="normal"><a href="#__codelineno-0-132">132</a></span>
-<span class="normal"><a href="#__codelineno-0-133">133</a></span>
-<span class="normal"><a href="#__codelineno-0-134">134</a></span>
-<span class="normal"><a href="#__codelineno-0-135">135</a></span>
-<span class="normal"><a href="#__codelineno-0-136">136</a></span>
-<span class="normal"><a href="#__codelineno-0-137">137</a></span>
-<span class="normal"><a href="#__codelineno-0-138">138</a></span>
-<span class="normal"><a href="#__codelineno-0-139">139</a></span>
-<span class="normal"><a href="#__codelineno-0-140">140</a></span>
-<span class="normal"><a href="#__codelineno-0-141">141</a></span>
-<span class="normal"><a href="#__codelineno-0-142">142</a></span>
-<span class="normal"><a href="#__codelineno-0-143">143</a></span>
-<span class="normal"><a href="#__codelineno-0-144">144</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-70"><a id="__codelineno-0-70" name="__codelineno-0-70"></a><span class="k">def</span><span class="w"> </span><span class="nf">apply_geometric_augmentation</span><span class="p">(</span>
-</span><span id="__span-0-71"><a id="__codelineno-0-71" name="__codelineno-0-71"></a>    <span class="n">image</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
-</span><span id="__span-0-72"><a id="__codelineno-0-72" name="__codelineno-0-72"></a>    <span class="n">instances</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
-</span><span id="__span-0-73"><a id="__codelineno-0-73" name="__codelineno-0-73"></a>    <span class="n">rotation_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="mf">15.0</span><span class="p">,</span>
-</span><span id="__span-0-74"><a id="__codelineno-0-74" name="__codelineno-0-74"></a>    <span class="n">rotation_max</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">15.0</span><span class="p">,</span>
-</span><span id="__span-0-75"><a id="__codelineno-0-75" name="__codelineno-0-75"></a>    <span class="n">rotation_p</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-76"><a id="__codelineno-0-76" name="__codelineno-0-76"></a>    <span class="n">scale_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>
-</span><span id="__span-0-77"><a id="__codelineno-0-77" name="__codelineno-0-77"></a>    <span class="n">scale_max</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.1</span><span class="p">,</span>
-</span><span id="__span-0-78"><a id="__codelineno-0-78" name="__codelineno-0-78"></a>    <span class="n">scale_p</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-79"><a id="__codelineno-0-79" name="__codelineno-0-79"></a>    <span class="n">translate_width</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.02</span><span class="p">,</span>
-</span><span id="__span-0-80"><a id="__codelineno-0-80" name="__codelineno-0-80"></a>    <span class="n">translate_height</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.02</span><span class="p">,</span>
-</span><span id="__span-0-81"><a id="__codelineno-0-81" name="__codelineno-0-81"></a>    <span class="n">translate_p</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-82"><a id="__codelineno-0-82" name="__codelineno-0-82"></a>    <span class="n">affine_p</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
-</span><span id="__span-0-83"><a id="__codelineno-0-83" name="__codelineno-0-83"></a>    <span class="n">erase_scale_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0001</span><span class="p">,</span>
-</span><span id="__span-0-84"><a id="__codelineno-0-84" name="__codelineno-0-84"></a>    <span class="n">erase_scale_max</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span>
-</span><span id="__span-0-85"><a id="__codelineno-0-85" name="__codelineno-0-85"></a>    <span class="n">erase_ratio_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
-</span><span id="__span-0-86"><a id="__codelineno-0-86" name="__codelineno-0-86"></a>    <span class="n">erase_ratio_max</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
-</span><span id="__span-0-87"><a id="__codelineno-0-87" name="__codelineno-0-87"></a>    <span class="n">erase_p</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
-</span><span id="__span-0-88"><a id="__codelineno-0-88" name="__codelineno-0-88"></a>    <span class="n">mixup_lambda_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span>
-</span><span id="__span-0-89"><a id="__codelineno-0-89" name="__codelineno-0-89"></a>    <span class="n">mixup_lambda_max</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.05</span><span class="p">,</span>
-</span><span id="__span-0-90"><a id="__codelineno-0-90" name="__codelineno-0-90"></a>    <span class="n">mixup_p</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
-</span><span id="__span-0-91"><a id="__codelineno-0-91" name="__codelineno-0-91"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
-</span><span id="__span-0-92"><a id="__codelineno-0-92" name="__codelineno-0-92"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply geometric augmentation on image and instances.</span>
-</span><span id="__span-0-93"><a id="__codelineno-0-93" name="__codelineno-0-93"></a>
-</span><span id="__span-0-94"><a id="__codelineno-0-94" name="__codelineno-0-94"></a><span class="sd">    Args:</span>
-</span><span id="__span-0-95"><a id="__codelineno-0-95" name="__codelineno-0-95"></a><span class="sd">        image: Input image. Shape: (n_samples, C, H, W)</span>
-</span><span id="__span-0-96"><a id="__codelineno-0-96" name="__codelineno-0-96"></a><span class="sd">        instances: Input keypoints. (n_samples, n_instances, n_nodes, 2) or (n_samples, n_nodes, 2)</span>
-</span><span id="__span-0-97"><a id="__codelineno-0-97" name="__codelineno-0-97"></a><span class="sd">        rotation_min: Minimum rotation angle in degrees. Default: -15.0.</span>
-</span><span id="__span-0-98"><a id="__codelineno-0-98" name="__codelineno-0-98"></a><span class="sd">        rotation_max: Maximum rotation angle in degrees. Default: 15.0.</span>
-</span><span id="__span-0-99"><a id="__codelineno-0-99" name="__codelineno-0-99"></a><span class="sd">        rotation_p: Probability of applying random rotation independently. If None,</span>
-</span><span id="__span-0-100"><a id="__codelineno-0-100" name="__codelineno-0-100"></a><span class="sd">            falls back to affine_p for bundled behavior. Default: None.</span>
-</span><span id="__span-0-101"><a id="__codelineno-0-101" name="__codelineno-0-101"></a><span class="sd">        scale_min: Minimum scaling factor for isotropic scaling. Default: 0.9.</span>
-</span><span id="__span-0-102"><a id="__codelineno-0-102" name="__codelineno-0-102"></a><span class="sd">        scale_max: Maximum scaling factor for isotropic scaling. Default: 1.1.</span>
-</span><span id="__span-0-103"><a id="__codelineno-0-103" name="__codelineno-0-103"></a><span class="sd">        scale_p: Probability of applying random scaling independently. If None,</span>
-</span><span id="__span-0-104"><a id="__codelineno-0-104" name="__codelineno-0-104"></a><span class="sd">            falls back to affine_p for bundled behavior. Default: None.</span>
-</span><span id="__span-0-105"><a id="__codelineno-0-105" name="__codelineno-0-105"></a><span class="sd">        translate_width: Maximum absolute fraction for horizontal translation. Default: 0.02.</span>
-</span><span id="__span-0-106"><a id="__codelineno-0-106" name="__codelineno-0-106"></a><span class="sd">        translate_height: Maximum absolute fraction for vertical translation. Default: 0.02.</span>
-</span><span id="__span-0-107"><a id="__codelineno-0-107" name="__codelineno-0-107"></a><span class="sd">        translate_p: Probability of applying random translation independently. If None,</span>
-</span><span id="__span-0-108"><a id="__codelineno-0-108" name="__codelineno-0-108"></a><span class="sd">            falls back to affine_p for bundled behavior. Default: None.</span>
-</span><span id="__span-0-109"><a id="__codelineno-0-109" name="__codelineno-0-109"></a><span class="sd">        affine_p: Probability of applying random affine transformations (rotation, scale,</span>
-</span><span id="__span-0-110"><a id="__codelineno-0-110" name="__codelineno-0-110"></a><span class="sd">            translate bundled). Used when individual *_p params are None. Default: 0.0.</span>
-</span><span id="__span-0-111"><a id="__codelineno-0-111" name="__codelineno-0-111"></a><span class="sd">        erase_scale_min: Minimum value of range of proportion of erased area against input image. Default: 0.0001.</span>
-</span><span id="__span-0-112"><a id="__codelineno-0-112" name="__codelineno-0-112"></a><span class="sd">        erase_scale_max: Maximum value of range of proportion of erased area against input image. Default: 0.01.</span>
-</span><span id="__span-0-113"><a id="__codelineno-0-113" name="__codelineno-0-113"></a><span class="sd">        erase_ratio_min: Minimum value of range of aspect ratio of erased area. Default: 1.</span>
-</span><span id="__span-0-114"><a id="__codelineno-0-114" name="__codelineno-0-114"></a><span class="sd">        erase_ratio_max: Maximum value of range of aspect ratio of erased area. Default: 1.</span>
-</span><span id="__span-0-115"><a id="__codelineno-0-115" name="__codelineno-0-115"></a><span class="sd">        erase_p: Probability of applying random erase. Default: 0.0.</span>
-</span><span id="__span-0-116"><a id="__codelineno-0-116" name="__codelineno-0-116"></a><span class="sd">        mixup_lambda_min: Minimum mixup strength value. Default: 0.01.</span>
-</span><span id="__span-0-117"><a id="__codelineno-0-117" name="__codelineno-0-117"></a><span class="sd">        mixup_lambda_max: Maximum mixup strength value. Default: 0.05.</span>
-</span><span id="__span-0-118"><a id="__codelineno-0-118" name="__codelineno-0-118"></a><span class="sd">        mixup_p: Probability of applying random mixup v2. Default: 0.0.</span>
-</span><span id="__span-0-119"><a id="__codelineno-0-119" name="__codelineno-0-119"></a>
-</span><span id="__span-0-120"><a id="__codelineno-0-120" name="__codelineno-0-120"></a><span class="sd">    Returns:</span>
-</span><span id="__span-0-121"><a id="__codelineno-0-121" name="__codelineno-0-121"></a><span class="sd">        Returns tuple: (image, instances) with augmentation applied.</span>
-</span><span id="__span-0-122"><a id="__codelineno-0-122" name="__codelineno-0-122"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-123"><a id="__codelineno-0-123" name="__codelineno-0-123"></a>    <span class="k">return</span> <span class="n">apply_geometric_augmentation_skia</span><span class="p">(</span>
-</span><span id="__span-0-124"><a id="__codelineno-0-124" name="__codelineno-0-124"></a>        <span class="n">image</span><span class="o">=</span><span class="n">image</span><span class="p">,</span>
-</span><span id="__span-0-125"><a id="__codelineno-0-125" name="__codelineno-0-125"></a>        <span class="n">instances</span><span class="o">=</span><span class="n">instances</span><span class="p">,</span>
-</span><span id="__span-0-126"><a id="__codelineno-0-126" name="__codelineno-0-126"></a>        <span class="n">rotation_min</span><span class="o">=</span><span class="n">rotation_min</span><span class="p">,</span>
-</span><span id="__span-0-127"><a id="__codelineno-0-127" name="__codelineno-0-127"></a>        <span class="n">rotation_max</span><span class="o">=</span><span class="n">rotation_max</span><span class="p">,</span>
-</span><span id="__span-0-128"><a id="__codelineno-0-128" name="__codelineno-0-128"></a>        <span class="n">rotation_p</span><span class="o">=</span><span class="n">rotation_p</span><span class="p">,</span>
-</span><span id="__span-0-129"><a id="__codelineno-0-129" name="__codelineno-0-129"></a>        <span class="n">scale_min</span><span class="o">=</span><span class="n">scale_min</span><span class="p">,</span>
-</span><span id="__span-0-130"><a id="__codelineno-0-130" name="__codelineno-0-130"></a>        <span class="n">scale_max</span><span class="o">=</span><span class="n">scale_max</span><span class="p">,</span>
-</span><span id="__span-0-131"><a id="__codelineno-0-131" name="__codelineno-0-131"></a>        <span class="n">scale_p</span><span class="o">=</span><span class="n">scale_p</span><span class="p">,</span>
-</span><span id="__span-0-132"><a id="__codelineno-0-132" name="__codelineno-0-132"></a>        <span class="n">translate_width</span><span class="o">=</span><span class="n">translate_width</span><span class="p">,</span>
-</span><span id="__span-0-133"><a id="__codelineno-0-133" name="__codelineno-0-133"></a>        <span class="n">translate_height</span><span class="o">=</span><span class="n">translate_height</span><span class="p">,</span>
-</span><span id="__span-0-134"><a id="__codelineno-0-134" name="__codelineno-0-134"></a>        <span class="n">translate_p</span><span class="o">=</span><span class="n">translate_p</span><span class="p">,</span>
-</span><span id="__span-0-135"><a id="__codelineno-0-135" name="__codelineno-0-135"></a>        <span class="n">affine_p</span><span class="o">=</span><span class="n">affine_p</span><span class="p">,</span>
-</span><span id="__span-0-136"><a id="__codelineno-0-136" name="__codelineno-0-136"></a>        <span class="n">erase_scale_min</span><span class="o">=</span><span class="n">erase_scale_min</span><span class="p">,</span>
-</span><span id="__span-0-137"><a id="__codelineno-0-137" name="__codelineno-0-137"></a>        <span class="n">erase_scale_max</span><span class="o">=</span><span class="n">erase_scale_max</span><span class="p">,</span>
-</span><span id="__span-0-138"><a id="__codelineno-0-138" name="__codelineno-0-138"></a>        <span class="n">erase_ratio_min</span><span class="o">=</span><span class="n">erase_ratio_min</span><span class="p">,</span>
-</span><span id="__span-0-139"><a id="__codelineno-0-139" name="__codelineno-0-139"></a>        <span class="n">erase_ratio_max</span><span class="o">=</span><span class="n">erase_ratio_max</span><span class="p">,</span>
-</span><span id="__span-0-140"><a id="__codelineno-0-140" name="__codelineno-0-140"></a>        <span class="n">erase_p</span><span class="o">=</span><span class="n">erase_p</span><span class="p">,</span>
-</span><span id="__span-0-141"><a id="__codelineno-0-141" name="__codelineno-0-141"></a>        <span class="n">mixup_lambda_min</span><span class="o">=</span><span class="n">mixup_lambda_min</span><span class="p">,</span>
-</span><span id="__span-0-142"><a id="__codelineno-0-142" name="__codelineno-0-142"></a>        <span class="n">mixup_lambda_max</span><span class="o">=</span><span class="n">mixup_lambda_max</span><span class="p">,</span>
-</span><span id="__span-0-143"><a id="__codelineno-0-143" name="__codelineno-0-143"></a>        <span class="n">mixup_p</span><span class="o">=</span><span class="n">mixup_p</span><span class="p">,</span>
-</span><span id="__span-0-144"><a id="__codelineno-0-144" name="__codelineno-0-144"></a>    <span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-106">106</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-69"><a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_predicted_centroid</span><span class="p">(</span>
+</span><span id="__span-0-70"><a id="__codelineno-0-70" name="__codelineno-0-70"></a>    <span class="n">x</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+</span><span id="__span-0-71"><a id="__codelineno-0-71" name="__codelineno-0-71"></a>    <span class="n">y</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+</span><span id="__span-0-72"><a id="__codelineno-0-72" name="__codelineno-0-72"></a>    <span class="n">score</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+</span><span id="__span-0-73"><a id="__codelineno-0-73" name="__codelineno-0-73"></a>    <span class="o">*</span><span class="p">,</span>
+</span><span id="__span-0-74"><a id="__codelineno-0-74" name="__codelineno-0-74"></a>    <span class="n">track</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">&quot;sio.Track&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-75"><a id="__codelineno-0-75" name="__codelineno-0-75"></a>    <span class="n">tracking_score</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-76"><a id="__codelineno-0-76" name="__codelineno-0-76"></a>    <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">CENTER_OF_MASS</span><span class="p">,</span>
+</span><span id="__span-0-77"><a id="__codelineno-0-77" name="__codelineno-0-77"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;sio.PredictedCentroid&quot;</span><span class="p">:</span>
+</span><span id="__span-0-78"><a id="__codelineno-0-78" name="__codelineno-0-78"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Construct a ``sio.PredictedCentroid`` from a predicted centroid peak.</span>
+</span><span id="__span-0-79"><a id="__codelineno-0-79" name="__codelineno-0-79"></a>
+</span><span id="__span-0-80"><a id="__codelineno-0-80" name="__codelineno-0-80"></a><span class="sd">    Args:</span>
+</span><span id="__span-0-81"><a id="__codelineno-0-81" name="__codelineno-0-81"></a><span class="sd">        x: Centroid x-coordinate in original-image pixels.</span>
+</span><span id="__span-0-82"><a id="__codelineno-0-82" name="__codelineno-0-82"></a><span class="sd">        y: Centroid y-coordinate in original-image pixels.</span>
+</span><span id="__span-0-83"><a id="__codelineno-0-83" name="__codelineno-0-83"></a><span class="sd">        score: Per-instance confidence (the centroid peak value).</span>
+</span><span id="__span-0-84"><a id="__codelineno-0-84" name="__codelineno-0-84"></a><span class="sd">        track: Optional ``sio.Track`` assignment.</span>
+</span><span id="__span-0-85"><a id="__codelineno-0-85" name="__codelineno-0-85"></a><span class="sd">        tracking_score: Optional per-instance tracking score.</span>
+</span><span id="__span-0-86"><a id="__codelineno-0-86" name="__codelineno-0-86"></a><span class="sd">        source: The ``source`` method tag (see :func:`centroid_source_for_anchor`).</span>
+</span><span id="__span-0-87"><a id="__codelineno-0-87" name="__codelineno-0-87"></a>
+</span><span id="__span-0-88"><a id="__codelineno-0-88" name="__codelineno-0-88"></a><span class="sd">    Returns:</span>
+</span><span id="__span-0-89"><a id="__codelineno-0-89" name="__codelineno-0-89"></a><span class="sd">        A ``sio.PredictedCentroid``. ``PredictedCentroid`` carries only an</span>
+</span><span id="__span-0-90"><a id="__codelineno-0-90" name="__codelineno-0-90"></a><span class="sd">        instance-level ``score`` (no per-node slot), per the representation</span>
+</span><span id="__span-0-91"><a id="__codelineno-0-91" name="__codelineno-0-91"></a><span class="sd">        contract.</span>
+</span><span id="__span-0-92"><a id="__codelineno-0-92" name="__codelineno-0-92"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-93"><a id="__codelineno-0-93" name="__codelineno-0-93"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
+</span><span id="__span-0-94"><a id="__codelineno-0-94" name="__codelineno-0-94"></a>
+</span><span id="__span-0-95"><a id="__codelineno-0-95" name="__codelineno-0-95"></a>    <span class="n">kwargs</span> <span class="o">=</span> <span class="p">{}</span>
+</span><span id="__span-0-96"><a id="__codelineno-0-96" name="__codelineno-0-96"></a>    <span class="k">if</span> <span class="n">track</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-97"><a id="__codelineno-0-97" name="__codelineno-0-97"></a>        <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;track&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">track</span>
+</span><span id="__span-0-98"><a id="__codelineno-0-98" name="__codelineno-0-98"></a>    <span class="k">if</span> <span class="n">tracking_score</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-99"><a id="__codelineno-0-99" name="__codelineno-0-99"></a>        <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;tracking_score&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tracking_score</span>
+</span><span id="__span-0-100"><a id="__codelineno-0-100" name="__codelineno-0-100"></a>    <span class="k">return</span> <span class="n">sio</span><span class="o">.</span><span class="n">PredictedCentroid</span><span class="p">(</span>
+</span><span id="__span-0-101"><a id="__codelineno-0-101" name="__codelineno-0-101"></a>        <span class="n">x</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">x</span><span class="p">),</span>
+</span><span id="__span-0-102"><a id="__codelineno-0-102" name="__codelineno-0-102"></a>        <span class="n">y</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">y</span><span class="p">),</span>
+</span><span id="__span-0-103"><a id="__codelineno-0-103" name="__codelineno-0-103"></a>        <span class="n">score</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">score</span><span class="p">),</span>
+</span><span id="__span-0-104"><a id="__codelineno-0-104" name="__codelineno-0-104"></a>        <span class="n">source</span><span class="o">=</span><span class="n">source</span><span class="p">,</span>
+</span><span id="__span-0-105"><a id="__codelineno-0-105" name="__codelineno-0-105"></a>        <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+</span><span id="__span-0-106"><a id="__codelineno-0-106" name="__codelineno-0-106"></a>    <span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6817,15 +6534,15 @@ translate bundled). Used when individual *_p params are None. Default: 0.0.</p>
 <div class="doc doc-object doc-function">
 
 
-<h3 id="sleap_nn.data.augmentation.apply_intensity_augmentation" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">apply_intensity_augmentation</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">instances</span><span class="p">,</span> <span class="n">uniform_noise_min</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">uniform_noise_max</span><span class="o">=</span><span class="mf">0.04</span><span class="p">,</span> <span class="n">uniform_noise_p</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">gaussian_noise_mean</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">gaussian_noise_std</span><span class="o">=</span><span class="mf">0.02</span><span class="p">,</span> <span class="n">gaussian_noise_p</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">contrast_min</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">contrast_max</span><span class="o">=</span><span class="mf">1.1</span><span class="p">,</span> <span class="n">contrast_p</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">brightness_min</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="n">brightness_max</span><span class="o">=</span><span class="mf">1.1</span><span class="p">,</span> <span class="n">brightness_p</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span></code>
+<h3 id="sleap_nn.inference.centroid_convert.centroid_source_for_anchor" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">centroid_source_for_anchor</span><span class="p">(</span><span class="n">anchor_ind</span><span class="p">,</span> <span class="n">node_names</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
-<a href="#sleap_nn.data.augmentation.apply_intensity_augmentation" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#sleap_nn.inference.centroid_convert.centroid_source_for_anchor" class="headerlink" title="Permanent link">&para;</a></h3>
 
 
     <div class="doc doc-contents ">
 
-        <p>Apply intensity augmentation on image and instances.</p>
+        <p>Return the <code>sio.Centroid.source</code> tag for a centroid model.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -6841,14 +6558,16 @@ translate bundled). Used when individual *_p params are None. Default: 0.0.</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                <code>image</code>
+                <code>anchor_ind</code>
             </td>
             <td>
-                  <code><span title="torch.Tensor">Tensor</span></code>
+                  <code><span title="typing.Optional">Optional</span>[<span title="int">int</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Input image. Shape: (n_samples, C, H, W)</p>
+                <p>The configured anchor-node index (<code>None</code> when the model
+was trained with no explicit anchor, i.e. the mean-of-visible
+fallback governs the target — see :data:<code>CENTER_OF_MASS</code>).</p>
               </div>
             </td>
             <td>
@@ -6857,210 +6576,20 @@ translate bundled). Used when individual *_p params are None. Default: 0.0.</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>instances</code>
+                <code>node_names</code>
             </td>
             <td>
-                  <code><span title="torch.Tensor">Tensor</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Input keypoints. (n_samples, n_instances, n_nodes, 2) or (n_samples, n_nodes, 2)</p>
-              </div>
-            </td>
-            <td>
-                <em>required</em>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>uniform_noise_min</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.List">List</span>[<span title="str">str</span>]]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Minimum value for uniform noise (uniform_noise_min &gt;=0).</p>
+                <p>The training skeleton's node names, used to resolve a
+human-readable <code>"anchor:&lt;name&gt;"</code> tag. When unavailable, the
+index is used (<code>"anchor:&lt;ind&gt;"</code>).</p>
               </div>
             </td>
             <td>
-                  <code>0.0</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>uniform_noise_max</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Maximum value for uniform noise (uniform_noise_max &lt;=1).</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.04</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>uniform_noise_p</code>
-            </td>
-            <td>
-                  <code><span title="float">float</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Probability of applying random uniform noise.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.0</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>gaussian_noise_mean</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>The mean of the gaussian distribution.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.0</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>gaussian_noise_std</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>The standard deviation of the gaussian distribution.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.02</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>gaussian_noise_p</code>
-            </td>
-            <td>
-                  <code><span title="float">float</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Probability of applying random gaussian noise.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.0</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>contrast_min</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Minimum contrast factor to apply. Default: 0.5.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.9</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>contrast_max</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Maximum contrast factor to apply. Default: 2.0.</p>
-              </div>
-            </td>
-            <td>
-                  <code>1.1</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>contrast_p</code>
-            </td>
-            <td>
-                  <code><span title="float">float</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Probability of applying random contrast.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.0</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>brightness_min</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Minimum brightness factor to apply. Default: 1.0.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.9</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>brightness_max</code>
-            </td>
-            <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="float">float</span>]</code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Maximum brightness factor to apply. Default: 1.0.</p>
-              </div>
-            </td>
-            <td>
-                  <code>1.1</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>brightness_p</code>
-            </td>
-            <td>
-                  <code><span title="float">float</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Probability of applying random brightness.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.0</code>
+                  <code>None</code>
             </td>
           </tr>
       </tbody>
@@ -7078,11 +6607,12 @@ translate bundled). Used when individual *_p params are None. Default: 0.0.</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                  <code><span title="typing.Tuple">Tuple</span>[<span title="torch.Tensor">Tensor</span>, <span title="torch.Tensor">Tensor</span>]</code>
+                  <code><span title="str">str</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Returns tuple: (image, instances) with augmentation applied.</p>
+                <p><code>"center_of_mass"</code> when <code>anchor_ind is None</code>; otherwise
+<code>"anchor:&lt;node-name-or-index&gt;"</code>.</p>
               </div>
             </td>
           </tr>
@@ -7090,31 +6620,18 @@ translate bundled). Used when individual *_p params are None. Default: 0.0.</p>
     </table>
 
 
+<details class="note" open>
+  <summary>Note</summary>
+  <p>This is a MODEL-level descriptor, not per-instance: a trained centroid
+model with an anchor will have learned to predict that anchor when
+visible and (per #586) the mean-of-visible otherwise, but we cannot
+recover per-instance visibility from a bare centroid peak. <code>anchor:*</code>
+is the closest faithful model-level tag.</p>
+</details>
+
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>sleap_nn/data/augmentation.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-15">15</a></span>
-<span class="normal"><a href="#__codelineno-0-16">16</a></span>
-<span class="normal"><a href="#__codelineno-0-17">17</a></span>
-<span class="normal"><a href="#__codelineno-0-18">18</a></span>
-<span class="normal"><a href="#__codelineno-0-19">19</a></span>
-<span class="normal"><a href="#__codelineno-0-20">20</a></span>
-<span class="normal"><a href="#__codelineno-0-21">21</a></span>
-<span class="normal"><a href="#__codelineno-0-22">22</a></span>
-<span class="normal"><a href="#__codelineno-0-23">23</a></span>
-<span class="normal"><a href="#__codelineno-0-24">24</a></span>
-<span class="normal"><a href="#__codelineno-0-25">25</a></span>
-<span class="normal"><a href="#__codelineno-0-26">26</a></span>
-<span class="normal"><a href="#__codelineno-0-27">27</a></span>
-<span class="normal"><a href="#__codelineno-0-28">28</a></span>
-<span class="normal"><a href="#__codelineno-0-29">29</a></span>
-<span class="normal"><a href="#__codelineno-0-30">30</a></span>
-<span class="normal"><a href="#__codelineno-0-31">31</a></span>
-<span class="normal"><a href="#__codelineno-0-32">32</a></span>
-<span class="normal"><a href="#__codelineno-0-33">33</a></span>
-<span class="normal"><a href="#__codelineno-0-34">34</a></span>
-<span class="normal"><a href="#__codelineno-0-35">35</a></span>
-<span class="normal"><a href="#__codelineno-0-36">36</a></span>
-<span class="normal"><a href="#__codelineno-0-37">37</a></span>
+              <summary>Source code in <code>sleap_nn/inference/centroid_convert.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-37">37</a></span>
 <span class="normal"><a href="#__codelineno-0-38">38</a></span>
 <span class="normal"><a href="#__codelineno-0-39">39</a></span>
 <span class="normal"><a href="#__codelineno-0-40">40</a></span>
@@ -7143,60 +6660,36 @@ translate bundled). Used when individual *_p params are None. Default: 0.0.</p>
 <span class="normal"><a href="#__codelineno-0-63">63</a></span>
 <span class="normal"><a href="#__codelineno-0-64">64</a></span>
 <span class="normal"><a href="#__codelineno-0-65">65</a></span>
-<span class="normal"><a href="#__codelineno-0-66">66</a></span>
-<span class="normal"><a href="#__codelineno-0-67">67</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15"></a><span class="k">def</span><span class="w"> </span><span class="nf">apply_intensity_augmentation</span><span class="p">(</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16"></a>    <span class="n">image</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17"></a>    <span class="n">instances</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18"></a>    <span class="n">uniform_noise_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19"></a>    <span class="n">uniform_noise_max</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.04</span><span class="p">,</span>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20"></a>    <span class="n">uniform_noise_p</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21"></a>    <span class="n">gaussian_noise_mean</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22"></a>    <span class="n">gaussian_noise_std</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.02</span><span class="p">,</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23"></a>    <span class="n">gaussian_noise_p</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24"></a>    <span class="n">contrast_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25"></a>    <span class="n">contrast_max</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.1</span><span class="p">,</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26"></a>    <span class="n">contrast_p</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27"></a>    <span class="n">brightness_min</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.9</span><span class="p">,</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28"></a>    <span class="n">brightness_max</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.1</span><span class="p">,</span>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29"></a>    <span class="n">brightness_p</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply intensity augmentation on image and instances.</span>
-</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32"></a>
-</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33"></a><span class="sd">    Args:</span>
-</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34"></a><span class="sd">        image: Input image. Shape: (n_samples, C, H, W)</span>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35"></a><span class="sd">        instances: Input keypoints. (n_samples, n_instances, n_nodes, 2) or (n_samples, n_nodes, 2)</span>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="sd">        uniform_noise_min: Minimum value for uniform noise (uniform_noise_min &gt;=0).</span>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37"></a><span class="sd">        uniform_noise_max: Maximum value for uniform noise (uniform_noise_max &lt;=1).</span>
-</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38"></a><span class="sd">        uniform_noise_p: Probability of applying random uniform noise.</span>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="sd">        gaussian_noise_mean: The mean of the gaussian distribution.</span>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="sd">        gaussian_noise_std: The standard deviation of the gaussian distribution.</span>
-</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="sd">        gaussian_noise_p: Probability of applying random gaussian noise.</span>
-</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="sd">        contrast_min: Minimum contrast factor to apply. Default: 0.5.</span>
-</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="sd">        contrast_max: Maximum contrast factor to apply. Default: 2.0.</span>
-</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="sd">        contrast_p: Probability of applying random contrast.</span>
-</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45"></a><span class="sd">        brightness_min: Minimum brightness factor to apply. Default: 1.0.</span>
-</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46"></a><span class="sd">        brightness_max: Maximum brightness factor to apply. Default: 1.0.</span>
-</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="sd">        brightness_p: Probability of applying random brightness.</span>
-</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48"></a>
-</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49"></a><span class="sd">    Returns:</span>
-</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50"></a><span class="sd">        Returns tuple: (image, instances) with augmentation applied.</span>
-</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52"></a>    <span class="k">return</span> <span class="n">apply_intensity_augmentation_skia</span><span class="p">(</span>
-</span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53"></a>        <span class="n">image</span><span class="o">=</span><span class="n">image</span><span class="p">,</span>
-</span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54"></a>        <span class="n">instances</span><span class="o">=</span><span class="n">instances</span><span class="p">,</span>
-</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55"></a>        <span class="n">uniform_noise_min</span><span class="o">=</span><span class="n">uniform_noise_min</span><span class="p">,</span>
-</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56"></a>        <span class="n">uniform_noise_max</span><span class="o">=</span><span class="n">uniform_noise_max</span><span class="p">,</span>
-</span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57"></a>        <span class="n">uniform_noise_p</span><span class="o">=</span><span class="n">uniform_noise_p</span><span class="p">,</span>
-</span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58"></a>        <span class="n">gaussian_noise_mean</span><span class="o">=</span><span class="n">gaussian_noise_mean</span><span class="p">,</span>
-</span><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59"></a>        <span class="n">gaussian_noise_std</span><span class="o">=</span><span class="n">gaussian_noise_std</span><span class="p">,</span>
-</span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60"></a>        <span class="n">gaussian_noise_p</span><span class="o">=</span><span class="n">gaussian_noise_p</span><span class="p">,</span>
-</span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61"></a>        <span class="n">contrast_min</span><span class="o">=</span><span class="n">contrast_min</span><span class="p">,</span>
-</span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62"></a>        <span class="n">contrast_max</span><span class="o">=</span><span class="n">contrast_max</span><span class="p">,</span>
-</span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63"></a>        <span class="n">contrast_p</span><span class="o">=</span><span class="n">contrast_p</span><span class="p">,</span>
-</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64"></a>        <span class="n">brightness_min</span><span class="o">=</span><span class="n">brightness_min</span><span class="p">,</span>
-</span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65"></a>        <span class="n">brightness_max</span><span class="o">=</span><span class="n">brightness_max</span><span class="p">,</span>
-</span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66"></a>        <span class="n">brightness_p</span><span class="o">=</span><span class="n">brightness_p</span><span class="p">,</span>
-</span><span id="__span-0-67"><a id="__codelineno-0-67" name="__codelineno-0-67"></a>    <span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-66">66</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37"></a><span class="k">def</span><span class="w"> </span><span class="nf">centroid_source_for_anchor</span><span class="p">(</span>
+</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38"></a>    <span class="n">anchor_ind</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">],</span>
+</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39"></a>    <span class="n">node_names</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the ``sio.Centroid.source`` tag for a centroid model.</span>
+</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42"></a>
+</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="sd">    Args:</span>
+</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="sd">        anchor_ind: The configured anchor-node index (``None`` when the model</span>
+</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45"></a><span class="sd">            was trained with no explicit anchor, i.e. the mean-of-visible</span>
+</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46"></a><span class="sd">            fallback governs the target — see :data:`CENTER_OF_MASS`).</span>
+</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="sd">        node_names: The training skeleton&#39;s node names, used to resolve a</span>
+</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48"></a><span class="sd">            human-readable ``&quot;anchor:&lt;name&gt;&quot;`` tag. When unavailable, the</span>
+</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49"></a><span class="sd">            index is used (``&quot;anchor:&lt;ind&gt;&quot;``).</span>
+</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50"></a>
+</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51"></a><span class="sd">    Returns:</span>
+</span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52"></a><span class="sd">        ``&quot;center_of_mass&quot;`` when ``anchor_ind is None``; otherwise</span>
+</span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53"></a><span class="sd">        ``&quot;anchor:&lt;node-name-or-index&gt;&quot;``.</span>
+</span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54"></a>
+</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55"></a><span class="sd">    Note:</span>
+</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="sd">        This is a MODEL-level descriptor, not per-instance: a trained centroid</span>
+</span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57"></a><span class="sd">        model with an anchor will have learned to predict that anchor when</span>
+</span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58"></a><span class="sd">        visible and (per #586) the mean-of-visible otherwise, but we cannot</span>
+</span><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="sd">        recover per-instance visibility from a bare centroid peak. ``anchor:*``</span>
+</span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="sd">        is the closest faithful model-level tag.</span>
+</span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62"></a>    <span class="k">if</span> <span class="n">anchor_ind</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63"></a>        <span class="k">return</span> <span class="n">CENTER_OF_MASS</span>
+</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64"></a>    <span class="k">if</span> <span class="n">node_names</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">anchor_ind</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">node_names</span><span class="p">):</span>
+</span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65"></a>        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;anchor:</span><span class="si">{</span><span class="n">node_names</span><span class="p">[</span><span class="n">anchor_ind</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66"></a>    <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;anchor:</span><span class="si">{</span><span class="n">anchor_ind</span><span class="si">}</span><span class="s2">&quot;</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
