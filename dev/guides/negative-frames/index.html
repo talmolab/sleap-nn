@@ -6593,11 +6593,12 @@
 <h3 id="loss-computation">Loss Computation<a class="headerlink" href="#loss-computation" title="Permanent link">&para;</a></h3>
 <p>When <code>is_negative</code> is present in the batch:</p>
 <ul>
-<li>Per-sample MSE is computed: <code>(y_pred - y_target)^2</code> averaged over spatial dims</li>
+<li>Per-sample MSE is computed: <code>(y_pred - y_target)^2</code> averaged over all non-batch dims</li>
 <li>Positive samples get weight <code>1.0</code>; negative samples get weight <code>negative_loss_weight</code></li>
-<li>The weighted per-sample losses are averaged to produce the final loss</li>
+<li>The weighted per-sample losses are averaged to produce the final <strong>training</strong> loss</li>
 </ul>
-<p>When <code>negative_loss_weight=1.0</code> (default), this is numerically identical to <code>nn.MSELoss()</code>.</p>
+<p>When <code>negative_loss_weight=1.0</code> (default), this is numerically identical to <code>nn.MSELoss()</code>. On the <strong>validation</strong> split the loss is always unweighted, so <code>val/loss</code> matches plain <code>nn.MSELoss()</code> and stays a faithful model-selection metric.</p>
+<p>Metric logging is decoupled from loss computation: the positive/negative split metrics below are logged <strong>once per step</strong> (accurate even for two-head bottom-up models) and every logged loss value is <strong>unweighted</strong> with respect to <code>negative_loss_weight</code> on both train and val. <code>negative_loss_weight</code> only affects the backprop training loss, never a logged diagnostic.</p>
 <h3 id="feature-gating">Feature Gating<a class="headerlink" href="#feature-gating" title="Permanent link">&para;</a></h3>
 <p>When <code>use_negative_frames=False</code> (default), <strong>no code paths change</strong>:</p>
 <ul>
@@ -6607,7 +6608,7 @@
 </ul>
 <hr />
 <h2 id="monitoring">Monitoring<a class="headerlink" href="#monitoring" title="Permanent link">&para;</a></h2>
-<p>When the feature is active, these additional metrics are logged to WandB/TensorBoard:</p>
+<p>When the feature is active, these additional metrics are logged to WandB/TensorBoard (and to <code>training_log.csv</code>). All split losses are <strong>unweighted</strong> w.r.t. <code>negative_loss_weight</code>.</p>
 <table>
 <thead>
 <tr>
@@ -6620,22 +6621,12 @@
 <tr>
 <td><code>train/loss</code></td>
 <td>epoch mean</td>
-<td>Combined loss (always logged, unchanged)</td>
-</tr>
-<tr>
-<td><code>train/loss_positive</code></td>
-<td>epoch mean</td>
-<td>MSE on positive frames — should decrease as model learns poses</td>
-</tr>
-<tr>
-<td><code>train/loss_negative</code></td>
-<td>epoch mean</td>
-<td>MSE on negative frames — should approach 0 as model learns to suppress</td>
+<td>Combined optimized loss (always logged, unchanged)</td>
 </tr>
 <tr>
 <td><code>train/n_positive</code></td>
 <td>epoch sum</td>
-<td>Total positive samples seen in epoch</td>
+<td>Total positive samples seen in epoch (logged once per step — accurate for all model types)</td>
 </tr>
 <tr>
 <td><code>train/n_negative</code></td>
@@ -6643,33 +6634,52 @@
 <td>Total negative samples seen in epoch</td>
 </tr>
 <tr>
-<td><code>val/loss</code></td>
+<td><code>train/loss_positive</code></td>
 <td>epoch mean</td>
-<td>Combined val loss — <strong>always unweighted</strong> (never applies <code>negative_loss_weight</code>), so it stays identical to the old plain MSE and is used for checkpointing / early-stopping</td>
+<td><strong>Weighted</strong> cross-head aggregate MSE on positive frames = <code>sum(loss_weight * head_split)</code>; mirrors the optimized-loss composition. Should decrease as poses are learned</td>
 </tr>
 <tr>
-<td><code>val/loss_positive</code></td>
+<td><code>train/loss_negative</code></td>
 <td>epoch mean</td>
-<td>Unweighted MSE on positive val frames</td>
+<td>Weighted cross-head aggregate MSE on negative frames — should approach 0 as the model learns to suppress</td>
 </tr>
 <tr>
-<td><code>val/loss_negative</code></td>
+<td><code>train/loss_positive_unweighted</code></td>
 <td>epoch mean</td>
-<td>Unweighted MSE on negative val frames — should approach 0 if the model generalizes background suppression to held-out frames</td>
+<td>Plain mean across heads of the per-head positive split — comparable across configs with different <code>loss_weight</code>s</td>
 </tr>
 <tr>
-<td><code>val/n_positive</code></td>
-<td>epoch sum</td>
-<td>Total positive samples in the val epoch</td>
+<td><code>train/loss_negative_unweighted</code></td>
+<td>epoch mean</td>
+<td>Plain mean across heads of the per-head negative split</td>
 </tr>
 <tr>
-<td><code>val/n_negative</code></td>
-<td>epoch sum</td>
-<td>Total negative samples in the val epoch</td>
+<td><code>val/*</code> (same suffixes)</td>
+<td>as above</td>
+<td>Validation-split counterparts. <code>val/loss</code> stays <strong>unweighted</strong> and identical to plain MSE for checkpointing / early-stopping</td>
 </tr>
 </tbody>
 </table>
-<p>Unlike the train split, the validation split metrics are <strong>always unweighted</strong> (<code>negative_loss_weight</code> is not applied), so <code>val/loss</code> remains comparable across runs and matches plain <code>nn.MSELoss()</code>.</p>
+<p><strong>Bottom-up models only</strong> additionally emit per-head splits (so you can see which head drives the suppression signal), each with both <code>train/</code> and <code>val/</code> prefixes:</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Per-head keys</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Bottom-Up</td>
+<td><code>confmaps_loss_positive</code>, <code>confmaps_loss_negative</code>, <code>paf_loss_positive</code>, <code>paf_loss_negative</code></td>
+</tr>
+<tr>
+<td>Bottom-Up Multi-Class</td>
+<td><code>confmaps_loss_positive</code>, <code>confmaps_loss_negative</code>, <code>classmap_loss_positive</code>, <code>classmap_loss_negative</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>All logged split losses are unweighted with respect to <code>negative_loss_weight</code></strong> — that train-only backprop trick never appears in any logged diagnostic, on either split. The word "weighted" in <code>loss_positive</code> / <code>loss_negative</code> refers only to the per-head <code>loss_weight</code> values used to combine heads; for single-head models (single-instance, centroid) the weighted and <code>_unweighted</code> aggregates are equal and no per-head keys are emitted. Counts (<code>n_positive</code> / <code>n_negative</code>) are per-epoch sums logged exactly once per step, so they are accurate even for the two-head bottom-up models. <code>val/loss</code> itself stays unweighted and identical to plain <code>nn.MSELoss()</code>, so it remains a faithful, comparable model-selection metric.</p>
 <div class="admonition tip">
 <p class="admonition-title">Is It Working?</p>
 <p>Watch <code>train/loss_negative</code> — it should decrease toward 0 over training. If it stays flat, the model isn't learning from negatives. Consider increasing <code>negative_loss_weight</code> or adding more diverse negative frames.</p>
@@ -6709,7 +6719,7 @@
 <p><strong>Use <code>negative_loss_weight</code> to tune.</strong> If negatives are rare relative to positives and <code>train/loss_negative</code> isn't decreasing, try <code>negative_loss_weight: 2.0</code> or higher to amplify the gradient signal.</p>
 </li>
 <li>
-<p><strong>Check val metrics too.</strong> Negative frames in the validation set (via the train/val split) contribute to <code>val/loss</code>, and are also broken out as <code>val/loss_positive</code> / <code>val/loss_negative</code> / <code>val/n_positive</code> / <code>val/n_negative</code>. Note that <code>val/loss</code> stays <strong>unweighted</strong> even when <code>negative_loss_weight &gt; 1</code>, so it remains a faithful, comparable model-selection metric. Watch <code>val/loss_negative</code>: if it stays high while <code>train/loss_negative</code> falls, the model is memorizing training backgrounds rather than generalizing the "no animal → no detection" behavior, and will still hallucinate on unseen empty backgrounds.</p>
+<p><strong>Check val metrics too.</strong> Negative frames in the validation set (via the train/val split) contribute to <code>val/loss</code>, and are also broken out as <code>val/loss_positive</code> / <code>val/loss_negative</code> (plus the <code>_unweighted</code> variants, and per-head <code>val/confmaps_loss_*</code> / <code>val/paf_loss_*</code> / <code>val/classmap_loss_*</code> for bottom-up models) and the counts <code>val/n_positive</code> / <code>val/n_negative</code>. All of these split losses are <strong>unweighted</strong> w.r.t. <code>negative_loss_weight</code>, and <code>val/loss</code> stays unweighted even when <code>negative_loss_weight &gt; 1</code>, so it remains a faithful, comparable model-selection metric. Watch <code>val/loss_negative</code>: if it stays high while <code>train/loss_negative</code> falls, the model is memorizing training backgrounds rather than generalizing the "no animal → no detection" behavior, and will still hallucinate on unseen empty backgrounds.</p>
 </li>
 </ul>
 
