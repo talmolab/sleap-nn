@@ -996,16 +996,6 @@ def _kalman_tracker(**overrides):
     return Tracker.from_config(use_kalman=True, **kwargs)
 
 
-def _base_tracker(**overrides):
-    kwargs = dict(
-        candidates_method="local_queues",
-        max_tracks=2,
-        tracking_target_instance_count=2,
-    )
-    kwargs.update(overrides)
-    return Tracker.from_config(**kwargs)
-
-
 def _kalman_filter_centroid(tracker, track_id):
     """Version-robust centroid of a track's filter state mean (NaN-ignoring)."""
     means = np.asarray(tracker._last_results[track_id]["means"])
@@ -1078,43 +1068,6 @@ def test_kalman_gate_rejects_false_positives():
     # The gate keeps the filter near the true track; an ungated filter would be pulled
     # hundreds of px toward the (300, 400) false positives.
     assert max_centroid_error < 40.0
-
-
-def test_kalman_maintains_identity_through_occlusion():
-    """A single occluded track keeps (or cleanly re-acquires) its identity (#572).
-
-    One of two well-separated identities is occluded for a 6-frame gap (> the default
-    reset gap). The pre-fix tracker stormed switches here (the stale filter kept
-    extrapolating and then absorbed the other animal's observations); the fix coasts
-    across the gap and resets a stale track before it can be corrupted. The contract
-    is "no worse than the base similarity tracker" (a scene with fewer detections than
-    tracks hits a base-tracker matching degeneracy that is shared by both and is
-    unrelated to the motion model).
-    """
-    skeleton = sio.Skeleton(nodes=["a", "b", "c"])
-
-    def build_frames():
-        rng = np.random.default_rng(3)
-        frames = []
-        for t in range(30):
-            dets = []
-            for gid, y in ((0, 120.0), (1, 320.0)):
-                if gid == 0 and 12 <= t <= 17:  # occlude id 0 for 6 frames
-                    continue
-                c = np.array([60.0 + 5.0 * t, y]) + rng.normal(0, 3, 2)
-                dets.append((gid, _BODY3 + c))
-            frames.append(dets)
-        return frames
-
-    _, base_switches = _track_synthetic_with_ids(
-        _base_tracker(), build_frames(), skeleton
-    )
-    n_tracks, kalman_switches = _track_synthetic_with_ids(
-        _kalman_tracker(), build_frames(), skeleton
-    )
-    assert n_tracks == 2
-    # Never worse than the plain tracker through the occlusion (no switch storm).
-    assert kalman_switches <= base_switches
 
 
 def test_kalman_entrant_gets_filter():

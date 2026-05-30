@@ -987,10 +987,20 @@ class KalmanShiftTracker(Tracker):
         return transition, observation
 
     def _centroid(self, keypoints: np.ndarray) -> np.ndarray:
-        """NaN-ignoring centroid of the tracked nodes, shape (2,)."""
+        """NaN-ignoring centroid of the tracked nodes, shape (2,).
+
+        Returns NaN when fewer than half the tracked nodes are visible: a centroid
+        built from a small, changing subset of nodes is biased (it shifts as different
+        nodes drop), which would otherwise feed the filter a spurious displacement.
+        A NaN centroid is treated as a missing observation (the filter coasts) rather
+        than a corrupting one.
+        """
         import warnings
 
         pts = np.asarray(keypoints)[self._resolved_node_indices, :]
+        visible = int((~np.isnan(pts).any(axis=1)).sum())
+        if visible == 0 or visible * 2 < pts.shape[0]:
+            return np.array([np.nan, np.nan])
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             return np.nanmean(pts, axis=0)
@@ -1016,19 +1026,24 @@ class KalmanShiftTracker(Tracker):
     def _window_median_step(self, window: List[Dict[str, Any]]) -> float:
         """Noise-robust estimate of the per-frame centroid step over a window.
 
-        Uses the total endpoint displacement divided by the number of elapsed
-        intervals rather than the median of consecutive steps: the latter is inflated
-        by per-frame measurement noise (the noise variance adds to every consecutive
-        difference), which would otherwise blow up the velocity cap / gate under noisy
-        detections. The endpoint baseline averages that noise out for a roughly
-        constant-velocity track. The window is contiguous (built by
-        `_contiguous_fresh_window`), so the displacement reflects real motion.
+        Uses the endpoint displacement divided by the number of elapsed FRAMES
+        between the first and last valid centroids (not the count of valid intervals):
+        dividing by interval count would overestimate the per-frame step by up to the
+        gap length when centroids drop out mid-window, which would loosen the velocity
+        cap and gate in exactly the noisy regime they protect. The endpoint baseline
+        averages per-frame measurement noise out for a roughly constant-velocity track.
         """
-        cents = [self._centroid(h["keypoints"]) for h in window]
-        valid = [c for c in cents if not np.isnan(c).any()]
+        valid = [
+            (h["frame_idx"], self._centroid(h["keypoints"]))
+            for h in window
+            if not np.isnan(self._centroid(h["keypoints"])).any()
+        ]
         if len(valid) < 2:
             return 0.0
-        baseline = float(np.linalg.norm(valid[-1] - valid[0])) / (len(valid) - 1)
+        span = valid[-1][0] - valid[0][0]
+        if span <= 0:
+            return 0.0
+        baseline = float(np.linalg.norm(valid[-1][1] - valid[0][1])) / span
         return baseline
 
     def _velocity_cap(self, track_id: int) -> float:
@@ -1079,16 +1094,23 @@ class KalmanShiftTracker(Tracker):
             self.kf_min_velocity_cap_px, self.kf_velocity_cap_mult * median_step
         )
 
-        # Seed from the first finite centroid; velocity from the first finite
-        # consecutive difference (capped). A dropped node must not collapse the seed
-        # to the image origin.
+        # Seed position from the first finite centroid; velocity from the first pair
+        # of centroids one frame apart that are both finite (so a centroid dropout does
+        # not mislabel a multi-frame step as a one-frame velocity). A dropped node must
+        # not collapse the seed to the image origin.
         finite = [c for c in cents if not np.isnan(c).any()]
         if len(finite) < 2:
             return False
         first = np.asarray(finite[0], dtype=float)
-        seed_vel = np.clip(
-            np.asarray(finite[1] - finite[0], dtype=float), -velocity_cap, velocity_cap
-        )
+        seed_vel = np.zeros(2)
+        for i in range(1, len(cents)):
+            if not np.isnan(cents[i]).any() and not np.isnan(cents[i - 1]).any():
+                seed_vel = np.clip(
+                    np.asarray(cents[i] - cents[i - 1], dtype=float),
+                    -velocity_cap,
+                    velocity_cap,
+                )
+                break
         initial_state_mean = [first[0], seed_vel[0], first[1], seed_vel[1]]
 
         transition, observation = self._build_matrices()
@@ -1296,11 +1318,13 @@ class KalmanShiftTracker(Tracker):
             if np.isnan(pred_centroid).any() or np.isnan(last_centroid).any():
                 candidate_keypoints = last_keypoints  # hold last (no valid centroid)
             else:
-                # Rigidly translate the last observed pose by (a fraction of) the
-                # predicted centroid displacement. Weight scales toward the full
-                # prediction the staler the last observation is.
-                weight = min(1.0, self.kf_prediction_blend * steps)
-                displacement = weight * (pred_centroid - last_centroid)
+                # Rigidly translate the last observed pose by a fraction of the
+                # predicted centroid displacement. The weight is constant (NOT scaled
+                # up with staleness): a coasting prediction is *less* reliable, so
+                # amplifying it during gaps just injects swaps under noise.
+                displacement = self.kf_prediction_blend * (
+                    pred_centroid - last_centroid
+                )
                 candidate_keypoints = last_keypoints + displacement
 
             predicted[track_id].append(
