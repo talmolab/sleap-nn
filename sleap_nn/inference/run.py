@@ -87,8 +87,10 @@ def predict(
 
     Args:
         source: Video path, ``sio.Video``, ``sio.Labels``, or a Provider.
-        model_paths: Checkpoint directories (one for single-instance /
-            bottom-up, two for top-down).
+        model_paths: Trained model directories — or a path to a model's
+            ``best.ckpt`` or ``training_config.{yaml,json}`` file, which resolves
+            to its directory (#575). One for single-instance / bottom-up, two for
+            top-down.
         export_dir: Path to an exported ONNX/TRT directory (alternative
             to ``model_paths``).
         device: ``"auto"``, ``"cpu"``, ``"cuda"``, ``"mps"``, etc.
