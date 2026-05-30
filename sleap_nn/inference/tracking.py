@@ -58,6 +58,7 @@ class TrackerConfig:
     scoring_method: str = "oks"
     scoring_reduction: str = "mean"
     robust_best_instance: float = 1.0
+    oks_stddev: float = 0.025
     track_matching_method: str = "hungarian"
     max_tracks: Optional[int] = None
     use_flow: bool = False
@@ -65,6 +66,7 @@ class TrackerConfig:
     of_window_size: int = 21
     of_max_levels: int = 3
     use_kalman: bool = False
+    kf_track_features: str = "centroid"
     kf_init_frame_count: int = 10
     kf_node_indices: Optional[list] = None
     kf_reset_gap_size: int = 5
@@ -177,6 +179,7 @@ def apply_tracking(
         scoring_method=effective_scoring_method,
         scoring_reduction=config.scoring_reduction,
         robust_best_instance=config.robust_best_instance,
+        oks_stddev=config.oks_stddev,
         track_matching_method=config.track_matching_method,
         max_tracks=config.max_tracks,
         use_flow=config.use_flow,
@@ -184,6 +187,7 @@ def apply_tracking(
         of_window_size=config.of_window_size,
         of_max_levels=config.of_max_levels,
         use_kalman=config.use_kalman,
+        kf_track_features=config.kf_track_features,
         kf_init_frame_count=config.kf_init_frame_count,
         kf_node_indices=config.kf_node_indices,
         kf_reset_gap_size=config.kf_reset_gap_size,
