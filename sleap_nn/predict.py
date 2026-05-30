@@ -106,6 +106,7 @@ def run_inference(
     scoring_method: str = "oks",
     scoring_reduction: str = "mean",
     robust_best_instance: float = 1.0,
+    oks_stddev: float = 0.025,
     track_matching_method: str = "hungarian",
     max_tracks: Optional[int] = None,
     use_flow: bool = False,
@@ -113,6 +114,7 @@ def run_inference(
     of_window_size: int = 21,
     of_max_levels: int = 3,
     use_kalman: bool = False,
+    kf_track_features: str = "centroid",
     kf_init_frame_count: int = 10,
     kf_node_indices: Optional[List[int]] = None,
     kf_reset_gap_size: int = 5,
@@ -278,10 +280,14 @@ def run_inference(
         of_max_levels: Number of pyramid scale levels to consider. This is different
             from the scale parameter, which determines the initial image scaling.
             Default: 3. (only if `use_flow` is True).
+        oks_stddev: Keypoint-spread normalization constant for `oks` scoring; larger is
+            more tolerant of localization error. Default: 0.025.
         use_kalman: If True, `KalmanShiftTracker` is used, where poses are predicted
             with a per-track constant-velocity Kalman filter. Requires
             `tracking_target_instance_count` (or `max_tracks`/`max_instances`) and is
             mutually exclusive with `use_flow`. Default: `False`.
+        kf_track_features: What the Kalman motion model tracks: `centroid` (default) or
+            `keypoints` (per-node poses; noisier). (only if `use_kalman` is True)
         kf_init_frame_count: Number of warm-up frames tracked with the base path before
             the Kalman filters are fit via EM. Default: 10. (only if `use_kalman` is True)
         kf_node_indices: Skeleton node (row) indices to track with the motion model.
@@ -514,6 +520,7 @@ def run_inference(
                 scoring_method=scoring_method,
                 scoring_reduction=scoring_reduction,
                 robust_best_instance=robust_best_instance,
+                oks_stddev=oks_stddev,
                 track_matching_method=track_matching_method,
                 max_tracks=max_tracks,
                 use_flow=use_flow,
@@ -521,6 +528,7 @@ def run_inference(
                 of_window_size=of_window_size,
                 of_max_levels=of_max_levels,
                 use_kalman=use_kalman,
+                kf_track_features=kf_track_features,
                 kf_init_frame_count=kf_init_frame_count,
                 kf_node_indices=kf_node_indices,
                 kf_reset_gap_size=kf_reset_gap_size,
@@ -701,6 +709,7 @@ def run_inference(
                 scoring_method=scoring_method,
                 scoring_reduction=scoring_reduction,
                 robust_best_instance=robust_best_instance,
+                oks_stddev=oks_stddev,
                 track_matching_method=track_matching_method,
                 max_tracks=max_tracks,
                 use_flow=use_flow,
@@ -708,6 +717,7 @@ def run_inference(
                 of_window_size=of_window_size,
                 of_max_levels=of_max_levels,
                 use_kalman=use_kalman,
+                kf_track_features=kf_track_features,
                 kf_init_frame_count=kf_init_frame_count,
                 kf_node_indices=kf_node_indices,
                 kf_reset_gap_size=kf_reset_gap_size,
