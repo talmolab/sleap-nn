@@ -6637,19 +6637,33 @@
 </tbody>
 </table>
 <h3 id="kalman-filter">Kalman Filter<a class="headerlink" href="#kalman-filter" title="Permanent link">&para;</a></h3>
-<p>Tracks each identity with a per-track constant-velocity Kalman filter. The tracker
-runs a normal-tracker warm-up for <code>--kf_init_frame_count</code> frames, fits one filter per
-track via EM, and then predicts each track's pose forward to score the current
-detections (analogous to optical flow, but using a motion model instead of image
-displacements):</p>
+<p>Tracks each identity with a per-track constant-velocity Kalman filter on the
+instance <strong>centroid</strong>. The tracker runs a normal-tracker warm-up for
+<code>--kf_init_frame_count</code> frames, fits one centroid filter per track via EM, and then
+predicts each track's centroid forward and scores the current detections against the
+last observed pose <strong>rigidly translated</strong> by that predicted displacement (analogous to
+optical flow, but using a motion model instead of image displacements):</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>infer<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/centroid<span class="w"> </span>models/centered_instance<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span>--use_kalman<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span>--tracking_target_instance_count<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span>--kf_init_frame_count<span class="w"> </span><span class="m">10</span>
 </span></code></pre></div>
-<p><strong>Best for</strong>: A known, fixed number of smoothly-moving animals with frequent
-occlusions, after the base detector has been culled to the top-N instances per frame.</p>
+<p><strong>Best for</strong>: A known, fixed number of animals whose motion is informative for
+association — identities that <strong>cross or pass close</strong> to each other, <strong>converge</strong>, or
+move <strong>fast and smoothly</strong> — after the base detector has been culled to the top-N
+instances per frame. In these regimes the motion prediction substantially reduces ID
+switches over plain similarity matching.</p>
+<div class="admonition note">
+<p class="admonition-title">When it helps vs. when it doesn't</p>
+<p>The motion model is a net win where association is ambiguous (crossings, converging
+or fast tracks). Under <strong>heavy detection noise with frequent missed detections on
+long sequences</strong> it can slightly <em>reduce</em> IDF1 versus the memoryless similarity
+tracker (any motion prediction occasionally causes a swap a memoryless tracker
+avoids) — though it usually still produces fewer ID switches there. If your
+detections are very noisy, prefer the plain tracker or lower <code>kf_prediction_blend</code>
+(e.g. <code>Tracker.from_config(..., kf_prediction_blend=0.25)</code>).</p>
+</div>
 <p>Notes:</p>
 <ul>
 <li>Requires a known target identity count: pass <code>--tracking_target_instance_count</code>
@@ -6659,6 +6673,13 @@ occlusions, after the base detector has been culled to the top-N instances per f
   <code>--kf_node_indices 0,1,2</code>. Leave it unset to use all nodes.</li>
 <li>Depends on the <code>pykalman</code> package (a core dependency).</li>
 </ul>
+<p>The motion model is robustified so it does not degrade tracking outside its sweet
+spot: each correction is gated by distance (rejecting false-positive / mismatched
+detections), the learned velocity is capped, the filter coasts across occlusion gaps,
+stale tracks are reset, and the scoring candidate blends the prediction with the last
+observation. These robustness parameters (<code>kf_prediction_blend</code>, the gate and
+velocity-cap multipliers) have tuned defaults and can be overridden when constructing a
+tracker via <code>Tracker.from_config(...)</code>.</p>
 <h4 id="kalman-filter-parameters">Kalman Filter Parameters<a class="headerlink" href="#kalman-filter-parameters" title="Permanent link">&para;</a></h4>
 <table>
 <thead>
