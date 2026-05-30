@@ -1110,3 +1110,65 @@ def test_kalman_from_config_robustness_knobs():
     assert tracker.kf_min_gate_px == 55.0
     assert tracker.kf_velocity_cap_mult == 2.0
     assert tracker.kf_min_velocity_cap_px == 12.0
+
+
+def test_kalman_keypoints_mode_tracks_per_node():
+    """kf_track_features='keypoints' fits one filter per node and tracks (#572)."""
+    n_nodes = 3
+    tracker = _kalman_tracker(
+        kf_track_features="keypoints", kf_init_frame_count=3, kf_node_indices=None
+    )
+    assert tracker.kf_track_features == "keypoints"
+    per_frame = _run_synthetic_kalman_tracking(tracker, n_frames=10, n_nodes=n_nodes)
+
+    assert tracker._initialized
+    assert len(tracker._kalman_filters) == 2
+    # Per-node state has 4 dims per tracked node (vs 4 total for the centroid model).
+    for result in tracker._last_results.values():
+        assert len(result["means"]) == 4 * n_nodes
+    # Two stable tracks are maintained.
+    assert {name for frame in per_frame for name in frame} == {"track_0", "track_1"}
+
+
+def test_kalman_keypoints_supports_bbox_iou():
+    """Keypoints mode works with the bbox/iou featurization/metric alternative (#572)."""
+    tracker = _kalman_tracker(
+        kf_track_features="keypoints",
+        kf_init_frame_count=3,
+        features="bboxes",
+        scoring_method="iou",
+    )
+    per_frame = _run_synthetic_kalman_tracking(tracker, n_frames=10, n_nodes=3)
+    assert tracker._initialized
+    assert {name for frame in per_frame for name in frame} == {"track_0", "track_1"}
+
+
+def test_kalman_oks_stddev_auto_resolves_by_mode():
+    """oks_stddev auto-resolves: 0.1 for keypoints mode, 0.025 otherwise (#572)."""
+    kp = Tracker.from_config(
+        use_kalman=True, kf_track_features="keypoints", tracking_target_instance_count=2
+    )
+    cen = Tracker.from_config(
+        use_kalman=True, kf_track_features="centroid", tracking_target_instance_count=2
+    )
+    assert kp.oks_stddev == 0.1
+    assert cen.oks_stddev == 0.025
+    assert Tracker.from_config().oks_stddev == 0.025  # base tracker
+    # An explicit value always wins over the auto-resolution.
+    explicit = Tracker.from_config(
+        use_kalman=True,
+        kf_track_features="keypoints",
+        tracking_target_instance_count=2,
+        oks_stddev=0.03,
+    )
+    assert explicit.oks_stddev == 0.03
+
+
+def test_kalman_invalid_track_features_raises():
+    """An unknown kf_track_features value is rejected by from_config (#572)."""
+    with pytest.raises(ValueError):
+        Tracker.from_config(
+            use_kalman=True,
+            kf_track_features="garbage",
+            tracking_target_instance_count=2,
+        )

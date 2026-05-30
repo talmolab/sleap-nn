@@ -914,6 +914,18 @@ def train(
     help="If True, `KalmanShiftTracker` is used: poses are predicted with a per-track constant-velocity Kalman filter. Requires --tracking_target_instance_count (or --max_tracks/--max_instances) and is mutually exclusive with --use_flow.",
 )
 @click.option(
+    "--kf_track_features",
+    type=click.Choice(["centroid", "keypoints"]),
+    default="centroid",
+    help="What the Kalman motion model tracks: 'centroid' (default; rigid, stable) or 'keypoints' (per-node poses; noisier — pair with --oks_stddev or --features bboxes --scoring_method iou). (only if --use_kalman)",
+)
+@click.option(
+    "--oks_stddev",
+    type=float,
+    default=None,
+    help="OKS keypoint-spread normalization constant for `oks` scoring. Larger is more tolerant of localization error (useful with --kf_track_features keypoints). Default: 0.025.",
+)
+@click.option(
     "--kf_init_frame_count",
     type=int,
     default=10,
@@ -1233,6 +1245,7 @@ def _build_tracker_config(kwargs: dict) -> "object":
         scoring_method_explicit=scoring_method_explicit,
         scoring_reduction=kwargs.get("scoring_reduction", "mean"),
         robust_best_instance=kwargs.get("robust_best_instance", 1.0),
+        oks_stddev=kwargs.get("oks_stddev", 0.025),
         track_matching_method=kwargs.get("track_matching_method", "hungarian"),
         max_tracks=max_tracks,
         use_flow=kwargs.get("use_flow", False),
@@ -1240,6 +1253,7 @@ def _build_tracker_config(kwargs: dict) -> "object":
         of_window_size=kwargs.get("of_window_size", 21),
         of_max_levels=kwargs.get("of_max_levels", 3),
         use_kalman=use_kalman,
+        kf_track_features=kwargs.get("kf_track_features", "centroid"),
         kf_init_frame_count=kwargs.get("kf_init_frame_count", 10),
         kf_node_indices=kwargs.get("kf_node_indices"),
         kf_reset_gap_size=kwargs.get("kf_reset_gap_size", 5),
@@ -1925,6 +1939,12 @@ def _common_inference_options(f):
         click.option("--of_window_size", type=int, default=21),
         click.option("--of_max_levels", type=int, default=3),
         click.option("--use_kalman", is_flag=True, default=False),
+        click.option(
+            "--kf_track_features",
+            type=click.Choice(["centroid", "keypoints"]),
+            default="centroid",
+        ),
+        click.option("--oks_stddev", type=float, default=None),
         click.option("--kf_init_frame_count", type=int, default=10),
         click.option(
             "--kf_node_indices", type=str, default=None, callback=_parse_int_list

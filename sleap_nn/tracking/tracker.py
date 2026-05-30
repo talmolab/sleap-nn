@@ -2,6 +2,7 @@
 
 from typing import Any, Dict, List, Union, Deque, DefaultDict, Optional
 from collections import defaultdict
+import warnings
 import attrs
 import cv2
 import numpy as np
@@ -82,6 +83,7 @@ class Tracker:
     scoring_reduction: str = "mean"
     track_matching_method: str = "hungarian"
     robust_best_instance: float = 1.0
+    oks_stddev: float = 0.025
     use_flow: bool = False
     is_local_queue: bool = False
     tracking_target_instance_count: Optional[int] = None
@@ -121,6 +123,7 @@ class Tracker:
         scoring_method: str = "oks",
         scoring_reduction: str = "mean",
         robust_best_instance: float = 1.0,
+        oks_stddev: Optional[float] = None,
         track_matching_method: str = "hungarian",
         max_tracks: Optional[int] = None,
         use_flow: bool = False,
@@ -128,6 +131,7 @@ class Tracker:
         of_window_size: int = 21,
         of_max_levels: int = 3,
         use_kalman: bool = False,
+        kf_track_features: str = "centroid",
         kf_init_frame_count: int = 10,
         kf_node_indices: Optional[List[int]] = None,
         kf_reset_gap_size: int = 5,
@@ -179,10 +183,18 @@ class Tracker:
             of_max_levels: Number of pyramid scale levels to consider. This is different
                 from the scale parameter, which determines the initial image scaling.
                 Default: 3. (only if `use_flow` is True)
+            oks_stddev: Keypoint-spread normalization constant for `oks` scoring;
+                larger is more tolerant of localization error. `None` (default)
+                auto-resolves to 0.1 for `kf_track_features="keypoints"` (whose per-node
+                prediction is noisier) and 0.025 otherwise.
             use_kalman: If True, `KalmanShiftTracker` is used, where poses are predicted
                 with a per-track constant-velocity Kalman filter. Requires
                 `tracking_target_instance_count` (or `max_tracks`) and is mutually
                 exclusive with `use_flow`. Default: `False`.
+            kf_track_features: What the Kalman motion model tracks: `centroid` (default;
+                rigid translation of the last pose) or `keypoints` (per-node poses;
+                noisier, pair with a larger `oks_stddev` or `features="bboxes"` +
+                `scoring_method="iou"`). (only if `use_kalman` is True)
             kf_init_frame_count: Number of warm-up frames tracked with the base path
                 before the Kalman filters are fit via EM. Default: 10.
                 (only if `use_kalman` is True)
@@ -242,6 +254,23 @@ class Tracker:
             logger.error(message)
             raise ValueError(message)
 
+        if use_kalman and kf_track_features not in ("centroid", "keypoints"):
+            message = (
+                f"Invalid kf_track_features={kf_track_features!r}; choose 'centroid' "
+                "(default) or 'keypoints'."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        # Resolve the OKS tolerance: the per-node 'keypoints' prediction is noisier, so
+        # the strict default stddev (0.025) collapses its similarity scores; default it
+        # to 0.1 (validated on synthetic + real data). Centroid/base keep 0.025. An
+        # explicit oks_stddev always wins.
+        if oks_stddev is None:
+            oks_stddev = (
+                0.1 if (use_kalman and kf_track_features == "keypoints") else 0.025
+            )
+
         if use_kalman:
             return KalmanShiftTracker(
                 candidate=candidate,
@@ -250,7 +279,9 @@ class Tracker:
                 scoring_method=scoring_method,
                 scoring_reduction=scoring_reduction,
                 robust_best_instance=robust_best_instance,
+                oks_stddev=oks_stddev,
                 track_matching_method=track_matching_method,
+                kf_track_features=kf_track_features,
                 kf_init_frame_count=kf_init_frame_count,
                 kf_node_indices=kf_node_indices,
                 kf_reset_gap_size=kf_reset_gap_size,
@@ -273,6 +304,7 @@ class Tracker:
                 scoring_method=scoring_method,
                 scoring_reduction=scoring_reduction,
                 robust_best_instance=robust_best_instance,
+                oks_stddev=oks_stddev,
                 track_matching_method=track_matching_method,
                 img_scale=of_img_scale,
                 of_window_size=of_window_size,
@@ -290,6 +322,7 @@ class Tracker:
             scoring_method=scoring_method,
             scoring_reduction=scoring_reduction,
             robust_best_instance=robust_best_instance,
+            oks_stddev=oks_stddev,
             track_matching_method=track_matching_method,
             use_flow=use_flow,
             is_local_queue=is_local_queue,
@@ -467,6 +500,11 @@ class Tracker:
             raise ValueError(message)
 
         scoring_method = self._scoring_functions[self.scoring_method]
+        if self.scoring_method == "oks":
+            # OKS tolerance is configurable: a larger stddev is more forgiving of
+            # localization error, which matters for the noisier per-keypoint Kalman
+            # prediction (`kf_track_features="keypoints"`).
+            scoring_method = functools.partial(compute_oks, stddev=self.oks_stddev)
         scoring_reduction = self._scoring_reduction_methods[self.scoring_reduction]
 
         # Get list of features for the `current_instances`.
@@ -832,6 +870,7 @@ class KalmanShiftTracker(Tracker):
         kf_min_velocity_cap_px: Floor (px/frame) for the velocity cap. Default: 15.0.
     """
 
+    kf_track_features: str = "centroid"
     kf_init_frame_count: int = 10
     kf_node_indices: Optional[List[int]] = None
     kf_reset_gap_size: int = 5
@@ -972,25 +1011,51 @@ class KalmanShiftTracker(Tracker):
             return [i for i in self.kf_node_indices if i < (self._n_nodes or 0)]
         return list(range(self._n_nodes)) if self._n_nodes else []
 
-    @staticmethod
-    def _build_matrices():
-        """Build the constant-velocity centroid transition/observation matrices.
+    def _num_track_points(self) -> int:
+        """Number of points the motion model tracks per instance.
 
-        State is the centroid and its velocity ``[cx, vcx, cy, vcy]`` (4-dim);
-        the observation is the centroid ``[cx, cy]`` (2-dim). Tracking the centroid
-        with a single filter (rather than every keypoint independently) keeps the
-        fit stable and the predicted pose rigid.
+        1 for ``kf_track_features="centroid"`` (the per-track centroid); one per
+        selected node for ``kf_track_features="keypoints"``.
         """
-        transition = [
-            [1.0, 1.0, 0.0, 0.0],  # cx' = cx + vcx
-            [0.0, 1.0, 0.0, 0.0],  # vcx' = vcx
-            [0.0, 0.0, 1.0, 1.0],  # cy' = cy + vcy
-            [0.0, 0.0, 0.0, 1.0],  # vcy' = vcy
-        ]
-        observation = [
-            [1.0, 0.0, 0.0, 0.0],  # observe cx
-            [0.0, 0.0, 1.0, 0.0],  # observe cy
-        ]
+        if self.kf_track_features == "keypoints":
+            return max(1, len(self._resolved_node_indices))
+        return 1
+
+    def _tracked_points(self, keypoints: np.ndarray) -> np.ndarray:
+        """The points the motion model tracks for an instance, shape (P, 2).
+
+        Centroid mode: the single (visibility-aware) centroid. Keypoints mode: the
+        selected node coordinates as-is (NaN where a node is missing).
+        """
+        if self.kf_track_features == "keypoints":
+            return np.asarray(keypoints, dtype=float)[self._resolved_node_indices, :]
+        return self._centroid(keypoints).reshape(1, 2)
+
+    def _build_matrices(self):
+        """Build constant-velocity transition/observation matrices for P points.
+
+        State is ``[x0, vx0, y0, vy0, x1, vx1, y1, vy1, ...]`` (4*P dims); the
+        observation is the P point positions ``[x0, y0, x1, y1, ...]`` (2*P dims).
+        For ``kf_track_features="centroid"`` P=1 (a single stable centroid filter,
+        whose predicted displacement is applied rigidly to the whole body); for
+        ``"keypoints"`` P is the number of tracked nodes (each node gets its own
+        constant-velocity filter — noisier, but uses the pose directly).
+        """
+        n_points = self._num_track_points()
+        state_dim = 4 * n_points
+        obs_dim = 2 * n_points
+        transition = [[0.0] * state_dim for _ in range(state_dim)]
+        observation = [[0.0] * state_dim for _ in range(obs_dim)]
+        for p in range(n_points):
+            b = 4 * p
+            transition[b][b] = 1.0  # x' = x + vx
+            transition[b][b + 1] = 1.0
+            transition[b + 1][b + 1] = 1.0  # vx' = vx
+            transition[b + 2][b + 2] = 1.0  # y' = y + vy
+            transition[b + 2][b + 3] = 1.0
+            transition[b + 3][b + 3] = 1.0  # vy' = vy
+            observation[2 * p][b] = 1.0  # observe x
+            observation[2 * p + 1][b + 2] = 1.0  # observe y
         return transition, observation
 
     def _centroid(self, keypoints: np.ndarray) -> np.ndarray:
@@ -1013,15 +1078,23 @@ class KalmanShiftTracker(Tracker):
             return np.nanmean(pts, axis=0)
 
     def _obs_vector(self, keypoints: np.ndarray) -> np.ndarray:
-        """Masked centroid observation vector, shape (2,)."""
+        """Masked observation vector of the tracked points, shape (2*P,)."""
         return np.ma.masked_invalid(
-            np.ma.asarray(self._centroid(keypoints), dtype=float)
+            np.ma.asarray(self._tracked_points(keypoints).flatten(), dtype=float)
         )
 
     @staticmethod
-    def _predicted_centroid(mean: np.ndarray) -> np.ndarray:
-        """Extract the centroid position ``[cx, cy]`` from a state mean."""
-        return np.asarray(mean)[::2]
+    def _predicted_points(mean: np.ndarray) -> np.ndarray:
+        """Extract predicted point positions ``[[x0,y0],...]`` from a state mean."""
+        return np.asarray(mean)[::2].reshape(-1, 2)
+
+    def _predicted_centroid(self, mean: np.ndarray) -> np.ndarray:
+        """Centroid of the predicted tracked points, shape (2,) (used for gating)."""
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            return np.nanmean(self._predicted_points(mean), axis=0)
 
     @staticmethod
     def _cap_velocity(mean: np.ndarray, cap: float) -> np.ndarray:
@@ -1093,32 +1166,53 @@ class KalmanShiftTracker(Tracker):
         if len(window) < 3:
             return False  # need a few contiguous frames for a stable velocity fit
         window = window[-self.kf_init_frame_count :]
-        cents = [self._centroid(h["keypoints"]) for h in window]
-        obs = np.ma.masked_invalid(np.ma.asarray(cents, dtype=float))  # (T, 2)
+        n_points = self._num_track_points()
+        obs_dim = 2 * n_points
+        rows = np.asarray(
+            [self._tracked_points(h["keypoints"]).flatten() for h in window],
+            dtype=float,
+        )  # (T, 2P), NaN where a tracked point is missing
+        obs = np.ma.masked_invalid(rows)
 
         median_step = self._window_median_step(window)
         velocity_cap = max(
             self.kf_min_velocity_cap_px, self.kf_velocity_cap_mult * median_step
         )
 
-        # Seed position from the first finite centroid; velocity from the first pair
-        # of centroids one frame apart that are both finite (so a centroid dropout does
-        # not mislabel a multi-frame step as a one-frame velocity). A dropped node must
-        # not collapse the seed to the image origin.
-        finite = [c for c in cents if not np.isnan(c).any()]
-        if len(finite) < 2:
+        # Need at least two frames with any usable observation.
+        if int(np.sum(~np.isnan(rows).all(axis=1))) < 2:
             return False
-        first = np.asarray(finite[0], dtype=float)
-        seed_vel = np.zeros(2)
-        for i in range(1, len(cents)):
-            if not np.isnan(cents[i]).any() and not np.isnan(cents[i - 1]).any():
-                seed_vel = np.clip(
-                    np.asarray(cents[i] - cents[i - 1], dtype=float),
-                    -velocity_cap,
-                    velocity_cap,
-                )
-                break
-        initial_state_mean = [first[0], seed_vel[0], first[1], seed_vel[1]]
+
+        # Per-coordinate seed: position from the first finite value; velocity from the
+        # first consecutive finite pair (capped) so a dropout does not mislabel a
+        # multi-frame step as a one-frame velocity. Coordinates never seen in the
+        # window are filled with the same-axis mean (never the image origin).
+        first = np.full(obs_dim, np.nan)
+        seed_vel = np.zeros(obs_dim)
+        for c in range(obs_dim):
+            finite_t = np.where(~np.isnan(rows[:, c]))[0]
+            if len(finite_t) == 0:
+                continue
+            first[c] = rows[finite_t[0], c]
+            for t in finite_t:
+                if t + 1 < len(rows) and not np.isnan(rows[t + 1, c]):
+                    seed_vel[c] = np.clip(
+                        rows[t + 1, c] - rows[t, c], -velocity_cap, velocity_cap
+                    )
+                    break
+        if np.isnan(first).all():
+            return False
+        if np.isnan(first).any():
+            fx = np.nanmean(first[0::2]) if not np.isnan(first[0::2]).all() else 0.0
+            fy = np.nanmean(first[1::2]) if not np.isnan(first[1::2]).all() else 0.0
+            first[0::2] = np.where(np.isnan(first[0::2]), fx, first[0::2])
+            first[1::2] = np.where(np.isnan(first[1::2]), fy, first[1::2])
+        initial_state_mean = [0.0] * (4 * n_points)
+        for p in range(n_points):
+            initial_state_mean[4 * p] = float(first[2 * p])
+            initial_state_mean[4 * p + 1] = float(seed_vel[2 * p])
+            initial_state_mean[4 * p + 2] = float(first[2 * p + 1])
+            initial_state_mean[4 * p + 3] = float(seed_vel[2 * p + 1])
 
         transition, observation = self._build_matrices()
         kalman_filter_cls = _get_kalman_filter_cls()
@@ -1319,19 +1413,39 @@ class KalmanShiftTracker(Tracker):
 
             ref = history[-1]
             last_keypoints = np.asarray(ref["keypoints"], dtype=float)
+            blend = self.kf_prediction_blend
             pred_centroid = self._predicted_centroid(mean)
             last_centroid = self._centroid(last_keypoints)
 
             if np.isnan(pred_centroid).any() or np.isnan(last_centroid).any():
-                candidate_keypoints = last_keypoints  # hold last (no valid centroid)
+                candidate_keypoints = last_keypoints  # hold last (no valid prediction)
+            elif self.kf_track_features == "keypoints":
+                # Per-node mode: blend each tracked node's predicted position with its
+                # last observed position; non-tracked nodes are translated rigidly by
+                # the mean tracked displacement. Uses the pose directly (noisier than
+                # the rigid centroid candidate), with a tolerant similarity score
+                # (`oks_stddev`) or bbox/iou recommended.
+                idx = self._resolved_node_indices
+                pred_points = self._predicted_points(mean)  # (K, 2)
+                last_tracked = last_keypoints[idx]
+                disp = pred_points - last_tracked
+                blended = last_tracked + blend * disp
+                blended = np.where(np.isnan(blended), pred_points, blended)
+                candidate_keypoints = last_keypoints.copy()
+                candidate_keypoints[idx] = blended
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", category=RuntimeWarning)
+                    mean_disp = np.nanmean(disp, axis=0)
+                if not np.isnan(mean_disp).any():
+                    mask = np.ones(self._n_nodes, dtype=bool)
+                    mask[idx] = False
+                    candidate_keypoints[mask] = last_keypoints[mask] + blend * mean_disp
             else:
-                # Rigidly translate the last observed pose by a fraction of the
-                # predicted centroid displacement. The weight is constant (NOT scaled
-                # up with staleness): a coasting prediction is *less* reliable, so
-                # amplifying it during gaps just injects swaps under noise.
-                displacement = self.kf_prediction_blend * (
-                    pred_centroid - last_centroid
-                )
+                # Centroid mode: rigidly translate the last observed pose by a fraction
+                # of the predicted centroid displacement. The weight is constant (NOT
+                # scaled up with staleness): a coasting prediction is *less* reliable,
+                # so amplifying it during gaps just injects swaps under noise.
+                displacement = blend * (pred_centroid - last_centroid)
                 candidate_keypoints = last_keypoints + displacement
 
             predicted[track_id].append(
@@ -1420,6 +1534,7 @@ def run_tracker(
     scoring_method: str = "oks",
     scoring_reduction: str = "mean",
     robust_best_instance: float = 1.0,
+    oks_stddev: Optional[float] = None,
     track_matching_method: str = "hungarian",
     max_tracks: Optional[int] = None,
     use_flow: bool = False,
@@ -1427,6 +1542,7 @@ def run_tracker(
     of_window_size: int = 21,
     of_max_levels: int = 3,
     use_kalman: bool = False,
+    kf_track_features: str = "centroid",
     kf_init_frame_count: int = 10,
     kf_node_indices: Optional[List[int]] = None,
     kf_reset_gap_size: int = 5,
@@ -1477,10 +1593,15 @@ def run_tracker(
         of_max_levels: Number of pyramid scale levels to consider. This is different
             from the scale parameter, which determines the initial image scaling.
                 Default: 3. (only if `use_flow` is True).
+        oks_stddev: Keypoint-spread normalization constant for `oks` scoring; larger is
+            more tolerant of localization error. `None` (default) auto-resolves to 0.1
+            for `kf_track_features="keypoints"` and 0.025 otherwise.
         use_kalman: If True, `KalmanShiftTracker` is used, where poses are predicted with
             a per-track constant-velocity Kalman filter. Requires
             `tracking_target_instance_count` (or `max_tracks`) and is mutually exclusive
             with `use_flow`. Default: `False`.
+        kf_track_features: What the Kalman motion model tracks: `centroid` (default) or
+            `keypoints` (per-node poses; noisier). (only if `use_kalman` is True)
         kf_init_frame_count: Number of warm-up frames tracked with the base path before
             the Kalman filters are fit via EM. Default: 10. (only if `use_kalman` is True)
         kf_node_indices: Skeleton node (row) indices to track with the motion model.
@@ -1508,6 +1629,7 @@ def run_tracker(
         scoring_method=scoring_method,
         scoring_reduction=scoring_reduction,
         robust_best_instance=robust_best_instance,
+        oks_stddev=oks_stddev,
         track_matching_method=track_matching_method,
         max_tracks=max_tracks,
         use_flow=use_flow,
@@ -1515,6 +1637,7 @@ def run_tracker(
         of_window_size=of_window_size,
         of_max_levels=of_max_levels,
         use_kalman=use_kalman,
+        kf_track_features=kf_track_features,
         kf_init_frame_count=kf_init_frame_count,
         kf_node_indices=kf_node_indices,
         kf_reset_gap_size=kf_reset_gap_size,
