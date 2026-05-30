@@ -112,6 +112,10 @@ def run_inference(
     of_img_scale: float = 1.0,
     of_window_size: int = 21,
     of_max_levels: int = 3,
+    use_kalman: bool = False,
+    kf_init_frame_count: int = 10,
+    kf_node_indices: Optional[List[int]] = None,
+    kf_reset_gap_size: int = 5,
     post_connect_single_breaks: bool = False,
     tracking_target_instance_count: Optional[int] = None,
     tracking_pre_cull_to_target: int = 0,
@@ -274,6 +278,16 @@ def run_inference(
         of_max_levels: Number of pyramid scale levels to consider. This is different
             from the scale parameter, which determines the initial image scaling.
             Default: 3. (only if `use_flow` is True).
+        use_kalman: If True, `KalmanShiftTracker` is used, where poses are predicted
+            with a per-track constant-velocity Kalman filter. Requires
+            `tracking_target_instance_count` (or `max_tracks`/`max_instances`) and is
+            mutually exclusive with `use_flow`. Default: `False`.
+        kf_init_frame_count: Number of warm-up frames tracked with the base path before
+            the Kalman filters are fit via EM. Default: 10. (only if `use_kalman` is True)
+        kf_node_indices: Skeleton node (row) indices to track with the motion model.
+            `None` uses all nodes. Default: None. (only if `use_kalman` is True)
+        kf_reset_gap_size: Number of consecutive missed frames after which a stale
+            track's filter is reset. Default: 5. (only if `use_kalman` is True)
         post_connect_single_breaks: If True and `max_tracks` is not None with local queues candidate method,
             connects track breaks when exactly one track is lost and exactly one new track is spawned in the frame.
         tracking_target_instance_count: Target number of instances to track per frame. (default: None)
@@ -393,13 +407,15 @@ def run_inference(
 
             logger.info(f"Running tracking on {len(lf_frames)} frames...")
 
-            if post_connect_single_breaks or tracking_pre_cull_to_target:
+            if post_connect_single_breaks or tracking_pre_cull_to_target or use_kalman:
                 if tracking_target_instance_count is None and max_instances is None:
                     features_requested = []
                     if post_connect_single_breaks:
                         features_requested.append("--post_connect_single_breaks")
                     if tracking_pre_cull_to_target:
                         features_requested.append("--tracking_pre_cull_to_target")
+                    if use_kalman:
+                        features_requested.append("--use_kalman")
                     features_str = " and ".join(features_requested)
 
                     if max_tracks is not None:
@@ -504,6 +520,10 @@ def run_inference(
                 of_img_scale=of_img_scale,
                 of_window_size=of_window_size,
                 of_max_levels=of_max_levels,
+                use_kalman=use_kalman,
+                kf_init_frame_count=kf_init_frame_count,
+                kf_node_indices=kf_node_indices,
+                kf_reset_gap_size=kf_reset_gap_size,
                 post_connect_single_breaks=post_connect_single_breaks,
                 tracking_target_instance_count=tracking_target_instance_count,
                 tracking_pre_cull_to_target=tracking_pre_cull_to_target,
@@ -648,13 +668,15 @@ def run_inference(
             and not isinstance(predictor, BottomUpMultiClassPredictor)
             and not isinstance(predictor, TopDownMultiClassPredictor)
         ):
-            if post_connect_single_breaks or tracking_pre_cull_to_target:
+            if post_connect_single_breaks or tracking_pre_cull_to_target or use_kalman:
                 if tracking_target_instance_count is None and max_instances is None:
                     features_requested = []
                     if post_connect_single_breaks:
                         features_requested.append("--post_connect_single_breaks")
                     if tracking_pre_cull_to_target:
                         features_requested.append("--tracking_pre_cull_to_target")
+                    if use_kalman:
+                        features_requested.append("--use_kalman")
                     features_str = " and ".join(features_requested)
 
                     if max_tracks is not None:
@@ -685,6 +707,10 @@ def run_inference(
                 of_img_scale=of_img_scale,
                 of_window_size=of_window_size,
                 of_max_levels=of_max_levels,
+                use_kalman=use_kalman,
+                kf_init_frame_count=kf_init_frame_count,
+                kf_node_indices=kf_node_indices,
+                kf_reset_gap_size=kf_reset_gap_size,
                 tracking_target_instance_count=tracking_target_instance_count,
                 tracking_pre_cull_to_target=tracking_pre_cull_to_target,
                 tracking_pre_cull_iou_threshold=tracking_pre_cull_iou_threshold,

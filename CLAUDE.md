@@ -53,6 +53,9 @@ The codebase follows a modular architecture:
 5. **Tracking** (`sleap_nn/tracking/`)
    - Instance tracking across frames
    - Candidate generation with fixed windows and local queues
+   - Candidate-update motion models: optical-flow (`FlowShiftTracker`, `--use_flow`) and
+     Kalman filter (`KalmanShiftTracker`, `--use_kalman`; requires a target instance count
+     and `pykalman`). Both subclass `Tracker` and override only `update_candidates`.
 
 ### Configuration System
 
