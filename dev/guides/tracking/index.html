@@ -1190,6 +1190,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#kalman-filter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kalman Filter
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -6339,6 +6350,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#kalman-filter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kalman Filter
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -6532,6 +6554,30 @@
 <td>Flag</td>
 <td><code>False</code></td>
 </tr>
+<tr>
+<td><code>--use_kalman</code></td>
+<td>Enable Kalman-filter tracking</td>
+<td>Flag</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--kf_init_frame_count</code></td>
+<td>Warm-up frames before EM init</td>
+<td><code>INT</code></td>
+<td><code>10</code></td>
+</tr>
+<tr>
+<td><code>--kf_node_indices</code></td>
+<td>Node indices to filter (comma-sep; empty = all)</td>
+<td>e.g. <code>0,1,2</code></td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--kf_reset_gap_size</code></td>
+<td>Missed frames before a stale track resets</td>
+<td><code>INT</code></td>
+<td><code>5</code></td>
+</tr>
 </tbody>
 </table>
 <hr />
@@ -6590,41 +6636,95 @@
 </tr>
 </tbody>
 </table>
+<h3 id="kalman-filter">Kalman Filter<a class="headerlink" href="#kalman-filter" title="Permanent link">&para;</a></h3>
+<p>Tracks each identity with a per-track constant-velocity Kalman filter. The tracker
+runs a normal-tracker warm-up for <code>--kf_init_frame_count</code> frames, fits one filter per
+track via EM, and then predicts each track's pose forward to score the current
+detections (analogous to optical flow, but using a motion model instead of image
+displacements):</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>infer<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/centroid<span class="w"> </span>models/centered_instance<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span>--use_kalman<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span>--tracking_target_instance_count<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span>--kf_init_frame_count<span class="w"> </span><span class="m">10</span>
+</span></code></pre></div>
+<p><strong>Best for</strong>: A known, fixed number of smoothly-moving animals with frequent
+occlusions, after the base detector has been culled to the top-N instances per frame.</p>
+<p>Notes:</p>
+<ul>
+<li>Requires a known target identity count: pass <code>--tracking_target_instance_count</code>
+  (or let it be derived from <code>--max_instances</code> / <code>--max_tracks</code>).</li>
+<li>Mutually exclusive with <code>--use_flow</code>.</li>
+<li>Use <code>--kf_node_indices</code> to filter on a stable subset of nodes (e.g. spine nodes):
+  <code>--kf_node_indices 0,1,2</code>. Leave it unset to use all nodes.</li>
+<li>Depends on the <code>pykalman</code> package (a core dependency).</li>
+</ul>
+<h4 id="kalman-filter-parameters">Kalman Filter Parameters<a class="headerlink" href="#kalman-filter-parameters" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Description</th>
+<th>Values</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--kf_init_frame_count</code></td>
+<td>Warm-up frames before EM init</td>
+<td><code>INT</code></td>
+<td><code>10</code></td>
+</tr>
+<tr>
+<td><code>--kf_node_indices</code></td>
+<td>Node indices to filter (comma-sep; empty = all)</td>
+<td>e.g. <code>0,1,2</code></td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--kf_reset_gap_size</code></td>
+<td>Missed frames before a stale track resets</td>
+<td><code>INT</code></td>
+<td><code>5</code></td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h2 id="track-only-mode">Track-Only Mode<a class="headerlink" href="#track-only-mode" title="Permanent link">&para;</a></h2>
 <p>Assign tracks to existing predictions (no inference):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>--tracking
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>--tracking
 </span></code></pre></div>
 <p>Note: Omit <code>--model_paths</code> for track-only mode.</p>
 <p>With specific frames:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>-t<span class="w"> </span>--frames<span class="w"> </span><span class="m">0</span>-100<span class="w"> </span>--video_index<span class="w"> </span><span class="m">0</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>-t<span class="w"> </span>--frames<span class="w"> </span><span class="m">0</span>-100<span class="w"> </span>--video_index<span class="w"> </span><span class="m">0</span>
 </span></code></pre></div>
 <hr />
 <h2 id="limit-instances">Limit Instances<a class="headerlink" href="#limit-instances" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Maximum 5 instances per frame</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--max_instances<span class="w"> </span><span class="m">5</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Maximum 5 instances per frame</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--max_instances<span class="w"> </span><span class="m">5</span>
 </span></code></pre></div>
 <hr />
 <h2 id="example-configurations">Example Configurations<a class="headerlink" href="#example-configurations" title="Permanent link">&para;</a></h2>
 <h3 id="fast-animals">Fast Animals<a class="headerlink" href="#fast-animals" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span>--use_flow<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span>--of_img_scale<span class="w"> </span><span class="m">0</span>.5
-</span></code></pre></div>
-<h3 id="crowded-scenes">Crowded Scenes<a class="headerlink" href="#crowded-scenes" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span>--candidates_method<span class="w"> </span>local_queues<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">    </span>--max_tracks<span class="w"> </span><span class="m">10</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span>--use_flow<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span>--of_img_scale<span class="w"> </span><span class="m">0</span>.5
 </span></code></pre></div>
-<h3 id="high-accuracy">High Accuracy<a class="headerlink" href="#high-accuracy" title="Permanent link">&para;</a></h3>
+<h3 id="crowded-scenes">Crowded Scenes<a class="headerlink" href="#crowded-scenes" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span>--scoring_method<span class="w"> </span>oks<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span>--scoring_reduction<span class="w"> </span>mean<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span>--track_matching_method<span class="w"> </span>hungarian
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span>--candidates_method<span class="w"> </span>local_queues<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span>--max_tracks<span class="w"> </span><span class="m">10</span>
+</span></code></pre></div>
+<h3 id="high-accuracy">High Accuracy<a class="headerlink" href="#high-accuracy" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span>--scoring_method<span class="w"> </span>oks<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span>--scoring_reduction<span class="w"> </span>mean<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span>--track_matching_method<span class="w"> </span>hungarian
 </span></code></pre></div>
 <hr />
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
