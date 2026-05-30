@@ -50,7 +50,7 @@ def resolve_model_dir(model_path: Union[str, Path]) -> str:
         if suffix in (".yaml", ".yml", ".json"):
             return p.parent.as_posix()
         if suffix == ".ckpt":
-            if p.name != "best.ckpt":
+            if p.name.lower() != "best.ckpt":
                 logger.warning(
                     f"Model path '{model_path}' points at a specific checkpoint, "
                     f"but inference always loads 'best.ckpt' from the model "

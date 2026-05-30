@@ -77,13 +77,15 @@ sleap-nn track --data_path INPUT --model_paths MODEL [OPTIONS]
 | Option | Short | Description | Values | Default |
 |--------|-------|-------------|--------|---------|
 | `--data_path` | `-i` | Video or labels file | `PATH` | Required |
-| `--model_paths` | `-m` | Model directory (multiple for top-down) | `PATH` | Required* |
+| `--model_paths` | `-m` | Model dir, or its `best.ckpt` / `training_config.yaml` (multiple for top-down) | `PATH` | Required* |
 | `--output_path` | `-o` | Output file path | `PATH` | `<input>.predictions.slp` |
 | `--device` | `-d` | Compute device | `auto`, `cuda`, `cuda:0`, `cuda:1`, `cpu`, `mps` | `auto` |
 | `--batch_size` | `-b` | Batch size | `INT` | `4` |
 | `--tracking` | `-t` | Enable tracking | Flag | `false` |
 
 *Not required for track-only mode.
+
+Each `--model_paths` entry may be a model **directory**, or a path to that model's `best.ckpt` or `training_config.yaml`/`.json` file — all three resolve to the model directory and load `best.ckpt`. (A different checkpoint such as `last.ckpt` still loads `best.ckpt` and warns; use `--backbone_ckpt_path` / `--head_ckpt_path` for a specific checkpoint.)
 
 ### Output Options
 

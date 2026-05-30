@@ -128,6 +128,32 @@ def test_resolve_best_ckpt_does_not_warn(tmp_path):
     assert not any("best.ckpt" in m for m in msgs)
 
 
+def test_resolve_yml_suffix(tmp_path):
+    """A `.yml` (not just `.yaml`) config file resolves to its directory."""
+    d = tmp_path / "model"
+    d.mkdir()
+    (d / "training_config.yml").write_text("model_config: {}\n")
+    assert resolve_model_dir(d / "training_config.yml") == d.as_posix()
+
+
+def test_resolve_ckpt_name_case_insensitive(tmp_path):
+    """A case-variant `Best.ckpt` resolves to the dir without a spurious warning
+    (the checkpoint name check is case-insensitive)."""
+    d = tmp_path / "model"
+    d.mkdir()
+    shutil.copy(SINGLE_DIR / "best.ckpt", d / "Best.ckpt")
+
+    msgs: list[str] = []
+    sink = logger.add(lambda m: msgs.append(str(m)), level="WARNING")
+    try:
+        out = resolve_model_dir(d / "Best.ckpt")
+    finally:
+        logger.remove(sink)
+
+    assert out == d.as_posix()
+    assert not msgs
+
+
 def test_resolve_nonexistent_raises():
     """A path that does not exist raises FileNotFoundError with guidance."""
     with pytest.raises(FileNotFoundError, match="does not exist"):
