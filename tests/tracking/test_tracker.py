@@ -843,14 +843,18 @@ def test_kalmanshifttracker_tracking():
 
 
 def test_kalmanshifttracker_init_filters_shape():
-    """KalmanShiftTracker fits per-track filters with correct matrix shapes (#572)."""
-    node_indices = [0, 1, 2]
+    """KalmanShiftTracker fits one constant-velocity *centroid* filter per track (#572).
+
+    The motion model tracks the per-track centroid (state ``[cx, vcx, cy, vcy]``),
+    not every keypoint independently, so the filter matrices are a fixed 4x4 / 2x4
+    regardless of the number of (selected) nodes.
+    """
     tracker = Tracker.from_config(
         use_kalman=True,
         candidates_method="local_queues",
         max_tracks=2,
         kf_init_frame_count=3,
-        kf_node_indices=node_indices,
+        kf_node_indices=[0, 1, 2],
         tracking_target_instance_count=2,
     )
     _run_synthetic_kalman_tracking(tracker, n_frames=8, n_nodes=4)
@@ -858,19 +862,11 @@ def test_kalmanshifttracker_init_filters_shape():
     assert tracker._initialized
     assert len(tracker._kalman_filters) == 2
 
-    num_nodes = len(node_indices)
     for kf in tracker._kalman_filters.values():
-        # Constant-velocity state has 4 dims per node; observation has 2 per node.
-        assert np.asarray(kf.transition_matrices).shape == (
-            4 * num_nodes,
-            4 * num_nodes,
-        )
-        assert np.asarray(kf.observation_matrices).shape == (
-            2 * num_nodes,
-            4 * num_nodes,
-        )
+        assert np.asarray(kf.transition_matrices).shape == (4, 4)
+        assert np.asarray(kf.observation_matrices).shape == (2, 4)
     for result in tracker._last_results.values():
-        assert len(result["means"]) == 4 * num_nodes
+        assert len(result["means"]) == 4  # [cx, vcx, cy, vcy]
 
 
 def test_run_tracker_with_kalman(
@@ -1010,51 +1006,78 @@ def _base_tracker(**overrides):
     return Tracker.from_config(**kwargs)
 
 
-def test_kalman_no_switch_storm_on_erratic_motion():
-    """Erratic (random-walk) motion must not trigger an ID-switch storm (#572).
+def _kalman_filter_centroid(tracker, track_id):
+    """Version-robust centroid of a track's filter state mean (NaN-ignoring)."""
+    means = np.asarray(tracker._last_results[track_id]["means"])
+    return np.nanmean(means[::2].reshape(-1, 2), axis=0)
 
-    Two well-separated identities follow momentum random walks. The constant-velocity
-    EM warm-up previously fit a degenerate velocity here and stormed ~20 switches; with
-    velocity capping + gating + blending the motion model must stay stable.
+
+def test_kalman_no_switch_storm_on_erratic_motion():
+    """Erratic motion with per-keypoint noise must not trigger an ID-switch storm (#572).
+
+    Two well-separated identities follow momentum random walks, with independent
+    per-keypoint jitter (not just a rigid centroid shift). The pre-fix per-node EM
+    warm-up overfit that jitter into a degenerate velocity and stormed ID switches; the
+    centroid motion model + capping must stay stable (0 switches vs the base tracker's 0).
     """
     skeleton = sio.Skeleton(nodes=["a", "b", "c"])
-    rng = np.random.default_rng(0)
-    T = 30
-    centroids = {0: np.array([120.0, 120.0]), 1: np.array([120.0, 320.0])}
-    vel = {0: rng.normal(0, 3, 2), 1: rng.normal(0, 3, 2)}
+    rng = np.random.default_rng(1)
+    T = 60
+    # Two nearby (60 px apart) momentum random walks with per-keypoint jitter — close
+    # enough that the base warm-up assignment oscillates. This exact config storms on
+    # the pre-fix per-node tracker (~12 switches); the fix must hold 0.
+    centroids = {0: np.array([150.0, 210.0]), 1: np.array([150.0, 270.0])}
+    vel = {0: rng.normal(0, 10, 2), 1: rng.normal(0, 10, 2)}
     frames = []
     for _ in range(T):
         dets = []
         for gid in (0, 1):
-            vel[gid] = 0.7 * vel[gid] + 0.3 * rng.normal(0, 4, 2)
+            vel[gid] = 0.7 * vel[gid] + 0.3 * rng.normal(0, 10, 2)
             centroids[gid] = centroids[gid] + vel[gid]
-            dets.append((gid, _BODY3 + centroids[gid]))
+            body = _BODY3 + centroids[gid] + rng.normal(0, 3, _BODY3.shape)
+            dets.append((gid, body))
         frames.append(dets)
-    n_tracks, switches = _track_synthetic_with_ids(_kalman_tracker(), frames, skeleton)
+    n_tracks, switches = _track_synthetic_with_ids(
+        _kalman_tracker(kf_init_frame_count=10), frames, skeleton
+    )
     assert n_tracks == 2
     assert switches == 0
 
 
-def test_kalman_robust_to_false_positives():
-    """False-positive detections must not corrupt the filters into a switch storm (#572).
+def test_kalman_gate_rejects_false_positives():
+    """The measurement gate must keep a far false positive from corrupting the filter (#572).
 
-    The measurement gate must reject FP-driven corrections (pre-fix: ~12 switches).
+    A single track moves linearly; on a few frames its real detection is replaced by a
+    false positive far away (so the FP is the only detection and is matched to the lone
+    track). The gate must reject the FP and coast, keeping the filter near the true
+    trajectory. The pre-fix tracker had no gating, so the FP correction yanked the
+    filter state hundreds of px away.
     """
     skeleton = sio.Skeleton(nodes=["a", "b", "c"])
-    rng = np.random.default_rng(1)
-    T = 40
-    frames = []
-    for t in range(T):
-        dets = []
-        for gid, y in ((0, 120.0), (1, 320.0)):
-            c = np.array([60.0 + 5.0 * t, y]) + rng.normal(0, 3, 2)
-            dets.append((gid, _BODY3 + c))
-        if t % 3 == 0:  # inject a false positive between the two tracks
-            c = np.array([60.0 + 5.0 * t, 220.0]) + rng.normal(0, 30, 2)
-            dets.append((-1, _BODY3 + c))
-        frames.append(dets)
-    n_tracks, switches = _track_synthetic_with_ids(_kalman_tracker(), frames, skeleton)
-    assert switches == 0
+    tracker = _kalman_tracker(max_tracks=1, tracking_target_instance_count=1)
+    fp_frames = {16, 19, 22}
+    max_centroid_error = 0.0
+    for t in range(30):
+        if t in fp_frames:  # real detection replaced by a far false positive
+            center = np.array([300.0, 400.0])
+        else:
+            center = np.array([60.0 + 5.0 * t, 100.0])
+        inst = sio.PredictedInstance.from_numpy(
+            points_data=(_BODY3 + center).astype(np.float32),
+            skeleton=skeleton,
+            score=1.0,
+        )
+        tracker.track([inst], frame_idx=t)
+        if tracker._initialized and 0 in tracker._last_results:
+            corrected_frame = tracker._last_corrected_frame.get(0, t)
+            true_centroid = np.array([60.0 + 5.0 * corrected_frame, 100.0])
+            err = float(
+                np.linalg.norm(_kalman_filter_centroid(tracker, 0) - true_centroid)
+            )
+            max_centroid_error = max(max_centroid_error, err)
+    # The gate keeps the filter near the true track; an ungated filter would be pulled
+    # hundreds of px toward the (300, 400) false positives.
+    assert max_centroid_error < 40.0
 
 
 def test_kalman_maintains_identity_through_occlusion():
@@ -1092,3 +1115,45 @@ def test_kalman_maintains_identity_through_occlusion():
     assert n_tracks == 2
     # Never worse than the plain tracker through the occlusion (no switch storm).
     assert kalman_switches <= base_switches
+
+
+def test_kalman_entrant_gets_filter():
+    """An identity entering after warm-up gets its own filter, not just the base path (#572).
+
+    The pre-fix tracker fit filters once at warm-up, so an animal that appeared later
+    was permanently stuck on the base feature path (filter count capped at the warm-up
+    count). Lazy (re)fitting must give the entrant its own filter.
+    """
+    skeleton = sio.Skeleton(nodes=["a", "b", "c"])
+    tracker = _kalman_tracker(max_tracks=3, tracking_target_instance_count=3)
+    frames = []
+    for t in range(40):
+        dets = []
+        for gid, y in ((0, 100.0), (1, 350.0)):
+            dets.append((gid, _BODY3 + np.array([60.0 + 5.0 * t, y])))
+        if t >= 20:  # a third identity enters well after warm-up
+            dets.append((2, _BODY3 + np.array([60.0 + 5.0 * t, 225.0])))
+        frames.append(dets)
+    n_tracks, _ = _track_synthetic_with_ids(tracker, frames, skeleton)
+    assert n_tracks == 3
+    # The entrant must have been fit its own filter (pre-fix: stuck at 2).
+    assert len(tracker._kalman_filters) == 3
+
+
+def test_kalman_from_config_robustness_knobs():
+    """The robustness knobs are configurable via from_config and reach the tracker (#572)."""
+    tracker = Tracker.from_config(
+        use_kalman=True,
+        tracking_target_instance_count=2,
+        kf_prediction_blend=0.3,
+        kf_gate_step_mult=6.0,
+        kf_min_gate_px=55.0,
+        kf_velocity_cap_mult=2.0,
+        kf_min_velocity_cap_px=12.0,
+    )
+    assert isinstance(tracker, KalmanShiftTracker)
+    assert tracker.kf_prediction_blend == 0.3
+    assert tracker.kf_gate_step_mult == 6.0
+    assert tracker.kf_min_gate_px == 55.0
+    assert tracker.kf_velocity_cap_mult == 2.0
+    assert tracker.kf_min_velocity_cap_px == 12.0

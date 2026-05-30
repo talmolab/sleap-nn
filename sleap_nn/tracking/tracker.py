@@ -850,6 +850,9 @@ class KalmanShiftTracker(Tracker):
     # Per-track robust inter-frame centroid step, used for the measurement gate and
     # the velocity cap (set at filter init).
     _median_step: Dict[int, float] = attrs.field(init=False, factory=dict)
+    # Frame index at which a track was last reset; (re)fit windows only use
+    # observations strictly after this, so a refit never straddles an occlusion gap.
+    _reset_frame: Dict[int, int] = attrs.field(init=False, factory=dict)
 
     def track(
         self,
@@ -953,35 +956,35 @@ class KalmanShiftTracker(Tracker):
                 self._n_nodes = keypoints.shape[0]
 
     def _resolve_node_indices(self) -> List[int]:
-        """Resolve `kf_node_indices` to a concrete list of node-row indices."""
+        """Resolve `kf_node_indices` to a concrete list of node-row indices.
+
+        These nodes define the per-track *centroid* the motion model tracks; the
+        predicted centroid displacement is applied rigidly to the whole body.
+        """
         if self.kf_node_indices is not None:
             return [i for i in self.kf_node_indices if i < (self._n_nodes or 0)]
         return list(range(self._n_nodes)) if self._n_nodes else []
 
     @staticmethod
-    def _build_matrices(n_nodes: int):
-        """Build constant-velocity transition and observation matrices.
+    def _build_matrices():
+        """Build the constant-velocity centroid transition/observation matrices.
 
-        State layout is interleaved position/velocity per observed coordinate:
-        ``[x0, x0_vel, y0, y0_vel, x1, ...]`` (length ``4 * n_nodes``). The
-        observation selects the position (even) state dimensions (length
-        ``2 * n_nodes``).
+        State is the centroid and its velocity ``[cx, vcx, cy, vcy]`` (4-dim);
+        the observation is the centroid ``[cx, cy]`` (2-dim). Tracking the centroid
+        with a single filter (rather than every keypoint independently) keeps the
+        fit stable and the predicted pose rigid.
         """
-        state_dim = 4 * n_nodes
-        obs_dim = 2 * n_nodes
-        transition = [[0.0] * state_dim for _ in range(state_dim)]
-        observation = [[0.0] * state_dim for _ in range(obs_dim)]
-        for i in range(obs_dim):
-            transition[2 * i][2 * i] = 1.0  # new_pos = pos + vel
-            transition[2 * i][2 * i + 1] = 1.0
-            transition[2 * i + 1][2 * i + 1] = 1.0  # new_vel = vel
-            observation[i][2 * i] = 1.0  # observe position only
+        transition = [
+            [1.0, 1.0, 0.0, 0.0],  # cx' = cx + vcx
+            [0.0, 1.0, 0.0, 0.0],  # vcx' = vcx
+            [0.0, 0.0, 1.0, 1.0],  # cy' = cy + vcy
+            [0.0, 0.0, 0.0, 1.0],  # vcy' = vcy
+        ]
+        observation = [
+            [1.0, 0.0, 0.0, 0.0],  # observe cx
+            [0.0, 0.0, 1.0, 0.0],  # observe cy
+        ]
         return transition, observation
-
-    def _obs_vector(self, keypoints: np.ndarray) -> np.ndarray:
-        """Flatten the tracked-node keypoints to a masked observation vector."""
-        pts = keypoints[self._resolved_node_indices, :]
-        return np.ma.masked_invalid(np.ma.asarray(pts.flatten(), dtype=float))
 
     def _centroid(self, keypoints: np.ndarray) -> np.ndarray:
         """NaN-ignoring centroid of the tracked nodes, shape (2,)."""
@@ -992,13 +995,20 @@ class KalmanShiftTracker(Tracker):
             warnings.simplefilter("ignore", category=RuntimeWarning)
             return np.nanmean(pts, axis=0)
 
-    def _coords_from_mean(self, mean: np.ndarray) -> np.ndarray:
-        """Extract predicted positions [x0,y0,...] from a state mean -> (K, 2)."""
-        return np.asarray(mean)[::2].reshape(-1, 2)
+    def _obs_vector(self, keypoints: np.ndarray) -> np.ndarray:
+        """Masked centroid observation vector, shape (2,)."""
+        return np.ma.masked_invalid(
+            np.ma.asarray(self._centroid(keypoints), dtype=float)
+        )
+
+    @staticmethod
+    def _predicted_centroid(mean: np.ndarray) -> np.ndarray:
+        """Extract the centroid position ``[cx, cy]`` from a state mean."""
+        return np.asarray(mean)[::2]
 
     @staticmethod
     def _cap_velocity(mean: np.ndarray, cap: float) -> np.ndarray:
-        """Clip the velocity (odd-index) entries of a state mean to +/- cap."""
+        """Clip the per-axis velocity entries (vcx, vcy) of a state mean to +/- cap."""
         mean = np.asarray(mean, dtype=float).copy()
         mean[1::2] = np.clip(mean[1::2], -cap, cap)
         return mean
@@ -1011,7 +1021,8 @@ class KalmanShiftTracker(Tracker):
         by per-frame measurement noise (the noise variance adds to every consecutive
         difference), which would otherwise blow up the velocity cap / gate under noisy
         detections. The endpoint baseline averages that noise out for a roughly
-        constant-velocity track.
+        constant-velocity track. The window is contiguous (built by
+        `_contiguous_fresh_window`), so the displacement reflects real motion.
         """
         cents = [self._centroid(h["keypoints"]) for h in window]
         valid = [c for c in cents if not np.isnan(c).any()]
@@ -1028,43 +1039,59 @@ class KalmanShiftTracker(Tracker):
         med = self._median_step.get(track_id, 0.0)
         return max(self.kf_min_gate_px, self.kf_gate_step_mult * med)
 
-    def _fit_track_filter(self, track_id: int, history: List[Dict[str, Any]]) -> bool:
-        """Fit one Kalman filter for a track from its observation history.
+    def _contiguous_fresh_window(self, track_id: int) -> List[Dict[str, Any]]:
+        """Longest suffix of a track's history that is contiguous and post-reset.
 
-        Returns True on success. Seeds the initial velocity from the first two valid
-        frames (capped), keeps the initial mean fixed during EM, and caps the learned
-        velocity so a contaminated window cannot produce a runaway state.
+        Observations from before the track's last reset are excluded, and the window
+        is broken at any frame-index gap > 1, so a (re)fit never straddles an
+        occlusion and the median-step / velocity-cap estimates stay physical.
         """
-        if len(history) < 2:
-            return False
-        window = history[-self.kf_init_frame_count :]
-        num_nodes = len(self._resolved_node_indices)
-        obs_dim = 2 * num_nodes
-        state_dim = 4 * num_nodes
-        rows = [
-            h["keypoints"][self._resolved_node_indices, :].flatten() for h in window
-        ]
-        frame_array = np.ma.masked_invalid(np.ma.asarray(rows, dtype=float))
+        history = self._obs_history.get(track_id, [])
+        reset_frame = self._reset_frame.get(track_id, -1)
+        fresh = [h for h in history if h["frame_idx"] > reset_frame]
+        if not fresh:
+            return []
+        window = [fresh[-1]]
+        for h in reversed(fresh[:-1]):
+            if window[0]["frame_idx"] - h["frame_idx"] == 1:
+                window.insert(0, h)
+            else:
+                break
+        return window
+
+    def _fit_track_filter(self, track_id: int) -> bool:
+        """Fit a centroid Kalman filter for a track from a contiguous fresh window.
+
+        Returns True on success. Seeds the initial state from the first *finite*
+        centroid (and a capped finite-difference velocity), keeps the initial mean
+        fixed during EM, and caps the learned velocity so a short/noisy window cannot
+        produce a runaway state.
+        """
+        window = self._contiguous_fresh_window(track_id)
+        if len(window) < 3:
+            return False  # need a few contiguous frames for a stable velocity fit
+        window = window[-self.kf_init_frame_count :]
+        cents = [self._centroid(h["keypoints"]) for h in window]
+        obs = np.ma.masked_invalid(np.ma.asarray(cents, dtype=float))  # (T, 2)
 
         median_step = self._window_median_step(window)
         velocity_cap = max(
             self.kf_min_velocity_cap_px, self.kf_velocity_cap_mult * median_step
         )
 
-        # Fixed initial mean: first observed position, velocity seeded from the first
-        # finite difference (capped). initial_state_mean is NOT in em_vars so EM cannot
-        # re-attribute a cross-identity jump to velocity.
-        first = np.asarray(frame_array[0].filled(0.0), dtype=float)
-        second = np.asarray(
-            frame_array[min(1, len(frame_array) - 1)].filled(0.0), dtype=float
+        # Seed from the first finite centroid; velocity from the first finite
+        # consecutive difference (capped). A dropped node must not collapse the seed
+        # to the image origin.
+        finite = [c for c in cents if not np.isnan(c).any()]
+        if len(finite) < 2:
+            return False
+        first = np.asarray(finite[0], dtype=float)
+        seed_vel = np.clip(
+            np.asarray(finite[1] - finite[0], dtype=float), -velocity_cap, velocity_cap
         )
-        seed_vel = np.clip(second - first, -velocity_cap, velocity_cap)
-        initial_state_mean = [0.0] * state_dim
-        for i in range(obs_dim):
-            initial_state_mean[2 * i] = float(first[i])
-            initial_state_mean[2 * i + 1] = float(seed_vel[i])
+        initial_state_mean = [first[0], seed_vel[0], first[1], seed_vel[1]]
 
-        transition, observation = self._build_matrices(num_nodes)
+        transition, observation = self._build_matrices()
         kalman_filter_cls = _get_kalman_filter_cls()
         try:
             kf = kalman_filter_cls(
@@ -1072,11 +1099,10 @@ class KalmanShiftTracker(Tracker):
                 observation_matrices=observation,
                 initial_state_mean=initial_state_mean,
             )
-            # Learn only the noise covariances; keep the structural matrices AND the
-            # initial state mean fixed (the latter prevents EM from fitting a
-            # degenerate velocity off a single contaminated warm-up frame).
+            # Learn only the noise covariances; keep the structural matrices and the
+            # initial state mean fixed.
             kf = kf.em(
-                frame_array,
+                obs,
                 n_iter=20,
                 em_vars=[
                     "transition_covariance",
@@ -1084,7 +1110,7 @@ class KalmanShiftTracker(Tracker):
                     "initial_state_covariance",
                 ],
             )
-            means, covariances = kf.filter(frame_array)
+            means, covariances = kf.filter(obs)
         except Exception as e:  # pragma: no cover - numerical edge cases
             logger.warning(
                 f"Kalman filter initialization failed for track {track_id}: {e}"
@@ -1102,39 +1128,41 @@ class KalmanShiftTracker(Tracker):
         return True
 
     def _init_filters(self) -> None:
-        """Fit one Kalman filter per track via EM over the warm-up history."""
+        """Fit a centroid Kalman filter per track at the end of warm-up."""
         self._resolved_node_indices = self._resolve_node_indices()
         if len(self._resolved_node_indices) == 0:
             # Nothing to track with a motion model; fall back to the base path.
             self._initialized = True
             return
-        for track_id, history in self._obs_history.items():
-            self._fit_track_filter(track_id, history)
+        for track_id in list(self._obs_history.keys()):
+            self._fit_track_filter(track_id)
         self._initialized = True
 
     def _init_missing_filters(self) -> None:
         """Lazily (re)fit filters for active tracks that lack one.
 
-        Covers identities that spawn after warm-up and tracks whose filter was reset:
-        once such a track has accumulated enough fresh history it gets its own filter
-        rather than being permanently relegated to the base feature path.
+        Covers identities that spawn after warm-up and tracks whose filter was reset.
+        A filter is fit only once `kf_init_frame_count` CONTIGUOUS fresh (post-reset)
+        observations have accumulated, so a just-reset track is not immediately re-fit
+        (no thrashing) and the fit window never straddles the occlusion gap.
         """
         if not self._resolved_node_indices:
             return
         for track_id in self.candidate.current_tracks:
             if track_id in self._kalman_filters:
                 continue
-            history = self._obs_history.get(track_id, [])
-            if len(history) >= self.kf_init_frame_count:
-                self._fit_track_filter(track_id, history)
+            window = self._contiguous_fresh_window(track_id)
+            if len(window) >= self.kf_init_frame_count:
+                self._fit_track_filter(track_id)
 
     def _correct_filters(self) -> None:
-        """Advance each matched filter with gated observations since the last update.
+        """Advance each matched filter with gated centroid observations.
 
         Coasts the filter across multi-frame gaps (one masked predict per missed
         frame) before applying the reappearance observation, so the elapsed motion is
-        not dumped into the velocity state. Rejects observations that fail a
-        max-distance measurement gate (e.g. false positives), treating them as a miss.
+        not dumped into the velocity state. Rejects observations whose centroid is
+        beyond the measurement gate from the prediction (e.g. false positives),
+        treating them as a miss.
         """
         for track_id, kf in list(self._kalman_filters.items()):
             history = self._obs_history.get(track_id, [])
@@ -1159,9 +1187,7 @@ class KalmanShiftTracker(Tracker):
                     pred_mean, pred_cov = kf.filter_update(
                         mean, covariance, observation=np.ma.masked
                     )
-                    pred_centroid = self._centroid_from_coords(
-                        self._coords_from_mean(pred_mean)
-                    )
+                    pred_centroid = self._predicted_centroid(pred_mean)
                     obs_centroid = self._centroid(h["keypoints"])
                     gated_out = (
                         not np.isnan(pred_centroid).any()
@@ -1191,22 +1217,15 @@ class KalmanShiftTracker(Tracker):
                 if not gated_out:
                     self._last_frame_for_track[track_id] = h["frame_idx"]
 
-    @staticmethod
-    def _centroid_from_coords(coords: np.ndarray) -> np.ndarray:
-        import warnings
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            return np.nanmean(np.asarray(coords), axis=0)
-
     def _reset_stale_tracks(self, frame_idx: int) -> None:
         """Reset filters for any track unseen for more than `kf_reset_gap_size` frames.
 
         A reset track drops its (now-unreliable) filter and falls back to the base
         feature path; `_init_missing_filters` re-fits it once it re-accumulates enough
-        fresh history. Unlike the legacy `tracks_with_gap` rule, a single long
-        occlusion is reset too, so a stale extrapolation cannot mis-associate the
-        reappearing animal.
+        fresh contiguous history. Unlike the legacy `tracks_with_gap` rule, a single
+        long occlusion is reset too, so a stale extrapolation cannot mis-associate the
+        reappearing animal. `_reset_frame` is stamped so the next fit window starts
+        fresh.
         """
         stale = [
             track_id
@@ -1219,19 +1238,23 @@ class KalmanShiftTracker(Tracker):
             self._last_frame_for_track.pop(track_id, None)
             self._last_corrected_frame.pop(track_id, None)
             self._median_step.pop(track_id, None)
+            self._reset_frame[track_id] = frame_idx
 
     def _predict_candidates(
         self,
         candidates_list: Union[Deque, DefaultDict[int, Deque]],
         feature_method,
     ) -> Dict[int, List[TrackedInstanceFeature]]:
-        """Predict the current-frame pose for each track and build candidate features.
+        """Build candidate features by rigidly translating the last observed pose.
 
-        The predicted pose is projected forward from the last corrected state to the
-        current frame (coasting across any gap) and then blended with the last
-        observed pose; the blend weight scales toward pure prediction the staler the
-        last observation is. Tracks without an active filter fall back to the base
-        feature path so they remain trackable.
+        The centroid filter is projected forward from the last corrected state to the
+        current frame (coasting across any gap), and the last observed body is
+        translated by (a fraction of) the predicted centroid displacement. Translating
+        the *real* last pose keeps the candidate rigid and geometrically valid, so the
+        OKS / similarity score stays meaningful (predicting each keypoint
+        independently produced non-physical poses that scored ~0 and randomized the
+        assignment). Tracks without an active filter fall back to the base feature
+        path so they remain trackable.
         """
         predicted = defaultdict(list)
         for track_id in self.candidate.current_tracks:
@@ -1265,17 +1288,20 @@ class KalmanShiftTracker(Tracker):
                 )
                 continue
 
-            coords = self._coords_from_mean(mean)
-            predicted_keypoints = np.full((self._n_nodes, 2), np.nan, dtype=float)
-            predicted_keypoints[self._resolved_node_indices, :] = coords
-
-            # Blend with the last observed pose. When the last observation is stale
-            # (gap), weight toward the prediction; when contiguous, blend evenly.
             ref = history[-1]
-            weight = min(1.0, self.kf_prediction_blend * steps)
-            candidate_keypoints = self._blend_keypoints(
-                predicted_keypoints, ref["keypoints"], weight
-            )
+            last_keypoints = np.asarray(ref["keypoints"], dtype=float)
+            pred_centroid = self._predicted_centroid(mean)
+            last_centroid = self._centroid(last_keypoints)
+
+            if np.isnan(pred_centroid).any() or np.isnan(last_centroid).any():
+                candidate_keypoints = last_keypoints  # hold last (no valid centroid)
+            else:
+                # Rigidly translate the last observed pose by (a fraction of) the
+                # predicted centroid displacement. Weight scales toward the full
+                # prediction the staler the last observation is.
+                weight = min(1.0, self.kf_prediction_blend * steps)
+                displacement = weight * (pred_centroid - last_centroid)
+                candidate_keypoints = last_keypoints + displacement
 
             predicted[track_id].append(
                 TrackedInstanceFeature(
@@ -1287,22 +1313,6 @@ class KalmanShiftTracker(Tracker):
                 )
             )
         return predicted
-
-    @staticmethod
-    def _blend_keypoints(
-        predicted: np.ndarray, last_obs: np.ndarray, weight: float
-    ) -> np.ndarray:
-        """Blend predicted and last-observed keypoints (NaN-aware), shape (n_nodes, 2).
-
-        Where one of the two is NaN, the other is used; where both are present, the
-        result is ``weight * predicted + (1 - weight) * last_obs``.
-        """
-        predicted = np.asarray(predicted, dtype=float)
-        last_obs = np.asarray(last_obs, dtype=float)
-        blended = weight * predicted + (1.0 - weight) * last_obs
-        blended = np.where(np.isnan(blended), predicted, blended)
-        blended = np.where(np.isnan(blended), last_obs, blended)
-        return blended
 
 
 def connect_single_breaks(
