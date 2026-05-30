@@ -912,18 +912,50 @@ class ModelTrainer:
                 "bottomup",
                 "multi_class_bottomup",
             ]:
+                # Aggregate split metrics (all four supported model types).
                 csv_log_keys.extend(
                     [
-                        "train/loss_positive",
-                        "train/loss_negative",
                         "train/n_positive",
                         "train/n_negative",
-                        "val/loss_positive",
-                        "val/loss_negative",
+                        "train/loss_positive",
+                        "train/loss_negative",
+                        "train/loss_positive_unweighted",
+                        "train/loss_negative_unweighted",
                         "val/n_positive",
                         "val/n_negative",
+                        "val/loss_positive",
+                        "val/loss_negative",
+                        "val/loss_positive_unweighted",
+                        "val/loss_negative_unweighted",
                     ]
                 )
+                # Per-head split metrics (two-head models only).
+                if self.model_type == "bottomup":
+                    csv_log_keys.extend(
+                        [
+                            "train/confmaps_loss_positive",
+                            "train/confmaps_loss_negative",
+                            "train/paf_loss_positive",
+                            "train/paf_loss_negative",
+                            "val/confmaps_loss_positive",
+                            "val/confmaps_loss_negative",
+                            "val/paf_loss_positive",
+                            "val/paf_loss_negative",
+                        ]
+                    )
+                elif self.model_type == "multi_class_bottomup":
+                    csv_log_keys.extend(
+                        [
+                            "train/confmaps_loss_positive",
+                            "train/confmaps_loss_negative",
+                            "train/classmap_loss_positive",
+                            "train/classmap_loss_negative",
+                            "val/confmaps_loss_positive",
+                            "val/confmaps_loss_negative",
+                            "val/classmap_loss_positive",
+                            "val/classmap_loss_negative",
+                        ]
+                    )
             # Add model-specific keys for wandb parity
             if self.model_type in [
                 "single_instance",

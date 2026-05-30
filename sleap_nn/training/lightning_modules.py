@@ -1,6 +1,6 @@
 """This module has the LightningModule classes for all model types."""
 
-from typing import Optional, Union, Dict, Any, List
+from typing import Optional, Union, Dict, Any, List, Tuple
 import time
 from torch import nn
 import numpy as np
@@ -413,27 +413,31 @@ class LightningModel(L.LightningModule):
     ) -> torch.Tensor:
         """Compute MSE loss with optional negative sample weighting.
 
-        When ``is_negative`` is absent from the batch this returns plain
-        ``nn.MSELoss()``.  Otherwise, per-sample MSE is computed and split
-        metrics (positive/negative loss and counts) are logged under the
-        ``{stage}/`` prefix.
+        This is a **pure loss function**: it computes the (optionally weighted)
+        loss for backprop and logs **nothing**. Diagnostic split metrics
+        (positive/negative loss and counts) are logged separately by
+        :meth:`_log_negative_split_metrics`, which is called exactly once per
+        step (so counts are not double-logged for multi-head models, which call
+        this loss helper once per head).
 
-        Weighting behavior depends on ``stage``:
+        When ``is_negative`` is absent from the batch this returns plain
+        ``nn.MSELoss()``. Otherwise per-sample MSE is computed and weighting
+        depends on ``stage``:
 
         * ``stage == "train"``: negative samples are weighted by
           ``negative_loss_weight`` (only when it is not 1.0).
         * ``stage != "train"`` (e.g. ``"val"``): the loss is **always
-          unweighted** (``per_sample.mean()``).  This keeps ``val/loss``
-          numerically identical to the old plain ``nn.MSELoss()`` so that
+          unweighted** (``per_sample.mean()``). This keeps ``val/loss``
+          numerically identical to plain ``nn.MSELoss()`` so that
           ``ModelCheckpoint(monitor="val/loss")`` and ``EarlyStopping``
-          behavior is unchanged; only the positive/negative breakdown is added.
+          behavior is unchanged.
 
         Args:
             y_preds: Predicted tensor.
             y: Ground truth tensor.
             batch: Batch dictionary, may contain ``is_negative`` key.
-            stage: Logging-key prefix and weighting gate. ``"train"`` applies
-                negative weighting; any other value returns the unweighted mean.
+            stage: Weighting gate. ``"train"`` applies negative weighting; any
+                other value returns the unweighted mean.
 
         Returns:
             The (optionally weighted) loss tensor.
@@ -442,37 +446,72 @@ class LightningModel(L.LightningModule):
         if is_negative is None:
             return nn.MSELoss()(y_preds, y)
 
-        # Per-sample loss for split tracking and weighting
+        # Per-sample loss for weighting. Mean over all non-batch dims makes this
+        # agnostic to head shape (confmaps vs PAF vs classmaps).
         per_sample = (
             (y_preds - y).pow(2).mean(dim=list(range(1, y_preds.ndim)))
         )  # (batch,)
 
+        # Negative weighting is train-only; val/eval stages stay unweighted so
+        # val/loss remains numerically identical to plain nn.MSELoss().
+        if stage != "train" or self.negative_loss_weight == 1.0:
+            return per_sample.mean()
+
         is_neg = is_negative.to(y_preds.device)
+        weights = torch.where(
+            is_neg,
+            torch.tensor(self.negative_loss_weight, device=y_preds.device),
+            torch.tensor(1.0, device=y_preds.device),
+        )
+        return (per_sample * weights).mean()
+
+    def _log_negative_split_metrics(
+        self,
+        heads: List[Tuple[str, torch.Tensor, torch.Tensor, float]],
+        batch: Dict,
+        stage: str = "train",
+    ) -> None:
+        """Log positive/negative split diagnostics, exactly once per step.
+
+        Decoupled from :meth:`_compute_negative_weighted_loss` so the counts
+        are not double-logged for multi-head models (which call the loss helper
+        once per head). **All logged loss values are unweighted with respect to
+        ``negative_loss_weight``** (a train-only backprop trick) on both train
+        and val. The word "weighted" below refers only to the per-head
+        ``loss_weights``.
+
+        Logged keys (only when ``is_negative`` is present in ``batch``):
+
+        * ``{stage}/n_positive`` / ``{stage}/n_negative`` (``reduce_fx="sum"``)
+          -- logged once per step.
+        * ``{stage}/loss_positive`` / ``{stage}/loss_negative`` -- PRIMARY
+          WEIGHTED cross-head aggregate ``sum(weight * head_split)``; mirrors
+          the composition of the real optimized loss.
+        * ``{stage}/loss_positive_unweighted`` /
+          ``{stage}/loss_negative_unweighted`` -- SECONDARY plain MEAN across
+          heads of the per-head splits.
+        * ``{stage}/{name}_loss_positive`` / ``{stage}/{name}_loss_negative``
+          -- per-head split, only emitted when there is more than one head.
+
+        For single-head models the weighted and unweighted aggregates are equal
+        (one head, weight 1.0) and no per-head keys are emitted.
+
+        Args:
+            heads: List of ``(name, y_pred, y, weight)`` tuples. ``weight`` is
+                the per-head ``loss_weight`` (1.0 for single-head models).
+            batch: Batch dict; logs nothing if ``is_negative`` is absent.
+            stage: Key prefix, e.g. ``"train"`` or ``"val"``.
+        """
+        is_negative = batch.get("is_negative", None)
+        if is_negative is None:
+            return
+
+        is_neg = is_negative.to(heads[0][1].device)
         is_pos = ~is_neg
         n_neg = int(is_neg.sum().item())
         n_pos = int(is_pos.sum().item())
 
-        # Log split losses and counts
-        if n_pos > 0:
-            loss_pos = per_sample[is_pos].mean()
-            self.log(
-                f"{stage}/loss_positive",
-                loss_pos,
-                prog_bar=False,
-                on_step=False,
-                on_epoch=True,
-                sync_dist=True,
-            )
-        if n_neg > 0:
-            loss_neg = per_sample[is_neg].mean()
-            self.log(
-                f"{stage}/loss_negative",
-                loss_neg,
-                prog_bar=False,
-                on_step=False,
-                on_epoch=True,
-                sync_dist=True,
-            )
+        # Counts: logged once per step regardless of head count.
         self.log(
             f"{stage}/n_positive",
             float(n_pos),
@@ -492,17 +531,76 @@ class LightningModel(L.LightningModule):
             reduce_fx="sum",
         )
 
-        # Negative weighting is train-only; val/eval stages stay unweighted so
-        # val/loss remains numerically identical to plain nn.MSELoss().
-        if stage != "train" or self.negative_loss_weight == 1.0:
-            return per_sample.mean()
+        multi_head = len(heads) > 1
+        weighted_pos = 0.0
+        weighted_neg = 0.0
+        unweighted_pos = []
+        unweighted_neg = []
 
-        weights = torch.where(
-            is_neg,
-            torch.tensor(self.negative_loss_weight, device=y_preds.device),
-            torch.tensor(1.0, device=y_preds.device),
-        )
-        return (per_sample * weights).mean()
+        for name, y_pred, y, weight in heads:
+            per_sample = (y_pred - y).pow(2).mean(dim=list(range(1, y_pred.ndim)))
+
+            if n_pos > 0:
+                head_pos = per_sample[is_pos].mean()
+                weighted_pos = weighted_pos + weight * head_pos
+                unweighted_pos.append(head_pos)
+                if multi_head:
+                    self.log(
+                        f"{stage}/{name}_loss_positive",
+                        head_pos,
+                        prog_bar=False,
+                        on_step=False,
+                        on_epoch=True,
+                        sync_dist=True,
+                    )
+            if n_neg > 0:
+                head_neg = per_sample[is_neg].mean()
+                weighted_neg = weighted_neg + weight * head_neg
+                unweighted_neg.append(head_neg)
+                if multi_head:
+                    self.log(
+                        f"{stage}/{name}_loss_negative",
+                        head_neg,
+                        prog_bar=False,
+                        on_step=False,
+                        on_epoch=True,
+                        sync_dist=True,
+                    )
+
+        if n_pos > 0:
+            self.log(
+                f"{stage}/loss_positive",
+                weighted_pos,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+            self.log(
+                f"{stage}/loss_positive_unweighted",
+                torch.stack(unweighted_pos).mean(),
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        if n_neg > 0:
+            self.log(
+                f"{stage}/loss_negative",
+                weighted_neg,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+            self.log(
+                f"{stage}/loss_negative_unweighted",
+                torch.stack(unweighted_neg).mean(),
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
 
     def training_step(self, batch, batch_idx):
         """Training step."""
@@ -776,6 +874,9 @@ class SingleInstanceLightningModule(LightningModel):
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
 
         loss = self._compute_negative_weighted_loss(y_preds, y, batch)
+        self._log_negative_split_metrics(
+            [("confmaps", y_preds, y, 1.0)], batch, stage="train"
+        )
 
         if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
@@ -826,6 +927,9 @@ class SingleInstanceLightningModule(LightningModel):
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
         val_loss = self._compute_negative_weighted_loss(y_preds, y, batch, stage="val")
+        self._log_negative_split_metrics(
+            [("confmaps", y_preds, y, 1.0)], batch, stage="val"
+        )
         if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
                 y_gt=y,
@@ -1318,6 +1422,9 @@ class CentroidLightningModule(LightningModel):
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
         loss = self._compute_negative_weighted_loss(y_preds, y, batch)
+        self._log_negative_split_metrics(
+            [("confmaps", y_preds, y, 1.0)], batch, stage="train"
+        )
         # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
             "loss",
@@ -1342,6 +1449,9 @@ class CentroidLightningModule(LightningModel):
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
         val_loss = self._compute_negative_weighted_loss(y_preds, y, batch, stage="val")
+        self._log_negative_split_metrics(
+            [("confmaps", y_preds, y, 1.0)], batch, stage="val"
+        )
         self.log(
             "val/loss",
             val_loss,
@@ -1598,6 +1708,14 @@ class BottomUpLightningModule(LightningModel):
 
         confmap_loss = self._compute_negative_weighted_loss(confmaps, y_confmap, batch)
         pafs_loss = self._compute_negative_weighted_loss(pafs, y_paf, batch)
+        self._log_negative_split_metrics(
+            [
+                ("confmaps", confmaps, y_confmap, self.loss_weights[0]),
+                ("paf", pafs, y_paf, self.loss_weights[1]),
+            ],
+            batch,
+            stage="train",
+        )
 
         if self.online_mining is not None and self.online_mining:
             confmap_ohkm_loss = compute_ohkm_loss(
@@ -1668,6 +1786,14 @@ class BottomUpLightningModule(LightningModel):
         )
         pafs_loss = self._compute_negative_weighted_loss(
             pafs, y_paf, batch, stage="val"
+        )
+        self._log_negative_split_metrics(
+            [
+                ("confmaps", confmaps, y_confmap, self.loss_weights[0]),
+                ("paf", pafs, y_paf, self.loss_weights[1]),
+            ],
+            batch,
+            stage="val",
         )
 
         if self.online_mining is not None and self.online_mining:
@@ -1955,6 +2081,14 @@ class BottomUpMultiClassLightningModule(LightningModel):
         classmaps_loss = self._compute_negative_weighted_loss(
             classmaps, y_classmap, batch
         )
+        self._log_negative_split_metrics(
+            [
+                ("confmaps", confmaps, y_confmap, self.loss_weights[0]),
+                ("classmap", classmaps, y_classmap, self.loss_weights[1]),
+            ],
+            batch,
+            stage="train",
+        )
 
         if self.online_mining is not None and self.online_mining:
             confmap_ohkm_loss = compute_ohkm_loss(
@@ -2069,6 +2203,14 @@ class BottomUpMultiClassLightningModule(LightningModel):
         )
         classmaps_loss = self._compute_negative_weighted_loss(
             classmaps, y_classmap, batch, stage="val"
+        )
+        self._log_negative_split_metrics(
+            [
+                ("confmaps", confmaps, y_confmap, self.loss_weights[0]),
+                ("classmap", classmaps, y_classmap, self.loss_weights[1]),
+            ],
+            batch,
+            stage="val",
         )
 
         if self.online_mining is not None and self.online_mining:
