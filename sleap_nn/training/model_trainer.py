@@ -900,6 +900,30 @@ class ModelTrainer:
                 "train/time",
                 "val/time",
             ]
+            # Negative-frame split metrics (train + val), only for model types
+            # that support frame-level negatives and only when the feature is
+            # enabled. Gating avoids empty columns in the common no-negatives case.
+            use_negative_frames = OmegaConf.select(
+                self.config, "data_config.use_negative_frames", default=False
+            )
+            if use_negative_frames and self.model_type in [
+                "single_instance",
+                "centroid",
+                "bottomup",
+                "multi_class_bottomup",
+            ]:
+                csv_log_keys.extend(
+                    [
+                        "train/loss_positive",
+                        "train/loss_negative",
+                        "train/n_positive",
+                        "train/n_negative",
+                        "val/loss_positive",
+                        "val/loss_negative",
+                        "val/n_positive",
+                        "val/n_negative",
+                    ]
+                )
             # Add model-specific keys for wandb parity
             if self.model_type in [
                 "single_instance",

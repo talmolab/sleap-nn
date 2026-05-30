@@ -124,6 +124,13 @@ When the feature is active, these additional metrics are logged to WandB/TensorB
 | `train/loss_negative` | epoch mean | MSE on negative frames — should approach 0 as model learns to suppress |
 | `train/n_positive` | epoch sum | Total positive samples seen in epoch |
 | `train/n_negative` | epoch sum | Total negative samples seen in epoch |
+| `val/loss` | epoch mean | Combined val loss — **always unweighted** (never applies `negative_loss_weight`), so it stays identical to the old plain MSE and is used for checkpointing / early-stopping |
+| `val/loss_positive` | epoch mean | Unweighted MSE on positive val frames |
+| `val/loss_negative` | epoch mean | Unweighted MSE on negative val frames — should approach 0 if the model generalizes background suppression to held-out frames |
+| `val/n_positive` | epoch sum | Total positive samples in the val epoch |
+| `val/n_negative` | epoch sum | Total negative samples in the val epoch |
+
+Unlike the train split, the validation split metrics are **always unweighted** (`negative_loss_weight` is not applied), so `val/loss` remains comparable across runs and matches plain `nn.MSELoss()`.
 
 !!! tip "Is It Working?"
     Watch `train/loss_negative` — it should decrease toward 0 over training. If it stays flat, the model isn't learning from negatives. Consider increasing `negative_loss_weight` or adding more diverse negative frames.
@@ -164,4 +171,4 @@ print(lf.is_negative)  # True or False
 
 - **Use `negative_loss_weight` to tune.** If negatives are rare relative to positives and `train/loss_negative` isn't decreasing, try `negative_loss_weight: 2.0` or higher to amplify the gradient signal.
 
-- **Check val metrics too.** Negative frames in the validation set (via the train/val split) contribute to `val/loss`. A model that hallucinates on empty backgrounds will have higher val loss.
+- **Check val metrics too.** Negative frames in the validation set (via the train/val split) contribute to `val/loss`, and are also broken out as `val/loss_positive` / `val/loss_negative` / `val/n_positive` / `val/n_negative`. Note that `val/loss` stays **unweighted** even when `negative_loss_weight > 1`, so it remains a faithful, comparable model-selection metric. Watch `val/loss_negative`: if it stays high while `train/loss_negative` falls, the model is memorizing training backgrounds rather than generalizing the "no animal → no detection" behavior, and will still hallucinate on unseen empty backgrounds.
