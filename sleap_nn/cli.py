@@ -46,6 +46,22 @@ click.rich_click.ERRORS_EPILOGUE = (
 )
 
 
+def _parse_int_list(ctx, param, value):
+    """Click callback parsing a comma-separated int list (e.g. ``0,1,2``).
+
+    Returns ``None`` for an unset/empty value so it maps cleanly onto the
+    ``Optional[List[int]]`` tracker kwargs (e.g. ``kf_node_indices``).
+    """
+    if value is None or value == "":
+        return None
+    try:
+        return [int(x) for x in str(value).split(",") if x.strip() != ""]
+    except ValueError:
+        raise click.BadParameter(
+            "must be a comma-separated list of integers, e.g. '0,1,2'"
+        )
+
+
 def is_config_path(arg: str) -> bool:
     """Check if an argument looks like a config file path.
 
@@ -892,6 +908,31 @@ def train(
     help="Number of pyramid scale levels to consider. This is different from the scale parameter, which determines the initial image scaling.",
 )
 @click.option(
+    "--use_kalman",
+    is_flag=True,
+    default=False,
+    help="If True, `KalmanShiftTracker` is used: poses are predicted with a per-track constant-velocity Kalman filter. Requires --tracking_target_instance_count (or --max_tracks/--max_instances) and is mutually exclusive with --use_flow.",
+)
+@click.option(
+    "--kf_init_frame_count",
+    type=int,
+    default=10,
+    help="Number of warm-up frames tracked with the base path before the Kalman filters are fit via EM. (only if --use_kalman)",
+)
+@click.option(
+    "--kf_node_indices",
+    type=str,
+    default=None,
+    callback=_parse_int_list,
+    help="Comma-separated skeleton node indices to track with the motion model (e.g. '0,1,2'). Empty/unset uses all nodes. (only if --use_kalman)",
+)
+@click.option(
+    "--kf_reset_gap_size",
+    type=int,
+    default=5,
+    help="Number of consecutive missed frames after which a stale track's Kalman filter is reset. (only if --use_kalman)",
+)
+@click.option(
     "--post_connect_single_breaks",
     is_flag=True,
     default=False,
@@ -1149,6 +1190,7 @@ def _build_tracker_config(kwargs: dict) -> "object":
     max_tracks = kwargs.get("max_tracks")
     pre_cull = kwargs.get("tracking_pre_cull_to_target", 0)
     pcsb = kwargs.get("post_connect_single_breaks", False)
+    use_kalman = kwargs.get("use_kalman", False)
 
     # Default candidates_method to local_queues when max_tracks is set but the
     # user did not explicitly choose a method (the click default is None).
@@ -1162,8 +1204,9 @@ def _build_tracker_config(kwargs: dict) -> "object":
 
     # Legacy: post_connect / pre_cull derive the target count from max_instances
     # when not given explicitly (leaves target=None when both are None, so the
-    # apply_tracking gate raises exactly as legacy did).
-    if (pcsb or pre_cull) and target is None:
+    # apply_tracking gate raises exactly as legacy did). Kalman tracking also
+    # requires a target identity count, so derive it from max_instances too.
+    if (pcsb or pre_cull or use_kalman) and target is None:
         target = max_instances
 
     # --features / --scoring_method default to None (sentinel for "user left the
@@ -1196,6 +1239,10 @@ def _build_tracker_config(kwargs: dict) -> "object":
         of_img_scale=kwargs.get("of_img_scale", 1.0),
         of_window_size=kwargs.get("of_window_size", 21),
         of_max_levels=kwargs.get("of_max_levels", 3),
+        use_kalman=use_kalman,
+        kf_init_frame_count=kwargs.get("kf_init_frame_count", 10),
+        kf_node_indices=kwargs.get("kf_node_indices"),
+        kf_reset_gap_size=kwargs.get("kf_reset_gap_size", 5),
         tracking_target_instance_count=target,
         tracking_pre_cull_to_target=pre_cull,
         tracking_pre_cull_iou_threshold=kwargs.get(
@@ -1877,6 +1924,12 @@ def _common_inference_options(f):
         click.option("--of_img_scale", type=float, default=1.0),
         click.option("--of_window_size", type=int, default=21),
         click.option("--of_max_levels", type=int, default=3),
+        click.option("--use_kalman", is_flag=True, default=False),
+        click.option("--kf_init_frame_count", type=int, default=10),
+        click.option(
+            "--kf_node_indices", type=str, default=None, callback=_parse_int_list
+        ),
+        click.option("--kf_reset_gap_size", type=int, default=5),
         click.option("--post_connect_single_breaks", is_flag=True, default=False),
         click.option("--tracking_target_instance_count", type=int, default=None),
         click.option("--tracking_pre_cull_to_target", type=int, default=0),

@@ -2,7 +2,12 @@ import pytest
 import numpy as np
 import sleap_io as sio
 from sleap_nn.predict import run_inference
-from sleap_nn.tracking.tracker import Tracker, FlowShiftTracker, run_tracker
+from sleap_nn.tracking.tracker import (
+    Tracker,
+    FlowShiftTracker,
+    KalmanShiftTracker,
+    run_tracker,
+)
 from sleap_nn.tracking.track_instance import (
     TrackedInstanceFeature,
     TrackInstanceLocalQueue,
@@ -744,3 +749,190 @@ def test_connect_single_breaks_empty_frames():
     """Test that connect_single_breaks handles empty frame list."""
     result = connect_single_breaks([], max_instances=2)
     assert result == []
+
+
+def test_kalmanshifttracker_from_config():
+    """Test KalmanShiftTracker dispatch and validation in `from_config` (#572)."""
+    # Dispatch: use_kalman -> KalmanShiftTracker (and NOT FlowShiftTracker).
+    tracker = Tracker.from_config(use_kalman=True, tracking_target_instance_count=2)
+    assert isinstance(tracker, KalmanShiftTracker)
+    assert not isinstance(tracker, FlowShiftTracker)
+    assert tracker.kf_init_frame_count == 10
+    assert tracker.kf_reset_gap_size == 5
+    assert tracker.kf_node_indices is None
+
+    # Local queues + explicit node indices + custom warm-up.
+    tracker_lq = Tracker.from_config(
+        use_kalman=True,
+        candidates_method="local_queues",
+        max_tracks=2,
+        kf_node_indices=[0, 1],
+        kf_init_frame_count=3,
+    )
+    assert isinstance(tracker_lq, KalmanShiftTracker)
+    assert tracker_lq.kf_node_indices == [0, 1]
+    assert tracker_lq.is_local_queue
+    assert tracker_lq.kf_init_frame_count == 3
+
+    # use_kalman and use_flow are mutually exclusive.
+    with pytest.raises(ValueError):
+        Tracker.from_config(
+            use_kalman=True, use_flow=True, tracking_target_instance_count=2
+        )
+
+    # Kalman requires a known target identity count.
+    with pytest.raises(ValueError):
+        Tracker.from_config(use_kalman=True)
+
+    # max_tracks satisfies the target-count requirement.
+    tracker_mt = Tracker.from_config(
+        use_kalman=True, candidates_method="local_queues", max_tracks=2
+    )
+    assert isinstance(tracker_mt, KalmanShiftTracker)
+
+
+def _run_synthetic_kalman_tracking(tracker, n_frames=10, n_nodes=2):
+    """Track two synthetic instances moving in opposite directions.
+
+    Returns the list of sorted per-frame track names.
+    """
+    skeleton = sio.Skeleton(nodes=[f"n{i}" for i in range(n_nodes)])
+
+    def make_instance(base_x, base_y, t, direction):
+        pts = [
+            [base_x + direction * 2 * t + 5 * j, base_y + t + 5 * j]
+            for j in range(n_nodes)
+        ]
+        return sio.PredictedInstance.from_numpy(
+            points_data=np.array(pts, dtype=np.float32),
+            skeleton=skeleton,
+            score=1.0,
+        )
+
+    per_frame = []
+    for t in range(n_frames):
+        instance_a = make_instance(100.0, 100.0, t, direction=1)
+        instance_b = make_instance(400.0, 100.0, t, direction=-1)
+        tracked = tracker.track([instance_a, instance_b], frame_idx=t)
+        per_frame.append(
+            sorted(inst.track.name for inst in tracked if inst.track is not None)
+        )
+    return per_frame
+
+
+def test_kalmanshifttracker_tracking():
+    """End-to-end synthetic test: KalmanShiftTracker maintains stable tracks (#572)."""
+    tracker = Tracker.from_config(
+        use_kalman=True,
+        candidates_method="local_queues",
+        max_tracks=2,
+        kf_init_frame_count=3,
+        tracking_target_instance_count=2,
+    )
+    per_frame = _run_synthetic_kalman_tracking(tracker, n_frames=10, n_nodes=2)
+
+    # Filters are fit after the warm-up window; two filters are maintained.
+    assert tracker._initialized
+    assert len(tracker._kalman_filters) == 2
+
+    # Two distinct, stable tracks are held across every frame.
+    all_tracks = {name for frame in per_frame for name in frame}
+    assert all_tracks == {"track_0", "track_1"}
+    for frame in per_frame:
+        assert frame == ["track_0", "track_1"]
+
+
+def test_kalmanshifttracker_init_filters_shape():
+    """KalmanShiftTracker fits per-track filters with correct matrix shapes (#572)."""
+    node_indices = [0, 1, 2]
+    tracker = Tracker.from_config(
+        use_kalman=True,
+        candidates_method="local_queues",
+        max_tracks=2,
+        kf_init_frame_count=3,
+        kf_node_indices=node_indices,
+        tracking_target_instance_count=2,
+    )
+    _run_synthetic_kalman_tracking(tracker, n_frames=8, n_nodes=4)
+
+    assert tracker._initialized
+    assert len(tracker._kalman_filters) == 2
+
+    num_nodes = len(node_indices)
+    for kf in tracker._kalman_filters.values():
+        # Constant-velocity state has 4 dims per node; observation has 2 per node.
+        assert np.asarray(kf.transition_matrices).shape == (
+            4 * num_nodes,
+            4 * num_nodes,
+        )
+        assert np.asarray(kf.observation_matrices).shape == (
+            2 * num_nodes,
+            4 * num_nodes,
+        )
+    for result in tracker._last_results.values():
+        assert len(result["means"]) == 4 * num_nodes
+
+
+def test_run_tracker_with_kalman(
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    centered_instance_video,
+    minimal_instance,
+    tmp_path,
+):
+    """`run_tracker` wires use_kalman through to KalmanShiftTracker end-to-end (#572)."""
+    labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        output_path=tmp_path / "test.slp",
+        max_instances=2,
+        peak_threshold=0.1,
+        frames=[x for x in range(0, 10)],
+        integral_refinement="integral",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
+    )
+
+    tracked_lfs = run_tracker(
+        untracked_frames=[x for x in labels],
+        candidates_method="local_queues",
+        max_tracks=2,
+        use_kalman=True,
+        kf_init_frame_count=3,
+        tracking_target_instance_count=2,
+    )
+    output = sio.Labels(
+        labeled_frames=tracked_lfs,
+        videos=labels.videos,
+        skeletons=labels.skeletons,
+    )
+    # max_tracks caps identities at 2; the Kalman tracker should hold them.
+    assert len(output.tracks) == 2
+
+
+def test_run_tracker_kalman_requires_target():
+    """`run_tracker` with use_kalman but no target count raises before tracking (#572)."""
+    skeleton = sio.Skeleton(nodes=["head", "tail"])
+    video = sio.Video(filename="test.mp4")
+    frames = [
+        sio.LabeledFrame(
+            video=video,
+            frame_idx=t,
+            instances=[
+                sio.PredictedInstance.from_numpy(
+                    points_data=np.array(
+                        [[100.0 + t, 100.0], [110.0 + t, 110.0]], dtype=np.float32
+                    ),
+                    skeleton=skeleton,
+                    score=1.0,
+                )
+            ],
+        )
+        for t in range(3)
+    ]
+    # The ValueError is raised by Tracker.from_config before any frame/image is read.
+    with pytest.raises(ValueError):
+        run_tracker(untracked_frames=frames, use_kalman=True)

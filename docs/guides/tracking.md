@@ -29,6 +29,10 @@ sleap-nn track -i video.mp4 -m models/bottomup/ --tracking
 | `--track_matching_method` | Assignment algorithm | `hungarian`, `greedy` | `hungarian` |
 | `--max_tracks` | Maximum track count | `INT` | `None` |
 | `--use_flow` | Enable optical flow | Flag | `False` |
+| `--use_kalman` | Enable Kalman-filter tracking | Flag | `False` |
+| `--kf_init_frame_count` | Warm-up frames before EM init | `INT` | `10` |
+| `--kf_node_indices` | Node indices to filter (comma-sep; empty = all) | e.g. `0,1,2` | `None` |
+| `--kf_reset_gap_size` | Missed frames before a stale track resets | `INT` | `5` |
 
 ---
 
@@ -79,6 +83,42 @@ sleap-nn track -i video.mp4 -m models/ \
 | `--of_img_scale` | Image scale (lower = faster) | `FLOAT` | `1.0` |
 | `--of_window_size` | Window size per pyramid level | `INT` | `21` |
 | `--of_max_levels` | Pyramid levels | `INT` | `3` |
+
+### Kalman Filter
+
+Tracks each identity with a per-track constant-velocity Kalman filter. The tracker
+runs a normal-tracker warm-up for `--kf_init_frame_count` frames, fits one filter per
+track via EM, and then predicts each track's pose forward to score the current
+detections (analogous to optical flow, but using a motion model instead of image
+displacements):
+
+```bash
+sleap-nn infer -i video.mp4 -m models/centroid models/centered_instance \
+    -t \
+    --use_kalman \
+    --tracking_target_instance_count 2 \
+    --kf_init_frame_count 10
+```
+
+**Best for**: A known, fixed number of smoothly-moving animals with frequent
+occlusions, after the base detector has been culled to the top-N instances per frame.
+
+Notes:
+
+- Requires a known target identity count: pass `--tracking_target_instance_count`
+  (or let it be derived from `--max_instances` / `--max_tracks`).
+- Mutually exclusive with `--use_flow`.
+- Use `--kf_node_indices` to filter on a stable subset of nodes (e.g. spine nodes):
+  `--kf_node_indices 0,1,2`. Leave it unset to use all nodes.
+- Depends on the `pykalman` package (a core dependency).
+
+#### Kalman Filter Parameters
+
+| Parameter | Description | Values | Default |
+|-----------|-------------|--------|---------|
+| `--kf_init_frame_count` | Warm-up frames before EM init | `INT` | `10` |
+| `--kf_node_indices` | Node indices to filter (comma-sep; empty = all) | e.g. `0,1,2` | `None` |
+| `--kf_reset_gap_size` | Missed frames before a stale track resets | `INT` | `5` |
 
 ---
 

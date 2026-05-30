@@ -64,6 +64,10 @@ class TrackerConfig:
     of_img_scale: float = 1.0
     of_window_size: int = 21
     of_max_levels: int = 3
+    use_kalman: bool = False
+    kf_init_frame_count: int = 10
+    kf_node_indices: Optional[list] = None
+    kf_reset_gap_size: int = 5
 
     # Pre-tracking cull (consumed by Tracker.from_config) ───────────────
     tracking_target_instance_count: Optional[int] = None
@@ -179,6 +183,10 @@ def apply_tracking(
         of_img_scale=config.of_img_scale,
         of_window_size=config.of_window_size,
         of_max_levels=config.of_max_levels,
+        use_kalman=config.use_kalman,
+        kf_init_frame_count=config.kf_init_frame_count,
+        kf_node_indices=config.kf_node_indices,
+        kf_reset_gap_size=config.kf_reset_gap_size,
         tracking_target_instance_count=config.tracking_target_instance_count,
         tracking_pre_cull_to_target=config.tracking_pre_cull_to_target,
         tracking_pre_cull_iou_threshold=config.tracking_pre_cull_iou_threshold,

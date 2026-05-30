@@ -196,6 +196,45 @@ class TestTrackCommand:
                 call_kwargs = mock_inference.call_args[1]
                 assert call_kwargs.get("frames") is None
 
+    def test_track_forwards_kalman_flags(self):
+        """track forwards Kalman flags (and parses --kf_node_indices) to run_inference (#572)."""
+        runner = CliRunner()
+        with patch("sleap_nn.predict.run_inference") as mock_inference:
+            mock_inference.return_value = None
+            result = runner.invoke(
+                cli,
+                [
+                    "track",
+                    "--data_path",
+                    "/fake/path.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                    "--use_kalman",
+                    "--kf_init_frame_count",
+                    "3",
+                    "--kf_node_indices",
+                    "0,1",
+                    "--kf_reset_gap_size",
+                    "4",
+                ],
+            )
+            assert mock_inference.called
+            call_kwargs = mock_inference.call_args[1]
+            assert call_kwargs["use_kalman"] is True
+            assert call_kwargs["kf_init_frame_count"] == 3
+            # The comma-separated string is parsed to a list of ints.
+            assert call_kwargs["kf_node_indices"] == [0, 1]
+            assert call_kwargs["kf_reset_gap_size"] == 4
+
+    def test_track_and_infer_help_list_kalman_flags(self):
+        """Both `track` and `infer` document the Kalman flags (#572)."""
+        runner = CliRunner()
+        for command in ("track", "infer"):
+            result = runner.invoke(cli, [command, "--help"])
+            assert result.exit_code == 0
+            assert "--use_kalman" in result.output
+            assert "--kf_node_indices" in result.output
+
 
 class TestEvalCommand:
     """Tests for eval command using CliRunner."""

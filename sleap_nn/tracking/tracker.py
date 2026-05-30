@@ -127,6 +127,10 @@ class Tracker:
         of_img_scale: float = 1.0,
         of_window_size: int = 21,
         of_max_levels: int = 3,
+        use_kalman: bool = False,
+        kf_init_frame_count: int = 10,
+        kf_node_indices: Optional[List[int]] = None,
+        kf_reset_gap_size: int = 5,
         tracking_target_instance_count: Optional[int] = None,
         tracking_pre_cull_to_target: int = 0,
         tracking_pre_cull_iou_threshold: float = 0,
@@ -170,6 +174,17 @@ class Tracker:
             of_max_levels: Number of pyramid scale levels to consider. This is different
                 from the scale parameter, which determines the initial image scaling.
                 Default: 3. (only if `use_flow` is True)
+            use_kalman: If True, `KalmanShiftTracker` is used, where poses are predicted
+                with a per-track constant-velocity Kalman filter. Requires
+                `tracking_target_instance_count` (or `max_tracks`) and is mutually
+                exclusive with `use_flow`. Default: `False`.
+            kf_init_frame_count: Number of warm-up frames tracked with the base path
+                before the Kalman filters are fit via EM. Default: 10.
+                (only if `use_kalman` is True)
+            kf_node_indices: Skeleton node (row) indices to track with the motion model.
+                `None` uses all nodes. Default: None. (only if `use_kalman` is True)
+            kf_reset_gap_size: Number of consecutive missed frames after which a stale
+                track's filter is reset. Default: 5. (only if `use_kalman` is True)
             tracking_target_instance_count: Target number of instances to track per frame. (default: None)
             tracking_pre_cull_to_target: If non-zero and target_instance_count is also non-zero, then cull instances over target count per frame *before* tracking. (default: 0)
             tracking_pre_cull_iou_threshold: If non-zero and pre_cull_to_target also set, then use IOU threshold to remove overlapping instances over count *before* tracking. (default: 0)
@@ -194,6 +209,40 @@ class Tracker:
             message = f"{candidates_method} is not a valid method. Please choose one of [`fixed_window`, `local_queues`]"
             logger.error(message)
             raise ValueError(message)
+
+        if use_kalman and use_flow:
+            message = (
+                "`use_kalman` and `use_flow` are mutually exclusive; choose one "
+                "tracker (Kalman tracking does not use optical flow)."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        if use_kalman and tracking_target_instance_count is None and max_tracks is None:
+            message = (
+                "Kalman tracking requires a known target identity count: pass "
+                "`tracking_target_instance_count` (or `max_tracks` / `--max_instances`)."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        if use_kalman:
+            return KalmanShiftTracker(
+                candidate=candidate,
+                min_match_points=min_match_points,
+                features=features,
+                scoring_method=scoring_method,
+                scoring_reduction=scoring_reduction,
+                robust_best_instance=robust_best_instance,
+                track_matching_method=track_matching_method,
+                kf_init_frame_count=kf_init_frame_count,
+                kf_node_indices=kf_node_indices,
+                kf_reset_gap_size=kf_reset_gap_size,
+                is_local_queue=is_local_queue,
+                tracking_target_instance_count=tracking_target_instance_count,
+                tracking_pre_cull_to_target=tracking_pre_cull_to_target,
+                tracking_pre_cull_iou_threshold=tracking_pre_cull_iou_threshold,
+            )
 
         if use_flow:
             return FlowShiftTracker(
@@ -674,6 +723,373 @@ class FlowShiftTracker(Tracker):
         return shifted_instances_prv_frames
 
 
+def _get_kalman_filter_cls():
+    """Import and return `pykalman.KalmanFilter`, with a clear error if missing.
+
+    `pykalman` is imported lazily so that an install/compat problem only affects
+    Kalman tracking rather than breaking the whole tracking/inference module at
+    import time.
+    """
+    try:
+        from pykalman import KalmanFilter
+    except ImportError as e:  # pragma: no cover - exercised only without pykalman
+        message = (
+            "Kalman-filter tracking (`use_kalman=True`) requires the `pykalman` "
+            "package, which could not be imported. Install it with "
+            "`pip install pykalman` (it normally ships as a core sleap-nn dependency)."
+        )
+        logger.error(message)
+        raise ImportError(message) from e
+    return KalmanFilter
+
+
+@attrs.define
+class KalmanShiftTracker(Tracker):
+    """Tracker that predicts candidate poses with per-track Kalman filters.
+
+    `KalmanShiftTracker` mirrors `FlowShiftTracker`: it subclasses `Tracker` and
+    overrides only `update_candidates()` (plus a thin `track()` that records the
+    current frame index). Instead of shifting previous-frame keypoints with optical
+    flow, it advances one constant-velocity `pykalman.KalmanFilter` per track to
+    predict where each tracked instance should be in the current frame. The shared
+    scoring/matching path (`get_scores` -> `scores_to_cost_matrix` -> `assign_tracks`)
+    is reused unchanged.
+
+    The tracker runs in two phases:
+
+    1. **Warm-up.** For the first `kf_init_frame_count` frames, `update_candidates`
+       delegates to the base keypoint-feature path (i.e. behaves like a plain
+       fixed-window / local-queue tracker) while accumulating a per-track keypoint
+       history. Because the candidate queue is bounded to `window_size`, the history
+       is kept in a separate buffer (`_obs_history`) so warm-up can span more frames
+       than the queue holds.
+    2. **Motion model.** Once `kf_init_frame_count` frames have been seen, one Kalman
+       filter per track is fit via EM over the warm-up window (`_init_filters`).
+       Thereafter `update_candidates` corrects each matched filter with the most
+       recent observation (one frame lagged, since matching happens downstream) and
+       returns a predict-only step as the candidate feature for scoring.
+
+    Stale tracks (no match for more than `kf_reset_gap_size` frames) have their
+    filters dropped and fall back to the base feature path, matching the legacy
+    `BareKalmanTracker.tracks_with_gap` behavior (a reset is only triggered when more
+    than one track is simultaneously stale, tolerating brief single-target occlusions).
+
+    Kalman tracking requires a known target identity count
+    (`tracking_target_instance_count`, or one derived from `max_tracks`/`max_instances`)
+    and is mutually exclusive with `use_flow`; both are validated in
+    `Tracker.from_config`.
+
+    Attributes:
+        kf_init_frame_count: Number of warm-up frames tracked with the base path
+            before the per-track Kalman filters are fit via EM. Default: 10.
+        kf_node_indices: Skeleton node (row) indices to track with the motion model.
+            `None` (default) uses all nodes.
+        kf_reset_gap_size: Number of consecutive missed frames after which a stale
+            track's filter is reset. Default: 5.
+    """
+
+    kf_init_frame_count: int = 10
+    kf_node_indices: Optional[List[int]] = None
+    kf_reset_gap_size: int = 5
+
+    # Per-instance Kalman state (never passed to the constructor).
+    _kalman_filters: Dict[int, Any] = attrs.field(init=False, factory=dict)
+    _last_results: Dict[int, Dict[str, Any]] = attrs.field(init=False, factory=dict)
+    _last_frame_for_track: Dict[int, int] = attrs.field(init=False, factory=dict)
+    _last_corrected_frame: Dict[int, int] = attrs.field(init=False, factory=dict)
+    _obs_history: Dict[int, List[Dict[str, Any]]] = attrs.field(
+        init=False, factory=dict
+    )
+    _resolved_node_indices: Optional[List[int]] = attrs.field(init=False, default=None)
+    _n_nodes: Optional[int] = attrs.field(init=False, default=None)
+    _frames_seen: int = attrs.field(init=False, default=0)
+    _initialized: bool = attrs.field(init=False, default=False)
+    _current_frame_idx: int = attrs.field(init=False, default=0)
+
+    def track(
+        self,
+        untracked_instances: List[sio.PredictedInstance],
+        frame_idx: int,
+        image: np.ndarray = None,
+    ) -> List[sio.PredictedInstance]:
+        """Record the current frame index, then run the base tracking step.
+
+        The frame index is stashed so `update_candidates` (which the base `track()`
+        calls without a frame index) can use it for warm-up counting and stale-track
+        bookkeeping.
+        """
+        self._current_frame_idx = int(frame_idx)
+        return super().track(untracked_instances, frame_idx, image)
+
+    def update_candidates(
+        self,
+        candidates_list: Union[Deque, DefaultDict[int, Deque]],
+        image: np.ndarray,
+    ) -> Dict[int, List[TrackedInstanceFeature]]:
+        """Return Kalman-predicted candidate features for the current frame.
+
+        During warm-up this delegates to the base keypoint-feature path. Once the
+        filters are initialized, each track's filter is corrected with its most recent
+        observation and a predict-only step is returned as the candidate feature.
+
+        Args:
+            candidates_list: Tracker queue from the candidate class.
+            image: Image of the current untracked frame (unused; Kalman tracking does
+                not use image features).
+
+        Returns:
+            Dictionary with keys as track IDs and values as lists of
+            `TrackedInstanceFeature`.
+        """
+        if self.features not in self._feature_methods:
+            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"
+            logger.error(message)
+            raise ValueError(message)
+        feature_method = self._feature_methods[self.features]
+
+        # Accumulate the most recent observation per track (queue-shape agnostic).
+        self._ingest_observations(candidates_list)
+
+        if not self._initialized:
+            self._frames_seen += 1
+            if self._frames_seen >= self.kf_init_frame_count:
+                self._init_filters()
+            if not self._initialized:
+                # Still warming up: behave exactly like the base tracker.
+                return super().update_candidates(candidates_list, image)
+
+        # Correct matched filters with newly observed keypoints (one frame lagged),
+        # drop stale tracks, then predict the current frame for scoring.
+        self._correct_filters()
+        self._reset_stale_tracks(self._current_frame_idx)
+        return self._predict_candidates(candidates_list, feature_method)
+
+    def _ingest_observations(
+        self, candidates_list: Union[Deque, DefaultDict[int, Deque]]
+    ) -> None:
+        """Record the most recent observation per track into `_obs_history`.
+
+        Uses the candidate class's own `get_features_from_track_id` accessor so this
+        works for both fixed-window and local-queue tracker queues.
+        """
+        for track_id in self.candidate.current_tracks:
+            feats = self.candidate.get_features_from_track_id(track_id, candidates_list)
+            if not feats:
+                continue
+            newest = max(
+                feats,
+                key=lambda tf: (tf.frame_idx if tf.frame_idx is not None else -1),
+            )
+            frame_idx = (
+                int(newest.frame_idx)
+                if newest.frame_idx is not None
+                else self._current_frame_idx
+            )
+            history = self._obs_history.setdefault(track_id, [])
+            if history and history[-1]["frame_idx"] >= frame_idx:
+                continue  # already recorded this (or a newer) observation
+            keypoints = newest.src_predicted_instance.numpy()
+            history.append(
+                {
+                    "frame_idx": frame_idx,
+                    "keypoints": keypoints,
+                    "src": newest.src_predicted_instance,
+                    "score": newest.tracking_score,
+                }
+            )
+            if self._n_nodes is None:
+                self._n_nodes = keypoints.shape[0]
+
+    def _resolve_node_indices(self) -> List[int]:
+        """Resolve `kf_node_indices` to a concrete list of node-row indices."""
+        if self.kf_node_indices is not None:
+            return [i for i in self.kf_node_indices if i < (self._n_nodes or 0)]
+        return list(range(self._n_nodes)) if self._n_nodes else []
+
+    @staticmethod
+    def _build_matrices(n_nodes: int):
+        """Build constant-velocity transition and observation matrices.
+
+        State layout is interleaved position/velocity per observed coordinate:
+        ``[x0, x0_vel, y0, y0_vel, x1, ...]`` (length ``4 * n_nodes``). The
+        observation selects the position (even) state dimensions (length
+        ``2 * n_nodes``).
+        """
+        state_dim = 4 * n_nodes
+        obs_dim = 2 * n_nodes
+        transition = [[0.0] * state_dim for _ in range(state_dim)]
+        observation = [[0.0] * state_dim for _ in range(obs_dim)]
+        for i in range(obs_dim):
+            transition[2 * i][2 * i] = 1.0  # new_pos = pos + vel
+            transition[2 * i][2 * i + 1] = 1.0
+            transition[2 * i + 1][2 * i + 1] = 1.0  # new_vel = vel
+            observation[i][2 * i] = 1.0  # observe position only
+        return transition, observation
+
+    def _obs_vector(self, keypoints: np.ndarray) -> np.ndarray:
+        """Flatten the tracked-node keypoints to a masked observation vector."""
+        pts = keypoints[self._resolved_node_indices, :]
+        return np.ma.masked_invalid(np.ma.asarray(pts.flatten(), dtype=float))
+
+    def _init_filters(self) -> None:
+        """Fit one Kalman filter per track via EM over the warm-up history."""
+        self._resolved_node_indices = self._resolve_node_indices()
+        num_nodes = len(self._resolved_node_indices)
+        if num_nodes == 0:
+            # Nothing to track with a motion model; fall back to the base path.
+            self._initialized = True
+            return
+
+        kalman_filter_cls = _get_kalman_filter_cls()
+        transition, observation = self._build_matrices(num_nodes)
+        obs_dim = 2 * num_nodes
+        state_dim = 4 * num_nodes
+
+        for track_id, history in self._obs_history.items():
+            if len(history) < 2:
+                continue  # need at least two frames to fit a motion model
+            window = history[-self.kf_init_frame_count :]
+            rows = [
+                h["keypoints"][self._resolved_node_indices, :].flatten() for h in window
+            ]
+            frame_array = np.ma.masked_invalid(np.ma.asarray(rows, dtype=float))
+
+            initial = np.asarray(frame_array[0].filled(0.0), dtype=float)
+            initial_state_mean = [0.0] * state_dim
+            for i in range(obs_dim):
+                initial_state_mean[2 * i] = float(initial[i])
+
+            try:
+                kf = kalman_filter_cls(
+                    transition_matrices=transition,
+                    observation_matrices=observation,
+                    initial_state_mean=initial_state_mean,
+                )
+                # Keep the structural matrices fixed; only learn the covariances and
+                # initial state via EM (matches the legacy default `em_vars`).
+                kf = kf.em(
+                    frame_array,
+                    n_iter=20,
+                    em_vars=[
+                        "transition_covariance",
+                        "observation_covariance",
+                        "initial_state_mean",
+                        "initial_state_covariance",
+                    ],
+                )
+                means, covariances = kf.filter(frame_array)
+            except Exception as e:  # pragma: no cover - numerical edge cases
+                logger.warning(
+                    f"Kalman filter initialization failed for track {track_id}: {e}"
+                )
+                continue
+
+            self._kalman_filters[track_id] = kf
+            self._last_results[track_id] = {
+                "means": means[-1],
+                "covariances": covariances[-1],
+            }
+            self._last_corrected_frame[track_id] = window[-1]["frame_idx"]
+            self._last_frame_for_track[track_id] = window[-1]["frame_idx"]
+
+        self._initialized = True
+
+    def _correct_filters(self) -> None:
+        """Advance each matched filter with observations seen since the last update."""
+        for track_id, kf in list(self._kalman_filters.items()):
+            history = self._obs_history.get(track_id, [])
+            last_corrected = self._last_corrected_frame.get(track_id, -1)
+            new_observations = [h for h in history if h["frame_idx"] > last_corrected]
+            for h in new_observations:
+                prior = self._last_results[track_id]
+                try:
+                    mean, covariance = kf.filter_update(
+                        prior["means"],
+                        prior["covariances"],
+                        observation=self._obs_vector(h["keypoints"]),
+                    )
+                except Exception as e:  # pragma: no cover - numerical edge cases
+                    logger.warning(
+                        f"Kalman filter update failed for track {track_id}: {e}"
+                    )
+                    break
+                self._last_results[track_id] = {
+                    "means": mean,
+                    "covariances": covariance,
+                }
+                self._last_corrected_frame[track_id] = h["frame_idx"]
+                self._last_frame_for_track[track_id] = h["frame_idx"]
+
+    def _reset_stale_tracks(self, frame_idx: int) -> None:
+        """Drop filters for tracks unseen for more than `kf_reset_gap_size` frames.
+
+        Mirrors the legacy behavior: a reset is only triggered when more than one
+        track is simultaneously stale (tolerating brief single-target occlusions).
+        A reset track keeps its queue entries and simply falls back to the base
+        feature path until it is matched again.
+        """
+        stale = [
+            track_id
+            for track_id, last in self._last_frame_for_track.items()
+            if frame_idx - last > self.kf_reset_gap_size
+        ]
+        if len(stale) > 1:
+            for track_id in stale:
+                self._kalman_filters.pop(track_id, None)
+                self._last_results.pop(track_id, None)
+                self._last_frame_for_track.pop(track_id, None)
+                self._last_corrected_frame.pop(track_id, None)
+
+    def _predict_candidates(
+        self,
+        candidates_list: Union[Deque, DefaultDict[int, Deque]],
+        feature_method,
+    ) -> Dict[int, List[TrackedInstanceFeature]]:
+        """Predict the current-frame pose for each track and build candidate features.
+
+        Tracks without an active filter (spawned after init, or reset) fall back to
+        the base feature path so they remain trackable.
+        """
+        predicted = defaultdict(list)
+        for track_id in self.candidate.current_tracks:
+            kf = self._kalman_filters.get(track_id)
+            prior = self._last_results.get(track_id)
+            history = self._obs_history.get(track_id)
+            if kf is None or prior is None or not history:
+                predicted[track_id].extend(
+                    self.candidate.get_features_from_track_id(track_id, candidates_list)
+                )
+                continue
+
+            try:
+                pred_mean, _ = kf.filter_update(
+                    prior["means"], prior["covariances"], observation=np.ma.masked
+                )
+            except Exception as e:  # pragma: no cover - numerical edge cases
+                logger.warning(f"Kalman prediction failed for track {track_id}: {e}")
+                predicted[track_id].extend(
+                    self.candidate.get_features_from_track_id(track_id, candidates_list)
+                )
+                continue
+
+            # Even state indices hold the predicted positions [x0, y0, x1, y1, ...].
+            coords = np.asarray(pred_mean)[::2].reshape(-1, 2)
+            predicted_keypoints = np.full((self._n_nodes, 2), np.nan, dtype=float)
+            predicted_keypoints[self._resolved_node_indices, :] = coords
+
+            ref = history[-1]
+            predicted[track_id].append(
+                TrackedInstanceFeature(
+                    feature=feature_method(predicted_keypoints),
+                    src_predicted_instance=ref["src"],
+                    frame_idx=ref["frame_idx"],
+                    tracking_score=ref["score"] if ref["score"] is not None else 1.0,
+                    shifted_keypoints=predicted_keypoints,
+                )
+            )
+        return predicted
+
+
 def connect_single_breaks(
     lfs: List[sio.LabeledFrame], max_instances: int
 ) -> List[sio.LabeledFrame]:
@@ -754,6 +1170,10 @@ def run_tracker(
     of_img_scale: float = 1.0,
     of_window_size: int = 21,
     of_max_levels: int = 3,
+    use_kalman: bool = False,
+    kf_init_frame_count: int = 10,
+    kf_node_indices: Optional[List[int]] = None,
+    kf_reset_gap_size: int = 5,
     post_connect_single_breaks: bool = False,
     tracking_target_instance_count: Optional[int] = None,
     tracking_pre_cull_to_target: int = 0,
@@ -801,6 +1221,16 @@ def run_tracker(
         of_max_levels: Number of pyramid scale levels to consider. This is different
             from the scale parameter, which determines the initial image scaling.
                 Default: 3. (only if `use_flow` is True).
+        use_kalman: If True, `KalmanShiftTracker` is used, where poses are predicted with
+            a per-track constant-velocity Kalman filter. Requires
+            `tracking_target_instance_count` (or `max_tracks`) and is mutually exclusive
+            with `use_flow`. Default: `False`.
+        kf_init_frame_count: Number of warm-up frames tracked with the base path before
+            the Kalman filters are fit via EM. Default: 10. (only if `use_kalman` is True)
+        kf_node_indices: Skeleton node (row) indices to track with the motion model.
+            `None` uses all nodes. Default: None. (only if `use_kalman` is True)
+        kf_reset_gap_size: Number of consecutive missed frames after which a stale track's
+            filter is reset. Default: 5. (only if `use_kalman` is True)
         post_connect_single_breaks: If True and `max_tracks` is not None with local queues candidate method,
             connects track breaks when exactly one track is lost and exactly one new track is spawned in the frame.
         tracking_target_instance_count: Target number of instances to track per frame. (default: None)
@@ -828,6 +1258,10 @@ def run_tracker(
         of_img_scale=of_img_scale,
         of_window_size=of_window_size,
         of_max_levels=of_max_levels,
+        use_kalman=use_kalman,
+        kf_init_frame_count=kf_init_frame_count,
+        kf_node_indices=kf_node_indices,
+        kf_reset_gap_size=kf_reset_gap_size,
         tracking_target_instance_count=tracking_target_instance_count,
         tracking_pre_cull_to_target=tracking_pre_cull_to_target,
         tracking_pre_cull_iou_threshold=tracking_pre_cull_iou_threshold,
