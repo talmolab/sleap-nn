@@ -58,7 +58,7 @@ class TrackerConfig:
     scoring_method: str = "oks"
     scoring_reduction: str = "mean"
     robust_best_instance: float = 1.0
-    oks_stddev: float = 0.025
+    oks_stddev: Optional[float] = None
     track_matching_method: str = "hungarian"
     max_tracks: Optional[int] = None
     use_flow: bool = False

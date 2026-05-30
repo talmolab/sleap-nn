@@ -123,7 +123,7 @@ class Tracker:
         scoring_method: str = "oks",
         scoring_reduction: str = "mean",
         robust_best_instance: float = 1.0,
-        oks_stddev: float = 0.025,
+        oks_stddev: Optional[float] = None,
         track_matching_method: str = "hungarian",
         max_tracks: Optional[int] = None,
         use_flow: bool = False,
@@ -184,7 +184,9 @@ class Tracker:
                 from the scale parameter, which determines the initial image scaling.
                 Default: 3. (only if `use_flow` is True)
             oks_stddev: Keypoint-spread normalization constant for `oks` scoring;
-                larger is more tolerant of localization error. Default: 0.025.
+                larger is more tolerant of localization error. `None` (default)
+                auto-resolves to 0.1 for `kf_track_features="keypoints"` (whose per-node
+                prediction is noisier) and 0.025 otherwise.
             use_kalman: If True, `KalmanShiftTracker` is used, where poses are predicted
                 with a per-track constant-velocity Kalman filter. Requires
                 `tracking_target_instance_count` (or `max_tracks`) and is mutually
@@ -251,6 +253,23 @@ class Tracker:
             )
             logger.error(message)
             raise ValueError(message)
+
+        if use_kalman and kf_track_features not in ("centroid", "keypoints"):
+            message = (
+                f"Invalid kf_track_features={kf_track_features!r}; choose 'centroid' "
+                "(default) or 'keypoints'."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        # Resolve the OKS tolerance: the per-node 'keypoints' prediction is noisier, so
+        # the strict default stddev (0.025) collapses its similarity scores; default it
+        # to 0.1 (validated on synthetic + real data). Centroid/base keep 0.025. An
+        # explicit oks_stddev always wins.
+        if oks_stddev is None:
+            oks_stddev = (
+                0.1 if (use_kalman and kf_track_features == "keypoints") else 0.025
+            )
 
         if use_kalman:
             return KalmanShiftTracker(
@@ -1515,7 +1534,7 @@ def run_tracker(
     scoring_method: str = "oks",
     scoring_reduction: str = "mean",
     robust_best_instance: float = 1.0,
-    oks_stddev: float = 0.025,
+    oks_stddev: Optional[float] = None,
     track_matching_method: str = "hungarian",
     max_tracks: Optional[int] = None,
     use_flow: bool = False,
@@ -1575,7 +1594,8 @@ def run_tracker(
             from the scale parameter, which determines the initial image scaling.
                 Default: 3. (only if `use_flow` is True).
         oks_stddev: Keypoint-spread normalization constant for `oks` scoring; larger is
-            more tolerant of localization error. Default: 0.025.
+            more tolerant of localization error. `None` (default) auto-resolves to 0.1
+            for `kf_track_features="keypoints"` and 0.025 otherwise.
         use_kalman: If True, `KalmanShiftTracker` is used, where poses are predicted with
             a per-track constant-velocity Kalman filter. Requires
             `tracking_target_instance_count` (or `max_tracks`) and is mutually exclusive

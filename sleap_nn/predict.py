@@ -106,7 +106,7 @@ def run_inference(
     scoring_method: str = "oks",
     scoring_reduction: str = "mean",
     robust_best_instance: float = 1.0,
-    oks_stddev: float = 0.025,
+    oks_stddev: Optional[float] = None,
     track_matching_method: str = "hungarian",
     max_tracks: Optional[int] = None,
     use_flow: bool = False,
@@ -281,7 +281,8 @@ def run_inference(
             from the scale parameter, which determines the initial image scaling.
             Default: 3. (only if `use_flow` is True).
         oks_stddev: Keypoint-spread normalization constant for `oks` scoring; larger is
-            more tolerant of localization error. Default: 0.025.
+            more tolerant of localization error. `None` (default) auto-resolves to 0.1
+            for `kf_track_features="keypoints"` and 0.025 otherwise.
         use_kalman: If True, `KalmanShiftTracker` is used, where poses are predicted
             with a per-track constant-velocity Kalman filter. Requires
             `tracking_target_instance_count` (or `max_tracks`/`max_instances`) and is
