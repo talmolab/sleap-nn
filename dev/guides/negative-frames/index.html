@@ -6642,8 +6642,34 @@
 <td>epoch sum</td>
 <td>Total negative samples seen in epoch</td>
 </tr>
+<tr>
+<td><code>val/loss</code></td>
+<td>epoch mean</td>
+<td>Combined val loss — <strong>always unweighted</strong> (never applies <code>negative_loss_weight</code>), so it stays identical to the old plain MSE and is used for checkpointing / early-stopping</td>
+</tr>
+<tr>
+<td><code>val/loss_positive</code></td>
+<td>epoch mean</td>
+<td>Unweighted MSE on positive val frames</td>
+</tr>
+<tr>
+<td><code>val/loss_negative</code></td>
+<td>epoch mean</td>
+<td>Unweighted MSE on negative val frames — should approach 0 if the model generalizes background suppression to held-out frames</td>
+</tr>
+<tr>
+<td><code>val/n_positive</code></td>
+<td>epoch sum</td>
+<td>Total positive samples in the val epoch</td>
+</tr>
+<tr>
+<td><code>val/n_negative</code></td>
+<td>epoch sum</td>
+<td>Total negative samples in the val epoch</td>
+</tr>
 </tbody>
 </table>
+<p>Unlike the train split, the validation split metrics are <strong>always unweighted</strong> (<code>negative_loss_weight</code> is not applied), so <code>val/loss</code> remains comparable across runs and matches plain <code>nn.MSELoss()</code>.</p>
 <div class="admonition tip">
 <p class="admonition-title">Is It Working?</p>
 <p>Watch <code>train/loss_negative</code> — it should decrease toward 0 over training. If it stays flat, the model isn't learning from negatives. Consider increasing <code>negative_loss_weight</code> or adding more diverse negative frames.</p>
@@ -6683,7 +6709,7 @@
 <p><strong>Use <code>negative_loss_weight</code> to tune.</strong> If negatives are rare relative to positives and <code>train/loss_negative</code> isn't decreasing, try <code>negative_loss_weight: 2.0</code> or higher to amplify the gradient signal.</p>
 </li>
 <li>
-<p><strong>Check val metrics too.</strong> Negative frames in the validation set (via the train/val split) contribute to <code>val/loss</code>. A model that hallucinates on empty backgrounds will have higher val loss.</p>
+<p><strong>Check val metrics too.</strong> Negative frames in the validation set (via the train/val split) contribute to <code>val/loss</code>, and are also broken out as <code>val/loss_positive</code> / <code>val/loss_negative</code> / <code>val/n_positive</code> / <code>val/n_negative</code>. Note that <code>val/loss</code> stays <strong>unweighted</strong> even when <code>negative_loss_weight &gt; 1</code>, so it remains a faithful, comparable model-selection metric. Watch <code>val/loss_negative</code>: if it stays high while <code>train/loss_negative</code> falls, the model is memorizing training backgrounds rather than generalizing the "no animal → no detection" behavior, and will still hallucinate on unseen empty backgrounds.</p>
 </li>
 </ul>
 
