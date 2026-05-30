@@ -522,7 +522,7 @@ class TestNegativeSampleFraction:
 
 
 class TestNegativeLossWeighting:
-    """Tests for _compute_negative_weighted_loss in lightning modules."""
+    """Tests for _compute_negative_weighted_loss and _log_negative_split_metrics."""
 
     def _make_model(self, weight=1.0):
         """Create a minimal mock for testing _compute_negative_weighted_loss."""
@@ -596,8 +596,8 @@ class TestNegativeLossWeighting:
         loss = model._compute_negative_weighted_loss(y_preds, y, batch)
         assert loss.item() == 0.0
 
-    def test_split_metrics_logged(self):
-        """Verify split loss and count metrics are logged."""
+    def test_helper_does_not_log(self):
+        """The pure loss helper no longer logs anything (train or val)."""
         model = self._make_model(weight=2.0)
 
         y_preds = torch.randn(4, 2, 8, 8)
@@ -605,54 +605,8 @@ class TestNegativeLossWeighting:
         batch = {"is_negative": torch.tensor([False, False, True, False])}
 
         model._compute_negative_weighted_loss(y_preds, y, batch)
-
-        logged_keys = {call.args[0] for call in model.log.call_args_list}
-        assert "train/loss_positive" in logged_keys
-        assert "train/loss_negative" in logged_keys
-        assert "train/n_positive" in logged_keys
-        assert "train/n_negative" in logged_keys
-
-        # Check counts
-        for call in model.log.call_args_list:
-            if call.args[0] == "train/n_positive":
-                assert call.args[1] == 3.0
-            if call.args[0] == "train/n_negative":
-                assert call.args[1] == 1.0
-
-    def test_no_metrics_when_is_negative_absent(self):
-        """No split metrics logged when is_negative is not in batch."""
-        model = self._make_model(weight=2.0)
-
-        y_preds = torch.randn(4, 2, 8, 8)
-        y = torch.randn(4, 2, 8, 8)
-        batch = {}
-
-        model._compute_negative_weighted_loss(y_preds, y, batch)
-        model.log.assert_not_called()
-
-    def test_val_stage_logs_val_prefixed_keys(self):
-        """stage='val' logs val/* split keys, not train/*."""
-        model = self._make_model(weight=2.0)
-
-        y_preds = torch.randn(4, 2, 8, 8)
-        y = torch.randn(4, 2, 8, 8)
-        batch = {"is_negative": torch.tensor([False, False, True, False])}
-
         model._compute_negative_weighted_loss(y_preds, y, batch, stage="val")
-
-        logged_keys = {call.args[0] for call in model.log.call_args_list}
-        assert "val/loss_positive" in logged_keys
-        assert "val/loss_negative" in logged_keys
-        assert "val/n_positive" in logged_keys
-        assert "val/n_negative" in logged_keys
-        # Must NOT leak train/* keys on the val path.
-        assert not any(k.startswith("train/") for k in logged_keys)
-
-        for call in model.log.call_args_list:
-            if call.args[0] == "val/n_positive":
-                assert call.args[1] == 3.0
-            if call.args[0] == "val/n_negative":
-                assert call.args[1] == 1.0
+        model.log.assert_not_called()
 
     def test_val_stage_never_weighted(self):
         """stage='val' returns UNWEIGHTED MSE even when weight != 1.0."""
@@ -708,9 +662,170 @@ class TestNegativeLossWeighting:
         expected = (per_sample * weights).mean()
         assert torch.allclose(loss, expected, atol=1e-6)
 
-        logged_keys = {call.args[0] for call in model.log.call_args_list}
-        assert "train/loss_positive" in logged_keys
-        assert not any(k.startswith("val/") for k in logged_keys)
+    # ---- _log_negative_split_metrics ----
+
+    @staticmethod
+    def _logged(model):
+        """Map of logged key -> value from the mock (last write per key)."""
+        out = {}
+        for call in model.log.call_args_list:
+            out[call.args[0]] = call.args[1]
+        return out
+
+    def test_log_counts_once_for_two_heads(self):
+        """Counts are logged exactly once per call (not 2x) for two heads."""
+        model = self._make_model(weight=3.0)
+
+        b = torch.tensor([False, True, True, False])  # n_pos=2, n_neg=2
+        cm_p, cm_y = torch.randn(4, 2, 8, 8), torch.randn(4, 2, 8, 8)
+        paf_p, paf_y = torch.randn(4, 6, 8, 8), torch.randn(4, 6, 8, 8)
+        heads = [("confmaps", cm_p, cm_y, 1.0), ("paf", paf_p, paf_y, 1.0)]
+
+        model._log_negative_split_metrics(heads, {"is_negative": b}, stage="train")
+
+        n_pos_calls = [
+            c for c in model.log.call_args_list if c.args[0] == "train/n_positive"
+        ]
+        n_neg_calls = [
+            c for c in model.log.call_args_list if c.args[0] == "train/n_negative"
+        ]
+        assert len(n_pos_calls) == 1
+        assert len(n_neg_calls) == 1
+        assert n_pos_calls[0].args[1] == 2.0  # true count, NOT 4.0 (2x)
+        assert n_neg_calls[0].args[1] == 2.0
+        # reduce_fx="sum" preserved on the count keys.
+        assert n_pos_calls[0].kwargs.get("reduce_fx") == "sum"
+        assert n_neg_calls[0].kwargs.get("reduce_fx") == "sum"
+
+    def test_log_per_head_keys_present_for_two_heads(self):
+        """Per-head split keys emitted only when there is >1 head."""
+        model = self._make_model(weight=2.0)
+
+        b = torch.tensor([False, True, True, False])
+        cm = (torch.randn(4, 2, 8, 8), torch.randn(4, 2, 8, 8))
+        paf = (torch.randn(4, 6, 8, 8), torch.randn(4, 6, 8, 8))
+        heads = [("confmaps", *cm, 1.0), ("paf", *paf, 2.0)]
+
+        model._log_negative_split_metrics(heads, {"is_negative": b}, stage="train")
+        keys = set(self._logged(model))
+        assert "train/confmaps_loss_positive" in keys
+        assert "train/confmaps_loss_negative" in keys
+        assert "train/paf_loss_positive" in keys
+        assert "train/paf_loss_negative" in keys
+
+    def test_log_no_per_head_keys_for_single_head(self):
+        """Single head => no per-head keys; aggregate == the head value."""
+        model = self._make_model(weight=2.0)
+
+        b = torch.tensor([False, True, True, False])
+        y_p, y = torch.randn(4, 2, 8, 8), torch.randn(4, 2, 8, 8)
+        heads = [("confmaps", y_p, y, 1.0)]
+
+        model._log_negative_split_metrics(heads, {"is_negative": b}, stage="train")
+        logged = self._logged(model)
+        assert "train/confmaps_loss_positive" not in logged
+        assert "train/confmaps_loss_negative" not in logged
+
+        per_sample = (y_p - y).pow(2).mean(dim=[1, 2, 3])
+        exp_pos = per_sample[~b].mean()
+        exp_neg = per_sample[b].mean()
+        # Single head, weight 1.0: weighted == unweighted == the head value.
+        assert torch.allclose(logged["train/loss_positive"], exp_pos, atol=1e-6)
+        assert torch.allclose(logged["train/loss_negative"], exp_neg, atol=1e-6)
+        assert torch.allclose(
+            logged["train/loss_positive_unweighted"], exp_pos, atol=1e-6
+        )
+        assert torch.allclose(
+            logged["train/loss_negative_unweighted"], exp_neg, atol=1e-6
+        )
+
+    def test_log_weighted_and_unweighted_aggregates(self):
+        """Weighted == sum(weight*head); unweighted == mean(heads); weight=99 ignored."""
+        model = self._make_model(weight=99.0)  # must NOT affect logged values
+
+        b = torch.tensor([False, True])  # n_pos=1 (idx0), n_neg=1 (idx1)
+        cm_p = torch.tensor([[[[1.0]]], [[[3.0]]]])  # (2,1,1,1); per_sample=[1, 9]
+        cm_y = torch.zeros(2, 1, 1, 1)
+        paf_p = torch.tensor([[[[2.0]]], [[[4.0]]]])  # per_sample=[4, 16]
+        paf_y = torch.zeros(2, 1, 1, 1)
+        heads = [("confmaps", cm_p, cm_y, 2.0), ("paf", paf_p, paf_y, 3.0)]
+
+        model._log_negative_split_metrics(heads, {"is_negative": b}, stage="train")
+        logged = self._logged(model)
+
+        # positive (idx 0): cm_pos=1, paf_pos=4
+        assert torch.allclose(
+            logged["train/loss_positive"], torch.tensor(2.0 * 1.0 + 3.0 * 4.0)
+        )  # 14.0
+        assert torch.allclose(
+            logged["train/loss_positive_unweighted"], torch.tensor((1.0 + 4.0) / 2)
+        )  # 2.5
+        # negative (idx 1): cm_neg=9, paf_neg=16
+        assert torch.allclose(
+            logged["train/loss_negative"], torch.tensor(2.0 * 9.0 + 3.0 * 16.0)
+        )  # 66.0
+        assert torch.allclose(
+            logged["train/loss_negative_unweighted"], torch.tensor((9.0 + 16.0) / 2)
+        )  # 12.5
+        # Per-head values.
+        assert torch.allclose(logged["train/confmaps_loss_positive"], torch.tensor(1.0))
+        assert torch.allclose(logged["train/paf_loss_negative"], torch.tensor(16.0))
+
+    def test_log_val_prefix_no_cross_leak(self):
+        """stage='val' logs only val/* keys, never train/*."""
+        model = self._make_model(weight=2.0)
+
+        b = torch.tensor([False, True, True, False])
+        y_p, y = torch.randn(4, 2, 8, 8), torch.randn(4, 2, 8, 8)
+        heads = [("confmaps", y_p, y, 1.0)]
+
+        model._log_negative_split_metrics(heads, {"is_negative": b}, stage="val")
+        keys = set(self._logged(model))
+        assert "val/n_positive" in keys
+        assert "val/loss_positive" in keys
+        assert not any(k.startswith("train/") for k in keys)
+
+    def test_log_nothing_when_is_negative_absent(self):
+        """No is_negative key => logs nothing at all."""
+        model = self._make_model(weight=2.0)
+
+        y_p, y = torch.randn(4, 2, 8, 8), torch.randn(4, 2, 8, 8)
+        heads = [("confmaps", y_p, y, 1.0)]
+
+        model._log_negative_split_metrics(heads, {}, stage="train")
+        model.log.assert_not_called()
+
+    def test_log_all_positive_omits_negative_keys(self):
+        """When n_neg==0, negative loss keys are not logged (guard preserved)."""
+        model = self._make_model(weight=2.0)
+
+        b = torch.tensor([False, False])  # all positive
+        y_p, y = torch.randn(2, 2, 4, 4), torch.randn(2, 2, 4, 4)
+        heads = [("confmaps", y_p, y, 1.0)]
+
+        model._log_negative_split_metrics(heads, {"is_negative": b}, stage="train")
+        logged = self._logged(model)
+        assert "train/loss_negative" not in logged
+        assert "train/loss_negative_unweighted" not in logged
+        assert "train/loss_positive" in logged
+        # Counts always logged (n_negative == 0.0).
+        assert logged["train/n_negative"] == 0.0
+
+    def test_log_all_negative_omits_positive_keys(self):
+        """When n_pos==0, positive loss keys are not logged (guard preserved)."""
+        model = self._make_model(weight=2.0)
+
+        b = torch.tensor([True, True])  # all negative
+        y_p, y = torch.randn(2, 2, 4, 4), torch.randn(2, 2, 4, 4)
+        heads = [("confmaps", y_p, y, 1.0)]
+
+        model._log_negative_split_metrics(heads, {"is_negative": b}, stage="train")
+        logged = self._logged(model)
+        assert "train/loss_positive" not in logged
+        assert "train/loss_positive_unweighted" not in logged
+        assert "train/loss_negative" in logged
+        # Counts always logged (n_positive == 0.0).
+        assert logged["train/n_positive"] == 0.0
 
 
 class TestDataConfigNegativeFrames:
