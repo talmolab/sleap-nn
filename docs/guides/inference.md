@@ -89,7 +89,7 @@ labels.export("predictions.analysis.h5")
 | Parameter | Description | Values | Default |
 |-----------|-------------|--------|---------|
 | `--data_path` / `-i` | Video or labels file | `PATH` | Required |
-| `--model_paths` / `-m` | Model directory (repeat for top-down) | `PATH` | Required* |
+| `--model_paths` / `-m` | Model dir, or its `best.ckpt` / `training_config.yaml` (repeat for top-down) | `PATH` | Required* |
 | `--output_path` / `-o` | Output file path | `PATH` | `<input>.predictions.slp` |
 | `--device` / `-d` | Compute device | `auto`, `cuda`, `cuda:0`, `cpu`, `mps` | `auto` |
 | `--batch_size` / `-b` | Frames per batch | `INT` | `4` |
@@ -98,6 +98,8 @@ labels.export("predictions.analysis.h5")
 | `--peak_threshold` | Min confidence for peaks | `FLOAT` | `0.2` |
 
 *Not required for track-only mode.
+
+Each `--model_paths` entry may be a model **directory**, or a path to that model's `best.ckpt` or `training_config.yaml`/`.json` file — all three resolve to the model directory and load `best.ckpt`. (Pointing at a different checkpoint such as `last.ckpt` still loads `best.ckpt` and warns; use `--backbone_ckpt_path` / `--head_ckpt_path` to load a specific checkpoint.)
 
 !!! tip "Device selection"
     The `--device` parameter accepts:

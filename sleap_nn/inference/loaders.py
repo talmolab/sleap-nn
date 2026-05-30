@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     import sleap_io as sio
 
 from sleap_nn.config.training_job_config import TrainingJobConfig
-from sleap_nn.config.utils import get_model_type_from_cfg
+from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
 from sleap_nn.inference.bottomup import (
     BottomUpInferenceModel,
     BottomUpMultiClassInferenceModel,
@@ -717,6 +717,10 @@ def load_model_assets(
 ) -> tuple[LoadedAssets, List[str]]:
     """Load checkpoints and build inference models.
 
+    Each entry in ``model_paths`` may be a model directory, or a path to its
+    ``best.ckpt`` checkpoint or ``training_config.{yaml,json}`` config file; every
+    form is resolved to the model directory (#575).
+
     The five bottom-up PAF grouping knobs (``max_edge_length_ratio``,
     ``dist_penalty_weight``, ``n_points``, ``min_instance_peaks``,
     ``min_line_scores``) are forwarded ONLY to the plain bottom-up builder
@@ -738,6 +742,12 @@ def load_model_assets(
                 "scale": None,
             }
         )
+
+    # Accept a model directory, a best.ckpt path, or a training_config.{yaml,json}
+    # path for each entry; resolve every form to its model directory before
+    # detection/dispatch (the builders below index back into model_paths and join
+    # `best.ckpt` onto it). #575.
+    model_paths = [resolve_model_dir(mp) for mp in model_paths]
 
     model_types: List[str] = []
     configs: List[Any] = []

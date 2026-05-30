@@ -638,9 +638,12 @@ class Predictor:
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
         Args:
-            model_paths: Directories containing ``training_config.{yaml,json}``
-                + ``best.ckpt``. For top-down, pass two paths (centroid +
-                centered-instance) in either order.
+            model_paths: Trained model directories containing
+                ``training_config.{yaml,json}`` + ``best.ckpt``. Each entry may
+                alternatively be a path to that ``best.ckpt`` or
+                ``training_config.{yaml,json}`` file; all forms resolve to the
+                model directory and load ``best.ckpt`` (#575). For top-down, pass
+                two paths (centroid + centered-instance) in either order.
             device: ``"cpu"``, ``"cuda"``, ``"mps"``, or ``"cuda:N"``.
             batch_size: Default batch size for auto-constructed providers.
             backbone_ckpt_path: Override backbone weights with this ``.ckpt``.

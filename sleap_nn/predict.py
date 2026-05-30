@@ -556,8 +556,18 @@ def run_inference(
         # "predicting" labeled frames. Redirect to the new `infer` flow instead of
         # producing misleading GT-copied output.
         if model_paths:
-            from sleap_nn.config.utils import get_model_type_from_cfg
+            from sleap_nn.config.utils import (
+                get_model_type_from_cfg,
+                resolve_model_dir,
+            )
             from sleap_nn.inference.loaders import _load_training_config
+
+            # Accept a model directory, a best.ckpt path, or a
+            # training_config.{yaml,json} path for each entry, resolving every
+            # form to its model directory. Covers both the lone-centroid guard
+            # below and the legacy `Predictor.from_model_paths` call further down
+            # (its loader does `path.iterdir()`, which breaks on a file). #575.
+            model_paths = [resolve_model_dir(_mp) for _mp in model_paths]
 
             _types = []
             for _mp in model_paths:

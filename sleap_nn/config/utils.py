@@ -1,7 +1,73 @@
 """Utilities for config building and validation."""
 
+from pathlib import Path
+from typing import Union
+
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
+
+
+def resolve_model_dir(model_path: Union[str, Path]) -> str:
+    """Resolve a user-supplied model path to its model *directory*.
+
+    A trained model lives in a directory holding ``training_config.{yaml,json}``
+    and a ``best.ckpt`` checkpoint. Callers historically had to pass that
+    directory. This helper additionally accepts a path to a file *inside* it —
+    either the ``training_config.{yaml,json}`` config or a ``.ckpt`` checkpoint —
+    and returns the containing directory, so users can point at ``best.ckpt`` or
+    ``training_config.yaml`` wherever a model directory is expected (issue #575).
+
+    The directory's *contents* are intentionally NOT validated here: the caller's
+    loader (e.g. :func:`sleap_nn.inference.loaders._load_training_config`) remains
+    the single source of truth for whether the resolved directory holds a usable
+    config and checkpoint, so its error messages stay attributable.
+
+    A directory is always loaded via its ``best.ckpt``. If the path points at a
+    *different* checkpoint (e.g. ``last.ckpt``), a warning is emitted and
+    ``best.ckpt`` is loaded anyway — use ``backbone_ckpt_path`` / ``head_ckpt_path``
+    to load a specific checkpoint.
+
+    Args:
+        model_path: A model directory, or a path to a ``.ckpt`` checkpoint or a
+            ``training_config.{yaml,json,yml}`` file within one.
+
+    Returns:
+        The resolved model directory as a POSIX-style string. Relative paths are
+        preserved (only the path separators are normalized); the path is not
+        resolved against the filesystem root.
+
+    Raises:
+        FileNotFoundError: If ``model_path`` does not exist, or is a file that is
+            neither a config file nor a ``.ckpt`` checkpoint.
+    """
+    p = Path(model_path)
+    if p.is_dir():
+        # Backward-compatible fast path. Existence/contents of the config are
+        # validated downstream so the original directory behavior is unchanged.
+        return p.as_posix()
+    if p.is_file():
+        suffix = p.suffix.lower()
+        if suffix in (".yaml", ".yml", ".json"):
+            return p.parent.as_posix()
+        if suffix == ".ckpt":
+            if p.name.lower() != "best.ckpt":
+                logger.warning(
+                    f"Model path '{model_path}' points at a specific checkpoint, "
+                    f"but inference always loads 'best.ckpt' from the model "
+                    f"directory; '{p.name}' will be ignored. To load a different "
+                    f"checkpoint, use 'backbone_ckpt_path' / 'head_ckpt_path'."
+                )
+            return p.parent.as_posix()
+        raise FileNotFoundError(
+            f"Model path '{model_path}' is not a recognized model file. Pass a "
+            f"model directory, or a path to its 'best.ckpt' or "
+            f"'training_config.yaml'/'training_config.json' file."
+        )
+    raise FileNotFoundError(
+        f"Model path does not exist: {model_path}. Pass a model directory, or a "
+        f"path to its 'best.ckpt' or 'training_config.yaml'/'training_config.json' "
+        f"file."
+    )
 
 
 def get_model_type_from_cfg(config: DictConfig):

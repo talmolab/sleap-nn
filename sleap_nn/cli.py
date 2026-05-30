@@ -546,7 +546,7 @@ def train(
     "--model_paths",
     "-m",
     multiple=True,
-    help="Path to trained model directory (with training_config.json). Multiple models can be specified, each preceded by --model_paths.",
+    help="Path to a trained model directory, or to its best.ckpt or training_config.yaml/.json file (all resolve to the model directory). Multiple models can be specified, each preceded by --model_paths.",
 )
 @click.option(
     "--output_path",
@@ -1681,7 +1681,7 @@ def _common_inference_options(f):
             "--model_paths",
             "-m",
             multiple=True,
-            help="Path to trained model directory. Multiple models may be passed (each preceded by --model_paths).",
+            help="Path to a trained model directory, or to its best.ckpt or training_config.yaml/.json file (all resolve to the model directory). Multiple models may be passed (each preceded by --model_paths).",
         ),
         click.option(
             "--output_path",

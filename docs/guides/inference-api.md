@@ -47,7 +47,7 @@ The most common:
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `source` | Video path, `sio.Video`, `sio.Labels`, or a Provider | required |
-| `model_paths` | List of checkpoint dirs (1 for single/bottom-up, 2 for top-down) | `None` |
+| `model_paths` | List of model dirs — or a model's `best.ckpt` / `training_config.yaml` path, which resolves to its dir (1 for single/bottom-up, 2 for top-down) | `None` |
 | `export_dir` | Exported ONNX/TRT dir (alternative to `model_paths`) | `None` |
 | `device` | `"auto"`, `"cpu"`, `"cuda"`, `"cuda:0"`, `"mps"` | `"auto"` |
 | `batch_size` | Frames per batch | `4` |
