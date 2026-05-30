@@ -6673,6 +6673,20 @@ detections are very noisy, prefer the plain tracker or lower <code>kf_prediction
   <code>--kf_node_indices 0,1,2</code>. Leave it unset to use all nodes.</li>
 <li>Depends on the <code>pykalman</code> package (a core dependency).</li>
 </ul>
+<div class="admonition note">
+<p class="admonition-title">Centroid vs keypoints (<code>--kf_track_features</code>)</p>
+<p>By default (<code>--kf_track_features centroid</code>) the motion model tracks each instance's
+<strong>centroid</strong> and rigidly translates the last pose — stable and the recommended
+choice. <code>--kf_track_features keypoints</code> instead runs one filter <strong>per node</strong> and uses
+the predicted pose directly: it can help when subjects are small and move
+distinctively (e.g. it cut ID switches markedly on a 2-fly clip), but the per-node
+prediction is noisier, so it needs a tolerant similarity score. Pair it with the
+auto-default <code>--oks_stddev 0.1</code> (set automatically for keypoints mode; <strong>do not</strong> use
+the strict 0.025), or with <code>--features bboxes --scoring_method iou</code> for noisy but
+well-separated, non-rotating subjects. On clean or occlusion-heavy data the centroid
+mode (or the plain tracker) is at least as good, so keypoints mode is an opt-in
+alternative, not a replacement.</p>
+</div>
 <p>The motion model is robustified so it does not degrade tracking outside its sweet
 spot: each correction is gated by distance (rejecting false-positive / mismatched
 detections), the learned velocity is capped, the filter coasts across occlusion gaps,
@@ -6691,6 +6705,18 @@ tracker via <code>Tracker.from_config(...)</code>.</p>
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><code>--kf_track_features</code></td>
+<td>What the motion model tracks</td>
+<td><code>centroid</code>, <code>keypoints</code></td>
+<td><code>centroid</code></td>
+</tr>
+<tr>
+<td><code>--oks_stddev</code></td>
+<td>OKS keypoint-spread tolerance (larger = more forgiving)</td>
+<td><code>FLOAT</code></td>
+<td><code>0.025</code>; <code>0.1</code> for <code>keypoints</code></td>
+</tr>
 <tr>
 <td><code>--kf_init_frame_count</code></td>
 <td>Warm-up frames before EM init</td>
