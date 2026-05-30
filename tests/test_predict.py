@@ -212,21 +212,23 @@ def test_topdown_predictor(
     assert "pred_centroid_confmaps" in pred_labels[0].keys()
     assert "pred_instance_peaks" in pred_labels[0].keys()
 
-    # centroid model
-    max_instances = 6
-    pred_labels = run_inference(
-        model_paths=[minimal_instance_centroid_ckpt],
-        data_path=minimal_instance.as_posix(),
-        make_labels=False,
-        max_instances=max_instances,
-        device="cpu",
-        peak_threshold=0.1,
-        integral_refinement=None,
-    )
-    assert len(pred_labels) == 1
-    assert (
-        pred_labels[0]["centroid"].shape[-2] <= max_instances
-    )  # centroids (1,max_instances,2)
+    # centroid-only model: the legacy `run_inference` pipeline intentionally
+    # refuses a lone centroid model (it would silently substitute ground-truth
+    # centroids and require labeled frames) and redirects to the new `infer`
+    # flow (see #589). Verify it raises rather than producing GT-copied output.
+    with pytest.raises(
+        ValueError,
+        match="Centroid-only inference is not supported by the legacy",
+    ):
+        run_inference(
+            model_paths=[minimal_instance_centroid_ckpt],
+            data_path=minimal_instance.as_posix(),
+            make_labels=False,
+            max_instances=6,
+            device="cpu",
+            peak_threshold=0.1,
+            integral_refinement=None,
+        )
 
     # Provider = VideoReader
     # centroid + centered-instance model inference

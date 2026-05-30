@@ -108,7 +108,7 @@ class Tracker:
         "hungarian": hungarian_matching,
         "greedy": greedy_matching,
     }
-    _track_objects: Dict[int, sio.Track] = {}
+    _track_objects: Dict[int, sio.Track] = attrs.field(factory=dict)
 
     @classmethod
     def from_config(

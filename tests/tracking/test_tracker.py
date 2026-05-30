@@ -406,6 +406,43 @@ def test_tracker(
     assert "Invalid `track_matching_method` argument." in caplog.text
 
 
+def test_tracker_track_objects_not_shared():
+    """Regression test for #574: independent Trackers must not share `_track_objects`.
+
+    `Tracker` is an `attrs.define` class and `_track_objects` was declared with a
+    bare mutable default (`{}`), which attrs turns into a single shared default
+    object reused across all instances. This caused track-id -> `sio.Track`
+    mappings from one tracking run to leak into a subsequently constructed
+    `Tracker`, producing cross-contaminated track identities. Each `Tracker`
+    (and `FlowShiftTracker`, which inherits the field) must own a distinct dict.
+    """
+    tracker_a = Tracker.from_config()
+    tracker_b = Tracker.from_config()
+
+    # Identity: the two instances must not reference the same dict object.
+    assert tracker_a._track_objects is not tracker_b._track_objects
+
+    # Each tracker starts with an empty, isolated mapping.
+    assert tracker_a._track_objects == {}
+    assert tracker_b._track_objects == {}
+
+    # Isolation: mutating one tracker's mapping must not leak into the other.
+    tracker_a._track_objects[0] = sio.Track("track_0")
+    assert 0 not in tracker_b._track_objects
+    assert tracker_b._track_objects == {}
+
+    # And the reverse direction, to be thorough.
+    tracker_b._track_objects[1] = sio.Track("track_1")
+    assert 1 not in tracker_a._track_objects
+    assert list(tracker_a._track_objects.keys()) == [0]
+
+    # The FlowShiftTracker subclass inherits the field and must also be isolated.
+    flow_tracker = Tracker.from_config(use_flow=True)
+    assert isinstance(flow_tracker, FlowShiftTracker)
+    assert flow_tracker._track_objects is not tracker_a._track_objects
+    assert flow_tracker._track_objects == {}
+
+
 def test_flowshifttracker(
     minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
 ):
