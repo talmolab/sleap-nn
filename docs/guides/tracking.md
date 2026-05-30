@@ -112,6 +112,14 @@ Notes:
   `--kf_node_indices 0,1,2`. Leave it unset to use all nodes.
 - Depends on the `pykalman` package (a core dependency).
 
+The motion model is robustified so it does not degrade tracking outside its sweet
+spot: each correction is gated by distance (rejecting false-positive / mismatched
+detections), the learned velocity is capped, the filter coasts across occlusion gaps,
+stale tracks are reset, and the scoring candidate blends the prediction with the last
+observation. These robustness parameters (`kf_prediction_blend`, the gate and
+velocity-cap multipliers) have tuned defaults and can be overridden when constructing a
+tracker via `Tracker.from_config(...)`.
+
 #### Kalman Filter Parameters
 
 | Parameter | Description | Values | Default |

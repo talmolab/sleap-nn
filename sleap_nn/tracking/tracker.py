@@ -131,6 +131,11 @@ class Tracker:
         kf_init_frame_count: int = 10,
         kf_node_indices: Optional[List[int]] = None,
         kf_reset_gap_size: int = 5,
+        kf_prediction_blend: float = 0.5,
+        kf_gate_step_mult: float = 8.0,
+        kf_min_gate_px: float = 40.0,
+        kf_velocity_cap_mult: float = 3.0,
+        kf_min_velocity_cap_px: float = 15.0,
         tracking_target_instance_count: Optional[int] = None,
         tracking_pre_cull_to_target: int = 0,
         tracking_pre_cull_iou_threshold: float = 0,
@@ -185,6 +190,17 @@ class Tracker:
                 `None` uses all nodes. Default: None. (only if `use_kalman` is True)
             kf_reset_gap_size: Number of consecutive missed frames after which a stale
                 track's filter is reset. Default: 5. (only if `use_kalman` is True)
+            kf_prediction_blend: Weight of the motion prediction when blending with the
+                last observation to form the scoring candidate. Default: 0.5.
+                (only if `use_kalman` is True)
+            kf_gate_step_mult: Measurement gate as a multiple of the track's median
+                step. Default: 8.0. (only if `use_kalman` is True)
+            kf_min_gate_px: Floor (px) for the measurement gate. Default: 40.0.
+                (only if `use_kalman` is True)
+            kf_velocity_cap_mult: Cap on learned velocity as a multiple of the track's
+                median step. Default: 3.0. (only if `use_kalman` is True)
+            kf_min_velocity_cap_px: Floor (px/frame) for the velocity cap. Default: 15.0.
+                (only if `use_kalman` is True)
             tracking_target_instance_count: Target number of instances to track per frame. (default: None)
             tracking_pre_cull_to_target: If non-zero and target_instance_count is also non-zero, then cull instances over target count per frame *before* tracking. (default: 0)
             tracking_pre_cull_iou_threshold: If non-zero and pre_cull_to_target also set, then use IOU threshold to remove overlapping instances over count *before* tracking. (default: 0)
@@ -238,6 +254,11 @@ class Tracker:
                 kf_init_frame_count=kf_init_frame_count,
                 kf_node_indices=kf_node_indices,
                 kf_reset_gap_size=kf_reset_gap_size,
+                kf_prediction_blend=kf_prediction_blend,
+                kf_gate_step_mult=kf_gate_step_mult,
+                kf_min_gate_px=kf_min_gate_px,
+                kf_velocity_cap_mult=kf_velocity_cap_mult,
+                kf_min_velocity_cap_px=kf_min_velocity_cap_px,
                 is_local_queue=is_local_queue,
                 tracking_target_instance_count=tracking_target_instance_count,
                 tracking_pre_cull_to_target=tracking_pre_cull_to_target,
@@ -764,15 +785,20 @@ class KalmanShiftTracker(Tracker):
        is kept in a separate buffer (`_obs_history`) so warm-up can span more frames
        than the queue holds.
     2. **Motion model.** Once `kf_init_frame_count` frames have been seen, one Kalman
-       filter per track is fit via EM over the warm-up window (`_init_filters`).
-       Thereafter `update_candidates` corrects each matched filter with the most
-       recent observation (one frame lagged, since matching happens downstream) and
-       returns a predict-only step as the candidate feature for scoring.
+       filter per track is fit via EM over the warm-up window. Thereafter
+       `update_candidates`, each frame: (a) corrects each matched filter with its newly
+       observed keypoints subject to a measurement gate (rejecting false positives /
+       mismatches), coasting across multi-frame gaps so the elapsed motion is not dumped
+       into velocity; (b) resets tracks unseen beyond `kf_reset_gap_size` frames and
+       lazily (re)fits filters for tracks that lack one (entrants / post-reset); and
+       (c) projects each filter forward to the current frame and blends the prediction
+       with the last observation (`kf_prediction_blend`) as the candidate feature, so a
+       filter error cannot single-handedly flip the association.
 
-    Stale tracks (no match for more than `kf_reset_gap_size` frames) have their
-    filters dropped and fall back to the base feature path, matching the legacy
-    `BareKalmanTracker.tracks_with_gap` behavior (a reset is only triggered when more
-    than one track is simultaneously stale, tolerating brief single-target occlusions).
+    Robustness knobs (`kf_prediction_blend`, the measurement-gate and velocity-cap
+    parameters) make the motion model net-beneficial rather than a regression under
+    noise, false positives, occlusion, and erratic motion; their defaults are tuned and
+    can be overridden via `Tracker.from_config(...)` or the constructor.
 
     Kalman tracking requires a known target identity count
     (`tracking_target_instance_count`, or one derived from `max_tracks`/`max_instances`)
@@ -785,12 +811,28 @@ class KalmanShiftTracker(Tracker):
         kf_node_indices: Skeleton node (row) indices to track with the motion model.
             `None` (default) uses all nodes.
         kf_reset_gap_size: Number of consecutive missed frames after which a stale
-            track's filter is reset. Default: 5.
+            track's filter is reset (and later re-fit). Default: 5.
+        kf_prediction_blend: Weight of the motion prediction when blending it with the
+            last observation to form the scoring candidate (`w*pred + (1-w)*last_obs`).
+            0 = pure last-observation (no motion model at scoring), 1 = pure prediction.
+            Scales toward pure prediction during gaps. Default: 0.5.
+        kf_gate_step_mult: Measurement gate as a multiple of the track's median step;
+            an observation farther than `max(kf_min_gate_px, kf_gate_step_mult*step)`
+            from the prediction is rejected (treated as a miss). Default: 8.0.
+        kf_min_gate_px: Floor (px) for the measurement gate. Default: 40.0.
+        kf_velocity_cap_mult: Cap on learned per-coordinate velocity as a multiple of
+            the track's median step. Default: 3.0.
+        kf_min_velocity_cap_px: Floor (px/frame) for the velocity cap. Default: 15.0.
     """
 
     kf_init_frame_count: int = 10
     kf_node_indices: Optional[List[int]] = None
     kf_reset_gap_size: int = 5
+    kf_prediction_blend: float = 0.5
+    kf_gate_step_mult: float = 8.0
+    kf_min_gate_px: float = 40.0
+    kf_velocity_cap_mult: float = 3.0
+    kf_min_velocity_cap_px: float = 15.0
 
     # Per-instance Kalman state (never passed to the constructor).
     _kalman_filters: Dict[int, Any] = attrs.field(init=False, factory=dict)
@@ -805,6 +847,9 @@ class KalmanShiftTracker(Tracker):
     _frames_seen: int = attrs.field(init=False, default=0)
     _initialized: bool = attrs.field(init=False, default=False)
     _current_frame_idx: int = attrs.field(init=False, default=0)
+    # Per-track robust inter-frame centroid step, used for the measurement gate and
+    # the velocity cap (set at filter init).
+    _median_step: Dict[int, float] = attrs.field(init=False, factory=dict)
 
     def track(
         self,
@@ -812,14 +857,17 @@ class KalmanShiftTracker(Tracker):
         frame_idx: int,
         image: np.ndarray = None,
     ) -> List[sio.PredictedInstance]:
-        """Record the current frame index, then run the base tracking step.
+        """Record the frame index, run base tracking, then ingest the assignment.
 
-        The frame index is stashed so `update_candidates` (which the base `track()`
-        calls without a frame index) can use it for warm-up counting and stale-track
-        bookkeeping.
+        Observations are recorded into `_obs_history` AFTER `super().track()` (i.e.
+        after the current frame's track assignment is finalized) so each track id is
+        associated with the instance it was actually matched to this frame, not a
+        pre-assignment queue snapshot.
         """
         self._current_frame_idx = int(frame_idx)
-        return super().track(untracked_instances, frame_idx, image)
+        result = super().track(untracked_instances, frame_idx, image)
+        self._ingest_observations(self.candidate.tracker_queue)
+        return result
 
     def update_candidates(
         self,
@@ -829,8 +877,10 @@ class KalmanShiftTracker(Tracker):
         """Return Kalman-predicted candidate features for the current frame.
 
         During warm-up this delegates to the base keypoint-feature path. Once the
-        filters are initialized, each track's filter is corrected with its most recent
-        observation and a predict-only step is returned as the candidate feature.
+        filters are initialized, each track's filter is corrected (with measurement
+        gating) by its newly observed keypoints, stale tracks are reset, filters are
+        lazily (re)fit for tracks that lack one, and a motion-predicted pose blended
+        with the last observation is returned as the candidate feature.
 
         Args:
             candidates_list: Tracker queue from the candidate class.
@@ -847,9 +897,6 @@ class KalmanShiftTracker(Tracker):
             raise ValueError(message)
         feature_method = self._feature_methods[self.features]
 
-        # Accumulate the most recent observation per track (queue-shape agnostic).
-        self._ingest_observations(candidates_list)
-
         if not self._initialized:
             self._frames_seen += 1
             if self._frames_seen >= self.kf_init_frame_count:
@@ -858,10 +905,15 @@ class KalmanShiftTracker(Tracker):
                 # Still warming up: behave exactly like the base tracker.
                 return super().update_candidates(candidates_list, image)
 
-        # Correct matched filters with newly observed keypoints (one frame lagged),
-        # drop stale tracks, then predict the current frame for scoring.
-        self._correct_filters()
+        # Reset tracks that have gone stale (no *accepted* observation within
+        # `kf_reset_gap_size` frames) BEFORE correcting, so a track that is only
+        # receiving gated-out observations is dropped to the base path rather than
+        # eventually corrupted by a stale-extrapolation match. Then correct matched
+        # filters with gated observations, lazily (re)fit filters for tracks that lack
+        # one, and predict for scoring.
         self._reset_stale_tracks(self._current_frame_idx)
+        self._correct_filters()
+        self._init_missing_filters()
         return self._predict_candidates(candidates_list, feature_method)
 
     def _ingest_observations(
@@ -931,114 +983,242 @@ class KalmanShiftTracker(Tracker):
         pts = keypoints[self._resolved_node_indices, :]
         return np.ma.masked_invalid(np.ma.asarray(pts.flatten(), dtype=float))
 
+    def _centroid(self, keypoints: np.ndarray) -> np.ndarray:
+        """NaN-ignoring centroid of the tracked nodes, shape (2,)."""
+        import warnings
+
+        pts = np.asarray(keypoints)[self._resolved_node_indices, :]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            return np.nanmean(pts, axis=0)
+
+    def _coords_from_mean(self, mean: np.ndarray) -> np.ndarray:
+        """Extract predicted positions [x0,y0,...] from a state mean -> (K, 2)."""
+        return np.asarray(mean)[::2].reshape(-1, 2)
+
+    @staticmethod
+    def _cap_velocity(mean: np.ndarray, cap: float) -> np.ndarray:
+        """Clip the velocity (odd-index) entries of a state mean to +/- cap."""
+        mean = np.asarray(mean, dtype=float).copy()
+        mean[1::2] = np.clip(mean[1::2], -cap, cap)
+        return mean
+
+    def _window_median_step(self, window: List[Dict[str, Any]]) -> float:
+        """Noise-robust estimate of the per-frame centroid step over a window.
+
+        Uses the total endpoint displacement divided by the number of elapsed
+        intervals rather than the median of consecutive steps: the latter is inflated
+        by per-frame measurement noise (the noise variance adds to every consecutive
+        difference), which would otherwise blow up the velocity cap / gate under noisy
+        detections. The endpoint baseline averages that noise out for a roughly
+        constant-velocity track.
+        """
+        cents = [self._centroid(h["keypoints"]) for h in window]
+        valid = [c for c in cents if not np.isnan(c).any()]
+        if len(valid) < 2:
+            return 0.0
+        baseline = float(np.linalg.norm(valid[-1] - valid[0])) / (len(valid) - 1)
+        return baseline
+
+    def _velocity_cap(self, track_id: int) -> float:
+        med = self._median_step.get(track_id, 0.0)
+        return max(self.kf_min_velocity_cap_px, self.kf_velocity_cap_mult * med)
+
+    def _gate_distance(self, track_id: int) -> float:
+        med = self._median_step.get(track_id, 0.0)
+        return max(self.kf_min_gate_px, self.kf_gate_step_mult * med)
+
+    def _fit_track_filter(self, track_id: int, history: List[Dict[str, Any]]) -> bool:
+        """Fit one Kalman filter for a track from its observation history.
+
+        Returns True on success. Seeds the initial velocity from the first two valid
+        frames (capped), keeps the initial mean fixed during EM, and caps the learned
+        velocity so a contaminated window cannot produce a runaway state.
+        """
+        if len(history) < 2:
+            return False
+        window = history[-self.kf_init_frame_count :]
+        num_nodes = len(self._resolved_node_indices)
+        obs_dim = 2 * num_nodes
+        state_dim = 4 * num_nodes
+        rows = [
+            h["keypoints"][self._resolved_node_indices, :].flatten() for h in window
+        ]
+        frame_array = np.ma.masked_invalid(np.ma.asarray(rows, dtype=float))
+
+        median_step = self._window_median_step(window)
+        velocity_cap = max(
+            self.kf_min_velocity_cap_px, self.kf_velocity_cap_mult * median_step
+        )
+
+        # Fixed initial mean: first observed position, velocity seeded from the first
+        # finite difference (capped). initial_state_mean is NOT in em_vars so EM cannot
+        # re-attribute a cross-identity jump to velocity.
+        first = np.asarray(frame_array[0].filled(0.0), dtype=float)
+        second = np.asarray(
+            frame_array[min(1, len(frame_array) - 1)].filled(0.0), dtype=float
+        )
+        seed_vel = np.clip(second - first, -velocity_cap, velocity_cap)
+        initial_state_mean = [0.0] * state_dim
+        for i in range(obs_dim):
+            initial_state_mean[2 * i] = float(first[i])
+            initial_state_mean[2 * i + 1] = float(seed_vel[i])
+
+        transition, observation = self._build_matrices(num_nodes)
+        kalman_filter_cls = _get_kalman_filter_cls()
+        try:
+            kf = kalman_filter_cls(
+                transition_matrices=transition,
+                observation_matrices=observation,
+                initial_state_mean=initial_state_mean,
+            )
+            # Learn only the noise covariances; keep the structural matrices AND the
+            # initial state mean fixed (the latter prevents EM from fitting a
+            # degenerate velocity off a single contaminated warm-up frame).
+            kf = kf.em(
+                frame_array,
+                n_iter=20,
+                em_vars=[
+                    "transition_covariance",
+                    "observation_covariance",
+                    "initial_state_covariance",
+                ],
+            )
+            means, covariances = kf.filter(frame_array)
+        except Exception as e:  # pragma: no cover - numerical edge cases
+            logger.warning(
+                f"Kalman filter initialization failed for track {track_id}: {e}"
+            )
+            return False
+
+        self._kalman_filters[track_id] = kf
+        self._last_results[track_id] = {
+            "means": self._cap_velocity(means[-1], velocity_cap),
+            "covariances": covariances[-1],
+        }
+        self._last_corrected_frame[track_id] = window[-1]["frame_idx"]
+        self._last_frame_for_track[track_id] = window[-1]["frame_idx"]
+        self._median_step[track_id] = median_step
+        return True
+
     def _init_filters(self) -> None:
         """Fit one Kalman filter per track via EM over the warm-up history."""
         self._resolved_node_indices = self._resolve_node_indices()
-        num_nodes = len(self._resolved_node_indices)
-        if num_nodes == 0:
+        if len(self._resolved_node_indices) == 0:
             # Nothing to track with a motion model; fall back to the base path.
             self._initialized = True
             return
-
-        kalman_filter_cls = _get_kalman_filter_cls()
-        transition, observation = self._build_matrices(num_nodes)
-        obs_dim = 2 * num_nodes
-        state_dim = 4 * num_nodes
-
         for track_id, history in self._obs_history.items():
-            if len(history) < 2:
-                continue  # need at least two frames to fit a motion model
-            window = history[-self.kf_init_frame_count :]
-            rows = [
-                h["keypoints"][self._resolved_node_indices, :].flatten() for h in window
-            ]
-            frame_array = np.ma.masked_invalid(np.ma.asarray(rows, dtype=float))
-
-            initial = np.asarray(frame_array[0].filled(0.0), dtype=float)
-            initial_state_mean = [0.0] * state_dim
-            for i in range(obs_dim):
-                initial_state_mean[2 * i] = float(initial[i])
-
-            try:
-                kf = kalman_filter_cls(
-                    transition_matrices=transition,
-                    observation_matrices=observation,
-                    initial_state_mean=initial_state_mean,
-                )
-                # Keep the structural matrices fixed; only learn the covariances and
-                # initial state via EM (matches the legacy default `em_vars`).
-                kf = kf.em(
-                    frame_array,
-                    n_iter=20,
-                    em_vars=[
-                        "transition_covariance",
-                        "observation_covariance",
-                        "initial_state_mean",
-                        "initial_state_covariance",
-                    ],
-                )
-                means, covariances = kf.filter(frame_array)
-            except Exception as e:  # pragma: no cover - numerical edge cases
-                logger.warning(
-                    f"Kalman filter initialization failed for track {track_id}: {e}"
-                )
-                continue
-
-            self._kalman_filters[track_id] = kf
-            self._last_results[track_id] = {
-                "means": means[-1],
-                "covariances": covariances[-1],
-            }
-            self._last_corrected_frame[track_id] = window[-1]["frame_idx"]
-            self._last_frame_for_track[track_id] = window[-1]["frame_idx"]
-
+            self._fit_track_filter(track_id, history)
         self._initialized = True
 
+    def _init_missing_filters(self) -> None:
+        """Lazily (re)fit filters for active tracks that lack one.
+
+        Covers identities that spawn after warm-up and tracks whose filter was reset:
+        once such a track has accumulated enough fresh history it gets its own filter
+        rather than being permanently relegated to the base feature path.
+        """
+        if not self._resolved_node_indices:
+            return
+        for track_id in self.candidate.current_tracks:
+            if track_id in self._kalman_filters:
+                continue
+            history = self._obs_history.get(track_id, [])
+            if len(history) >= self.kf_init_frame_count:
+                self._fit_track_filter(track_id, history)
+
     def _correct_filters(self) -> None:
-        """Advance each matched filter with observations seen since the last update."""
+        """Advance each matched filter with gated observations since the last update.
+
+        Coasts the filter across multi-frame gaps (one masked predict per missed
+        frame) before applying the reappearance observation, so the elapsed motion is
+        not dumped into the velocity state. Rejects observations that fail a
+        max-distance measurement gate (e.g. false positives), treating them as a miss.
+        """
         for track_id, kf in list(self._kalman_filters.items()):
             history = self._obs_history.get(track_id, [])
             last_corrected = self._last_corrected_frame.get(track_id, -1)
             new_observations = [h for h in history if h["frame_idx"] > last_corrected]
+            velocity_cap = self._velocity_cap(track_id)
+            gate = self._gate_distance(track_id)
             for h in new_observations:
                 prior = self._last_results[track_id]
+                mean = prior["means"]
+                covariance = prior["covariances"]
+                gap = h["frame_idx"] - self._last_corrected_frame.get(track_id, -1)
                 try:
-                    mean, covariance = kf.filter_update(
-                        prior["means"],
-                        prior["covariances"],
-                        observation=self._obs_vector(h["keypoints"]),
+                    # Coast across missed frames so the single reappearance update
+                    # does not absorb the whole gap displacement as velocity.
+                    for _ in range(max(0, gap - 1)):
+                        mean, covariance = kf.filter_update(
+                            mean, covariance, observation=np.ma.masked
+                        )
+                        mean = self._cap_velocity(mean, velocity_cap)
+                    # Predict the observation frame to gate the measurement.
+                    pred_mean, pred_cov = kf.filter_update(
+                        mean, covariance, observation=np.ma.masked
                     )
+                    pred_centroid = self._centroid_from_coords(
+                        self._coords_from_mean(pred_mean)
+                    )
+                    obs_centroid = self._centroid(h["keypoints"])
+                    gated_out = (
+                        not np.isnan(pred_centroid).any()
+                        and not np.isnan(obs_centroid).any()
+                        and float(np.linalg.norm(pred_centroid - obs_centroid)) > gate
+                    )
+                    if gated_out:
+                        # Reject the observation (likely a false positive / mismatch);
+                        # carry the predict-only state forward as a miss.
+                        mean, covariance = pred_mean, pred_cov
+                    else:
+                        mean, covariance = kf.filter_update(
+                            mean,
+                            covariance,
+                            observation=self._obs_vector(h["keypoints"]),
+                        )
                 except Exception as e:  # pragma: no cover - numerical edge cases
                     logger.warning(
                         f"Kalman filter update failed for track {track_id}: {e}"
                     )
                     break
                 self._last_results[track_id] = {
-                    "means": mean,
+                    "means": self._cap_velocity(mean, velocity_cap),
                     "covariances": covariance,
                 }
                 self._last_corrected_frame[track_id] = h["frame_idx"]
-                self._last_frame_for_track[track_id] = h["frame_idx"]
+                if not gated_out:
+                    self._last_frame_for_track[track_id] = h["frame_idx"]
+
+    @staticmethod
+    def _centroid_from_coords(coords: np.ndarray) -> np.ndarray:
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            return np.nanmean(np.asarray(coords), axis=0)
 
     def _reset_stale_tracks(self, frame_idx: int) -> None:
-        """Drop filters for tracks unseen for more than `kf_reset_gap_size` frames.
+        """Reset filters for any track unseen for more than `kf_reset_gap_size` frames.
 
-        Mirrors the legacy behavior: a reset is only triggered when more than one
-        track is simultaneously stale (tolerating brief single-target occlusions).
-        A reset track keeps its queue entries and simply falls back to the base
-        feature path until it is matched again.
+        A reset track drops its (now-unreliable) filter and falls back to the base
+        feature path; `_init_missing_filters` re-fits it once it re-accumulates enough
+        fresh history. Unlike the legacy `tracks_with_gap` rule, a single long
+        occlusion is reset too, so a stale extrapolation cannot mis-associate the
+        reappearing animal.
         """
         stale = [
             track_id
             for track_id, last in self._last_frame_for_track.items()
             if frame_idx - last > self.kf_reset_gap_size
         ]
-        if len(stale) > 1:
-            for track_id in stale:
-                self._kalman_filters.pop(track_id, None)
-                self._last_results.pop(track_id, None)
-                self._last_frame_for_track.pop(track_id, None)
-                self._last_corrected_frame.pop(track_id, None)
+        for track_id in stale:
+            self._kalman_filters.pop(track_id, None)
+            self._last_results.pop(track_id, None)
+            self._last_frame_for_track.pop(track_id, None)
+            self._last_corrected_frame.pop(track_id, None)
+            self._median_step.pop(track_id, None)
 
     def _predict_candidates(
         self,
@@ -1047,8 +1227,11 @@ class KalmanShiftTracker(Tracker):
     ) -> Dict[int, List[TrackedInstanceFeature]]:
         """Predict the current-frame pose for each track and build candidate features.
 
-        Tracks without an active filter (spawned after init, or reset) fall back to
-        the base feature path so they remain trackable.
+        The predicted pose is projected forward from the last corrected state to the
+        current frame (coasting across any gap) and then blended with the last
+        observed pose; the blend weight scales toward pure prediction the staler the
+        last observation is. Tracks without an active filter fall back to the base
+        feature path so they remain trackable.
         """
         predicted = defaultdict(list)
         for track_id in self.candidate.current_tracks:
@@ -1061,10 +1244,20 @@ class KalmanShiftTracker(Tracker):
                 )
                 continue
 
+            steps = max(
+                1,
+                self._current_frame_idx
+                - self._last_corrected_frame.get(track_id, self._current_frame_idx - 1),
+            )
+            velocity_cap = self._velocity_cap(track_id)
             try:
-                pred_mean, _ = kf.filter_update(
-                    prior["means"], prior["covariances"], observation=np.ma.masked
-                )
+                mean = prior["means"]
+                covariance = prior["covariances"]
+                for _ in range(steps):
+                    mean, covariance = kf.filter_update(
+                        mean, covariance, observation=np.ma.masked
+                    )
+                    mean = self._cap_velocity(mean, velocity_cap)
             except Exception as e:  # pragma: no cover - numerical edge cases
                 logger.warning(f"Kalman prediction failed for track {track_id}: {e}")
                 predicted[track_id].extend(
@@ -1072,22 +1265,44 @@ class KalmanShiftTracker(Tracker):
                 )
                 continue
 
-            # Even state indices hold the predicted positions [x0, y0, x1, y1, ...].
-            coords = np.asarray(pred_mean)[::2].reshape(-1, 2)
+            coords = self._coords_from_mean(mean)
             predicted_keypoints = np.full((self._n_nodes, 2), np.nan, dtype=float)
             predicted_keypoints[self._resolved_node_indices, :] = coords
 
+            # Blend with the last observed pose. When the last observation is stale
+            # (gap), weight toward the prediction; when contiguous, blend evenly.
             ref = history[-1]
+            weight = min(1.0, self.kf_prediction_blend * steps)
+            candidate_keypoints = self._blend_keypoints(
+                predicted_keypoints, ref["keypoints"], weight
+            )
+
             predicted[track_id].append(
                 TrackedInstanceFeature(
-                    feature=feature_method(predicted_keypoints),
+                    feature=feature_method(candidate_keypoints),
                     src_predicted_instance=ref["src"],
                     frame_idx=ref["frame_idx"],
                     tracking_score=ref["score"] if ref["score"] is not None else 1.0,
-                    shifted_keypoints=predicted_keypoints,
+                    shifted_keypoints=candidate_keypoints,
                 )
             )
         return predicted
+
+    @staticmethod
+    def _blend_keypoints(
+        predicted: np.ndarray, last_obs: np.ndarray, weight: float
+    ) -> np.ndarray:
+        """Blend predicted and last-observed keypoints (NaN-aware), shape (n_nodes, 2).
+
+        Where one of the two is NaN, the other is used; where both are present, the
+        result is ``weight * predicted + (1 - weight) * last_obs``.
+        """
+        predicted = np.asarray(predicted, dtype=float)
+        last_obs = np.asarray(last_obs, dtype=float)
+        blended = weight * predicted + (1.0 - weight) * last_obs
+        blended = np.where(np.isnan(blended), predicted, blended)
+        blended = np.where(np.isnan(blended), last_obs, blended)
+        return blended
 
 
 def connect_single_breaks(

@@ -936,3 +936,159 @@ def test_run_tracker_kalman_requires_target():
     # The ValueError is raised by Tracker.from_config before any frame/image is read.
     with pytest.raises(ValueError):
         run_tracker(untracked_frames=frames, use_kalman=True)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# KalmanShiftTracker correctness integration tests (#572 follow-up).
+#
+# These are fast, fixture-free, synthetic stress tests guarding the robustness
+# fixes (measurement gating, velocity capping, gap coasting, prediction/last-obs
+# blending). The pre-fix implementation produced ID-switch *storms* on these
+# scenarios (random motion ~20 switches, false positives ~12, occlusion ~2-24);
+# the plain base tracker produces 0. They count an ID switch whenever a ground-
+# truth identity's assigned track id changes between consecutive tracked frames.
+# A rigorous MOT-metrics benchmark lives in the (gitignored) scratch workspace.
+# ──────────────────────────────────────────────────────────────────────────
+
+_BODY3 = np.array([[0.0, -8.0], [0.0, 0.0], [0.0, 8.0]])
+
+
+def _track_synthetic_with_ids(tracker, frames, skeleton):
+    """Run a tracker over synthetic gt-tagged frames; return (n_tracks, n_switches).
+
+    ``frames`` is a list over time of lists of ``(gt_id, keypoints (K, 2))``
+    detections (gt_id == -1 marks a false positive). Counts an ID switch whenever a
+    ground-truth identity's assigned track id differs from the last frame it was
+    tracked in.
+    """
+    gt_last_track = {}
+    switches = 0
+    all_tracks = set()
+    for t, dets in enumerate(frames):
+        instances = []
+        gt_by_obj = {}
+        for gt_id, kpts in dets:
+            inst = sio.PredictedInstance.from_numpy(
+                points_data=np.asarray(kpts, dtype=np.float32),
+                skeleton=skeleton,
+                score=1.0,
+            )
+            instances.append(inst)
+            gt_by_obj[id(inst)] = gt_id
+        tracked = tracker.track(instances, frame_idx=t)
+        for inst in tracked:
+            if inst.track is None:
+                continue
+            track_name = inst.track.name
+            all_tracks.add(track_name)
+            gt_id = gt_by_obj.get(id(inst))
+            if gt_id is not None and gt_id >= 0:
+                if gt_id in gt_last_track and gt_last_track[gt_id] != track_name:
+                    switches += 1
+                gt_last_track[gt_id] = track_name
+    return len(all_tracks), switches
+
+
+def _kalman_tracker(**overrides):
+    kwargs = dict(
+        candidates_method="local_queues",
+        max_tracks=2,
+        kf_init_frame_count=5,
+        tracking_target_instance_count=2,
+    )
+    kwargs.update(overrides)
+    return Tracker.from_config(use_kalman=True, **kwargs)
+
+
+def _base_tracker(**overrides):
+    kwargs = dict(
+        candidates_method="local_queues",
+        max_tracks=2,
+        tracking_target_instance_count=2,
+    )
+    kwargs.update(overrides)
+    return Tracker.from_config(**kwargs)
+
+
+def test_kalman_no_switch_storm_on_erratic_motion():
+    """Erratic (random-walk) motion must not trigger an ID-switch storm (#572).
+
+    Two well-separated identities follow momentum random walks. The constant-velocity
+    EM warm-up previously fit a degenerate velocity here and stormed ~20 switches; with
+    velocity capping + gating + blending the motion model must stay stable.
+    """
+    skeleton = sio.Skeleton(nodes=["a", "b", "c"])
+    rng = np.random.default_rng(0)
+    T = 30
+    centroids = {0: np.array([120.0, 120.0]), 1: np.array([120.0, 320.0])}
+    vel = {0: rng.normal(0, 3, 2), 1: rng.normal(0, 3, 2)}
+    frames = []
+    for _ in range(T):
+        dets = []
+        for gid in (0, 1):
+            vel[gid] = 0.7 * vel[gid] + 0.3 * rng.normal(0, 4, 2)
+            centroids[gid] = centroids[gid] + vel[gid]
+            dets.append((gid, _BODY3 + centroids[gid]))
+        frames.append(dets)
+    n_tracks, switches = _track_synthetic_with_ids(_kalman_tracker(), frames, skeleton)
+    assert n_tracks == 2
+    assert switches == 0
+
+
+def test_kalman_robust_to_false_positives():
+    """False-positive detections must not corrupt the filters into a switch storm (#572).
+
+    The measurement gate must reject FP-driven corrections (pre-fix: ~12 switches).
+    """
+    skeleton = sio.Skeleton(nodes=["a", "b", "c"])
+    rng = np.random.default_rng(1)
+    T = 40
+    frames = []
+    for t in range(T):
+        dets = []
+        for gid, y in ((0, 120.0), (1, 320.0)):
+            c = np.array([60.0 + 5.0 * t, y]) + rng.normal(0, 3, 2)
+            dets.append((gid, _BODY3 + c))
+        if t % 3 == 0:  # inject a false positive between the two tracks
+            c = np.array([60.0 + 5.0 * t, 220.0]) + rng.normal(0, 30, 2)
+            dets.append((-1, _BODY3 + c))
+        frames.append(dets)
+    n_tracks, switches = _track_synthetic_with_ids(_kalman_tracker(), frames, skeleton)
+    assert switches == 0
+
+
+def test_kalman_maintains_identity_through_occlusion():
+    """A single occluded track keeps (or cleanly re-acquires) its identity (#572).
+
+    One of two well-separated identities is occluded for a 6-frame gap (> the default
+    reset gap). The pre-fix tracker stormed switches here (the stale filter kept
+    extrapolating and then absorbed the other animal's observations); the fix coasts
+    across the gap and resets a stale track before it can be corrupted. The contract
+    is "no worse than the base similarity tracker" (a scene with fewer detections than
+    tracks hits a base-tracker matching degeneracy that is shared by both and is
+    unrelated to the motion model).
+    """
+    skeleton = sio.Skeleton(nodes=["a", "b", "c"])
+
+    def build_frames():
+        rng = np.random.default_rng(3)
+        frames = []
+        for t in range(30):
+            dets = []
+            for gid, y in ((0, 120.0), (1, 320.0)):
+                if gid == 0 and 12 <= t <= 17:  # occlude id 0 for 6 frames
+                    continue
+                c = np.array([60.0 + 5.0 * t, y]) + rng.normal(0, 3, 2)
+                dets.append((gid, _BODY3 + c))
+            frames.append(dets)
+        return frames
+
+    _, base_switches = _track_synthetic_with_ids(
+        _base_tracker(), build_frames(), skeleton
+    )
+    n_tracks, kalman_switches = _track_synthetic_with_ids(
+        _kalman_tracker(), build_frames(), skeleton
+    )
+    assert n_tracks == 2
+    # Never worse than the plain tracker through the occlusion (no switch storm).
+    assert kalman_switches <= base_switches
