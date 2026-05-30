@@ -7043,7 +7043,7 @@
 <tr>
 <td><code>--model_paths</code></td>
 <td><code>-m</code></td>
-<td>Model directory (multiple for top-down)</td>
+<td>Model dir, or its <code>best.ckpt</code> / <code>training_config.yaml</code> (multiple for top-down)</td>
 <td><code>PATH</code></td>
 <td>Required*</td>
 </tr>
@@ -7078,6 +7078,7 @@
 </tbody>
 </table>
 <p>*Not required for track-only mode.</p>
+<p>Each <code>--model_paths</code> entry may be a model <strong>directory</strong>, or a path to that model's <code>best.ckpt</code> or <code>training_config.yaml</code>/<code>.json</code> file — all three resolve to the model directory and load <code>best.ckpt</code>. (A different checkpoint such as <code>last.ckpt</code> still loads <code>best.ckpt</code> and warns; use <code>--backbone_ckpt_path</code> / <code>--head_ckpt_path</code> for a specific checkpoint.)</p>
 <h3 id="output-options">Output Options<a class="headerlink" href="#output-options" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
