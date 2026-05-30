@@ -784,21 +784,28 @@ class KalmanShiftTracker(Tracker):
        history. Because the candidate queue is bounded to `window_size`, the history
        is kept in a separate buffer (`_obs_history`) so warm-up can span more frames
        than the queue holds.
-    2. **Motion model.** Once `kf_init_frame_count` frames have been seen, one Kalman
-       filter per track is fit via EM over the warm-up window. Thereafter
-       `update_candidates`, each frame: (a) corrects each matched filter with its newly
-       observed keypoints subject to a measurement gate (rejecting false positives /
-       mismatches), coasting across multi-frame gaps so the elapsed motion is not dumped
-       into velocity; (b) resets tracks unseen beyond `kf_reset_gap_size` frames and
-       lazily (re)fits filters for tracks that lack one (entrants / post-reset); and
-       (c) projects each filter forward to the current frame and blends the prediction
-       with the last observation (`kf_prediction_blend`) as the candidate feature, so a
-       filter error cannot single-handedly flip the association.
+    2. **Motion model.** Once `kf_init_frame_count` frames have been seen, one
+       constant-velocity Kalman filter is fit per track over the warm-up window — on the
+       per-track CENTROID (state ``[cx, vcx, cy, vcy]``), not every keypoint
+       independently (a per-keypoint fit overfits noise into non-physical poses). Each
+       frame thereafter, `update_candidates`: (a) resets tracks unseen beyond
+       `kf_reset_gap_size` frames; (b) corrects each matched filter with its newly
+       observed centroid subject to a distance gate (rejecting false positives /
+       mismatches), coasting across multi-frame gaps so elapsed motion is not dumped into
+       velocity; (c) lazily (re)fits filters for tracks that lack one (entrants /
+       post-reset, from a contiguous fresh window); and (d) projects the centroid forward
+       and builds the candidate by RIGIDLY translating the last observed pose by a
+       fraction (`kf_prediction_blend`) of the predicted centroid displacement —
+       translating the real body keeps the candidate geometrically valid so the
+       similarity score stays meaningful.
 
     Robustness knobs (`kf_prediction_blend`, the measurement-gate and velocity-cap
-    parameters) make the motion model net-beneficial rather than a regression under
-    noise, false positives, occlusion, and erratic motion; their defaults are tuned and
-    can be overridden via `Tracker.from_config(...)` or the constructor.
+    parameters; tuned defaults, overridable via `Tracker.from_config(...)`) make the
+    motion model net-beneficial where association is ambiguous — crossing / converging /
+    fast-smooth motion — and neutral on clean, false-positive, and occluded scenes.
+    Under heavy detection noise with frequent missed detections it can slightly reduce
+    IDF1 vs the memoryless base tracker (lower `kf_prediction_blend`, e.g. 0.25, to
+    favor the last observation there).
 
     Kalman tracking requires a known target identity count
     (`tracking_target_instance_count`, or one derived from `max_tracks`/`max_instances`)

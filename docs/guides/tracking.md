@@ -86,11 +86,12 @@ sleap-nn track -i video.mp4 -m models/ \
 
 ### Kalman Filter
 
-Tracks each identity with a per-track constant-velocity Kalman filter. The tracker
-runs a normal-tracker warm-up for `--kf_init_frame_count` frames, fits one filter per
-track via EM, and then predicts each track's pose forward to score the current
-detections (analogous to optical flow, but using a motion model instead of image
-displacements):
+Tracks each identity with a per-track constant-velocity Kalman filter on the
+instance **centroid**. The tracker runs a normal-tracker warm-up for
+`--kf_init_frame_count` frames, fits one centroid filter per track via EM, and then
+predicts each track's centroid forward and scores the current detections against the
+last observed pose **rigidly translated** by that predicted displacement (analogous to
+optical flow, but using a motion model instead of image displacements):
 
 ```bash
 sleap-nn infer -i video.mp4 -m models/centroid models/centered_instance \
@@ -100,8 +101,20 @@ sleap-nn infer -i video.mp4 -m models/centroid models/centered_instance \
     --kf_init_frame_count 10
 ```
 
-**Best for**: A known, fixed number of smoothly-moving animals with frequent
-occlusions, after the base detector has been culled to the top-N instances per frame.
+**Best for**: A known, fixed number of animals whose motion is informative for
+association — identities that **cross or pass close** to each other, **converge**, or
+move **fast and smoothly** — after the base detector has been culled to the top-N
+instances per frame. In these regimes the motion prediction substantially reduces ID
+switches over plain similarity matching.
+
+!!! note "When it helps vs. when it doesn't"
+    The motion model is a net win where association is ambiguous (crossings, converging
+    or fast tracks). Under **heavy detection noise with frequent missed detections on
+    long sequences** it can slightly *reduce* IDF1 versus the memoryless similarity
+    tracker (any motion prediction occasionally causes a swap a memoryless tracker
+    avoids) — though it usually still produces fewer ID switches there. If your
+    detections are very noisy, prefer the plain tracker or lower `kf_prediction_blend`
+    (e.g. `Tracker.from_config(..., kf_prediction_blend=0.25)`).
 
 Notes:
 
