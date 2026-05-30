@@ -630,6 +630,88 @@ class TestNegativeLossWeighting:
         model._compute_negative_weighted_loss(y_preds, y, batch)
         model.log.assert_not_called()
 
+    def test_val_stage_logs_val_prefixed_keys(self):
+        """stage='val' logs val/* split keys, not train/*."""
+        model = self._make_model(weight=2.0)
+
+        y_preds = torch.randn(4, 2, 8, 8)
+        y = torch.randn(4, 2, 8, 8)
+        batch = {"is_negative": torch.tensor([False, False, True, False])}
+
+        model._compute_negative_weighted_loss(y_preds, y, batch, stage="val")
+
+        logged_keys = {call.args[0] for call in model.log.call_args_list}
+        assert "val/loss_positive" in logged_keys
+        assert "val/loss_negative" in logged_keys
+        assert "val/n_positive" in logged_keys
+        assert "val/n_negative" in logged_keys
+        # Must NOT leak train/* keys on the val path.
+        assert not any(k.startswith("train/") for k in logged_keys)
+
+        for call in model.log.call_args_list:
+            if call.args[0] == "val/n_positive":
+                assert call.args[1] == 3.0
+            if call.args[0] == "val/n_negative":
+                assert call.args[1] == 1.0
+
+    def test_val_stage_never_weighted(self):
+        """stage='val' returns UNWEIGHTED MSE even when weight != 1.0."""
+        model = self._make_model(weight=5.0)
+
+        y_preds = torch.randn(4, 2, 8, 8)
+        y = torch.randn(4, 2, 8, 8)
+        batch = {"is_negative": torch.tensor([False, False, True, False])}
+
+        loss = model._compute_negative_weighted_loss(y_preds, y, batch, stage="val")
+        # Equals plain MSELoss == per_sample.mean(); weight=5.0 is ignored.
+        expected = torch.nn.MSELoss()(y_preds, y)
+        assert torch.allclose(loss, expected, atol=1e-6)
+
+    def test_val_stage_no_is_negative_key(self):
+        """stage='val' with is_negative absent => plain MSELoss, nothing logged."""
+        model = self._make_model(weight=5.0)
+
+        y_preds = torch.randn(4, 2, 8, 8)
+        y = torch.randn(4, 2, 8, 8)
+        batch = {}
+
+        loss = model._compute_negative_weighted_loss(y_preds, y, batch, stage="val")
+        expected = torch.nn.MSELoss()(y_preds, y)
+        assert torch.allclose(loss, expected, atol=1e-6)
+        model.log.assert_not_called()
+
+    def test_val_stage_ndim_agnostic_paf_like(self):
+        """Per-sample mean over dims 1..ndim works for PAF-like 4D tensors."""
+        model = self._make_model(weight=3.0)
+
+        # PAF-like: more channels than confmaps; still 4D (B, 2*n_edges, H, W).
+        y_preds = torch.randn(3, 6, 5, 5)
+        y = torch.randn(3, 6, 5, 5)
+        batch = {"is_negative": torch.tensor([False, True, False])}
+
+        loss = model._compute_negative_weighted_loss(y_preds, y, batch, stage="val")
+        expected = torch.nn.MSELoss()(y_preds, y)  # unweighted invariant
+        assert torch.allclose(loss, expected, atol=1e-6)
+
+    def test_default_stage_is_train(self):
+        """Omitting stage keeps train behavior: weighting applied, train/* keys."""
+        model = self._make_model(weight=5.0)
+
+        y_preds = torch.randn(4, 2, 8, 8)
+        y = torch.randn(4, 2, 8, 8)
+        batch = {"is_negative": torch.tensor([False, False, True, False])}
+
+        loss = model._compute_negative_weighted_loss(y_preds, y, batch)
+
+        per_sample = (y_preds - y).pow(2).mean(dim=[1, 2, 3])
+        weights = torch.tensor([1.0, 1.0, 5.0, 1.0])
+        expected = (per_sample * weights).mean()
+        assert torch.allclose(loss, expected, atol=1e-6)
+
+        logged_keys = {call.args[0] for call in model.log.call_args_list}
+        assert "train/loss_positive" in logged_keys
+        assert not any(k.startswith("val/") for k in logged_keys)
+
 
 class TestDataConfigNegativeFrames:
     """Test that the DataConfig accepts use_negative_frames."""

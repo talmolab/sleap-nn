@@ -409,21 +409,31 @@ class LightningModel(L.LightningModule):
         )
 
     def _compute_negative_weighted_loss(
-        self, y_preds: torch.Tensor, y: torch.Tensor, batch: Dict
+        self, y_preds: torch.Tensor, y: torch.Tensor, batch: Dict, stage: str = "train"
     ) -> torch.Tensor:
         """Compute MSE loss with optional negative sample weighting.
 
-        When ``is_negative`` is absent from the batch or ``negative_loss_weight``
-        is 1.0, this returns plain ``nn.MSELoss()``.  Otherwise, per-sample MSE
-        is computed and negative samples are weighted by ``negative_loss_weight``.
+        When ``is_negative`` is absent from the batch this returns plain
+        ``nn.MSELoss()``.  Otherwise, per-sample MSE is computed and split
+        metrics (positive/negative loss and counts) are logged under the
+        ``{stage}/`` prefix.
 
-        Also logs split metrics (positive/negative loss and counts) when
-        negatives are present.
+        Weighting behavior depends on ``stage``:
+
+        * ``stage == "train"``: negative samples are weighted by
+          ``negative_loss_weight`` (only when it is not 1.0).
+        * ``stage != "train"`` (e.g. ``"val"``): the loss is **always
+          unweighted** (``per_sample.mean()``).  This keeps ``val/loss``
+          numerically identical to the old plain ``nn.MSELoss()`` so that
+          ``ModelCheckpoint(monitor="val/loss")`` and ``EarlyStopping``
+          behavior is unchanged; only the positive/negative breakdown is added.
 
         Args:
             y_preds: Predicted tensor.
             y: Ground truth tensor.
             batch: Batch dictionary, may contain ``is_negative`` key.
+            stage: Logging-key prefix and weighting gate. ``"train"`` applies
+                negative weighting; any other value returns the unweighted mean.
 
         Returns:
             The (optionally weighted) loss tensor.
@@ -446,7 +456,7 @@ class LightningModel(L.LightningModule):
         if n_pos > 0:
             loss_pos = per_sample[is_pos].mean()
             self.log(
-                "train/loss_positive",
+                f"{stage}/loss_positive",
                 loss_pos,
                 prog_bar=False,
                 on_step=False,
@@ -456,7 +466,7 @@ class LightningModel(L.LightningModule):
         if n_neg > 0:
             loss_neg = per_sample[is_neg].mean()
             self.log(
-                "train/loss_negative",
+                f"{stage}/loss_negative",
                 loss_neg,
                 prog_bar=False,
                 on_step=False,
@@ -464,7 +474,7 @@ class LightningModel(L.LightningModule):
                 sync_dist=True,
             )
         self.log(
-            "train/n_positive",
+            f"{stage}/n_positive",
             float(n_pos),
             prog_bar=False,
             on_step=False,
@@ -473,7 +483,7 @@ class LightningModel(L.LightningModule):
             reduce_fx="sum",
         )
         self.log(
-            "train/n_negative",
+            f"{stage}/n_negative",
             float(n_neg),
             prog_bar=False,
             on_step=False,
@@ -482,8 +492,9 @@ class LightningModel(L.LightningModule):
             reduce_fx="sum",
         )
 
-        # Apply weighting
-        if self.negative_loss_weight == 1.0:
+        # Negative weighting is train-only; val/eval stages stay unweighted so
+        # val/loss remains numerically identical to plain nn.MSELoss().
+        if stage != "train" or self.negative_loss_weight == 1.0:
             return per_sample.mean()
 
         weights = torch.where(
@@ -814,7 +825,7 @@ class SingleInstanceLightningModule(LightningModel):
         X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
-        val_loss = nn.MSELoss()(y_preds, y)
+        val_loss = self._compute_negative_weighted_loss(y_preds, y, batch, stage="val")
         if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
                 y_gt=y,
@@ -1330,7 +1341,7 @@ class CentroidLightningModule(LightningModel):
         X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
-        val_loss = nn.MSELoss()(y_preds, y)
+        val_loss = self._compute_negative_weighted_loss(y_preds, y, batch, stage="val")
         self.log(
             "val/loss",
             val_loss,
@@ -1652,8 +1663,12 @@ class BottomUpLightningModule(LightningModel):
         pafs = preds["PartAffinityFieldsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
 
-        confmap_loss = nn.MSELoss()(confmaps, y_confmap)
-        pafs_loss = nn.MSELoss()(pafs, y_paf)
+        confmap_loss = self._compute_negative_weighted_loss(
+            confmaps, y_confmap, batch, stage="val"
+        )
+        pafs_loss = self._compute_negative_weighted_loss(
+            pafs, y_paf, batch, stage="val"
+        )
 
         if self.online_mining is not None and self.online_mining:
             confmap_ohkm_loss = compute_ohkm_loss(
@@ -2049,8 +2064,12 @@ class BottomUpMultiClassLightningModule(LightningModel):
         classmaps = preds["ClassMapsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
 
-        confmap_loss = nn.MSELoss()(confmaps, y_confmap)
-        classmaps_loss = nn.MSELoss()(classmaps, y_classmap)
+        confmap_loss = self._compute_negative_weighted_loss(
+            confmaps, y_confmap, batch, stage="val"
+        )
+        classmaps_loss = self._compute_negative_weighted_loss(
+            classmaps, y_classmap, batch, stage="val"
+        )
 
         if self.online_mining is not None and self.online_mining:
             confmap_ohkm_loss = compute_ohkm_loss(
