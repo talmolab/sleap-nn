@@ -2044,7 +2044,7 @@ def infer(**kwargs):
 @click.option(
     "--oks_stddev",
     type=float,
-    default=None,
+    default=0.025,
     help="Standard deviation for OKS calculation",
 )
 @click.option("--oks_scale", type=float, help="Scale factor for OKS calculation")
