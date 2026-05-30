@@ -922,7 +922,7 @@ def train(
 @click.option(
     "--oks_stddev",
     type=float,
-    default=0.025,
+    default=None,
     help="OKS keypoint-spread normalization constant for `oks` scoring. Larger is more tolerant of localization error (useful with --kf_track_features keypoints). Default: 0.025.",
 )
 @click.option(
@@ -1944,7 +1944,7 @@ def _common_inference_options(f):
             type=click.Choice(["centroid", "keypoints"]),
             default="centroid",
         ),
-        click.option("--oks_stddev", type=float, default=0.025),
+        click.option("--oks_stddev", type=float, default=None),
         click.option("--kf_init_frame_count", type=int, default=10),
         click.option(
             "--kf_node_indices", type=str, default=None, callback=_parse_int_list
@@ -2044,7 +2044,7 @@ def infer(**kwargs):
 @click.option(
     "--oks_stddev",
     type=float,
-    default=0.025,
+    default=None,
     help="Standard deviation for OKS calculation",
 )
 @click.option("--oks_scale", type=float, help="Scale factor for OKS calculation")

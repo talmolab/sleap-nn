@@ -125,6 +125,19 @@ Notes:
   `--kf_node_indices 0,1,2`. Leave it unset to use all nodes.
 - Depends on the `pykalman` package (a core dependency).
 
+!!! note "Centroid vs keypoints (`--kf_track_features`)"
+    By default (`--kf_track_features centroid`) the motion model tracks each instance's
+    **centroid** and rigidly translates the last pose — stable and the recommended
+    choice. `--kf_track_features keypoints` instead runs one filter **per node** and uses
+    the predicted pose directly: it can help when subjects are small and move
+    distinctively (e.g. it cut ID switches markedly on a 2-fly clip), but the per-node
+    prediction is noisier, so it needs a tolerant similarity score. Pair it with the
+    auto-default `--oks_stddev 0.1` (set automatically for keypoints mode; **do not** use
+    the strict 0.025), or with `--features bboxes --scoring_method iou` for noisy but
+    well-separated, non-rotating subjects. On clean or occlusion-heavy data the centroid
+    mode (or the plain tracker) is at least as good, so keypoints mode is an opt-in
+    alternative, not a replacement.
+
 The motion model is robustified so it does not degrade tracking outside its sweet
 spot: each correction is gated by distance (rejecting false-positive / mismatched
 detections), the learned velocity is capped, the filter coasts across occlusion gaps,
@@ -137,6 +150,8 @@ tracker via `Tracker.from_config(...)`.
 
 | Parameter | Description | Values | Default |
 |-----------|-------------|--------|---------|
+| `--kf_track_features` | What the motion model tracks | `centroid`, `keypoints` | `centroid` |
+| `--oks_stddev` | OKS keypoint-spread tolerance (larger = more forgiving) | `FLOAT` | `0.025`; `0.1` for `keypoints` |
 | `--kf_init_frame_count` | Warm-up frames before EM init | `INT` | `10` |
 | `--kf_node_indices` | Node indices to filter (comma-sep; empty = all) | e.g. `0,1,2` | `None` |
 | `--kf_reset_gap_size` | Missed frames before a stale track resets | `INT` | `5` |
