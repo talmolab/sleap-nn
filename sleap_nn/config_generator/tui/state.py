@@ -261,7 +261,7 @@ class ConfigState:
         self._accelerator: str = "auto"
         self._devices: str = "auto"  # Number of GPUs: "auto", "1", "2", etc.
         self._min_steps_per_epoch: int = 200  # Web app default
-        self._random_seed: Optional[int] = None
+        self._random_seed: Optional[int] = 42
         self._enable_progress_bar: bool = True  # Web app default
         self._visualize_preds: bool = True  # Web app default (matches checkbox)
         self._keep_viz: bool = False  # Web app default

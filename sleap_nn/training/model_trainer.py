@@ -305,14 +305,38 @@ class ModelTrainer:
             val_fraction = OmegaConf.select(
                 self.config, "data_config.validation_fraction", default=0.1
             )
-            seed = (
-                42
-                if (
-                    self.config.trainer_config.seed is None
-                    and self._get_trainer_devices() > 1
-                )
-                else self.config.trainer_config.seed
+            seed = self.config.trainer_config.seed
+
+            # Warn if resuming from a checkpoint with a potentially different seed
+            resume_ckpt = OmegaConf.select(
+                self.config, "trainer_config.resume_ckpt_path", default=None
             )
+            if resume_ckpt is not None:
+                orig_config_path = Path(resume_ckpt).parent / "training_config.yaml"
+                if orig_config_path.exists():
+                    try:
+                        orig_cfg = OmegaConf.load(orig_config_path.as_posix())
+                        orig_seed = OmegaConf.select(
+                            orig_cfg, "trainer_config.seed", default=None
+                        )
+                        if orig_seed != seed:
+                            logger.warning(
+                                f"Current seed ({seed}) differs from the original "
+                                f"training seed ({orig_seed}) in {orig_config_path}. "
+                                f"This will produce a different train/val split and "
+                                f"may cause data leakage between train and val sets. "
+                                f"Set `trainer_config.seed: {orig_seed}` to preserve "
+                                f"the original split."
+                            )
+                    except Exception:
+                        pass
+                else:
+                    logger.warning(
+                        f"Resuming from checkpoint but could not find "
+                        f"{orig_config_path} to verify the train/val split seed. "
+                        f"Ensure `trainer_config.seed` matches the original "
+                        f"training run to avoid data leakage."
+                    )
             for label in labels:
                 train_split, val_split = label.make_training_splits(
                     n_train=1 - val_fraction, n_val=val_fraction, seed=seed

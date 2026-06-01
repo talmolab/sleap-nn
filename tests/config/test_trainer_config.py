@@ -262,7 +262,7 @@ def test_trainer_config(caplog):
     assert conf_structured.val_data_loader.shuffle is False
     assert conf_structured.model_ckpt.save_top_k == 1
     assert conf_structured.max_epochs == 100
-    assert conf_structured.seed is None
+    assert conf_structured.seed == 42
     assert conf_structured.optimizer.lr == 1e-4
     assert conf_structured.lr_scheduler is not None
     assert conf_structured.lr_scheduler.reduce_lr_on_plateau is not None
@@ -346,7 +346,7 @@ def test_trainer_mapper():
     assert config.trainer_accelerator == "auto"
     assert config.enable_progress_bar is True
     assert config.min_train_steps_per_epoch == 200
-    assert config.seed is None
+    assert config.seed == 42
     assert config.use_wandb is False
     assert config.save_ckpt is True
     assert config.resume_ckpt_path is None

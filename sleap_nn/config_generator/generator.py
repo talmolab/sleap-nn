@@ -153,7 +153,7 @@ class ConfigGenerator:
         self._ckpt_dir: str = "./models"  # Web app default
         self._run_name: Optional[str] = None
         self._resume_ckpt_path: Optional[str] = None
-        self._seed: Optional[int] = None
+        self._seed: Optional[int] = 42
         self._min_train_steps_per_epoch: int = 200
         self._num_workers: int = 0
         self._enable_progress_bar: bool = True
