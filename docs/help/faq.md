@@ -230,6 +230,7 @@ SLEAP-NN uses PyTorch, so it runs on any system where PyTorch is supported. This
     sleap-nn train --config config.yaml \
         trainer_config.resume_ckpt_path=/path/to/checkpoint.ckpt
     ```
+    Make sure `trainer_config.seed` matches the original run (default: `42`) so the train/val split stays the same. A mismatched seed will produce a different split and may leak training data into validation.
 
 ??? question "How do I use multiple GPUs?"
     ```yaml

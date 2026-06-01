@@ -165,7 +165,7 @@ trainer_config:
   min_train_steps_per_epoch: 200  # Minimum steps
   train_steps_per_epoch: null     # Exact steps (null=auto)
   enable_progress_bar: true
-  seed: null                      # Random seed
+  seed: 42                        # Random seed (ensures deterministic train/val splits)
 ```
 
 ---
@@ -263,7 +263,7 @@ trainer_config:
 | `save_ckpt` | bool | `false` | Save model checkpoints |
 | `ckpt_dir` | str | `.` | Directory for checkpoints |
 | `run_name` | str | `null` | Run folder name (auto-generated if null) |
-| `seed` | int | `null` | Random seed for reproducibility |
+| `seed` | int | `42` | Random seed for reproducibility and deterministic train/val splits |
 | `trainer_accelerator` | str | `auto` | Hardware: `auto`, `gpu`, `cpu`, `mps` |
 | `trainer_devices` | int/str | `null` | Number of devices or `auto` |
 | `trainer_device_indices` | list | `null` | Specific device indices (e.g., `[0, 2]`) |
