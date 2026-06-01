@@ -984,6 +984,7 @@ class Predictor:
         labels: "sio.Labels",
         tracker_config: TrackerConfig,
         clean_empty_frames: bool = False,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ) -> "sio.Labels":
         """Retrack an existing ``sio.Labels`` without running inference.
 
@@ -999,11 +1000,13 @@ class Predictor:
             tracker_config: :class:`TrackerConfig` to drive the tracker.
             clean_empty_frames: When ``True``, drop empty frames from
                 the result (matches ``--no_empty_frames``).
+            progress_callback: Optional ``(processed_frames, total_frames)``
+                callback invoked after each frame is tracked.
 
         Returns:
             New ``sio.Labels`` with tracks attached.
         """
-        out = apply_tracking(labels, tracker_config)
+        out = apply_tracking(labels, tracker_config, progress_callback)
         if clean_empty_frames:
             out.clean(frames=True, skeletons=False)
         return out
@@ -1022,6 +1025,7 @@ class Predictor:
         videos: Optional[List["sio.Video"]] = None,
         clean_empty_frames: bool = False,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        tracking_progress_callback: Optional[Callable[[int, int], None]] = None,
         peak_threshold: Optional[float] = None,
         centroid_threshold: Optional[float] = None,
         keypoint_threshold: Optional[float] = None,
@@ -1057,6 +1061,9 @@ class Predictor:
                 returned ``sio.Labels``.
             progress_callback: Optional ``(processed_batches, total_batches)``
                 callback invoked after each batch.
+            tracking_progress_callback: Optional
+                ``(processed_frames, total_frames)`` callback invoked
+                after each frame during tracking.
             peak_threshold: Override peak threshold for all stages. For
                 per-stage control on top-down models, use
                 ``centroid_threshold`` / ``keypoint_threshold`` instead.
@@ -1138,7 +1145,9 @@ class Predictor:
             )
         labels = self.to_labels(outputs_list, videos=videos)
         if self.tracker_config is not None:
-            labels = apply_tracking(labels, self.tracker_config)
+            labels = apply_tracking(
+                labels, self.tracker_config, tracking_progress_callback
+            )
         if clean_empty_frames:
             labels.clean(frames=True, skeletons=False)
         labels.provenance = self._build_inference_provenance(

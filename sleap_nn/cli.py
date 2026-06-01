@@ -1437,12 +1437,18 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
 
     if kwargs.get("gui"):
         predict_kwargs["progress_callback"] = _gui_progress_callback()
+        if kwargs.get("tracking"):
+            predict_kwargs["tracking_progress_callback"] = _gui_progress_callback()
         return predict(source, **predict_kwargs)
 
     # Non-gui: show a Rich progress bar (parity with legacy `track`'s default
     # progress UX; the plumbing was wired but no callback was attached). #583.
-    cb, progress = _rich_progress_callback()
-    predict_kwargs["progress_callback"] = cb
+    progress = _make_rich_progress()
+    predict_kwargs["progress_callback"] = _rich_task_callback(progress, "Predicting...")
+    if kwargs.get("tracking"):
+        predict_kwargs["tracking_progress_callback"] = _rich_task_callback(
+            progress, "Tracking..."
+        )
     try:
         return predict(source, **predict_kwargs)
     finally:
@@ -1487,12 +1493,24 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
     from sleap_nn.inference.provenance import build_tracking_only_provenance
 
     tracker_config = _build_tracker_config(kwargs)
+
+    if kwargs.get("gui"):
+        tracking_cb = _gui_progress_callback()
+    else:
+        _progress = _make_rich_progress()
+        tracking_cb = _rich_task_callback(_progress, "Tracking...")
+
     _start = datetime.now()
-    out = predictor_cls.retrack(
-        labels,
-        tracker_config,
-        clean_empty_frames=bool(kwargs.get("no_empty_frames")),
-    )
+    try:
+        out = predictor_cls.retrack(
+            labels,
+            tracker_config,
+            clean_empty_frames=bool(kwargs.get("no_empty_frames")),
+            progress_callback=tracking_cb,
+        )
+    finally:
+        if not kwargs.get("gui"):
+            _progress.stop()
     # Attach tracking-only provenance to the retracked .slp (legacy parity —
     # apply_tracking leaves provenance to the caller, and the legacy track path
     # set it; the new retrack flow previously saved with empty provenance). #583.
@@ -1547,19 +1565,11 @@ def _gui_progress_callback():
     return cb
 
 
-def _rich_progress_callback():
-    """Build a Rich progress bar callback for the non-``--gui`` ``infer`` path.
+def _make_rich_progress():
+    """Build a shared Rich ``Progress`` instance for the ``infer`` path.
 
-    Returns ``(callback, progress)`` where ``callback(processed, total)`` has
-    the per-batch signature the new pipeline uses. The ``Progress`` is started
-    immediately (so "Predicting..." shows right away) and the caller MUST stop
-    it in a ``finally`` block so the bar closes cleanly on success or error.
-    A ``total <= 0`` (length-less provider) renders an indeterminate bar.
-
-    ``rich`` is imported lazily so it doesn't slow ``--help``; the columns
-    mirror the legacy ``track`` look-and-feel without importing the heavy
-    legacy ``predictors`` module. Progress is counted in batches (the new
-    callback reports batches, not frames). #583.
+    Returns the ``Progress`` (already started) — the caller MUST stop it
+    in a ``finally`` block.
     """
     from rich.progress import (
         BarColumn,
@@ -1581,16 +1591,46 @@ def _rich_progress_callback():
         TimeElapsedColumn(),
         refresh_per_second=4,
     )
-    task = progress.add_task("Predicting...", total=None)
     progress.start()
-    state = {"total_set": False}
+    return progress
+
+
+def _rich_task_callback(progress, description: str = "Predicting..."):
+    """Build a callback that drives a task on an existing ``Progress``.
+
+    Returns ``callback(processed, total)`` that lazily adds a task with
+    *description* to *progress* on the first call and updates it on each
+    subsequent call. This allows the task to appear only when the phase
+    actually starts (e.g. tracking may not run at all).
+    """
+    state: dict = {"task": None}
 
     def cb(processed: int, total: int) -> None:
-        if not state["total_set"] and total and total > 0:
-            progress.update(task, total=total)
-            state["total_set"] = True
-        progress.update(task, completed=processed)
+        if state["task"] is None:
+            state["task"] = progress.add_task(description, total=total or None)
+        elif total and total > 0:
+            progress.update(state["task"], total=total)
+        progress.update(state["task"], completed=processed)
 
+    return cb
+
+
+def _rich_progress_callback():
+    """Build a Rich progress bar callback for the non-``--gui`` ``infer`` path.
+
+    Returns ``(callback, progress)`` where ``callback(processed, total)`` has
+    the per-batch signature the new pipeline uses. The ``Progress`` is started
+    immediately (so "Predicting..." shows right away) and the caller MUST stop
+    it in a ``finally`` block so the bar closes cleanly on success or error.
+    A ``total <= 0`` (length-less provider) renders an indeterminate bar.
+
+    ``rich`` is imported lazily so it doesn't slow ``--help``; the columns
+    mirror the legacy ``track`` look-and-feel without importing the heavy
+    legacy ``predictors`` module. Progress is counted in batches (the new
+    callback reports batches, not frames). #583.
+    """
+    progress = _make_rich_progress()
+    cb = _rich_task_callback(progress, "Predicting...")
     return cb, progress
 
 

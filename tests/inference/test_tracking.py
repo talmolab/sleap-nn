@@ -130,6 +130,39 @@ def test_apply_tracking_preserves_videos_and_skeletons(skeleton, video):
     assert list(out.skeletons) == [skeleton]
 
 
+def test_apply_tracking_progress_callback(skeleton, video):
+    n_frames = 5
+    labels = _make_labels(skeleton, video, frames=n_frames, instances_per_frame=2)
+    calls: list[tuple[int, int]] = []
+    out = apply_tracking(
+        labels, TrackerConfig(), progress_callback=lambda p, t: calls.append((p, t))
+    )
+    assert len(out.labeled_frames) == n_frames
+    assert len(calls) == n_frames
+    assert calls[0] == (1, n_frames)
+    assert calls[-1] == (n_frames, n_frames)
+
+
+def test_apply_tracking_no_callback_is_silent(skeleton, video):
+    labels = _make_labels(skeleton, video, frames=3, instances_per_frame=1)
+    out = apply_tracking(labels, TrackerConfig())
+    assert len(out.labeled_frames) == 3
+
+
+def test_retrack_progress_callback(skeleton, video):
+    n_frames = 4
+    labels = _make_labels(skeleton, video, frames=n_frames, instances_per_frame=2)
+    calls: list[tuple[int, int]] = []
+    out = Predictor.retrack(
+        labels,
+        TrackerConfig(),
+        progress_callback=lambda p, t: calls.append((p, t)),
+    )
+    assert len(out.labeled_frames) == n_frames
+    assert len(calls) == n_frames
+    assert calls[-1] == (n_frames, n_frames)
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Predictor — tracker_config wiring
 # ──────────────────────────────────────────────────────────────────────
