@@ -31,7 +31,7 @@ What this does NOT cover:
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Callable, Optional
 
 import attrs
 
@@ -94,6 +94,7 @@ class TrackerConfig:
 def apply_tracking(
     labels: sio.Labels,
     config: TrackerConfig,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> sio.Labels:
     """Track predicted instances on every frame and run post-cleanup.
 
@@ -108,6 +109,8 @@ def apply_tracking(
             any) are passed through unchanged and are preferred when
             both are present (matching ``run_tracker`` semantics).
         config: Tracking configuration.
+        progress_callback: Optional ``(processed_frames, total_frames)``
+            callback invoked after each frame is tracked.
 
     Returns:
         ``sio.Labels`` with tracked instances. ``videos`` and
@@ -210,7 +213,8 @@ def apply_tracking(
         labels.labeled_frames,
         key=lambda lf: (video_order.get(id(lf.video), 0), lf.frame_idx),
     )
-    for lf in ordered_lfs:
+    n_frames = len(ordered_lfs)
+    for i, lf in enumerate(ordered_lfs):
         instances: list = []
         if lf.has_user_instances:
             instances_to_track = lf.user_instances
@@ -232,6 +236,8 @@ def apply_tracking(
                 instances=instances,
             )
         )
+        if progress_callback is not None:
+            progress_callback(i + 1, n_frames)
 
     if config.tracking_clean_instance_count > 0:
         tracked_lfs = cull_instances(

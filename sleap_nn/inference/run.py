@@ -80,6 +80,7 @@ def predict(
     output_path: Optional[str] = None,
     clean_empty_frames: bool = False,
     progress_callback: Optional[Callable[[int, int], None]] = None,
+    tracking_progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> sio.Labels:
     """Build a predictor, run inference, return Labels.
 
@@ -129,6 +130,8 @@ def predict(
         output_path: If set, save the Labels to this ``.slp`` path.
         clean_empty_frames: Drop frames with no instances.
         progress_callback: ``(processed, total)`` callback per batch.
+        tracking_progress_callback: ``(processed_frames, total_frames)``
+            callback per frame during tracking.
 
     Returns:
         ``sio.Labels`` with predicted instances.
@@ -203,6 +206,7 @@ def predict(
         make_labels=True,
         clean_empty_frames=clean_empty_frames,
         progress_callback=progress_callback,
+        tracking_progress_callback=tracking_progress_callback,
         peak_threshold=peak_threshold,
         centroid_threshold=centroid_threshold,
         keypoint_threshold=keypoint_threshold,
