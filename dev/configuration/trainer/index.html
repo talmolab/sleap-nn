@@ -6862,7 +6862,7 @@
 </span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nt">min_train_steps_per_epoch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200</span><span class="w">  </span><span class="c1"># Minimum steps</span>
 </span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span><span class="nt">train_steps_per_epoch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">     </span><span class="c1"># Exact steps (null=auto)</span>
 </span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span><span class="nt">enable_progress_bar</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span><span class="nt">seed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">                      </span><span class="c1"># Random seed</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span><span class="nt">seed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">42</span><span class="w">                        </span><span class="c1"># Random seed (ensures deterministic train/val splits)</span>
 </span></code></pre></div>
 <hr />
 <h2 id="online-hard-keypoint-mining">Online Hard Keypoint Mining<a class="headerlink" href="#online-hard-keypoint-mining" title="Permanent link">&para;</a></h2>
@@ -6973,8 +6973,8 @@
 <tr>
 <td><code>seed</code></td>
 <td>int</td>
-<td><code>null</code></td>
-<td>Random seed for reproducibility</td>
+<td><code>42</code></td>
+<td>Random seed for reproducibility and deterministic train/val splits</td>
 </tr>
 <tr>
 <td><code>trainer_accelerator</code></td>

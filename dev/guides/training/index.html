@@ -6611,6 +6611,10 @@
 </span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">    </span>trainer_config.resume_ckpt_path<span class="o">=</span>/path/to/checkpoint.ckpt
 </span></code></pre></div>
 <p>This restores both model weights and optimizer state.</p>
+<div class="admonition warning">
+<p class="admonition-title">Ensure the same seed when resuming</p>
+<p>The train/val split is regenerated on resume — it is <strong>not</strong> saved in the checkpoint. If you change <code>trainer_config.seed</code> between runs (default: <code>42</code>), you will get a different split, which can leak training data into validation. Always use the same seed as the original run. <code>sleap-nn</code> will warn you if it detects a mismatch.</p>
+</div>
 <hr />
 <h2 id="multi-gpu-training">Multi-GPU Training<a class="headerlink" href="#multi-gpu-training" title="Permanent link">&para;</a></h2>
 <p>For multi-GPU and distributed training, see the dedicated guide:</p>

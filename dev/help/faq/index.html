@@ -6740,7 +6740,8 @@ This shows GPU details and runs diagnostic tests. You should see your GPU listed
 <p>Yes:
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span>trainer_config.resume_ckpt_path<span class="o">=</span>/path/to/checkpoint.ckpt
-</span></code></pre></div></p>
+</span></code></pre></div>
+Make sure <code>trainer_config.seed</code> matches the original run (default: <code>42</code>) so the train/val split stays the same. A mismatched seed will produce a different split and may leak training data into validation.</p>
 </details>
 <details class="question">
 <summary>How do I use multiple GPUs?</summary>
