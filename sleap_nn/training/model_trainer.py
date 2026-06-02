@@ -279,14 +279,18 @@ class ModelTrainer:
         )
 
         # check if all `.slp` file shave same skeleton structure (if multiple slp file paths are provided)
-        skeleton = self.skeletons[0]
-        for index, train_label in enumerate(labels):
-            skel_temp = train_label.skeletons[0]
-            skeletons_equal = skeleton.matches(skel_temp)
-            if not skeletons_equal:
-                message = f"The skeletons in the training labels: {index + 1} do not match the skeleton in the first training label file."
-                logger.error(message)
-                raise ValueError(message)
+        # Mask-only labels (e.g. instance segmentation) may carry no skeleton.
+        if self.skeletons:
+            skeleton = self.skeletons[0]
+            for index, train_label in enumerate(labels):
+                if not train_label.skeletons:
+                    continue
+                skel_temp = train_label.skeletons[0]
+                skeletons_equal = skeleton.matches(skel_temp)
+                if not skeletons_equal:
+                    message = f"The skeletons in the training labels: {index + 1} do not match the skeleton in the first training label file."
+                    logger.error(message)
+                    raise ValueError(message)
 
         # Check for same-data mode (train = val, for intentional overfitting)
         use_same = OmegaConf.select(
@@ -1020,6 +1024,18 @@ class ModelTrainer:
                         "val/class_accuracy",
                     ]
                 )
+            if self.model_type == "bottomup_segmentation":
+                csv_log_keys.extend(
+                    [
+                        "train/fg_loss",
+                        "train/center_loss",
+                        "train/offset_loss",
+                        "val/fg_loss",
+                        "val/center_loss",
+                        "val/offset_loss",
+                        "val/fg_iou",
+                    ]
+                )
             csv_logger = CSVLoggerCallback(
                 filepath=Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name
@@ -1160,6 +1176,11 @@ class ModelTrainer:
                         match_threshold=self.config.trainer_config.eval.match_threshold,
                     )
                 )
+            elif self.model_type == "bottomup_segmentation":
+                # Segmentation has no keypoint predictions for OKS/PCK; the
+                # foreground IoU logged in validation_step (val/fg_iou) serves as
+                # the epoch-level quality metric. Skip the keypoint eval callback.
+                pass
             else:
                 # Use standard OKS/PCK evaluation for pose models
                 callbacks.append(

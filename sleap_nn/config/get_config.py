@@ -33,6 +33,10 @@ from sleap_nn.config.model_config import (
     ClassMapConfig,
     TopDownCenteredInstanceMultiClassConfig,
     ClassVectorsConfig,
+    BottomUpSegmentationConfig,
+    SegmentationHeadConfig,
+    InstanceCenterConfig,
+    CenterOffsetConfig,
 )
 from sleap_nn.config.data_config import DataConfig, PreprocessingConfig
 from sleap_nn.config.model_config import ModelConfig
@@ -382,9 +386,15 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
                 confmaps=CenteredInstanceConfMapsConfig,
                 class_vectors=ClassVectorsConfig,
             )
+        elif head_cfg == "bottomup_segmentation":
+            head_configs.bottomup_segmentation = BottomUpSegmentationConfig(
+                segmentation=SegmentationHeadConfig(),
+                center=InstanceCenterConfig(),
+                offsets=CenterOffsetConfig(),
+            )
         else:
             raise ValueError(
-                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown']"
+                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown', 'bottomup_segmentation']"
             )
 
     elif isinstance(head_cfg, dict):
@@ -438,6 +448,16 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
                 class_vectors=ClassVectorsConfig(
                     **head_cfg["multi_class_topdown"]["class_vectors"]
                 ),
+            )
+        elif (
+            "bottomup_segmentation" in head_cfg
+            and head_cfg["bottomup_segmentation"] is not None
+        ):
+            seg = head_cfg["bottomup_segmentation"]
+            head_configs.bottomup_segmentation = BottomUpSegmentationConfig(
+                segmentation=SegmentationHeadConfig(**seg["segmentation"]),
+                center=InstanceCenterConfig(**seg["center"]),
+                offsets=CenterOffsetConfig(**seg["offsets"]),
             )
 
     return head_configs

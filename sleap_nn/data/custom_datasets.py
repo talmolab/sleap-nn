@@ -23,6 +23,7 @@ from rich.progress import (
 )
 from rich.console import Console
 import torch
+import torch.nn.functional as F
 import torchvision.transforms as T
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
 import sleap_io as sio
@@ -47,6 +48,12 @@ from sleap_nn.data.augmentation import (
 )
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.edge_maps import generate_pafs
+from sleap_nn.data.segmentation_maps import (
+    _compute_mask_centroids,
+    generate_foreground_mask,
+    generate_center_heatmap,
+    generate_center_offsets,
+)
 from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.training.utils import is_distributed_initialized
 from sleap_nn.config.get_config import get_aug_config
@@ -332,8 +339,11 @@ class BaseDataset(Dataset):
             if max_instances > self.max_instances:
                 self.max_instances = max_instances
 
-        # Store num_nodes for negative frame generation
-        self.num_nodes = len(labels[0].skeletons[0].nodes) if labels else 0
+        # Store num_nodes for negative frame generation. Guard against mask-only
+        # labels (e.g. instance segmentation) that may carry no skeleton.
+        self.num_nodes = (
+            len(labels[0].skeletons[0].nodes) if labels and labels[0].skeletons else 0
+        )
 
         self.cache_img = cache_img
         self.cache_img_path = cache_img_path
@@ -2062,6 +2072,247 @@ class _RepeatSampler:
             yield from iter(self.sampler)
 
 
+class BottomUpSegmentationDataset(BaseDataset):
+    """Dataset class for bottom-up instance segmentation models.
+
+    Loads per-instance segmentation masks from ``LabeledFrame.masks`` and
+    generates ground truth tensors for a center-offset instance segmentation
+    pipeline (foreground mask, instance-center heatmap, and per-pixel offsets).
+
+    Masks are captured into the sample index at construction time (mirroring how
+    keypoint instances are captured for caching), so ``__getitem__`` never needs
+    a live ``Labels`` handle — this keeps it correct under the memory/disk image
+    caching paths (where ``self.labels_list`` is ``None``).
+
+    Note:
+        Geometric augmentation is unsupported (masks cannot be co-transformed
+        with the image) and is skipped with a warning. Mask resizing to the
+        preprocessed image size handles scaling but is not pad-aware; for v1
+        train with ``scale=1.0`` and input dims divisible by ``max_stride``.
+
+    Attributes:
+        seg_head_config: Configuration for the segmentation head.
+        center_head_config: Configuration for the instance center heatmap head.
+        offset_head_config: Configuration for the center offset head.
+    """
+
+    def __init__(
+        self,
+        labels: List[sio.Labels],
+        seg_head_config: DictConfig,
+        center_head_config: DictConfig,
+        offset_head_config: DictConfig,
+        max_stride: int,
+        user_instances_only: bool = True,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
+        intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        geometric_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        scale: float = 1.0,
+        apply_aug: bool = False,
+        max_hw: Tuple[Optional[int]] = (None, None),
+        cache_img: Optional[str] = None,
+        cache_img_path: Optional[str] = None,
+        use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
+        parallel_caching: bool = True,
+        cache_workers: int = 0,
+        use_negative_frames: bool = False,
+    ) -> None:
+        """Initialize class attributes."""
+        self.seg_head_config = seg_head_config
+        self.center_head_config = center_head_config
+        self.offset_head_config = offset_head_config
+        self._warned_geometric_aug = False
+        # Segmentation never uses negative frames (degenerate num_nodes/instances).
+        super().__init__(
+            labels=labels,
+            max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
+            intensity_aug=intensity_aug,
+            geometric_aug=geometric_aug,
+            scale=scale,
+            apply_aug=apply_aug,
+            max_hw=max_hw,
+            cache_img=cache_img,
+            cache_img_path=cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
+            use_negative_frames=False,
+        )
+
+    def _apply_common_preprocessing(self, sample: Dict) -> Dict:
+        """Apply common preprocessing, skipping geometric augmentation.
+
+        Geometric augmentation spatially transforms the image but cannot be
+        applied to segmentation masks (which are loaded separately). This
+        override disables geometric augmentation and logs a warning when it
+        was configured but skipped.
+
+        Args:
+            sample: Sample dict with at least ``image`` and ``instances`` keys.
+
+        Returns:
+            The sample dict with preprocessing applied in-place.
+        """
+        if (
+            self.apply_aug
+            and self.geometric_aug is not None
+            and not self._warned_geometric_aug
+        ):
+            logger.warning(
+                "Geometric augmentation is configured but not supported for "
+                "BottomUpSegmentationDataset because masks cannot be spatially "
+                "transformed in sync with the image. Geometric augmentation "
+                "will be skipped; only intensity augmentation will be applied."
+            )
+            self._warned_geometric_aug = True
+
+        # Temporarily disable geometric aug, then call base implementation
+        saved_geometric_aug = self.geometric_aug
+        self.geometric_aug = None
+        try:
+            sample = super()._apply_common_preprocessing(sample)
+        finally:
+            self.geometric_aug = saved_geometric_aug
+        return sample
+
+    def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+        """Return samples for frames that have segmentation masks.
+
+        Overrides the base class to index frames by their masks rather than
+        keypoint instances. The decoded mask arrays are captured into each
+        sample so ``__getitem__`` does not depend on a live ``Labels`` handle.
+        """
+        lf_idx_list = []
+        for labels_idx, label in enumerate(labels):
+            for lf_idx, lf in enumerate(label):
+                lf_masks = getattr(lf, "masks", None)
+                if not lf_masks:
+                    continue
+                mask_arrays = [np.asarray(m.data, dtype=bool) for m in lf_masks]
+                if len(mask_arrays) == 0:
+                    continue
+                video_idx = label.videos.index(lf.video)
+                sample = {
+                    "labels_idx": labels_idx,
+                    "lf_idx": lf_idx,
+                    "video_idx": video_idx,
+                    "frame_idx": lf.frame_idx,
+                    "is_negative": False,
+                    "instances": None,
+                    "masks": mask_arrays,
+                }
+                lf_idx_list.append(sample)
+
+        return lf_idx_list
+
+    def __getitem__(self, index) -> Dict:
+        """Return dict with image and segmentation GT for given index."""
+        sample = self.lf_idx_list[index]
+        labels_idx = sample["labels_idx"]
+        lf_idx = sample["lf_idx"]
+        video_idx = sample["video_idx"]
+        frame_idx = sample["frame_idx"]
+
+        # Load image
+        if self.cache_img is not None:
+            if self.cache_img == "disk":
+                img = np.array(
+                    Image.open(
+                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                    )
+                )
+            elif self.cache_img == "memory":
+                img = self.cache[(labels_idx, lf_idx)].copy()
+        else:
+            lf = self.labels_list[labels_idx][lf_idx]
+            img = lf.image
+
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
+
+        image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+        image = np.expand_dims(image, axis=0)  # (1, C, H, W)
+        image = torch.from_numpy(image.copy())
+
+        # Dummy instances tensor (needed for preprocessing compatibility)
+        instances = torch.zeros((1, 1, 1, 2), dtype=torch.float32)
+
+        sample_dict = {
+            "image": image,
+            "instances": instances,
+            "video_idx": torch.tensor(video_idx, dtype=torch.int32),
+            "frame_idx": torch.tensor(frame_idx, dtype=torch.int32),
+            "orig_size": torch.Tensor([image.shape[-2], image.shape[-1]]).unsqueeze(0),
+            "num_instances": 0,
+        }
+
+        # Masks captured at index-build time (decoded bool arrays at orig res).
+        mask_arrays = [np.asarray(m, dtype=bool) for m in sample["masks"]]
+
+        # Record original image size before preprocessing
+        orig_img_hw = (image.shape[-2], image.shape[-1])
+
+        # Apply common preprocessing (RGB/grayscale, size matching, scaling, padding)
+        sample_dict = self._apply_common_preprocessing(sample_dict)
+
+        img_hw = sample_dict["image"].shape[-2:]
+
+        # Resize masks to match preprocessed image dimensions if size changed.
+        if img_hw != orig_img_hw and len(mask_arrays) > 0:
+            target_h, target_w = img_hw
+            resized_masks = []
+            for m in mask_arrays:
+                # Convert mask to float tensor: (1, 1, H, W)
+                m_tensor = (
+                    torch.from_numpy(m.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+                )
+                m_resized = F.interpolate(
+                    m_tensor, size=(target_h, target_w), mode="area"
+                )
+                # Threshold back to binary
+                resized_masks.append((m_resized.squeeze().numpy() > 0.5))
+            mask_arrays = resized_masks
+
+        # Pre-compute mask centroids once for both center heatmap and offset heads
+        centers = _compute_mask_centroids(mask_arrays) if len(mask_arrays) > 0 else []
+
+        # Generate GT tensors
+        foreground_mask = generate_foreground_mask(
+            mask_arrays,
+            img_hw=img_hw,
+            output_stride=self.seg_head_config.output_stride,
+        )
+
+        center_heatmap = generate_center_heatmap(
+            mask_arrays,
+            img_hw=img_hw,
+            output_stride=self.center_head_config.output_stride,
+            sigma=self.center_head_config.sigma,
+            centers=centers,
+        )
+
+        center_offsets, foreground_weight = generate_center_offsets(
+            mask_arrays,
+            img_hw=img_hw,
+            output_stride=self.offset_head_config.output_stride,
+            centers=centers,
+        )
+
+        sample_dict["foreground_mask"] = foreground_mask
+        sample_dict["center_heatmap"] = center_heatmap
+        sample_dict["center_offsets"] = center_offsets
+        sample_dict["foreground_weight"] = foreground_weight
+        sample_dict["labels_idx"] = labels_idx
+
+        return sample_dict
+
+
 def get_train_val_datasets(
     train_labels: List[sio.Labels],
     val_labels: List[sio.Labels],
@@ -2455,6 +2706,71 @@ def get_train_val_datasets(
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
             use_negative_frames=use_negative_frames,
+        )
+
+    elif model_type == "bottomup_segmentation":
+        seg_cfg = config.model_config.head_configs.bottomup_segmentation
+        train_dataset = BottomUpSegmentationDataset(
+            labels=train_labels,
+            seg_head_config=seg_cfg.segmentation,
+            center_head_config=seg_cfg.center,
+            offset_head_config=seg_cfg.offsets,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            intensity_aug=(
+                config.data_config.augmentation_config.intensity
+                if config.data_config.augmentation_config is not None
+                else None
+            ),
+            geometric_aug=(
+                config.data_config.augmentation_config.geometric
+                if config.data_config.augmentation_config is not None
+                else None
+            ),
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=config.data_config.use_augmentations_train,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=train_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
+            use_negative_frames=False,
+        )
+        val_dataset = BottomUpSegmentationDataset(
+            labels=val_labels,
+            seg_head_config=seg_cfg.segmentation,
+            center_head_config=seg_cfg.center,
+            offset_head_config=seg_cfg.offsets,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            intensity_aug=None,
+            geometric_aug=None,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=False,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=val_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
+            use_negative_frames=False,
         )
 
     else:
