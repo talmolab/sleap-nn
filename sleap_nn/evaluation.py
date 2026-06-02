@@ -115,6 +115,114 @@ def match_centroids(
     return matched_pred, matched_gt, unmatched_pred, unmatched_gt
 
 
+def _mask_iou(a: np.ndarray, b: np.ndarray) -> float:
+    """Intersection-over-union of two boolean masks.
+
+    Masks may have differing shapes (e.g. padding differences between GT and
+    prediction). Both segmentation masks are top-left aligned (offset (0, 0)),
+    so they are compared on a common canvas sized to the max H/W of the pair.
+    """
+    if a.shape != b.shape:
+        h = max(a.shape[0], b.shape[0])
+        w = max(a.shape[1], b.shape[1])
+        aa = np.zeros((h, w), dtype=bool)
+        bb = np.zeros((h, w), dtype=bool)
+        aa[: a.shape[0], : a.shape[1]] = a
+        bb[: b.shape[0], : b.shape[1]] = b
+        a, b = aa, bb
+    inter = int(np.logical_and(a, b).sum())
+    union = int(np.logical_or(a, b).sum())
+    # Two empty masks are identical -> IoU 1.0 (consistent with the
+    # "identical masks -> 1.0" contract). In practice neither GT (burned-in,
+    # non-empty) nor predicted (empty masks are dropped at postprocess) masks
+    # are empty, so this only guards the degenerate case.
+    if union == 0:
+        return 1.0
+    return float(inter / union)
+
+
+def _mask_iou_matrix(
+    pred_masks: List[np.ndarray], gt_masks: List[np.ndarray]
+) -> np.ndarray:
+    """Compute the IoU between every ``(pred, gt)`` mask pair.
+
+    Returns:
+        ``(n_pred, n_gt)`` float array of IoU values in ``[0, 1]``.
+    """
+    iou = np.zeros((len(pred_masks), len(gt_masks)), dtype=float)
+    for i, pm in enumerate(pred_masks):
+        for j, gm in enumerate(gt_masks):
+            iou[i, j] = _mask_iou(pm, gm)
+    return iou
+
+
+def match_masks(
+    pred_masks: List[np.ndarray],
+    gt_masks: List[np.ndarray],
+    min_iou: float = 0.5,
+) -> tuple:
+    """Match predicted masks to ground-truth masks by IoU (Hungarian).
+
+    Args:
+        pred_masks: List of boolean arrays, one per predicted instance.
+        gt_masks: List of boolean arrays, one per ground-truth instance.
+        min_iou: Minimum IoU for a matched pair to count as a true positive.
+
+    Returns:
+        Tuple of:
+            - matched_pred_indices: Indices of matched predictions.
+            - matched_gt_indices: Indices of matched ground truth.
+            - unmatched_pred_indices: Unmatched predictions (false positives).
+            - unmatched_gt_indices: Unmatched ground truth (false negatives).
+            - matched_ious: IoU of each matched pair, aligned to
+              ``matched_pred_indices``.
+    """
+    from scipy.optimize import linear_sum_assignment
+
+    n_pred = len(pred_masks)
+    n_gt = len(gt_masks)
+    empty = np.array([], dtype=int)
+    if n_pred == 0 and n_gt == 0:
+        return empty, empty, empty, empty, np.array([])
+    if n_pred == 0:
+        return empty, empty, empty, np.arange(n_gt), np.array([])
+    if n_gt == 0:
+        return empty, empty, np.arange(n_pred), empty, np.array([])
+
+    iou = _mask_iou_matrix(pred_masks, gt_masks)  # (n_pred, n_gt)
+    # Maximize total IoU -> minimize negative IoU.
+    pred_indices, gt_indices = linear_sum_assignment(-iou)
+
+    matched_pred, matched_gt, matched_ious = [], [], []
+    for p_idx, g_idx in zip(pred_indices, gt_indices):
+        if iou[p_idx, g_idx] >= min_iou:
+            matched_pred.append(int(p_idx))
+            matched_gt.append(int(g_idx))
+            matched_ious.append(float(iou[p_idx, g_idx]))
+
+    matched_pred = np.array(matched_pred, dtype=int)
+    matched_gt = np.array(matched_gt, dtype=int)
+    unmatched_pred = np.array(
+        sorted(set(range(n_pred)) - set(matched_pred.tolist())), dtype=int
+    )
+    unmatched_gt = np.array(
+        sorted(set(range(n_gt)) - set(matched_gt.tolist())), dtype=int
+    )
+    return (
+        matched_pred,
+        matched_gt,
+        unmatched_pred,
+        unmatched_gt,
+        np.array(matched_ious),
+    )
+
+
+def _frame_masks(frame: sio.LabeledFrame) -> List[np.ndarray]:
+    """Decode a frame's segmentation masks into boolean arrays (orig res)."""
+    masks = getattr(frame, "masks", None) or []
+    return [np.asarray(m.data, dtype=bool) for m in masks]
+
+
 @attrs.define(auto_attribs=True, slots=True)
 class MatchInstance:
     """Class to have a new structure for sio.Instance object."""
@@ -584,8 +692,10 @@ class Evaluator:
         self.user_labels_only = user_labels_only
         self.match_method = match_method
         self.anchor_ind = anchor_ind
-        # Populated only in centroid mode.
+        # Populated only in centroid / mask mode.
         self.false_positives = []
+        # Matched-pair IoUs, populated only in mask mode.
+        self.mask_ious = np.array([])
 
         self._process_frames()
 
@@ -600,6 +710,10 @@ class Evaluator:
 
         if self.match_method == "centroid":
             self._process_frames_centroid()
+            return
+
+        if self.match_method == "mask":
+            self._process_frames_mask()
             return
 
         self.positive_pairs, self.false_negatives = match_frame_pairs(
@@ -697,6 +811,44 @@ class Evaluator:
             "frame_idxs": [gt.frame_idx for gt, _, _ in self.positive_pairs],
             "video_paths": [gt.video_path for gt, _, _ in self.positive_pairs],
         }
+
+    def _process_frames_mask(self):
+        """Match predicted vs GT segmentation masks by IoU (per frame).
+
+        Pulls per-instance boolean masks from ``LabeledFrame.masks`` on each
+        paired frame and matches them with :func:`match_masks` using
+        ``self.match_threshold`` as the IoU threshold. Populates
+        ``positive_pairs`` as ``(frame_gt, frame_pr, iou)`` 3-tuples (the frame
+        objects are stored only as tokens; detection counting uses the list
+        lengths, and per-pair IoUs feed :meth:`mask_metrics`), plus
+        ``false_negatives`` (unmatched GT masks) and ``false_positives``
+        (unmatched predicted masks). No keypoint distances exist for masks, so
+        ``dists_dict`` is left empty (``distance_metrics`` reports NaN; IoU is
+        reported via :meth:`mask_metrics`).
+        """
+        self.positive_pairs = []
+        self.false_negatives = []
+        self.false_positives = []
+        ious: List[float] = []
+
+        for frame_gt, frame_pr in self.frame_pairs:
+            gt_masks = _frame_masks(frame_gt)
+            pr_masks = _frame_masks(frame_pr)
+
+            _, _, unmatched_pred, unmatched_gt, pair_ious = match_masks(
+                pr_masks, gt_masks, min_iou=self.match_threshold
+            )
+
+            for iou in pair_ious:
+                self.positive_pairs.append((frame_gt, frame_pr, float(iou)))
+                ious.append(float(iou))
+            for _ in unmatched_gt:
+                self.false_negatives.append(frame_gt)
+            for _ in unmatched_pred:
+                self.false_positives.append(frame_pr)
+
+        self.mask_ious = np.asarray(ious, dtype=float)
+        self.dists_dict = {"dists": np.array([]), "frame_idxs": [], "video_paths": []}
 
     @staticmethod
     def _collapse_pred_centroid(points: np.ndarray) -> np.ndarray:
@@ -856,13 +1008,16 @@ class Evaluator:
         return results
 
     def detection_metrics(self) -> dict:
-        """Compute detection metrics for centroid-only / single-point matching.
+        """Compute detection metrics (precision/recall/F1) over TP/FP/FN counts.
 
-        Reuses the same aggregation as
-        ``CentroidEvaluationCallback._compute_metrics``: precision/recall/F1
-        over TP/FP/FN counts, plus localization-error percentiles over the
-        Euclidean distances of the matched centroid pairs. Intended for
-        ``match_method="centroid"``.
+        Used by both ``match_method="centroid"`` and ``match_method="mask"``
+        (it only reads the matched/unmatched list lengths and ``dists_dict``).
+        Mirrors ``CentroidEvaluationCallback._compute_metrics``. For centroid
+        mode the localization-error percentiles are computed over the Euclidean
+        distances of matched centroid pairs; for mask mode ``dists_dict`` is
+        empty so those percentiles are NaN (per-pair IoU is reported separately
+        via :meth:`mask_metrics`). Not used for ``match_method="oks"`` (which
+        reports OKS-based VOC metrics instead).
 
         Returns:
             A dict with ``precision``, ``recall``, ``f1``, ``n_tp``, ``n_fp``,
@@ -904,6 +1059,37 @@ class Evaluator:
             for ptile in (50, 75, 90, 95, 99):
                 results[f"p{ptile}"] = float(np.percentile(non_nans, ptile))
 
+        return results
+
+    def mask_metrics(self) -> dict:
+        """Compute mask-IoU summary statistics over matched (TP) pairs.
+
+        Intended for ``match_method="mask"``. Reports the mean IoU and IoU
+        percentiles over all matched predicted/GT mask pairs (NaN when there
+        are no matches).
+
+        Returns:
+            A dict with ``mean_iou``, ``min``, ``max``, percentiles ``p25``/
+            ``p50``/``p75``, the matched count ``n_matched``, and the raw
+            ``ious`` array.
+        """
+        ious = np.asarray(self.mask_ious, dtype=float)
+        results = {
+            "mean_iou": np.nan,
+            "min": np.nan,
+            "max": np.nan,
+            "p25": np.nan,
+            "p50": np.nan,
+            "p75": np.nan,
+            "n_matched": int(ious.size),
+            "ious": ious,
+        }
+        if ious.size:
+            results["mean_iou"] = float(np.mean(ious))
+            results["min"] = float(np.min(ious))
+            results["max"] = float(np.max(ious))
+            for ptile in (25, 50, 75):
+                results[f"p{ptile}"] = float(np.percentile(ious, ptile))
         return results
 
     def pck_metrics(self, thresholds: np.ndarray = np.linspace(1, 10, 10)):
@@ -977,6 +1163,15 @@ class Evaluator:
             return {
                 "detection_metrics": self.detection_metrics(),
                 "distance_metrics": self.distance_metrics(),
+            }
+
+        if self.match_method == "mask":
+            # Instance segmentation: detection (precision/recall/F1 over
+            # IoU-matched masks) + mask-IoU quality. OKS/PCK/visibility are
+            # keypoint-only and not computed.
+            return {
+                "detection_metrics": self.detection_metrics(),
+                "mask_metrics": self.mask_metrics(),
             }
 
         metrics = {}
@@ -1153,9 +1348,11 @@ def run_evaluation(
         user_labels_only: If False, predicted instances in the GT frame may be
             matched.
         save_metrics: Optional ``.npz`` path to save metrics to.
-        match_method: ``"oks"``, ``"centroid"``, or ``"auto"``. ``"auto"``
-            switches to centroid mode when the PREDICTION skeleton is a
-            single-node skeleton (e.g. ``sio.get_centroid_skeleton()``).
+        match_method: ``"oks"``, ``"centroid"``, ``"mask"``, or ``"auto"``.
+            ``"mask"`` matches predicted vs GT segmentation masks by IoU (for
+            ``bottomup_segmentation`` models). ``"auto"`` switches to centroid
+            mode when the PREDICTION skeleton is a single-node skeleton (e.g.
+            ``sio.get_centroid_skeleton()``).
         anchor_part: Name of the GT skeleton node used to compute GT centroids
             (centroid mode). Resolved against the GT skeleton; ``None`` (or an
             absent name) falls back to the mean of visible nodes (#586).
@@ -1200,6 +1397,11 @@ def run_evaluation(
     if match_method == "centroid" and match_threshold == 0:
         match_threshold = 50.0
 
+    # In mask mode, default the IoU match threshold to 0.5 if the caller left
+    # the OKS default of 0.0.
+    if match_method == "mask" and match_threshold == 0:
+        match_threshold = 0.5
+
     logger.info("Matching videos and frames...")
     # Get match stats before creating evaluator
     match_result = ground_truth_instances.match(predicted_instances)
@@ -1242,6 +1444,29 @@ def run_evaluation(
         logger.info(f"  dist.p90: {dist['p90']:.2f} px")
         logger.info(f"  dist.p95: {dist['p95']:.2f} px")
         logger.info(f"  dist.p99: {dist['p99']:.2f} px")
+
+        if save_metrics:
+            logger.info(f"Saving metrics to {save_metrics}...")
+            save_path = Path(save_metrics)
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(save_path, **{"metrics": metrics})
+            logger.info(f"Metrics saved successfully to {save_path}")
+
+        return metrics
+
+    if match_method == "mask":
+        # Mask mode: report detection (IoU-matched) + mask-IoU metrics only
+        # (no oks_voc.*/mOKS/PCK/visibility keys exist).
+        det = metrics["detection_metrics"]
+        mm = metrics["mask_metrics"]
+        logger.info("Evaluation Results (mask mode):")
+        logger.info(f"  Precision: {det['precision']:.4f}")
+        logger.info(f"  Recall: {det['recall']:.4f}")
+        logger.info(f"  F1: {det['f1']:.4f}")
+        logger.info(f"  Counts: TP={det['n_tp']}, FP={det['n_fp']}, FN={det['n_fn']}")
+        logger.info(f"  Mean mask IoU: {mm['mean_iou']:.4f}")
+        logger.info(f"  mask IoU p50: {mm['p50']:.4f}")
+        logger.info(f"  mask IoU p25: {mm['p25']:.4f}")
 
         if save_metrics:
             logger.info(f"Saving metrics to {save_metrics}...")

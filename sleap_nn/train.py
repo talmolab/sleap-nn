@@ -108,6 +108,111 @@ def _run_centroid_split_eval(
     return metrics
 
 
+def _run_segmentation_split_eval(
+    config: DictConfig,
+    d_name: str,
+    path: str,
+    run_path: Path,
+    pred_path: Path,
+    metrics_path: Path,
+    device: str,
+):
+    """Run post-training eval for a single split of a segmentation model.
+
+    ``bottomup_segmentation`` models predict per-instance masks (not
+    keypoints), so they use the NEW inference flow
+    (``sleap_nn.inference.run.predict``, which auto-detects the segmentation
+    model) and mask-IoU evaluation (``run_evaluation(match_method="mask")``).
+    The mask metrics dict has ``detection_metrics`` (IoU-matched
+    precision/recall/F1) + ``mask_metrics`` (mean IoU) only — no
+    ``voc_metrics``/``mOKS``/``pck``/``visibility`` keys — so every access is
+    guarded and the OKS mAP line is intentionally NOT logged.
+
+    Post-training eval is best-effort: a weak model that predicts no masks (so
+    no frames pair) is logged and skipped rather than aborting the run.
+
+    Args:
+        config: Training configuration.
+        d_name: Split name, e.g. ``"train.0"``/``"val.0"``/``"test.0"``.
+        path: Path to the ground-truth ``.slp`` for this split.
+        run_path: The ``<ckpt_dir>/<run_name>`` directory (the seg model).
+        pred_path: Output path for the predicted ``.slp``.
+        metrics_path: Output path for the saved metrics ``.npz``.
+        device: Torch device string to run inference on.
+
+    Returns:
+        The metrics dict returned by ``run_evaluation`` (mask mode), or ``None``
+        if there were no predicted frames / no matched frames (eval skipped).
+    """
+    # Lazy import of the NEW inference flow (segmentation auto-detected).
+    from sleap_nn.inference.run import predict as predict_new
+
+    pred_labels = predict_new(
+        path,
+        model_paths=[run_path],
+        peak_threshold=0.2,
+        device=device,
+        output_path=pred_path,
+    )
+
+    if not len(pred_labels):
+        logger.info(
+            f"Skipping eval on `{d_name}` dataset as there are no predicted masks..."
+        )
+        return None
+
+    # IoU match threshold for masks must lie in (0, 1]. The shared
+    # `trainer_config.eval.match_threshold` defaults to 50.0 (a centroid PIXEL
+    # distance), which is never a valid IoU and would reject every mask, so we
+    # fall back to 0.5 unless the user explicitly set a value in the IoU range.
+    match_threshold = OmegaConf.select(
+        config, "trainer_config.eval.match_threshold", default=None
+    )
+    if match_threshold is None or not (0.0 < float(match_threshold) <= 1.0):
+        match_threshold = 0.5
+
+    try:
+        metrics = run_evaluation(
+            ground_truth_path=path,
+            predicted_path=pred_path.as_posix(),
+            match_method="mask",
+            match_threshold=match_threshold,
+            save_metrics=metrics_path.as_posix(),
+        )
+    except Exception as e:  # noqa: BLE001 — eval is best-effort post-training.
+        logger.warning(f"Skipping segmentation eval on `{d_name}`: {e}")
+        return None
+
+    # Mask metrics: detection_metrics + mask_metrics only. Guard every access.
+    det = metrics.get("detection_metrics", {}) if metrics is not None else {}
+    mm = metrics.get("mask_metrics", {}) if metrics is not None else {}
+    logger.info(f"---------Evaluation on `{d_name}` dataset (segmentation)---------")
+    logger.info(f"Detection precision: {det.get('precision')}")
+    logger.info(f"Detection recall: {det.get('recall')}")
+    logger.info(f"Detection f1: {det.get('f1')}")
+    logger.info(f"Mean mask IoU: {mm.get('mean_iou')}")
+    logger.info(f"mask IoU p50: {mm.get('p50')}")
+
+    # Log test metrics to wandb summary (mirrors the keypoint OKS path).
+    if (
+        d_name.startswith("test")
+        and config.trainer_config.use_wandb
+        and metrics is not None
+    ):
+        import wandb
+
+        if wandb.run is not None:
+            for key, value in {
+                f"eval/{d_name}/mask_mean_iou": mm.get("mean_iou"),
+                f"eval/{d_name}/detection_precision": det.get("precision"),
+                f"eval/{d_name}/detection_recall": det.get("recall"),
+                f"eval/{d_name}/detection_f1": det.get("f1"),
+            }.items():
+                wandb.run.summary[key] = value
+
+    return metrics
+
+
 def run_training(
     config: DictConfig,
     train_labels: Optional[List[sio.Labels]] = None,
@@ -184,6 +289,18 @@ def run_training(
 
                 if model_type == "centroid":
                     _run_centroid_split_eval(
+                        config=trainer.config,
+                        d_name=d_name,
+                        path=path,
+                        run_path=run_path,
+                        pred_path=pred_path,
+                        metrics_path=metrics_path,
+                        device=str(trainer.trainer.strategy.root_device),
+                    )
+                    continue
+
+                if model_type == "bottomup_segmentation":
+                    _run_segmentation_split_eval(
                         config=trainer.config,
                         d_name=d_name,
                         path=path,
