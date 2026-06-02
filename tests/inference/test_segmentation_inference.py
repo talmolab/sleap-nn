@@ -344,6 +344,14 @@ def test_segmentation_train_predict_wiring(minimal_instance_seg, tmp_path):
     pred = Predictor.from_model_paths([run_dir], peak_threshold=0.05, device="cpu")
     assert isinstance(pred.layer, SegmentationLayer)
 
+    # fg_threshold / min_mask_area thread from_model_paths -> load_model_assets
+    # -> _build_bottomup_segmentation -> SegmentationLayer.
+    pred_filt = Predictor.from_model_paths(
+        [run_dir], min_mask_area=500, fg_threshold=0.7, device="cpu"
+    )
+    assert pred_filt.layer.min_mask_area == 500
+    assert abs(pred_filt.layer.fg_threshold - 0.7) < 1e-9
+
     out = pred.predict(minimal_instance_seg.as_posix(), make_labels=True)
     assert isinstance(out, sio.Labels)
     # Structure: masks is a flat list (possibly empty for an undertrained model);

@@ -778,6 +778,8 @@ def load_model_assets(
     n_points: int = 10,
     min_instance_peaks: Union[int, float] = 0,
     min_line_scores: float = 0.25,
+    fg_threshold: float = 0.5,
+    min_mask_area: int = 0,
 ) -> tuple[LoadedAssets, List[str]]:
     """Load checkpoints and build inference models.
 
@@ -789,7 +791,8 @@ def load_model_assets(
     ``dist_penalty_weight``, ``n_points``, ``min_instance_peaks``,
     ``min_line_scores``) are forwarded ONLY to the plain bottom-up builder
     (legacy applied them only to ``BottomUpPredictor``); they are inert for
-    other model types.
+    other model types. Likewise ``fg_threshold`` / ``min_mask_area`` are
+    forwarded ONLY to the bottom-up segmentation builder.
 
     Returns:
         ``(loaded_assets, model_types)`` — *model_types* is the list of
@@ -862,7 +865,12 @@ def load_model_assets(
 
     elif "bottomup_segmentation" in model_types:
         path = model_paths[model_types.index("bottomup_segmentation")]
-        assets = _build_bottomup_segmentation(path, **common_kwargs)
+        assets = _build_bottomup_segmentation(
+            path,
+            fg_threshold=fg_threshold,
+            min_mask_area=min_mask_area,
+            **common_kwargs,
+        )
 
     elif (
         "centroid" in model_types

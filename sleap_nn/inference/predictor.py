@@ -660,6 +660,8 @@ class Predictor:
         n_points: int = 10,
         min_instance_peaks: Union[int, float] = 0,
         min_line_scores: float = 0.25,
+        fg_threshold: float = 0.5,
+        min_mask_area: int = 0,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -698,6 +700,11 @@ class Predictor:
             min_instance_peaks: Bottom-up min peaks for a valid instance.
             min_line_scores: Bottom-up per-edge match threshold. (These five
                 are applied only to plain bottom-up models.)
+            fg_threshold: Foreground probability threshold for binarizing the
+                segmentation map (bottom-up segmentation only).
+            min_mask_area: Minimum predicted-mask area in original-image pixels;
+                smaller masks are dropped to suppress over-segmentation. ``0``
+                disables it (bottom-up segmentation only).
         """
         from sleap_nn.inference.loaders import load_model_assets
 
@@ -718,6 +725,8 @@ class Predictor:
             n_points=n_points,
             min_instance_peaks=min_instance_peaks,
             min_line_scores=min_line_scores,
+            fg_threshold=fg_threshold,
+            min_mask_area=min_mask_area,
         )
 
         if centroid_only:

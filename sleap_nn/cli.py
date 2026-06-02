@@ -1417,6 +1417,9 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         "n_points": kwargs.get("n_points", 10),
         "min_instance_peaks": kwargs.get("min_instance_peaks", 0),
         "min_line_scores": kwargs.get("min_line_scores", 0.25),
+        # Bottom-up segmentation knobs (inert for non-segmentation models).
+        "fg_threshold": kwargs.get("fg_threshold", 0.5),
+        "min_mask_area": kwargs.get("min_mask_area", 0),
     }
     preprocess_config = _build_preprocess_config(kwargs)
     if preprocess_config is not None:
@@ -1687,6 +1690,9 @@ def _run_stream_to_file(
         "n_points": kwargs.get("n_points", 10),
         "min_instance_peaks": kwargs.get("min_instance_peaks", 0),
         "min_line_scores": kwargs.get("min_line_scores", 0.25),
+        # Bottom-up segmentation knobs (inert for non-segmentation models).
+        "fg_threshold": kwargs.get("fg_threshold", 0.5),
+        "min_mask_area": kwargs.get("min_mask_area", 0),
     }
     preprocess_config = _build_preprocess_config(kwargs)
     if preprocess_config is not None:
@@ -1899,6 +1905,25 @@ def _common_inference_options(f):
         click.option("--n_points", type=int, default=10),
         click.option("--min_instance_peaks", type=float, default=0),
         click.option("--min_line_scores", type=float, default=0.25),
+        click.option(
+            "--fg_threshold",
+            "--fg-threshold",
+            "fg_threshold",
+            type=float,
+            default=0.5,
+            help="Foreground probability threshold for binarizing the "
+            "segmentation map (bottom-up segmentation models only).",
+        ),
+        click.option(
+            "--min_mask_area",
+            "--min-mask-area",
+            "min_mask_area",
+            type=int,
+            default=0,
+            help="Drop predicted masks smaller than this many original-image "
+            "pixels to suppress over-segmentation (bottom-up segmentation "
+            "models only). 0 disables.",
+        ),
         click.option(
             "--queue_maxsize",
             type=int,
