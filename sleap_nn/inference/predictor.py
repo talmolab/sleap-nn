@@ -236,6 +236,7 @@ def _build_bottomup_segmentation_layer(
         output_stride=inf.output_stride,
         max_stride=max_stride,
         fg_threshold=inf.fg_threshold,
+        min_mask_area=getattr(inf, "min_mask_area", 0),
         preprocess_config=PreprocessConfig(
             scale=inf.input_scale,
             max_height=_pp_field(predictor, "max_height"),

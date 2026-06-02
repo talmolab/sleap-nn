@@ -403,12 +403,17 @@ def _build_bottomup_segmentation(
     return_confmaps: bool,
     preprocess_config: Any,
     fg_threshold: float = 0.5,
+    min_mask_area: int = 0,
 ) -> LoadedAssets:
     """Load a ``BottomUpSegmentationLightningModule`` and wrap it for inference.
 
     ``integral_refinement`` / ``integral_patch_size`` / ``return_confmaps`` are
     accepted for a uniform ``common_kwargs`` call signature but are unused
     (segmentation has no keypoint peak refinement / confmaps).
+
+    ``min_mask_area`` (original-image pixels) drops tiny spurious predicted
+    masks (over-segmentation); ``0`` disables it. It is carried on the
+    inference model and applied in ``SegmentationLayer.postprocess``.
     """
     module, config, backbone_type = _load_lightning_module(
         BottomUpSegmentationLightningModule,
@@ -436,6 +441,7 @@ def _build_bottomup_segmentation(
         peak_threshold=peak_threshold,
         output_stride=output_stride,
         input_scale=config.data_config.preprocessing.scale,
+        min_mask_area=min_mask_area,
     )
     return LoadedAssets(
         inference_model=inference_model,

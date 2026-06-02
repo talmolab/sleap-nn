@@ -36,6 +36,10 @@ class SegmentationLayer(InferenceLayer):
         max_stride: Backbone max stride; the input is padded to a multiple of
             it during preprocessing.
         fg_threshold: Foreground probability threshold for binarization.
+        min_mask_area: Minimum area (in ORIGINAL-image pixels) for a predicted
+            mask to be kept. Masks smaller than this are dropped — useful for
+            suppressing tiny spurious blobs (over-segmentation). ``0`` disables
+            the filter (only empty masks are dropped).
         preprocess_config / postprocess_config: Standard knobs;
             ``postprocess_config.peak_threshold`` is the instance-center peak
             threshold (overridable via ``Predictor.predict(peak_threshold=...)``).
@@ -51,6 +55,7 @@ class SegmentationLayer(InferenceLayer):
         output_stride: int,
         max_stride: int = 1,
         fg_threshold: float = 0.5,
+        min_mask_area: int = 0,
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
     ) -> None:
@@ -64,6 +69,7 @@ class SegmentationLayer(InferenceLayer):
             max_stride=max_stride,
         )
         self.fg_threshold = fg_threshold
+        self.min_mask_area = int(min_mask_area)
 
     @property
     def warmup_input_shape(self):
@@ -103,9 +109,13 @@ class SegmentationLayer(InferenceLayer):
                 output_stride=self.output_stride,
             )
             frame_masks: List[dict] = []
+            # Drop empty masks and, when ``min_mask_area > 0``, tiny spurious
+            # masks below the area floor (in original-image pixels). The
+            # ``max(1, ...)`` keeps the empty-mask drop when the filter is off.
+            area_floor = max(1, self.min_mask_area)
             for inst in instances:
                 mask_full = self._mask_to_original(inst["mask"], info, b)
-                if not mask_full.any():
+                if int(mask_full.sum()) < area_floor:
                     continue
                 frame_masks.append({"mask": mask_full, "score": float(inst["score"])})
             pred_masks.append(frame_masks)

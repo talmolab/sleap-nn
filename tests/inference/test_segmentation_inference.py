@@ -118,6 +118,7 @@ def test_segmentation_layer_postprocess_gt_roundtrip():
     layer = SegmentationLayer.__new__(SegmentationLayer)
     layer.output_stride = s
     layer.fg_threshold = 0.5
+    layer.min_mask_area = 0
     layer.postprocess_config = PostprocessConfig(peak_threshold=0.2)
 
     info = PreprocInfo(
@@ -150,6 +151,51 @@ def test_segmentation_layer_postprocess_gt_roundtrip():
     )
     labels = out.to_labels(skeleton=None, videos=[video])
     assert len(labels.masks) == 2
+
+
+def test_segmentation_layer_min_mask_area_drops_tiny_masks():
+    """``min_mask_area`` drops tiny spurious masks while keeping large ones.
+
+    Suppresses over-segmentation (the inference layer otherwise emits small
+    noise blobs alongside real instances). Area is measured in original-image
+    pixels after mapping back from the output-stride grid.
+    """
+    H, W, s = 128, 128, 2
+    big = _disk(H, W, 40, 40, 22)  # ~1520 px
+    tiny = _disk(H, W, 95, 95, 4)  # ~50 px
+    masks = [big, tiny]
+    fg = generate_foreground_mask(masks, (H, W), output_stride=s)
+    center = generate_center_heatmap(masks, (H, W), output_stride=s, sigma=6.0)
+    offsets, _ = generate_center_offsets(masks, (H, W), output_stride=s)
+    raw = {
+        "SegmentationHead": fg,
+        "InstanceCenterHead": center,
+        "CenterOffsetHead": offsets,
+    }
+    info = PreprocInfo(
+        original_size=(H, W),
+        processed_size=(H, W),
+        eff_scale=torch.tensor([1.0]),
+        input_scale=1.0,
+        output_stride=s,
+    )
+
+    def _layer(min_area):
+        layer = SegmentationLayer.__new__(SegmentationLayer)
+        layer.output_stride = s
+        layer.fg_threshold = 0.5
+        layer.min_mask_area = min_area
+        layer.postprocess_config = PostprocessConfig(peak_threshold=0.2)
+        return layer
+
+    # No filter: both instances (incl. the tiny one) are recovered.
+    out0 = _layer(0).postprocess(raw, info)
+    assert len(out0.pred_masks[0]) == 2
+
+    # With a floor between the two areas, only the large mask survives.
+    out1 = _layer(400).postprocess(raw, info)
+    assert len(out1.pred_masks[0]) == 1
+    assert int(out1.pred_masks[0][0]["mask"].sum()) >= 400
 
 
 # ---------------------------------------------------------------------------

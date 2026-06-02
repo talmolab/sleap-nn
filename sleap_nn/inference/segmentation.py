@@ -158,6 +158,10 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         fg_threshold: Threshold for foreground binarization.
         peak_threshold: Minimum peak value for center detection.
         output_stride: Stride of the model output maps.
+        min_mask_area: Minimum mask area (original-image pixels) carried through
+            to ``SegmentationLayer`` to drop tiny spurious masks. ``0`` disables
+            it. Not applied here (``forward`` returns output-stride masks for
+            training visualization); see ``SegmentationLayer.postprocess``.
     """
 
     def __init__(
@@ -167,6 +171,7 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         peak_threshold: float = 0.2,
         output_stride: int = 2,
         input_scale: float = 1.0,
+        min_mask_area: int = 0,
     ):
         """Initialize the inference model."""
         super().__init__()
@@ -175,6 +180,7 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         self.peak_threshold = peak_threshold
         self.output_stride = output_stride
         self.input_scale = input_scale
+        self.min_mask_area = int(min_mask_area)
 
     def forward(self, batch: Dict) -> List[List[Dict]]:
         """Run inference on a batch of images.
