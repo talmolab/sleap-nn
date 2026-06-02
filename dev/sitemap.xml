@@ -385,6 +385,10 @@
          <lastmod>2026-06-02</lastmod>
     </url>
     <url>
+         <loc>https://nn.sleap.ai/dev/api/inference/segmentation_convert/</loc>
+         <lastmod>2026-06-02</lastmod>
+    </url>
+    <url>
          <loc>https://nn.sleap.ai/dev/api/inference/single_instance/</loc>
          <lastmod>2026-06-02</lastmod>
     </url>
@@ -438,6 +442,10 @@
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/layers/exported/</loc>
+         <lastmod>2026-06-02</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/inference/layers/segmentation/</loc>
          <lastmod>2026-06-02</lastmod>
     </url>
     <url>

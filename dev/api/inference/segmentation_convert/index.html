@@ -8,31 +8,31 @@
       
       
       
-        <link rel="canonical" href="https://nn.sleap.ai/dev/api/export/wrappers/single_instance/">
+        <link rel="canonical" href="https://nn.sleap.ai/dev/api/inference/segmentation_convert/">
       
       
-        <link rel="prev" href="../centroid/">
+        <link rel="prev" href="../segmentation/">
       
       
-        <link rel="next" href="../topdown/">
+        <link rel="next" href="../single_instance/">
       
       
         
       
       
-      <link rel="icon" href="../../../../assets/favicon.ico">
+      <link rel="icon" href="../../../assets/favicon.ico">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
     
     
       
-        <title>single_instance - sleap-nn documentation</title>
+        <title>segmentation_convert - sleap-nn documentation</title>
       
     
     
-      <link rel="stylesheet" href="../../../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../../../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,11 +51,11 @@
       
     
     
-      <link rel="stylesheet" href="../../../../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="../../../../stylesheets/extra.css">
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
     
-    <script>__md_scope=new URL("../../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sleap_nn.export.wrappers.single_instance" class="md-skip">
+        <a href="#sleap_nn.inference.segmentation_convert" class="md-skip">
           Skip to content
         </a>
       
@@ -100,9 +100,9 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../../../.." title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+    <a href="../../.." title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
       
-  <img src="../../../../assets/sleap-logo.png" alt="logo">
+  <img src="../../../assets/sleap-logo.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -119,7 +119,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              single_instance
+              segmentation_convert
             
           </span>
         </div>
@@ -226,7 +226,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../../.." class="md-tabs__link">
+      <a href="../../.." class="md-tabs__link">
         
   
   
@@ -245,7 +245,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../../../installation/" class="md-tabs__link">
+      <a href="../../../installation/" class="md-tabs__link">
         
   
   
@@ -264,7 +264,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../../../tutorials/" class="md-tabs__link">
+      <a href="../../../tutorials/" class="md-tabs__link">
         
   
   
@@ -283,7 +283,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../../../guides/" class="md-tabs__link">
+      <a href="../../../guides/" class="md-tabs__link">
         
   
   
@@ -302,7 +302,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../../../reference/" class="md-tabs__link">
+      <a href="../../../reference/" class="md-tabs__link">
         
   
   
@@ -325,7 +325,7 @@
     
     
       <li class="md-tabs__item md-tabs__item--active">
-        <a href="../../../" class="md-tabs__link">
+        <a href="../../" class="md-tabs__link">
           
   
   
@@ -343,7 +343,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../../../changelog/" class="md-tabs__link">
+      <a href="../../../changelog/" class="md-tabs__link">
         
   
   
@@ -403,9 +403,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../../.." title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+    <a href="../../.." title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
       
-  <img src="../../../../assets/sleap-logo.png" alt="logo">
+  <img src="../../../assets/sleap-logo.png" alt="logo">
 
     </a>
     sleap-nn documentation
@@ -432,7 +432,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../.." class="md-nav__link">
+      <a href="../../.." class="md-nav__link">
         
   
   
@@ -459,7 +459,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../installation/" class="md-nav__link">
+      <a href="../../../installation/" class="md-nav__link">
         
   
   
@@ -503,7 +503,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../../tutorials/" class="md-nav__link ">
+            <a href="../../../tutorials/" class="md-nav__link ">
               
   
   
@@ -545,7 +545,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../getting-started/quickstart/" class="md-nav__link">
+      <a href="../../../getting-started/quickstart/" class="md-nav__link">
         
   
   
@@ -573,7 +573,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../getting-started/first-model/" class="md-nav__link">
+      <a href="../../../getting-started/first-model/" class="md-nav__link">
         
   
   
@@ -601,7 +601,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../tutorials/notebooks/" class="md-nav__link">
+      <a href="../../../tutorials/notebooks/" class="md-nav__link">
         
   
   
@@ -653,7 +653,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../../guides/" class="md-nav__link ">
+            <a href="../../../guides/" class="md-nav__link ">
               
   
   
@@ -712,7 +712,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../../guides/training/" class="md-nav__link ">
+            <a href="../../../guides/training/" class="md-nav__link ">
               
   
   
@@ -754,7 +754,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../guides/config-generator/" class="md-nav__link">
+      <a href="../../../guides/config-generator/" class="md-nav__link">
         
   
   
@@ -782,7 +782,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../guides/negative-frames/" class="md-nav__link">
+      <a href="../../../guides/negative-frames/" class="md-nav__link">
         
   
   
@@ -810,7 +810,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../guides/monitoring/" class="md-nav__link">
+      <a href="../../../guides/monitoring/" class="md-nav__link">
         
   
   
@@ -838,7 +838,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../guides/multi-gpu/" class="md-nav__link">
+      <a href="../../../guides/multi-gpu/" class="md-nav__link">
         
   
   
@@ -891,7 +891,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../../guides/inference/" class="md-nav__link ">
+            <a href="../../../guides/inference/" class="md-nav__link ">
               
   
   
@@ -933,7 +933,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../guides/inference-api/" class="md-nav__link">
+      <a href="../../../guides/inference-api/" class="md-nav__link">
         
   
   
@@ -961,7 +961,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../guides/centroid-only-inference/" class="md-nav__link">
+      <a href="../../../guides/centroid-only-inference/" class="md-nav__link">
         
   
   
@@ -989,7 +989,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../guides/inference-performance/" class="md-nav__link">
+      <a href="../../../guides/inference-performance/" class="md-nav__link">
         
   
   
@@ -1025,7 +1025,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../guides/evaluation/" class="md-nav__link">
+      <a href="../../../guides/evaluation/" class="md-nav__link">
         
   
   
@@ -1053,7 +1053,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../guides/tracking/" class="md-nav__link">
+      <a href="../../../guides/tracking/" class="md-nav__link">
         
   
   
@@ -1081,7 +1081,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../guides/export/" class="md-nav__link">
+      <a href="../../../guides/export/" class="md-nav__link">
         
   
   
@@ -1133,7 +1133,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../../reference/" class="md-nav__link ">
+            <a href="../../../reference/" class="md-nav__link ">
               
   
   
@@ -1192,7 +1192,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../../configuration/" class="md-nav__link ">
+            <a href="../../../configuration/" class="md-nav__link ">
               
   
   
@@ -1234,7 +1234,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../configuration/config-picker/" class="md-nav__link">
+      <a href="../../../configuration/config-picker/" class="md-nav__link">
         
   
   
@@ -1262,7 +1262,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../configuration/data/" class="md-nav__link">
+      <a href="../../../configuration/data/" class="md-nav__link">
         
   
   
@@ -1290,7 +1290,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../configuration/model/" class="md-nav__link">
+      <a href="../../../configuration/model/" class="md-nav__link">
         
   
   
@@ -1318,7 +1318,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../configuration/trainer/" class="md-nav__link">
+      <a href="../../../configuration/trainer/" class="md-nav__link">
         
   
   
@@ -1346,7 +1346,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../configuration/samples/" class="md-nav__link">
+      <a href="../../../configuration/samples/" class="md-nav__link">
         
   
   
@@ -1382,7 +1382,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../reference/cli/" class="md-nav__link">
+      <a href="../../../reference/cli/" class="md-nav__link">
         
   
   
@@ -1410,7 +1410,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../reference/models/" class="md-nav__link">
+      <a href="../../../reference/models/" class="md-nav__link">
         
   
   
@@ -1438,7 +1438,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../reference/evaluation_metrics/" class="md-nav__link">
+      <a href="../../../reference/evaluation_metrics/" class="md-nav__link">
         
   
   
@@ -1466,7 +1466,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../help/faq/" class="md-nav__link">
+      <a href="../../../help/faq/" class="md-nav__link">
         
   
   
@@ -1580,7 +1580,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../" class="md-nav__link ">
+            <a href="../../" class="md-nav__link ">
               
   
   
@@ -1639,7 +1639,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../architectures/" class="md-nav__link ">
+            <a href="../../architectures/" class="md-nav__link ">
               
   
   
@@ -1681,7 +1681,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../architectures/common/" class="md-nav__link">
+      <a href="../../architectures/common/" class="md-nav__link">
         
   
   
@@ -1709,7 +1709,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../architectures/convnext/" class="md-nav__link">
+      <a href="../../architectures/convnext/" class="md-nav__link">
         
   
   
@@ -1737,7 +1737,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../architectures/encoder_decoder/" class="md-nav__link">
+      <a href="../../architectures/encoder_decoder/" class="md-nav__link">
         
   
   
@@ -1765,7 +1765,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../architectures/heads/" class="md-nav__link">
+      <a href="../../architectures/heads/" class="md-nav__link">
         
   
   
@@ -1793,7 +1793,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../architectures/model/" class="md-nav__link">
+      <a href="../../architectures/model/" class="md-nav__link">
         
   
   
@@ -1821,7 +1821,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../architectures/swint/" class="md-nav__link">
+      <a href="../../architectures/swint/" class="md-nav__link">
         
   
   
@@ -1849,7 +1849,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../architectures/unet/" class="md-nav__link">
+      <a href="../../architectures/unet/" class="md-nav__link">
         
   
   
@@ -1877,7 +1877,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../architectures/utils/" class="md-nav__link">
+      <a href="../../architectures/utils/" class="md-nav__link">
         
   
   
@@ -1913,7 +1913,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../cli/" class="md-nav__link">
+      <a href="../../cli/" class="md-nav__link">
         
   
   
@@ -1958,7 +1958,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../config/" class="md-nav__link ">
+            <a href="../../config/" class="md-nav__link ">
               
   
   
@@ -2000,7 +2000,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config/data_config/" class="md-nav__link">
+      <a href="../../config/data_config/" class="md-nav__link">
         
   
   
@@ -2028,7 +2028,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config/get_config/" class="md-nav__link">
+      <a href="../../config/get_config/" class="md-nav__link">
         
   
   
@@ -2056,7 +2056,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config/model_config/" class="md-nav__link">
+      <a href="../../config/model_config/" class="md-nav__link">
         
   
   
@@ -2084,7 +2084,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config/trainer_config/" class="md-nav__link">
+      <a href="../../config/trainer_config/" class="md-nav__link">
         
   
   
@@ -2112,7 +2112,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config/training_job_config/" class="md-nav__link">
+      <a href="../../config/training_job_config/" class="md-nav__link">
         
   
   
@@ -2140,7 +2140,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config/utils/" class="md-nav__link">
+      <a href="../../config/utils/" class="md-nav__link">
         
   
   
@@ -2193,7 +2193,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../config_generator/" class="md-nav__link ">
+            <a href="../../config_generator/" class="md-nav__link ">
               
   
   
@@ -2235,7 +2235,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/analyzer/" class="md-nav__link">
+      <a href="../../config_generator/analyzer/" class="md-nav__link">
         
   
   
@@ -2263,7 +2263,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/architecture_estimates/" class="md-nav__link">
+      <a href="../../config_generator/architecture_estimates/" class="md-nav__link">
         
   
   
@@ -2291,7 +2291,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/generator/" class="md-nav__link">
+      <a href="../../config_generator/generator/" class="md-nav__link">
         
   
   
@@ -2319,7 +2319,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/memory/" class="md-nav__link">
+      <a href="../../config_generator/memory/" class="md-nav__link">
         
   
   
@@ -2347,7 +2347,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/recommender/" class="md-nav__link">
+      <a href="../../config_generator/recommender/" class="md-nav__link">
         
   
   
@@ -2392,7 +2392,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../config_generator/tui/" class="md-nav__link ">
+            <a href="../../config_generator/tui/" class="md-nav__link ">
               
   
   
@@ -2434,7 +2434,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/tui/app/" class="md-nav__link">
+      <a href="../../config_generator/tui/app/" class="md-nav__link">
         
   
   
@@ -2479,7 +2479,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../config_generator/tui/screens/" class="md-nav__link ">
+            <a href="../../config_generator/tui/screens/" class="md-nav__link ">
               
   
   
@@ -2521,7 +2521,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/tui/screens/configure_screen/" class="md-nav__link">
+      <a href="../../config_generator/tui/screens/configure_screen/" class="md-nav__link">
         
   
   
@@ -2549,7 +2549,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/tui/screens/export_screen/" class="md-nav__link">
+      <a href="../../config_generator/tui/screens/export_screen/" class="md-nav__link">
         
   
   
@@ -2577,7 +2577,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/tui/screens/load_screen/" class="md-nav__link">
+      <a href="../../config_generator/tui/screens/load_screen/" class="md-nav__link">
         
   
   
@@ -2605,7 +2605,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/tui/screens/model_select_screen/" class="md-nav__link">
+      <a href="../../config_generator/tui/screens/model_select_screen/" class="md-nav__link">
         
   
   
@@ -2641,7 +2641,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/tui/state/" class="md-nav__link">
+      <a href="../../config_generator/tui/state/" class="md-nav__link">
         
   
   
@@ -2686,7 +2686,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../config_generator/tui/widgets/" class="md-nav__link ">
+            <a href="../../config_generator/tui/widgets/" class="md-nav__link ">
               
   
   
@@ -2728,7 +2728,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/tui/widgets/collapsible/" class="md-nav__link">
+      <a href="../../config_generator/tui/widgets/collapsible/" class="md-nav__link">
         
   
   
@@ -2756,7 +2756,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/tui/widgets/info_box/" class="md-nav__link">
+      <a href="../../config_generator/tui/widgets/info_box/" class="md-nav__link">
         
   
   
@@ -2784,7 +2784,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/tui/widgets/memory_gauge/" class="md-nav__link">
+      <a href="../../config_generator/tui/widgets/memory_gauge/" class="md-nav__link">
         
   
   
@@ -2812,7 +2812,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/tui/widgets/recommendation/" class="md-nav__link">
+      <a href="../../config_generator/tui/widgets/recommendation/" class="md-nav__link">
         
   
   
@@ -2840,7 +2840,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/tui/widgets/size_display/" class="md-nav__link">
+      <a href="../../config_generator/tui/widgets/size_display/" class="md-nav__link">
         
   
   
@@ -2868,7 +2868,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config_generator/tui/widgets/slider/" class="md-nav__link">
+      <a href="../../config_generator/tui/widgets/slider/" class="md-nav__link">
         
   
   
@@ -2937,7 +2937,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../data/" class="md-nav__link ">
+            <a href="../../data/" class="md-nav__link ">
               
   
   
@@ -2979,7 +2979,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../data/augmentation/" class="md-nav__link">
+      <a href="../../data/augmentation/" class="md-nav__link">
         
   
   
@@ -3007,7 +3007,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../data/confidence_maps/" class="md-nav__link">
+      <a href="../../data/confidence_maps/" class="md-nav__link">
         
   
   
@@ -3035,7 +3035,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../data/custom_datasets/" class="md-nav__link">
+      <a href="../../data/custom_datasets/" class="md-nav__link">
         
   
   
@@ -3063,7 +3063,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../data/edge_maps/" class="md-nav__link">
+      <a href="../../data/edge_maps/" class="md-nav__link">
         
   
   
@@ -3091,7 +3091,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../data/identity/" class="md-nav__link">
+      <a href="../../data/identity/" class="md-nav__link">
         
   
   
@@ -3119,7 +3119,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../data/instance_centroids/" class="md-nav__link">
+      <a href="../../data/instance_centroids/" class="md-nav__link">
         
   
   
@@ -3147,7 +3147,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../data/instance_cropping/" class="md-nav__link">
+      <a href="../../data/instance_cropping/" class="md-nav__link">
         
   
   
@@ -3175,7 +3175,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../data/normalization/" class="md-nav__link">
+      <a href="../../data/normalization/" class="md-nav__link">
         
   
   
@@ -3203,7 +3203,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../data/providers/" class="md-nav__link">
+      <a href="../../data/providers/" class="md-nav__link">
         
   
   
@@ -3231,7 +3231,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../data/resizing/" class="md-nav__link">
+      <a href="../../data/resizing/" class="md-nav__link">
         
   
   
@@ -3259,7 +3259,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../data/segmentation_maps/" class="md-nav__link">
+      <a href="../../data/segmentation_maps/" class="md-nav__link">
         
   
   
@@ -3287,7 +3287,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../data/skia_augmentation/" class="md-nav__link">
+      <a href="../../data/skia_augmentation/" class="md-nav__link">
         
   
   
@@ -3315,7 +3315,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../data/utils/" class="md-nav__link">
+      <a href="../../data/utils/" class="md-nav__link">
         
   
   
@@ -3351,7 +3351,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../evaluation/" class="md-nav__link">
+      <a href="../../evaluation/" class="md-nav__link">
         
   
   
@@ -3376,8 +3376,6 @@
                 
   
   
-    
-  
   
   
     
@@ -3390,15 +3388,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_7" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_7" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../" class="md-nav__link ">
+            <a href="../../export/" class="md-nav__link ">
               
   
   
@@ -3422,7 +3420,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_7_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_7_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_6_1_7">
             <span class="md-nav__icon md-icon"></span>
             
@@ -3440,7 +3438,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../cli/" class="md-nav__link">
+      <a href="../../export/cli/" class="md-nav__link">
         
   
   
@@ -3485,7 +3483,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../exporters/" class="md-nav__link ">
+            <a href="../../export/exporters/" class="md-nav__link ">
               
   
   
@@ -3527,7 +3525,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../exporters/onnx_exporter/" class="md-nav__link">
+      <a href="../../export/exporters/onnx_exporter/" class="md-nav__link">
         
   
   
@@ -3555,7 +3553,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../exporters/tensorrt_exporter/" class="md-nav__link">
+      <a href="../../export/exporters/tensorrt_exporter/" class="md-nav__link">
         
   
   
@@ -3591,7 +3589,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../metadata/" class="md-nav__link">
+      <a href="../../export/metadata/" class="md-nav__link">
         
   
   
@@ -3619,7 +3617,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../utils/" class="md-nav__link">
+      <a href="../../export/utils/" class="md-nav__link">
         
   
   
@@ -3644,8 +3642,6 @@
                 
   
   
-    
-  
   
   
     
@@ -3658,15 +3654,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_7_5" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_7_5" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../../export/wrappers/" class="md-nav__link ">
               
   
   
@@ -3690,7 +3686,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_6_1_7_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_6_1_7_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_6_1_7_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -3708,7 +3704,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../base/" class="md-nav__link">
+      <a href="../../export/wrappers/base/" class="md-nav__link">
         
   
   
@@ -3736,7 +3732,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../bottomup/" class="md-nav__link">
+      <a href="../../export/wrappers/bottomup/" class="md-nav__link">
         
   
   
@@ -3764,7 +3760,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../bottomup_multiclass/" class="md-nav__link">
+      <a href="../../export/wrappers/bottomup_multiclass/" class="md-nav__link">
         
   
   
@@ -3792,7 +3788,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../centered_instance/" class="md-nav__link">
+      <a href="../../export/wrappers/centered_instance/" class="md-nav__link">
         
   
   
@@ -3820,7 +3816,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../centroid/" class="md-nav__link">
+      <a href="../../export/wrappers/centroid/" class="md-nav__link">
         
   
   
@@ -3845,35 +3841,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    single_instance
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../export/wrappers/single_instance/" class="md-nav__link">
         
   
   
@@ -3889,52 +3860,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#sleap_nn.export.wrappers.single_instance" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        single_instance
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="single_instance">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        SingleInstanceONNXWrapper
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -3947,7 +3872,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../topdown/" class="md-nav__link">
+      <a href="../../export/wrappers/topdown/" class="md-nav__link">
         
   
   
@@ -3975,7 +3900,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../topdown_multiclass/" class="md-nav__link">
+      <a href="../../export/wrappers/topdown_multiclass/" class="md-nav__link">
         
   
   
@@ -4016,8 +3941,10 @@
                 
   
   
+    
   
   
+  
     
     
     
@@ -4028,15 +3955,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_8" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_8" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../inference/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -4060,7 +3987,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_8_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_8_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_6_1_8">
             <span class="md-nav__icon md-icon"></span>
             
@@ -4078,7 +4005,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/bottomup/" class="md-nav__link">
+      <a href="../bottomup/" class="md-nav__link">
         
   
   
@@ -4106,7 +4033,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/centroid_convert/" class="md-nav__link">
+      <a href="../centroid_convert/" class="md-nav__link">
         
   
   
@@ -4134,7 +4061,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/filters/" class="md-nav__link">
+      <a href="../filters/" class="md-nav__link">
         
   
   
@@ -4162,7 +4089,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/identity/" class="md-nav__link">
+      <a href="../identity/" class="md-nav__link">
         
   
   
@@ -4207,7 +4134,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../inference/layers/" class="md-nav__link ">
+            <a href="../layers/" class="md-nav__link ">
               
   
   
@@ -4266,7 +4193,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../inference/layers/backends/" class="md-nav__link ">
+            <a href="../layers/backends/" class="md-nav__link ">
               
   
   
@@ -4308,7 +4235,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/backends/base/" class="md-nav__link">
+      <a href="../layers/backends/base/" class="md-nav__link">
         
   
   
@@ -4336,7 +4263,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/backends/onnx_backend/" class="md-nav__link">
+      <a href="../layers/backends/onnx_backend/" class="md-nav__link">
         
   
   
@@ -4364,7 +4291,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/backends/tensorrt_backend/" class="md-nav__link">
+      <a href="../layers/backends/tensorrt_backend/" class="md-nav__link">
         
   
   
@@ -4392,7 +4319,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/backends/torch_backend/" class="md-nav__link">
+      <a href="../layers/backends/torch_backend/" class="md-nav__link">
         
   
   
@@ -4428,7 +4355,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/base/" class="md-nav__link">
+      <a href="../layers/base/" class="md-nav__link">
         
   
   
@@ -4456,7 +4383,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/bottomup/" class="md-nav__link">
+      <a href="../layers/bottomup/" class="md-nav__link">
         
   
   
@@ -4484,7 +4411,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/bottomup_multiclass/" class="md-nav__link">
+      <a href="../layers/bottomup_multiclass/" class="md-nav__link">
         
   
   
@@ -4512,7 +4439,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/centered_instance/" class="md-nav__link">
+      <a href="../layers/centered_instance/" class="md-nav__link">
         
   
   
@@ -4540,7 +4467,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/centroid/" class="md-nav__link">
+      <a href="../layers/centroid/" class="md-nav__link">
         
   
   
@@ -4568,7 +4495,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/configs/" class="md-nav__link">
+      <a href="../layers/configs/" class="md-nav__link">
         
   
   
@@ -4596,7 +4523,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/exported/" class="md-nav__link">
+      <a href="../layers/exported/" class="md-nav__link">
         
   
   
@@ -4624,7 +4551,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/segmentation/" class="md-nav__link">
+      <a href="../layers/segmentation/" class="md-nav__link">
         
   
   
@@ -4652,7 +4579,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/single_instance/" class="md-nav__link">
+      <a href="../layers/single_instance/" class="md-nav__link">
         
   
   
@@ -4680,7 +4607,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/topdown/" class="md-nav__link">
+      <a href="../layers/topdown/" class="md-nav__link">
         
   
   
@@ -4708,7 +4635,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/layers/topdown_multiclass/" class="md-nav__link">
+      <a href="../layers/topdown_multiclass/" class="md-nav__link">
         
   
   
@@ -4744,7 +4671,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/loaders/" class="md-nav__link">
+      <a href="../loaders/" class="md-nav__link">
         
   
   
@@ -4789,7 +4716,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../inference/ops/" class="md-nav__link ">
+            <a href="../ops/" class="md-nav__link ">
               
   
   
@@ -4831,7 +4758,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/ops/coord/" class="md-nav__link">
+      <a href="../ops/coord/" class="md-nav__link">
         
   
   
@@ -4859,7 +4786,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/ops/crops/" class="md-nav__link">
+      <a href="../ops/crops/" class="md-nav__link">
         
   
   
@@ -4887,7 +4814,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/ops/filters/" class="md-nav__link">
+      <a href="../ops/filters/" class="md-nav__link">
         
   
   
@@ -4915,7 +4842,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/ops/identity/" class="md-nav__link">
+      <a href="../ops/identity/" class="md-nav__link">
         
   
   
@@ -4943,7 +4870,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/ops/paf/" class="md-nav__link">
+      <a href="../ops/paf/" class="md-nav__link">
         
   
   
@@ -4971,7 +4898,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/ops/peaks/" class="md-nav__link">
+      <a href="../ops/peaks/" class="md-nav__link">
         
   
   
@@ -5007,7 +4934,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/outputs/" class="md-nav__link">
+      <a href="../outputs/" class="md-nav__link">
         
   
   
@@ -5035,7 +4962,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/paf_grouping/" class="md-nav__link">
+      <a href="../paf_grouping/" class="md-nav__link">
         
   
   
@@ -5063,7 +4990,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/peak_finding/" class="md-nav__link">
+      <a href="../peak_finding/" class="md-nav__link">
         
   
   
@@ -5091,7 +5018,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/postprocessing/" class="md-nav__link">
+      <a href="../postprocessing/" class="md-nav__link">
         
   
   
@@ -5119,7 +5046,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/predictor/" class="md-nav__link">
+      <a href="../predictor/" class="md-nav__link">
         
   
   
@@ -5147,7 +5074,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/predictors/" class="md-nav__link">
+      <a href="../predictors/" class="md-nav__link">
         
   
   
@@ -5175,7 +5102,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/preprocess_info/" class="md-nav__link">
+      <a href="../preprocess_info/" class="md-nav__link">
         
   
   
@@ -5203,7 +5130,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/provenance/" class="md-nav__link">
+      <a href="../provenance/" class="md-nav__link">
         
   
   
@@ -5231,7 +5158,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/providers/" class="md-nav__link">
+      <a href="../providers/" class="md-nav__link">
         
   
   
@@ -5259,7 +5186,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/run/" class="md-nav__link">
+      <a href="../run/" class="md-nav__link">
         
   
   
@@ -5287,7 +5214,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/segmentation/" class="md-nav__link">
+      <a href="../segmentation/" class="md-nav__link">
         
   
   
@@ -5312,10 +5239,35 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../../inference/segmentation_convert/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    segmentation_convert
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -5331,6 +5283,52 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#sleap_nn.inference.segmentation_convert" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        segmentation_convert
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="segmentation_convert">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sleap_nn.inference.segmentation_convert.build_predicted_segmentation_mask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_predicted_segmentation_mask
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -5343,7 +5341,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/single_instance/" class="md-nav__link">
+      <a href="../single_instance/" class="md-nav__link">
         
   
   
@@ -5371,7 +5369,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/streaming/" class="md-nav__link">
+      <a href="../streaming/" class="md-nav__link">
         
   
   
@@ -5399,7 +5397,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/topdown/" class="md-nav__link">
+      <a href="../topdown/" class="md-nav__link">
         
   
   
@@ -5427,7 +5425,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/tracking/" class="md-nav__link">
+      <a href="../tracking/" class="md-nav__link">
         
   
   
@@ -5455,7 +5453,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/utils/" class="md-nav__link">
+      <a href="../utils/" class="md-nav__link">
         
   
   
@@ -5483,7 +5481,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/writer/" class="md-nav__link">
+      <a href="../writer/" class="md-nav__link">
         
   
   
@@ -5519,7 +5517,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../legacy_models/" class="md-nav__link">
+      <a href="../../legacy_models/" class="md-nav__link">
         
   
   
@@ -5547,7 +5545,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../model_info/" class="md-nav__link">
+      <a href="../../model_info/" class="md-nav__link">
         
   
   
@@ -5575,7 +5573,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../predict/" class="md-nav__link">
+      <a href="../../predict/" class="md-nav__link">
         
   
   
@@ -5603,7 +5601,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../system_info/" class="md-nav__link">
+      <a href="../../system_info/" class="md-nav__link">
         
   
   
@@ -5648,7 +5646,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../tracking/" class="md-nav__link ">
+            <a href="../../tracking/" class="md-nav__link ">
               
   
   
@@ -5707,7 +5705,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../tracking/candidates/" class="md-nav__link ">
+            <a href="../../tracking/candidates/" class="md-nav__link ">
               
   
   
@@ -5749,7 +5747,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../tracking/candidates/fixed_window/" class="md-nav__link">
+      <a href="../../tracking/candidates/fixed_window/" class="md-nav__link">
         
   
   
@@ -5777,7 +5775,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../tracking/candidates/local_queues/" class="md-nav__link">
+      <a href="../../tracking/candidates/local_queues/" class="md-nav__link">
         
   
   
@@ -5813,7 +5811,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../tracking/track_instance/" class="md-nav__link">
+      <a href="../../tracking/track_instance/" class="md-nav__link">
         
   
   
@@ -5841,7 +5839,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../tracking/tracker/" class="md-nav__link">
+      <a href="../../tracking/tracker/" class="md-nav__link">
         
   
   
@@ -5869,7 +5867,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../tracking/utils/" class="md-nav__link">
+      <a href="../../tracking/utils/" class="md-nav__link">
         
   
   
@@ -5905,7 +5903,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../train/" class="md-nav__link">
+      <a href="../../train/" class="md-nav__link">
         
   
   
@@ -5950,7 +5948,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../training/" class="md-nav__link ">
+            <a href="../../training/" class="md-nav__link ">
               
   
   
@@ -5992,7 +5990,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../training/callbacks/" class="md-nav__link">
+      <a href="../../training/callbacks/" class="md-nav__link">
         
   
   
@@ -6020,7 +6018,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../training/lightning_modules/" class="md-nav__link">
+      <a href="../../training/lightning_modules/" class="md-nav__link">
         
   
   
@@ -6048,7 +6046,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../training/losses/" class="md-nav__link">
+      <a href="../../training/losses/" class="md-nav__link">
         
   
   
@@ -6076,7 +6074,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../training/model_trainer/" class="md-nav__link">
+      <a href="../../training/model_trainer/" class="md-nav__link">
         
   
   
@@ -6104,7 +6102,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../training/schedulers/" class="md-nav__link">
+      <a href="../../training/schedulers/" class="md-nav__link">
         
   
   
@@ -6132,7 +6130,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../training/utils/" class="md-nav__link">
+      <a href="../../training/utils/" class="md-nav__link">
         
   
   
@@ -6183,7 +6181,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../../changelog/" class="md-nav__link">
+      <a href="../../../changelog/" class="md-nav__link">
         
   
   
@@ -6255,22 +6253,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#sleap_nn.export.wrappers.single_instance" class="md-nav__link">
+  <a href="#sleap_nn.inference.segmentation_convert" class="md-nav__link">
     <span class="md-ellipsis">
       
-        single_instance
+        segmentation_convert
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="single_instance">
+    <nav class="md-nav" aria-label="segmentation_convert">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper" class="md-nav__link">
+  <a href="#sleap_nn.inference.segmentation_convert.build_predicted_segmentation_mask" class="md-nav__link">
     <span class="md-ellipsis">
       
-        SingleInstanceONNXWrapper
+        build_predicted_segmentation_mask
       
     </span>
   </a>
@@ -6302,133 +6300,25 @@
   
 
 
-  <h1>single_instance</h1>
+  <h1>segmentation_convert</h1>
 
 <div class="doc doc-object doc-module">
 
 
 
-<h2 id="sleap_nn.export.wrappers.single_instance" class="doc doc-heading">
-            <code>sleap_nn.export.wrappers.single_instance</code>
+<h2 id="sleap_nn.inference.segmentation_convert" class="doc doc-heading">
+            <code>sleap_nn.inference.segmentation_convert</code>
 
 
-<a href="#sleap_nn.export.wrappers.single_instance" class="headerlink" title="Permanent link">&para;</a></h2>
+<a href="#sleap_nn.inference.segmentation_convert" class="headerlink" title="Permanent link">&para;</a></h2>
 
     <div class="doc doc-contents first">
 
-        <p>Single-instance ONNX wrapper.</p>
-
-
-
-
-
-
-
-
-
-
-<p><span class="doc-section-title">Classes:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;SingleInstanceONNXWrapper&lt;/code&gt; (&lt;code&gt;sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper&lt;/code&gt;)" href="#sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper">SingleInstanceONNXWrapper</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>ONNX-exportable wrapper for single-instance models.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-
-
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-<div class="doc doc-object doc-class">
-
-
-
-<h3 id="sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper" class="doc doc-heading">
-            <code>SingleInstanceONNXWrapper</code>
-
-
-<a href="#sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper" class="headerlink" title="Permanent link">&para;</a></h3>
-
-
-    <div class="doc doc-contents ">
-            <p class="doc doc-class-bases">
-              Bases: <code><a class="autorefs autorefs-internal" title="&lt;code&gt;BaseExportWrapper&lt;/code&gt; (&lt;code&gt;sleap_nn.export.wrappers.base.BaseExportWrapper&lt;/code&gt;)" href="../base/#sleap_nn.export.wrappers.base.BaseExportWrapper">BaseExportWrapper</a></code></p>
-
-
-
-        <p>ONNX-exportable wrapper for single-instance models.</p>
-<p>This wrapper handles full-frame inference assuming a single instance per frame.
-For each body part (channel), it finds the global maximum in the confidence map.</p>
-<p>Expects input images as uint8 tensors in [0, 255].</p>
-
-
-<p><span class="doc-section-title">Attributes:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td><code><span title="sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper.model">model</span></code></td>
-            <td>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>The trained backbone model that outputs confidence maps.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td><code><span title="sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper.output_stride">output_stride</span></code></td>
-            <td>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Output stride of the model (e.g., 4 means confmaps are &frac14; the
-input resolution).</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td><code><span title="sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper.input_scale">input_scale</span></code></td>
-            <td>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Factor to scale input images before inference.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
+        <p>sleap-nn → sleap-io conversion helpers for instance segmentation masks.</p>
+<p>Single owner of the mapping from a predicted boolean mask array to a
+<code>sio.PredictedSegmentationMask</code> (mirrors <code>centroid_convert.py</code> for
+centroids). Keeping this in one place means the <code>Outputs</code> packaging path and
+any future export path emit masks identically.</p>
 
 
 
@@ -6441,7 +6331,7 @@ input resolution).</p>
 
 
 
-<p><span class="doc-section-title">Methods:</span></p>
+<p><span class="doc-section-title">Functions:</span></p>
     <table>
       <thead>
         <tr>
@@ -6451,18 +6341,10 @@ input resolution).</p>
       </thead>
       <tbody>
             <tr class="doc-section-item">
-              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;fm&quot;&gt;__init__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;model&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;output_stride&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;4&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;input_scale&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;1.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;peak_threshold&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper.__init__&lt;/code&gt;)" href="#sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper.__init__">__init__</a></code></td>
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;build_predicted_segmentation_mask&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;mask&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;score&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.inference.segmentation_convert.build_predicted_segmentation_mask&lt;/code&gt;)" href="#sleap_nn.inference.segmentation_convert.build_predicted_segmentation_mask">build_predicted_segmentation_mask</a></code></td>
               <td>
                 <div class="doc-md-description">
-                  <p>Initialize the single-instance wrapper.</p>
-                </div>
-              </td>
-            </tr>
-            <tr class="doc-section-item">
-              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;forward&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;image&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper.forward&lt;/code&gt;)" href="#sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper.forward">forward</a></code></td>
-              <td>
-                <div class="doc-md-description">
-                  <p>Run single-instance inference.</p>
+                  <p>Build a <code>sio.PredictedSegmentationMask</code> from a boolean mask array.</p>
                 </div>
               </td>
             </tr>
@@ -6470,156 +6352,6 @@ input resolution).</p>
     </table>
 
 
-
-              <details class="mkdocstrings-source">
-                <summary>Source code in <code>sleap_nn/export/wrappers/single_instance.py</code></summary>
-                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-14">14</a></span>
-<span class="normal"><a href="#__codelineno-0-15">15</a></span>
-<span class="normal"><a href="#__codelineno-0-16">16</a></span>
-<span class="normal"><a href="#__codelineno-0-17">17</a></span>
-<span class="normal"><a href="#__codelineno-0-18">18</a></span>
-<span class="normal"><a href="#__codelineno-0-19">19</a></span>
-<span class="normal"><a href="#__codelineno-0-20">20</a></span>
-<span class="normal"><a href="#__codelineno-0-21">21</a></span>
-<span class="normal"><a href="#__codelineno-0-22">22</a></span>
-<span class="normal"><a href="#__codelineno-0-23">23</a></span>
-<span class="normal"><a href="#__codelineno-0-24">24</a></span>
-<span class="normal"><a href="#__codelineno-0-25">25</a></span>
-<span class="normal"><a href="#__codelineno-0-26">26</a></span>
-<span class="normal"><a href="#__codelineno-0-27">27</a></span>
-<span class="normal"><a href="#__codelineno-0-28">28</a></span>
-<span class="normal"><a href="#__codelineno-0-29">29</a></span>
-<span class="normal"><a href="#__codelineno-0-30">30</a></span>
-<span class="normal"><a href="#__codelineno-0-31">31</a></span>
-<span class="normal"><a href="#__codelineno-0-32">32</a></span>
-<span class="normal"><a href="#__codelineno-0-33">33</a></span>
-<span class="normal"><a href="#__codelineno-0-34">34</a></span>
-<span class="normal"><a href="#__codelineno-0-35">35</a></span>
-<span class="normal"><a href="#__codelineno-0-36">36</a></span>
-<span class="normal"><a href="#__codelineno-0-37">37</a></span>
-<span class="normal"><a href="#__codelineno-0-38">38</a></span>
-<span class="normal"><a href="#__codelineno-0-39">39</a></span>
-<span class="normal"><a href="#__codelineno-0-40">40</a></span>
-<span class="normal"><a href="#__codelineno-0-41">41</a></span>
-<span class="normal"><a href="#__codelineno-0-42">42</a></span>
-<span class="normal"><a href="#__codelineno-0-43">43</a></span>
-<span class="normal"><a href="#__codelineno-0-44">44</a></span>
-<span class="normal"><a href="#__codelineno-0-45">45</a></span>
-<span class="normal"><a href="#__codelineno-0-46">46</a></span>
-<span class="normal"><a href="#__codelineno-0-47">47</a></span>
-<span class="normal"><a href="#__codelineno-0-48">48</a></span>
-<span class="normal"><a href="#__codelineno-0-49">49</a></span>
-<span class="normal"><a href="#__codelineno-0-50">50</a></span>
-<span class="normal"><a href="#__codelineno-0-51">51</a></span>
-<span class="normal"><a href="#__codelineno-0-52">52</a></span>
-<span class="normal"><a href="#__codelineno-0-53">53</a></span>
-<span class="normal"><a href="#__codelineno-0-54">54</a></span>
-<span class="normal"><a href="#__codelineno-0-55">55</a></span>
-<span class="normal"><a href="#__codelineno-0-56">56</a></span>
-<span class="normal"><a href="#__codelineno-0-57">57</a></span>
-<span class="normal"><a href="#__codelineno-0-58">58</a></span>
-<span class="normal"><a href="#__codelineno-0-59">59</a></span>
-<span class="normal"><a href="#__codelineno-0-60">60</a></span>
-<span class="normal"><a href="#__codelineno-0-61">61</a></span>
-<span class="normal"><a href="#__codelineno-0-62">62</a></span>
-<span class="normal"><a href="#__codelineno-0-63">63</a></span>
-<span class="normal"><a href="#__codelineno-0-64">64</a></span>
-<span class="normal"><a href="#__codelineno-0-65">65</a></span>
-<span class="normal"><a href="#__codelineno-0-66">66</a></span>
-<span class="normal"><a href="#__codelineno-0-67">67</a></span>
-<span class="normal"><a href="#__codelineno-0-68">68</a></span>
-<span class="normal"><a href="#__codelineno-0-69">69</a></span>
-<span class="normal"><a href="#__codelineno-0-70">70</a></span>
-<span class="normal"><a href="#__codelineno-0-71">71</a></span>
-<span class="normal"><a href="#__codelineno-0-72">72</a></span>
-<span class="normal"><a href="#__codelineno-0-73">73</a></span>
-<span class="normal"><a href="#__codelineno-0-74">74</a></span>
-<span class="normal"><a href="#__codelineno-0-75">75</a></span>
-<span class="normal"><a href="#__codelineno-0-76">76</a></span>
-<span class="normal"><a href="#__codelineno-0-77">77</a></span>
-<span class="normal"><a href="#__codelineno-0-78">78</a></span>
-<span class="normal"><a href="#__codelineno-0-79">79</a></span>
-<span class="normal"><a href="#__codelineno-0-80">80</a></span>
-<span class="normal"><a href="#__codelineno-0-81">81</a></span>
-<span class="normal"><a href="#__codelineno-0-82">82</a></span>
-<span class="normal"><a href="#__codelineno-0-83">83</a></span>
-<span class="normal"><a href="#__codelineno-0-84">84</a></span>
-<span class="normal"><a href="#__codelineno-0-85">85</a></span>
-<span class="normal"><a href="#__codelineno-0-86">86</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14"></a><span class="k">class</span><span class="w"> </span><span class="nc">SingleInstanceONNXWrapper</span><span class="p">(</span><span class="n">BaseExportWrapper</span><span class="p">):</span>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;ONNX-exportable wrapper for single-instance models.</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16"></a>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17"></a><span class="sd">    This wrapper handles full-frame inference assuming a single instance per frame.</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18"></a><span class="sd">    For each body part (channel), it finds the global maximum in the confidence map.</span>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19"></a>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20"></a><span class="sd">    Expects input images as uint8 tensors in [0, 255].</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21"></a>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22"></a><span class="sd">    Attributes:</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23"></a><span class="sd">        model: The trained backbone model that outputs confidence maps.</span>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24"></a><span class="sd">        output_stride: Output stride of the model (e.g., 4 means confmaps are 1/4 the</span>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25"></a><span class="sd">            input resolution).</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26"></a><span class="sd">        input_scale: Factor to scale input images before inference.</span>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28"></a>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30"></a>        <span class="bp">self</span><span class="p">,</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31"></a>        <span class="n">model</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
-</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32"></a>        <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span>
-</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33"></a>        <span class="n">input_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34"></a>        <span class="n">peak_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35"></a>    <span class="p">):</span>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the single-instance wrapper.</span>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37"></a>
-</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38"></a><span class="sd">        Args:</span>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="sd">            model: The trained backbone model.</span>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="sd">            output_stride: Output stride of the model. Default: 4.</span>
-</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="sd">            input_scale: Factor to scale input images. Default: 1.0.</span>
-</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="sd">            peak_threshold: Minimum confidence for a peak to be considered valid.</span>
-</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
-</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">output_stride</span> <span class="o">=</span> <span class="n">output_stride</span>
-</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_scale</span>
-</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">peak_threshold</span> <span class="o">=</span> <span class="n">peak_threshold</span>
-</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48"></a>
-</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
-</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Run single-instance inference.</span>
-</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51"></a>
-</span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52"></a><span class="sd">        Args:</span>
-</span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53"></a><span class="sd">            image: Input image tensor of shape (batch, channels, height, width).</span>
-</span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="sd">                Expected as uint8 [0, 255] values.</span>
-</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55"></a>
-</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="sd">        Returns:</span>
-</span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57"></a><span class="sd">            Dictionary with:</span>
-</span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58"></a><span class="sd">                peaks: Peak coordinates of shape (batch, n_nodes, 2) in (x, y) format.</span>
-</span><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="sd">                peak_vals: Peak confidence values of shape (batch, n_nodes).</span>
-</span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61"></a>        <span class="c1"># Normalize uint8 [0, 255] to float32 [0, 1]</span>
-</span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62"></a>        <span class="n">image</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_normalize_uint8</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>
-</span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63"></a>
-</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64"></a>        <span class="c1"># Apply input scaling if needed</span>
-</span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">!=</span> <span class="mf">1.0</span><span class="p">:</span>
-</span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66"></a>            <span class="n">height</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">image</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span><span class="p">)</span>
-</span><span id="__span-0-67"><a id="__codelineno-0-67" name="__codelineno-0-67"></a>            <span class="n">width</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">image</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span><span class="p">)</span>
-</span><span id="__span-0-68"><a id="__codelineno-0-68" name="__codelineno-0-68"></a>            <span class="n">image</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">interpolate</span><span class="p">(</span>
-</span><span id="__span-0-69"><a id="__codelineno-0-69" name="__codelineno-0-69"></a>                <span class="n">image</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">height</span><span class="p">,</span> <span class="n">width</span><span class="p">),</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;bilinear&quot;</span><span class="p">,</span> <span class="n">align_corners</span><span class="o">=</span><span class="kc">False</span>
-</span><span id="__span-0-70"><a id="__codelineno-0-70" name="__codelineno-0-70"></a>            <span class="p">)</span>
-</span><span id="__span-0-71"><a id="__codelineno-0-71" name="__codelineno-0-71"></a>
-</span><span id="__span-0-72"><a id="__codelineno-0-72" name="__codelineno-0-72"></a>        <span class="c1"># Run model to get confidence maps: (batch, n_nodes, height, width)</span>
-</span><span id="__span-0-73"><a id="__codelineno-0-73" name="__codelineno-0-73"></a>        <span class="n">confmaps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_tensor</span><span class="p">(</span>
-</span><span id="__span-0-74"><a id="__codelineno-0-74" name="__codelineno-0-74"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="p">(</span><span class="n">image</span><span class="p">),</span> <span class="p">[</span><span class="s2">&quot;single&quot;</span><span class="p">,</span> <span class="s2">&quot;instance&quot;</span><span class="p">,</span> <span class="s2">&quot;confmap&quot;</span><span class="p">]</span>
-</span><span id="__span-0-75"><a id="__codelineno-0-75" name="__codelineno-0-75"></a>        <span class="p">)</span>
-</span><span id="__span-0-76"><a id="__codelineno-0-76" name="__codelineno-0-76"></a>
-</span><span id="__span-0-77"><a id="__codelineno-0-77" name="__codelineno-0-77"></a>        <span class="c1"># Find global peak for each channel: (batch, n_nodes, 2), (batch, n_nodes)</span>
-</span><span id="__span-0-78"><a id="__codelineno-0-78" name="__codelineno-0-78"></a>        <span class="n">peaks</span><span class="p">,</span> <span class="n">values</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_global_peaks</span><span class="p">(</span><span class="n">confmaps</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">peak_threshold</span><span class="p">)</span>
-</span><span id="__span-0-79"><a id="__codelineno-0-79" name="__codelineno-0-79"></a>
-</span><span id="__span-0-80"><a id="__codelineno-0-80" name="__codelineno-0-80"></a>        <span class="c1"># Scale peaks from confmap coordinates to image coordinates</span>
-</span><span id="__span-0-81"><a id="__codelineno-0-81" name="__codelineno-0-81"></a>        <span class="n">peaks</span> <span class="o">=</span> <span class="n">peaks</span> <span class="o">*</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_stride</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span><span class="p">)</span>
-</span><span id="__span-0-82"><a id="__codelineno-0-82" name="__codelineno-0-82"></a>
-</span><span id="__span-0-83"><a id="__codelineno-0-83" name="__codelineno-0-83"></a>        <span class="k">return</span> <span class="p">{</span>
-</span><span id="__span-0-84"><a id="__codelineno-0-84" name="__codelineno-0-84"></a>            <span class="s2">&quot;peaks&quot;</span><span class="p">:</span> <span class="n">peaks</span><span class="p">,</span>
-</span><span id="__span-0-85"><a id="__codelineno-0-85" name="__codelineno-0-85"></a>            <span class="s2">&quot;peak_vals&quot;</span><span class="p">:</span> <span class="n">values</span><span class="p">,</span>
-</span><span id="__span-0-86"><a id="__codelineno-0-86" name="__codelineno-0-86"></a>        <span class="p">}</span>
-</span></code></pre></div></td></tr></table></div>
-              </details>
 
 
 
@@ -6637,15 +6369,15 @@ input resolution).</p>
 <div class="doc doc-object doc-function">
 
 
-<h4 id="sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper.__init__" class="doc doc-heading">
-            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">output_stride</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span> <span class="n">input_scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">peak_threshold</span><span class="o">=</span><span class="mf">0.2</span><span class="p">)</span></code>
+<h3 id="sleap_nn.inference.segmentation_convert.build_predicted_segmentation_mask" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">build_predicted_segmentation_mask</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="n">score</span><span class="p">)</span></code>
 
-<a href="#sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper.__init__" class="headerlink" title="Permanent link">&para;</a></h4>
+<a href="#sleap_nn.inference.segmentation_convert.build_predicted_segmentation_mask" class="headerlink" title="Permanent link">&para;</a></h3>
 
 
     <div class="doc doc-contents ">
 
-        <p>Initialize the single-instance wrapper.</p>
+        <p>Build a <code>sio.PredictedSegmentationMask</code> from a boolean mask array.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -6661,14 +6393,14 @@ input resolution).</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                <code>model</code>
+                <code>mask</code>
             </td>
             <td>
-                  <code><span title="torch.nn.Module">Module</span></code>
+                  <code><span title="numpy.ndarray">ndarray</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>The trained backbone model.</p>
+                <p>2-D boolean (or 0/1) array at the original image resolution.</p>
               </div>
             </td>
             <td>
@@ -6677,137 +6409,14 @@ input resolution).</p>
           </tr>
           <tr class="doc-section-item">
             <td>
-                <code>output_stride</code>
-            </td>
-            <td>
-                  <code><span title="int">int</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Output stride of the model. Default: 4.</p>
-              </div>
-            </td>
-            <td>
-                  <code>4</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>input_scale</code>
+                <code>score</code>
             </td>
             <td>
                   <code><span title="float">float</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Factor to scale input images. Default: 1.0.</p>
-              </div>
-            </td>
-            <td>
-                  <code>1.0</code>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td>
-                <code>peak_threshold</code>
-            </td>
-            <td>
-                  <code><span title="float">float</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Minimum confidence for a peak to be considered valid.</p>
-              </div>
-            </td>
-            <td>
-                  <code>0.2</code>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-            <details class="mkdocstrings-source">
-              <summary>Source code in <code>sleap_nn/export/wrappers/single_instance.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-29">29</a></span>
-<span class="normal"><a href="#__codelineno-0-30">30</a></span>
-<span class="normal"><a href="#__codelineno-0-31">31</a></span>
-<span class="normal"><a href="#__codelineno-0-32">32</a></span>
-<span class="normal"><a href="#__codelineno-0-33">33</a></span>
-<span class="normal"><a href="#__codelineno-0-34">34</a></span>
-<span class="normal"><a href="#__codelineno-0-35">35</a></span>
-<span class="normal"><a href="#__codelineno-0-36">36</a></span>
-<span class="normal"><a href="#__codelineno-0-37">37</a></span>
-<span class="normal"><a href="#__codelineno-0-38">38</a></span>
-<span class="normal"><a href="#__codelineno-0-39">39</a></span>
-<span class="normal"><a href="#__codelineno-0-40">40</a></span>
-<span class="normal"><a href="#__codelineno-0-41">41</a></span>
-<span class="normal"><a href="#__codelineno-0-42">42</a></span>
-<span class="normal"><a href="#__codelineno-0-43">43</a></span>
-<span class="normal"><a href="#__codelineno-0-44">44</a></span>
-<span class="normal"><a href="#__codelineno-0-45">45</a></span>
-<span class="normal"><a href="#__codelineno-0-46">46</a></span>
-<span class="normal"><a href="#__codelineno-0-47">47</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30"></a>    <span class="bp">self</span><span class="p">,</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31"></a>    <span class="n">model</span><span class="p">:</span> <span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
-</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32"></a>    <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span><span class="p">,</span>
-</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33"></a>    <span class="n">input_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34"></a>    <span class="n">peak_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35"></a><span class="p">):</span>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the single-instance wrapper.</span>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37"></a>
-</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38"></a><span class="sd">    Args:</span>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="sd">        model: The trained backbone model.</span>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="sd">        output_stride: Output stride of the model. Default: 4.</span>
-</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="sd">        input_scale: Factor to scale input images. Default: 1.0.</span>
-</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="sd">        peak_threshold: Minimum confidence for a peak to be considered valid.</span>
-</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">model</span><span class="p">)</span>
-</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">output_stride</span> <span class="o">=</span> <span class="n">output_stride</span>
-</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_scale</span>
-</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">peak_threshold</span> <span class="o">=</span> <span class="n">peak_threshold</span>
-</span></code></pre></div></td></tr></table></div>
-            </details>
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
-<h4 id="sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper.forward" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">forward</span><span class="p">(</span><span class="n">image</span><span class="p">)</span></code>
-
-<a href="#sleap_nn.export.wrappers.single_instance.SingleInstanceONNXWrapper.forward" class="headerlink" title="Permanent link">&para;</a></h4>
-
-
-    <div class="doc doc-contents ">
-
-        <p>Run single-instance inference.</p>
-
-
-<p><span class="doc-section-title">Parameters:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Type</th>
-          <th>Description</th>
-          <th>Default</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td>
-                <code>image</code>
-            </td>
-            <td>
-                  <code><span title="torch.Tensor">Tensor</span></code>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Input image tensor of shape (batch, channels, height, width).
-Expected as uint8 [0, 255] values.</p>
+                <p>Detection confidence (the instance-center peak value).</p>
               </div>
             </td>
             <td>
@@ -6829,13 +6438,11 @@ Expected as uint8 [0, 255] values.</p>
       <tbody>
           <tr class="doc-section-item">
             <td>
-                  <code><span title="typing.Dict">Dict</span>[<span title="str">str</span>, <span title="torch.Tensor">Tensor</span>]</code>
+                  <code>&#39;sio.PredictedSegmentationMask&#39;</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Dictionary with:
-    peaks: Peak coordinates of shape (batch, n_nodes, 2) in (x, y) format.
-    peak_vals: Peak confidence values of shape (batch, n_nodes).</p>
+                <p>A <code>sio.PredictedSegmentationMask</code> (RLE-backed) carrying <code>score</code>.</p>
               </div>
             </td>
           </tr>
@@ -6844,96 +6451,45 @@ Expected as uint8 [0, 255] values.</p>
 
 
             <details class="mkdocstrings-source">
-              <summary>Source code in <code>sleap_nn/export/wrappers/single_instance.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-49">49</a></span>
-<span class="normal"><a href="#__codelineno-0-50">50</a></span>
-<span class="normal"><a href="#__codelineno-0-51">51</a></span>
-<span class="normal"><a href="#__codelineno-0-52">52</a></span>
-<span class="normal"><a href="#__codelineno-0-53">53</a></span>
-<span class="normal"><a href="#__codelineno-0-54">54</a></span>
-<span class="normal"><a href="#__codelineno-0-55">55</a></span>
-<span class="normal"><a href="#__codelineno-0-56">56</a></span>
-<span class="normal"><a href="#__codelineno-0-57">57</a></span>
-<span class="normal"><a href="#__codelineno-0-58">58</a></span>
-<span class="normal"><a href="#__codelineno-0-59">59</a></span>
-<span class="normal"><a href="#__codelineno-0-60">60</a></span>
-<span class="normal"><a href="#__codelineno-0-61">61</a></span>
-<span class="normal"><a href="#__codelineno-0-62">62</a></span>
-<span class="normal"><a href="#__codelineno-0-63">63</a></span>
-<span class="normal"><a href="#__codelineno-0-64">64</a></span>
-<span class="normal"><a href="#__codelineno-0-65">65</a></span>
-<span class="normal"><a href="#__codelineno-0-66">66</a></span>
-<span class="normal"><a href="#__codelineno-0-67">67</a></span>
-<span class="normal"><a href="#__codelineno-0-68">68</a></span>
-<span class="normal"><a href="#__codelineno-0-69">69</a></span>
-<span class="normal"><a href="#__codelineno-0-70">70</a></span>
-<span class="normal"><a href="#__codelineno-0-71">71</a></span>
-<span class="normal"><a href="#__codelineno-0-72">72</a></span>
-<span class="normal"><a href="#__codelineno-0-73">73</a></span>
-<span class="normal"><a href="#__codelineno-0-74">74</a></span>
-<span class="normal"><a href="#__codelineno-0-75">75</a></span>
-<span class="normal"><a href="#__codelineno-0-76">76</a></span>
-<span class="normal"><a href="#__codelineno-0-77">77</a></span>
-<span class="normal"><a href="#__codelineno-0-78">78</a></span>
-<span class="normal"><a href="#__codelineno-0-79">79</a></span>
-<span class="normal"><a href="#__codelineno-0-80">80</a></span>
-<span class="normal"><a href="#__codelineno-0-81">81</a></span>
-<span class="normal"><a href="#__codelineno-0-82">82</a></span>
-<span class="normal"><a href="#__codelineno-0-83">83</a></span>
-<span class="normal"><a href="#__codelineno-0-84">84</a></span>
-<span class="normal"><a href="#__codelineno-0-85">85</a></span>
-<span class="normal"><a href="#__codelineno-0-86">86</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49"></a><span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">image</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
-</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run single-instance inference.</span>
-</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51"></a>
-</span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52"></a><span class="sd">    Args:</span>
-</span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53"></a><span class="sd">        image: Input image tensor of shape (batch, channels, height, width).</span>
-</span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="sd">            Expected as uint8 [0, 255] values.</span>
-</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55"></a>
-</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56"></a><span class="sd">    Returns:</span>
-</span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57"></a><span class="sd">        Dictionary with:</span>
-</span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58"></a><span class="sd">            peaks: Peak coordinates of shape (batch, n_nodes, 2) in (x, y) format.</span>
-</span><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="sd">            peak_vals: Peak confidence values of shape (batch, n_nodes).</span>
-</span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61"></a>    <span class="c1"># Normalize uint8 [0, 255] to float32 [0, 1]</span>
-</span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62"></a>    <span class="n">image</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_normalize_uint8</span><span class="p">(</span><span class="n">image</span><span class="p">)</span>
-</span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63"></a>
-</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64"></a>    <span class="c1"># Apply input scaling if needed</span>
-</span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">!=</span> <span class="mf">1.0</span><span class="p">:</span>
-</span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66"></a>        <span class="n">height</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">image</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span><span class="p">)</span>
-</span><span id="__span-0-67"><a id="__codelineno-0-67" name="__codelineno-0-67"></a>        <span class="n">width</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">image</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span><span class="p">)</span>
-</span><span id="__span-0-68"><a id="__codelineno-0-68" name="__codelineno-0-68"></a>        <span class="n">image</span> <span class="o">=</span> <span class="n">F</span><span class="o">.</span><span class="n">interpolate</span><span class="p">(</span>
-</span><span id="__span-0-69"><a id="__codelineno-0-69" name="__codelineno-0-69"></a>            <span class="n">image</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="n">height</span><span class="p">,</span> <span class="n">width</span><span class="p">),</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;bilinear&quot;</span><span class="p">,</span> <span class="n">align_corners</span><span class="o">=</span><span class="kc">False</span>
-</span><span id="__span-0-70"><a id="__codelineno-0-70" name="__codelineno-0-70"></a>        <span class="p">)</span>
-</span><span id="__span-0-71"><a id="__codelineno-0-71" name="__codelineno-0-71"></a>
-</span><span id="__span-0-72"><a id="__codelineno-0-72" name="__codelineno-0-72"></a>    <span class="c1"># Run model to get confidence maps: (batch, n_nodes, height, width)</span>
-</span><span id="__span-0-73"><a id="__codelineno-0-73" name="__codelineno-0-73"></a>    <span class="n">confmaps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extract_tensor</span><span class="p">(</span>
-</span><span id="__span-0-74"><a id="__codelineno-0-74" name="__codelineno-0-74"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">model</span><span class="p">(</span><span class="n">image</span><span class="p">),</span> <span class="p">[</span><span class="s2">&quot;single&quot;</span><span class="p">,</span> <span class="s2">&quot;instance&quot;</span><span class="p">,</span> <span class="s2">&quot;confmap&quot;</span><span class="p">]</span>
-</span><span id="__span-0-75"><a id="__codelineno-0-75" name="__codelineno-0-75"></a>    <span class="p">)</span>
-</span><span id="__span-0-76"><a id="__codelineno-0-76" name="__codelineno-0-76"></a>
-</span><span id="__span-0-77"><a id="__codelineno-0-77" name="__codelineno-0-77"></a>    <span class="c1"># Find global peak for each channel: (batch, n_nodes, 2), (batch, n_nodes)</span>
-</span><span id="__span-0-78"><a id="__codelineno-0-78" name="__codelineno-0-78"></a>    <span class="n">peaks</span><span class="p">,</span> <span class="n">values</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_global_peaks</span><span class="p">(</span><span class="n">confmaps</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">peak_threshold</span><span class="p">)</span>
-</span><span id="__span-0-79"><a id="__codelineno-0-79" name="__codelineno-0-79"></a>
-</span><span id="__span-0-80"><a id="__codelineno-0-80" name="__codelineno-0-80"></a>    <span class="c1"># Scale peaks from confmap coordinates to image coordinates</span>
-</span><span id="__span-0-81"><a id="__codelineno-0-81" name="__codelineno-0-81"></a>    <span class="n">peaks</span> <span class="o">=</span> <span class="n">peaks</span> <span class="o">*</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_stride</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span><span class="p">)</span>
-</span><span id="__span-0-82"><a id="__codelineno-0-82" name="__codelineno-0-82"></a>
-</span><span id="__span-0-83"><a id="__codelineno-0-83" name="__codelineno-0-83"></a>    <span class="k">return</span> <span class="p">{</span>
-</span><span id="__span-0-84"><a id="__codelineno-0-84" name="__codelineno-0-84"></a>        <span class="s2">&quot;peaks&quot;</span><span class="p">:</span> <span class="n">peaks</span><span class="p">,</span>
-</span><span id="__span-0-85"><a id="__codelineno-0-85" name="__codelineno-0-85"></a>        <span class="s2">&quot;peak_vals&quot;</span><span class="p">:</span> <span class="n">values</span><span class="p">,</span>
-</span><span id="__span-0-86"><a id="__codelineno-0-86" name="__codelineno-0-86"></a>    <span class="p">}</span>
+              <summary>Source code in <code>sleap_nn/inference/segmentation_convert.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-19">19</a></span>
+<span class="normal"><a href="#__codelineno-0-20">20</a></span>
+<span class="normal"><a href="#__codelineno-0-21">21</a></span>
+<span class="normal"><a href="#__codelineno-0-22">22</a></span>
+<span class="normal"><a href="#__codelineno-0-23">23</a></span>
+<span class="normal"><a href="#__codelineno-0-24">24</a></span>
+<span class="normal"><a href="#__codelineno-0-25">25</a></span>
+<span class="normal"><a href="#__codelineno-0-26">26</a></span>
+<span class="normal"><a href="#__codelineno-0-27">27</a></span>
+<span class="normal"><a href="#__codelineno-0-28">28</a></span>
+<span class="normal"><a href="#__codelineno-0-29">29</a></span>
+<span class="normal"><a href="#__codelineno-0-30">30</a></span>
+<span class="normal"><a href="#__codelineno-0-31">31</a></span>
+<span class="normal"><a href="#__codelineno-0-32">32</a></span>
+<span class="normal"><a href="#__codelineno-0-33">33</a></span>
+<span class="normal"><a href="#__codelineno-0-34">34</a></span>
+<span class="normal"><a href="#__codelineno-0-35">35</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19"></a><span class="k">def</span><span class="w"> </span><span class="nf">build_predicted_segmentation_mask</span><span class="p">(</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20"></a>    <span class="n">mask</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21"></a>    <span class="n">score</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;sio.PredictedSegmentationMask&quot;</span><span class="p">:</span>
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Build a ``sio.PredictedSegmentationMask`` from a boolean mask array.</span>
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24"></a>
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25"></a><span class="sd">    Args:</span>
+</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26"></a><span class="sd">        mask: 2-D boolean (or 0/1) array at the original image resolution.</span>
+</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27"></a><span class="sd">        score: Detection confidence (the instance-center peak value).</span>
+</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28"></a>
+</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29"></a><span class="sd">    Returns:</span>
+</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30"></a><span class="sd">        A ``sio.PredictedSegmentationMask`` (RLE-backed) carrying ``score``.</span>
+</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
+</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33"></a>
+</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34"></a>    <span class="n">mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35"></a>    <span class="k">return</span> <span class="n">sio</span><span class="o">.</span><span class="n">PredictedSegmentationMask</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="n">score</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">score</span><span class="p">))</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
 
 </div>
-
-
-
-  </div>
-
-    </div>
-
-</div>
-
 
 
 
@@ -7024,10 +6580,10 @@ Expected as uint8 [0, 255] values.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>
