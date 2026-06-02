@@ -3,13 +3,55 @@
 from pathlib import Path
 from omegaconf import OmegaConf
 
+import numpy as np
 import pytest
+import sleap_io as sio
 
 
 @pytest.fixture
 def sleap_nn_data_dir(pytestconfig):
     """Dir path to sleap data."""
     return Path(pytestconfig.rootdir) / "tests/assets/datasets"
+
+
+def make_seg_labels_from_slp(src_slp: str, radius: int = 30) -> "sio.Labels":
+    """Build synthetic instance-segmentation labels from a keypoint ``.slp``.
+
+    For the first labeled frame, a circular foreground mask is generated around
+    the mean keypoint location of each instance. The original keypoint instances
+    are retained (so the skeleton is preserved) alongside the new masks.
+
+    Args:
+        src_slp: Path to a source ``.slp`` with keypoint instances + image data.
+        radius: Radius (px) of the synthetic circular mask per instance.
+
+    Returns:
+        ``sio.Labels`` with one frame carrying ``UserSegmentationMask`` objects.
+    """
+    labels = sio.load_slp(src_slp)
+    video = labels.videos[0]
+    lf0 = labels[0]
+    h, w = video.shape[1], video.shape[2]
+    yy, xx = np.ogrid[:h, :w]
+    masks = []
+    for inst in lf0.instances:
+        pts = inst.numpy()
+        cx, cy = np.nanmean(pts[:, 0]), np.nanmean(pts[:, 1])
+        blob = ((yy - cy) ** 2 + (xx - cx) ** 2) <= radius**2
+        masks.append(sio.UserSegmentationMask.from_numpy(blob))
+    seg_lf = sio.LabeledFrame(
+        video=video, frame_idx=lf0.frame_idx, instances=lf0.instances, masks=masks
+    )
+    return sio.Labels(videos=[video], labeled_frames=[seg_lf])
+
+
+@pytest.fixture
+def minimal_instance_seg(minimal_instance, tmp_path):
+    """Path to a synthetic instance-segmentation ``.pkg.slp`` (masks + image)."""
+    seg_labels = make_seg_labels_from_slp(str(minimal_instance))
+    out = Path(tmp_path) / "minimal_instance_seg.pkg.slp"
+    seg_labels.save(out.as_posix(), embed=True)
+    return out
 
 
 @pytest.fixture
