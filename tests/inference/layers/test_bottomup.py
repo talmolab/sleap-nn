@@ -46,21 +46,20 @@ NEUTRAL_PREPROCESS = OmegaConf.create(
 
 
 def _build_predictor():
-    """Build a BottomUpPredictor and pull its initialized inference_model."""
-    from sleap_nn.inference.predictors import Predictor
+    """Load model assets and pull the initialized inference_model."""
+    from sleap_nn.inference.loaders import load_model_assets
 
-    predictor = Predictor.from_model_paths(
+    assets, _ = load_model_assets(
         [str(BOTTOMUP_CKPT)],
         device="cpu",
         peak_threshold=0.05,
         preprocess_config=NEUTRAL_PREPROCESS,
     )
-    predictor._initialize_inference_model()
-    return predictor
+    return assets
 
 
 def _build_layer(predictor) -> BottomUpLayer:
-    """Build a ``BottomUpLayer`` around the legacy module's torch_model + scorer."""
+    """Build a ``BottomUpLayer`` around the loaded module's torch_model + scorer."""
     legacy = predictor.inference_model
     # The bottomup model's max_stride lives on the centroid_crop attribute in
     # topdown predictors; for bottomup it's part of the backbone config.

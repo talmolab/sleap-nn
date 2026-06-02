@@ -60,23 +60,27 @@ NEUTRAL_PREPROCESS = OmegaConf.create(
 
 
 def _build_predictor():
-    """Build a topdown Predictor and pull its initialized inference_model."""
-    from sleap_nn.inference.predictors import Predictor
+    """Build a topdown inference model via the new loader.
 
-    predictor = Predictor.from_model_paths(
+    Returns the ``TopDownInferenceModel`` directly; the helpers below read
+    ``.centroid_crop`` off it, which is identical to what the legacy
+    ``predictor.inference_model`` exposed.
+    """
+    from sleap_nn.inference.loaders import load_model_assets
+
+    assets, _ = load_model_assets(
         [str(CENTROID_CKPT), str(CENTERED_CKPT)],
         device="cpu",
         peak_threshold=0.03,
         max_instances=6,
         preprocess_config=NEUTRAL_PREPROCESS,
     )
-    predictor._initialize_inference_model()
-    return predictor
+    return assets.inference_model
 
 
-def _build_layer(predictor) -> CentroidLayer:
-    """Build a ``CentroidLayer`` around the predictor's centroid module."""
-    legacy = predictor.inference_model.centroid_crop
+def _build_layer(inference_model) -> CentroidLayer:
+    """Build a ``CentroidLayer`` around the centroid module."""
+    legacy = inference_model.centroid_crop
     return CentroidLayer(
         backend=TorchBackend(model=legacy.torch_model, device="cpu"),
         output_stride=legacy.output_stride,
@@ -180,8 +184,8 @@ def test_return_confmaps_off_by_default():
     not CENTROID_CKPT.exists(), reason="centroid checkpoint not present"
 )
 def test_return_confmaps_true_populates_field():
-    predictor = _build_predictor()
-    legacy = predictor.inference_model.centroid_crop
+    inference_model = _build_predictor()
+    legacy = inference_model.centroid_crop
     layer = CentroidLayer(
         backend=TorchBackend(model=legacy.torch_model, device="cpu"),
         output_stride=legacy.output_stride,

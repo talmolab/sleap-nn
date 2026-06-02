@@ -45,16 +45,16 @@ SINGLE_CKPT = CKPT_ROOT / "minimal_instance_single_instance"
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def _build_layer_from_predictor():
+def _build_layer_from_loader():
     """Build a ``SingleInstanceLayer`` around the loaded Lightning module
-    that the existing predictor pipeline produces. Reuses the production
-    loader so we don't reimplement checkpoint-loading kwargs here.
+    that the inference loader produces. Reuses the production loader so we
+    don't reimplement checkpoint-loading kwargs here.
     """
     from omegaconf import OmegaConf
 
-    from sleap_nn.inference.predictors import Predictor
+    from sleap_nn.inference.loaders import load_model_assets
 
-    predictor = Predictor.from_model_paths(
+    assets, _ = load_model_assets(
         [str(SINGLE_CKPT)],
         device="cpu",
         peak_threshold=0.3,  # match the PR 0 golden's spec
@@ -69,10 +69,9 @@ def _build_layer_from_predictor():
             }
         ),
     )
-    predictor._initialize_inference_model()
 
     # Pull the SingleInstance Lightning module out of the inference_model.
-    inf = predictor.inference_model
+    inf = assets.inference_model
     lightning_module = inf.torch_model
     output_stride = inf.output_stride
     layer = SingleInstanceLayer(
@@ -85,78 +84,7 @@ def _build_layer_from_predictor():
             integral_patch_size=inf.integral_patch_size,
         ),
     )
-    return layer, predictor
-
-
-# ─────────────────────────────────────────────────────────────────────────
-# 1. PARITY vs PR 0 golden — locked acceptance criterion
-# ─────────────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.xfail(
-    reason=(
-        "PR 27 superseded this test's contract. The PR 0 goldens store "
-        "the *preprocessed* model input as ``batch['image']`` and the "
-        "*final* keypoints (in original-image space) as "
-        "``batch['pred_instance_peaks']``. This test fed the preprocessed "
-        "image to the new layer and assumed the layer's ``preprocess()`` "
-        "was a no-op (Option-B contract: caller already preprocessed). "
-        "PR 27 moved the new layer to Option-A (layer.predict(raw_frame) "
-        "does the full pipeline) so feeding pre-scaled input here now "
-        "double-scales. Proper pipeline parity is verified in PR 27's "
-        "tests/inference/test_parity_vs_legacy.py."
-    ),
-    strict=True,
-)
-@pytest.mark.skipif(
-    not SINGLE_CKPT.exists(), reason="single-instance checkpoint not present"
-)
-def test_single_instance_layer_parity_vs_pr0_golden():
-    """Run the new SingleInstanceLayer on the exact input that produced
-    the PR 0 golden and compare keypoints + values within float tolerance.
-
-    This test is the linchpin of the entire refactor: as long as it
-    passes, every subsequent PR (5–14) is verifiably parity-preserving
-    on the single-instance path.
-    """
-    from tests.utils.parity_goldens import load_golden
-
-    golden = load_golden("single_instance")
-    assert len(golden) >= 1, "expected at least one batch in the golden"
-
-    # Build the new layer.
-    layer, _ = _build_layer_from_predictor()
-
-    # Replay the golden's first batch through the new layer.
-    batch = golden[0]
-    image_uint8 = batch["image"]  # (B=4, n_samples=1, C, H, W) uint8 in current shape
-    # The current pipeline squeezes inside Lightning forward; we feed the
-    # squeezed (B, C, H, W) form directly to the new layer.
-    image_4d = image_uint8.reshape(image_uint8.shape[0], *image_uint8.shape[2:])
-
-    new_outputs = layer.predict(image_4d)
-
-    # Compare core fields. ``Outputs.pred_keypoints`` is (B, I=1, N, 2);
-    # the golden uses (B, N, 2) with no instance dim — reshape for compare.
-    new_kpts = new_outputs.pred_keypoints.squeeze(1).detach().cpu().numpy()
-    new_vals = new_outputs.pred_peak_values.squeeze(1).detach().cpu().numpy()
-
-    np.testing.assert_allclose(
-        new_kpts,
-        batch["pred_instance_peaks"],
-        atol=1e-5,
-        rtol=1e-5,
-        equal_nan=True,
-        err_msg="pred_keypoints drifted vs PR 0 golden",
-    )
-    np.testing.assert_allclose(
-        new_vals,
-        batch["pred_peak_values"],
-        atol=1e-5,
-        rtol=1e-5,
-        equal_nan=True,
-        err_msg="pred_peak_values drifted vs PR 0 golden",
-    )
+    return layer, assets
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -167,7 +95,7 @@ def test_single_instance_layer_parity_vs_pr0_golden():
 @pytest.mark.skipif(not SINGLE_CKPT.exists(), reason="checkpoint not present")
 def test_predict_accepts_numpy():
     """Calling ``predict`` with a raw numpy array yields a structured ``Outputs``."""
-    layer, _ = _build_layer_from_predictor()
+    layer, _ = _build_layer_from_loader()
 
     img = np.zeros((1, 1, 64, 64), dtype=np.float32)
     out = layer.predict(img)
@@ -186,7 +114,7 @@ def test_predict_accepts_numpy():
 
 @pytest.mark.skipif(not SINGLE_CKPT.exists(), reason="checkpoint not present")
 def test_predict_accepts_torch_tensor():
-    layer, _ = _build_layer_from_predictor()
+    layer, _ = _build_layer_from_loader()
 
     img = torch.zeros(1, 1, 64, 64, dtype=torch.float32)
     out = layer.predict(img)
@@ -202,7 +130,7 @@ def test_predict_accepts_torch_tensor():
 
 @pytest.mark.skipif(not SINGLE_CKPT.exists(), reason="checkpoint not present")
 def test_predict_handles_single_frame_2d_grayscale():
-    layer, _ = _build_layer_from_predictor()
+    layer, _ = _build_layer_from_loader()
 
     img = np.zeros((64, 64), dtype=np.uint8)  # (H, W)
     out = layer.predict(img)
@@ -211,7 +139,7 @@ def test_predict_handles_single_frame_2d_grayscale():
 
 @pytest.mark.skipif(not SINGLE_CKPT.exists(), reason="checkpoint not present")
 def test_predict_handles_batch_of_4_frames():
-    layer, _ = _build_layer_from_predictor()
+    layer, _ = _build_layer_from_loader()
 
     batch = np.zeros((4, 1, 64, 64), dtype=np.float32)
     out = layer.predict(batch)
@@ -226,7 +154,7 @@ def test_predict_handles_batch_of_4_frames():
 
 @pytest.mark.skipif(not SINGLE_CKPT.exists(), reason="checkpoint not present")
 def test_return_confmaps_off_by_default():
-    layer, _ = _build_layer_from_predictor()
+    layer, _ = _build_layer_from_loader()
     out = layer.predict(np.zeros((1, 1, 64, 64), dtype=np.float32))
     assert out.pred_confmaps is None
 
@@ -237,9 +165,9 @@ def test_return_confmaps_true_populates_field():
     confmap tensor on ``Outputs``."""
     from omegaconf import OmegaConf
 
-    from sleap_nn.inference.predictors import Predictor
+    from sleap_nn.inference.loaders import load_model_assets
 
-    predictor = Predictor.from_model_paths(
+    assets, _ = load_model_assets(
         [str(SINGLE_CKPT)],
         device="cpu",
         peak_threshold=0.3,
@@ -254,8 +182,7 @@ def test_return_confmaps_true_populates_field():
             }
         ),
     )
-    predictor._initialize_inference_model()
-    inf = predictor.inference_model
+    inf = assets.inference_model
 
     layer = SingleInstanceLayer(
         backend=TorchBackend(model=inf.torch_model, device="cpu"),

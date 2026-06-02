@@ -284,10 +284,10 @@ def test_single_instance_layer_cross_device_parity():
     from sleap_nn.inference.layers.backends import TorchBackend
     from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
     from sleap_nn.inference.layers.single_instance import SingleInstanceLayer
-    from sleap_nn.inference.predictors import Predictor
+    from sleap_nn.inference.loaders import load_model_assets
 
     def _build(device: str) -> SingleInstanceLayer:
-        predictor = Predictor.from_model_paths(
+        assets, _ = load_model_assets(
             [str(SINGLE_CKPT)],
             device=device,
             peak_threshold=0.3,
@@ -302,8 +302,7 @@ def test_single_instance_layer_cross_device_parity():
                 }
             ),
         )
-        predictor._initialize_inference_model()
-        inf = predictor.inference_model
+        inf = assets.inference_model
         return SingleInstanceLayer(
             backend=TorchBackend(model=inf.torch_model, device=device),
             output_stride=inf.output_stride,

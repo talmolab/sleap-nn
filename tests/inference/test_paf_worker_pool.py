@@ -80,18 +80,17 @@ NEUTRAL_PREPROCESS = OmegaConf.create(
 
 def _build_layer() -> BottomUpLayer:
     """Build a ``BottomUpLayer`` from the bottomup checkpoint asset."""
-    from sleap_nn.inference.predictors import Predictor as LegacyPredictor
+    from sleap_nn.inference.loaders import load_model_assets
 
-    predictor = LegacyPredictor.from_model_paths(
+    assets, _ = load_model_assets(
         [str(BOTTOMUP_CKPT)],
         device="cpu",
         peak_threshold=0.05,
         preprocess_config=NEUTRAL_PREPROCESS,
     )
-    predictor._initialize_inference_model()
-    legacy = predictor.inference_model
-    max_stride = predictor.bottomup_config.model_config.backbone_config[
-        predictor.backbone_type
+    legacy = assets.inference_model
+    max_stride = assets.bottomup_config.model_config.backbone_config[
+        assets.backbone_type
     ]["max_stride"]
     return BottomUpLayer(
         backend=TorchBackend(model=legacy.torch_model, device="cpu"),

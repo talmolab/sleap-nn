@@ -47,18 +47,17 @@ NEUTRAL_PREPROCESS = OmegaConf.create(
 
 
 def _build_predictor():
-    """Build the topdown predictor and pull its initialized inference_model."""
-    from sleap_nn.inference.predictors import Predictor
+    """Load the topdown assets and expose the initialized inference_model."""
+    from sleap_nn.inference.loaders import load_model_assets
 
-    predictor = Predictor.from_model_paths(
+    assets, _ = load_model_assets(
         [str(CENTROID_CKPT), str(CENTERED_CKPT)],
         device="cpu",
         peak_threshold=0.03,
         max_instances=6,
         preprocess_config=NEUTRAL_PREPROCESS,
     )
-    predictor._initialize_inference_model()
-    return predictor
+    return assets
 
 
 def _build_layer(predictor) -> CenteredInstanceLayer:

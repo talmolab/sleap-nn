@@ -148,12 +148,11 @@ CHECKPOINTS = [
 ]
 
 
-def _modules_under_inference_model(predictor):
-    """Walk the predictor's ``inference_model`` and yield every direct
+def _modules_under_inference_model(inf):
+    """Walk the ``inference_model`` and yield every direct
     sub-Lightning-module (its members like ``centroid_model``, ``confmap_model``,
     ``instance_peaks.torch_model``, etc.). These are the exact objects we want
     to wrap in a ``TorchBackend``."""
-    inf = predictor.inference_model
     yielded: set = set()
     for _name, module in inf.named_modules():
         # Lightning modules subclass pytorch_lightning.LightningModule which
@@ -171,10 +170,10 @@ def _modules_under_inference_model(predictor):
 
 @pytest.mark.parametrize("ckpt_name", CHECKPOINTS)
 def test_torch_backend_parity_per_checkpoint(ckpt_name: str):
-    """Wrapping the Lightning module that backs each predictor in
+    """Wrapping the Lightning module that backs each inference model in
     ``TorchBackend`` does not change its forward output bit-for-bit.
 
-    Reuses the production ``Predictor.from_model_paths`` loader so we don't
+    Reuses the production ``load_model_assets`` loader so we don't
     reimplement the (kwargs-heavy) checkpoint-load path here.
     """
     if not (CKPT_ROOT / ckpt_name).exists():
@@ -182,11 +181,11 @@ def test_torch_backend_parity_per_checkpoint(ckpt_name: str):
 
     from omegaconf import OmegaConf
 
-    from sleap_nn.inference.predictors import Predictor
+    from sleap_nn.inference.loaders import load_model_assets
 
-    # Build the predictor (CPU, neutral preprocess) just to get a loaded
+    # Build the inference model (CPU, neutral preprocess) just to get a loaded
     # Lightning module out the other side.
-    predictor = Predictor.from_model_paths(
+    assets, _ = load_model_assets(
         [str(CKPT_ROOT / ckpt_name)],
         device="cpu",
         preprocess_config=OmegaConf.create(
@@ -200,9 +199,8 @@ def test_torch_backend_parity_per_checkpoint(ckpt_name: str):
             }
         ),
     )
-    predictor._initialize_inference_model()
 
-    modules = list(_modules_under_inference_model(predictor))
+    modules = list(_modules_under_inference_model(assets.inference_model))
     assert modules, f"{ckpt_name}: no Lightning sub-module found in inference_model"
 
     for module in modules:

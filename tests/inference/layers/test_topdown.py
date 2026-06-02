@@ -48,18 +48,17 @@ NEUTRAL_PREPROCESS = OmegaConf.create(
 
 def _build_layer() -> TopDownLayer:
     """Build a ``TopDownLayer`` configured to match the test predictor."""
-    from sleap_nn.inference.predictors import Predictor
+    from sleap_nn.inference.loaders import load_model_assets
 
-    predictor = Predictor.from_model_paths(
+    assets, _ = load_model_assets(
         [str(CENTROID_CKPT), str(CENTERED_CKPT)],
         device="cpu",
         peak_threshold=0.03,
         max_instances=6,
         preprocess_config=NEUTRAL_PREPROCESS,
     )
-    predictor._initialize_inference_model()
-    legacy_centroid = predictor.inference_model.centroid_crop
-    legacy_inst = predictor.inference_model.instance_peaks
+    legacy_centroid = assets.inference_model.centroid_crop
+    legacy_inst = assets.inference_model.instance_peaks
 
     centroid_layer = CentroidLayer(
         backend=TorchBackend(model=legacy_centroid.torch_model, device="cpu"),

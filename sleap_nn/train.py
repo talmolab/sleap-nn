@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional, List, Tuple, Union
 import sleap_io as sio
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.training.model_trainer import ModelTrainer
-from sleap_nn.predict import run_inference as predict
+from sleap_nn.inference.run import predict as _new_predict
 from sleap_nn.evaluation import run_evaluation
 from sleap_nn.config.get_config import (
     get_trainer_config,
@@ -194,15 +194,16 @@ def run_training(
                     )
                     continue
 
-                pred_labels = predict(
-                    data_path=path,
-                    model_paths=[run_path],
+                # Preprocessing (ensure_rgb/grayscale/scale/crop_size/...) is read
+                # from the just-trained model's saved training_config by the new
+                # flow; passing a partial preprocess_config here would drop the
+                # other required keys (e.g. crop_size), so let it default.
+                pred_labels = _new_predict(
+                    str(path),
+                    model_paths=[str(run_path)],
                     peak_threshold=0.2,
-                    make_labels=True,
                     device=str(trainer.trainer.strategy.root_device),
-                    output_path=pred_path,
-                    ensure_rgb=config.data_config.preprocessing.ensure_rgb,
-                    ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+                    output_path=str(pred_path),
                 )
 
                 if not len(pred_labels):

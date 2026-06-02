@@ -32,24 +32,23 @@ NEUTRAL_PREPROCESS = OmegaConf.create(
 )
 
 
-def _build_predictor():
-    """Build a multiclass-bottomup Predictor with the test checkpoint."""
-    from sleap_nn.inference.predictors import Predictor
+def _build_assets():
+    """Load multiclass-bottomup inference assets from the test checkpoint."""
+    from sleap_nn.inference.loaders import load_model_assets
 
-    predictor = Predictor.from_model_paths(
+    assets, _ = load_model_assets(
         [str(MULTICLASS_BU_CKPT)],
         device="cpu",
         peak_threshold=0.05,
         preprocess_config=NEUTRAL_PREPROCESS,
     )
-    predictor._initialize_inference_model()
-    return predictor
+    return assets
 
 
-def _build_layer(predictor) -> BottomUpMultiClassLayer:
-    legacy = predictor.inference_model
-    max_stride = predictor.bottomup_config.model_config.backbone_config[
-        predictor.backbone_type
+def _build_layer(assets) -> BottomUpMultiClassLayer:
+    legacy = assets.inference_model
+    max_stride = assets.bottomup_config.model_config.backbone_config[
+        assets.backbone_type
     ]["max_stride"]
     return BottomUpMultiClassLayer(
         backend=TorchBackend(model=legacy.torch_model, device="cpu"),
@@ -69,7 +68,7 @@ def _build_layer(predictor) -> BottomUpMultiClassLayer:
     not MULTICLASS_BU_CKPT.exists(), reason="multiclass-bottomup checkpoint not present"
 )
 def test_returns_outputs_with_canonical_shape():
-    layer = _build_layer(_build_predictor())
+    layer = _build_layer(_build_assets())
     img = np.zeros((1, 1, 384, 384), dtype=np.float32)
     out = layer.predict(img)
     assert isinstance(out, Outputs)
