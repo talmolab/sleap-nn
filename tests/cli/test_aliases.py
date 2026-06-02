@@ -79,3 +79,32 @@ def test_infer_shim_still_works():
     runner = CliRunner()
     result = runner.invoke(cli, ["infer", "--help"])
     assert result.exit_code == 0, result.output
+
+
+def test_infer_shim_emits_deprecation_warning():
+    """``sleap-nn infer`` emits a DeprecationWarning pointing to ``predict``."""
+    import warnings
+    from unittest.mock import MagicMock
+
+    runner = CliRunner()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with patch(
+            "sleap_nn.inference.run.predict",
+            return_value=MagicMock(),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "infer",
+                    "--data_path",
+                    "/fake/path.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                    "--device",
+                    "cpu",
+                ],
+            )
+    assert result.exit_code == 0, result.output
+    deprecation_msgs = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert any("sleap-nn predict" in str(w.message) for w in deprecation_msgs)

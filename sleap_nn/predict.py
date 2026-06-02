@@ -582,7 +582,7 @@ def run_inference(
         # Centroid-only models are unsupported on this legacy pipeline: a lone
         # centroid model builds a GT-dependent FindInstancePeaksGroundTruth stage
         # (predictors.py), silently substituting ground-truth centroids and only
-        # "predicting" labeled frames. Redirect to the new `infer` flow instead of
+        # "predicting" labeled frames. Redirect to the new `predict` flow instead of
         # producing misleading GT-copied output.
         if model_paths:
             from sleap_nn.config.utils import (

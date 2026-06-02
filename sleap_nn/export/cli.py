@@ -1226,9 +1226,30 @@ def _load_lightning_model(
     )
 
 
-@click.group(context_settings=CONTEXT_SETTINGS)
+class _DefaultModelGroup(click.Group):
+    """Click group that defaults to ``model`` for backward compatibility.
+
+    ``sleap-nn export MODEL_PATHS`` (the pre-group syntax) is treated as
+    ``sleap-nn export model MODEL_PATHS``.
+    """
+
+    def parse_args(self, ctx, args):
+        if (
+            args
+            and args[0] not in self.list_commands(ctx)
+            and not args[0].startswith("-")
+        ):
+            args = ["model"] + list(args)
+        return super().parse_args(ctx, args)
+
+
+@click.group(cls=_DefaultModelGroup, context_settings=CONTEXT_SETTINGS)
 def export():
-    """Export trained models to ONNX/TensorRT formats."""
+    """Export trained models to ONNX/TensorRT formats.
+
+    Subcommands: ``model`` (export checkpoints to ONNX/TRT, the default)
+    and ``predict`` (run inference on an exported model).
+    """
     pass
 
 

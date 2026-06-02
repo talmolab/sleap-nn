@@ -149,7 +149,8 @@ def cli():
     Use subcommands to run different workflows:
 
     train    - Run training workflow (auto-handles multi-GPU)
-    predict  - Run inference/tracking workflow
+    predict  - Run inference workflow (new pipeline)
+    track    - Run inference/tracking workflow (legacy pipeline)
     eval     - Run evaluation workflow
     system   - Display system information and GPU status
     """

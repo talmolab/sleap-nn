@@ -63,7 +63,7 @@ sleap-nn export models/my_model -o exports/ --format both
 ### Run Inference
 
 ```bash
-sleap-nn predict exports/my_model video.mp4 -o predictions.slp
+sleap-nn export predict exports/my_model video.mp4 -o predictions.slp
 ```
 
 ---
@@ -124,7 +124,7 @@ sleap-nn export models/centroid -o exports/centroid --format onnx
 #   instance (default) -> single-node PredictedInstance (frontend-compatible)
 #   centroid           -> sio.PredictedCentroid
 #   both               -> both
-sleap-nn predict exports/centroid video.mp4 -o centroids.slp \
+sleap-nn export predict exports/centroid video.mp4 -o centroids.slp \
     --centroid-output instance
 ```
 
@@ -142,7 +142,7 @@ contract.
 ## Inference Options
 
 ```bash
-sleap-nn predict EXPORT_DIR VIDEO [options]
+sleap-nn export predict EXPORT_DIR VIDEO [options]
 ```
 
 | Option | Description | Values | Default |
@@ -162,13 +162,13 @@ sleap-nn predict EXPORT_DIR VIDEO [options]
 
 ```bash
 # Maximum speed with TensorRT
-sleap-nn predict exports/model video.mp4 --runtime tensorrt --batch-size 8
+sleap-nn export predict exports/model video.mp4 --runtime tensorrt --batch-size 8
 
 # CPU inference
-sleap-nn predict exports/model video.mp4 --runtime onnx --device cpu
+sleap-nn export predict exports/model video.mp4 --runtime onnx --device cpu
 
 # First 1000 frames
-sleap-nn predict exports/model video.mp4 --n-frames 1000
+sleap-nn export predict exports/model video.mp4 --n-frames 1000
 ```
 
 ---

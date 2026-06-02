@@ -142,7 +142,7 @@ representation choices:
 sleap-nn export models/centroid -o exports/centroid --format onnx
 
 # Run the exported model. --centroid-output mirrors the checkpoint flow.
-sleap-nn predict exports/centroid video.mp4 -o centroids.slp \
+sleap-nn export predict exports/centroid video.mp4 -o centroids.slp \
     --centroid-output instance
 ```
 
