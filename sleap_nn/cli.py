@@ -1444,6 +1444,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
                 else f"{src}.slp"
             )
         ),
+        "output_format": kwargs.get("output_format") or "slp",
         # Bottom-up PAF grouping knobs (inert for non-bottom-up models). #583.
         "max_edge_length_ratio": kwargs.get("max_edge_length_ratio", 0.25),
         "dist_penalty_weight": kwargs.get("dist_penalty_weight", 1.0),
@@ -1590,8 +1591,12 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
         tracking_params=_attrs.asdict(tracker_config),
         frames_processed=len(out.labeled_frames),
     )
+    from sleap_nn.inference.run import save_predictions
+
     output_path = kwargs.get("output_path") or f"{src}.slp"
-    out.save(output_path)
+    save_predictions(
+        out, output_path, output_format=kwargs.get("output_format") or "slp"
+    )
     return out
 
 
@@ -1778,6 +1783,11 @@ def _run_stream_to_file(
             "streaming writes each batch to disk and cannot drop empty "
             "frames after the fact. Drop --stream-to-file to use it."
         )
+    if (kwargs.get("output_format") or "slp").lower() != "slp":
+        raise click.UsageError(
+            "--stream-to-file only supports --output_format slp. Drop "
+            "--stream-to-file to write analysis HDF5 via the in-memory path."
+        )
     if not kwargs.get("model_paths"):
         raise click.UsageError("--model_paths is required for --stream-to-file.")
     data_path = kwargs.get("data_path")
@@ -1913,6 +1923,12 @@ def _common_inference_options(f):
             type=str,
             default=None,
             help="Output filename. Defaults to '[data_path].slp'.",
+        ),
+        click.option(
+            "--output_format",
+            type=click.Choice(["slp", "analysis_h5", "both"], case_sensitive=False),
+            default="slp",
+            help="Output format: 'slp' (SLEAP labels file, the default), 'analysis_h5' (SLEAP Analysis HDF5, one '.analysis.h5' per video), or 'both'.",
         ),
         click.option(
             "--device",
