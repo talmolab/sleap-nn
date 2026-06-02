@@ -1172,3 +1172,138 @@ def test_kalman_invalid_track_features_raises():
             kf_track_features="garbage",
             tracking_target_instance_count=2,
         )
+
+
+@pytest.mark.parametrize("method", ["fixed_window", "local_queues"])
+@pytest.mark.parametrize(
+    "n_per_frame",
+    [
+        # interior empty: empty frame between non-empty ones (the canonical #611 repro).
+        [2, 0, 2, 2],
+        # consecutive interior empties: two empty candidates in the window at once --
+        # the strongest stressor of the guard.
+        [2, 0, 0, 2],
+        # leading empty: frame 0 is empty, so tracking inits on frame 1.
+        [0, 2, 2],
+        # trailing empty: gap at the end of the sequence.
+        [2, 2, 0],
+        # all empty: nothing ever enters the queue with instances.
+        [0, 0, 0],
+    ],
+    ids=[
+        "interior_empty",
+        "consecutive_empty",
+        "leading_empty",
+        "trailing_empty",
+        "all_empty",
+    ],
+)
+def test_flowshifttracker_empty_frame(method, n_per_frame):
+    """FlowShiftTracker handles frames with zero instances without crashing (#611).
+
+    Note: only the ``fixed_window`` method actually reproduces the pre-fix
+    ``need at least one array to concatenate`` crash, since the fixed-window queue
+    appends empty frames. For ``local_queues``,
+    ``LocalQueueCandidates.get_instances_groupby_frame_idx`` never creates a group key
+    for an empty frame, so this acts as a smoke / no-regression check there; the
+    local-queue guard is exercised directly in
+    ``test_flowshifttracker_local_queue_empty_group_guard``.
+    """
+    skel = sio.Skeleton(["a", "b", "c"])
+
+    def mk(cx, cy):
+        pts = np.array([[cx, cy], [cx + 5, cy], [cx, cy + 5]], dtype="float32")
+        return sio.PredictedInstance.from_numpy(
+            points_data=pts,
+            skeleton=skel,
+            point_scores=np.ones(3),
+            score=1.0,
+        )
+
+    # Build frames with deterministic, well-separated instances per frame so the
+    # tracker assigns a stable number of tracks on recovery.
+    def make_frame(n):
+        centers = [(20, 30), (80, 90)]
+        offset = 0  # jitter is unnecessary; flow is computed on shared images below.
+        return [mk(cx + offset, cy + offset) for cx, cy in centers[:n]]
+
+    rng = np.random.default_rng(0)
+    frames = [make_frame(n) for n in n_per_frame]
+
+    tracker = Tracker.from_config(
+        candidates_method=method,
+        features="keypoints",
+        scoring_method="oks",
+        track_matching_method="greedy",
+        use_flow=True,
+    )
+    assert isinstance(tracker, FlowShiftTracker)
+
+    tracked_per_frame = []
+    for fidx, instances in enumerate(frames):
+        img = rng.integers(0, 256, size=(128, 128, 1), dtype="uint8")
+        tracked = tracker.track(instances, fidx, img)
+        tracked_per_frame.append(tracked)
+
+    # Every frame returns exactly as many tracked instances as it had detections,
+    # and each tracked instance carries a track. Empty frames return [].
+    for n, tracked in zip(n_per_frame, tracked_per_frame):
+        assert len(tracked) == n
+        if n == 0:
+            assert tracked == []
+        else:
+            for t in tracked:
+                assert t.track is not None
+
+
+def test_flowshifttracker_local_queue_empty_group_guard():
+    """Local-queue branch skips a frame group with zero instances (#611 guard).
+
+    ``get_instances_groupby_frame_idx`` never produces an empty group through the
+    normal pipeline (empty frames contribute no ``TrackInstanceLocalQueue`` objects),
+    so the ``if not ref_pts: continue`` guard in the local-queue branch is otherwise
+    dead code w.r.t. the live pipeline. This feeds an empty group directly so the
+    guard at ``FlowShiftTracker.get_shifted_instances_from_prv_frames`` is exercised:
+    pre-fix, the empty group would reach ``np.concatenate([])`` and raise
+    ``need at least one array to concatenate``.
+    """
+    skel = sio.Skeleton(["a", "b", "c"])
+    pts = np.array([[20, 30], [25, 30], [20, 35]], dtype="float32")
+    inst = sio.PredictedInstance.from_numpy(
+        points_data=pts, skeleton=skel, point_scores=np.ones(3), score=1.0
+    )
+    img = np.zeros((128, 128, 1), dtype="uint8")
+
+    tracker = Tracker.from_config(
+        candidates_method="local_queues",
+        features="keypoints",
+        scoring_method="oks",
+        track_matching_method="greedy",
+        use_flow=True,
+    )
+    feature_method = tracker._feature_methods[tracker.features]
+
+    populated = TrackInstanceLocalQueue(
+        src_instance=inst,
+        src_instance_idx=0,
+        feature=feature_method(pts),
+        track_id=0,
+        tracking_score=1.0,
+        frame_idx=0,
+        image=img,
+    )
+
+    # Force the grouping to yield one populated group (frame 0) and one empty group
+    # (frame 1) so the guard's ``continue`` branch is hit.
+    grouped = {0: [populated], 1: []}
+    tracker.candidate.get_instances_groupby_frame_idx = lambda candidates_list: grouped
+
+    shifted = tracker.get_shifted_instances_from_prv_frames(
+        candidates_list=None,
+        new_img=img,
+        feature_method=feature_method,
+    )
+
+    # The empty group contributes nothing; only the populated frame's track appears.
+    assert set(shifted.keys()) == {0}
+    assert len(shifted[0]) == 1
