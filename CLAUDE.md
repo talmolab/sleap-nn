@@ -72,4 +72,4 @@ Configurations are managed via Hydra and can be specified in YAML files (see `do
 - Inference: `sleap_nn/predict.py` - Run inference on trained models
 - CLI: `sleap_nn/cli.py` - Command-line interface (currently minimal)
 - Evaluation: `sleap_nn/evaluation.py` - Model evaluation utilities
-- Centroid-only models: first-class support — train a lone centroid head, `sleap-nn infer` auto-detects a single centroid directory (output collapses to a single-node `'centroid'` skeleton), distance-based eval (`--match_method centroid`), and standalone ONNX/TensorRT export. See `docs/guides/centroid-only-inference.md`.
+- Centroid-only models: first-class support — train a lone centroid head, `sleap-nn predict` auto-detects a single centroid directory (output collapses to a single-node `'centroid'` skeleton), distance-based eval (`--match_method centroid`), and standalone ONNX/TensorRT export. See `docs/guides/centroid-only-inference.md`.

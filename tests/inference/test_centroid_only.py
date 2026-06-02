@@ -452,7 +452,7 @@ def test_centroid_only_predict_to_file_collapses(tmp_path):
 def test_legacy_run_inference_lone_centroid_raises():
     from sleap_nn.predict import run_inference
 
-    with pytest.raises(ValueError, match="infer"):
+    with pytest.raises(ValueError, match="predict"):
         run_inference(
             data_path=str(SLP_FIXTURE),
             model_paths=[str(CENTROID_CKPT)],
@@ -460,14 +460,14 @@ def test_legacy_run_inference_lone_centroid_raises():
         )
 
 
-def test_cli_infer_has_centroid_output_option():
-    """The new --centroid-output option is wired onto `infer`, and the stale
+def test_cli_predict_has_centroid_output_option():
+    """The new --centroid-output option is wired onto `predict`, and the stale
     'NaN-padded' wording is gone from --centroid_only help."""
     from click.testing import CliRunner
 
     from sleap_nn.cli import cli
 
-    result = CliRunner().invoke(cli, ["infer", "--help"])
+    result = CliRunner().invoke(cli, ["predict", "--help"])
     assert result.exit_code == 0
     assert "--centroid-output" in result.output
     assert "NaN-padded" not in result.output
@@ -478,7 +478,7 @@ def test_cli_infer_has_centroid_output_option():
     reason="centroid ckpt / slp fixture absent",
 )
 def test_cli_track_lone_centroid_errors():
-    """Legacy `track` with a lone centroid model errors, pointing to `infer`."""
+    """Legacy `track` with a lone centroid model errors, pointing to `predict`."""
     from click.testing import CliRunner
 
     from sleap_nn.cli import cli
@@ -489,7 +489,7 @@ def test_cli_track_lone_centroid_errors():
     )
     assert result.exit_code != 0
     assert result.exception is not None
-    assert "infer" in str(result.exception)
+    assert "predict" in str(result.exception)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -499,8 +499,8 @@ def test_cli_track_lone_centroid_errors():
 
 def test_cli_filter_min_centroid_distance_wired():
     """`--filter_min_centroid_distance` reaches FilterConfig and is registered
-    on the `infer` command."""
-    from sleap_nn.cli import _build_filter_config, infer
+    on the `predict` command."""
+    from sleap_nn.cli import _build_filter_config, predict
 
     cfg = _build_filter_config({"filter_min_centroid_distance": 8.0})
     assert cfg is not None
@@ -508,7 +508,7 @@ def test_cli_filter_min_centroid_distance_wired():
     # Zero / absent -> no-op config (None) when nothing else is set.
     assert _build_filter_config({"filter_min_centroid_distance": 0.0}) is None
 
-    assert "filter_min_centroid_distance" in {p.name for p in infer.params}
+    assert "filter_min_centroid_distance" in {p.name for p in predict.params}
 
 
 def test_emit_centroid_with_tracking_raises():

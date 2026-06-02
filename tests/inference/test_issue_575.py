@@ -2,7 +2,7 @@
 
 ``model_paths`` historically had to be a model *directory* (holding
 ``training_config.{yaml,json}`` + ``best.ckpt``). The inference / tracking entry
-points (``Predictor.from_model_paths``, the new ``sleap-nn infer`` flow, and the
+points (``Predictor.from_model_paths``, the new ``sleap-nn predict`` flow, and the
 legacy ``sleap-nn track`` / ``run_inference`` pipeline) now also accept a path to
 a model's ``best.ckpt`` or ``training_config.{yaml,json}`` file; every form
 resolves to the model directory, which is loaded via ``best.ckpt``.

@@ -149,7 +149,7 @@ def cli():
     Use subcommands to run different workflows:
 
     train    - Run training workflow (auto-handles multi-GPU)
-    track    - Run inference/tracking workflow
+    predict  - Run inference/tracking workflow
     eval     - Run evaluation workflow
     system   - Display system information and GPU status
     """
@@ -996,7 +996,7 @@ def track(**kwargs):
     """Run Inference and Tracking workflow (legacy pipeline).
 
     This command uses the legacy ``run_inference`` pipeline. For the new
-    inference pipeline, use ``sleap-nn infer``.
+    inference pipeline, use ``sleap-nn predict``.
     """
     from sleap_nn.predict import frame_list, run_inference
 
@@ -1020,7 +1020,7 @@ def track(**kwargs):
     kwargs.pop("write_interval", None)
     # New-flow-only flags, inert here. `track` cannot do centroid-only
     # inference; a lone centroid model is rejected downstream by run_inference
-    # with a message pointing to `sleap-nn infer`.
+    # with a message pointing to `sleap-nn predict`.
     kwargs.pop("centroid_only", None)
     kwargs.pop("centroid_peak_threshold", None)
     kwargs.pop("centroid_output", None)
@@ -1030,29 +1030,20 @@ def track(**kwargs):
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# PR 10 of #508 — `sleap-nn infer` unified inference command (#518)
+# ``sleap-nn predict`` unified inference command
 # ──────────────────────────────────────────────────────────────────────────
 #
-# `infer`, `predict`, and `track` share an option list and dispatch to one
+# ``predict`` and ``track`` share an option list and dispatch to one
 # implementation. The option list is built programmatically below
-# (``_INFERENCE_OPTIONS``) so the three commands stay in lockstep — adding
-# a flag in one place updates all three.
+# (``_INFERENCE_OPTIONS``) so the commands stay in lockstep — adding
+# a flag in one place updates all of them.
 #
-# The new flags introduced by PR 10:
-#   --paf-workers / --cpu-workers (alias)  → wires to Predictor(paf_workers=)
-#   --stream-to-file                        → triggers Predictor.predict_to_file
-#   --write-interval                        → flush cadence for stream-to-file
-#   --peak-conf-threshold (alias)           → alternate name for --peak_threshold
-#
-# The first two are accepted but warn / error today: the underlying new
-# Predictor wiring lands in PR 14 (#519, blocked-by this PR). When that
-# PR lands, this implementation flips to call
-# ``sleap_nn.inference.predictor.Predictor`` directly without changing
-# the user-facing CLI surface.
+# ``infer`` is kept as a hidden backward-compatible alias that emits a
+# deprecation warning and delegates to the same implementation.
 
 
 def _run_inference_impl(**kwargs):
-    """Implementation for ``sleap-nn infer`` (new pipeline only).
+    """Implementation for ``sleap-nn predict`` (new pipeline only).
 
     Coerces tuple-shaped multi-options into lists, parses the
     ``--frames`` string into a list of int frame indices, and routes to
@@ -1183,7 +1174,7 @@ def _build_tracker_config(kwargs: dict) -> "object":
     """Build a :class:`TrackerConfig` from the CLI ``--tracking_*`` flags.
 
     Replicates the legacy ``run_inference`` edge-layer defaulting (see
-    ``sleap_nn/predict.py`` pre-#530) so the new ``infer`` flow behaves
+    ``sleap_nn/predict.py`` pre-#530) so the new ``predict`` flow behaves
     identically (#582):
 
     * ``--max_tracks`` with no ``--candidates_method`` defaults the method to
@@ -1569,7 +1560,7 @@ def _gui_progress_callback():
 
 
 def _make_rich_progress():
-    """Build a shared Rich ``Progress`` instance for the ``infer`` path.
+    """Build a shared Rich ``Progress`` instance for the ``predict`` path.
 
     Returns the ``Progress`` (already started) — the caller MUST stop it
     in a ``finally`` block.
@@ -1619,7 +1610,7 @@ def _rich_task_callback(progress, description: str = "Predicting..."):
 
 
 def _rich_progress_callback():
-    """Build a Rich progress bar callback for the non-``--gui`` ``infer`` path.
+    """Build a Rich progress bar callback for the non-``--gui`` ``predict`` path.
 
     Returns ``(callback, progress)`` where ``callback(processed, total)`` has
     the per-batch signature the new pipeline uses. The ``Progress`` is started
@@ -1773,8 +1764,8 @@ def _common_inference_options(f):
     """Apply the shared inference flag list to a click command function.
 
     Defined as a function-level decorator (not a ``@click.option`` chain)
-    so the same option set can be reused across ``infer`` / ``predict``
-    / ``track`` without copy-pasting ~70 decorator lines per command.
+    so the same option set can be reused across ``predict`` / ``track``
+    without copy-pasting ~70 decorator lines per command.
     """
     decorators = [
         click.option(
@@ -2071,23 +2062,26 @@ def _common_inference_options(f):
 
 @cli.command(context_settings=CONTEXT_SETTINGS)
 @_common_inference_options
-def infer(**kwargs):
+def predict(**kwargs):
     """Run inference on videos or labels files.
 
-    Single unified inference entry point. Replaces ``track``, ``predict``,
-    and ``export predict`` (which remain as aliases with deprecation
-    warnings until v0.3).
+    Single unified inference entry point.
     """
     return _run_inference_impl(**kwargs)
 
 
-# NOTE: The `sleap-nn predict` deprecation alias is deferred — a follow-up
-# PR will (a) convert `export` from a single command to a click group,
-# (b) re-home the existing top-level `predict` (which today runs inference
-# on an exported ONNX/TRT model) under `sleap-nn export predict`, and
-# (c) reclaim the top-level `predict` name as an alias for `infer`. PR 10
-# ships `track` deprecation and the canonical `infer` only, so users can
-# migrate via either of those paths first.
+@cli.command("infer", hidden=True, context_settings=CONTEXT_SETTINGS)
+@_common_inference_options
+def infer(**kwargs):
+    """Deprecated alias for ``predict``. Use ``sleap-nn predict`` instead."""
+    import warnings
+
+    warnings.warn(
+        "sleap-nn infer is deprecated. Use sleap-nn predict instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _run_inference_impl(**kwargs)
 
 
 @cli.command(context_settings=CONTEXT_SETTINGS)
@@ -2182,12 +2176,10 @@ def info(path):
 
 
 def _register_export_commands():
-    """Lazily import and register export subcommands."""
-    from sleap_nn.export.cli import export as export_command
-    from sleap_nn.export.cli import predict as predict_command
+    """Lazily import and register the export command group."""
+    from sleap_nn.export.cli import export as export_group
 
-    cli.add_command(export_command)
-    cli.add_command(predict_command)
+    cli.add_command(export_group)
 
 
 @cli.command(context_settings=CONTEXT_SETTINGS)

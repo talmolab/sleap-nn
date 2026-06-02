@@ -1,4 +1,4 @@
-"""Validation tests for the PR 10 flags introduced on ``sleap-nn infer``.
+"""Validation tests for the PR 10 flags introduced on ``sleap-nn predict``.
 
 * ``--stream-to-file`` is accepted but currently raises a clear
   ``UsageError`` since the new ``Predictor.predict_to_file`` flow lands
@@ -29,7 +29,7 @@ def test_stream_to_file_with_tracking_raises_usage_error():
     result = runner.invoke(
         cli,
         [
-            "infer",
+            "predict",
             "--data_path",
             "/fake/path.mp4",
             "--model_paths",
@@ -53,7 +53,7 @@ def test_stream_to_file_with_no_empty_frames_raises_usage_error():
     result = runner.invoke(
         cli,
         [
-            "infer",
+            "predict",
             "--data_path",
             "/fake/path.mp4",
             "--model_paths",
@@ -73,7 +73,7 @@ def test_write_interval_without_stream_to_file_errors():
     result = runner.invoke(
         cli,
         [
-            "infer",
+            "predict",
             "--data_path",
             "/fake/path.mp4",
             "--model_paths",
@@ -102,7 +102,7 @@ def test_cpu_workers_alias_emits_deprecation_warning():
             result = runner.invoke(
                 cli,
                 [
-                    "infer",
+                    "predict",
                     "--data_path",
                     "/fake/path.mp4",
                     "--model_paths",
@@ -133,7 +133,7 @@ def test_paf_workers_positive_does_not_warn_on_new_flow():
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -168,7 +168,7 @@ def test_stream_to_file_invokes_new_predictor_flow(tmp_path):
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -188,7 +188,7 @@ def test_unknown_flag_rejected_cleanly():
     result = runner.invoke(
         cli,
         [
-            "infer",
+            "predict",
             "--data_path",
             "/fake/path.mp4",
             "--this-is-not-a-flag",

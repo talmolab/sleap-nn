@@ -155,8 +155,8 @@ sleap-nn predict EXPORT_DIR VIDEO [options]
 
 !!! tip "Running unexported checkpoints"
     To run inference on a trained checkpoint directory (not an exported
-    ONNX/TensorRT model), prefer the unified [`sleap-nn infer`](inference.md)
-    entry point. `sleap-nn predict` here runs an **exported** model directory.
+    ONNX/TensorRT model), prefer the unified [`sleap-nn predict`](inference.md)
+    entry point. `sleap-nn export predict` here runs an **exported** model directory.
 
 ### Examples
 

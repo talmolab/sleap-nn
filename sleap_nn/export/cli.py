@@ -12,7 +12,7 @@ import click
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 
-@click.command(context_settings=CONTEXT_SETTINGS)
+@click.command("model", context_settings=CONTEXT_SETTINGS)
 @click.argument(
     "model_paths",
     nargs=-1,
@@ -66,7 +66,7 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     help="TensorRT builder workspace size in GB. Uses exporter default if unset.",
 )
 @click.option("--verify/--no-verify", default=True, show_default=True)
-def export(
+def export_model(
     model_paths: tuple[Path, ...],
     output: Optional[Path],
     fmt: str,
@@ -848,7 +848,7 @@ def export(
     )
 
 
-@click.command(context_settings=CONTEXT_SETTINGS)
+@click.command("predict", context_settings=CONTEXT_SETTINGS)
 @click.argument(
     "export_dir",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
@@ -942,7 +942,7 @@ def export(
     "(single-node PredictedInstance, frontend-compatible), 'centroid' "
     "(sio.PredictedCentroid), or 'both'. Ignored for non-centroid models.",
 )
-def predict(
+def export_predict(
     export_dir: Path,
     video_path: Path,
     output: Optional[Path],
@@ -1224,3 +1224,13 @@ def _load_lightning_model(
         map_location=device,
         weights_only=False,
     )
+
+
+@click.group(context_settings=CONTEXT_SETTINGS)
+def export():
+    """Export trained models to ONNX/TensorRT formats."""
+    pass
+
+
+export.add_command(export_model, name="model")
+export.add_command(export_predict, name="predict")
