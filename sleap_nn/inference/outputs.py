@@ -85,6 +85,14 @@ class Outputs:
     pred_centroids: Optional[torch.Tensor] = None  # (B, I, 2)
     pred_centroid_values: Optional[torch.Tensor] = None  # (B, I)
 
+    # ── Instance segmentation ────────────────────────────────────────
+    # Per-batch ragged masks: a length-B list, one entry per frame. Each
+    # entry is a list of per-instance dicts ``{"mask": bool ndarray (H, W) at
+    # original-image resolution, "score": float}``. Stored as picklable numpy
+    # (not a dense tensor) so ``slim()`` / the multiprocessing path stay
+    # memory-safe and pickle-clean.
+    pred_masks: Optional[List[List[Dict[str, Any]]]] = None
+
     # ── Instance-level metadata ──────────────────────────────────────
     instance_scores: Optional[torch.Tensor] = None  # (B, I)
     instance_valid: Optional[torch.Tensor] = None  # (B, I), bool
@@ -120,6 +128,12 @@ class Outputs:
         """Compact ``Outputs(...)`` summary listing only populated fields."""
         parts: List[str] = []
         for f in attrs.fields(type(self)):
+            if f.name == "pred_masks":
+                masks = getattr(self, "pred_masks")
+                if masks is not None:
+                    n = sum(len(per_frame) for per_frame in masks)
+                    parts.append(f"pred_masks=list[{len(masks)} frames, {n} masks]")
+                continue
             r = _tensor_repr(f.name, getattr(self, f.name))
             if r is not None:
                 parts.append(r)
@@ -231,7 +245,9 @@ class Outputs:
 
     @property
     def batch_size(self) -> int:
-        """Batch dimension B, or 0 if no keypoint-bearing field is set."""
+        """Batch dimension B, or 0 if no batch-bearing field is set."""
+        if self.pred_masks is not None:
+            return len(self.pred_masks)
         for name in ("pred_keypoints", "pred_centroids", "frame_indices"):
             t = getattr(self, name)
             if t is not None:
@@ -515,6 +531,36 @@ class Outputs:
             )
         return out
 
+    def to_masks(
+        self,
+        batch_index: int = 0,
+    ) -> list["sio.PredictedSegmentationMask"]:
+        """Convert one batch slot's masks into ``sio.PredictedSegmentationMask``s.
+
+        Each entry of ``pred_masks[batch_index]`` is a dict with a boolean
+        ``"mask"`` (original-image resolution) and a float ``"score"``; both
+        become a ``sio.PredictedSegmentationMask`` (stored in
+        ``LabeledFrame.masks``). Returns ``[]`` when there are no masks.
+
+        Args:
+            batch_index: Which sample in the batch to convert.
+        """
+        if self.pred_masks is None or batch_index >= len(self.pred_masks):
+            return []
+        from sleap_nn.inference.segmentation_convert import (
+            build_predicted_segmentation_mask,
+        )
+
+        out: List["sio.PredictedSegmentationMask"] = []
+        for inst in self.pred_masks[batch_index]:
+            mask = inst["mask"]
+            if mask is None or not np.asarray(mask).any():
+                continue
+            out.append(
+                build_predicted_segmentation_mask(mask, float(inst.get("score", 0.0)))
+            )
+        return out
+
     def to_labels(
         self,
         skeleton: "sio.Skeleton",
@@ -586,7 +632,8 @@ class Outputs:
                 if want_centroids
                 else []
             )
-            if not instances and not centroids:
+            masks = self.to_masks(batch_index=b)
+            if not instances and not centroids and not masks:
                 continue
             for inst in instances:
                 trk = getattr(inst, "track", None)
@@ -629,13 +676,17 @@ class Outputs:
                     frame_idx=frame_idx,
                     instances=instances,
                     centroids=centroids,
+                    masks=masks,
                 )
             )
         valid_videos = [v for v in videos if v is not None]
+        # Mask-only (segmentation) models may have no skeleton; emit an empty
+        # skeleton list rather than ``[None]``.
+        skeletons = [pkg_skeleton] if pkg_skeleton is not None else []
         labels = sio.Labels(
             labeled_frames=labeled_frames,
             videos=valid_videos,
-            skeletons=[pkg_skeleton],
+            skeletons=skeletons,
         )
         if used_tracks:
             labels.tracks = used_tracks
