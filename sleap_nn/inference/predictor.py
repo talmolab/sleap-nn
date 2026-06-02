@@ -45,6 +45,7 @@ from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLaye
 from sleap_nn.inference.layers.centered_instance import CenteredInstanceLayer
 from sleap_nn.inference.layers.centroid import CentroidLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
+from sleap_nn.inference.layers.segmentation import SegmentationLayer
 from sleap_nn.inference.layers.single_instance import SingleInstanceLayer
 from sleap_nn.inference.layers.topdown import TopDownLayer
 from sleap_nn.inference.layers.topdown_multiclass import (
@@ -224,6 +225,28 @@ def _build_bottomup_multiclass_layer(
     )
 
 
+def _build_bottomup_segmentation_layer(
+    predictor: Any, device: str
+) -> SegmentationLayer:
+    """Wrap a ``BottomUpSegmentationInferenceModel`` in a ``SegmentationLayer``."""
+    inf = predictor.inference_model
+    max_stride = getattr(predictor, "max_stride", 1) or 1
+    return SegmentationLayer(
+        backend=TorchBackend(model=inf.torch_model, device=device),
+        output_stride=inf.output_stride,
+        max_stride=max_stride,
+        fg_threshold=inf.fg_threshold,
+        preprocess_config=PreprocessConfig(
+            scale=inf.input_scale,
+            max_height=_pp_field(predictor, "max_height"),
+            max_width=_pp_field(predictor, "max_width"),
+            ensure_rgb=_pp_field(predictor, "ensure_rgb"),
+            ensure_grayscale=_pp_field(predictor, "ensure_grayscale"),
+        ),
+        postprocess_config=PostprocessConfig(peak_threshold=inf.peak_threshold),
+    )
+
+
 def _build_centroid_layer(
     centroid_model: Any,
     device: str,
@@ -360,6 +383,8 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
         return _build_bottomup_layer(assets, device)
     if "multi_class_bottomup" in model_types:
         return _build_bottomup_multiclass_layer(assets, device)
+    if "bottomup_segmentation" in model_types:
+        return _build_bottomup_segmentation_layer(assets, device)
     has_centroid = "centroid" in model_types
     has_centered = "centered_instance" in model_types
     has_multi_centered = "multi_class_topdown" in model_types
@@ -1137,7 +1162,7 @@ class Predictor:
             return outputs_list
         if skeleton is not None:
             self.skeleton = skeleton
-        if self.skeleton is None:
+        if self.skeleton is None and not self._is_segmentation_layer():
             raise ValueError(
                 "make_labels=True requires a skeleton. Either pass "
                 "`skeleton=...` or build the Predictor via Predictor.from_model_paths() "
@@ -1285,7 +1310,7 @@ class Predictor:
         """
         if skeleton is not None:
             self.skeleton = skeleton
-        if self.skeleton is None:
+        if self.skeleton is None and not self._is_segmentation_layer():
             raise ValueError(
                 "predict_to_file requires a skeleton. Either pass "
                 "`skeleton=...` or build the Predictor via Predictor.from_model_paths() "
@@ -1522,6 +1547,10 @@ class Predictor:
         from sleap_nn.inference.layers.exported import ExportedCentroidLayer
 
         return isinstance(self.layer, (CentroidLayer, ExportedCentroidLayer))
+
+    def _is_segmentation_layer(self) -> bool:
+        """``True`` iff ``layer`` is a bottom-up instance-segmentation layer."""
+        return isinstance(self.layer, SegmentationLayer)
 
     def _resolve_centroid_packaging(self) -> _CentroidPackaging:
         """Resolve the single-source centroid output-packaging decision.

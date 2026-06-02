@@ -35,9 +35,11 @@ from sleap_nn.inference.topdown import (
 )
 from sleap_nn.inference.utils import get_skeleton_from_config
 from sleap_nn.legacy_models import load_legacy_model
+from sleap_nn.inference.segmentation import BottomUpSegmentationInferenceModel
 from sleap_nn.training.lightning_modules import (
     BottomUpLightningModule,
     BottomUpMultiClassLightningModule,
+    BottomUpSegmentationLightningModule,
     CentroidLightningModule,
     SingleInstanceLightningModule,
     TopDownCenteredInstanceLightningModule,
@@ -386,6 +388,62 @@ def _build_bottomup_multiclass(
         bottomup_config=config,
         backbone_type=backbone_type,
         max_instances=max_instances,
+    )
+
+
+def _build_bottomup_segmentation(
+    ckpt_path: str,
+    *,
+    device: str,
+    backbone_ckpt_path: Optional[str],
+    head_ckpt_path: Optional[str],
+    peak_threshold: float,
+    integral_refinement: str,
+    integral_patch_size: int,
+    return_confmaps: bool,
+    preprocess_config: Any,
+    fg_threshold: float = 0.5,
+) -> LoadedAssets:
+    """Load a ``BottomUpSegmentationLightningModule`` and wrap it for inference.
+
+    ``integral_refinement`` / ``integral_patch_size`` / ``return_confmaps`` are
+    accepted for a uniform ``common_kwargs`` call signature but are unused
+    (segmentation has no keypoint peak refinement / confmaps).
+    """
+    module, config, backbone_type = _load_lightning_module(
+        BottomUpSegmentationLightningModule,
+        ckpt_path,
+        model_type="bottomup_segmentation",
+        device=device,
+        backbone_ckpt_path=backbone_ckpt_path,
+        head_ckpt_path=head_ckpt_path,
+    )
+    # Mask-only labels may carry no skeleton; tolerate an empty/missing one.
+    try:
+        skeletons = get_skeleton_from_config(config.data_config.skeletons)
+    except Exception:  # noqa: BLE001 — skeleton is optional for segmentation
+        skeletons = []
+
+    max_stride = config.model_config.backbone_config[backbone_type]["max_stride"]
+    preprocess_config = _resolve_preprocess_config(preprocess_config, config)
+
+    seg_cfg = config.model_config.head_configs.bottomup_segmentation
+    output_stride = seg_cfg.segmentation.output_stride
+
+    inference_model = BottomUpSegmentationInferenceModel(
+        torch_model=module,
+        fg_threshold=fg_threshold,
+        peak_threshold=peak_threshold,
+        output_stride=output_stride,
+        input_scale=config.data_config.preprocessing.scale,
+    )
+    return LoadedAssets(
+        inference_model=inference_model,
+        preprocess_config=preprocess_config,
+        skeletons=skeletons,
+        bottomup_config=config,
+        backbone_type=backbone_type,
+        max_stride=max_stride,
     )
 
 
@@ -795,6 +853,10 @@ def load_model_assets(
         assets = _build_bottomup_multiclass(
             path, max_instances=max_instances, **common_kwargs
         )
+
+    elif "bottomup_segmentation" in model_types:
+        path = model_paths[model_types.index("bottomup_segmentation")]
+        assets = _build_bottomup_segmentation(path, **common_kwargs)
 
     elif (
         "centroid" in model_types

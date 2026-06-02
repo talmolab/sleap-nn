@@ -2804,12 +2804,14 @@ class BottomUpSegmentationLightningModule(LightningModel):
         img_np = ex["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
 
         # Extract GT center locations from center_heatmap
-        from sleap_nn.inference.ops.peaks import find_local_peaks_rough
-        from sleap_nn.inference.segmentation import group_instances_from_offsets
+        from sleap_nn.inference.segmentation import (
+            find_center_peaks,
+            group_instances_from_offsets,
+        )
 
         gt_centers = []
         if "center_heatmap" in ex:
-            gt_peaks, _, _, _ = find_local_peaks_rough(
+            gt_peaks, _ = find_center_peaks(
                 ex["center_heatmap"].unsqueeze(0), threshold=0.1
             )
             if len(gt_peaks) > 0:
