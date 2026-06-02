@@ -58,6 +58,9 @@ def predict(
     n_points: int = 10,
     min_instance_peaks: float = 0,
     min_line_scores: float = 0.25,
+    # Bottom-up segmentation knobs (construction-time; segmentation only)
+    fg_threshold: float = 0.5,
+    min_mask_area: int = 0,
     # Prediction-time (can vary per call)
     frames: Optional[List[int]] = None,
     peak_threshold: Optional[float] = None,
@@ -112,6 +115,11 @@ def predict(
         min_instance_peaks: Bottom-up min peaks for a valid instance.
         min_line_scores: Bottom-up per-edge match threshold. (These five
             apply only to plain bottom-up models.)
+        fg_threshold: Foreground probability threshold for binarizing the
+            segmentation map (bottom-up segmentation only).
+        min_mask_area: Minimum predicted-mask area in original-image pixels;
+            smaller masks are dropped to suppress over-segmentation. ``0``
+            disables it (bottom-up segmentation only).
         frames: Frame indices to predict. ``None`` = all.
         peak_threshold: Override peak threshold for all stages.
         centroid_threshold: Override centroid-stage threshold (top-down).
@@ -195,6 +203,10 @@ def predict(
         build_kwargs["n_points"] = n_points
         build_kwargs["min_instance_peaks"] = min_instance_peaks
         build_kwargs["min_line_scores"] = min_line_scores
+        # Segmentation knobs configure the SegmentationLayer at load time; inert
+        # for non-segmentation models (load_model_assets forwards them only there).
+        build_kwargs["fg_threshold"] = fg_threshold
+        build_kwargs["min_mask_area"] = min_mask_area
         predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
     else:
         predictor = Predictor.from_export_dir(export_dir, **build_kwargs)

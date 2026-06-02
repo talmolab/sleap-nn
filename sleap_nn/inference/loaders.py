@@ -35,9 +35,11 @@ from sleap_nn.inference.topdown import (
 )
 from sleap_nn.inference.utils import get_skeleton_from_config
 from sleap_nn.legacy_models import load_legacy_model
+from sleap_nn.inference.segmentation import BottomUpSegmentationInferenceModel
 from sleap_nn.training.lightning_modules import (
     BottomUpLightningModule,
     BottomUpMultiClassLightningModule,
+    BottomUpSegmentationLightningModule,
     CentroidLightningModule,
     SingleInstanceLightningModule,
     TopDownCenteredInstanceLightningModule,
@@ -389,6 +391,68 @@ def _build_bottomup_multiclass(
     )
 
 
+def _build_bottomup_segmentation(
+    ckpt_path: str,
+    *,
+    device: str,
+    backbone_ckpt_path: Optional[str],
+    head_ckpt_path: Optional[str],
+    peak_threshold: float,
+    integral_refinement: str,
+    integral_patch_size: int,
+    return_confmaps: bool,
+    preprocess_config: Any,
+    fg_threshold: float = 0.5,
+    min_mask_area: int = 0,
+) -> LoadedAssets:
+    """Load a ``BottomUpSegmentationLightningModule`` and wrap it for inference.
+
+    ``integral_refinement`` / ``integral_patch_size`` / ``return_confmaps`` are
+    accepted for a uniform ``common_kwargs`` call signature but are unused
+    (segmentation has no keypoint peak refinement / confmaps).
+
+    ``min_mask_area`` (original-image pixels) drops tiny spurious predicted
+    masks (over-segmentation); ``0`` disables it. It is carried on the
+    inference model and applied in ``SegmentationLayer.postprocess``.
+    """
+    module, config, backbone_type = _load_lightning_module(
+        BottomUpSegmentationLightningModule,
+        ckpt_path,
+        model_type="bottomup_segmentation",
+        device=device,
+        backbone_ckpt_path=backbone_ckpt_path,
+        head_ckpt_path=head_ckpt_path,
+    )
+    # Mask-only labels may carry no skeleton; tolerate an empty/missing one.
+    try:
+        skeletons = get_skeleton_from_config(config.data_config.skeletons)
+    except Exception:  # noqa: BLE001 — skeleton is optional for segmentation
+        skeletons = []
+
+    max_stride = config.model_config.backbone_config[backbone_type]["max_stride"]
+    preprocess_config = _resolve_preprocess_config(preprocess_config, config)
+
+    seg_cfg = config.model_config.head_configs.bottomup_segmentation
+    output_stride = seg_cfg.segmentation.output_stride
+
+    inference_model = BottomUpSegmentationInferenceModel(
+        torch_model=module,
+        fg_threshold=fg_threshold,
+        peak_threshold=peak_threshold,
+        output_stride=output_stride,
+        input_scale=config.data_config.preprocessing.scale,
+        min_mask_area=min_mask_area,
+    )
+    return LoadedAssets(
+        inference_model=inference_model,
+        preprocess_config=preprocess_config,
+        skeletons=skeletons,
+        bottomup_config=config,
+        backbone_type=backbone_type,
+        max_stride=max_stride,
+    )
+
+
 def _build_topdown(
     centroid_ckpt_path: Optional[str],
     confmap_ckpt_path: Optional[str],
@@ -714,6 +778,8 @@ def load_model_assets(
     n_points: int = 10,
     min_instance_peaks: Union[int, float] = 0,
     min_line_scores: float = 0.25,
+    fg_threshold: float = 0.5,
+    min_mask_area: int = 0,
 ) -> tuple[LoadedAssets, List[str]]:
     """Load checkpoints and build inference models.
 
@@ -725,7 +791,8 @@ def load_model_assets(
     ``dist_penalty_weight``, ``n_points``, ``min_instance_peaks``,
     ``min_line_scores``) are forwarded ONLY to the plain bottom-up builder
     (legacy applied them only to ``BottomUpPredictor``); they are inert for
-    other model types.
+    other model types. Likewise ``fg_threshold`` / ``min_mask_area`` are
+    forwarded ONLY to the bottom-up segmentation builder.
 
     Returns:
         ``(loaded_assets, model_types)`` — *model_types* is the list of
@@ -794,6 +861,15 @@ def load_model_assets(
         path = model_paths[model_types.index("multi_class_bottomup")]
         assets = _build_bottomup_multiclass(
             path, max_instances=max_instances, **common_kwargs
+        )
+
+    elif "bottomup_segmentation" in model_types:
+        path = model_paths[model_types.index("bottomup_segmentation")]
+        assets = _build_bottomup_segmentation(
+            path,
+            fg_threshold=fg_threshold,
+            min_mask_area=min_mask_area,
+            **common_kwargs,
         )
 
     elif (

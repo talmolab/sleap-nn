@@ -4,9 +4,53 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 import lightning as L
 
-from sleap_nn.inference.ops.peaks import find_local_peaks_rough
+
+def find_center_peaks(
+    center_heatmap: torch.Tensor, threshold: float = 0.2
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Find instance-center peaks robustly (plateau-aware).
+
+    Strict-greater non-maximum suppression (``find_local_peaks_rough``) drops a
+    peak whose maximum spans 2+ tied pixels — which happens routinely for the
+    synthetic center heatmap when a centroid lands exactly between grid points
+    (the ``+stride/2`` convention). This detector instead keeps every pixel
+    equal to its 3×3-neighborhood max (``>=``) and collapses each connected
+    plateau of tied maxima to a single representative (its argmax pixel), so a
+    flat-topped peak yields exactly one center.
+
+    Args:
+        center_heatmap: ``(1, 1, H, W)`` instance-center heatmap.
+        threshold: Minimum peak value.
+
+    Returns:
+        ``(peaks, vals)`` where ``peaks`` is ``(N, 2)`` float ``(x, y)`` in grid
+        (output-stride) coordinates and ``vals`` is ``(N,)``.
+    """
+    from scipy.ndimage import label as cc_label
+
+    hm = center_heatmap[0, 0]
+    pooled = F.max_pool2d(hm[None, None], kernel_size=3, stride=1, padding=1)[0, 0]
+    cand = (hm >= pooled) & (hm > threshold)  # local maxima incl. plateaus
+    if not bool(cand.any()):
+        return torch.zeros((0, 2), dtype=torch.float32), torch.zeros((0,))
+
+    hm_np = hm.detach().cpu().numpy()
+    labels, n = cc_label(cand.detach().cpu().numpy())
+    peaks: List[Tuple[float, float]] = []
+    vals: List[float] = []
+    for i in range(1, n + 1):
+        ys, xs = np.nonzero(labels == i)
+        comp_vals = hm_np[ys, xs]
+        k = int(comp_vals.argmax())
+        peaks.append((float(xs[k]), float(ys[k])))  # (x, y) grid coords
+        vals.append(float(comp_vals[k]))
+    return (
+        torch.tensor(peaks, dtype=torch.float32),
+        torch.tensor(vals, dtype=torch.float32),
+    )
 
 
 def group_instances_from_offsets(
@@ -41,18 +85,14 @@ def group_instances_from_offsets(
     if fg_binary.sum() == 0:
         return []
 
-    # 2. Find centers via local peak finding
-    peaks, peak_vals, peak_sample_inds, peak_channel_inds = find_local_peaks_rough(
-        center_heatmap,
-        threshold=peak_threshold,
-    )
+    # 2. Find centers via plateau-robust local peak finding
+    peaks, peak_vals = find_center_peaks(center_heatmap, threshold=peak_threshold)
 
     if len(peaks) == 0:
         return []
 
     # peaks are in (x, y) format at output stride resolution
-    # Convert to original pixel coords
-    centers = peaks.float()  # (N, 2) in output stride pixel coords
+    centers = peaks.float()  # (N, 2) in output stride grid coords
 
     # 3. For each foreground pixel, compute predicted center
     fg_coords = torch.nonzero(
@@ -118,6 +158,10 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         fg_threshold: Threshold for foreground binarization.
         peak_threshold: Minimum peak value for center detection.
         output_stride: Stride of the model output maps.
+        min_mask_area: Minimum mask area (original-image pixels) carried through
+            to ``SegmentationLayer`` to drop tiny spurious masks. ``0`` disables
+            it. Not applied here (``forward`` returns output-stride masks for
+            training visualization); see ``SegmentationLayer.postprocess``.
     """
 
     def __init__(
@@ -126,6 +170,8 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         fg_threshold: float = 0.5,
         peak_threshold: float = 0.2,
         output_stride: int = 2,
+        input_scale: float = 1.0,
+        min_mask_area: int = 0,
     ):
         """Initialize the inference model."""
         super().__init__()
@@ -133,6 +179,8 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         self.fg_threshold = fg_threshold
         self.peak_threshold = peak_threshold
         self.output_stride = output_stride
+        self.input_scale = input_scale
+        self.min_mask_area = int(min_mask_area)
 
     def forward(self, batch: Dict) -> List[List[Dict]]:
         """Run inference on a batch of images.
