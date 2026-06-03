@@ -3519,10 +3519,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#sleap_nn.export.cli.predict" class="md-nav__link">
+  <a href="#sleap_nn.export.cli.export_model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        predict
+        export_model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sleap_nn.export.cli.export_predict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        export_predict
       
     </span>
   </a>
@@ -6287,10 +6298,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#sleap_nn.export.cli.predict" class="md-nav__link">
+  <a href="#sleap_nn.export.cli.export_model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        predict
+        export_model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sleap_nn.export.cli.export_predict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        export_predict
       
     </span>
   </a>
@@ -6359,7 +6381,7 @@
       </thead>
       <tbody>
             <tr class="doc-section-item">
-              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;export&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;model_paths&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;output&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;fmt&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;opset_version&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_instances&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_batch_size&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;input_scale&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;input_height&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;input_width&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;crop_size&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_peaks_per_node&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n_line_points&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_edge_length_ratio&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;dist_penalty_weight&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;device&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;precision&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;peak_threshold&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;workspace_size_gb&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;verify&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.export.cli.export&lt;/code&gt;)" href="#sleap_nn.export.cli.export">export</a></code></td>
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;export&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.export.cli.export&lt;/code&gt;)" href="#sleap_nn.export.cli.export">export</a></code></td>
               <td>
                 <div class="doc-md-description">
                   <p>Export trained models to ONNX/TensorRT formats.</p>
@@ -6367,7 +6389,15 @@
               </td>
             </tr>
             <tr class="doc-section-item">
-              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;predict&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;export_dir&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;video_path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;output&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;runtime&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;device&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;batch_size&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n_frames&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_edge_length_ratio&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;dist_penalty_weight&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n_points&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;min_instance_peaks&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;min_line_scores&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;peak_conf_threshold&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_instances&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;cpu_workers&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;centroid_output&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.export.cli.predict&lt;/code&gt;)" href="#sleap_nn.export.cli.predict">predict</a></code></td>
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;export_model&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;model_paths&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;output&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;fmt&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;opset_version&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_instances&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_batch_size&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;input_scale&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;input_height&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;input_width&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;crop_size&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_peaks_per_node&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n_line_points&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_edge_length_ratio&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;dist_penalty_weight&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;device&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;precision&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;peak_threshold&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;workspace_size_gb&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;verify&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.export.cli.export_model&lt;/code&gt;)" href="#sleap_nn.export.cli.export_model">export_model</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Export trained models to ONNX/TensorRT formats.</p>
+                </div>
+              </td>
+            </tr>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;export_predict&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;export_dir&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;video_path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;output&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;runtime&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;device&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;batch_size&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n_frames&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_edge_length_ratio&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;dist_penalty_weight&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n_points&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;min_instance_peaks&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;min_line_scores&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;peak_conf_threshold&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_instances&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;cpu_workers&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;centroid_output&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.export.cli.export_predict&lt;/code&gt;)" href="#sleap_nn.export.cli.export_predict">export_predict</a></code></td>
               <td>
                 <div class="doc-md-description">
                   <p>Run inference on exported models and save predictions to SLP.</p>
@@ -6396,9 +6426,48 @@
 
 
 <h3 id="sleap_nn.export.cli.export" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">export</span><span class="p">(</span><span class="n">model_paths</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">opset_version</span><span class="p">,</span> <span class="n">max_instances</span><span class="p">,</span> <span class="n">max_batch_size</span><span class="p">,</span> <span class="n">input_scale</span><span class="p">,</span> <span class="n">input_height</span><span class="p">,</span> <span class="n">input_width</span><span class="p">,</span> <span class="n">crop_size</span><span class="p">,</span> <span class="n">max_peaks_per_node</span><span class="p">,</span> <span class="n">n_line_points</span><span class="p">,</span> <span class="n">max_edge_length_ratio</span><span class="p">,</span> <span class="n">dist_penalty_weight</span><span class="p">,</span> <span class="n">device</span><span class="p">,</span> <span class="n">precision</span><span class="p">,</span> <span class="n">peak_threshold</span><span class="p">,</span> <span class="n">workspace_size_gb</span><span class="p">,</span> <span class="n">verify</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">export</span><span class="p">()</span></code>
 
 <a href="#sleap_nn.export.cli.export" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Export trained models to ONNX/TensorRT formats.</p>
+<p>Subcommands: <code>model</code> (export checkpoints to ONNX/TRT, the default)
+and <code>predict</code> (run inference on an exported model).</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>sleap_nn/export/cli.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1246">1246</a></span>
+<span class="normal"><a href="#__codelineno-0-1247">1247</a></span>
+<span class="normal"><a href="#__codelineno-0-1248">1248</a></span>
+<span class="normal"><a href="#__codelineno-0-1249">1249</a></span>
+<span class="normal"><a href="#__codelineno-0-1250">1250</a></span>
+<span class="normal"><a href="#__codelineno-0-1251">1251</a></span>
+<span class="normal"><a href="#__codelineno-0-1252">1252</a></span>
+<span class="normal"><a href="#__codelineno-0-1253">1253</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1246"><a id="__codelineno-0-1246" name="__codelineno-0-1246"></a><span class="nd">@click</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="bp">cls</span><span class="o">=</span><span class="n">_DefaultModelGroup</span><span class="p">,</span> <span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+</span><span id="__span-0-1247"><a id="__codelineno-0-1247" name="__codelineno-0-1247"></a><span class="k">def</span><span class="w"> </span><span class="nf">export</span><span class="p">():</span>
+</span><span id="__span-0-1248"><a id="__codelineno-0-1248" name="__codelineno-0-1248"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Export trained models to ONNX/TensorRT formats.</span>
+</span><span id="__span-0-1249"><a id="__codelineno-0-1249" name="__codelineno-0-1249"></a>
+</span><span id="__span-0-1250"><a id="__codelineno-0-1250" name="__codelineno-0-1250"></a><span class="sd">    Subcommands: ``model`` (export checkpoints to ONNX/TRT, the default)</span>
+</span><span id="__span-0-1251"><a id="__codelineno-0-1251" name="__codelineno-0-1251"></a><span class="sd">    and ``predict`` (run inference on an exported model).</span>
+</span><span id="__span-0-1252"><a id="__codelineno-0-1252" name="__codelineno-0-1252"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-1253"><a id="__codelineno-0-1253" name="__codelineno-0-1253"></a>    <span class="k">pass</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="sleap_nn.export.cli.export_model" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">export_model</span><span class="p">(</span><span class="n">model_paths</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">opset_version</span><span class="p">,</span> <span class="n">max_instances</span><span class="p">,</span> <span class="n">max_batch_size</span><span class="p">,</span> <span class="n">input_scale</span><span class="p">,</span> <span class="n">input_height</span><span class="p">,</span> <span class="n">input_width</span><span class="p">,</span> <span class="n">crop_size</span><span class="p">,</span> <span class="n">max_peaks_per_node</span><span class="p">,</span> <span class="n">n_line_points</span><span class="p">,</span> <span class="n">max_edge_length_ratio</span><span class="p">,</span> <span class="n">dist_penalty_weight</span><span class="p">,</span> <span class="n">device</span><span class="p">,</span> <span class="n">precision</span><span class="p">,</span> <span class="n">peak_threshold</span><span class="p">,</span> <span class="n">workspace_size_gb</span><span class="p">,</span> <span class="n">verify</span><span class="p">)</span></code>
+
+<a href="#sleap_nn.export.cli.export_model" class="headerlink" title="Permanent link">&para;</a></h3>
 
 
     <div class="doc doc-contents ">
@@ -7241,7 +7310,7 @@
 <span class="normal"><a href="#__codelineno-0-845">845</a></span>
 <span class="normal"><a href="#__codelineno-0-846">846</a></span>
 <span class="normal"><a href="#__codelineno-0-847">847</a></span>
-<span class="normal"><a href="#__codelineno-0-848">848</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15"></a><span class="nd">@click</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-848">848</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15"></a><span class="nd">@click</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="s2">&quot;model&quot;</span><span class="p">,</span> <span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
 </span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16"></a><span class="nd">@click</span><span class="o">.</span><span class="n">argument</span><span class="p">(</span>
 </span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17"></a>    <span class="s2">&quot;model_paths&quot;</span><span class="p">,</span>
 </span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18"></a>    <span class="n">nargs</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
@@ -7295,7 +7364,7 @@
 </span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;TensorRT builder workspace size in GB. Uses exporter default if unset.&quot;</span><span class="p">,</span>
 </span><span id="__span-0-67"><a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="p">)</span>
 </span><span id="__span-0-68"><a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--verify/--no-verify&quot;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">show_default</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-0-69"><a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="k">def</span><span class="w"> </span><span class="nf">export</span><span class="p">(</span>
+</span><span id="__span-0-69"><a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="k">def</span><span class="w"> </span><span class="nf">export_model</span><span class="p">(</span>
 </span><span id="__span-0-70"><a id="__codelineno-0-70" name="__codelineno-0-70"></a>    <span class="n">model_paths</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Path</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span>
 </span><span id="__span-0-71"><a id="__codelineno-0-71" name="__codelineno-0-71"></a>    <span class="n">output</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">],</span>
 </span><span id="__span-0-72"><a id="__codelineno-0-72" name="__codelineno-0-72"></a>    <span class="n">fmt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -8084,10 +8153,10 @@
 <div class="doc doc-object doc-function">
 
 
-<h3 id="sleap_nn.export.cli.predict" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">predict</span><span class="p">(</span><span class="n">export_dir</span><span class="p">,</span> <span class="n">video_path</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">runtime</span><span class="p">,</span> <span class="n">device</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">,</span> <span class="n">n_frames</span><span class="p">,</span> <span class="n">max_edge_length_ratio</span><span class="p">,</span> <span class="n">dist_penalty_weight</span><span class="p">,</span> <span class="n">n_points</span><span class="p">,</span> <span class="n">min_instance_peaks</span><span class="p">,</span> <span class="n">min_line_scores</span><span class="p">,</span> <span class="n">peak_conf_threshold</span><span class="p">,</span> <span class="n">max_instances</span><span class="p">,</span> <span class="n">cpu_workers</span><span class="p">,</span> <span class="n">centroid_output</span><span class="p">)</span></code>
+<h3 id="sleap_nn.export.cli.export_predict" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">export_predict</span><span class="p">(</span><span class="n">export_dir</span><span class="p">,</span> <span class="n">video_path</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">runtime</span><span class="p">,</span> <span class="n">device</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">,</span> <span class="n">n_frames</span><span class="p">,</span> <span class="n">max_edge_length_ratio</span><span class="p">,</span> <span class="n">dist_penalty_weight</span><span class="p">,</span> <span class="n">n_points</span><span class="p">,</span> <span class="n">min_instance_peaks</span><span class="p">,</span> <span class="n">min_line_scores</span><span class="p">,</span> <span class="n">peak_conf_threshold</span><span class="p">,</span> <span class="n">max_instances</span><span class="p">,</span> <span class="n">cpu_workers</span><span class="p">,</span> <span class="n">centroid_output</span><span class="p">)</span></code>
 
-<a href="#sleap_nn.export.cli.predict" class="headerlink" title="Permanent link">&para;</a></h3>
+<a href="#sleap_nn.export.cli.export_predict" class="headerlink" title="Permanent link">&para;</a></h3>
 
 
     <div class="doc doc-contents ">
@@ -8353,7 +8422,7 @@ along with export_metadata.json and training_config.yaml.</p>
 <span class="normal"><a href="#__codelineno-0-1101">1101</a></span>
 <span class="normal"><a href="#__codelineno-0-1102">1102</a></span>
 <span class="normal"><a href="#__codelineno-0-1103">1103</a></span>
-<span class="normal"><a href="#__codelineno-0-1104">1104</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-851"><a id="__codelineno-0-851" name="__codelineno-0-851"></a><span class="nd">@click</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-1104">1104</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-851"><a id="__codelineno-0-851" name="__codelineno-0-851"></a><span class="nd">@click</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="s2">&quot;predict&quot;</span><span class="p">,</span> <span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
 </span><span id="__span-0-852"><a id="__codelineno-0-852" name="__codelineno-0-852"></a><span class="nd">@click</span><span class="o">.</span><span class="n">argument</span><span class="p">(</span>
 </span><span id="__span-0-853"><a id="__codelineno-0-853" name="__codelineno-0-853"></a>    <span class="s2">&quot;export_dir&quot;</span><span class="p">,</span>
 </span><span id="__span-0-854"><a id="__codelineno-0-854" name="__codelineno-0-854"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Path</span><span class="p">(</span><span class="n">exists</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">file_okay</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">path_type</span><span class="o">=</span><span class="n">Path</span><span class="p">),</span>
@@ -8447,7 +8516,7 @@ along with export_metadata.json and training_config.yaml.</p>
 </span><span id="__span-0-942"><a id="__codelineno-0-942" name="__codelineno-0-942"></a>    <span class="s2">&quot;(single-node PredictedInstance, frontend-compatible), &#39;centroid&#39; &quot;</span>
 </span><span id="__span-0-943"><a id="__codelineno-0-943" name="__codelineno-0-943"></a>    <span class="s2">&quot;(sio.PredictedCentroid), or &#39;both&#39;. Ignored for non-centroid models.&quot;</span><span class="p">,</span>
 </span><span id="__span-0-944"><a id="__codelineno-0-944" name="__codelineno-0-944"></a><span class="p">)</span>
-</span><span id="__span-0-945"><a id="__codelineno-0-945" name="__codelineno-0-945"></a><span class="k">def</span><span class="w"> </span><span class="nf">predict</span><span class="p">(</span>
+</span><span id="__span-0-945"><a id="__codelineno-0-945" name="__codelineno-0-945"></a><span class="k">def</span><span class="w"> </span><span class="nf">export_predict</span><span class="p">(</span>
 </span><span id="__span-0-946"><a id="__codelineno-0-946" name="__codelineno-0-946"></a>    <span class="n">export_dir</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
 </span><span id="__span-0-947"><a id="__codelineno-0-947" name="__codelineno-0-947"></a>    <span class="n">video_path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span>
 </span><span id="__span-0-948"><a id="__codelineno-0-948" name="__codelineno-0-948"></a>    <span class="n">output</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Path</span><span class="p">],</span>

@@ -1583,6 +1583,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sleap-nn-predict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sleap-nn predict
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="sleap-nn predict">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#sleap-nn-eval" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1606,7 +1634,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#example" class="md-nav__link">
+  <a href="#example_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Example
@@ -1661,15 +1689,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#sleap-nn-predict" class="md-nav__link">
+  <a href="#sleap-nn-export-predict" class="md-nav__link">
     <span class="md-ellipsis">
       
-        sleap-nn predict
+        sleap-nn export predict
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="sleap-nn predict">
+    <nav class="md-nav" aria-label="sleap-nn export predict">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1684,7 +1712,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#example_1" class="md-nav__link">
+  <a href="#example_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Example
@@ -6743,6 +6771,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sleap-nn-predict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sleap-nn predict
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="sleap-nn predict">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#sleap-nn-eval" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6766,7 +6822,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#example" class="md-nav__link">
+  <a href="#example_1" class="md-nav__link">
     <span class="md-ellipsis">
       
         Example
@@ -6821,15 +6877,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#sleap-nn-predict" class="md-nav__link">
+  <a href="#sleap-nn-export-predict" class="md-nav__link">
     <span class="md-ellipsis">
       
-        sleap-nn predict
+        sleap-nn export predict
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="sleap-nn predict">
+    <nav class="md-nav" aria-label="sleap-nn export predict">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -6844,7 +6900,7 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#example_1" class="md-nav__link">
+  <a href="#example_2" class="md-nav__link">
     <span class="md-ellipsis">
       
         Example
@@ -7043,6 +7099,10 @@
 <td>Run inference/tracking</td>
 </tr>
 <tr>
+<td><a href="#sleap-nn-predict"><code>sleap-nn predict</code></a></td>
+<td>Run inference on videos/labels</td>
+</tr>
+<tr>
 <td><a href="#sleap-nn-eval"><code>sleap-nn eval</code></a></td>
 <td>Evaluate predictions</td>
 </tr>
@@ -7051,7 +7111,7 @@
 <td>Export to ONNX/TensorRT</td>
 </tr>
 <tr>
-<td><a href="#sleap-nn-predict"><code>sleap-nn predict</code></a></td>
+<td><a href="#sleap-nn-export-predict"><code>sleap-nn export predict</code></a></td>
 <td>Inference on exported models</td>
 </tr>
 <tr>
@@ -7390,9 +7450,18 @@
 </span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--filter_overlapping<span class="w"> </span>-t
 </span></code></pre></div>
 <hr />
+<h2 id="sleap-nn-predict"><code>sleap-nn predict</code><a class="headerlink" href="#sleap-nn-predict" title="Permanent link">&para;</a></h2>
+<p>Run inference on videos or labels files. This is the canonical command for running the unified inference pipeline on trained checkpoint models.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>--data_path<span class="w"> </span>INPUT<span class="w"> </span>--model_paths<span class="w"> </span>MODEL<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+</span></code></pre></div>
+<p><code>sleap-nn predict</code> accepts the same options as <a href="#sleap-nn-track"><code>sleap-nn track</code></a> (data selection, filtering, device, batch size, etc.). Add <code>--tracking</code> to enable tracking.</p>
+<h3 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/centroid<span class="w"> </span>-m<span class="w"> </span>models/centered_instance<span class="w"> </span>-o<span class="w"> </span>predictions.slp
+</span></code></pre></div>
+<hr />
 <h2 id="sleap-nn-eval"><code>sleap-nn eval</code><a class="headerlink" href="#sleap-nn-eval" title="Permanent link">&para;</a></h2>
 <p>Evaluate predictions against ground truth.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--ground_truth_path<span class="w"> </span>GT<span class="w"> </span>--predicted_path<span class="w"> </span>PRED<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--ground_truth_path<span class="w"> </span>GT<span class="w"> </span>--predicted_path<span class="w"> </span>PRED<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </span></code></pre></div>
 <h3 id="options_1">Options<a class="headerlink" href="#options_1" title="Permanent link">&para;</a></h3>
 <table>
@@ -7450,13 +7519,13 @@
 </tr>
 </tbody>
 </table>
-<h3 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-g<span class="w"> </span>ground_truth.slp<span class="w"> </span>-p<span class="w"> </span>predictions.slp<span class="w"> </span>-s<span class="w"> </span>metrics.npz
+<h3 id="example_1">Example<a class="headerlink" href="#example_1" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-g<span class="w"> </span>ground_truth.slp<span class="w"> </span>-p<span class="w"> </span>predictions.slp<span class="w"> </span>-s<span class="w"> </span>metrics.npz
 </span></code></pre></div>
 <hr />
 <h2 id="sleap-nn-export"><code>sleap-nn export</code><a class="headerlink" href="#sleap-nn-export" title="Permanent link">&para;</a></h2>
 <p>Export models to ONNX/TensorRT.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>MODEL_PATH<span class="w"> </span><span class="o">[</span>MODEL_PATH_2<span class="o">]</span><span class="w"> </span>-o<span class="w"> </span>OUTPUT_DIR<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>MODEL_PATH<span class="w"> </span><span class="o">[</span>MODEL_PATH_2<span class="o">]</span><span class="w"> </span>-o<span class="w"> </span>OUTPUT_DIR<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </span></code></pre></div>
 <h3 id="options_2">Options<a class="headerlink" href="#options_2" title="Permanent link">&para;</a></h3>
 <table>
@@ -7508,19 +7577,19 @@
 </tbody>
 </table>
 <h3 id="examples_2">Examples<a class="headerlink" href="#examples_2" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># ONNX only</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/bottomup<span class="w"> </span>-o<span class="w"> </span>exports/<span class="w"> </span>--format<span class="w"> </span>onnx
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># Both formats</span>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/bottomup<span class="w"> </span>-o<span class="w"> </span>exports/<span class="w"> </span>--format<span class="w"> </span>both
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="c1"># Top-down (two models)</span>
-</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/centroid<span class="w"> </span>models/instance<span class="w"> </span>-o<span class="w"> </span>exports/
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># ONNX only</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/bottomup<span class="w"> </span>-o<span class="w"> </span>exports/<span class="w"> </span>--format<span class="w"> </span>onnx
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="c1"># Both formats</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/bottomup<span class="w"> </span>-o<span class="w"> </span>exports/<span class="w"> </span>--format<span class="w"> </span>both
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="c1"># Top-down (two models)</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/centroid<span class="w"> </span>models/instance<span class="w"> </span>-o<span class="w"> </span>exports/
 </span></code></pre></div>
 <hr />
-<h2 id="sleap-nn-predict"><code>sleap-nn predict</code><a class="headerlink" href="#sleap-nn-predict" title="Permanent link">&para;</a></h2>
+<h2 id="sleap-nn-export-predict"><code>sleap-nn export predict</code><a class="headerlink" href="#sleap-nn-export-predict" title="Permanent link">&para;</a></h2>
 <p>Run inference on exported models.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>EXPORT_DIR<span class="w"> </span>INPUT_PATH<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>predict<span class="w"> </span>EXPORT_DIR<span class="w"> </span>INPUT_PATH<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </span></code></pre></div>
 <h3 id="options_3">Options<a class="headerlink" href="#options_3" title="Permanent link">&para;</a></h3>
 <table>
@@ -7571,8 +7640,8 @@
 </tr>
 </tbody>
 </table>
-<h3 id="example_1">Example<a class="headerlink" href="#example_1" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>exports/model<span class="w"> </span>video.mp4<span class="w"> </span>-o<span class="w"> </span>predictions.slp<span class="w"> </span>--runtime<span class="w"> </span>tensorrt
+<h3 id="example_2">Example<a class="headerlink" href="#example_2" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>predict<span class="w"> </span>exports/model<span class="w"> </span>video.mp4<span class="w"> </span>-o<span class="w"> </span>predictions.slp<span class="w"> </span>--runtime<span class="w"> </span>tensorrt
 </span></code></pre></div>
 <hr />
 <h2 id="sleap-nn-config"><code>sleap-nn config</code><a class="headerlink" href="#sleap-nn-config" title="Permanent link">&para;</a></h2>
@@ -7581,7 +7650,7 @@
 <p>This feature is experimental and may change in future releases.</p>
 </div>
 <p>Generate training configuration files interactively or automatically.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>SLP_PATH<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>SLP_PATH<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </span></code></pre></div>
 <h3 id="options_4">Options<a class="headerlink" href="#options_4" title="Permanent link">&para;</a></h3>
 <table>
@@ -7628,27 +7697,27 @@
 <h3 id="modes">Modes<a class="headerlink" href="#modes" title="Permanent link">&para;</a></h3>
 <h4 id="interactive-tui">Interactive TUI<a class="headerlink" href="#interactive-tui" title="Permanent link">&para;</a></h4>
 <p>Launch an interactive terminal UI to configure training:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp
 </span></code></pre></div>
 <h4 id="auto-mode">Auto Mode<a class="headerlink" href="#auto-mode" title="Permanent link">&para;</a></h4>
 <p>Generate a config with smart defaults based on your data:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto<span class="w"> </span>-o<span class="w"> </span>config.yaml
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto<span class="w"> </span>-o<span class="w"> </span>config.yaml
 </span></code></pre></div>
 <h3 id="examples_3">Examples<a class="headerlink" href="#examples_3" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Interactive configuration</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="c1"># Auto-generate with defaults</span>
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto
-</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>
-</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="c1"># Auto-generate with custom output</span>
-</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto<span class="w"> </span>-o<span class="w"> </span>my_config.yaml
-</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>
-</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="c1"># Auto-generate with overrides</span>
-</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto<span class="w"> </span>--pipeline<span class="w"> </span>bottomup
-</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>
-</span><span id="__span-13-13"><a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a><span class="c1"># Preview YAML without saving</span>
-</span><span id="__span-13-14"><a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto<span class="w"> </span>--show-yaml
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Interactive configuration</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="c1"># Auto-generate with defaults</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="c1"># Auto-generate with custom output</span>
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto<span class="w"> </span>-o<span class="w"> </span>my_config.yaml
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>
+</span><span id="__span-15-10"><a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a><span class="c1"># Auto-generate with overrides</span>
+</span><span id="__span-15-11"><a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto<span class="w"> </span>--pipeline<span class="w"> </span>bottomup
+</span><span id="__span-15-12"><a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a>
+</span><span id="__span-15-13"><a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a><span class="c1"># Preview YAML without saving</span>
+</span><span id="__span-15-14"><a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a>sleap-nn<span class="w"> </span>config<span class="w"> </span>labels.slp<span class="w"> </span>--auto<span class="w"> </span>--show-yaml
 </span></code></pre></div>
 <h3 id="output">Output<a class="headerlink" href="#output" title="Permanent link">&para;</a></h3>
 <p>For <strong>top-down</strong> pipelines, two config files are generated:</p>
@@ -7661,7 +7730,7 @@
 <hr />
 <h2 id="sleap-nn-info"><code>sleap-nn info</code><a class="headerlink" href="#sleap-nn-info" title="Permanent link">&para;</a></h2>
 <p>Inspect a trained model directory or training config file. Shows model architecture, data settings, training configuration, training results, evaluation metrics, and files.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>sleap-nn<span class="w"> </span>info<span class="w"> </span>PATH
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>sleap-nn<span class="w"> </span>info<span class="w"> </span>PATH
 </span></code></pre></div>
 <p><code>PATH</code> can be either:</p>
 <ul>
@@ -7704,16 +7773,16 @@
 </tbody>
 </table>
 <h3 id="examples_4">Examples<a class="headerlink" href="#examples_4" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># Inspect a trained model</span>
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>sleap-nn<span class="w"> </span>info<span class="w"> </span>models/my_training_run/
-</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
-</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="c1"># View config only</span>
-</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>sleap-nn<span class="w"> </span>info<span class="w"> </span>training_config.yaml
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1"># Inspect a trained model</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>sleap-nn<span class="w"> </span>info<span class="w"> </span>models/my_training_run/
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="c1"># View config only</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>sleap-nn<span class="w"> </span>info<span class="w"> </span>training_config.yaml
 </span></code></pre></div>
 <hr />
 <h2 id="sleap-nn-system"><code>sleap-nn system</code><a class="headerlink" href="#sleap-nn-system" title="Permanent link">&para;</a></h2>
 <p>Display system information and GPU diagnostics.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>sleap-nn<span class="w"> </span>system
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>sleap-nn<span class="w"> </span>system
 </span></code></pre></div>
 <p>Shows:
 - Python version
@@ -7744,8 +7813,8 @@
 </table>
 <hr />
 <h2 id="global-options">Global Options<a class="headerlink" href="#global-options" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>sleap-nn<span class="w"> </span>--version<span class="w">  </span><span class="c1"># Show version</span>
-</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>sleap-nn<span class="w"> </span>--help<span class="w">     </span><span class="c1"># Show help</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>sleap-nn<span class="w"> </span>--version<span class="w">  </span><span class="c1"># Show version</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>sleap-nn<span class="w"> </span>--help<span class="w">     </span><span class="c1"># Show help</span>
 </span></code></pre></div>
 
 

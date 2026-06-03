@@ -7890,7 +7890,7 @@ connects track breaks when exactly one track is lost and exactly one new track i
 * **Streaming to disk**: ``predictor.predict_to_file(...)``
 * **Pure-tracking retrack**: ``Predictor.retrack(labels, tracker_config)``
 
-``sleap-nn infer`` / ``sleap-nn track`` already route through the
+``sleap-nn predict`` / ``sleap-nn track`` already route through the
 new flow internally; this function is the only remaining
 Python-level legacy entry point.
 </code></pre></div>
@@ -9122,7 +9122,7 @@ Python-level legacy entry point.
 </span><span id="__span-0-322"><a id="__codelineno-0-322" name="__codelineno-0-322"></a><span class="sd">        * **Streaming to disk**: ``predictor.predict_to_file(...)``</span>
 </span><span id="__span-0-323"><a id="__codelineno-0-323" name="__codelineno-0-323"></a><span class="sd">        * **Pure-tracking retrack**: ``Predictor.retrack(labels, tracker_config)``</span>
 </span><span id="__span-0-324"><a id="__codelineno-0-324" name="__codelineno-0-324"></a>
-</span><span id="__span-0-325"><a id="__codelineno-0-325" name="__codelineno-0-325"></a><span class="sd">        ``sleap-nn infer`` / ``sleap-nn track`` already route through the</span>
+</span><span id="__span-0-325"><a id="__codelineno-0-325" name="__codelineno-0-325"></a><span class="sd">        ``sleap-nn predict`` / ``sleap-nn track`` already route through the</span>
 </span><span id="__span-0-326"><a id="__codelineno-0-326" name="__codelineno-0-326"></a><span class="sd">        new flow internally; this function is the only remaining</span>
 </span><span id="__span-0-327"><a id="__codelineno-0-327" name="__codelineno-0-327"></a><span class="sd">        Python-level legacy entry point.</span>
 </span><span id="__span-0-328"><a id="__codelineno-0-328" name="__codelineno-0-328"></a><span class="sd">    &quot;&quot;&quot;</span>
@@ -9382,7 +9382,7 @@ Python-level legacy entry point.
 </span><span id="__span-0-582"><a id="__codelineno-0-582" name="__codelineno-0-582"></a>        <span class="c1"># Centroid-only models are unsupported on this legacy pipeline: a lone</span>
 </span><span id="__span-0-583"><a id="__codelineno-0-583" name="__codelineno-0-583"></a>        <span class="c1"># centroid model builds a GT-dependent FindInstancePeaksGroundTruth stage</span>
 </span><span id="__span-0-584"><a id="__codelineno-0-584" name="__codelineno-0-584"></a>        <span class="c1"># (predictors.py), silently substituting ground-truth centroids and only</span>
-</span><span id="__span-0-585"><a id="__codelineno-0-585" name="__codelineno-0-585"></a>        <span class="c1"># &quot;predicting&quot; labeled frames. Redirect to the new `infer` flow instead of</span>
+</span><span id="__span-0-585"><a id="__codelineno-0-585" name="__codelineno-0-585"></a>        <span class="c1"># &quot;predicting&quot; labeled frames. Redirect to the new `predict` flow instead of</span>
 </span><span id="__span-0-586"><a id="__codelineno-0-586" name="__codelineno-0-586"></a>        <span class="c1"># producing misleading GT-copied output.</span>
 </span><span id="__span-0-587"><a id="__codelineno-0-587" name="__codelineno-0-587"></a>        <span class="k">if</span> <span class="n">model_paths</span><span class="p">:</span>
 </span><span id="__span-0-588"><a id="__codelineno-0-588" name="__codelineno-0-588"></a>            <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.config.utils</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -9413,7 +9413,7 @@ Python-level legacy entry point.
 </span><span id="__span-0-613"><a id="__codelineno-0-613" name="__codelineno-0-613"></a>                    <span class="s2">&quot;`track` / `run_inference` pipeline (it would silently &quot;</span>
 </span><span id="__span-0-614"><a id="__codelineno-0-614" name="__codelineno-0-614"></a>                    <span class="s2">&quot;substitute ground-truth centroids and require labeled &quot;</span>
 </span><span id="__span-0-615"><a id="__codelineno-0-615" name="__codelineno-0-615"></a>                    <span class="s2">&quot;frames). Use the new flow instead:</span><span class="se">\n</span><span class="s2">&quot;</span>
-</span><span id="__span-0-616"><a id="__codelineno-0-616" name="__codelineno-0-616"></a>                    <span class="s2">&quot;  sleap-nn infer --data_path &lt;video|.slp&gt; --model_paths &lt;centroid_dir&gt;</span><span class="se">\n</span><span class="s2">&quot;</span>
+</span><span id="__span-0-616"><a id="__codelineno-0-616" name="__codelineno-0-616"></a>                    <span class="s2">&quot;  sleap-nn predict --data_path &lt;video|.slp&gt; --model_paths &lt;centroid_dir&gt;</span><span class="se">\n</span><span class="s2">&quot;</span>
 </span><span id="__span-0-617"><a id="__codelineno-0-617" name="__codelineno-0-617"></a>                    <span class="s2">&quot;or, from Python:</span><span class="se">\n</span><span class="s2">&quot;</span>
 </span><span id="__span-0-618"><a id="__codelineno-0-618" name="__codelineno-0-618"></a>                    <span class="s2">&quot;  from sleap_nn.inference.run import predict</span><span class="se">\n</span><span class="s2">&quot;</span>
 </span><span id="__span-0-619"><a id="__codelineno-0-619" name="__codelineno-0-619"></a>                    <span class="s2">&quot;  predict(src, model_paths=[centroid_dir], centroid_only=True)&quot;</span>
