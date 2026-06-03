@@ -85,6 +85,21 @@ def _safe_len(provider: Any) -> int:
         return -1
 
 
+def _safe_num_frames(provider: Any) -> int:
+    """Return ``provider.num_frames()`` or ``-1`` if unavailable/unknown.
+
+    Used to drive frame-based (batch-size-invariant) progress reporting.
+    Falls back to ``-1`` for providers that don't implement ``num_frames``.
+    """
+    fn = getattr(provider, "num_frames", None)
+    if fn is None:
+        return -1
+    try:
+        return fn()
+    except (TypeError, AttributeError):
+        return -1
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Layer builders — one per model type, given a LoadedAssets instance
 # ─────────────────────────────────────────────────────────────────────────
@@ -1105,8 +1120,10 @@ class Predictor:
             clean_empty_frames: When ``True`` and ``make_labels=True``,
                 drop ``LabeledFrame``s with no instances from the
                 returned ``sio.Labels``.
-            progress_callback: Optional ``(processed_batches, total_batches)``
-                callback invoked after each batch.
+            progress_callback: Optional ``(processed_frames, total_frames)``
+                callback invoked after each batch. Counts are in frames
+                (batch-size-invariant); ``total_frames`` is ``-1`` when the
+                provider can't report its length up front.
             tracking_progress_callback: Optional
                 ``(processed_frames, total_frames)`` callback invoked
                 after each frame during tracking.
@@ -1254,7 +1271,7 @@ class Predictor:
             source: ``sio.Video``, ``sio.Labels``, video path string, or
                 a pre-built :class:`Provider`.
             frames: Frame indices (only for video sources).
-            progress_callback: Optional ``(processed_batches, total_batches)``
+            progress_callback: Optional ``(processed_frames, total_frames)``
                 callback.
             peak_threshold: Override peak threshold for all stages.
             centroid_threshold: Override centroid stage threshold (top-down).
@@ -1336,7 +1353,8 @@ class Predictor:
                 ``video_indices`` for the saved labels.
             write_interval: Number of LabeledFrames to buffer before
                 a disk flush.
-            progress_callback: Optional callback per batch.
+            progress_callback: Optional ``(processed_frames, total_frames)``
+                callback invoked after each batch.
 
         Returns:
             The (resolved) destination path string.
@@ -1407,8 +1425,9 @@ class Predictor:
             layer_accepts_instances = False
 
         pipeline = self.filter_pipeline
-        total = _safe_len(provider)
-        for i, batch in enumerate(provider):
+        total = _safe_num_frames(provider)
+        frames_done = 0
+        for batch in provider:
             kwargs: dict = {}
             if batch.instances is not None and layer_accepts_instances:
                 kwargs["instances"] = (
@@ -1421,7 +1440,8 @@ class Predictor:
             outputs = self._stamp_metadata(outputs, batch)
             yield outputs
             if progress_callback is not None:
-                progress_callback(i + 1, total)
+                frames_done += int(batch.images.shape[0])
+                progress_callback(frames_done, total)
 
     # ──────────────────────────────────────────────────────────────────
     # Pipelined bottom-up: GPU stage in main proc, CPU grouping in pool
@@ -1444,7 +1464,7 @@ class Predictor:
         pipeline = self.filter_pipeline
         layer = self.layer
         params = layer.grouping_params()
-        total = _safe_len(provider)
+        total = _safe_num_frames(provider)
 
         # Bound the number of in-flight batches so memory stays O(window),
         # not O(whole video). Submitting every batch before draining (the old
@@ -1454,7 +1474,7 @@ class Predictor:
         # more, preserving submission-order output.
         max_in_flight = max(2 * self.paf_workers, self.paf_workers + 1)
         meta: dict[int, Any] = {}
-        completed = 0
+        frames_done = 0
         with PafGroupingPool(
             n_workers=self.paf_workers, grouping_params=params
         ) as pool:
@@ -1466,24 +1486,26 @@ class Predictor:
                 meta[ordinal] = batch
                 while len(pool) >= max_in_flight:
                     done_ordinal, outputs = pool.drain_one()
+                    done_batch = meta.pop(done_ordinal)
                     outputs = pipeline(outputs)
-                    outputs = self._stamp_metadata(outputs, meta.pop(done_ordinal))
+                    outputs = self._stamp_metadata(outputs, done_batch)
                     yield outputs
-                    completed += 1
                     if progress_callback is not None:
-                        progress_callback(completed, total)
+                        frames_done += int(done_batch.images.shape[0])
+                        progress_callback(frames_done, total)
             # Drain the remaining in-flight batches.
             while True:
                 result = pool.drain_one()
                 if result is None:
                     break
                 done_ordinal, outputs = result
+                done_batch = meta.pop(done_ordinal)
                 outputs = pipeline(outputs)
-                outputs = self._stamp_metadata(outputs, meta.pop(done_ordinal))
+                outputs = self._stamp_metadata(outputs, done_batch)
                 yield outputs
-                completed += 1
                 if progress_callback is not None:
-                    progress_callback(completed, total)
+                    frames_done += int(done_batch.images.shape[0])
+                    progress_callback(frames_done, total)
 
     @staticmethod
     def _stamp_metadata(outputs: Outputs, batch: Any) -> Outputs:

@@ -1633,11 +1633,59 @@ def _gui_progress_callback():
     return cb
 
 
+def _make_fps_column(window_s: float = 5.0, time_fn=None):
+    """Build a Rich ``ProgressColumn`` that shows frames/sec over a window.
+
+    Reports throughput across a trailing ``window_s``-second window rather
+    than the whole-run average, so model warmup / the slow first batch don't
+    drag the number down — it answers "how fast is it *now*". Renders ``--``
+    until two samples spanning a positive interval accrue (#610).
+
+    Samples ``(time, task.completed)`` on each ``render`` and keys the sample
+    history by ``task.id``, so one shared column correctly serves both the
+    "Predicting..." and "Tracking..." tasks. ``rich`` is imported lazily so
+    it doesn't slow ``--help``. ``time_fn`` defaults to ``time.monotonic`` and
+    is injectable for deterministic tests.
+    """
+    from collections import deque
+    from time import monotonic
+
+    from rich.progress import ProgressColumn
+    from rich.text import Text
+
+    if time_fn is None:
+        time_fn = monotonic
+
+    class _FPSColumn(ProgressColumn):
+        def __init__(self, window_s: float, time_fn):
+            super().__init__()
+            self.window_s = window_s
+            self._time_fn = time_fn
+            self._samples: dict = {}  # task_id -> deque[(t, completed)]
+
+        def render(self, task) -> Text:
+            samples = self._samples.setdefault(task.id, deque())
+            t = self._time_fn()
+            samples.append((t, float(task.completed)))
+            while samples and t - samples[0][0] > self.window_s:
+                samples.popleft()
+            if len(samples) < 2:
+                return Text("-- fps", style="progress.percentage")
+            (t0, c0), (t1, c1) = samples[0], samples[-1]
+            dt = t1 - t0
+            if dt <= 0:
+                return Text("-- fps", style="progress.percentage")
+            return Text(f"{(c1 - c0) / dt:5.1f} fps", style="progress.percentage")
+
+    return _FPSColumn(window_s, time_fn)
+
+
 def _make_rich_progress():
     """Build a shared Rich ``Progress`` instance for the ``predict`` path.
 
     Returns the ``Progress`` (already started) — the caller MUST stop it
-    in a ``finally`` block.
+    in a ``finally`` block. Counts are in frames (#610), so the windowed
+    FPS column reads as true frames/sec.
     """
     from rich.progress import (
         BarColumn,
@@ -1653,6 +1701,7 @@ def _make_rich_progress():
         BarColumn(),
         TaskProgressColumn(),
         MofNCompleteColumn(),
+        _make_fps_column(),
         "ETA:",
         TimeRemainingColumn(),
         "Elapsed:",
@@ -1687,15 +1736,16 @@ def _rich_progress_callback():
     """Build a Rich progress bar callback for the non-``--gui`` ``predict`` path.
 
     Returns ``(callback, progress)`` where ``callback(processed, total)`` has
-    the per-batch signature the new pipeline uses. The ``Progress`` is started
-    immediately (so "Predicting..." shows right away) and the caller MUST stop
-    it in a ``finally`` block so the bar closes cleanly on success or error.
-    A ``total <= 0`` (length-less provider) renders an indeterminate bar.
+    the ``(processed_frames, total_frames)`` signature the new pipeline uses.
+    The ``Progress`` is started immediately (so "Predicting..." shows right
+    away) and the caller MUST stop it in a ``finally`` block so the bar closes
+    cleanly on success or error. A ``total <= 0`` (length-less provider)
+    renders an indeterminate bar.
 
     ``rich`` is imported lazily so it doesn't slow ``--help``; the columns
     mirror the legacy ``track`` look-and-feel without importing the heavy
-    legacy ``predictors`` module. Progress is counted in batches (the new
-    callback reports batches, not frames). #583.
+    legacy ``predictors`` module. Progress is counted in frames, so the
+    count / percent / ETA / FPS are all batch-size-invariant (#610). #583.
     """
     progress = _make_rich_progress()
     cb = _rich_task_callback(progress, "Predicting...")

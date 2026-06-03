@@ -68,6 +68,16 @@ class Provider(Protocol):
         """
         ...
 
+    def num_frames(self) -> int:
+        """Return the total number of frames the provider will yield.
+
+        Used by the ``Predictor`` for frame-based progress reporting, which
+        is batch-size-invariant (unlike ``__len__``, which counts batches).
+        Providers over unbounded sources may return ``-1`` to signal unknown
+        length.
+        """
+        ...
+
 
 # ─────────────────────────────────────────────────────────────────────────
 # NumpyProvider — emits a pre-loaded tensor as a single batch
@@ -142,6 +152,10 @@ class VideoProvider:
         """Number of batches; ``ceil(len(frames) / batch_size)``."""
         n = len(self._frame_indices)
         return (n + self.batch_size - 1) // self.batch_size
+
+    def num_frames(self) -> int:
+        """Total number of frames this provider will yield."""
+        return len(self._frame_indices)
 
 
 @attrs.define
@@ -306,6 +320,10 @@ class LabelsProvider:
         n = len(self._labeled_frames)
         return (n + self.batch_size - 1) // self.batch_size
 
+    def num_frames(self) -> int:
+        """Total number of frames over the (filtered) labeled-frame list."""
+        return len(self._labeled_frames)
+
 
 @attrs.define
 class MultiVideoProvider:
@@ -361,6 +379,16 @@ class MultiVideoProvider:
             total += n
         return total
 
+    def num_frames(self) -> int:
+        """Total frames across all sub-providers (or ``-1`` if any unknown)."""
+        total = 0
+        for provider in self.providers:
+            n = provider.num_frames()
+            if n < 0:
+                return -1
+            total += n
+        return total
+
 
 @attrs.define
 class NumpyProvider:
@@ -410,3 +438,7 @@ class NumpyProvider:
         """Number of batches; ``ceil(N / batch_size)``."""
         n = int(self.images.shape[0])
         return (n + self.batch_size - 1) // self.batch_size
+
+    def num_frames(self) -> int:
+        """Total number of frames in the pre-loaded tensor."""
+        return int(self.images.shape[0])
