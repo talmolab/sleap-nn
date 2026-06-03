@@ -233,6 +233,182 @@ def _frame_masks(frame: sio.LabeledFrame) -> List[np.ndarray]:
     return [decode_mask_to_image_res(m) for m in masks]
 
 
+def _frame_pred_scores(frame: sio.LabeledFrame) -> np.ndarray:
+    """Per-mask detection scores for a frame (``PredictedSegmentationMask.score``).
+
+    Ground-truth (``UserSegmentationMask``) masks carry no score; any mask
+    without a score defaults to ``1.0`` so score-ranking degrades gracefully to
+    insertion order. Aligned to :func:`_frame_masks`.
+    """
+    masks = getattr(frame, "masks", None) or []
+    scores = []
+    for m in masks:
+        s = getattr(m, "score", None)
+        scores.append(1.0 if s is None else float(s))
+    return np.array(scores, dtype=float)
+
+
+# COCO mask-AP IoU thresholds: 0.50:0.05:0.95.
+MASK_IOU_THRESHOLDS = np.linspace(0.5, 0.95, 10)
+# Three size buckets (small/medium/large), defined by two inner area edges.
+_SIZE_KEYS = ("small", "medium", "large")
+# COCO object-size area edges (pixels^2): small < 32^2 <= medium < 96^2 <= large.
+COCO_SIZE_EDGES = np.array([32**2, 96**2], dtype=float)  # [1024, 9216]
+# Default percentile cut points for the dataset-relative (primary) size buckets:
+# terciles, so each bucket holds ~1/3 of GT masks.
+DEFAULT_SIZE_PERCENTILES = (100.0 / 3.0, 200.0 / 3.0)
+
+
+def _percentile_size_edges(
+    gt_areas: np.ndarray, percentiles: Tuple[float, float] = DEFAULT_SIZE_PERCENTILES
+) -> np.ndarray:
+    """Two area edges (px^2) at the given percentiles of the GT area distribution.
+
+    Dataset-relative size bins adapt small/medium/large to the actual mask
+    scale (mice vs. flies vs. ...) instead of COCO's fixed pixel cutoffs, which
+    bucket every animal mask the same way. Returns ``[nan, nan]`` when there is
+    no GT (all buckets then empty -> NaN AP).
+    """
+    g = np.asarray(gt_areas, dtype=float)
+    g = g[~np.isnan(g)]
+    if g.size == 0:
+        return np.array([np.nan, np.nan])
+    return np.percentile(g, list(percentiles))
+
+
+def _size_mask(areas: np.ndarray, bucket_idx: int, edges: np.ndarray) -> np.ndarray:
+    """Boolean mask selecting ``areas`` (px^2) in size bucket ``bucket_idx``.
+
+    Buckets are half-open ``[lo, hi)`` intervals delimited by ``edges`` (the two
+    inner boundaries): bucket 0 is ``(-inf, edges[0])``, bucket 1 is
+    ``[edges[0], edges[1])``, bucket 2 is ``[edges[1], inf)``. NaN areas (e.g. an
+    unmatched detection's missing matched-GT area) and NaN edges compare False
+    against every bound and so are excluded from all buckets.
+    """
+    areas = np.asarray(areas, dtype=float)
+    lo = -np.inf if bucket_idx == 0 else edges[bucket_idx - 1]
+    hi = np.inf if bucket_idx >= len(edges) else edges[bucket_idx]
+    with np.errstate(invalid="ignore"):
+        return (areas >= lo) & (areas < hi)
+
+
+def _align_pair(a: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Top-left-align two boolean masks onto a common max-H/W canvas."""
+    if a.shape == b.shape:
+        return a, b
+    h = max(a.shape[0], b.shape[0])
+    w = max(a.shape[1], b.shape[1])
+    aa = np.zeros((h, w), dtype=bool)
+    bb = np.zeros((h, w), dtype=bool)
+    aa[: a.shape[0], : a.shape[1]] = a
+    bb[: b.shape[0], : b.shape[1]] = b
+    return aa, bb
+
+
+def _mask_pair_stats(
+    pred_masks: List[np.ndarray], gt_masks: List[np.ndarray]
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Compute IoU and raw-intersection matrices over all ``(pred, gt)`` pairs.
+
+    Returns ``(iou, inter)`` each ``(n_pred, n_gt)``. ``iou`` matches
+    :func:`_mask_iou_matrix`; ``inter`` (intersection pixel counts) additionally
+    supports fragmentation (over-/under-segmentation) scoring without a second
+    decode pass.
+    """
+    n_p, n_g = len(pred_masks), len(gt_masks)
+    iou = np.zeros((n_p, n_g), dtype=float)
+    inter = np.zeros((n_p, n_g), dtype=float)
+    for i, pm in enumerate(pred_masks):
+        for j, gm in enumerate(gt_masks):
+            a, b = _align_pair(pm, gm)
+            inter_ij = int(np.logical_and(a, b).sum())
+            union_ij = int(np.logical_or(a, b).sum())
+            inter[i, j] = inter_ij
+            iou[i, j] = 1.0 if union_ij == 0 else inter_ij / union_ij
+    return iou, inter
+
+
+def _mask_to_boundary(mask: np.ndarray, dilation_ratio: float = 0.02) -> np.ndarray:
+    """Extract the boundary region of a binary mask (Cheng et al., 2021).
+
+    The boundary region is ``mask`` minus its erosion by a disk of radius
+    ``d = round(dilation_ratio * image_diagonal)`` (>= 1 px). A 1-px constant
+    border pad makes pixels on the image edge count as boundary, matching the
+    reference Boundary-IoU implementation (arXiv:2103.16562).
+    """
+    import cv2
+
+    mask = np.ascontiguousarray(mask, dtype=np.uint8)
+    h, w = mask.shape
+    d = int(round(dilation_ratio * float(np.sqrt(h * h + w * w))))
+    if d < 1:
+        d = 1
+    padded = cv2.copyMakeBorder(mask, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
+    eroded = cv2.erode(padded, np.ones((3, 3), np.uint8), iterations=d)
+    eroded = eroded[1 : h + 1, 1 : w + 1]
+    return (mask - eroded).astype(bool)
+
+
+def _boundary_iou(
+    pred: np.ndarray, gt: np.ndarray, dilation_ratio: float = 0.02
+) -> float:
+    """Boundary IoU between two masks (Cheng et al., 2021, arXiv:2103.16562).
+
+    IoU restricted to the masks' boundary regions; more sensitive to contour
+    error than mask IoU. Two empty boundary regions (identical masks) -> 1.0.
+    """
+    a, b = _align_pair(pred, gt)
+    ba = _mask_to_boundary(a, dilation_ratio)
+    bb = _mask_to_boundary(b, dilation_ratio)
+    inter = int(np.logical_and(ba, bb).sum())
+    union = int(np.logical_or(ba, bb).sum())
+    return 1.0 if union == 0 else float(inter / union)
+
+
+def _ap_from_pr(
+    scores: np.ndarray,
+    is_tp: np.ndarray,
+    npig: int,
+    recall_thresholds: np.ndarray,
+) -> Tuple[float, float]:
+    """Average precision + max recall from score-ranked TP/FP flags (COCO-style).
+
+    Args:
+        scores: Detection scores, one per detection.
+        is_tp: Boolean true-positive flag per detection (FPs are ``False``).
+            Ignored detections must be filtered out by the caller.
+        npig: Number of (non-ignored) ground-truth objects, the recall
+            denominator.
+        recall_thresholds: Recall grid for 101-point interpolation.
+
+    Returns:
+        ``(AP, max_recall)``. ``AP`` is NaN when ``npig == 0`` (undefined), and
+        ``0.0`` when there are no detections.
+    """
+    if npig <= 0:
+        return np.nan, np.nan
+    scores = np.asarray(scores, dtype=float)
+    is_tp = np.asarray(is_tp, dtype=bool)
+    if scores.size == 0:
+        return 0.0, 0.0
+    order = np.argsort(-scores, kind="mergesort")
+    is_tp = is_tp[order]
+    tp = np.cumsum(is_tp)
+    fp = np.cumsum(~is_tp)
+    rc = tp / npig
+    pr = tp / np.maximum(tp + fp, np.spacing(1))
+    recall = float(rc[-1])
+    # Make precision monotonically non-increasing as recall grows.
+    for i in range(pr.size - 1, 0, -1):
+        if pr[i] > pr[i - 1]:
+            pr[i - 1] = pr[i]
+    inds = np.searchsorted(rc, recall_thresholds, side="left")
+    precision = np.zeros(recall_thresholds.shape)
+    valid = inds < pr.size
+    precision[valid] = pr[inds[valid]]
+    return float(precision.mean()), recall
+
+
 @attrs.define(auto_attribs=True, slots=True)
 class MatchInstance:
     """Class to have a new structure for sio.Instance object."""
@@ -706,6 +882,10 @@ class Evaluator:
         self.false_positives = []
         # Matched-pair IoUs, populated only in mask mode.
         self.mask_ious = np.array([])
+        # Per-frame mask records + matched TP mask pairs, populated only in mask
+        # mode (feed mask_voc_metrics / boundary-IoU / fragmentation / per-size).
+        self._mask_frames = []
+        self._matched_mask_pairs = []
 
         self._process_frames()
 
@@ -840,18 +1020,44 @@ class Evaluator:
         self.false_negatives = []
         self.false_positives = []
         ious: List[float] = []
+        # Per-frame decoded masks + scores + IoU/intersection matrices, reused by
+        # mask_voc_metrics (score-ranked COCO AP) and the fragmentation/per-size
+        # breakdowns without re-decoding RLE masks.
+        self._mask_frames = []
+        # Matched (pred_mask, gt_mask) TP pairs (aligned to ``self.mask_ious``),
+        # used for boundary-IoU scoring.
+        self._matched_mask_pairs = []
 
         for frame_gt, frame_pr in self.frame_pairs:
             gt_masks = _frame_masks(frame_gt)
             pr_masks = _frame_masks(frame_pr)
+            pr_scores = _frame_pred_scores(frame_pr)
+            iou_mat, inter_mat = _mask_pair_stats(pr_masks, gt_masks)
+            self._mask_frames.append(
+                {
+                    "pred_masks": pr_masks,
+                    "pred_scores": pr_scores,
+                    "gt_masks": gt_masks,
+                    "iou": iou_mat,
+                    "inter": inter_mat,
+                    "gt_areas": np.array([int(m.sum()) for m in gt_masks], dtype=float),
+                    "pred_areas": np.array(
+                        [int(m.sum()) for m in pr_masks], dtype=float
+                    ),
+                }
+            )
 
-            _, _, unmatched_pred, unmatched_gt, pair_ious = match_masks(
-                pr_masks, gt_masks, min_iou=self.match_threshold
+            matched_pred, matched_gt, unmatched_pred, unmatched_gt, pair_ious = (
+                match_masks(pr_masks, gt_masks, min_iou=self.match_threshold)
             )
 
             for iou in pair_ious:
                 self.positive_pairs.append((frame_gt, frame_pr, float(iou)))
                 ious.append(float(iou))
+            for p_idx, g_idx in zip(matched_pred, matched_gt):
+                self._matched_mask_pairs.append(
+                    (pr_masks[int(p_idx)], gt_masks[int(g_idx)])
+                )
             for _ in unmatched_gt:
                 self.false_negatives.append(frame_gt)
             for _ in unmatched_pred:
@@ -1074,7 +1280,8 @@ class Evaluator:
     def mask_metrics(self) -> dict:
         """Compute mask-IoU summary statistics for ``match_method="mask"``.
 
-        Reports two complementary IoU summaries plus panoptic-quality metrics:
+        Reports complementary IoU summaries, panoptic-quality, boundary-IoU,
+        fragmentation, and per-object-size breakdowns:
 
         * ``mean_iou`` (and ``min``/``max``/percentiles) over the matched (TP)
           pairs only — COCO-style segmentation quality, blind to misses.
@@ -1085,17 +1292,27 @@ class Evaluator:
           quality) and ``rq = TP / (TP + 0.5*FP + 0.5*FN)`` (recognition
           quality, == detection F1). See Kirillov et al., "Panoptic
           Segmentation" (2019).
+        * ``mean_boundary_iou`` — boundary IoU over the matched pairs (Cheng et
+          al., 2021), more sensitive to contour error than mask IoU.
+        * ``oversegmentation`` / ``undersegmentation`` — fragmentation counts:
+          GT masks split across >=2 predictions, and predictions spanning >=2
+          GT masks (each with >=10% area overlap). The headline over-/under-
+          segmentation failure mode is invisible to the 1-to-1 match.
+        * ``per_size`` — COCO small/medium/large breakdown of GT count, TP
+          count, and TP-only mean IoU (buckets sum to the GT total).
 
         Returns:
             A dict with ``mean_iou``, ``min``, ``max``, percentiles ``p25``/
-            ``p50``/``p75``, ``mean_iou_all_gt``, ``pq``/``sq``/``rq``, the TP
-            count ``n_matched`` (plus ``n_fp``/``n_fn``), and the raw ``ious``
-            array. Quantities are NaN when undefined (e.g. no matches / no GT).
+            ``p50``/``p75``, ``mean_iou_all_gt``, ``pq``/``sq``/``rq``,
+            ``mean_boundary_iou``, ``oversegmentation``/``undersegmentation``,
+            ``per_size``, the TP count ``n_matched`` (plus ``n_fp``/``n_fn``),
+            and the raw ``ious`` array. Quantities are NaN when undefined.
         """
         ious = np.asarray(self.mask_ious, dtype=float)
         n_tp = len(self.positive_pairs)
         n_fp = len(self.false_positives)
         n_fn = len(self.false_negatives)
+        over, under = self._fragmentation_counts()
         results = {
             "mean_iou": np.nan,
             "min": np.nan,
@@ -1107,6 +1324,10 @@ class Evaluator:
             "pq": np.nan,
             "sq": np.nan,
             "rq": np.nan,
+            "mean_boundary_iou": np.nan,
+            "oversegmentation": over,
+            "undersegmentation": under,
+            "per_size": self._mask_per_size_stats(),
             "n_matched": int(ious.size),
             "n_fp": n_fp,
             "n_fn": n_fn,
@@ -1118,6 +1339,13 @@ class Evaluator:
             results["max"] = float(np.max(ious))
             for ptile in (25, 50, 75):
                 results[f"p{ptile}"] = float(np.percentile(ious, ptile))
+
+        if self._matched_mask_pairs:
+            boundary_ious = np.array(
+                [_boundary_iou(p, g) for p, g in self._matched_mask_pairs],
+                dtype=float,
+            )
+            results["mean_boundary_iou"] = float(np.mean(boundary_ious))
 
         iou_sum = float(np.sum(ious)) if ious.size else 0.0
         # Miss-penalizing mean: averaged over every GT mask (TP + FN).
@@ -1131,6 +1359,243 @@ class Evaluator:
             results["sq"] = results["mean_iou"]
             results["rq"] = n_tp / pq_denom
             results["pq"] = iou_sum / pq_denom
+        return results
+
+    def _fragmentation_counts(self, overlap_frac: float = 0.1) -> Tuple[int, int]:
+        """Count over-/under-segmented instances across all mask frames.
+
+        A prediction "covers" a GT mask when their intersection is at least
+        ``overlap_frac`` of the GT area. Over-segmentation counts GT masks
+        covered by >=2 predictions (one animal split into fragments);
+        under-segmentation counts predictions covering >=2 GT masks (one mask
+        merging neighbors). Both directly surface the failure mode the 1-to-1
+        Hungarian match hides (extra fragments otherwise just become FPs).
+        """
+        over = under = 0
+        for f in self._mask_frames:
+            inter = f["inter"]
+            gt_areas = f["gt_areas"]
+            n_pred, n_gt = inter.shape
+            if n_pred == 0 or n_gt == 0:
+                continue
+            # Fraction of each GT (cols) covered by each prediction (rows).
+            cov_gt = inter / np.maximum(gt_areas[None, :], 1.0)
+            covers = cov_gt >= overlap_frac
+            over += int(np.count_nonzero(covers.sum(axis=0) >= 2))  # GT split
+            under += int(np.count_nonzero(covers.sum(axis=1) >= 2))  # pred merged
+        return over, under
+
+    def _per_size_breakdown(
+        self,
+        gt_areas_all: np.ndarray,
+        tp_iou: np.ndarray,
+        tp_gt_area: np.ndarray,
+        edges: np.ndarray,
+    ) -> dict:
+        """small/medium/large GT count, TP count and TP mean IoU under ``edges``.
+
+        ``n_gt`` over the three buckets sums to the total GT count (every GT area
+        falls in exactly one half-open bucket).
+        """
+        out = {"edges": [float(e) for e in edges]}
+        for idx, bucket in enumerate(_SIZE_KEYS):
+            in_gt = _size_mask(gt_areas_all, idx, edges)
+            in_tp = (
+                _size_mask(tp_gt_area, idx, edges)
+                if tp_gt_area.size
+                else np.array([], dtype=bool)
+            )
+            out[bucket] = {
+                "n_gt": int(np.count_nonzero(in_gt)),
+                "n_tp": int(np.count_nonzero(in_tp)),
+                "mean_iou": (
+                    float(np.mean(tp_iou[in_tp])) if np.any(in_tp) else np.nan
+                ),
+            }
+        return out
+
+    def _mask_per_size_stats(self) -> dict:
+        """Per-object-size GT/TP/IoU breakdown under both bucketing schemes.
+
+        GT objects are bucketed by mask area (``mask.sum()``). The primary
+        scheme (top-level ``small``/``medium``/``large`` keys) uses
+        dataset-relative percentile edges (terciles by default) so the buckets
+        adapt to the actual mask scale; the COCO fixed-cutoff scheme (small <
+        32^2 <= medium < 96^2 <= large) is reported additionally under
+        ``"coco"`` for cross-dataset comparability.
+        """
+        gt_areas_all = np.array(
+            [a for f in self._mask_frames for a in f["gt_areas"]], dtype=float
+        )
+        tp_iou = np.asarray(self.mask_ious, dtype=float)
+        tp_gt_area = np.array(
+            [int(g.sum()) for _, g in self._matched_mask_pairs], dtype=float
+        )
+        pct_edges = _percentile_size_edges(gt_areas_all)
+        out = self._per_size_breakdown(gt_areas_all, tp_iou, tp_gt_area, pct_edges)
+        out["scheme"] = "percentile"
+        out["coco"] = self._per_size_breakdown(
+            gt_areas_all, tp_iou, tp_gt_area, COCO_SIZE_EDGES
+        )
+        return out
+
+    def _match_masks_coco(
+        self, iou_threshold: float
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Greedy score-ranked pred->GT matching at one IoU threshold (COCO).
+
+        Per frame, predictions are considered in descending score order; each
+        claims the highest-IoU not-yet-claimed GT whose IoU >= ``iou_threshold``
+        (a TP), else it is a FP. Mirrors ``pycocotools`` matching.
+
+        Returns:
+            ``(scores, matched, matched_gt_area, pred_area)`` flat arrays over
+            every prediction across all frames (aligned). ``matched`` is the
+            TP flag; ``matched_gt_area`` is the area of the claimed GT (NaN for
+            a FP); ``pred_area`` is the prediction's own area.
+        """
+        scores, matched, matched_gt_area, pred_area = [], [], [], []
+        for f in self._mask_frames:
+            iou = f["iou"]
+            pred_scores = f["pred_scores"]
+            gt_areas = f["gt_areas"]
+            pred_areas = f["pred_areas"]
+            n_pred, n_gt = iou.shape
+            order = (
+                np.argsort(-pred_scores, kind="mergesort")
+                if n_pred
+                else np.array([], dtype=int)
+            )
+            gt_taken = np.zeros(n_gt, dtype=bool)
+            for p in order:
+                scores.append(float(pred_scores[p]))
+                pred_area.append(float(pred_areas[p]))
+                if n_gt == 0:
+                    matched.append(False)
+                    matched_gt_area.append(np.nan)
+                    continue
+                row = iou[p].copy()
+                row[gt_taken] = -1.0
+                g = int(np.argmax(row))
+                if row[g] >= iou_threshold:
+                    gt_taken[g] = True
+                    matched.append(True)
+                    matched_gt_area.append(float(gt_areas[g]))
+                else:
+                    matched.append(False)
+                    matched_gt_area.append(np.nan)
+        return (
+            np.array(scores, dtype=float),
+            np.array(matched, dtype=bool),
+            np.array(matched_gt_area, dtype=float),
+            np.array(pred_area, dtype=float),
+        )
+
+    def mask_voc_metrics(
+        self,
+        iou_thresholds: np.ndarray = MASK_IOU_THRESHOLDS,
+        recall_thresholds: np.ndarray = np.linspace(0, 1, 101),
+        size_percentiles: Tuple[float, float] = DEFAULT_SIZE_PERCENTILES,
+    ) -> dict:
+        """COCO-style score-ranked mask Average Precision / Recall.
+
+        Re-matches predictions to GT independently at each IoU threshold
+        (:meth:`_match_masks_coco`), score-ranks the resulting TP/FP flags, and
+        integrates the precision-recall curve (101-point interpolation, mirrors
+        :meth:`voc_metrics`). Reports overall AP@[.5:.95]/AP50/AP75/AR plus a
+        per-object-size AP breakdown under two bucketing schemes (GT outside a
+        bucket is ignored, as in ``pycocotools`` ``areaRng``): the primary
+        (default) buckets use dataset-relative percentile edges (terciles), and
+        the COCO fixed-cutoff buckets are reported additionally under the
+        ``mask_voc.coco.`` prefix — analogous to the dual OKS/PCK VOC.
+
+        Args:
+            iou_thresholds: IoU thresholds to average AP over.
+            recall_thresholds: Recall grid for 101-point interpolation.
+            size_percentiles: Two percentiles of the GT area distribution
+                delimiting the primary small/medium/large buckets.
+
+        Returns:
+            A dict keyed under ``"mask_voc."``: ``AP`` (per-threshold array),
+            ``mAP``, ``AP50``, ``AP75``, ``AR``, ``recalls``, ``iou_thresholds``,
+            ``n_gt``; primary per-size ``AP_small``/``AP_medium``/``AP_large``,
+            ``n_gt_small``/``..._medium``/``..._large``, ``size_scheme`` and
+            ``size_edges``; and COCO per-size ``coco.AP_*``/``coco.n_gt_*``/
+            ``coco.size_edges``. AP values are NaN when the relevant GT set is
+            empty.
+        """
+        iou_thresholds = np.asarray(iou_thresholds, dtype=float)
+        recall_thresholds = np.asarray(recall_thresholds, dtype=float)
+        gt_areas_all = np.array(
+            [a for f in self._mask_frames for a in f["gt_areas"]], dtype=float
+        )
+        npig = int(gt_areas_all.size)
+
+        # Primary (percentile, dataset-relative) + additional (COCO) edges.
+        schemes = {
+            "percentile": _percentile_size_edges(gt_areas_all, size_percentiles),
+            "coco": COCO_SIZE_EDGES,
+        }
+        n_gt_size = {
+            name: [
+                int(np.count_nonzero(_size_mask(gt_areas_all, i, edges)))
+                for i in range(len(_SIZE_KEYS))
+            ]
+            for name, edges in schemes.items()
+        }
+
+        ap_overall = np.full(iou_thresholds.size, np.nan)
+        recall_overall = np.full(iou_thresholds.size, np.nan)
+        ap_size = {
+            name: [np.full(iou_thresholds.size, np.nan) for _ in _SIZE_KEYS]
+            for name in schemes
+        }
+
+        for ti, thr in enumerate(iou_thresholds):
+            scores, matched, matched_gt_area, pred_area = self._match_masks_coco(
+                float(thr)
+            )
+            ap_overall[ti], recall_overall[ti] = _ap_from_pr(
+                scores, matched, npig, recall_thresholds
+            )
+            for name, edges in schemes.items():
+                for i in range(len(_SIZE_KEYS)):
+                    # COCO areaRng: keep TPs whose matched GT is in-bucket and
+                    # FPs whose own area is in-bucket; ignore everything else.
+                    keep_tp = matched & _size_mask(matched_gt_area, i, edges)
+                    keep_fp = (~matched) & _size_mask(pred_area, i, edges)
+                    keep = keep_tp | keep_fp
+                    ap_size[name][i][ti], _ = _ap_from_pr(
+                        scores[keep],
+                        keep_tp[keep],
+                        n_gt_size[name][i],
+                        recall_thresholds,
+                    )
+
+        def _nanmean(arr: np.ndarray) -> float:
+            return float(np.nanmean(arr)) if np.any(~np.isnan(arr)) else np.nan
+
+        def _at(target: float) -> float:
+            return float(ap_overall[int(np.argmin(np.abs(iou_thresholds - target)))])
+
+        results = {
+            "mask_voc.iou_thresholds": iou_thresholds,
+            "mask_voc.AP": ap_overall,
+            "mask_voc.recalls": recall_overall,
+            "mask_voc.mAP": _nanmean(ap_overall),
+            "mask_voc.AR": _nanmean(recall_overall),
+            "mask_voc.AP50": _at(0.5),
+            "mask_voc.AP75": _at(0.75),
+            "mask_voc.n_gt": npig,
+            "mask_voc.size_scheme": "percentile",
+            "mask_voc.size_edges": [float(e) for e in schemes["percentile"]],
+            "mask_voc.coco.size_edges": [float(e) for e in schemes["coco"]],
+        }
+        # Primary (percentile) per-size keys are unprefixed; COCO is additional.
+        for name, prefix in (("percentile", "mask_voc."), ("coco", "mask_voc.coco.")):
+            for i, bucket in enumerate(_SIZE_KEYS):
+                results[f"{prefix}AP_{bucket}"] = _nanmean(ap_size[name][i])
+                results[f"{prefix}n_gt_{bucket}"] = n_gt_size[name][i]
         return results
 
     def pck_metrics(self, thresholds: np.ndarray = np.linspace(1, 10, 10)):
@@ -1208,11 +1673,12 @@ class Evaluator:
 
         if self.match_method == "mask":
             # Instance segmentation: detection (precision/recall/F1 over
-            # IoU-matched masks) + mask-IoU quality. OKS/PCK/visibility are
-            # keypoint-only and not computed.
+            # IoU-matched masks) + mask-IoU quality + COCO-style score-ranked
+            # mask AP/AR. OKS/PCK/visibility are keypoint-only and not computed.
             return {
                 "detection_metrics": self.detection_metrics(),
                 "mask_metrics": self.mask_metrics(),
+                "mask_voc_metrics": self.mask_voc_metrics(),
             }
 
         metrics = {}
@@ -1496,10 +1962,11 @@ def run_evaluation(
         return metrics
 
     if match_method == "mask":
-        # Mask mode: report detection (IoU-matched) + mask-IoU metrics only
-        # (no oks_voc.*/mOKS/PCK/visibility keys exist).
+        # Mask mode: report detection (IoU-matched) + mask-IoU quality + COCO
+        # mask AP/AR (no oks_voc.*/mOKS/PCK/visibility keys exist).
         det = metrics["detection_metrics"]
         mm = metrics["mask_metrics"]
+        mvoc = metrics["mask_voc_metrics"]
         logger.info("Evaluation Results (mask mode):")
         logger.info(f"  Precision: {det['precision']:.4f}")
         logger.info(f"  Recall: {det['recall']:.4f}")
@@ -1508,6 +1975,32 @@ def run_evaluation(
         logger.info(f"  Mean mask IoU: {mm['mean_iou']:.4f}")
         logger.info(f"  mask IoU p50: {mm['p50']:.4f}")
         logger.info(f"  mask IoU p25: {mm['p25']:.4f}")
+        logger.info(f"  Mean boundary IoU: {mm['mean_boundary_iou']:.4f}")
+        logger.info(f"  mAP @[.5:.95]: {mvoc['mask_voc.mAP']:.4f}")
+        logger.info(
+            f"  AP50: {mvoc['mask_voc.AP50']:.4f}  AP75: {mvoc['mask_voc.AP75']:.4f}"
+        )
+        logger.info(f"  AR @[.5:.95]: {mvoc['mask_voc.AR']:.4f}")
+        e0, e1 = mvoc["mask_voc.size_edges"]
+        logger.info(
+            f"  AP by size [percentile, edges={e0:.0f}/{e1:.0f} px^2]: "
+            f"S={mvoc['mask_voc.AP_small']:.4f} "
+            f"M={mvoc['mask_voc.AP_medium']:.4f} L={mvoc['mask_voc.AP_large']:.4f} "
+            f"(GT S/M/L={mvoc['mask_voc.n_gt_small']}/"
+            f"{mvoc['mask_voc.n_gt_medium']}/{mvoc['mask_voc.n_gt_large']})"
+        )
+        logger.info(
+            f"  AP by size [COCO 1024/9216 px^2]: "
+            f"S={mvoc['mask_voc.coco.AP_small']:.4f} "
+            f"M={mvoc['mask_voc.coco.AP_medium']:.4f} "
+            f"L={mvoc['mask_voc.coco.AP_large']:.4f} "
+            f"(GT S/M/L={mvoc['mask_voc.coco.n_gt_small']}/"
+            f"{mvoc['mask_voc.coco.n_gt_medium']}/{mvoc['mask_voc.coco.n_gt_large']})"
+        )
+        logger.info(
+            f"  Fragmentation: oversegmentation={mm['oversegmentation']}, "
+            f"undersegmentation={mm['undersegmentation']}"
+        )
 
         if save_metrics:
             logger.info(f"Saving metrics to {save_metrics}...")
