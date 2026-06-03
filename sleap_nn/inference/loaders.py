@@ -404,6 +404,7 @@ def _build_bottomup_segmentation(
     preprocess_config: Any,
     fg_threshold: float = 0.5,
     min_mask_area: int = 0,
+    max_instances: Optional[int] = None,
 ) -> LoadedAssets:
     """Load a ``BottomUpSegmentationLightningModule`` and wrap it for inference.
 
@@ -442,6 +443,7 @@ def _build_bottomup_segmentation(
         output_stride=output_stride,
         input_scale=config.data_config.preprocessing.scale,
         min_mask_area=min_mask_area,
+        max_instances=max_instances,
     )
     return LoadedAssets(
         inference_model=inference_model,
@@ -869,6 +871,7 @@ def load_model_assets(
             path,
             fg_threshold=fg_threshold,
             min_mask_area=min_mask_area,
+            max_instances=max_instances,
             **common_kwargs,
         )
 

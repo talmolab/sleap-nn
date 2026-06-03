@@ -188,10 +188,15 @@ class IncrementalLabelsWriter:
         import sleap_io as sio
 
         videos = self._resolve_videos()
+        # Mask-only (segmentation) models may carry no skeleton; emit an empty
+        # skeleton list rather than ``[None]`` (which makes ``sio.Labels.save``
+        # raise ``AttributeError: 'NoneType' has no attribute 'nodes'``). Mirrors
+        # the in-memory path (``Outputs.to_labels``).
+        pkg_skeleton = self.collapse_skeleton or self.skeleton
         labels = sio.Labels(
             labeled_frames=self._all_frames,
             videos=videos,
-            skeletons=[self.collapse_skeleton or self.skeleton],
+            skeletons=[pkg_skeleton] if pkg_skeleton is not None else [],
             provenance=self.provenance or {},
         )
         tmp = self.tmp_path

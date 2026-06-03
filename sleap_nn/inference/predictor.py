@@ -237,6 +237,7 @@ def _build_bottomup_segmentation_layer(
         max_stride=max_stride,
         fg_threshold=inf.fg_threshold,
         min_mask_area=getattr(inf, "min_mask_area", 0),
+        max_instances=getattr(inf, "max_instances", None),
         preprocess_config=PreprocessConfig(
             scale=inf.input_scale,
             max_height=_pp_field(predictor, "max_height"),
@@ -1139,6 +1140,18 @@ class Predictor:
                 "sio.PredictedCentroid objects (in LabeledFrame.centroids) that "
                 "would be dropped. Use emit_centroid='instance' (the default) "
                 "for tracking."
+            )
+
+        # Segmentation emits sio.PredictedSegmentationMask objects to
+        # LabeledFrame.masks; the tracker only handles sio.PredictedInstance and
+        # reads only LabeledFrame.instances, so it would silently drop every
+        # mask. Fail fast rather than write a mask-less tracked .slp.
+        if self.tracker_config is not None and self._is_segmentation_layer():
+            raise ValueError(
+                "Tracking is not yet supported for bottom-up segmentation "
+                "models: masks are emitted to LabeledFrame.masks, which the "
+                "tracker (operating on sio.PredictedInstance objects) would "
+                "drop, producing a mask-less output. Re-run without tracking."
             )
 
         provider, auto_videos = self._make_provider(source, frames=frames)
