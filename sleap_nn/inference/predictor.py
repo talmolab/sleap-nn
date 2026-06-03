@@ -37,6 +37,7 @@ from typing import (
 import attrs
 import numpy as np
 import torch
+from loguru import logger
 
 from sleap_nn.inference.filters import FilterConfig, FilterPipeline
 from sleap_nn.inference.layers.backends import TorchBackend
@@ -783,6 +784,26 @@ class Predictor:
             kwargs["filter_config"] = filter_config
         if tracker_config is not None:
             kwargs["tracker_config"] = tracker_config
+
+        # Spin-up log: a one-line record of *what* model is running on *what*,
+        # so a run starts with a legible header instead of silence (#610).
+        n_nodes = len(skeleton.nodes) if skeleton is not None else None
+        spec = [
+            f"type={'+'.join(model_types)}",
+            f"backbone={loaded.backbone_type}",
+            f"nodes={n_nodes}",
+            f"device={device}",
+            f"batch_size={batch_size}",
+            f"peak_threshold={peak_threshold}",
+            f"max_instances={max_instances}",
+            f"integral_refinement={integral_refinement}",
+            f"paf_workers={paf_workers}",
+        ]
+        if "bottomup_segmentation" in model_types:
+            spec.append(f"fg_threshold={fg_threshold}")
+            spec.append(f"min_mask_area={min_mask_area}")
+        logger.info("Loaded inference model | " + " | ".join(spec))
+
         return cls(**kwargs)
 
     @classmethod
@@ -933,6 +954,68 @@ class Predictor:
             inference_params=inference_params,
             tracking_params=tracking_params,
         )
+
+    @staticmethod
+    def _describe_source(source: Any) -> str:
+        """Best-effort human label for a prediction source (#610)."""
+        if isinstance(source, str):
+            return source
+        filename = getattr(source, "filename", None)
+        if filename:
+            return str(filename)
+        return type(source).__name__
+
+    def _log_inference_start(
+        self, source: Any, provider: "Provider", videos: Optional[list]
+    ) -> None:
+        """Log a one-line spin-up record of the source being processed (#610)."""
+        n_frames = _safe_num_frames(provider)
+        parts = [
+            f"source={self._describe_source(source)}",
+            f"frames={n_frames if n_frames >= 0 else '?'}",
+            f"videos={len(videos) if videos else 1}",
+        ]
+        sio_video = getattr(provider, "_sio_video", None)
+        if sio_video is not None:
+            try:
+                shape = tuple(sio_video.shape)  # (N, H, W, C)
+                if len(shape) == 4:
+                    parts.append(f"shape={shape[1]}x{shape[2]}x{shape[3]}")
+            except Exception:  # pragma: no cover — metadata best-effort
+                pass
+            fps = getattr(sio_video, "fps", None)
+            if fps:
+                parts.append(f"fps={fps}")
+        parts.append(f"tracking={self.tracker_config is not None}")
+        logger.info("Starting inference | " + " | ".join(parts))
+
+    def _log_inference_summary(
+        self,
+        *,
+        n_frames: int,
+        elapsed_s: float,
+        output: Optional[str] = None,
+        n_objects: Optional[int] = None,
+        object_label: str = "instances",
+    ) -> None:
+        """Log a one-line post-run summary (#610).
+
+        ``n_objects`` (instances or masks) is optional — the streaming path
+        drops per-frame objects, so it reports frames/throughput only.
+        """
+        fps = n_frames / elapsed_s if elapsed_s > 0 else 0.0
+        parts = [f"frames={n_frames}"]
+        if n_objects is not None:
+            mean = n_objects / n_frames if n_frames > 0 else 0.0
+            parts.append(f"{object_label}={n_objects} ({mean:.2f}/frame)")
+        parts += [
+            f"elapsed={elapsed_s:.1f}s",
+            f"throughput={fps:.1f} fps",
+            f"tracking={self.tracker_config is not None}",
+        ]
+        if output:
+            parts.append(f"output={output}")
+        logger.info("Inference complete | " + " | ".join(parts))
 
     def _make_provider(
         self,
@@ -1185,6 +1268,7 @@ class Predictor:
         if videos is None:
             videos = auto_videos
 
+        self._log_inference_start(source, provider, videos)
         _prov_start = datetime.now()
         with self._postprocess_overrides(
             peak_threshold=peak_threshold,
@@ -1239,6 +1323,24 @@ class Predictor:
                 "integral_patch_size": integral_patch_size,
                 "batch_size": self.batch_size,
             },
+        )
+
+        # Post-run summary (#610). Segmentation emits masks (LabeledFrame.masks);
+        # everything else emits instances (LabeledFrame.instances).
+        n_lf = len(labels.labeled_frames)
+        if self._is_segmentation_layer():
+            n_objects = sum(
+                len(getattr(lf, "masks", None) or []) for lf in labels.labeled_frames
+            )
+            object_label = "masks"
+        else:
+            n_objects = sum(len(lf.instances) for lf in labels.labeled_frames)
+            object_label = "instances"
+        self._log_inference_summary(
+            n_frames=n_lf,
+            elapsed_s=(_prov_end - _prov_start).total_seconds(),
+            n_objects=n_objects,
+            object_label=object_label,
         )
         return labels
 
@@ -1378,6 +1480,7 @@ class Predictor:
         # `videos` (possibly None) is used (#582).
         if videos is None:
             videos = derived
+        self._log_inference_start(source, provider, derived)
         pkg = self._resolve_centroid_packaging()
         writer = IncrementalLabelsWriter(
             path=path,
@@ -1397,13 +1500,21 @@ class Predictor:
                 writer.write(outputs)
             # Attach provenance before the context exit finalizes the .slp, so
             # the streamed output carries lineage like the in-memory path (#583).
+            _prov_end = datetime.now()
             writer.provenance = self._build_inference_provenance(
                 source=source,
                 start_time=_prov_start,
-                end_time=datetime.now(),
+                end_time=_prov_end,
                 n_frames=writer.frame_count,
                 inference_params={"batch_size": self.batch_size},
             )
+        # Post-run summary (#610). The streaming path drops per-frame objects to
+        # keep memory O(window), so report frames / throughput only.
+        self._log_inference_summary(
+            n_frames=writer.frame_count,
+            elapsed_s=(_prov_end - _prov_start).total_seconds(),
+            output=path,
+        )
         return path
 
     # ──────────────────────────────────────────────────────────────────
