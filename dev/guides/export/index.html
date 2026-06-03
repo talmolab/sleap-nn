@@ -6806,7 +6806,9 @@
 </span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/my_model<span class="w"> </span>-o<span class="w"> </span>exports/<span class="w"> </span>--format<span class="w"> </span>both
 </span></code></pre></div>
 <h3 id="run-inference">Run Inference<a class="headerlink" href="#run-inference" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>predict<span class="w"> </span>exports/my_model<span class="w"> </span>video.mp4<span class="w"> </span>-o<span class="w"> </span>predictions.slp
+<p>Exported-model inference goes through the unified <code>sleap-nn predict</code> command —
+point <code>-m</code> at the export directory and it is auto-detected as an exported model:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>exports/my_model<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-o<span class="w"> </span>predictions.slp
 </span></code></pre></div>
 <hr />
 <h2 id="export-options">Export Options<a class="headerlink" href="#export-options" title="Permanent link">&para;</a></h2>
@@ -6877,12 +6879,13 @@ identical to the checkpoint flow.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Export one centroid directory (NOT a centroid + centered_instance pair).</span>
 </span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>models/centroid<span class="w"> </span>-o<span class="w"> </span>exports/centroid<span class="w"> </span>--format<span class="w"> </span>onnx
 </span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># Run the exported model. Choose the output representation with --centroid-output:</span>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1">#   instance (default) -&gt; single-node PredictedInstance (frontend-compatible)</span>
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="c1">#   centroid           -&gt; sio.PredictedCentroid</span>
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="c1">#   both               -&gt; both</span>
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>predict<span class="w"> </span>exports/centroid<span class="w"> </span>video.mp4<span class="w"> </span>-o<span class="w"> </span>centroids.slp<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="w">    </span>--centroid-output<span class="w"> </span>instance
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># Run the exported model via the unified predict command. Choose the output</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1"># representation with --centroid-output:</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="c1">#   instance (default) -&gt; single-node PredictedInstance (frontend-compatible)</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="c1">#   centroid           -&gt; sio.PredictedCentroid</span>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="c1">#   both               -&gt; both</span>
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>exports/centroid<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-o<span class="w"> </span>centroids.slp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="w">    </span>--centroid-output<span class="w"> </span>instance
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">One directory only</p>
@@ -6895,7 +6898,12 @@ full train → infer → eval → export workflow and the output representation
 contract.</p>
 <hr />
 <h2 id="inference-options">Inference Options<a class="headerlink" href="#inference-options" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>predict<span class="w"> </span>EXPORT_DIR<span class="w"> </span>VIDEO<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+<p>Exported-model inference is run through the unified <code>sleap-nn predict</code> command.
+When <code>-m</code>/<code>--model_paths</code> points at a directory containing <code>model.onnx</code> or
+<code>model.trt</code>, <code>predict</code> auto-detects it as an exported model and runs the
+exported runtime; otherwise it loads a trained checkpoint. Use <code>--runtime</code> to
+choose between ONNX and TensorRT (it is ignored for checkpoints).</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>EXPORT_DIR<span class="w"> </span>-i<span class="w"> </span>VIDEO<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
 </span></code></pre></div>
 <table>
 <thead>
@@ -6908,28 +6916,34 @@ contract.</p>
 </thead>
 <tbody>
 <tr>
-<td><code>-o</code>, <code>--output</code></td>
-<td>Output path</td>
+<td><code>-m</code>, <code>--model_paths</code></td>
+<td>Export dir (auto-detected) or checkpoint dir</td>
 <td><code>PATH</code></td>
-<td><code>&lt;video&gt;.predictions.slp</code></td>
+<td>Required</td>
 </tr>
 <tr>
-<td><code>-r</code>, <code>--runtime</code></td>
-<td>Inference runtime</td>
+<td><code>-i</code>, <code>--data_path</code></td>
+<td>Video or labels file</td>
+<td><code>PATH</code></td>
+<td>Required</td>
+</tr>
+<tr>
+<td><code>-o</code>, <code>--output_path</code></td>
+<td>Output path</td>
+<td><code>PATH</code></td>
+<td><code>&lt;input&gt;.predictions.slp</code></td>
+</tr>
+<tr>
+<td><code>--runtime</code></td>
+<td>Exported-model runtime (ignored for checkpoints)</td>
 <td><code>auto</code>, <code>onnx</code>, <code>tensorrt</code></td>
 <td><code>auto</code></td>
 </tr>
 <tr>
-<td><code>-b</code>, <code>--batch-size</code></td>
+<td><code>-b</code>, <code>--batch_size</code></td>
 <td>Batch size</td>
 <td><code>INT</code></td>
 <td><code>4</code></td>
-</tr>
-<tr>
-<td><code>-n</code>, <code>--n-frames</code></td>
-<td>Frames to process (0=all)</td>
-<td><code>INT</code></td>
-<td><code>0</code></td>
 </tr>
 <tr>
 <td><code>--centroid-output</code></td>
@@ -6939,21 +6953,20 @@ contract.</p>
 </tr>
 </tbody>
 </table>
+<p>The default <code>--runtime auto</code> prefers TensorRT and falls back to ONNX.</p>
 <div class="admonition tip">
-<p class="admonition-title">Running unexported checkpoints</p>
-<p>To run inference on a trained checkpoint directory (not an exported
-ONNX/TensorRT model), prefer the unified <a href="../inference/"><code>sleap-nn predict</code></a>
-entry point. <code>sleap-nn export predict</code> here runs an <strong>exported</strong> model directory.</p>
+<p class="admonition-title">One command for checkpoints and exported models</p>
+<p><code>sleap-nn predict</code> handles <strong>both</strong> trained checkpoint directories and
+exported ONNX/TensorRT model directories — it auto-detects which one you
+passed via <code>-m</code>. See the <a href="../inference/">Inference guide</a> for the full set of
+<code>predict</code> options (data selection, filtering, device, tracking, etc.).</p>
 </div>
 <h3 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Maximum speed with TensorRT</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>predict<span class="w"> </span>exports/model<span class="w"> </span>video.mp4<span class="w"> </span>--runtime<span class="w"> </span>tensorrt<span class="w"> </span>--batch-size<span class="w"> </span><span class="m">8</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>exports/model<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>--runtime<span class="w"> </span>tensorrt<span class="w"> </span>--batch_size<span class="w"> </span><span class="m">8</span>
 </span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># CPU inference</span>
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>predict<span class="w"> </span>exports/model<span class="w"> </span>video.mp4<span class="w"> </span>--runtime<span class="w"> </span>onnx<span class="w"> </span>--device<span class="w"> </span>cpu
-</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
-</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="c1"># First 1000 frames</span>
-</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>sleap-nn<span class="w"> </span><span class="nb">export</span><span class="w"> </span>predict<span class="w"> </span>exports/model<span class="w"> </span>video.mp4<span class="w"> </span>--n-frames<span class="w"> </span><span class="m">1000</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># CPU inference with ONNX</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>exports/model<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>--runtime<span class="w"> </span>onnx<span class="w"> </span>--device<span class="w"> </span>cpu
 </span></code></pre></div>
 <hr />
 <h2 id="performance">Performance<a class="headerlink" href="#performance" title="Permanent link">&para;</a></h2>
