@@ -141,9 +141,11 @@ representation choices:
 # Export a standalone centroid model.
 sleap-nn export models/centroid -o exports/centroid --format onnx
 
-# Run the exported model. --centroid-output mirrors the checkpoint flow.
-sleap-nn export predict exports/centroid video.mp4 -o centroids.slp \
-    --centroid-output instance
+# Run the exported model via the unified predict command (the export dir is
+# auto-detected). --centroid-output mirrors the checkpoint flow, and --runtime
+# picks ONNX vs TensorRT.
+sleap-nn predict -m exports/centroid -i video.mp4 -o centroids.slp \
+    --centroid-output instance --runtime onnx
 ```
 
 ```python

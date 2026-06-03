@@ -18,10 +18,9 @@ Complete command-line interface documentation.
 |---------|-------------|
 | [`sleap-nn train`](#sleap-nn-train) | Train models |
 | [`sleap-nn track`](#sleap-nn-track) | Run inference/tracking |
-| [`sleap-nn predict`](#sleap-nn-predict) | Run inference on videos/labels |
+| [`sleap-nn predict`](#sleap-nn-predict) | Run inference on videos/labels (checkpoints or exported models) |
 | [`sleap-nn eval`](#sleap-nn-eval) | Evaluate predictions |
 | [`sleap-nn export`](#sleap-nn-export) | Export to ONNX/TensorRT |
-| [`sleap-nn export predict`](#sleap-nn-export-predict) | Inference on exported models |
 | [`sleap-nn config`](#sleap-nn-config) | Generate training configs (experimental) |
 | [`sleap-nn info`](#sleap-nn-info) | Inspect trained models |
 | [`sleap-nn system`](#sleap-nn-system) | System diagnostics |
@@ -155,7 +154,7 @@ sleap-nn track -i video.mp4 -m models/ --filter_overlapping -t
 
 ## `sleap-nn predict`
 
-Run inference on videos or labels files. This is the canonical command for running the unified inference pipeline on trained checkpoint models.
+Run inference on videos or labels files. This is the canonical command for the unified inference pipeline, and runs on **both** trained checkpoint models and exported ONNX/TensorRT models.
 
 ```bash
 sleap-nn predict --data_path INPUT --model_paths MODEL [OPTIONS]
@@ -163,10 +162,24 @@ sleap-nn predict --data_path INPUT --model_paths MODEL [OPTIONS]
 
 `sleap-nn predict` accepts the same options as [`sleap-nn track`](#sleap-nn-track) (data selection, filtering, device, batch size, etc.). Add `--tracking` to enable tracking.
 
-### Example
+### Running exported models
+
+`predict` auto-detects exported models: if `--model_paths`/`-m` points to a directory containing `model.onnx` or `model.trt`, it runs the exported-model runtime instead of loading a trained checkpoint. Use `--runtime` to choose the runtime.
+
+| Option | Short | Description | Values | Default |
+|--------|-------|-------------|--------|---------|
+| `--runtime` | | Exported-model runtime (ignored for checkpoints) | `auto`, `onnx`, `tensorrt` | `auto` |
+
+`--runtime auto` prefers TensorRT and falls back to ONNX.
+
+### Examples
 
 ```bash
+# Trained checkpoint (top-down, two models)
 sleap-nn predict -i video.mp4 -m models/centroid -m models/centered_instance -o predictions.slp
+
+# Exported model directory (auto-detected) with TensorRT
+sleap-nn predict -m exports/model -i video.mp4 --runtime tensorrt -o predictions.slp
 ```
 
 ---
@@ -229,31 +242,8 @@ sleap-nn export models/bottomup -o exports/ --format both
 sleap-nn export models/centroid models/instance -o exports/
 ```
 
----
-
-## `sleap-nn export predict`
-
-Run inference on exported models.
-
-```bash
-sleap-nn export predict EXPORT_DIR INPUT_PATH [OPTIONS]
-```
-
-### Options
-
-| Option | Short | Description | Values | Default |
-|--------|-------|-------------|--------|---------|
-| `--output` | `-o` | Output .slp path | `PATH` | `<input>.predictions.slp` |
-| `--runtime` | `-r` | Inference runtime | `auto`, `onnx`, `tensorrt` | `auto` |
-| `--batch-size` | `-b` | Batch size | `INT` | `4` |
-| `--n-frames` | `-n` | Frames to process (0=all) | `INT` | `0` |
-| `--device` | | Compute device | `auto`, `cuda`, `cpu` | `auto` |
-
-### Example
-
-```bash
-sleap-nn export predict exports/model video.mp4 -o predictions.slp --runtime tensorrt
-```
+!!! note "Running exported models"
+    Inference on exported ONNX/TensorRT models is handled by `sleap-nn predict` — pass the export directory via `-m` and pick the runtime with `--runtime`. See [`sleap-nn predict`](#sleap-nn-predict) above.
 
 ---
 

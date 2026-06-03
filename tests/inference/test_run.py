@@ -111,6 +111,31 @@ def test_predict_export_dir_branch():
     assert not mock_model.called
 
 
+def test_predict_export_dir_forwards_runtime_and_knobs():
+    """runtime + exported-model build knobs reach from_export_dir."""
+    pred = _mock_predictor()
+    with patch(
+        "sleap_nn.inference.predictor.Predictor.from_export_dir",
+        return_value=pred,
+    ) as mock_export:
+        predict(
+            "video.mp4",
+            export_dir="/exp",
+            device="cpu",
+            runtime="onnx",
+            min_instance_peaks=3,
+            min_line_scores=0.5,
+            emit_centroid="centroid",
+            max_instances=7,
+        )
+    bk = mock_export.call_args.kwargs
+    assert bk["runtime"] == "onnx"
+    assert bk["min_instance_peaks"] == 3
+    assert bk["min_line_scores"] == 0.5
+    assert bk["emit_centroid"] == "centroid"
+    assert bk["max_instances"] == 7
+
+
 def test_predict_saves_when_output_path_given(tmp_path):
     """output_path triggers labels.save."""
     pred = _mock_predictor()

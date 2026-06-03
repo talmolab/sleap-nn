@@ -1019,6 +1019,9 @@ def track(**kwargs):
     kwargs.pop("cpu_workers", None)
     kwargs.pop("stream_to_file", None)
     kwargs.pop("write_interval", None)
+    # `--runtime` selects the exported-model runtime for `sleap-nn predict`;
+    # `track` only runs trained checkpoints, so it is inert here.
+    kwargs.pop("runtime", None)
     # New-flow-only flags, inert here. `track` cannot do centroid-only
     # inference; a lone centroid model is rejected downstream by run_inference
     # with a message pointing to `sleap-nn predict`.
@@ -1080,6 +1083,19 @@ def _run_inference_impl(**kwargs):
         kwargs["frames"] = frame_list(kwargs["frames"])
     else:
         kwargs["frames"] = None
+
+    # Exported ONNX/TRT model directories run through the in-memory flow only.
+    _mps = kwargs["model_paths"]
+    if (
+        stream_to_file is not None
+        and _mps
+        and len(_mps) == 1
+        and _is_export_dir(_mps[0])
+    ):
+        raise click.UsageError(
+            "--stream-to-file is not supported for exported ONNX/TensorRT models. "
+            "Run without --stream-to-file, or use a trained checkpoint directory."
+        )
 
     # ── Stream-to-file path: new Predictor + IncrementalLabelsWriter ───
     if stream_to_file is not None:
@@ -1298,12 +1314,29 @@ def _scope_labels_to_video(labels, video_index: int, frames=None):
     return scoped, target
 
 
+def _is_export_dir(path: str) -> bool:
+    """True if ``path`` is a directory holding an exported ONNX/TRT model.
+
+    A single ``--model_paths`` entry that is a directory containing
+    ``model.onnx`` or ``model.trt`` is an exported model and routes to the
+    ONNX/TensorRT runtime instead of checkpoint loading. The exporter writes
+    these artifacts to a dedicated directory (never alongside ``best.ckpt``),
+    so this never misfires on a checkpoint directory.
+    """
+    from pathlib import Path
+
+    p = Path(path)
+    return p.is_dir() and ((p / "model.onnx").exists() or (p / "model.trt").exists())
+
+
 def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     """Run the new ``predict()`` flow synchronously and save the resulting Labels.
 
     Routes to :meth:`Predictor.retrack` for the tracking-only retrack
     case (no ``model_paths``, ``--tracking`` set, ``.slp`` data path);
-    otherwise delegates to :func:`sleap_nn.inference.run.predict`.
+    auto-detects an exported ONNX/TRT model directory in ``model_paths`` and
+    routes it through the exported-model runtime; otherwise delegates to
+    :func:`sleap_nn.inference.run.predict` for trained checkpoints.
     """
     from pathlib import Path
 
@@ -1381,6 +1414,14 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     peak_thresh = kwargs.get("peak_threshold", 0.2)
     centroid_thresh = kwargs.get("centroid_peak_threshold") or peak_thresh
 
+    # Auto-detect an exported ONNX/TRT model directory: a single --model_paths
+    # entry containing model.onnx/model.trt runs through the exported-model
+    # runtime. Multiple paths are always trained checkpoints (top-down).
+    _mps = kwargs["model_paths"]
+    export_dir = (
+        _mps[0] if _mps and len(_mps) == 1 and _is_export_dir(_mps[0]) else None
+    )
+
     predict_kwargs: dict = {
         "model_paths": kwargs["model_paths"],
         "device": _resolve_device(kwargs.get("device")),
@@ -1429,6 +1470,36 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     filter_config = _build_filter_config(kwargs)
     if filter_config is not None:
         predict_kwargs["filter_config"] = filter_config
+
+    if export_dir is not None:
+        # Route to the exported ONNX/TRT runtime. Exported graphs bake peak
+        # finding and refinement at export time, so the checkpoint-oriented
+        # construction/prediction-time knobs are dropped (the baked values are
+        # used, mirroring the old `export predict` command). The bottom-up
+        # grouping knobs (min_instance_peaks/min_line_scores), max_instances,
+        # emit_centroid, paf_workers, filtering, and tracking still apply and
+        # are forwarded by run.predict() to from_export_dir.
+        predict_kwargs["model_paths"] = None
+        predict_kwargs["export_dir"] = export_dir
+        predict_kwargs["runtime"] = (kwargs.get("runtime") or "auto").lower()
+        for _k in (
+            "peak_threshold",
+            "centroid_threshold",
+            "keypoint_threshold",
+            "integral_refinement",
+            "integral_patch_size",
+            "anchor_part",
+            "max_edge_length_ratio",
+            "dist_penalty_weight",
+            "n_points",
+            "fg_threshold",
+            "min_mask_area",
+            "backbone_ckpt_path",
+            "head_ckpt_path",
+            "preprocess_config",
+            "centroid_only",
+        ):
+            predict_kwargs.pop(_k, None)
 
     if kwargs.get("gui"):
         predict_kwargs["progress_callback"] = _gui_progress_callback()
@@ -1804,6 +1875,14 @@ def _common_inference_options(f):
             help="Number of frames to predict at a time.",
         ),
         click.option(
+            "--runtime",
+            type=click.Choice(["auto", "onnx", "tensorrt"], case_sensitive=False),
+            default="auto",
+            help="Runtime for an exported ONNX/TensorRT model directory passed to "
+            "--model_paths. 'auto' prefers TensorRT, falls back to ONNX. Ignored "
+            "for trained checkpoints.",
+        ),
+        click.option(
             "--tracking",
             "-t",
             is_flag=True,
@@ -2177,10 +2256,10 @@ def info(path):
 
 
 def _register_export_commands():
-    """Lazily import and register the export command group."""
-    from sleap_nn.export.cli import export as export_group
+    """Lazily import and register the export command."""
+    from sleap_nn.export.cli import export as export_command
 
-    cli.add_command(export_group)
+    cli.add_command(export_command)
 
 
 @cli.command(context_settings=CONTEXT_SETTINGS)

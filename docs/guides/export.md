@@ -62,8 +62,11 @@ sleap-nn export models/my_model -o exports/ --format both
 
 ### Run Inference
 
+Exported-model inference goes through the unified `sleap-nn predict` command —
+point `-m` at the export directory and it is auto-detected as an exported model:
+
 ```bash
-sleap-nn export predict exports/my_model video.mp4 -o predictions.slp
+sleap-nn predict -m exports/my_model -i video.mp4 -o predictions.slp
 ```
 
 ---
@@ -120,11 +123,12 @@ identical to the checkpoint flow.
 # Export one centroid directory (NOT a centroid + centered_instance pair).
 sleap-nn export models/centroid -o exports/centroid --format onnx
 
-# Run the exported model. Choose the output representation with --centroid-output:
+# Run the exported model via the unified predict command. Choose the output
+# representation with --centroid-output:
 #   instance (default) -> single-node PredictedInstance (frontend-compatible)
 #   centroid           -> sio.PredictedCentroid
 #   both               -> both
-sleap-nn export predict exports/centroid video.mp4 -o centroids.slp \
+sleap-nn predict -m exports/centroid -i video.mp4 -o centroids.slp \
     --centroid-output instance
 ```
 
@@ -141,34 +145,41 @@ contract.
 
 ## Inference Options
 
+Exported-model inference is run through the unified `sleap-nn predict` command.
+When `-m`/`--model_paths` points at a directory containing `model.onnx` or
+`model.trt`, `predict` auto-detects it as an exported model and runs the
+exported runtime; otherwise it loads a trained checkpoint. Use `--runtime` to
+choose between ONNX and TensorRT (it is ignored for checkpoints).
+
 ```bash
-sleap-nn export predict EXPORT_DIR VIDEO [options]
+sleap-nn predict -m EXPORT_DIR -i VIDEO [options]
 ```
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
-| `-o`, `--output` | Output path | `PATH` | `<video>.predictions.slp` |
-| `-r`, `--runtime` | Inference runtime | `auto`, `onnx`, `tensorrt` | `auto` |
-| `-b`, `--batch-size` | Batch size | `INT` | `4` |
-| `-n`, `--n-frames` | Frames to process (0=all) | `INT` | `0` |
+| `-m`, `--model_paths` | Export dir (auto-detected) or checkpoint dir | `PATH` | Required |
+| `-i`, `--data_path` | Video or labels file | `PATH` | Required |
+| `-o`, `--output_path` | Output path | `PATH` | `<input>.predictions.slp` |
+| `--runtime` | Exported-model runtime (ignored for checkpoints) | `auto`, `onnx`, `tensorrt` | `auto` |
+| `-b`, `--batch_size` | Batch size | `INT` | `4` |
 | `--centroid-output` | Standalone-centroid output representation | `instance`, `centroid`, `both` | `instance` |
 
-!!! tip "Running unexported checkpoints"
-    To run inference on a trained checkpoint directory (not an exported
-    ONNX/TensorRT model), prefer the unified [`sleap-nn predict`](inference.md)
-    entry point. `sleap-nn export predict` here runs an **exported** model directory.
+The default `--runtime auto` prefers TensorRT and falls back to ONNX.
+
+!!! tip "One command for checkpoints and exported models"
+    `sleap-nn predict` handles **both** trained checkpoint directories and
+    exported ONNX/TensorRT model directories — it auto-detects which one you
+    passed via `-m`. See the [Inference guide](inference.md) for the full set of
+    `predict` options (data selection, filtering, device, tracking, etc.).
 
 ### Examples
 
 ```bash
 # Maximum speed with TensorRT
-sleap-nn export predict exports/model video.mp4 --runtime tensorrt --batch-size 8
+sleap-nn predict -m exports/model -i video.mp4 --runtime tensorrt --batch_size 8
 
-# CPU inference
-sleap-nn export predict exports/model video.mp4 --runtime onnx --device cpu
-
-# First 1000 frames
-sleap-nn export predict exports/model video.mp4 --n-frames 1000
+# CPU inference with ONNX
+sleap-nn predict -m exports/model -i video.mp4 --runtime onnx --device cpu
 ```
 
 ---
