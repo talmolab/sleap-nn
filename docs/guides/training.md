@@ -154,6 +154,18 @@ sleap-nn train -d /path/to/configs -c centered_instance_unet \
 
 ---
 
+## Bottom-Up Segmentation Training
+
+Use `bottomup_segmentation` when your dataset contains instance masks and you
+want the model to predict masks instead of keypoints.
+
+For the full workflow, including an example config and segmentation-specific
+training caveats, see the dedicated guide:
+
+[:octicons-arrow-right-24: Bottom-Up Segmentation Guide](segmentation.md)
+
+---
+
 ## Monitoring Training
 
 Track training progress with WandB logging, visualizations, and evaluation metrics.

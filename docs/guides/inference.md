@@ -152,6 +152,23 @@ sleap-nn track -i video.mp4 -m models/bottomup/
 !!! note "When max_instances applies in bottom-up"
     In bottom-up models, `--max_instances` is applied **after** PAF grouping assembles instances (not during peak detection). All peaks are detected, PAF grouping creates instances, then the top N instances by score are kept.
 
+### Bottom-Up Segmentation
+
+For instance-mask prediction from a single segmentation model:
+
+```bash
+sleap-nn track -i video.mp4 -m models/segmentation/
+```
+
+`sleap-nn track` auto-detects `bottomup_segmentation` checkpoints from the
+model directory. The segmentation-only tuning flags are:
+
+- `--fg_threshold` to binarize the predicted foreground map
+- `--min_mask_area` to drop tiny predicted masks and reduce over-segmentation
+
+See the dedicated [Bottom-Up Segmentation guide](segmentation.md) for the full
+training and inference workflow.
+
 ### Top-Down
 
 For multi-animal videos using centroid + centered instance approach:
