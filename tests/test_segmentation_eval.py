@@ -246,6 +246,49 @@ def test_run_evaluation_mask_partial_recall(tmp_path):
     assert abs(m["mask_metrics"]["mean_iou"] - 1.0) < 1e-9
 
 
+def test_run_evaluation_mask_panoptic_quality_perfect(tmp_path):
+    """Perfect match -> PQ = SQ = RQ = 1.0 and miss-penalized IoU = 1.0."""
+    masks = [_disk(H, W, 14, 14, 8), _disk(H, W, 34, 34, 8)]
+    gt_path = tmp_path / "gt.slp"
+    pr_path = tmp_path / "pr.slp"
+    _make_gt(masks).save(gt_path.as_posix())
+    _make_pred(masks).save(pr_path.as_posix())
+
+    mm = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_path.as_posix(),
+        match_method="mask",
+    )["mask_metrics"]
+    for k in ("pq", "sq", "rq", "mean_iou_all_gt"):
+        assert abs(mm[k] - 1.0) < 1e-9, k
+
+
+def test_run_evaluation_mask_miss_penalized_iou_and_pq(tmp_path):
+    """A miss drags down PQ and the all-GT IoU while TP-only mean IoU stays high.
+
+    One of two GT masks is recovered exactly: TP=1, FN=1, FP=0. TP-only mean IoU
+    is 1.0, but the miss-penalized mean (over both GT) is 0.5, and
+    PQ = iou_sum / (TP + 0.5*FP + 0.5*FN) = 1.0 / 1.5 = 2/3.
+    """
+    gt = [_disk(H, W, 14, 14, 8), _disk(H, W, 34, 34, 8)]
+    pr = [_disk(H, W, 14, 14, 8)]  # only the first GT mask
+    gt_path = tmp_path / "gt.slp"
+    pr_path = tmp_path / "pr.slp"
+    _make_gt(gt).save(gt_path.as_posix())
+    _make_pred(pr).save(pr_path.as_posix())
+
+    mm = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_path.as_posix(),
+        match_method="mask",
+    )["mask_metrics"]
+    assert abs(mm["mean_iou"] - 1.0) < 1e-9  # TP-only, blind to the miss
+    assert abs(mm["mean_iou_all_gt"] - 0.5) < 1e-9  # penalized over all GT
+    assert abs(mm["rq"] - (1.0 / 1.5)) < 1e-9
+    assert abs(mm["pq"] - (1.0 / 1.5)) < 1e-9
+    assert mm["n_fn"] == 1 and mm["n_fp"] == 0
+
+
 # ---------------------------------------------------------------------------
 # Post-training segmentation eval routing (train.py)
 # ---------------------------------------------------------------------------

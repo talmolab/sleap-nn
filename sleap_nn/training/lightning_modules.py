@@ -2768,7 +2768,10 @@ class BottomUpSegmentationLightningModule(LightningModel):
         )
 
     def get_visualization_data(
-        self, sample, include_center_heatmap: bool = False
+        self,
+        sample,
+        include_center_heatmap: bool = False,
+        include_offsets: bool = False,
     ) -> VisualizationData:
         """Extract visualization data from a sample.
 
@@ -2780,6 +2783,8 @@ class BottomUpSegmentationLightningModule(LightningModel):
             sample: A sample dictionary from the data pipeline.
             include_center_heatmap: If True, include the center heatmap in the
                 returned data for separate visualization.
+            include_offsets: If True, include the center-offset field for a
+                separate offset-magnitude visualization.
 
         Returns:
             VisualizationData with foreground map and center locations.
@@ -2853,6 +2858,12 @@ class BottomUpSegmentationLightningModule(LightningModel):
             center_hmap = preds["InstanceCenterHead"][0].cpu().numpy()
             center_hmap = center_hmap.transpose(1, 2, 0)  # (H, W, 1)
 
+        # Optionally include the center-offset field for an offset-magnitude viz
+        offsets = None
+        if include_offsets:
+            offsets = preds["CenterOffsetHead"][0].cpu().numpy()
+            offsets = offsets.transpose(1, 2, 0)  # (H, W, 2) -> (dx, dy)
+
         return VisualizationData(
             image=img_np,
             pred_confmaps=fg_prob,
@@ -2863,6 +2874,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
             output_scale=fg_prob.shape[0] / img_np.shape[0],
             is_paired=False,
             pred_center_heatmap=center_hmap,
+            pred_offsets=offsets,
         )
 
     def visualize_example(self, sample):

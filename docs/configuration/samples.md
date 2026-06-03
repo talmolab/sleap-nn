@@ -58,6 +58,16 @@ With supervised identity tracking.
 | [multi_class_bottomup](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_multi_class_bottomup_unet.yaml) | Bottom-Up | UNet |
 | [multi_class_topdown](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_multi_class_centered_instance_unet.yaml) | Top-Down | UNet |
 
+### Segmentation (masks)
+
+Single-stage bottom-up instance **segmentation** (per-instance masks instead of
+keypoints). `fg_threshold` / `min_mask_area` are inference-time args; train at
+`scale: 1.0`.
+
+| Config | Backbone | Notes |
+|--------|----------|-------|
+| [bottomup_segmentation_unet](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_unet.yaml) | UNet | Foreground + center + offsets heads |
+
 ---
 
 ## Quick Start Templates

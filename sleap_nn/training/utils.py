@@ -263,6 +263,8 @@ class VisualizationData:
         pred_pafs: Part affinity fields for bottom-up models, optional.
         pred_class_maps: Class maps for multi-class models, optional.
         pred_center_heatmap: Center heatmap for segmentation models, optional.
+        pred_offsets: Center-offset field (H, W, 2) for segmentation models,
+            optional. Rendered as a per-pixel offset-magnitude map.
     """
 
     image: np.ndarray
@@ -276,6 +278,7 @@ class VisualizationData:
     pred_pafs: Optional[np.ndarray] = None
     pred_class_maps: Optional[np.ndarray] = None
     pred_center_heatmap: Optional[np.ndarray] = None
+    pred_offsets: Optional[np.ndarray] = None
 
 
 class MatplotlibRenderer:
@@ -345,6 +348,45 @@ class MatplotlibRenderer:
                 -0.5,
                 magnitude.shape[1] / paf_output_scale - 0.5,
                 magnitude.shape[0] / paf_output_scale - 0.5,
+                -0.5,
+            ],
+        )
+        return fig
+
+    def render_offsets(self, data: VisualizationData) -> matplotlib.figure.Figure:
+        """Render the center-offset field magnitude for segmentation models.
+
+        Args:
+            data: VisualizationData with ``pred_offsets`` (H, W, 2) populated.
+
+        Returns:
+            A matplotlib Figure object showing per-pixel offset magnitude.
+        """
+        if data.pred_offsets is None:
+            raise ValueError("pred_offsets is None, cannot render offsets")
+
+        img = data.image
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+
+        offsets = data.pred_offsets  # (H, W, 2) -> (dx, dy)
+        magnitude = np.sqrt(offsets[..., 0] ** 2 + offsets[..., 1] ** 2)
+
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        ax = plt.gca()
+        offset_output_scale = magnitude.shape[0] / img.shape[0]
+        ax.imshow(
+            magnitude,
+            alpha=0.5,
+            origin="upper",
+            cmap="viridis",
+            extent=[
+                -0.5,
+                magnitude.shape[1] / offset_output_scale - 0.5,
+                magnitude.shape[0] / offset_output_scale - 0.5,
                 -0.5,
             ],
         )

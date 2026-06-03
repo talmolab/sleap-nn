@@ -267,8 +267,13 @@ class EvalConfig:
         frequency: (int) Evaluate every N epochs. *Default*: `1`.
         oks_stddev: (float) OKS standard deviation for evaluation. *Default*: `0.025`.
         oks_scale: (float) OKS scale override. If None, uses default. *Default*: `None`.
-        match_threshold: (float) Maximum distance in pixels for centroid matching.
-            Only used for centroid model evaluation. *Default*: `50.0`.
+        match_threshold: (float) Match threshold for post-training evaluation.
+            For centroid models it is the maximum centroid distance in PIXELS
+            (default `50.0`). For ``bottomup_segmentation`` it is reinterpreted
+            as a minimum mask IoU in ``(0, 1]``; the default `50.0` is out of
+            that range, so segmentation eval falls back to `0.5` unless you set
+            a value in ``(0, 1]`` (see ``train._run_segmentation_split_eval``).
+            *Default*: `50.0`.
     """
 
     enabled: bool = False

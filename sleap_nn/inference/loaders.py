@@ -405,6 +405,8 @@ def _build_bottomup_segmentation(
     fg_threshold: float = 0.5,
     min_mask_area: int = 0,
     max_instances: Optional[int] = None,
+    center_nms_kernel: int = 3,
+    mask_cleanup: bool = False,
 ) -> LoadedAssets:
     """Load a ``BottomUpSegmentationLightningModule`` and wrap it for inference.
 
@@ -444,6 +446,8 @@ def _build_bottomup_segmentation(
         input_scale=config.data_config.preprocessing.scale,
         min_mask_area=min_mask_area,
         max_instances=max_instances,
+        center_nms_kernel=center_nms_kernel,
+        mask_cleanup=mask_cleanup,
     )
     return LoadedAssets(
         inference_model=inference_model,
@@ -782,6 +786,8 @@ def load_model_assets(
     min_line_scores: float = 0.25,
     fg_threshold: float = 0.5,
     min_mask_area: int = 0,
+    center_nms_kernel: int = 3,
+    mask_cleanup: bool = False,
 ) -> tuple[LoadedAssets, List[str]]:
     """Load checkpoints and build inference models.
 
@@ -872,6 +878,8 @@ def load_model_assets(
             fg_threshold=fg_threshold,
             min_mask_area=min_mask_area,
             max_instances=max_instances,
+            center_nms_kernel=center_nms_kernel,
+            mask_cleanup=mask_cleanup,
             **common_kwargs,
         )
 
