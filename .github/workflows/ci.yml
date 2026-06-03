@@ -28,6 +28,20 @@ jobs:
       - name: Set up Python
         run: uv python install 3.13
 
+      - name: Verify uv.lock is current
+        run: uv lock --check
+
+      - name: Assert '--extra gpu' attaches cuDNN in uv.lock (regression guard for #632)
+        # `--extra gpu` must keep a LIVE (single-extra) marker clause attaching
+        # nvidia-cudnn-cu13 to the CUDA-13 torch wheel on linux/x86_64. A bare
+        # substring of the extra name is NOT sufficient — it also appears inside
+        # always-false conflict AND-pairs — so we match the full live disjunct on
+        # the nvidia-cudnn-cu13 dependency line. See #632.
+        run: |
+          grep -F "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-8-sleap-nn-gpu')" uv.lock \
+            | grep -qF 'nvidia-cudnn-cu13' \
+            || { echo "::error::uv.lock: '--extra gpu' no longer attaches nvidia-cudnn-cu13 on linux/x86_64 (regression of #632)"; exit 1; }
+
       - name: Install dev dependencies and torch
         run: uv sync --extra torch-cpu
 

@@ -282,13 +282,17 @@ This installs with CUDA 13.0 support. Other backends:
 
 | Extra | Backend |
 |-------|---------|
-| `--extra gpu` | CUDA 13.0 (alias for `torch-cuda130`) |
-| `--extra cpu` | CPU-only (alias for `torch-cpu`) |
+| `--extra gpu` | CUDA 13.0 (same as `--extra torch-cuda130`) |
+| `--extra cpu` | CPU-only / macOS Apple MPS (same as `--extra torch-cpu`) |
 | `--extra torch-cuda128` | CUDA 12.8 |
 | `--extra torch-cuda118` | CUDA 11.8 |
 
 !!! note
     On macOS, use `--extra cpu` — the MPS backend is automatically available.
+
+!!! note
+    `--extra gpu` (CUDA) is for x86-64 / Windows-AMD64 only; NVIDIA CUDA wheels
+    are not published for Linux aarch64. On Linux aarch64 use `--extra cpu`.
 
 **Step 4: Run commands**
 
