@@ -9,7 +9,7 @@ import lightning as L
 
 
 def find_center_peaks(
-    center_heatmap: torch.Tensor, threshold: float = 0.2
+    center_heatmap: torch.Tensor, threshold: float = 0.2, kernel_size: int = 3
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Find instance-center peaks robustly (plateau-aware).
 
@@ -17,13 +17,16 @@ def find_center_peaks(
     peak whose maximum spans 2+ tied pixels — which happens routinely for the
     synthetic center heatmap when a centroid lands exactly between grid points
     (the ``+stride/2`` convention). This detector instead keeps every pixel
-    equal to its 3×3-neighborhood max (``>=``) and collapses each connected
+    equal to its neighborhood max (``>=``) and collapses each connected
     plateau of tied maxima to a single representative (its argmax pixel), so a
     flat-topped peak yields exactly one center.
 
     Args:
         center_heatmap: ``(1, 1, H, W)`` instance-center heatmap.
         threshold: Minimum peak value.
+        kernel_size: Odd window size for the max-pool NMS. Larger values suppress
+            nearby duplicate centers (a lever against over-segmentation from a
+            single instance producing two close center peaks). Default ``3``.
 
     Returns:
         ``(peaks, vals)`` where ``peaks`` is ``(N, 2)`` float ``(x, y)`` in grid
@@ -32,7 +35,10 @@ def find_center_peaks(
     from scipy.ndimage import label as cc_label
 
     hm = center_heatmap[0, 0]
-    pooled = F.max_pool2d(hm[None, None], kernel_size=3, stride=1, padding=1)[0, 0]
+    pad = int(kernel_size) // 2
+    pooled = F.max_pool2d(
+        hm[None, None], kernel_size=int(kernel_size), stride=1, padding=pad
+    )[0, 0]
     cand = (hm >= pooled) & (hm > threshold)  # local maxima incl. plateaus
     if not bool(cand.any()):
         return torch.zeros((0, 2), dtype=torch.float32), torch.zeros((0,))
@@ -61,6 +67,8 @@ def group_instances_from_offsets(
     peak_threshold: float = 0.2,
     output_stride: int = 2,
     max_instances: Optional[int] = None,
+    center_nms_kernel: int = 3,
+    mask_cleanup: bool = False,
 ) -> List[Dict]:
     """Group foreground pixels into instances using center-offset predictions.
 
@@ -75,6 +83,12 @@ def group_instances_from_offsets(
             more centers than this are detected, only the ``max_instances``
             highest-scoring (peak-value) centers are kept before grouping.
             ``None`` keeps all detected centers.
+        center_nms_kernel: Odd window size for center-peak NMS (passed to
+            :func:`find_center_peaks`). Larger merges nearby duplicate centers.
+            Default ``3`` (no change vs. the original behavior).
+        mask_cleanup: When ``True``, post-process each per-instance mask by
+            keeping only its largest connected component and filling interior
+            holes (suppresses speckle/fragments). Default ``False``.
 
     Returns:
         List of dicts, each with:
@@ -91,7 +105,9 @@ def group_instances_from_offsets(
         return []
 
     # 2. Find centers via plateau-robust local peak finding
-    peaks, peak_vals = find_center_peaks(center_heatmap, threshold=peak_threshold)
+    peaks, peak_vals = find_center_peaks(
+        center_heatmap, threshold=peak_threshold, kernel_size=center_nms_kernel
+    )
 
     if len(peaks) == 0:
         return []
@@ -147,15 +163,39 @@ def group_instances_from_offsets(
         instance_mask = torch.zeros((h, w), dtype=torch.bool)
         instance_mask[fg_y[member_mask], fg_x[member_mask]] = True
 
+        mask_np = instance_mask.numpy()
+        if mask_cleanup:
+            mask_np = _clean_instance_mask(mask_np)
+            if not mask_np.any():
+                continue
+
         instances.append(
             {
-                "mask": instance_mask.numpy(),
+                "mask": mask_np,
                 "center": (center_x[i].item(), center_y[i].item()),
                 "score": peak_vals[i].item() if i < len(peak_vals) else 0.0,
             }
         )
 
     return instances
+
+
+def _clean_instance_mask(mask: np.ndarray) -> np.ndarray:
+    """Keep the largest connected component and fill interior holes.
+
+    Suppresses speckle and fragments left by the per-pixel offset grouping.
+    Operates at output-stride resolution; a no-op for an already-clean mask.
+    """
+    from scipy.ndimage import binary_fill_holes
+    from scipy.ndimage import label as cc_label
+
+    labels, n = cc_label(mask)
+    if n > 1:
+        # Keep the largest component (component 0 is background).
+        counts = np.bincount(labels.ravel())
+        counts[0] = 0
+        mask = labels == int(counts.argmax())
+    return binary_fill_holes(mask)
 
 
 class BottomUpSegmentationInferenceModel(L.LightningModule):
@@ -177,6 +217,8 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         max_instances: Optional cap on instances per frame (highest-scoring
             centers kept). Carried through to ``SegmentationLayer``; ``None``
             keeps all detected centers.
+        center_nms_kernel: Odd window size for center-peak NMS. Default ``3``.
+        mask_cleanup: Keep-largest-CC + hole-fill per mask. Default ``False``.
     """
 
     def __init__(
@@ -188,6 +230,8 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         input_scale: float = 1.0,
         min_mask_area: int = 0,
         max_instances: Optional[int] = None,
+        center_nms_kernel: int = 3,
+        mask_cleanup: bool = False,
     ):
         """Initialize the inference model."""
         super().__init__()
@@ -198,6 +242,8 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         self.input_scale = input_scale
         self.min_mask_area = int(min_mask_area)
         self.max_instances = max_instances
+        self.center_nms_kernel = int(center_nms_kernel)
+        self.mask_cleanup = bool(mask_cleanup)
 
     def forward(self, batch: Dict) -> List[List[Dict]]:
         """Run inference on a batch of images.
@@ -232,6 +278,8 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
                 peak_threshold=self.peak_threshold,
                 output_stride=self.output_stride,
                 max_instances=self.max_instances,
+                center_nms_kernel=self.center_nms_kernel,
+                mask_cleanup=self.mask_cleanup,
             )
             batch_results.append(instances)
 

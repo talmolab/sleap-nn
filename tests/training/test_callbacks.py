@@ -482,6 +482,55 @@ class TestWandBVizCallbackWithPAFs:
             mock_get_logger.assert_not_called()
 
 
+class TestUnifiedVizCallbackSegmentation:
+    """Segmentation-specific visualization wiring for UnifiedVizCallback."""
+
+    def _callback(self, model_trainer=None):
+        return UnifiedVizCallback(
+            model_trainer=model_trainer or MagicMock(),
+            train_dataset=[{}],
+            val_dataset=[{}],
+            model_type="bottomup_segmentation",
+            save_local=False,
+        )
+
+    def test_segmentation_enables_center_heatmap_and_offset_viz(self):
+        """A seg model enables the center-heatmap and offset-field viz modes."""
+        cb = self._callback()
+        assert cb.viz_center_heatmap is True
+        assert cb.viz_offsets is True
+        assert cb.viz_pafs is False
+        assert cb.viz_class_maps is False
+
+    def test_get_viz_data_requests_center_heatmap_and_offsets(self):
+        """``_get_viz_data`` asks the module for the center heatmap + offsets."""
+        mt = MagicMock()
+        cb = self._callback(model_trainer=mt)
+        cb._get_viz_data({"image": np.zeros((1, 8, 8))})
+        mt.lightning_model.get_visualization_data.assert_called_once()
+        _, kwargs = mt.lightning_model.get_visualization_data.call_args
+        assert kwargs.get("include_center_heatmap") is True
+        assert kwargs.get("include_offsets") is True
+
+    def test_render_offsets_produces_figure(self):
+        """``render_offsets`` renders an offset-magnitude figure from (H, W, 2)."""
+        from sleap_nn.training.utils import MatplotlibRenderer, VisualizationData
+
+        data = VisualizationData(
+            image=np.random.rand(64, 64, 3).astype(np.float32),
+            pred_confmaps=np.random.rand(64, 64, 1).astype(np.float32),
+            pred_peaks=np.zeros((0, 1, 2)),
+            pred_peak_values=np.zeros((0,)),
+            gt_instances=np.zeros((0, 1, 2)),
+            pred_offsets=np.random.rand(32, 32, 2).astype(np.float32),
+        )
+        fig = MatplotlibRenderer().render_offsets(data)
+        assert fig is not None
+        import matplotlib.pyplot as plt
+
+        plt.close(fig)
+
+
 class TestMatplotlibSaver:
     """Tests for MatplotlibSaver callback."""
 

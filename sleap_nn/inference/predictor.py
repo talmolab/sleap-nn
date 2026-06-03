@@ -238,6 +238,8 @@ def _build_bottomup_segmentation_layer(
         fg_threshold=inf.fg_threshold,
         min_mask_area=getattr(inf, "min_mask_area", 0),
         max_instances=getattr(inf, "max_instances", None),
+        center_nms_kernel=getattr(inf, "center_nms_kernel", 3),
+        mask_cleanup=getattr(inf, "mask_cleanup", False),
         preprocess_config=PreprocessConfig(
             scale=inf.input_scale,
             max_height=_pp_field(predictor, "max_height"),
@@ -663,6 +665,8 @@ class Predictor:
         min_line_scores: float = 0.25,
         fg_threshold: float = 0.5,
         min_mask_area: int = 0,
+        center_nms_kernel: int = 3,
+        mask_cleanup: bool = False,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -706,6 +710,10 @@ class Predictor:
             min_mask_area: Minimum predicted-mask area in original-image pixels;
                 smaller masks are dropped to suppress over-segmentation. ``0``
                 disables it (bottom-up segmentation only).
+            center_nms_kernel: Odd window size for center-peak NMS; larger merges
+                nearby duplicate centers (bottom-up segmentation only).
+            mask_cleanup: Keep-largest-CC + hole-fill per mask (bottom-up
+                segmentation only).
         """
         from sleap_nn.inference.loaders import load_model_assets
 
@@ -728,6 +736,8 @@ class Predictor:
             min_line_scores=min_line_scores,
             fg_threshold=fg_threshold,
             min_mask_area=min_mask_area,
+            center_nms_kernel=center_nms_kernel,
+            mask_cleanup=mask_cleanup,
         )
 
         if centroid_only:

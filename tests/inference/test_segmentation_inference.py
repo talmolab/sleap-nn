@@ -63,6 +63,33 @@ def test_find_center_peaks_below_threshold():
     assert peaks.shape[0] == 0
 
 
+def test_find_center_peaks_nms_kernel_merges_close_peaks():
+    """A larger ``kernel_size`` suppresses a nearby weaker center peak.
+
+    Two peaks 2 px apart both survive 3x3 NMS (outside each other's window) but
+    the weaker one is merged away by 5x5 NMS — the over-segmentation lever.
+    """
+    hm = torch.zeros(1, 1, 24, 24)
+    hm[0, 0, 10, 10] = 1.0
+    hm[0, 0, 10, 12] = 0.8
+    assert find_center_peaks(hm, threshold=0.2, kernel_size=3)[0].shape[0] == 2
+    assert find_center_peaks(hm, threshold=0.2, kernel_size=5)[0].shape[0] == 1
+
+
+def test_clean_instance_mask_keeps_largest_and_fills_holes():
+    """``mask_cleanup`` keeps the largest component and fills interior holes."""
+    from sleap_nn.inference.segmentation import _clean_instance_mask
+
+    m = np.zeros((20, 20), dtype=bool)
+    m[2:12, 2:12] = True  # main blob
+    m[5:7, 5:7] = False  # interior hole
+    m[16:18, 16:18] = True  # disconnected speckle
+    out = _clean_instance_mask(m)
+    assert out[5, 5]  # hole filled
+    assert not out[16, 16]  # speckle dropped
+    assert out[2:12, 2:12].all()  # main blob kept (and filled)
+
+
 # ---------------------------------------------------------------------------
 # Deterministic GT roundtrip: GT maps -> grouping -> recovered masks
 # ---------------------------------------------------------------------------

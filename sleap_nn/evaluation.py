@@ -1062,18 +1062,30 @@ class Evaluator:
         return results
 
     def mask_metrics(self) -> dict:
-        """Compute mask-IoU summary statistics over matched (TP) pairs.
+        """Compute mask-IoU summary statistics for ``match_method="mask"``.
 
-        Intended for ``match_method="mask"``. Reports the mean IoU and IoU
-        percentiles over all matched predicted/GT mask pairs (NaN when there
-        are no matches).
+        Reports two complementary IoU summaries plus panoptic-quality metrics:
+
+        * ``mean_iou`` (and ``min``/``max``/percentiles) over the matched (TP)
+          pairs only — COCO-style segmentation quality, blind to misses.
+        * ``mean_iou_all_gt`` — IoU averaged over *all* ground-truth masks,
+          where an unmatched GT (a miss) contributes ``0``. This penalizes
+          recall and complements the TP-only mean.
+        * Panoptic Quality ``pq = sq * rq`` with ``sq = mean_iou`` (segmentation
+          quality) and ``rq = TP / (TP + 0.5*FP + 0.5*FN)`` (recognition
+          quality, == detection F1). See Kirillov et al., "Panoptic
+          Segmentation" (2019).
 
         Returns:
             A dict with ``mean_iou``, ``min``, ``max``, percentiles ``p25``/
-            ``p50``/``p75``, the matched count ``n_matched``, and the raw
-            ``ious`` array.
+            ``p50``/``p75``, ``mean_iou_all_gt``, ``pq``/``sq``/``rq``, the TP
+            count ``n_matched`` (plus ``n_fp``/``n_fn``), and the raw ``ious``
+            array. Quantities are NaN when undefined (e.g. no matches / no GT).
         """
         ious = np.asarray(self.mask_ious, dtype=float)
+        n_tp = len(self.positive_pairs)
+        n_fp = len(self.false_positives)
+        n_fn = len(self.false_negatives)
         results = {
             "mean_iou": np.nan,
             "min": np.nan,
@@ -1081,7 +1093,13 @@ class Evaluator:
             "p25": np.nan,
             "p50": np.nan,
             "p75": np.nan,
+            "mean_iou_all_gt": np.nan,
+            "pq": np.nan,
+            "sq": np.nan,
+            "rq": np.nan,
             "n_matched": int(ious.size),
+            "n_fp": n_fp,
+            "n_fn": n_fn,
             "ious": ious,
         }
         if ious.size:
@@ -1090,6 +1108,19 @@ class Evaluator:
             results["max"] = float(np.max(ious))
             for ptile in (25, 50, 75):
                 results[f"p{ptile}"] = float(np.percentile(ious, ptile))
+
+        iou_sum = float(np.sum(ious)) if ious.size else 0.0
+        # Miss-penalizing mean: averaged over every GT mask (TP + FN).
+        n_gt = n_tp + n_fn
+        if n_gt > 0:
+            results["mean_iou_all_gt"] = iou_sum / n_gt
+        # Panoptic quality: SQ = TP-only mean IoU, RQ = detection F1, PQ = SQ*RQ
+        # = iou_sum / (TP + 0.5*FP + 0.5*FN).
+        pq_denom = n_tp + 0.5 * n_fp + 0.5 * n_fn
+        if pq_denom > 0:
+            results["sq"] = results["mean_iou"]
+            results["rq"] = n_tp / pq_denom
+            results["pq"] = iou_sum / pq_denom
         return results
 
     def pck_metrics(self, thresholds: np.ndarray = np.linspace(1, 10, 10)):

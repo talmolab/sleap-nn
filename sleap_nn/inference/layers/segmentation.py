@@ -44,6 +44,12 @@ class SegmentationLayer(InferenceLayer):
             are detected, only the highest-scoring ``max_instances`` are kept
             before grouping. ``None`` keeps all detected centers. Overridable
             via ``Predictor.predict(max_instances=...)``.
+        center_nms_kernel: Odd window size for center-peak NMS. Larger values
+            merge nearby duplicate centers (a lever against over-segmentation).
+            Default ``3`` (no behavior change).
+        mask_cleanup: When ``True``, keep only each mask's largest connected
+            component and fill interior holes (suppresses speckle/fragments).
+            Default ``False``.
         preprocess_config / postprocess_config: Standard knobs;
             ``postprocess_config.peak_threshold`` is the instance-center peak
             threshold (overridable via ``Predictor.predict(peak_threshold=...)``).
@@ -61,6 +67,8 @@ class SegmentationLayer(InferenceLayer):
         fg_threshold: float = 0.5,
         min_mask_area: int = 0,
         max_instances: Optional[int] = None,
+        center_nms_kernel: int = 3,
+        mask_cleanup: bool = False,
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
     ) -> None:
@@ -76,6 +84,8 @@ class SegmentationLayer(InferenceLayer):
         self.fg_threshold = fg_threshold
         self.min_mask_area = int(min_mask_area)
         self.max_instances = max_instances
+        self.center_nms_kernel = int(center_nms_kernel)
+        self.mask_cleanup = bool(mask_cleanup)
 
     @property
     def warmup_input_shape(self):
@@ -120,6 +130,8 @@ class SegmentationLayer(InferenceLayer):
                 peak_threshold=peak_threshold,
                 output_stride=self.output_stride,
                 max_instances=max_instances,
+                center_nms_kernel=getattr(self, "center_nms_kernel", 3),
+                mask_cleanup=getattr(self, "mask_cleanup", False),
             )
             frame_masks: List[dict] = []
             # Drop empty masks and, when ``min_mask_area > 0``, tiny spurious

@@ -1453,6 +1453,8 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         # Bottom-up segmentation knobs (inert for non-segmentation models).
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "min_mask_area": kwargs.get("min_mask_area", 0),
+        "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
+        "mask_cleanup": kwargs.get("mask_cleanup", False),
     }
     preprocess_config = _build_preprocess_config(kwargs)
     if preprocess_config is not None:
@@ -1756,6 +1758,8 @@ def _run_stream_to_file(
         # Bottom-up segmentation knobs (inert for non-segmentation models).
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
         "min_mask_area": kwargs.get("min_mask_area", 0),
+        "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
+        "mask_cleanup": kwargs.get("mask_cleanup", False),
     }
     preprocess_config = _build_preprocess_config(kwargs)
     if preprocess_config is not None:
@@ -1994,6 +1998,24 @@ def _common_inference_options(f):
             help="Drop predicted masks smaller than this many original-image "
             "pixels to suppress over-segmentation (bottom-up segmentation "
             "models only). 0 disables.",
+        ),
+        click.option(
+            "--center_nms_kernel",
+            "--center-nms-kernel",
+            "center_nms_kernel",
+            type=int,
+            default=3,
+            help="Odd window size for instance-center peak NMS; larger values "
+            "merge nearby duplicate centers (bottom-up segmentation models "
+            "only).",
+        ),
+        click.option(
+            "--mask_cleanup/--no-mask_cleanup",
+            "--mask-cleanup/--no-mask-cleanup",
+            "mask_cleanup",
+            default=False,
+            help="Keep only each predicted mask's largest connected component "
+            "and fill interior holes (bottom-up segmentation models only).",
         ),
         click.option(
             "--queue_maxsize",

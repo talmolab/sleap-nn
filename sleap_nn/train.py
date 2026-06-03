@@ -190,8 +190,10 @@ def _run_segmentation_split_eval(
     logger.info(f"Detection precision: {det.get('precision')}")
     logger.info(f"Detection recall: {det.get('recall')}")
     logger.info(f"Detection f1: {det.get('f1')}")
-    logger.info(f"Mean mask IoU: {mm.get('mean_iou')}")
+    logger.info(f"Mean mask IoU (matched/TP): {mm.get('mean_iou')}")
+    logger.info(f"Mean mask IoU (all GT, miss-penalized): {mm.get('mean_iou_all_gt')}")
     logger.info(f"mask IoU p50: {mm.get('p50')}")
+    logger.info(f"Panoptic Quality (PQ): {mm.get('pq')}")
 
     # Log test metrics to wandb summary (mirrors the keypoint OKS path).
     if (
@@ -204,6 +206,8 @@ def _run_segmentation_split_eval(
         if wandb.run is not None:
             for key, value in {
                 f"eval/{d_name}/mask_mean_iou": mm.get("mean_iou"),
+                f"eval/{d_name}/mask_mean_iou_all_gt": mm.get("mean_iou_all_gt"),
+                f"eval/{d_name}/mask_pq": mm.get("pq"),
                 f"eval/{d_name}/detection_precision": det.get("precision"),
                 f"eval/{d_name}/detection_recall": det.get("recall"),
                 f"eval/{d_name}/detection_f1": det.get("f1"),

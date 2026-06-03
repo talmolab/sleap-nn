@@ -561,6 +561,7 @@ class UnifiedVizCallback(Callback):
         self.viz_pafs = model_type == "bottomup"
         self.viz_class_maps = model_type == "multi_class_bottomup"
         self.viz_center_heatmap = model_type == "bottomup_segmentation"
+        self.viz_offsets = model_type == "bottomup_segmentation"
 
         # Initialize renderers
         from sleap_nn.training.utils import MatplotlibRenderer, WandBRenderer
@@ -603,6 +604,8 @@ class UnifiedVizCallback(Callback):
             kwargs["include_class_maps"] = True
         if self.viz_center_heatmap:
             kwargs["include_center_heatmap"] = True
+        if self.viz_offsets:
+            kwargs["include_offsets"] = True
 
         # Access lightning_model lazily from model_trainer
         return self.model_trainer.lightning_model.get_visualization_data(
@@ -644,6 +647,13 @@ class UnifiedVizCallback(Callback):
         if self.viz_center_heatmap and data.pred_center_heatmap is not None:
             fig = self._render_center_heatmap(data)
             fig_path = self.local_save_dir / f"{prefix}.center_heatmap.{epoch:04d}.png"
+            fig.savefig(fig_path, format="png")
+            plt.close(fig)
+
+        # Center-offset field visualization (for segmentation models)
+        if self.viz_offsets and data.pred_offsets is not None:
+            fig = self._mpl_renderer.render_offsets(data)
+            fig_path = self.local_save_dir / f"{prefix}.offsets.{epoch:04d}.png"
             fig.savefig(fig_path, format="png")
             plt.close(fig)
 
@@ -757,6 +767,19 @@ class UnifiedVizCallback(Callback):
                 caption=f"{prefix.title()} Center Heatmap Epoch {epoch}",
             )
 
+        # Center-offset field visualization (for segmentation models)
+        if self.viz_offsets and data.pred_offsets is not None:
+            offsets_fig = self._mpl_renderer.render_offsets(data)
+            buf = BytesIO()
+            offsets_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+            buf.seek(0)
+            plt.close(offsets_fig)
+            offsets_pil = PILImage.open(buf)
+            log_dict[f"viz/{prefix}/offsets"] = wandb.Image(
+                offsets_pil,
+                caption=f"{prefix.title()} Offset Magnitude Epoch {epoch}",
+            )
+
         if log_dict:
             log_dict["epoch"] = epoch
             wandb_logger.experiment.log(log_dict, commit=False)
@@ -780,6 +803,10 @@ class UnifiedVizCallback(Callback):
             if self.viz_center_heatmap and data.pred_center_heatmap is not None:
                 columns.append(f"{prefix.title()} Center Heatmap")
                 table_data[0].append(log_dict.get(f"viz/{prefix}/center_heatmap"))
+
+            if self.viz_offsets and data.pred_offsets is not None:
+                columns.append(f"{prefix.title()} Offsets")
+                table_data[0].append(log_dict.get(f"viz/{prefix}/offsets"))
 
             table = wandb.Table(columns=columns, data=table_data)
             wandb_logger.experiment.log(

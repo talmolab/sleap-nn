@@ -24,6 +24,7 @@ model_config:
     bottomup: null
     multi_class_bottomup: null
     multi_class_topdown: null
+    bottomup_segmentation: null
 ```
 
 ---
@@ -188,6 +189,37 @@ head_configs:
       output_stride: 16   # Match backbone max_stride
       loss_weight: 1.0
 ```
+
+### Bottom-Up Segmentation
+
+Single-stage instance **segmentation** (Panoptic-DeepLab style): a foreground
+head (BCE+Dice), an instance-center heatmap, and a per-pixel center-offset field
+used to group foreground pixels into per-instance masks. Three heads, all sharing
+a fine output stride:
+
+```yaml
+head_configs:
+  bottomup_segmentation:
+    segmentation:        # foreground probability (union of all instance masks)
+      output_stride: 2
+      loss_weight: 1.0
+    center:              # instance-center heatmap
+      sigma: 10.0
+      output_stride: 2
+      loss_weight: 1.0
+    offsets:             # per-pixel (dx, dy) to the instance center
+      output_stride: 2
+      loss_weight: 0.1
+```
+
+Notes:
+
+- `fg_threshold` and `min_mask_area` are **inference-time** post-processing args
+  (`sleap-nn infer --fg_threshold` / `--min_mask_area`), not training config.
+- Train at `scale: 1.0` with input dims divisible by `max_stride` (mask resize is
+  not pad-aware in v1); geometric augmentation is skipped for masks.
+- See the sample config
+  [`config_bottomup_segmentation_unet.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_unet.yaml).
 
 ---
 

@@ -62,6 +62,8 @@ def predict(
     # Bottom-up segmentation knobs (construction-time; segmentation only)
     fg_threshold: float = 0.5,
     min_mask_area: int = 0,
+    center_nms_kernel: int = 3,
+    mask_cleanup: bool = False,
     # Prediction-time (can vary per call)
     frames: Optional[List[int]] = None,
     peak_threshold: Optional[float] = None,
@@ -124,6 +126,10 @@ def predict(
         min_mask_area: Minimum predicted-mask area in original-image pixels;
             smaller masks are dropped to suppress over-segmentation. ``0``
             disables it (bottom-up segmentation only).
+        center_nms_kernel: Odd window size for center-peak NMS; larger merges
+            nearby duplicate centers (bottom-up segmentation only).
+        mask_cleanup: Keep-largest-CC + hole-fill per mask (bottom-up
+            segmentation only).
         frames: Frame indices to predict. ``None`` = all.
         peak_threshold: Override peak threshold for all stages.
         centroid_threshold: Override centroid-stage threshold (top-down).
@@ -211,6 +217,8 @@ def predict(
         # for non-segmentation models (load_model_assets forwards them only there).
         build_kwargs["fg_threshold"] = fg_threshold
         build_kwargs["min_mask_area"] = min_mask_area
+        build_kwargs["center_nms_kernel"] = center_nms_kernel
+        build_kwargs["mask_cleanup"] = mask_cleanup
         predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
     else:
         # Exported ONNX/TRT models bake most post-processing into the graph at
