@@ -28,13 +28,148 @@ Usage::
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Union
 
 import sleap_io as sio
+from loguru import logger
 
 if TYPE_CHECKING:
     from sleap_nn.inference.filters import FilterConfig
     from sleap_nn.inference.tracking import TrackerConfig
+
+
+def save_analysis_h5_files(
+    labels: sio.Labels,
+    slp_output_path: Union[str, Path],
+    video_index: Optional[int] = None,
+) -> List[Path]:
+    """Write SLEAP Analysis HDF5 file(s) from a predicted ``Labels`` object.
+
+    Analysis HDF5 files store a single video each, so one file is written per
+    video. The video name is embedded in the filename when more than one video
+    is exported (mirroring the multi-video ``.slp`` naming). Videos with no
+    predicted frames are skipped.
+
+    Args:
+        labels: Predicted ``sio.Labels`` to export.
+        slp_output_path: Path to the canonical ``.slp`` predictions file. The
+            HDF5 path(s) are derived from it by replacing the trailing
+            ``.predictions.slp`` (or ``.slp``) suffix with ``.analysis.h5``.
+        video_index: If not ``None``, only this video is exported. Otherwise all
+            videos with at least one predicted frame are exported.
+
+    Returns:
+        List of ``Path``s that were written.
+    """
+    slp_output_path = Path(slp_output_path)
+
+    # Derive the base name by stripping the predictions/slp suffix.
+    name = slp_output_path.name
+    for suffix in (".predictions.slp", ".slp"):
+        if name.endswith(suffix):
+            base_stem = name[: -len(suffix)]
+            break
+    else:
+        base_stem = slp_output_path.stem
+    base = slp_output_path.parent / base_stem
+
+    # Count predicted frames per video (using identity to avoid relying on
+    # Video equality semantics).
+    frames_per_video = [0] * len(labels.videos)
+    for lf in labels.labeled_frames:
+        for i, video in enumerate(labels.videos):
+            if lf.video is video:
+                frames_per_video[i] += 1
+                break
+
+    # Determine which videos to export.
+    if video_index is not None:
+        candidate_indices = (
+            [video_index] if 0 <= video_index < len(labels.videos) else []
+        )
+    else:
+        candidate_indices = list(range(len(labels.videos)))
+
+    target_indices = [i for i in candidate_indices if frames_per_video[i] > 0]
+    skipped_indices = [i for i in candidate_indices if frames_per_video[i] == 0]
+    if skipped_indices:
+        logger.warning(
+            f"Skipping Analysis HDF5 export for {len(skipped_indices)} video(s) "
+            f"with no predicted frames: {skipped_indices}."
+        )
+
+    # Build the video name embedded in each filename, disambiguating any videos
+    # that share a filename stem by appending the video index.
+    def _video_name(i):
+        filename = labels.videos[i].filename
+        return Path(filename).stem if isinstance(filename, str) else f"video_{i}"
+
+    video_names = {i: _video_name(i) for i in target_indices}
+    name_counts = {}
+    for vname in video_names.values():
+        name_counts[vname] = name_counts.get(vname, 0) + 1
+    video_names = {
+        i: (f"{vname}_{i}" if name_counts[vname] > 1 else vname)
+        for i, vname in video_names.items()
+    }
+
+    written_paths = []
+    embed_video_name = len(target_indices) > 1
+    for i in target_indices:
+        if embed_video_name:
+            h5_path = base.parent / f"{base.name}.{video_names[i]}.analysis.h5"
+        else:
+            h5_path = base.parent / f"{base.name}.analysis.h5"
+        sio.save_analysis_h5(
+            labels,
+            h5_path.as_posix(),
+            video=i,
+            labels_path=slp_output_path.as_posix(),
+        )
+        written_paths.append(h5_path)
+        logger.info(f"Analysis HDF5 output path: {h5_path}")
+    return written_paths
+
+
+def save_predictions(
+    labels: sio.Labels,
+    output_path: Union[str, Path],
+    output_format: str = "slp",
+    video_index: Optional[int] = None,
+) -> List[Path]:
+    """Save predicted ``Labels`` to disk in the requested format(s).
+
+    Args:
+        labels: Predicted ``sio.Labels`` to save.
+        output_path: Canonical ``.slp`` output path. Analysis HDF5 paths are
+            derived from it.
+        output_format: One of ``"slp"`` (the default), ``"analysis_h5"``, or
+            ``"both"``.
+        video_index: Restrict the analysis HDF5 export to a single video index;
+            ``None`` exports every video with predicted frames.
+
+    Returns:
+        The list of analysis HDF5 paths written (empty when
+        ``output_format == "slp"``).
+
+    Raises:
+        ValueError: If ``output_format`` is not one of the valid options.
+    """
+    output_format = str(output_format).lower()
+    valid_output_formats = ("slp", "analysis_h5", "both")
+    if output_format not in valid_output_formats:
+        raise ValueError(
+            f"Invalid output_format: {output_format!r}. Must be one of "
+            f"{valid_output_formats}."
+        )
+
+    if output_format in ("slp", "both"):
+        labels.save(Path(output_path).as_posix())
+
+    h5_paths: List[Path] = []
+    if output_format in ("analysis_h5", "both"):
+        h5_paths = save_analysis_h5_files(labels, output_path, video_index=video_index)
+    return h5_paths
 
 
 def predict(
@@ -84,6 +219,7 @@ def predict(
     tracker_config: Optional["TrackerConfig"] = None,
     # Output
     output_path: Optional[str] = None,
+    output_format: str = "slp",
     clean_empty_frames: bool = False,
     progress_callback: Optional[Callable[[int, int], None]] = None,
     tracking_progress_callback: Optional[Callable[[int, int], None]] = None,
@@ -145,7 +281,11 @@ def predict(
         return_class_vectors: Keep class vectors on Outputs (multi-class top-down).
         filter_config: Post-inference :class:`FilterConfig`.
         tracker_config: :class:`TrackerConfig` for tracking.
-        output_path: If set, save the Labels to this ``.slp`` path.
+        output_path: If set, save the Labels to this path.
+        output_format: Format to save the Labels in when ``output_path`` is set.
+            One of ``"slp"`` (the default), ``"analysis_h5"`` (a SLEAP Analysis
+            HDF5 file, one ``.analysis.h5`` per video), or ``"both"``. Analysis
+            HDF5 paths are derived from ``output_path``.
         clean_empty_frames: Drop frames with no instances.
         progress_callback: ``(processed_frames, total_frames)`` callback
             invoked after each batch (counts are in frames).
@@ -255,6 +395,6 @@ def predict(
     )
 
     if output_path is not None:
-        labels.save(Path(output_path).as_posix())
+        save_predictions(labels, output_path, output_format=output_format)
 
     return labels

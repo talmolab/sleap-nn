@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import click
 from click.testing import CliRunner
 
 from sleap_nn.cli import cli
@@ -790,3 +791,56 @@ def test_predict_retrack_only_sets_tracking_provenance(tmp_path):
     assert "sleap_nn_version" in reloaded.provenance
     assert "tracking_start_timestamp" in reloaded.provenance
     assert reloaded.provenance.get("tracking_config", {}).get("window_size") == 9
+
+
+def test_predict_forwards_output_format(tmp_path):
+    """``--output_format`` propagates to ``predict()`` as the output_format kwarg."""
+    out = tmp_path / "out.slp"
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
+        result = runner.invoke(
+            cli,
+            [
+                "predict",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--output_path",
+                str(out),
+                "--output_format",
+                "both",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert mock_predict.called
+    assert mock_predict.call_args[1]["output_format"] == "both"
+
+
+def test_predict_stream_to_file_rejects_non_slp_format(tmp_path):
+    """``--stream-to-file`` with a non-slp ``--output_format`` is a UsageError."""
+    out = tmp_path / "out.slp"
+    runner = CliRunner()
+    # standalone_mode=False re-raises the UsageError instead of letting
+    # rich-click render it to the terminal -- asserting on the exception object
+    # avoids width-dependent line-wrapping of the message across CI runners.
+    result = runner.invoke(
+        cli,
+        [
+            "predict",
+            "--data_path",
+            "/fake/path.mp4",
+            "--model_paths",
+            "/fake/model",
+            "--stream-to-file",
+            str(out),
+            "--output_format",
+            "analysis_h5",
+        ],
+        standalone_mode=False,
+    )
+    assert isinstance(result.exception, click.UsageError)
+    assert "only supports --output_format slp" in result.exception.message
