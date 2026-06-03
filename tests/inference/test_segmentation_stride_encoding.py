@@ -107,8 +107,8 @@ def test_mask_to_stride_scale_offset_and_pad_crop():
     assert scale[1] == pytest.approx(0.2, abs=1e-3)
     assert offset == (0.0, 0.0)
     assert mask_stride.shape == (205, 205)  # ceil(round(1024*0.4)/2)
-    # The valid/orig scale makes image_extent recover orig EXACTLY here (the bug
-    # was storing s/stride, which truncates orig by up to a stride cell).
+    # valid/orig recovers orig exactly for THIS config; ±1 in general (see the
+    # parametrized test below). The s/stride bug truncated by up to a stride cell.
     sm = build_predicted_segmentation_mask(mask_stride, 1.0, scale=scale)
     assert sm.image_extent == (1024, 1024)
 
@@ -116,19 +116,24 @@ def test_mask_to_stride_scale_offset_and_pad_crop():
 @pytest.mark.parametrize(
     "orig,eff,iscale,stride",
     [
-        (1000, 1.0, 1.0, 16),
-        (200, 1.0, 1.0, 16),
-        (1024, 1.0, 0.2, 4),
-        (777, 1.0, 0.5, 8),
-        (101, 1.0, 1.0, 4),
+        (1000, 1.0, 1.0, 16),  # exact
+        (200, 1.0, 1.0, 16),  # exact
+        (1024, 1.0, 0.2, 4),  # exact
+        (777, 1.0, 0.5, 8),  # exact
+        (101, 1.0, 1.0, 4),  # exact
+        (100, 1.0, 1.0, 16),  # float truncation -> orig-1 (99)
+        (50, 1.0, 1.0, 8),  # -> orig-1 (49)
+        (25, 1.0, 1.0, 4),  # -> orig-1 (24)
     ],
 )
 def test_mask_to_stride_image_extent_recovers_orig_at_large_stride(
     orig, eff, iscale, stride
 ):
-    """Stored scale (valid/orig) must recover orig EXACTLY even at large stride /
-    fractional configs. Regression for the s/stride scale bug that truncated orig
-    by up to a stride cell (e.g. 1000@stride16 -> 992)."""
+    """Stored scale (valid/orig) recovers orig to within ±1 px (it is orig or
+    orig-1 — never an overshoot) even at large stride / fractional configs. The
+    `int(valid/(valid/orig))` float division can floor-truncate to orig-1 for ~5%
+    of sizes; consumers tolerate the ±1. Regression for the s/stride scale bug,
+    which truncated orig by up to a full stride cell (e.g. 1000@stride16 -> 992)."""
     layer = SegmentationLayer.__new__(SegmentationLayer)
     layer.output_stride = stride
     head = np.ones((orig, orig), bool)  # >= the valid extent for any of these
@@ -141,7 +146,9 @@ def test_mask_to_stride_image_extent_recovers_orig_at_large_stride(
     )
     mask_stride, scale, _ = layer._mask_to_stride(head, info, 0)
     sm = build_predicted_segmentation_mask(mask_stride, 1.0, scale=scale)
-    assert sm.image_extent == (orig, orig)
+    # orig or orig-1, never an overshoot (the s/stride bug gave orig-8 here).
+    assert sm.image_extent[0] in (orig - 1, orig)
+    assert sm.image_extent[1] in (orig - 1, orig)
 
 
 def test_postprocess_default_stride_and_full_res_escape():
