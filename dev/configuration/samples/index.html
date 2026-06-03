@@ -1482,6 +1482,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#segmentation-masks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segmentation (masks)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -6461,6 +6472,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#segmentation-masks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segmentation (masks)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -6711,6 +6733,26 @@ resolution; inference collapses to a single-node <code>'centroid'</code> skeleto
 <td><a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_multi_class_centered_instance_unet.yaml">multi_class_topdown</a></td>
 <td>Top-Down</td>
 <td>UNet</td>
+</tr>
+</tbody>
+</table>
+<h3 id="segmentation-masks">Segmentation (masks)<a class="headerlink" href="#segmentation-masks" title="Permanent link">&para;</a></h3>
+<p>Single-stage bottom-up instance <strong>segmentation</strong> (per-instance masks instead of
+keypoints). <code>fg_threshold</code> / <code>min_mask_area</code> are inference-time args; train at
+<code>scale: 1.0</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Config</th>
+<th>Backbone</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_unet.yaml">bottomup_segmentation_unet</a></td>
+<td>UNet</td>
+<td>Foreground + center + offsets heads</td>
 </tr>
 </tbody>
 </table>
