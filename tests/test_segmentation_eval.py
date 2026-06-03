@@ -9,7 +9,18 @@ import numpy as np
 
 import sleap_io as sio
 
-from sleap_nn.evaluation import _mask_iou, match_masks, run_evaluation
+from sleap_nn.evaluation import (
+    COCO_SIZE_EDGES,
+    MASK_IOU_THRESHOLDS,
+    _ap_from_pr,
+    _boundary_iou,
+    _mask_iou,
+    _mask_pair_stats,
+    _percentile_size_edges,
+    _size_mask,
+    match_masks,
+    run_evaluation,
+)
 
 
 def _disk(h, w, cy, cx, r):
@@ -123,10 +134,18 @@ def _make_gt(masks, with_masks=True):
 
 
 def _make_pred(masks, score=0.9):
-    """Build predicted labels: one frame of PredictedSegmentationMasks (no poses)."""
+    """Build predicted labels: one frame of PredictedSegmentationMasks (no poses).
+
+    ``score`` may be a scalar (broadcast to every mask) or a per-mask sequence.
+    """
     video = sio.Video.from_filename(FNAME)
+    if np.ndim(score) == 0:
+        scores = [float(score)] * len(masks)
+    else:
+        scores = [float(s) for s in score]
     seg_masks = [
-        sio.PredictedSegmentationMask.from_numpy(m, score=score) for m in masks
+        sio.PredictedSegmentationMask.from_numpy(m, score=s)
+        for m, s in zip(masks, scores)
     ]
     lf = sio.LabeledFrame(video=video, frame_idx=0, masks=seg_masks)
     return sio.Labels(videos=[video], labeled_frames=[lf])
@@ -344,3 +363,296 @@ def test_train_routes_segmentation_eval(minimal_instance_seg, tmp_path):
     for pf in pred_files:
         for mask in sio.load_slp(pf.as_posix()).masks:
             assert isinstance(mask, sio.PredictedSegmentationMask)
+
+
+# ---------------------------------------------------------------------------
+# COCO mask-AP helper units (_size_mask / _ap_from_pr / _boundary_iou /
+# _mask_pair_stats)
+# ---------------------------------------------------------------------------
+
+
+def test_size_mask_edge_buckets_and_nan():
+    """Half-open edge buckets partition finite areas; NaN areas fall in none."""
+    # COCO edges: small < 32^2 (1024) <= medium < 96^2 (9216) <= large.
+    areas = np.array([500.0, 1024.0, 5000.0, 9216.0, 20000.0, np.nan])
+    small = _size_mask(areas, 0, COCO_SIZE_EDGES)
+    medium = _size_mask(areas, 1, COCO_SIZE_EDGES)
+    large = _size_mask(areas, 2, COCO_SIZE_EDGES)
+    assert small.tolist() == [True, False, False, False, False, False]
+    assert medium.tolist() == [False, True, True, False, False, False]
+    assert large.tolist() == [False, False, False, True, True, False]
+    # Every finite area lands in exactly one bucket; NaN in none.
+    assert np.array_equal(small | medium | large, ~np.isnan(areas))
+
+
+def test_percentile_size_edges_are_dataset_relative():
+    """Percentile edges adapt to the area distribution (terciles by default)."""
+    areas = np.array([100.0, 200.0, 300.0, 400.0, 500.0, 600.0])
+    e0, e1 = _percentile_size_edges(areas)
+    assert e0 < e1
+    # Terciles of a uniform spread fall in the interior, unlike COCO's fixed
+    # 1024/9216 which would lump these mouse-scale masks all into "small".
+    assert 200.0 <= e0 <= 400.0 and 400.0 <= e1 <= 600.0
+    assert np.all(np.isnan(_percentile_size_edges(np.array([]))))
+
+
+def test_ap_from_pr_edge_cases_and_ranking():
+    """AP is NaN with no GT, 0.0 with no detections, and rewards ranking TPs first."""
+    rt = np.linspace(0, 1, 101)
+    assert np.isnan(_ap_from_pr(np.array([0.9]), np.array([True]), 0, rt)[0])
+    ap0, rec0 = _ap_from_pr(np.array([]), np.array([], dtype=bool), 3, rt)
+    assert ap0 == 0.0 and rec0 == 0.0
+    # 1 GT, one TP + one FP. TP scored higher (ranked first) -> AP 1.0;
+    # FP scored higher (ranked first) -> AP 0.5.
+    ap_good, _ = _ap_from_pr(np.array([0.9, 0.1]), np.array([True, False]), 1, rt)
+    ap_bad, _ = _ap_from_pr(np.array([0.9, 0.1]), np.array([False, True]), 1, rt)
+    assert abs(ap_good - 1.0) < 1e-9
+    assert abs(ap_bad - 0.5) < 1e-2
+    assert ap_good > ap_bad
+
+
+def test_boundary_iou_identical_and_shifted():
+    """Boundary IoU is 1.0 for identical masks and < 1.0 once a contour shifts."""
+    a = _disk(80, 80, 40, 40, 20)
+    assert _boundary_iou(a, a) == 1.0
+    shifted = _disk(80, 80, 40, 47, 20)  # translated -> contours diverge
+    biou = _boundary_iou(a, shifted)
+    assert 0.0 <= biou < 1.0
+    # Boundary IoU is stricter than mask IoU for the same contour shift.
+    assert biou < _mask_iou(a, shifted)
+
+
+def test_mask_pair_stats_matches_mask_iou_and_reports_intersection():
+    """_mask_pair_stats IoU matches _mask_iou and intersection counts are exact."""
+    p = [_disk(40, 40, 20, 20, 8)]
+    g = [_disk(40, 40, 20, 20, 8), _disk(40, 40, 35, 35, 5)]
+    iou, inter = _mask_pair_stats(p, g)
+    assert iou.shape == (1, 2) and inter.shape == (1, 2)
+    assert abs(iou[0, 0] - 1.0) < 1e-9 and inter[0, 0] == int(g[0].sum())
+    assert abs(iou[0, 1] - _mask_iou(p[0], g[1])) < 1e-9
+    assert inter[0, 1] == int(np.logical_and(p[0], g[1]).sum())
+
+
+# ---------------------------------------------------------------------------
+# mask_voc_metrics (COCO-style score-ranked mask AP)
+# ---------------------------------------------------------------------------
+
+
+def test_mask_voc_ap_perfect(tmp_path):
+    """Identical GT/pred masks -> mAP = AP50 = AP75 = AR = 1.0."""
+    masks = [_disk(H, W, 14, 14, 8), _disk(H, W, 34, 34, 8)]
+    gt_path, pr_path = tmp_path / "gt.slp", tmp_path / "pr.slp"
+    _make_gt(masks).save(gt_path.as_posix())
+    _make_pred(masks).save(pr_path.as_posix())
+
+    m = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_path.as_posix(),
+        match_method="mask",
+    )
+    mvoc = m["mask_voc_metrics"]
+    for k in ("mask_voc.mAP", "mask_voc.AP50", "mask_voc.AP75", "mask_voc.AR"):
+        assert abs(mvoc[k] - 1.0) < 1e-9, k
+    # Per-threshold AP array spans the canonical 10 COCO thresholds, all 1.0.
+    assert np.allclose(mvoc["mask_voc.AP"], 1.0)
+    assert mvoc["mask_voc.iou_thresholds"].size == MASK_IOU_THRESHOLDS.size
+
+
+def test_mask_voc_ap50_ge_ap75_on_eroded(tmp_path):
+    """A shrunk prediction (0.5 <= IoU < 0.75) -> AP50 = 1.0 > AP75 = 0.0."""
+    gt_mask = _disk(H, W, 24, 24, 12)
+    pr_mask = _disk(H, W, 24, 24, 9)  # concentric, smaller
+    # Precondition: the shrink lands the IoU strictly between the two thresholds.
+    iou = _mask_iou(pr_mask, gt_mask)
+    assert 0.5 <= iou < 0.75, iou
+    gt_path, pr_path = tmp_path / "gt.slp", tmp_path / "pr.slp"
+    _make_gt([gt_mask]).save(gt_path.as_posix())
+    _make_pred([pr_mask]).save(pr_path.as_posix())
+
+    mvoc = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_path.as_posix(),
+        match_method="mask",
+        match_threshold=0.5,
+    )["mask_voc_metrics"]
+    assert abs(mvoc["mask_voc.AP50"] - 1.0) < 1e-9
+    assert mvoc["mask_voc.AP75"] == 0.0
+    assert mvoc["mask_voc.AP50"] >= mvoc["mask_voc.AP75"]
+
+
+def test_mask_voc_ap_score_ranking(tmp_path):
+    """A high-scored correct mask + low-scored spurious mask -> AP 1.0.
+
+    Reversing the scores (spurious ranked first) drops AP to 0.5, confirming
+    detections are ranked by ``PredictedSegmentationMask.score``.
+    """
+    gt = [_disk(H, W, 14, 14, 8)]
+    correct = _disk(H, W, 14, 14, 8)  # exact copy -> IoU 1.0
+    spurious = _disk(H, W, 38, 38, 6)  # disjoint -> IoU 0, a false positive
+    gt_path = tmp_path / "gt.slp"
+    _make_gt(gt).save(gt_path.as_posix())
+
+    pr_good = tmp_path / "good.slp"
+    _make_pred([correct, spurious], score=[0.9, 0.1]).save(pr_good.as_posix())
+    ap_good = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_good.as_posix(),
+        match_method="mask",
+    )["mask_voc_metrics"]["mask_voc.AP50"]
+
+    pr_bad = tmp_path / "bad.slp"
+    _make_pred([correct, spurious], score=[0.1, 0.9]).save(pr_bad.as_posix())
+    ap_bad = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_bad.as_posix(),
+        match_method="mask",
+    )["mask_voc_metrics"]["mask_voc.AP50"]
+
+    assert abs(ap_good - 1.0) < 1e-9
+    assert abs(ap_bad - 0.5) < 1e-2
+    assert ap_good > ap_bad
+
+
+def test_mask_per_size_buckets_sum_to_total(tmp_path):
+    """Per-size GT counts sum to total under both schemes; perfect -> AP 1.0.
+
+    Three widely-separated areas land 1/1/1 under both percentile terciles
+    (primary) and COCO fixed cutoffs.
+    """
+    big = 280
+    small = _disk(big, big, 30, 30, 10)  # area ~317 -> small (<1024 COCO)
+    medium = _disk(big, big, 60, 210, 40)  # area ~5026 -> medium (COCO)
+    large = _disk(big, big, 190, 100, 70)  # area ~15394 -> large (>9216 COCO)
+    masks = [small, medium, large]
+    gt_path, pr_path = tmp_path / "gt.slp", tmp_path / "pr.slp"
+    _make_gt(masks).save(gt_path.as_posix())
+    _make_pred(masks).save(pr_path.as_posix())
+
+    m = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_path.as_posix(),
+        match_method="mask",
+    )
+    mvoc = m["mask_voc_metrics"]
+    # Default (primary) scheme is the dataset-relative percentile binning.
+    assert mvoc["mask_voc.size_scheme"] == "percentile"
+    assert len(mvoc["mask_voc.size_edges"]) == 2
+    for prefix in ("mask_voc.", "mask_voc.coco."):
+        counts = tuple(mvoc[f"{prefix}n_gt_{b}"] for b in ("small", "medium", "large"))
+        assert counts == (1, 1, 1), prefix
+        assert sum(counts) == mvoc["mask_voc.n_gt"] == 3
+    # Per-size mask_metrics breakdown: primary buckets + a coco sub-dict, both
+    # summing to the GT total.
+    per_size = m["mask_metrics"]["per_size"]
+    assert per_size["scheme"] == "percentile"
+    assert sum(per_size[k]["n_gt"] for k in ("small", "medium", "large")) == 3
+    assert sum(per_size["coco"][k]["n_gt"] for k in ("small", "medium", "large")) == 3
+    # Perfect masks -> every populated per-size AP is 1.0 (both schemes).
+    for prefix in ("mask_voc.", "mask_voc.coco."):
+        for bucket in ("small", "medium", "large"):
+            assert abs(mvoc[f"{prefix}AP_{bucket}"] - 1.0) < 1e-9, prefix + bucket
+
+
+def test_percentile_buckets_spread_what_coco_lumps(tmp_path):
+    """Percentile bins spread mouse-scale masks that COCO lumps into 'small'.
+
+    All three masks are < 1024 px so COCO buckets them identically, but the
+    percentile (primary) scheme spreads them across small/medium/large. This is
+    the motivation for defaulting to dataset-relative bins: COCO's fixed
+    1024/9216 px cutoffs are blind to size structure at animal-mask scale.
+    """
+    big = 120
+    masks = [
+        _disk(big, big, 20, 20, 8),  # area ~197
+        _disk(big, big, 20, 90, 12),  # area ~452
+        _disk(big, big, 90, 55, 16),  # area ~804  (all < 1024 -> COCO 'small')
+    ]
+    gt_path, pr_path = tmp_path / "gt.slp", tmp_path / "pr.slp"
+    _make_gt(masks).save(gt_path.as_posix())
+    _make_pred(masks).save(pr_path.as_posix())
+
+    mvoc = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_path.as_posix(),
+        match_method="mask",
+    )["mask_voc_metrics"]
+    # COCO lumps all three into 'small'.
+    assert mvoc["mask_voc.coco.n_gt_small"] == 3
+    assert mvoc["mask_voc.coco.n_gt_medium"] == 0
+    assert mvoc["mask_voc.coco.n_gt_large"] == 0
+    # Percentile terciles spread them one per bucket.
+    pct = tuple(mvoc[f"mask_voc.n_gt_{b}"] for b in ("small", "medium", "large"))
+    assert pct == (1, 1, 1)
+
+
+# ---------------------------------------------------------------------------
+# Fragmentation (over-/under-segmentation) counts
+# ---------------------------------------------------------------------------
+
+
+def test_mask_fragmentation_oversegmentation(tmp_path):
+    """One GT mask split into two half-mask predictions -> oversegmentation = 1."""
+    disk = _disk(H, W, 24, 24, 14)
+    cols = np.arange(W)[None, :]
+    left = disk & (cols < 24)
+    right = disk & (cols >= 24)
+    gt_path, pr_path = tmp_path / "gt.slp", tmp_path / "pr.slp"
+    _make_gt([disk]).save(gt_path.as_posix())
+    _make_pred([left, right]).save(pr_path.as_posix())
+
+    mm = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_path.as_posix(),
+        match_method="mask",
+    )["mask_metrics"]
+    assert mm["oversegmentation"] == 1
+    assert mm["undersegmentation"] == 0
+
+
+def test_mask_fragmentation_undersegmentation(tmp_path):
+    """One prediction spanning two GT masks -> undersegmentation = 1."""
+    d1 = _disk(H, W, 14, 14, 8)
+    d2 = _disk(H, W, 34, 34, 8)
+    merged = d1 | d2  # single predicted mask covering both GT instances
+    gt_path, pr_path = tmp_path / "gt.slp", tmp_path / "pr.slp"
+    _make_gt([d1, d2]).save(gt_path.as_posix())
+    _make_pred([merged]).save(pr_path.as_posix())
+
+    mm = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_path.as_posix(),
+        match_method="mask",
+    )["mask_metrics"]
+    assert mm["undersegmentation"] == 1
+    assert mm["oversegmentation"] == 0
+
+
+def test_mask_metrics_boundary_iou_perfect(tmp_path):
+    """Perfect match -> mean boundary IoU = 1.0; a miss leaves TP-only boundary."""
+    masks = [_disk(H, W, 14, 14, 8), _disk(H, W, 34, 34, 8)]
+    gt_path, pr_path = tmp_path / "gt.slp", tmp_path / "pr.slp"
+    _make_gt(masks).save(gt_path.as_posix())
+    _make_pred(masks).save(pr_path.as_posix())
+
+    mm = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_path.as_posix(),
+        match_method="mask",
+    )["mask_metrics"]
+    assert abs(mm["mean_boundary_iou"] - 1.0) < 1e-9
+
+
+def test_mask_voc_metrics_empty_when_no_gt_masks(tmp_path):
+    """A poses-only GT frame (no masks) -> AP NaN (no GT), AR NaN, no crash."""
+    shapes = [_disk(H, W, 14, 14, 8)]
+    gt_path, pr_path = tmp_path / "gt.slp", tmp_path / "pr.slp"
+    _make_gt(shapes, with_masks=False).save(gt_path.as_posix())  # poses, no masks
+    _make_pred(shapes).save(pr_path.as_posix())
+
+    mvoc = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_path.as_posix(),
+        match_method="mask",
+    )["mask_voc_metrics"]
+    assert np.isnan(mvoc["mask_voc.mAP"])
+    assert mvoc["mask_voc.n_gt"] == 0

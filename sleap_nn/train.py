@@ -183,9 +183,11 @@ def _run_segmentation_split_eval(
         logger.warning(f"Skipping segmentation eval on `{d_name}`: {e}")
         return None
 
-    # Mask metrics: detection_metrics + mask_metrics only. Guard every access.
+    # Mask metrics: detection_metrics + mask_metrics + mask_voc_metrics. Guard
+    # every access.
     det = metrics.get("detection_metrics", {}) if metrics is not None else {}
     mm = metrics.get("mask_metrics", {}) if metrics is not None else {}
+    mvoc = metrics.get("mask_voc_metrics", {}) if metrics is not None else {}
     logger.info(f"---------Evaluation on `{d_name}` dataset (segmentation)---------")
     logger.info(f"Detection precision: {det.get('precision')}")
     logger.info(f"Detection recall: {det.get('recall')}")
@@ -194,6 +196,15 @@ def _run_segmentation_split_eval(
     logger.info(f"Mean mask IoU (all GT, miss-penalized): {mm.get('mean_iou_all_gt')}")
     logger.info(f"mask IoU p50: {mm.get('p50')}")
     logger.info(f"Panoptic Quality (PQ): {mm.get('pq')}")
+    logger.info(f"Mean boundary IoU: {mm.get('mean_boundary_iou')}")
+    logger.info(f"Mask mAP @[.5:.95]: {mvoc.get('mask_voc.mAP')}")
+    logger.info(f"Mask AP50: {mvoc.get('mask_voc.AP50')}")
+    logger.info(f"Mask AP75: {mvoc.get('mask_voc.AP75')}")
+    logger.info(f"Mask AR @[.5:.95]: {mvoc.get('mask_voc.AR')}")
+    logger.info(
+        f"Fragmentation (over/under): {mm.get('oversegmentation')}/"
+        f"{mm.get('undersegmentation')}"
+    )
 
     # Log test metrics to wandb summary (mirrors the keypoint OKS path).
     if (
@@ -208,6 +219,23 @@ def _run_segmentation_split_eval(
                 f"eval/{d_name}/mask_mean_iou": mm.get("mean_iou"),
                 f"eval/{d_name}/mask_mean_iou_all_gt": mm.get("mean_iou_all_gt"),
                 f"eval/{d_name}/mask_pq": mm.get("pq"),
+                f"eval/{d_name}/mask_boundary_iou": mm.get("mean_boundary_iou"),
+                f"eval/{d_name}/mask_mAP": mvoc.get("mask_voc.mAP"),
+                f"eval/{d_name}/mask_AP50": mvoc.get("mask_voc.AP50"),
+                f"eval/{d_name}/mask_AP75": mvoc.get("mask_voc.AP75"),
+                f"eval/{d_name}/mask_AR": mvoc.get("mask_voc.AR"),
+                # Primary per-size AP uses dataset-relative percentile buckets.
+                f"eval/{d_name}/mask_AP_small": mvoc.get("mask_voc.AP_small"),
+                f"eval/{d_name}/mask_AP_medium": mvoc.get("mask_voc.AP_medium"),
+                f"eval/{d_name}/mask_AP_large": mvoc.get("mask_voc.AP_large"),
+                # COCO fixed-cutoff per-size AP, for cross-dataset comparison.
+                f"eval/{d_name}/mask_AP_small_coco": mvoc.get("mask_voc.coco.AP_small"),
+                f"eval/{d_name}/mask_AP_medium_coco": mvoc.get(
+                    "mask_voc.coco.AP_medium"
+                ),
+                f"eval/{d_name}/mask_AP_large_coco": mvoc.get("mask_voc.coco.AP_large"),
+                f"eval/{d_name}/oversegmentation": mm.get("oversegmentation"),
+                f"eval/{d_name}/undersegmentation": mm.get("undersegmentation"),
                 f"eval/{d_name}/detection_precision": det.get("precision"),
                 f"eval/{d_name}/detection_recall": det.get("recall"),
                 f"eval/{d_name}/detection_f1": det.get("f1"),
