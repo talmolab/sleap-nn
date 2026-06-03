@@ -83,12 +83,12 @@ def exported_bottomup_onnx_dir(bottomup_ckpt_path, tmp_path_factory):
     """Export the bottom-up checkpoint to ONNX and return the export directory."""
     pytest.importorskip("onnx")
 
-    from sleap_nn.export.cli import export_model
+    from sleap_nn.export.cli import export
 
     export_dir = tmp_path_factory.mktemp("export_bottomup_onnx")
     runner = CliRunner()
     result = runner.invoke(
-        export_model,
+        export,
         [
             str(bottomup_ckpt_path),
             "-o",
@@ -128,30 +128,18 @@ def onnx_bottomup_labels(exported_bottomup_onnx_dir, video_path):
     """Run ONNX inference on the test video and return Labels."""
     pytest.importorskip("onnxruntime")
 
-    from omegaconf import OmegaConf
-
-    from sleap_nn.export.cli import _find_training_config_for_predict
-    from sleap_nn.export.metadata import ExportMetadata
     from sleap_nn.inference.predictor import Predictor
     from sleap_nn.inference.providers import VideoProvider
-    from sleap_nn.inference.utils import get_skeleton_from_config
-
-    metadata = ExportMetadata.load(exported_bottomup_onnx_dir / "export_metadata.json")
-    cfg_path = _find_training_config_for_predict(
-        exported_bottomup_onnx_dir, metadata.model_type
-    )
-    cfg = OmegaConf.load(cfg_path.as_posix())
-    skeleton = get_skeleton_from_config(cfg.data_config.skeletons)[0]
 
     sio_video = sio.Video.from_filename(str(video_path))
     n_total = min(_N_FRAMES, len(sio_video))
     provider = VideoProvider(video=sio_video, batch_size=4, frames=list(range(n_total)))
+    # from_export_dir resolves the skeleton internally (training_config.yaml or
+    # the metadata.node_names fallback), so no explicit skeleton is needed.
     predictor = Predictor.from_export_dir(
         export_dir=exported_bottomup_onnx_dir, runtime="onnx", device="cpu"
     )
-    labels = predictor.predict(
-        provider, make_labels=True, skeleton=skeleton, videos=[sio_video]
-    )
+    labels = predictor.predict(provider, make_labels=True, videos=[sio_video])
     assert isinstance(labels, sio.Labels)
     return labels
 
@@ -345,7 +333,7 @@ def _export_ckpts_to_onnx(
     extra_args: list[str] | None = None,
 ) -> Path:
     """Export checkpoint(s) to ONNX via the CLI and return the export dir."""
-    from sleap_nn.export.cli import export_model
+    from sleap_nn.export.cli import export
 
     runner = CliRunner()
     args = [str(p) for p in ckpt_paths] + [
@@ -358,7 +346,7 @@ def _export_ckpts_to_onnx(
     ]
     if extra_args:
         args.extend(extra_args)
-    result = runner.invoke(export_model, args)
+    result = runner.invoke(export, args)
     assert result.exit_code == 0, f"Export failed:\n{result.output}\n{result.exception}"
     assert (export_dir / "model.onnx").exists()
     return export_dir
@@ -645,12 +633,12 @@ class TestBottomUpTensorRTAccuracy:
     @pytest.fixture(scope="class")
     def exported_trt_dir(self, bottomup_ckpt_path, tmp_path_factory):
         """Export to TensorRT format."""
-        from sleap_nn.export.cli import export_model
+        from sleap_nn.export.cli import export
 
         export_dir = tmp_path_factory.mktemp("export_bottomup_trt")
         runner = CliRunner()
         result = runner.invoke(
-            export_model,
+            export,
             [
                 str(bottomup_ckpt_path),
                 "-o",

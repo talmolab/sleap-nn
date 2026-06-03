@@ -45,6 +45,7 @@ def predict(
     # Construction-time (model/device)
     device: str = "auto",
     batch_size: int = 4,
+    runtime: str = "auto",
     backbone_ckpt_path: Optional[str] = None,
     head_ckpt_path: Optional[str] = None,
     preprocess_config: Optional[Any] = None,
@@ -99,6 +100,9 @@ def predict(
             to ``model_paths``).
         device: ``"auto"``, ``"cpu"``, ``"cuda"``, ``"mps"``, etc.
         batch_size: Frames per batch.
+        runtime: Runtime for an exported model: ``"auto"`` (prefer TensorRT,
+            fall back to ONNX), ``"onnx"``, or ``"tensorrt"``. Ignored when
+            ``model_paths`` is given (checkpoints).
         backbone_ckpt_path: Optional backbone weight override.
         head_ckpt_path: Optional head weight override.
         preprocess_config: Optional OmegaConf preprocessing overrides.
@@ -209,6 +213,14 @@ def predict(
         build_kwargs["min_mask_area"] = min_mask_area
         predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
     else:
+        # Exported ONNX/TRT models bake most post-processing into the graph at
+        # export time; only these construction-time knobs still apply.
+        build_kwargs["runtime"] = runtime
+        build_kwargs["min_instance_peaks"] = min_instance_peaks
+        build_kwargs["min_line_scores"] = min_line_scores
+        build_kwargs["emit_centroid"] = emit_centroid
+        if max_instances is not None:
+            build_kwargs["max_instances"] = max_instances
         predictor = Predictor.from_export_dir(export_dir, **build_kwargs)
 
     # Run inference with prediction-time overrides
