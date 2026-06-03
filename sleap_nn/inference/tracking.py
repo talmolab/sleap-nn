@@ -39,6 +39,13 @@ import sleap_io as sio
 
 logger = logging.getLogger(__name__)
 
+# Default candidate window. Mask tracking uses a larger default than the
+# pose/centroid default because bottom-up segmentation is over-segmented (a
+# momentarily over-split or missed instance must survive more frames to keep its
+# identity); the cropped mask-IoU (`MaskFeature`) makes the larger window cheap.
+DEFAULT_WINDOW_SIZE = 5
+DEFAULT_MASK_WINDOW_SIZE = 25
+
 
 @attrs.frozen(eq=False)
 class TrackerConfig:
@@ -50,7 +57,7 @@ class TrackerConfig:
     """
 
     # Tracker.from_config kwargs ────────────────────────────────────────
-    window_size: int = 5
+    window_size: int = DEFAULT_WINDOW_SIZE
     min_new_track_points: int = 0
     candidates_method: str = "fixed_window"
     min_match_points: int = 0
@@ -158,6 +165,7 @@ def apply_tracking(
     # frozen config is never mutated. Multi-node / multi-skeleton: unchanged.
     effective_scoring_method = config.scoring_method
     effective_features = config.features
+    effective_window_size = config.window_size
     if len(labels.skeletons) == 1 and len(labels.skeletons[0].nodes) == 1:
         if not config.scoring_method_explicit:
             effective_scoring_method = "euclidean_dist"
@@ -214,13 +222,19 @@ def apply_tracking(
                 "tracking_clean_instance_count / post_connect_single_breaks); "
                 "these operate on keypoint poses, not masks."
             )
+        # Bottom-up segmentation is over-segmented; a larger candidate window
+        # keeps identities across transient over-splits/misses. Bump the default
+        # only (a non-default window_size is the user's explicit choice).
+        if config.window_size == DEFAULT_WINDOW_SIZE:
+            effective_window_size = DEFAULT_MASK_WINDOW_SIZE
         logger.info(
             "Segmentation model detected; applying mask tracking defaults: "
-            "features='masks', scoring_method='mask_iou'."
+            "features='masks', scoring_method='mask_iou', window_size=%d.",
+            effective_window_size,
         )
 
     tracker = Tracker.from_config(
-        window_size=config.window_size,
+        window_size=effective_window_size,
         min_new_track_points=config.min_new_track_points,
         candidates_method=config.candidates_method,
         min_match_points=config.min_match_points,

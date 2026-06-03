@@ -501,6 +501,30 @@ def test_apply_tracking_masks_auto_default(video, caplog):
     assert tracked and all(m.track is not None for m in tracked)
 
 
+def test_apply_tracking_masks_bumps_default_window(video, monkeypatch):
+    """Mask mode raises the default window_size; an explicit value is kept."""
+    import sleap_nn.inference.tracking as trk
+    import sleap_nn.tracking.tracker as trk_mod
+
+    captured = {}
+    real_from_config = trk_mod.Tracker.from_config
+
+    def _spy(*args, **kwargs):
+        captured["window_size"] = kwargs.get("window_size")
+        return real_from_config(*args, **kwargs)
+
+    monkeypatch.setattr(trk_mod.Tracker, "from_config", staticmethod(_spy))
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+
+    # Default window (DEFAULT_WINDOW_SIZE) -> bumped to DEFAULT_MASK_WINDOW_SIZE.
+    apply_tracking(labels, _mask_cfg(window_size=trk.DEFAULT_WINDOW_SIZE))
+    assert captured["window_size"] == trk.DEFAULT_MASK_WINDOW_SIZE
+
+    # An explicit non-default window is respected (the user's choice).
+    apply_tracking(labels, _mask_cfg(window_size=8))
+    assert captured["window_size"] == 8
+
+
 def test_apply_tracking_masks_explicit_masks_respected(video):
     """Explicit features='masks'+scoring='mask_iou' is honored (no override/raise)."""
     labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])

@@ -13,8 +13,10 @@ import pytest
 
 import sleap_io as sio
 
+from sleap_nn.evaluation import _mask_iou
 from sleap_nn.tracking.tracker import Tracker
 from sleap_nn.tracking.utils import (
+    MaskFeature,
     compute_mask_iou,
     count_valid_points,
     get_mask,
@@ -67,14 +69,35 @@ def test_compute_mask_iou_is_similarity_not_negated():
     assert compute_mask_iou(a, a) == 1.0  # not -1.0
 
 
-def test_get_mask_decodes_and_passes_ndarray():
-    """get_mask returns the bool mask data; an ndarray passes through unchanged."""
-    m = _mask(20, 20)
-    data = get_mask(m)
-    assert isinstance(data, np.ndarray) and data.dtype == bool
-    assert int(data.sum()) == int(m.area)
-    arr = _disk(30, 30, 15, 15, 5)
-    assert get_mask(arr) is arr
+def test_get_mask_returns_compact_feature():
+    """get_mask returns a MaskFeature (tight bbox crop + offset + area)."""
+    m = _mask(20, 20, r=10)
+    feat = get_mask(m)
+    assert isinstance(feat, MaskFeature)
+    assert feat.area == int(m.area) > 0
+    # Crop is the foreground bbox, not the full 80x80 canvas.
+    assert feat.crop.dtype == bool
+    assert feat.crop.shape[0] < 80 and feat.crop.shape[1] < 80
+    assert int(feat.crop.sum()) == feat.area
+    # Idempotent on a MaskFeature; dense ndarray -> tight-bbox feature.
+    assert get_mask(feat) is feat
+    arr = _disk(40, 40, 20, 20, 6)
+    f2 = get_mask(arr)
+    assert isinstance(f2, MaskFeature) and f2.area == int(arr.sum())
+
+
+def test_compute_mask_iou_matches_full_canvas_reference():
+    """The cropped fast IoU is numerically identical to _mask_iou (fuzz)."""
+    rng = np.random.RandomState(1)
+    for _ in range(120):
+        h, w = rng.randint(20, 60), rng.randint(20, 60)
+        a = rng.rand(h, w) > rng.uniform(0.3, 0.9)
+        b = rng.rand(h, w) > rng.uniform(0.3, 0.9)
+        if rng.rand() < 0.1:  # exercise empty + shape-mismatch
+            a = np.zeros((h, w), dtype=bool)
+        if rng.rand() < 0.1:
+            b = np.zeros((rng.randint(20, 60), rng.randint(20, 60)), dtype=bool)
+        assert abs(compute_mask_iou(a, b) - _mask_iou(a, b)) < 1e-9
 
 
 def test_is_segmentation_mask_and_count_valid_points():
