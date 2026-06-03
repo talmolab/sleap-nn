@@ -153,6 +153,161 @@ def test_segmentation_layer_postprocess_gt_roundtrip():
     assert len(labels.masks) == 2
 
 
+def test_group_instances_max_instances_caps_to_top_scoring():
+    """``max_instances`` keeps only the highest-scoring centers.
+
+    Regression for the parity gap where ``--max_instances`` was silently
+    dropped for segmentation (every other bottom-up layer truncates by
+    confidence). Three centers with distinct peak heights; capping at 2 keeps
+    the two tallest and drops the shortest.
+    """
+    H = W = 24
+    s = 1
+    # (cy, cx, peak_value) — well-separated, distinct heights.
+    spec = [(5, 5, 0.9), (5, 18, 0.6), (18, 11, 0.3)]
+    fg = np.zeros((H, W), dtype=bool)
+    center_hm = np.zeros((H, W), dtype=np.float32)
+    cyx = []
+    for cy, cx, v in spec:
+        fg |= _disk(H, W, cy, cx, 3)
+        center_hm[cy, cx] = v
+        cyx.append((cy, cx))
+    # Offsets: every foreground pixel points to its nearest center.
+    off = np.zeros((2, H, W), dtype=np.float32)
+    ys, xs = np.nonzero(fg)
+    for y, x in zip(ys, xs):
+        cy, cx = cyx[int(np.argmin([(y - a) ** 2 + (x - b) ** 2 for a, b in cyx]))]
+        off[0, y, x] = (cx - x) * 1.0  # dx (pixel-center terms cancel at s=1)
+        off[1, y, x] = (cy - y) * 1.0  # dy
+
+    fg_t = torch.from_numpy(fg.astype(np.float32))[None, None]
+    center_t = torch.from_numpy(center_hm)[None, None]
+    off_t = torch.from_numpy(off)[None]
+
+    def _group(max_instances=None):
+        return group_instances_from_offsets(
+            fg_t,
+            center_t,
+            off_t,
+            fg_threshold=0.5,
+            peak_threshold=0.2,
+            output_stride=s,
+            max_instances=max_instances,
+        )
+
+    # No cap -> all three.
+    assert len(_group()) == 3
+
+    # Cap at 2 -> the two highest-scoring centers (0.9, 0.6) survive.
+    capped = _group(max_instances=2)
+    assert len(capped) == 2
+    assert sorted(round(i["score"], 3) for i in capped) == [0.6, 0.9]
+
+    # Cap above the detected count is a no-op.
+    assert len(_group(max_instances=9)) == 3
+
+
+def test_segmentation_layer_max_instances_caps_count():
+    """Honor ``max_instances`` via the layer attr and the predict-time override.
+
+    Both the value the layer is built with and the predict-time
+    ``postprocess_config.max_instances`` override cap the instance count.
+    """
+    H, W, s = 128, 128, 2
+    masks = [
+        _disk(H, W, 25, 25, 14),
+        _disk(H, W, 25, 95, 14),
+        _disk(H, W, 95, 60, 14),
+    ]
+    fg = generate_foreground_mask(masks, (H, W), output_stride=s)
+    center = generate_center_heatmap(masks, (H, W), output_stride=s, sigma=6.0)
+    offsets, _ = generate_center_offsets(masks, (H, W), output_stride=s)
+    raw = {
+        "SegmentationHead": fg,
+        "InstanceCenterHead": center,
+        "CenterOffsetHead": offsets,
+    }
+    info = PreprocInfo(
+        original_size=(H, W),
+        processed_size=(H, W),
+        eff_scale=torch.tensor([1.0]),
+        input_scale=1.0,
+        output_stride=s,
+    )
+
+    def _layer(*, attr=None, override=None):
+        layer = SegmentationLayer.__new__(SegmentationLayer)
+        layer.output_stride = s
+        layer.fg_threshold = 0.5
+        layer.min_mask_area = 0
+        layer.max_instances = attr
+        layer.postprocess_config = PostprocessConfig(
+            peak_threshold=0.2, max_instances=override
+        )
+        return layer
+
+    # Baseline: no cap -> all three masks.
+    assert len(_layer().postprocess(raw, info).pred_masks[0]) == 3
+    # Layer-attr cap.
+    assert len(_layer(attr=2).postprocess(raw, info).pred_masks[0]) == 2
+    # Override (predict-time) cap takes precedence / works on its own.
+    assert len(_layer(override=2).postprocess(raw, info).pred_masks[0]) == 2
+
+
+def test_incremental_writer_finalizes_mask_only_no_skeleton(tmp_path):
+    """A mask-only (skeleton-free) seg model streams to .slp without crashing.
+
+    Regression for ``IncrementalLabelsWriter._finalize`` building
+    ``skeletons=[None]`` (→ ``sio.Labels.save`` ``AttributeError``) when both the
+    skeleton and collapse-skeleton are ``None``. The finalized list must be
+    empty, mirroring the in-memory ``Outputs.to_labels`` path.
+    """
+    from sleap_nn.inference.outputs import Outputs
+    from sleap_nn.inference.writer import IncrementalLabelsWriter
+
+    mask = _disk(64, 64, 32, 32, 12)
+    outputs = Outputs(
+        pred_masks=[[{"mask": mask, "score": 0.9}]],
+        frame_indices=torch.tensor([0]),
+        video_indices=torch.tensor([0]),
+    )
+    video = sio.Video.from_filename("dummy.mp4")
+    out_path = tmp_path / "seg_stream.slp"
+    writer = IncrementalLabelsWriter(
+        path=out_path.as_posix(), skeleton=None, videos=[video]
+    )
+    with writer:  # __exit__ -> close() -> _finalize() (the previously-crashing path)
+        writer.write(outputs)
+
+    labels = sio.load_slp(out_path.as_posix())
+    assert len(labels.skeletons) == 0  # not [None]
+    assert len(labels.masks) == 1
+    assert isinstance(labels.masks[0], sio.PredictedSegmentationMask)
+
+
+def test_predict_rejects_tracking_for_segmentation():
+    """``predict()`` fails fast when tracking is requested for a seg model.
+
+    Without the guard the tracker (which reads only ``LabeledFrame.instances``)
+    runs over the empty instance lists of mask-only frames and rebuilds them
+    without ``masks=``, silently dropping every mask. Mirrors the existing
+    ``emit_centroid`` guard.
+    """
+    import pytest
+
+    from sleap_nn.inference.predictor import Predictor
+
+    pred = Predictor.__new__(Predictor)
+    pred.layer = SegmentationLayer.__new__(SegmentationLayer)
+    pred.tracker_config = object()  # any non-None config triggers the guard
+    pred.emit_centroid = "instance"  # so the centroid guard passes first
+
+    with pytest.raises(
+        ValueError, match="not yet supported for bottom-up segmentation"
+    ):
+        pred.predict("dummy.mp4", make_labels=True)
+
+
 def test_segmentation_layer_min_mask_area_drops_tiny_masks():
     """``min_mask_area`` drops tiny spurious masks while keeping large ones.
 

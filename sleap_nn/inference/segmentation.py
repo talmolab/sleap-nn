@@ -60,6 +60,7 @@ def group_instances_from_offsets(
     fg_threshold: float = 0.5,
     peak_threshold: float = 0.2,
     output_stride: int = 2,
+    max_instances: Optional[int] = None,
 ) -> List[Dict]:
     """Group foreground pixels into instances using center-offset predictions.
 
@@ -70,6 +71,10 @@ def group_instances_from_offsets(
         fg_threshold: Threshold for foreground binarization.
         peak_threshold: Minimum peak value for center detection.
         output_stride: Stride of the output maps relative to the input image.
+        max_instances: Optional cap on the number of instances per frame. When
+            more centers than this are detected, only the ``max_instances``
+            highest-scoring (peak-value) centers are kept before grouping.
+            ``None`` keeps all detected centers.
 
     Returns:
         List of dicts, each with:
@@ -90,6 +95,13 @@ def group_instances_from_offsets(
 
     if len(peaks) == 0:
         return []
+
+    # Cap to the top-``max_instances`` centers by peak value, mirroring the
+    # confidence-truncation other bottom-up layers apply (BottomUpLayer /
+    # CentroidLayer). Below the cap, all centers are kept.
+    if max_instances is not None and len(peaks) > int(max_instances):
+        peak_vals, keep = torch.topk(peak_vals, int(max_instances))
+        peaks = peaks[keep]
 
     # peaks are in (x, y) format at output stride resolution
     centers = peaks.float()  # (N, 2) in output stride grid coords
@@ -162,6 +174,9 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
             to ``SegmentationLayer`` to drop tiny spurious masks. ``0`` disables
             it. Not applied here (``forward`` returns output-stride masks for
             training visualization); see ``SegmentationLayer.postprocess``.
+        max_instances: Optional cap on instances per frame (highest-scoring
+            centers kept). Carried through to ``SegmentationLayer``; ``None``
+            keeps all detected centers.
     """
 
     def __init__(
@@ -172,6 +187,7 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         output_stride: int = 2,
         input_scale: float = 1.0,
         min_mask_area: int = 0,
+        max_instances: Optional[int] = None,
     ):
         """Initialize the inference model."""
         super().__init__()
@@ -181,6 +197,7 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         self.output_stride = output_stride
         self.input_scale = input_scale
         self.min_mask_area = int(min_mask_area)
+        self.max_instances = max_instances
 
     def forward(self, batch: Dict) -> List[List[Dict]]:
         """Run inference on a batch of images.
@@ -214,6 +231,7 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
                 fg_threshold=self.fg_threshold,
                 peak_threshold=self.peak_threshold,
                 output_stride=self.output_stride,
+                max_instances=self.max_instances,
             )
             batch_results.append(instances)
 

@@ -40,6 +40,10 @@ class SegmentationLayer(InferenceLayer):
             mask to be kept. Masks smaller than this are dropped — useful for
             suppressing tiny spurious blobs (over-segmentation). ``0`` disables
             the filter (only empty masks are dropped).
+        max_instances: Optional cap on instances per frame. When more centers
+            are detected, only the highest-scoring ``max_instances`` are kept
+            before grouping. ``None`` keeps all detected centers. Overridable
+            via ``Predictor.predict(max_instances=...)``.
         preprocess_config / postprocess_config: Standard knobs;
             ``postprocess_config.peak_threshold`` is the instance-center peak
             threshold (overridable via ``Predictor.predict(peak_threshold=...)``).
@@ -56,6 +60,7 @@ class SegmentationLayer(InferenceLayer):
         max_stride: int = 1,
         fg_threshold: float = 0.5,
         min_mask_area: int = 0,
+        max_instances: Optional[int] = None,
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
     ) -> None:
@@ -70,6 +75,7 @@ class SegmentationLayer(InferenceLayer):
         )
         self.fg_threshold = fg_threshold
         self.min_mask_area = int(min_mask_area)
+        self.max_instances = max_instances
 
     @property
     def warmup_input_shape(self):
@@ -97,6 +103,12 @@ class SegmentationLayer(InferenceLayer):
         offsets = offsets.detach().cpu()
 
         peak_threshold = self.postprocess_config.peak_threshold
+        # The predict-time override sets ``postprocess_config.max_instances``;
+        # fall back to the value the layer was built with (#582 pattern, mirrors
+        # BottomUpLayer).
+        max_instances = getattr(self.postprocess_config, "max_instances", None)
+        if max_instances is None:
+            max_instances = getattr(self, "max_instances", None)
         B = foreground.shape[0]
         pred_masks: List[List[dict]] = []
         for b in range(B):
@@ -107,6 +119,7 @@ class SegmentationLayer(InferenceLayer):
                 fg_threshold=self.fg_threshold,
                 peak_threshold=peak_threshold,
                 output_stride=self.output_stride,
+                max_instances=max_instances,
             )
             frame_masks: List[dict] = []
             # Drop empty masks and, when ``min_mask_area > 0``, tiny spurious
