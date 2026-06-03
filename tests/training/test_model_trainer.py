@@ -37,18 +37,6 @@ from sleap_nn.data.custom_datasets import (
 )
 from sleap_nn.config.training_job_config import TrainingJobConfig
 
-# Mac CI hangs reproducibly somewhere in this file — Lightning trainer
-# processes don't always terminate cleanly on GitHub-hosted Mac runners
-# (observed three 30-minute hangs across PR 1 + PR 8 of #508). The
-# tests run cleanly on Linux + Windows, so coverage is preserved. We
-# skip the whole module on darwin to keep the Mac CI lane free for the
-# inference-refactor work to land.
-pytestmark = pytest.mark.skipif(
-    sys.platform == "darwin",
-    reason="Lightning trainer processes hang intermittently on Mac CI; "
-    "covered by the Linux + Windows lanes",
-)
-
 
 @pytest.fixture
 def caplog(caplog: LogCaptureFixture):
@@ -552,6 +540,54 @@ def test_model_trainer_single_instance(config, tmp_path, minimal_instance):
         / trainer.config.trainer_config.run_name
         / "best.ckpt"
     ).exists()
+
+
+def _make_single_instance_config(config, tmp_path, run_name):
+    """Convert the shared `config` fixture into a single-instance config."""
+    single_instance_config = config.copy()
+    head_config = single_instance_config.model_config.head_configs.centered_instance
+    del single_instance_config.model_config.head_configs.centered_instance
+    OmegaConf.update(
+        single_instance_config, "model_config.head_configs.single_instance", head_config
+    )
+    del (
+        single_instance_config.model_config.head_configs.single_instance.confmaps.anchor_part
+    )
+    OmegaConf.update(single_instance_config, "trainer_config.run_name", run_name)
+    OmegaConf.update(single_instance_config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    return single_instance_config
+
+
+def test_single_instance_multiple_instances_error(config, tmp_path, minimal_instance):
+    """Single-instance training should error on frames with >1 instance."""
+    single_instance_config = _make_single_instance_config(
+        config, tmp_path, "test_single_instance_multiple_instances_error"
+    )
+
+    # `minimal_instance` has frames with two instances; do NOT strip them.
+    labels = sio.load_slp(minimal_instance)
+
+    with pytest.raises(ValueError, match="at most one instance per frame"):
+        ModelTrainer.get_model_trainer_from_config(
+            single_instance_config, train_labels=[labels], val_labels=[labels]
+        )
+
+
+def test_single_instance_single_instance_ok(config, tmp_path, minimal_instance):
+    """One instance per frame should pass single-instance label validation."""
+    single_instance_config = _make_single_instance_config(
+        config, tmp_path, "test_single_instance_single_instance_ok"
+    )
+
+    labels = sio.load_slp(minimal_instance)
+    for lf in labels:
+        lf.instances = [lf.instances[0]]
+
+    # Should not raise during label setup / validation.
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        single_instance_config, train_labels=[labels], val_labels=[labels]
+    )
+    assert trainer.model_type == "single_instance"
 
 
 @pytest.mark.skipif(
