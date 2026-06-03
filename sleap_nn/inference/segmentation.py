@@ -69,6 +69,7 @@ def group_instances_from_offsets(
     max_instances: Optional[int] = None,
     center_nms_kernel: int = 3,
     mask_cleanup: bool = False,
+    mask_cleanup_radius: int = 0,
 ) -> List[Dict]:
     """Group foreground pixels into instances using center-offset predictions.
 
@@ -89,6 +90,10 @@ def group_instances_from_offsets(
         mask_cleanup: When ``True``, post-process each per-instance mask by
             keeping only its largest connected component and filling interior
             holes (suppresses speckle/fragments). Default ``False``.
+        mask_cleanup_radius: When ``mask_cleanup`` is on and this is ``> 0``,
+            additionally apply a morphological open->close with an elliptical
+            kernel of this radius (output-stride pixels) before keep-largest-CC.
+            ``0`` (default) keeps the keep-largest-CC + fill-holes behavior.
 
     Returns:
         List of dicts, each with:
@@ -165,7 +170,7 @@ def group_instances_from_offsets(
 
         mask_np = instance_mask.numpy()
         if mask_cleanup:
-            mask_np = _clean_instance_mask(mask_np)
+            mask_np = _clean_instance_mask(mask_np, radius=mask_cleanup_radius)
             if not mask_np.any():
                 continue
 
@@ -180,14 +185,32 @@ def group_instances_from_offsets(
     return instances
 
 
-def _clean_instance_mask(mask: np.ndarray) -> np.ndarray:
+def _clean_instance_mask(mask: np.ndarray, radius: int = 0) -> np.ndarray:
     """Keep the largest connected component and fill interior holes.
 
     Suppresses speckle and fragments left by the per-pixel offset grouping.
     Operates at output-stride resolution; a no-op for an already-clean mask.
+
+    When ``radius > 0``, a morphological open->close with an elliptical
+    structuring element of that radius (in output-stride pixels) runs FIRST:
+    the open deletes isolated speckle and thin connectors (the noise that
+    explodes the mask RLE), the close seals pinholes and small concavities.
+    Keep-largest-CC + hole-fill then returns a single solid blob. ``radius == 0``
+    reproduces the pre-morphology behavior byte-for-byte (the keep-largest-CC +
+    fill-holes already shipped in #624).
     """
     from scipy.ndimage import binary_fill_holes
     from scipy.ndimage import label as cc_label
+
+    if radius and radius > 0:
+        import cv2
+
+        ksize = 2 * int(radius) + 1
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ksize, ksize))
+        u8 = mask.astype(np.uint8)
+        u8 = cv2.morphologyEx(u8, cv2.MORPH_OPEN, k)
+        u8 = cv2.morphologyEx(u8, cv2.MORPH_CLOSE, k)
+        mask = u8.astype(bool)
 
     labels, n = cc_label(mask)
     if n > 1:
@@ -232,6 +255,10 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         max_instances: Optional[int] = None,
         center_nms_kernel: int = 3,
         mask_cleanup: bool = False,
+        mask_cleanup_radius: int = 0,
+        full_res_masks: bool = False,
+        mask_output: str = "mask",
+        polygon_epsilon: float = 0.01,
     ):
         """Initialize the inference model."""
         super().__init__()
@@ -244,6 +271,14 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         self.max_instances = max_instances
         self.center_nms_kernel = int(center_nms_kernel)
         self.mask_cleanup = bool(mask_cleanup)
+        self.mask_cleanup_radius = int(mask_cleanup_radius)
+        # Output-packaging knobs carried for ``_build_bottomup_segmentation_layer``
+        # (read off this model via getattr). ``forward`` itself only emits
+        # output-stride masks for training viz, so it consumes ``mask_cleanup_radius``
+        # but not the packaging-time ``full_res_masks``/``mask_output``/``polygon_epsilon``.
+        self.full_res_masks = bool(full_res_masks)
+        self.mask_output = str(mask_output)
+        self.polygon_epsilon = float(polygon_epsilon)
 
     def forward(self, batch: Dict) -> List[List[Dict]]:
         """Run inference on a batch of images.
@@ -280,6 +315,7 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
                 max_instances=self.max_instances,
                 center_nms_kernel=self.center_nms_kernel,
                 mask_cleanup=self.mask_cleanup,
+                mask_cleanup_radius=self.mask_cleanup_radius,
             )
             batch_results.append(instances)
 

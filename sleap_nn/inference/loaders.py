@@ -407,6 +407,10 @@ def _build_bottomup_segmentation(
     max_instances: Optional[int] = None,
     center_nms_kernel: int = 3,
     mask_cleanup: bool = False,
+    mask_cleanup_radius: int = 0,
+    full_res_masks: bool = False,
+    mask_output: str = "mask",
+    polygon_epsilon: float = 0.01,
 ) -> LoadedAssets:
     """Load a ``BottomUpSegmentationLightningModule`` and wrap it for inference.
 
@@ -448,6 +452,10 @@ def _build_bottomup_segmentation(
         max_instances=max_instances,
         center_nms_kernel=center_nms_kernel,
         mask_cleanup=mask_cleanup,
+        mask_cleanup_radius=mask_cleanup_radius,
+        full_res_masks=full_res_masks,
+        mask_output=mask_output,
+        polygon_epsilon=polygon_epsilon,
     )
     return LoadedAssets(
         inference_model=inference_model,
@@ -788,6 +796,10 @@ def load_model_assets(
     min_mask_area: int = 0,
     center_nms_kernel: int = 3,
     mask_cleanup: bool = False,
+    mask_cleanup_radius: int = 0,
+    full_res_masks: bool = False,
+    mask_output: str = "mask",
+    polygon_epsilon: float = 0.01,
 ) -> tuple[LoadedAssets, List[str]]:
     """Load checkpoints and build inference models.
 
@@ -880,6 +892,10 @@ def load_model_assets(
             max_instances=max_instances,
             center_nms_kernel=center_nms_kernel,
             mask_cleanup=mask_cleanup,
+            mask_cleanup_radius=mask_cleanup_radius,
+            full_res_masks=full_res_masks,
+            mask_output=mask_output,
+            polygon_epsilon=polygon_epsilon,
             **common_kwargs,
         )
 

@@ -199,6 +199,10 @@ def predict(
     min_mask_area: int = 0,
     center_nms_kernel: int = 3,
     mask_cleanup: bool = False,
+    mask_cleanup_radius: int = 0,
+    full_res_masks: bool = False,
+    mask_output: str = "mask",
+    polygon_epsilon: float = 0.01,
     # Prediction-time (can vary per call)
     frames: Optional[List[int]] = None,
     peak_threshold: Optional[float] = None,
@@ -266,6 +270,17 @@ def predict(
             nearby duplicate centers (bottom-up segmentation only).
         mask_cleanup: Keep-largest-CC + hole-fill per mask (bottom-up
             segmentation only).
+        mask_cleanup_radius: Morphological open->close radius (output-stride
+            pixels) applied during ``mask_cleanup``; ``0`` keeps keep-largest +
+            fill only (bottom-up segmentation only).
+        full_res_masks: Encode masks at full original resolution instead of the
+            output-stride grid (default ``False``: stride encoding is ~stride^2
+            smaller and lossless at model resolution; bottom-up segmentation only).
+        mask_output: Mask output representation — ``"mask"`` (default),
+            ``"polygon"`` (``sio.PredictedROI`` only), or ``"both"`` (bottom-up
+            segmentation only).
+        polygon_epsilon: Douglas-Peucker tolerance (fraction of perimeter) for
+            ``mask_output`` polygon/both (bottom-up segmentation only).
         frames: Frame indices to predict. ``None`` = all.
         peak_threshold: Override peak threshold for all stages.
         centroid_threshold: Override centroid-stage threshold (top-down).
@@ -360,6 +375,10 @@ def predict(
         build_kwargs["min_mask_area"] = min_mask_area
         build_kwargs["center_nms_kernel"] = center_nms_kernel
         build_kwargs["mask_cleanup"] = mask_cleanup
+        build_kwargs["mask_cleanup_radius"] = mask_cleanup_radius
+        build_kwargs["full_res_masks"] = full_res_masks
+        build_kwargs["mask_output"] = mask_output
+        build_kwargs["polygon_epsilon"] = polygon_epsilon
         predictor = Predictor.from_model_paths(model_paths, **build_kwargs)
     else:
         # Exported ONNX/TRT models bake most post-processing into the graph at

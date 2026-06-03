@@ -86,11 +86,15 @@ class Outputs:
     pred_centroid_values: Optional[torch.Tensor] = None  # (B, I)
 
     # ── Instance segmentation ────────────────────────────────────────
-    # Per-batch ragged masks: a length-B list, one entry per frame. Each
-    # entry is a list of per-instance dicts ``{"mask": bool ndarray (H, W) at
-    # original-image resolution, "score": float}``. Stored as picklable numpy
-    # (not a dense tensor) so ``slim()`` / the multiprocessing path stay
-    # memory-safe and pickle-clean.
+    # Per-batch ragged masks: a length-B list, one entry per frame. Each entry
+    # is a list of per-instance dicts ``{"mask": bool ndarray (h, w), "score":
+    # float, "scale": (sx, sy), "offset": (ox, oy)}``. By default ``mask`` is at
+    # output-stride resolution and ``scale``/``offset`` map it to image pixels
+    # (``image_coord = mask_coord / scale + offset``); with ``full_res_masks``
+    # it is at original resolution with identity scale/offset. ``scale``/
+    # ``offset`` are optional (default identity) for back-compat with callers
+    # that build this dict directly. Stored as picklable numpy (not a dense
+    # tensor) so ``slim()`` / the multiprocessing path stay memory-safe.
     pred_masks: Optional[List[List[Dict[str, Any]]]] = None
 
     # ── Instance-level metadata ──────────────────────────────────────
@@ -538,8 +542,13 @@ class Outputs:
         """Convert one batch slot's masks into ``sio.PredictedSegmentationMask``s.
 
         Each entry of ``pred_masks[batch_index]`` is a dict with a boolean
-        ``"mask"`` (original-image resolution) and a float ``"score"``; both
-        become a ``sio.PredictedSegmentationMask`` (stored in
+        ``"mask"``, a float ``"score"``, and ``"scale"``/``"offset"`` mapping
+        the mask back to image pixels (``image_coord = mask_coord / scale +
+        offset``). By default ``mask`` is at output-stride resolution; with
+        ``full_res_masks`` it is at original-image resolution with identity
+        ``scale``/``offset``. ``scale``/``offset`` are read with identity
+        defaults for back-compat callers that build this dict directly. Each
+        entry becomes a ``sio.PredictedSegmentationMask`` (stored in
         ``LabeledFrame.masks``). Returns ``[]`` when there are no masks.
 
         Args:
@@ -557,8 +566,40 @@ class Outputs:
             if mask is None or not np.asarray(mask).any():
                 continue
             out.append(
-                build_predicted_segmentation_mask(mask, float(inst.get("score", 0.0)))
+                build_predicted_segmentation_mask(
+                    mask,
+                    float(inst.get("score", 0.0)),
+                    scale=inst.get("scale", (1.0, 1.0)),
+                    offset=inst.get("offset", (0.0, 0.0)),
+                )
             )
+        return out
+
+    def to_rois(
+        self,
+        batch_index: int = 0,
+        epsilon: float = 0.01,
+    ) -> list["sio.PredictedROI"]:
+        """Convert one batch slot's masks into simplified ``sio.PredictedROI``s.
+
+        Each predicted mask's exterior silhouette is extracted via sio
+        ``to_polygon()`` (honoring the mask's scale/offset, so coordinates are
+        image-space) and Douglas-Peucker-simplified with tolerance ``epsilon``
+        times the silhouette perimeter. Used for ``mask_output`` polygon/both;
+        the masks themselves are left exact. Returns ``[]`` when there are no
+        masks or none has a polygonal silhouette.
+
+        Args:
+            batch_index: Which sample in the batch to convert.
+            epsilon: Simplification tolerance as a fraction of the perimeter.
+        """
+        from sleap_nn.inference.segmentation_convert import build_predicted_roi
+
+        out: List["sio.PredictedROI"] = []
+        for m in self.to_masks(batch_index=batch_index):
+            roi = build_predicted_roi(m, float(getattr(m, "score", 0.0)), epsilon)
+            if roi is not None:
+                out.append(roi)
         return out
 
     def to_labels(
@@ -571,6 +612,8 @@ class Outputs:
         collapse_skeleton: Optional["sio.Skeleton"] = None,
         emit_centroid: str = "instance",
         source: str = "center_of_mass",
+        mask_output: str = "mask",
+        polygon_epsilon: float = 0.01,
     ) -> "sio.Labels":
         """Convert this ``Outputs`` to a ``sleap_io.Labels``.
 
@@ -593,6 +636,12 @@ class Outputs:
                 ``"centroid"`` (``sio.PredictedCentroid`` into
                 ``LabeledFrame.centroids``), or ``"both"``.
             source: ``sio.Centroid.source`` method tag for emitted centroids.
+            mask_output: Segmentation-mask output representation: ``"mask"``
+                (RLE masks into ``LabeledFrame.masks``, default), ``"polygon"``
+                (Douglas-Peucker ``sio.PredictedROI`` into ``LabeledFrame.rois``
+                only), or ``"both"`` (exact mask + simplified ROI).
+            polygon_epsilon: Douglas-Peucker tolerance (fraction of perimeter)
+                for the polygon/both ROIs.
 
         Returns:
             A ``sleap_io.Labels`` containing one ``LabeledFrame`` per
@@ -632,8 +681,23 @@ class Outputs:
                 if want_centroids
                 else []
             )
-            masks = self.to_masks(batch_index=b)
-            if not instances and not centroids and not masks:
+            masks_built = self.to_masks(batch_index=b)
+            want_masks = mask_output in ("mask", "both")
+            want_rois = mask_output in ("polygon", "both")
+            masks = masks_built if want_masks else []
+            rois: List["sio.PredictedROI"] = []
+            if want_rois and masks_built:
+                from sleap_nn.inference.segmentation_convert import (
+                    build_predicted_roi,
+                )
+
+                for m in masks_built:
+                    roi = build_predicted_roi(
+                        m, float(getattr(m, "score", 0.0)), polygon_epsilon
+                    )
+                    if roi is not None:
+                        rois.append(roi)
+            if not instances and not centroids and not masks and not rois:
                 continue
             for inst in instances:
                 trk = getattr(inst, "track", None)
@@ -677,6 +741,7 @@ class Outputs:
                     instances=instances,
                     centroids=centroids,
                     masks=masks,
+                    rois=rois,
                 )
             )
         valid_videos = [v for v in videos if v is not None]

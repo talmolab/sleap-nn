@@ -256,6 +256,10 @@ def _build_bottomup_segmentation_layer(
         max_instances=getattr(inf, "max_instances", None),
         center_nms_kernel=getattr(inf, "center_nms_kernel", 3),
         mask_cleanup=getattr(inf, "mask_cleanup", False),
+        mask_cleanup_radius=getattr(inf, "mask_cleanup_radius", 0),
+        full_res_masks=getattr(inf, "full_res_masks", False),
+        mask_output=getattr(inf, "mask_output", "mask"),
+        polygon_epsilon=getattr(inf, "polygon_epsilon", 0.01),
         preprocess_config=PreprocessConfig(
             scale=inf.input_scale,
             max_height=_pp_field(predictor, "max_height"),
@@ -683,6 +687,10 @@ class Predictor:
         min_mask_area: int = 0,
         center_nms_kernel: int = 3,
         mask_cleanup: bool = False,
+        mask_cleanup_radius: int = 0,
+        full_res_masks: bool = False,
+        mask_output: str = "mask",
+        polygon_epsilon: float = 0.01,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -730,6 +738,18 @@ class Predictor:
                 nearby duplicate centers (bottom-up segmentation only).
             mask_cleanup: Keep-largest-CC + hole-fill per mask (bottom-up
                 segmentation only).
+            mask_cleanup_radius: Morphological open->close radius (output-stride
+                pixels) applied during ``mask_cleanup``; ``0`` keeps keep-largest
+                + fill only (bottom-up segmentation only).
+            full_res_masks: Encode masks at full original resolution instead of
+                the model output-stride grid (default ``False``: stride encoding
+                is ~stride^2 smaller and lossless at model resolution; bottom-up
+                segmentation only).
+            mask_output: Mask output representation: ``"mask"`` (default),
+                ``"polygon"`` (Douglas-Peucker ``sio.PredictedROI`` only), or
+                ``"both"`` (bottom-up segmentation only).
+            polygon_epsilon: Douglas-Peucker tolerance (fraction of perimeter)
+                for ``mask_output`` polygon/both (bottom-up segmentation only).
         """
         from sleap_nn.inference.loaders import load_model_assets
 
@@ -754,6 +774,10 @@ class Predictor:
             min_mask_area=min_mask_area,
             center_nms_kernel=center_nms_kernel,
             mask_cleanup=mask_cleanup,
+            mask_cleanup_radius=mask_cleanup_radius,
+            full_res_masks=full_res_masks,
+            mask_output=mask_output,
+            polygon_epsilon=polygon_epsilon,
         )
 
         if centroid_only:
@@ -802,6 +826,8 @@ class Predictor:
         if "bottomup_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")
+            spec.append(f"full_res_masks={full_res_masks}")
+            spec.append(f"mask_output={mask_output}")
         logger.info("Loaded inference model | " + " | ".join(spec))
 
         return cls(**kwargs)
@@ -1491,6 +1517,8 @@ class Predictor:
             collapse_skeleton=pkg.collapse_skeleton,
             emit_centroid=pkg.emit_centroid,
             source=pkg.source,
+            mask_output=getattr(self.layer, "mask_output", "mask"),
+            polygon_epsilon=getattr(self.layer, "polygon_epsilon", 0.01),
         )
         _prov_start = datetime.now()
         with writer:
@@ -1656,6 +1684,10 @@ class Predictor:
         out_skeleton = (
             pkg.collapse_skeleton if pkg.collapse_skeleton is not None else skeleton
         )
+        # Segmentation mask output representation (read off the layer; identity
+        # defaults for non-segmentation layers).
+        mask_output = getattr(self.layer, "mask_output", "mask")
+        polygon_epsilon = getattr(self.layer, "polygon_epsilon", 0.01)
         all_lf: list = []
         used_tracks: list = []
         seen_track_ids: set = set()
@@ -1668,6 +1700,8 @@ class Predictor:
                 collapse_skeleton=pkg.collapse_skeleton,
                 emit_centroid=pkg.emit_centroid,
                 source=pkg.source,
+                mask_output=mask_output,
+                polygon_epsilon=polygon_epsilon,
             )
             all_lf.extend(sub.labeled_frames)
             for trk in sub.tracks:

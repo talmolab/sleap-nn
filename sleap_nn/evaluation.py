@@ -218,9 +218,19 @@ def match_masks(
 
 
 def _frame_masks(frame: sio.LabeledFrame) -> List[np.ndarray]:
-    """Decode a frame's segmentation masks into boolean arrays (orig res)."""
+    """Decode a frame's segmentation masks into boolean arrays on the image grid.
+
+    Scale-aware: masks encoded at output-stride (non-identity ``scale``, the
+    default for predicted segmentation masks) are nearest-neighbor resampled up
+    to their image extent, so a stride-res prediction and an original-res
+    ground-truth mask are compared on a common image-pixel grid. Scale-1 masks
+    (legacy full-res GT/preds) take a zero-copy fast path, so existing eval
+    numbers are unchanged.
+    """
+    from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
+
     masks = getattr(frame, "masks", None) or []
-    return [np.asarray(m.data, dtype=bool) for m in masks]
+    return [decode_mask_to_image_res(m) for m in masks]
 
 
 @attrs.define(auto_attribs=True, slots=True)

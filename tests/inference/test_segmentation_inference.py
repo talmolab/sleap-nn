@@ -160,24 +160,53 @@ def test_segmentation_layer_postprocess_gt_roundtrip():
         "InstanceCenterHead": center,
         "CenterOffsetHead": offsets,
     }
+    import torch.nn.functional as F
+
     out = layer.postprocess(raw, info)
     assert len(out.pred_masks) == 1
     assert len(out.pred_masks[0]) == 2
+    # Default: masks are at output-stride resolution; scale/offset carry the
+    # mapping back to image pixels (the #618 ~stride^2 RLE win).
+    gt_ds = [
+        (
+            F.interpolate(
+                torch.from_numpy(g.astype(np.float32))[None, None],
+                size=(H // s, W // s),
+                mode="area",
+            )[0, 0]
+            > 0.5
+        ).numpy()
+        for g in masks
+    ]
     for inst in out.pred_masks[0]:
         fm = inst["mask"]
-        assert fm.shape == (H, W)
-        best = max((fm & g).sum() / ((fm | g).sum() or 1) for g in masks)
-        assert best > 0.85  # full-res recovery (downsample/upsample boundary loss)
+        assert fm.shape == (H // s, W // s)
+        assert inst["scale"] == (1.0 / s, 1.0 / s)
+        assert inst["offset"] == (0.0, 0.0)
+        best = max((fm & g).sum() / ((fm | g).sum() or 1) for g in gt_ds)
+        assert best > 0.85  # stride-res recovery
 
-    # Package + .slp roundtrip.
+    # Package + .slp roundtrip: emitted sio masks carry scale and recover the
+    # original image extent.
     video = sio.Video.from_filename("dummy.mp4")
-    out = type(out)(
+    out_pkg = type(out)(
         pred_masks=out.pred_masks,
         frame_indices=torch.tensor([0]),
         video_indices=torch.tensor([0]),
     )
-    labels = out.to_labels(skeleton=None, videos=[video])
+    labels = out_pkg.to_labels(skeleton=None, videos=[video])
     assert len(labels.masks) == 2
+    for m in labels.masks:
+        assert m.scale == (1.0 / s, 1.0 / s)
+        assert m.image_extent == (H, W)
+
+    # full_res_masks=True restores the legacy original-resolution mask.
+    layer.full_res_masks = True
+    out_fr = layer.postprocess(raw, info)
+    for inst in out_fr.pred_masks[0]:
+        assert inst["mask"].shape == (H, W)
+        assert inst["scale"] == (1.0, 1.0)
+        assert inst["offset"] == (0.0, 0.0)
 
 
 def test_group_instances_max_instances_caps_to_top_scoring():
@@ -374,10 +403,15 @@ def test_segmentation_layer_min_mask_area_drops_tiny_masks():
     out0 = _layer(0).postprocess(raw, info)
     assert len(out0.pred_masks[0]) == 2
 
-    # With a floor between the two areas, only the large mask survives.
+    # With a floor between the two areas, only the large mask survives. The
+    # stored mask is at output-stride res, so convert its pixel count back to
+    # original-image pixels via the carried scale before checking the floor.
     out1 = _layer(400).postprocess(raw, info)
     assert len(out1.pred_masks[0]) == 1
-    assert int(out1.pred_masks[0][0]["mask"].sum()) >= 400
+    inst0 = out1.pred_masks[0][0]
+    sx, sy = inst0["scale"]
+    orig_area = int(inst0["mask"].sum()) / (sx * sy)
+    assert orig_area >= 400
 
 
 # ---------------------------------------------------------------------------

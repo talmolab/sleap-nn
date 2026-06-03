@@ -68,6 +68,10 @@ class IncrementalLabelsWriter:
     collapse_skeleton: Optional[Any] = None
     emit_centroid: str = "instance"
     source: str = "center_of_mass"
+    # Segmentation mask output representation — threaded so the streamed ``.slp``
+    # matches the in-memory ``predict()`` output (mask / polygon ROI / both).
+    mask_output: str = "mask"
+    polygon_epsilon: float = 0.01
 
     _buffer: List[Any] = attrs.field(factory=list, init=False, repr=False)
     _all_frames: List[Any] = attrs.field(factory=list, init=False, repr=False)
@@ -114,6 +118,8 @@ class IncrementalLabelsWriter:
             collapse_skeleton=self.collapse_skeleton,
             emit_centroid=self.emit_centroid,
             source=self.source,
+            mask_output=self.mask_output,
+            polygon_epsilon=self.polygon_epsilon,
         )
         self._buffer.extend(sub.labeled_frames)
 
