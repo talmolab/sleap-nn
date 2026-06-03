@@ -542,8 +542,13 @@ class Outputs:
         """Convert one batch slot's masks into ``sio.PredictedSegmentationMask``s.
 
         Each entry of ``pred_masks[batch_index]`` is a dict with a boolean
-        ``"mask"`` (original-image resolution) and a float ``"score"``; both
-        become a ``sio.PredictedSegmentationMask`` (stored in
+        ``"mask"``, a float ``"score"``, and ``"scale"``/``"offset"`` mapping
+        the mask back to image pixels (``image_coord = mask_coord / scale +
+        offset``). By default ``mask`` is at output-stride resolution; with
+        ``full_res_masks`` it is at original-image resolution with identity
+        ``scale``/``offset``. ``scale``/``offset`` are read with identity
+        defaults for back-compat callers that build this dict directly. Each
+        entry becomes a ``sio.PredictedSegmentationMask`` (stored in
         ``LabeledFrame.masks``). Returns ``[]`` when there are no masks.
 
         Args:

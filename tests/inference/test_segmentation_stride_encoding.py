@@ -83,12 +83,13 @@ def test_stride_encode_rle_smaller_than_full_res_noisy():
 
 
 def test_mask_to_stride_scale_offset_and_pad_crop():
-    """_mask_to_stride: scale = eff*input_scale/stride, offset 0, valid pad crop.
+    """_mask_to_stride: scale = valid/orig, offset 0, ceil pad crop.
 
-    Locks the critic's worked example (input_scale=0.5, eff=0.8, stride=2,
-    orig=1024): s=0.4, sx=0.2, valid crop = round(1024*0.2) = 205, and the
-    encoded mask's image_extent over-estimates the original by +1 (1025), so
-    image_extent is NOT authoritative for the true frame size.
+    Worked example (input_scale=0.5, eff=0.8, stride=2, orig=1024): s=0.4,
+    scaled=round(1024*0.4)=410, valid=ceil(410/2)=205, and scale=205/1024≈0.2002
+    (the exact inverse of the crop, NOT the raw s/stride=0.2), so image_extent
+    recovers 1024 EXACTLY. For other configs image_extent can still be off by ±1
+    px (round(orig*s) rounding), so it is NOT authoritative for the true frame size.
     """
     layer = SegmentationLayer.__new__(SegmentationLayer)
     layer.output_stride = 2
@@ -101,19 +102,46 @@ def test_mask_to_stride_scale_offset_and_pad_crop():
         output_stride=2,
     )
     mask_stride, scale, offset = layer._mask_to_stride(head, info, 0)
-    assert scale[0] == pytest.approx(0.2) and scale[1] == pytest.approx(0.2)
+    # scale = valid/orig = 205/1024 ≈ 0.2002 (not the raw s/stride = 0.2).
+    assert scale[0] == pytest.approx(0.2, abs=1e-3)
+    assert scale[1] == pytest.approx(0.2, abs=1e-3)
     assert offset == (0.0, 0.0)
-    assert mask_stride.shape == (205, 205)  # round(1024 * 0.2)
-    # image_extent recovers the original size only within +/-1px (the mask res is
-    # round(orig*scale)); it is NOT authoritative for the true frame size.
+    assert mask_stride.shape == (205, 205)  # ceil(round(1024*0.4)/2)
+    # The valid/orig scale makes image_extent recover orig EXACTLY here (the bug
+    # was storing s/stride, which truncates orig by up to a stride cell).
     sm = build_predicted_segmentation_mask(mask_stride, 1.0, scale=scale)
-    assert abs(sm.image_extent[0] - 1024) <= 1
-    assert abs(sm.image_extent[1] - 1024) <= 1
-    # Locked +1 over-estimate with an exact 0.2 scale: int(205/0.2)==int(1025.0).
-    over = build_predicted_segmentation_mask(
-        np.ones((205, 205), bool), 1.0, scale=(0.2, 0.2)
+    assert sm.image_extent == (1024, 1024)
+
+
+@pytest.mark.parametrize(
+    "orig,eff,iscale,stride",
+    [
+        (1000, 1.0, 1.0, 16),
+        (200, 1.0, 1.0, 16),
+        (1024, 1.0, 0.2, 4),
+        (777, 1.0, 0.5, 8),
+        (101, 1.0, 1.0, 4),
+    ],
+)
+def test_mask_to_stride_image_extent_recovers_orig_at_large_stride(
+    orig, eff, iscale, stride
+):
+    """Stored scale (valid/orig) must recover orig EXACTLY even at large stride /
+    fractional configs. Regression for the s/stride scale bug that truncated orig
+    by up to a stride cell (e.g. 1000@stride16 -> 992)."""
+    layer = SegmentationLayer.__new__(SegmentationLayer)
+    layer.output_stride = stride
+    head = np.ones((orig, orig), bool)  # >= the valid extent for any of these
+    info = PreprocInfo(
+        original_size=(orig, orig),
+        processed_size=(orig, orig),
+        eff_scale=torch.tensor([eff]),
+        input_scale=iscale,
+        output_stride=stride,
     )
-    assert over.image_extent == (1025, 1025)
+    mask_stride, scale, _ = layer._mask_to_stride(head, info, 0)
+    sm = build_predicted_segmentation_mask(mask_stride, 1.0, scale=scale)
+    assert sm.image_extent == (orig, orig)
 
 
 def test_postprocess_default_stride_and_full_res_escape():
@@ -189,7 +217,9 @@ def test_min_mask_area_invariance_integer_stride():
         ly.postprocess_config = PostprocessConfig(peak_threshold=0.2)
         return ly
 
-    for floor in (0, 100, 400, 800):
+    # Dense sweep so a floor whose /stride^2 has fractional part < 0.5 (where
+    # round() would over-keep but ceil() matches full_res) is actually exercised.
+    for floor in list(range(0, 130)) + [400, 800]:
         n_stride = len(_layer(floor, False).postprocess(raw, info).pred_masks[0])
         n_full = len(_layer(floor, True).postprocess(raw, info).pred_masks[0])
         assert n_stride == n_full, f"floor={floor}: {n_stride} != {n_full}"
@@ -338,6 +368,48 @@ def test_mask_output_mask_default_no_rois():
     labels = out.to_labels(skeleton=None, videos=[video])  # default 'mask'
     assert len(labels[0].masks) == 1
     assert len(labels[0].rois) == 0
+
+
+def test_incremental_writer_polygon_output(tmp_path):
+    """The STREAMING path (IncrementalLabelsWriter) honors mask_output=polygon.
+
+    Covers the writer.mask_output/polygon_epsilon attrs + their to_labels kwargs,
+    which the in-memory to_labels tests do not exercise.
+    """
+    from sleap_nn.inference.writer import IncrementalLabelsWriter
+
+    out = _seg_outputs()
+    video = sio.Video.from_filename("dummy.mp4")
+    p = tmp_path / "poly_stream.slp"
+    writer = IncrementalLabelsWriter(
+        path=p.as_posix(),
+        skeleton=None,
+        videos=[video],
+        mask_output="polygon",
+        polygon_epsilon=0.02,
+    )
+    with writer:
+        writer.write(out)
+    reloaded = sio.load_slp(p.as_posix())
+    assert len(reloaded[0].masks) == 0
+    assert len(reloaded[0].rois) == 1
+
+
+def test_incremental_writer_both_output(tmp_path):
+    """Streaming path with mask_output=both emits exact mask + simplified ROI."""
+    from sleap_nn.inference.writer import IncrementalLabelsWriter
+
+    out = _seg_outputs()
+    video = sio.Video.from_filename("dummy.mp4")
+    p = tmp_path / "both_stream.slp"
+    writer = IncrementalLabelsWriter(
+        path=p.as_posix(), skeleton=None, videos=[video], mask_output="both"
+    )
+    with writer:
+        writer.write(out)
+    reloaded = sio.load_slp(p.as_posix())
+    assert len(reloaded[0].masks) == 1
+    assert len(reloaded[0].rois) == 1
 
 
 # ── backward compatibility ───────────────────────────────────────────────────

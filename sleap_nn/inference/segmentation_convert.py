@@ -59,10 +59,10 @@ def decode_mask_to_image_res(m: "sio.SegmentationMask") -> np.ndarray:
     resolution. When the mask carries a non-identity ``scale`` (masks encoded
     at output-stride by :class:`SegmentationLayer`), this nearest-neighbor
     resamples it up to its image extent so every consumer — eval IoU
-    (:func:`sleap_nn.evaluation._frame_masks`), the segmentation training data
-    loader, and mask-IoU tracking — compares masks on a common original-image
-    grid. Scale-1 masks (legacy full-res GT/preds) take a zero-copy fast path,
-    so old ``.slp`` files behave exactly as before.
+    (:func:`sleap_nn.evaluation._frame_masks`) and the segmentation training data
+    loader — compares masks on a common original-image grid. Scale-1 masks
+    (legacy full-res GT/preds) take a zero-copy fast path, so old ``.slp`` files
+    behave exactly as before.
 
     Note:
         ``image_extent`` can differ from the true frame size by +/-1 px because
@@ -108,7 +108,23 @@ def build_predicted_roi(
     if geom is None or geom.is_empty:
         return None
     if epsilon and epsilon > 0:
-        simplified = geom.simplify(float(epsilon) * geom.length, preserve_topology=True)
+        from shapely.geometry import MultiPolygon
+
+        # Simplify per-component for a MultiPolygon (a fragmented/speckled mask):
+        # ``geom.length`` on a MultiPolygon is the SUM of all component perimeters,
+        # so a single ``epsilon * geom.length`` tolerance would over-simplify each
+        # small part. Scale each component's tolerance to its OWN perimeter; the
+        # single-Polygon (dominant) case is unchanged.
+        if isinstance(geom, MultiPolygon):
+            parts = [
+                g.simplify(float(epsilon) * g.length, preserve_topology=True)
+                for g in geom.geoms
+            ]
+            simplified = MultiPolygon([p for p in parts if not p.is_empty])
+        else:
+            simplified = geom.simplify(
+                float(epsilon) * geom.length, preserve_topology=True
+            )
         if not simplified.is_empty:
             geom = simplified
     return sio.PredictedROI(geometry=geom, score=float(score))

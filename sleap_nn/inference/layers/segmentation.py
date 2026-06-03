@@ -12,6 +12,7 @@ the legacy original-resolution upsample.
 
 from __future__ import annotations
 
+import math
 from typing import List, Optional
 
 import numpy as np
@@ -187,7 +188,12 @@ class SegmentationLayer(InferenceLayer):
                         inst["mask"], info, b
                     )
                     sx, sy = scale
-                    area_floor_stride = max(1, int(round(area_floor * sx * sy)))
+                    # ceil (not round): the stride floor is the smallest integer
+                    # pixel count whose original-pixel area (count / (sx*sy)) still
+                    # meets the floor. round() would round the scaled floor DOWN
+                    # and over-keep sub-floor masks, breaking the integer-scale
+                    # parity with --full_res_masks.
+                    area_floor_stride = max(1, math.ceil(area_floor * sx * sy))
                     if int(mask_out.sum()) < area_floor_stride:
                         continue
                 frame_masks.append(
@@ -207,10 +213,26 @@ class SegmentationLayer(InferenceLayer):
 
         Unlike :meth:`_mask_to_original`, this does NOT upsample. The head map
         covers the bottom-right-padded extent, so the valid region is the
-        top-left ``round(orig * scale)`` block at stride resolution. The sio
-        mapping is ``sx = sy = eff_scale[b] * input_scale / output_stride``
-        (``mask_dim / image_dim``) with ``offset = (0, 0)`` because every
-        preprocessing pad is bottom-right (valid content top-left aligned).
+        top-left block at stride resolution.
+
+        Two subtleties (both verified against the legacy ``_mask_to_original``
+        crop so the default and ``--full_res_masks`` paths keep identical edge
+        content):
+
+        * The valid extent is ``ceil(round(orig * s) / stride)`` stride cells,
+          NOT ``round(orig * s / stride)``: the trailing partial stride cell
+          covers real (non-pad) processed pixels and ``round`` would drop it,
+          truncating masks whose object touches the right/bottom edge.
+        * The stored sio scale is ``valid / orig`` (the exact inverse of the
+          crop), NOT the raw ``s / stride`` ratio. ``sio.image_extent`` recovers
+          the image size as ``int(valid / scale)``; only ``valid / orig`` makes
+          that round-trip to ``orig`` exactly. The raw ratio floor-truncates
+          ``orig`` by up to a full stride cell at large strides.
+
+        ``offset`` is ``(0, 0)`` because every preprocessing pad is bottom-right
+        (valid content top-left aligned). Scales are isotropic today
+        (eff_scale / input_scale / output_stride are scalars) but stored
+        per-axis so each dim's crop inverts exactly.
 
         Returns:
             ``(mask_stride_bool, (sx, sy), (ox, oy))``.
@@ -226,12 +248,18 @@ class SegmentationLayer(InferenceLayer):
         if info.eff_scale is not None and info.eff_scale.numel() > b:
             eff = float(info.eff_scale[b])
         s = eff * float(info.input_scale)
-        # Isotropic today (eff_scale / input_scale / output_stride are scalars),
-        # so sx == sy. A future anisotropic sizematcher must revisit this.
-        sx = sy = s / stride
-        valid_h = min(mask.shape[0], max(1, int(round(orig_h * sy))))
-        valid_w = min(mask.shape[1], max(1, int(round(orig_w * sx))))
+        # Valid (non-pad) processed extent in input pixels, then the number of
+        # output-stride cells that overlap it (ceil — keeps the trailing partial
+        # cell, matching _mask_to_original).
+        scaled_h = max(1, int(round(orig_h * s)))
+        scaled_w = max(1, int(round(orig_w * s)))
+        valid_h = min(mask.shape[0], max(1, math.ceil(scaled_h / stride)))
+        valid_w = min(mask.shape[1], max(1, math.ceil(scaled_w / stride)))
         mask_stride = np.ascontiguousarray(mask[:valid_h, :valid_w], dtype=bool)
+        # Store the scale that exactly inverts this crop (image_extent ->
+        # int(valid / (valid / orig)) == orig).
+        sx = valid_w / float(orig_w)
+        sy = valid_h / float(orig_h)
         return mask_stride, (sx, sy), (0.0, 0.0)
 
     def _mask_to_original(
