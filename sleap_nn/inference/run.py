@@ -141,7 +141,8 @@ def predict(
         tracker_config: :class:`TrackerConfig` for tracking.
         output_path: If set, save the Labels to this ``.slp`` path.
         clean_empty_frames: Drop frames with no instances.
-        progress_callback: ``(processed, total)`` callback per batch.
+        progress_callback: ``(processed_frames, total_frames)`` callback
+            invoked after each batch (counts are in frames).
         tracking_progress_callback: ``(processed_frames, total_frames)``
             callback per frame during tracking.
 
