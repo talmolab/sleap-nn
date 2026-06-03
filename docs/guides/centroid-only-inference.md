@@ -66,26 +66,26 @@ sleap-nn train --config-name config_centroid_unet_standalone.yaml
 
 ### 2. Infer
 
-`sleap-nn infer` auto-detects a centroid-only model when `--model_paths` points
+`sleap-nn predict` auto-detects a centroid-only model when `--model_paths` points
 to a single centroid directory. `--centroid_only` is only needed when you also
 pass a centered-instance model but want centroid-only output.
 
 ```bash
 # Auto-detected: a lone centroid model directory → centroid-only output.
-sleap-nn infer \
+sleap-nn predict \
     -i video.mp4 \
     -m models/centroid/ \
     -o centroids.slp
 
 # Emit sio.PredictedCentroid objects instead of single-node instances.
-sleap-nn infer \
+sleap-nn predict \
     -i video.mp4 \
     -m models/centroid/ \
     -o centroids.slp \
     --centroid-output centroid
 
 # Explicit override: both models configured, but only want centroids.
-sleap-nn infer \
+sleap-nn predict \
     -i video.mp4 \
     -m models/centroid/ \
     -m models/centered_instance/ \
@@ -142,7 +142,7 @@ representation choices:
 sleap-nn export models/centroid -o exports/centroid --format onnx
 
 # Run the exported model. --centroid-output mirrors the checkpoint flow.
-sleap-nn predict exports/centroid video.mp4 -o centroids.slp \
+sleap-nn export predict exports/centroid video.mp4 -o centroids.slp \
     --centroid-output instance
 ```
 

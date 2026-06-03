@@ -94,7 +94,7 @@ last observed pose **rigidly translated** by that predicted displacement (analog
 optical flow, but using a motion model instead of image displacements):
 
 ```bash
-sleap-nn infer -i video.mp4 -m models/centroid models/centered_instance \
+sleap-nn predict -i video.mp4 -m models/centroid models/centered_instance \
     -t \
     --use_kalman \
     --tracking_target_instance_count 2 \

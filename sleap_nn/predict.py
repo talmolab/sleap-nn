@@ -322,7 +322,7 @@ def run_inference(
         * **Streaming to disk**: ``predictor.predict_to_file(...)``
         * **Pure-tracking retrack**: ``Predictor.retrack(labels, tracker_config)``
 
-        ``sleap-nn infer`` / ``sleap-nn track`` already route through the
+        ``sleap-nn predict`` / ``sleap-nn track`` already route through the
         new flow internally; this function is the only remaining
         Python-level legacy entry point.
     """
@@ -582,7 +582,7 @@ def run_inference(
         # Centroid-only models are unsupported on this legacy pipeline: a lone
         # centroid model builds a GT-dependent FindInstancePeaksGroundTruth stage
         # (predictors.py), silently substituting ground-truth centroids and only
-        # "predicting" labeled frames. Redirect to the new `infer` flow instead of
+        # "predicting" labeled frames. Redirect to the new `predict` flow instead of
         # producing misleading GT-copied output.
         if model_paths:
             from sleap_nn.config.utils import (
@@ -613,7 +613,7 @@ def run_inference(
                     "`track` / `run_inference` pipeline (it would silently "
                     "substitute ground-truth centroids and require labeled "
                     "frames). Use the new flow instead:\n"
-                    "  sleap-nn infer --data_path <video|.slp> --model_paths <centroid_dir>\n"
+                    "  sleap-nn predict --data_path <video|.slp> --model_paths <centroid_dir>\n"
                     "or, from Python:\n"
                     "  from sleap_nn.inference.run import predict\n"
                     "  predict(src, model_paths=[centroid_dir], centroid_only=True)"

@@ -7,7 +7,7 @@
 # multi-instance "animals-as-points" detection, tracking, or counting where
 # per-keypoint pose is not needed.
 #
-# At inference (`sleap-nn infer` auto-detects a lone centroid model directory),
+# At inference (`sleap-nn predict` auto-detects a lone centroid model directory),
 # the output collapses to a single-node 'centroid' skeleton — see
 # docs/guides/centroid-only-inference.md for the output representation contract,
 # distance-based evaluation, and export.

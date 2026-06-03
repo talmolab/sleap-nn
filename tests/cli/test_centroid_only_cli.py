@@ -2,7 +2,7 @@
 
 Covers:
 
-1. ``--centroid-only`` is exposed in ``sleap-nn infer --help``.
+1. ``--centroid-only`` is exposed in ``sleap-nn predict --help``.
 2. Setting ``--centroid-only`` threads ``centroid_only=True`` into the
    ``predict()`` call.
 3. Omitting the flag leaves ``centroid_only`` out of the predict kwargs
@@ -19,10 +19,10 @@ from click.testing import CliRunner
 from sleap_nn.cli import cli
 
 
-def test_centroid_only_flag_in_infer_help():
-    """``--centroid-only`` appears in the help output of ``sleap-nn infer``."""
+def test_centroid_only_flag_in_predict_help():
+    """``--centroid-only`` appears in the help output of ``sleap-nn predict``."""
     runner = CliRunner()
-    result = runner.invoke(cli, ["infer", "--help"])
+    result = runner.invoke(cli, ["predict", "--help"])
     assert result.exit_code == 0, result.output
     assert "--centroid-only" in result.output or "--centroid_only" in result.output
 
@@ -37,7 +37,7 @@ def test_centroid_only_flag_propagates_to_predict():
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -65,7 +65,7 @@ def test_centroid_only_flag_omitted_is_default_off():
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -90,7 +90,7 @@ def test_centroid_only_underscore_variant_accepted():
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",

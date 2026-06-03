@@ -18,9 +18,10 @@ Complete command-line interface documentation.
 |---------|-------------|
 | [`sleap-nn train`](#sleap-nn-train) | Train models |
 | [`sleap-nn track`](#sleap-nn-track) | Run inference/tracking |
+| [`sleap-nn predict`](#sleap-nn-predict) | Run inference on videos/labels |
 | [`sleap-nn eval`](#sleap-nn-eval) | Evaluate predictions |
 | [`sleap-nn export`](#sleap-nn-export) | Export to ONNX/TensorRT |
-| [`sleap-nn predict`](#sleap-nn-predict) | Inference on exported models |
+| [`sleap-nn export predict`](#sleap-nn-export-predict) | Inference on exported models |
 | [`sleap-nn config`](#sleap-nn-config) | Generate training configs (experimental) |
 | [`sleap-nn info`](#sleap-nn-info) | Inspect trained models |
 | [`sleap-nn system`](#sleap-nn-system) | System diagnostics |
@@ -152,6 +153,24 @@ sleap-nn track -i video.mp4 -m models/ --filter_overlapping -t
 
 ---
 
+## `sleap-nn predict`
+
+Run inference on videos or labels files. This is the canonical command for running the unified inference pipeline on trained checkpoint models.
+
+```bash
+sleap-nn predict --data_path INPUT --model_paths MODEL [OPTIONS]
+```
+
+`sleap-nn predict` accepts the same options as [`sleap-nn track`](#sleap-nn-track) (data selection, filtering, device, batch size, etc.). Add `--tracking` to enable tracking.
+
+### Example
+
+```bash
+sleap-nn predict -i video.mp4 -m models/centroid -m models/centered_instance -o predictions.slp
+```
+
+---
+
 ## `sleap-nn eval`
 
 Evaluate predictions against ground truth.
@@ -212,12 +231,12 @@ sleap-nn export models/centroid models/instance -o exports/
 
 ---
 
-## `sleap-nn predict`
+## `sleap-nn export predict`
 
 Run inference on exported models.
 
 ```bash
-sleap-nn predict EXPORT_DIR INPUT_PATH [OPTIONS]
+sleap-nn export predict EXPORT_DIR INPUT_PATH [OPTIONS]
 ```
 
 ### Options
@@ -233,7 +252,7 @@ sleap-nn predict EXPORT_DIR INPUT_PATH [OPTIONS]
 ### Example
 
 ```bash
-sleap-nn predict exports/model video.mp4 -o predictions.slp --runtime tensorrt
+sleap-nn export predict exports/model video.mp4 -o predictions.slp --runtime tensorrt
 ```
 
 ---

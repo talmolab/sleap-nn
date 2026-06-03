@@ -229,7 +229,7 @@ class TestTrackCommand:
     def test_track_and_infer_help_list_kalman_flags(self):
         """Both `track` and `infer` document the Kalman flags (#572)."""
         runner = CliRunner()
-        for command in ("track", "infer"):
+        for command in ("track", "predict"):
             result = runner.invoke(cli, [command, "--help"])
             assert result.exit_code == 0
             assert "--use_kalman" in result.output
@@ -913,7 +913,7 @@ def test_track_command_retrack_only_uses_new_flow(
         "--extra",
         "torch-cpu",
         "sleap-nn",
-        "infer",
+        "predict",
         "--model_paths",
         minimal_instance_centroid_ckpt,
         "--model_paths",
@@ -941,7 +941,7 @@ def test_track_command_retrack_only_uses_new_flow(
         "--extra",
         "torch-cpu",
         "sleap-nn",
-        "infer",
+        "predict",
         "--data_path",
         pred_slp,
         "--tracking",
@@ -974,7 +974,7 @@ def test_track_command_with_tracking_uses_new_flow(
         "--extra",
         "torch-cpu",
         "sleap-nn",
-        "infer",
+        "predict",
         "--model_paths",
         minimal_instance_centroid_ckpt,
         "--model_paths",

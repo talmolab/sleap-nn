@@ -71,7 +71,7 @@ class TestPredictWiring:
         self, mock_video_cls, mock_from_export_dir, tmp_path
     ):
         """``--runtime``, ``--device``, and grouping kwargs flow into the factory."""
-        from sleap_nn.export.cli import predict
+        from sleap_nn.export.cli import export_predict
 
         export_dir = _write_export_dir(tmp_path)
         video_path = _fake_video_path(tmp_path)
@@ -84,7 +84,7 @@ class TestPredictWiring:
 
         runner = CliRunner()
         result = runner.invoke(
-            predict,
+            export_predict,
             [
                 str(export_dir),
                 str(video_path),
@@ -125,7 +125,7 @@ class TestPredictWiring:
         self, mock_video_cls, mock_from_export_dir, tmp_path
     ):
         """Non-default values for graph-baked flags emit a one-time warning."""
-        from sleap_nn.export.cli import predict
+        from sleap_nn.export.cli import export_predict
 
         export_dir = _write_export_dir(tmp_path)
         video_path = _fake_video_path(tmp_path)
@@ -137,7 +137,7 @@ class TestPredictWiring:
 
         runner = CliRunner()
         result = runner.invoke(
-            predict,
+            export_predict,
             [
                 str(export_dir),
                 str(video_path),
@@ -163,7 +163,7 @@ class TestPredictWiring:
         self, mock_video_cls, mock_from_export_dir, tmp_path
     ):
         """Defaults don't trigger the baked-in warning."""
-        from sleap_nn.export.cli import predict
+        from sleap_nn.export.cli import export_predict
 
         export_dir = _write_export_dir(tmp_path)
         video_path = _fake_video_path(tmp_path)
@@ -175,7 +175,7 @@ class TestPredictWiring:
 
         runner = CliRunner()
         result = runner.invoke(
-            predict,
+            export_predict,
             [
                 str(export_dir),
                 str(video_path),
@@ -191,7 +191,7 @@ class TestPredictWiring:
 
     def test_missing_metadata_raises_click_exception(self, tmp_path):
         """A bad export dir produces a clean ClickException, not a traceback."""
-        from sleap_nn.export.cli import predict
+        from sleap_nn.export.cli import export_predict
 
         export_dir = tmp_path / "no_metadata"
         export_dir.mkdir()
@@ -199,7 +199,7 @@ class TestPredictWiring:
 
         runner = CliRunner()
         result = runner.invoke(
-            predict,
+            export_predict,
             [
                 str(export_dir),
                 str(video_path),
@@ -213,7 +213,7 @@ class TestPredictWiring:
 
     def test_missing_training_config_raises_click_exception(self, tmp_path):
         """Metadata present but no training_config.yaml → ClickException."""
-        from sleap_nn.export.cli import predict
+        from sleap_nn.export.cli import export_predict
 
         export_dir = tmp_path / "no_cfg"
         export_dir.mkdir()
@@ -226,7 +226,7 @@ class TestPredictWiring:
 
         runner = CliRunner()
         result = runner.invoke(
-            predict,
+            export_predict,
             [
                 str(export_dir),
                 str(video_path),

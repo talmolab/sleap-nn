@@ -83,12 +83,12 @@ def exported_bottomup_onnx_dir(bottomup_ckpt_path, tmp_path_factory):
     """Export the bottom-up checkpoint to ONNX and return the export directory."""
     pytest.importorskip("onnx")
 
-    from sleap_nn.export.cli import export
+    from sleap_nn.export.cli import export_model
 
     export_dir = tmp_path_factory.mktemp("export_bottomup_onnx")
     runner = CliRunner()
     result = runner.invoke(
-        export,
+        export_model,
         [
             str(bottomup_ckpt_path),
             "-o",
@@ -345,7 +345,7 @@ def _export_ckpts_to_onnx(
     extra_args: list[str] | None = None,
 ) -> Path:
     """Export checkpoint(s) to ONNX via the CLI and return the export dir."""
-    from sleap_nn.export.cli import export
+    from sleap_nn.export.cli import export_model
 
     runner = CliRunner()
     args = [str(p) for p in ckpt_paths] + [
@@ -358,7 +358,7 @@ def _export_ckpts_to_onnx(
     ]
     if extra_args:
         args.extend(extra_args)
-    result = runner.invoke(export, args)
+    result = runner.invoke(export_model, args)
     assert result.exit_code == 0, f"Export failed:\n{result.output}\n{result.exception}"
     assert (export_dir / "model.onnx").exists()
     return export_dir
@@ -645,12 +645,12 @@ class TestBottomUpTensorRTAccuracy:
     @pytest.fixture(scope="class")
     def exported_trt_dir(self, bottomup_ckpt_path, tmp_path_factory):
         """Export to TensorRT format."""
-        from sleap_nn.export.cli import export
+        from sleap_nn.export.cli import export_model
 
         export_dir = tmp_path_factory.mktemp("export_bottomup_trt")
         runner = CliRunner()
         result = runner.invoke(
-            export,
+            export_model,
             [
                 str(bottomup_ckpt_path),
                 "-o",

@@ -1,8 +1,10 @@
 """Tests for command aliases and routing (PR 10 of #508 / #518).
 
 ``sleap-nn track`` uses the legacy ``run_inference`` pipeline.
-``sleap-nn infer`` uses the new ``Predictor``-based pipeline.
-``sleap-nn predict`` runs inference on exported ONNX/TRT models.
+``sleap-nn predict`` uses the new ``Predictor``-based pipeline.
+``sleap-nn infer`` is a deprecated alias that still works but emits a warning.
+``sleap-nn export model`` exports trained models.
+``sleap-nn export predict`` runs inference on exported ONNX/TRT models.
 """
 
 from __future__ import annotations
@@ -34,8 +36,8 @@ def test_track_routes_to_legacy_run_inference():
     mock_run.assert_called_once()
 
 
-def test_infer_routes_to_new_predict():
-    """``sleap-nn infer`` routes to the new ``predict()`` pipeline."""
+def test_predict_routes_to_new_predict():
+    """``sleap-nn predict`` routes to the new ``predict()`` pipeline."""
     from unittest.mock import MagicMock
 
     runner = CliRunner()
@@ -46,7 +48,7 @@ def test_infer_routes_to_new_predict():
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -59,15 +61,50 @@ def test_infer_routes_to_new_predict():
     mock_predict.assert_called_once()
 
 
-def test_export_predict_top_level_still_works():
-    """The legacy top-level ``sleap-nn predict`` (export-trained) is intact.
+def test_export_predict_under_export_group():
+    """``sleap-nn export predict --help`` shows EXPORT_DIR/VIDEO_PATH args.
 
-    PR 10 explicitly does NOT remap top-level ``predict`` — that's a
-    follow-up. ``sleap-nn predict --help`` should still render the
-    export-trained predict command (with EXPORT_DIR + VIDEO_PATH args).
+    The export predict command lives under the ``export`` group and handles
+    inference on exported ONNX/TRT models.
     """
     runner = CliRunner()
-    result = runner.invoke(cli, ["predict", "--help"])
+    result = runner.invoke(cli, ["export", "predict", "--help"])
     assert result.exit_code == 0, result.output
-    # Marker that this is still the export-trained predict, not infer.
+    # Marker that this is the export-trained predict, not the inference predict.
     assert "EXPORT_DIR" in result.output or "VIDEO_PATH" in result.output
+
+
+def test_infer_shim_still_works():
+    """``sleap-nn infer --help`` still works (exit code 0) via the deprecated shim."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["infer", "--help"])
+    assert result.exit_code == 0, result.output
+
+
+def test_infer_shim_emits_deprecation_warning():
+    """``sleap-nn infer`` emits a DeprecationWarning pointing to ``predict``."""
+    import warnings
+    from unittest.mock import MagicMock
+
+    runner = CliRunner()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with patch(
+            "sleap_nn.inference.run.predict",
+            return_value=MagicMock(),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "infer",
+                    "--data_path",
+                    "/fake/path.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                    "--device",
+                    "cpu",
+                ],
+            )
+    assert result.exit_code == 0, result.output
+    deprecation_msgs = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert any("sleap-nn predict" in str(w.message) for w in deprecation_msgs)

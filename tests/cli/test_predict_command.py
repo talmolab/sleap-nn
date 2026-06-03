@@ -1,9 +1,9 @@
-"""Tests for ``sleap-nn infer`` -- the unified inference command (PR 10 #518).
+"""Tests for ``sleap-nn predict`` -- the unified inference command (PR 10 #518).
 
 Coverage:
 
 1. The command is registered and ``--help`` renders.
-2. Every non-new flag from ``sleap-nn track`` is accepted by ``infer``
+2. Every non-new flag from ``sleap-nn track`` is accepted by ``predict``
    (parity with the legacy command's option surface).
 3. The four PR-10 new flags are accepted: ``--paf-workers``, the legacy
    alias ``--cpu-workers``, ``--stream-to-file``, ``--write-interval``,
@@ -21,10 +21,10 @@ from click.testing import CliRunner
 from sleap_nn.cli import cli
 
 
-def test_infer_command_help_renders():
-    """``sleap-nn infer --help`` exits 0 and lists the canonical flags."""
+def test_predict_command_help_renders():
+    """``sleap-nn predict --help`` exits 0 and lists the canonical flags."""
     runner = CliRunner()
-    result = runner.invoke(cli, ["infer", "--help"])
+    result = runner.invoke(cli, ["predict", "--help"])
     assert result.exit_code == 0, result.output
     # A handful of representative flags must appear in --help.
     for flag in [
@@ -36,11 +36,11 @@ def test_infer_command_help_renders():
         "--stream-to-file",
         "--write-interval",
     ]:
-        assert flag in result.output, f"missing {flag} in `infer --help`"
+        assert flag in result.output, f"missing {flag} in `predict --help`"
 
 
-def test_infer_accepts_legacy_track_flag_surface():
-    """Every flag wired into ``track`` is accepted by ``infer`` too.
+def test_predict_accepts_legacy_track_flag_surface():
+    """Every flag wired into ``track`` is accepted by ``predict`` too.
 
     Mocks ``predict()`` and asserts the right kwargs propagate through.
     """
@@ -52,7 +52,7 @@ def test_infer_accepts_legacy_track_flag_surface():
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -86,7 +86,7 @@ def test_infer_accepts_legacy_track_flag_surface():
         assert kw["filter_config"].overlapping_method == "oks"
 
 
-def test_infer_peak_conf_threshold_alias():
+def test_predict_peak_conf_threshold_alias():
     """``--peak-conf-threshold`` is an alias for ``--peak_threshold``."""
     runner = CliRunner()
     with patch(
@@ -96,7 +96,7 @@ def test_infer_peak_conf_threshold_alias():
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -109,8 +109,8 @@ def test_infer_peak_conf_threshold_alias():
         assert abs(mock_predict.call_args[1]["peak_threshold"] - 0.42) < 1e-9
 
 
-def test_infer_simple_case_uses_predict(tmp_path):
-    """``sleap-nn infer`` without tracking/special flags routes to ``predict()``.
+def test_predict_simple_case_uses_predict(tmp_path):
+    """``sleap-nn predict`` without tracking/special flags routes to ``predict()``.
 
     PR 27 wires the simple case to ``sleap_nn.inference.run.predict(...)``
     instead of the legacy ``run_inference``. This test mocks ``predict()``
@@ -129,7 +129,7 @@ def test_infer_simple_case_uses_predict(tmp_path):
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -139,7 +139,7 @@ def test_infer_simple_case_uses_predict(tmp_path):
             ],
         )
     assert result.exit_code == 0, result.output
-    assert mock_predict.called, "predict() was not called for simple infer case"
+    assert mock_predict.called, "predict() was not called for simple predict case"
     # Source is the first positional arg (a VideoProvider for .mp4 files
     # because the CLI default video_input_format="channels_last" is truthy).
     source = mock_predict.call_args[0][0]
@@ -149,7 +149,7 @@ def test_infer_simple_case_uses_predict(tmp_path):
     assert not mock_run_inference.called
 
 
-def test_infer_with_tracking_uses_predict(tmp_path):
+def test_predict_with_tracking_uses_predict(tmp_path):
     """``--tracking`` now routes through ``predict()`` (PR 27).
 
     The predict call receives a ``tracker_config`` and the legacy
@@ -168,7 +168,7 @@ def test_infer_with_tracking_uses_predict(tmp_path):
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -193,7 +193,7 @@ def test_infer_with_tracking_uses_predict(tmp_path):
         assert cfg.max_tracks == 3
 
 
-def test_infer_with_tracking_plus_filter_uses_predict(tmp_path):
+def test_predict_with_tracking_plus_filter_uses_predict(tmp_path):
     """``--tracking`` + ``--filter_*`` now route through ``predict()`` (PR 27).
 
     The call should receive both a ``tracker_config`` and a
@@ -212,7 +212,7 @@ def test_infer_with_tracking_plus_filter_uses_predict(tmp_path):
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -239,7 +239,7 @@ def test_infer_with_tracking_plus_filter_uses_predict(tmp_path):
         assert abs(fc.overlapping_threshold - 0.5) < 1e-9
 
 
-def test_infer_with_filter_flags_builds_filter_config(tmp_path):
+def test_predict_with_filter_flags_builds_filter_config(tmp_path):
     """``--filter_min_visible_nodes`` etc. build a ``FilterConfig`` for the new flow."""
     out = tmp_path / "out.slp"
     runner = CliRunner()
@@ -251,7 +251,7 @@ def test_infer_with_filter_flags_builds_filter_config(tmp_path):
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -273,7 +273,7 @@ def test_infer_with_filter_flags_builds_filter_config(tmp_path):
         assert abs(fc.min_instance_score - 0.6) < 1e-9
 
 
-def test_infer_no_empty_frames_passes_clean_flag(tmp_path):
+def test_predict_no_empty_frames_passes_clean_flag(tmp_path):
     """``--no_empty_frames`` propagates as ``clean_empty_frames=True`` to predict()."""
     out = tmp_path / "out.slp"
     runner = CliRunner()
@@ -285,7 +285,7 @@ def test_infer_no_empty_frames_passes_clean_flag(tmp_path):
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -300,7 +300,7 @@ def test_infer_no_empty_frames_passes_clean_flag(tmp_path):
         assert kw["clean_empty_frames"] is True
 
 
-def test_infer_only_suggested_frames_routes_to_predict(tmp_path):
+def test_predict_only_suggested_frames_routes_to_predict(tmp_path):
     """``--only_suggested_frames`` goes through ``predict()`` + LabelsProvider."""
     out = tmp_path / "out.slp"
     runner = CliRunner()
@@ -316,7 +316,7 @@ def test_infer_only_suggested_frames_routes_to_predict(tmp_path):
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.slp",
                 "--model_paths",
@@ -336,7 +336,7 @@ def test_infer_only_suggested_frames_routes_to_predict(tmp_path):
         assert provider_kwargs["only_suggested_frames"] is True
 
 
-def test_infer_gui_emits_json_progress(tmp_path):
+def test_predict_gui_emits_json_progress(tmp_path):
     """``--gui`` wires a JSON-progress callback through to ``predict()``."""
     runner = CliRunner()
     with patch(
@@ -346,7 +346,7 @@ def test_infer_gui_emits_json_progress(tmp_path):
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -371,7 +371,7 @@ def test_infer_gui_emits_json_progress(tmp_path):
         assert parsed["n_total"] == 10
 
 
-def test_infer_without_gui_attaches_rich_progress_callback(tmp_path):
+def test_predict_without_gui_attaches_rich_progress_callback(tmp_path):
     """No ``--gui`` => ``predict()`` gets a (non-JSON) Rich progress callback (#583)."""
     import io
     import json
@@ -385,7 +385,7 @@ def test_infer_without_gui_attaches_rich_progress_callback(tmp_path):
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -406,7 +406,7 @@ def test_infer_without_gui_attaches_rich_progress_callback(tmp_path):
                 json.loads(out)
 
 
-def test_infer_backbone_and_head_ckpt_paths_thread_to_predict(tmp_path):
+def test_predict_backbone_and_head_ckpt_paths_thread_to_predict(tmp_path):
     """``--backbone_ckpt_path`` / ``--head_ckpt_path`` reach ``predict()``."""
     runner = CliRunner()
     with patch(
@@ -416,7 +416,7 @@ def test_infer_backbone_and_head_ckpt_paths_thread_to_predict(tmp_path):
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -433,7 +433,7 @@ def test_infer_backbone_and_head_ckpt_paths_thread_to_predict(tmp_path):
         assert kw["head_ckpt_path"] == "/fake/head.ckpt"
 
 
-def test_infer_retrack_only_dispatches_to_predictor_retrack(tmp_path):
+def test_predict_retrack_only_dispatches_to_predictor_retrack(tmp_path):
     """``--tracking`` + no ``model_paths`` + .slp data -> ``Predictor.retrack``."""
     runner = CliRunner()
     fake_labels = MagicMock()
@@ -451,7 +451,7 @@ def test_infer_retrack_only_dispatches_to_predictor_retrack(tmp_path):
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.slp",
                 "--tracking",
@@ -471,7 +471,7 @@ def test_infer_retrack_only_dispatches_to_predictor_retrack(tmp_path):
         tracked.save.assert_called_once()
 
 
-def test_infer_paf_workers_zero_no_warning(tmp_path):
+def test_predict_paf_workers_zero_no_warning(tmp_path):
     """``--paf-workers 0`` is the default, must not emit a warning."""
     runner = CliRunner()
     with patch(
@@ -481,7 +481,7 @@ def test_infer_paf_workers_zero_no_warning(tmp_path):
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -493,14 +493,14 @@ def test_infer_paf_workers_zero_no_warning(tmp_path):
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# #582 — candidates_method defaulting (infer auto-switch + track regression)
+# #582 — candidates_method defaulting (predict auto-switch + track regression)
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def test_infer_max_tracks_auto_switches_to_local_queues():
-    """`infer --max_tracks N` with no explicit method defaults to local_queues.
+def test_predict_max_tracks_auto_switches_to_local_queues():
+    """`predict --max_tracks N` with no explicit method defaults to local_queues.
 
-    Drives the real CLI wiring (#582): the infer option default is None so
+    Drives the real CLI wiring (#582): the predict option default is None so
     _build_tracker_config can switch fixed_window -> local_queues for max_tracks.
     """
     runner = CliRunner()
@@ -510,7 +510,7 @@ def test_infer_max_tracks_auto_switches_to_local_queues():
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -526,7 +526,7 @@ def test_infer_max_tracks_auto_switches_to_local_queues():
         assert cfg.max_tracks == 3
 
 
-def test_infer_explicit_fixed_window_with_max_tracks_respected():
+def test_predict_explicit_fixed_window_with_max_tracks_respected():
     """An explicit `--candidates_method fixed_window` is not overridden (#582)."""
     runner = CliRunner()
     with patch(
@@ -535,7 +535,7 @@ def test_infer_explicit_fixed_window_with_max_tracks_respected():
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -613,7 +613,7 @@ def test_track_no_gui_defaults_false():
         assert mock_run.call_args[1]["gui"] is False
 
 
-def test_infer_paf_knobs_thread_to_predict():
+def test_predict_paf_knobs_thread_to_predict():
     """The 5 bottom-up PAF knobs reach run.predict (no longer silent no-ops). #583."""
     runner = CliRunner()
     with patch(
@@ -622,7 +622,7 @@ def test_infer_paf_knobs_thread_to_predict():
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -648,7 +648,7 @@ def test_infer_paf_knobs_thread_to_predict():
         assert abs(kw["min_line_scores"] - 0.4) < 1e-9
 
 
-def test_infer_queue_maxsize_accepted_but_not_forwarded():
+def test_predict_queue_maxsize_accepted_but_not_forwarded():
     """`--queue_maxsize` is accepted (compat) but never forwarded to predict. #583."""
     runner = CliRunner()
     with patch(
@@ -657,7 +657,7 @@ def test_infer_queue_maxsize_accepted_but_not_forwarded():
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/path.mp4",
                 "--model_paths",
@@ -670,16 +670,16 @@ def test_infer_queue_maxsize_accepted_but_not_forwarded():
         assert "queue_maxsize" not in mock_predict.call_args[1]
 
 
-def test_infer_queue_maxsize_hidden_in_help():
-    """The no-op --queue_maxsize is hidden from `infer --help`. #583."""
+def test_predict_queue_maxsize_hidden_in_help():
+    """The no-op --queue_maxsize is hidden from `predict --help`. #583."""
     runner = CliRunner()
-    result = runner.invoke(cli, ["infer", "--help"])
+    result = runner.invoke(cli, ["predict", "--help"])
     assert result.exit_code == 0
     assert "--queue_maxsize" not in result.output
 
 
-def test_infer_video_index_scopes_and_names_output():
-    """`infer --video_index 1` scopes to that video + suffixes the output. #583."""
+def test_predict_video_index_scopes_and_names_output():
+    """`predict --video_index 1` scopes to that video + suffixes the output. #583."""
     import sleap_io as sio
 
     from sleap_nn.inference.providers import LabelsProvider
@@ -697,7 +697,7 @@ def test_infer_video_index_scopes_and_names_output():
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/x.slp",
                 "--model_paths",
@@ -713,7 +713,7 @@ def test_infer_video_index_scopes_and_names_output():
         assert mock_pred.call_args[1]["output_path"].endswith("b.predictions.slp")
 
 
-def test_infer_video_index_out_of_range_errors():
+def test_predict_video_index_out_of_range_errors():
     """An out-of-range --video_index is a clear UsageError. #583."""
     import sleap_io as sio
 
@@ -729,7 +729,7 @@ def test_infer_video_index_out_of_range_errors():
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/x.slp",
                 "--model_paths",
@@ -742,7 +742,7 @@ def test_infer_video_index_out_of_range_errors():
         assert "out of range" in result.output
 
 
-def test_infer_retrack_only_sets_tracking_provenance(tmp_path):
+def test_predict_retrack_only_sets_tracking_provenance(tmp_path):
     """Retrack-only writes tracking-only provenance to the saved .slp. #583."""
     import numpy as np
     import sleap_io as sio
@@ -774,7 +774,7 @@ def test_infer_retrack_only_sets_tracking_provenance(tmp_path):
         result = runner.invoke(
             cli,
             [
-                "infer",
+                "predict",
                 "--data_path",
                 "/fake/preds.slp",
                 "--tracking",
