@@ -190,6 +190,53 @@ sleap-nn track -i video.mp4 \
         --filter_min_instance_score 0.3
     ```
 
+### Bottom-Up Segmentation
+
+Bottom-up segmentation models predict a per-instance **mask** (plus instance-center
+heatmap/offsets). The mask-specific prediction knobs are:
+
+- `--fg_threshold` (default `0.5`): foreground probability threshold for binarizing the
+  segmentation map.
+- `--min_mask_area` (default `0`): drop masks smaller than this many **original-image** pixels
+  (over-segmentation suppression). The filter is measured at output-stride resolution and converted
+  from original-pixel units, so the threshold means the same thing regardless of stride.
+- `--center_nms_kernel` (default `3`): odd window for instance-center peak NMS; larger merges
+  nearby duplicate centers.
+- `--mask_cleanup` / `--no-mask_cleanup` (default off): keep only each mask's largest connected
+  component and fill interior holes (despeckle).
+- `--mask_cleanup_radius` (default `0`): when `--mask_cleanup` is set, additionally apply a
+  morphological open→close with an elliptical kernel of this radius (output-stride pixels) before
+  keep-largest-CC. `0` keeps the keep-largest+fill behavior. Useful for boundary noise; for
+  disconnected speckle/fragments, keep-largest-CC alone is usually sufficient.
+
+**Mask encoding (output-stride by default).** Predicted masks are stored at the model's
+output-stride resolution, carrying a sio `scale`/`offset` that maps mask coordinates to image
+pixels (`image_coord = mask_coord / scale + offset`). This is **~`stride`× smaller** on disk and
+**lossless at model resolution** — the stored mask *is* the model's native output. Decode a mask to
+the original image grid with sio's `mask.resampled(*mask.image_extent).data` (eval, the training
+data loader, and tracking do this automatically). Note `image_extent` can differ from the true
+frame size by ±1 px (the mask resolution is `round(orig * scale)`), so clamp to the real frame size
+when indexing an image.
+
+- `--full_res_masks` (default off): encode masks at full original resolution instead (legacy
+  behavior). Only needed for external consumers that read `mask.data` assuming original resolution.
+
+**Polygon output (interop).** For polygon-based interop you can emit a Douglas-Peucker-simplified
+`sio.PredictedROI` alongside (or instead of) the RLE mask:
+
+- `--mask_output` (default `mask`): `mask` (RLE masks only), `polygon` (simplified ROIs only), or
+  `both` (exact mask + simplified ROI). The stored mask is always **exact** — polygon simplification
+  applies only to the emitted ROI, so eval/tracking are unaffected.
+- `--polygon_epsilon` (default `0.01`): simplification tolerance as a fraction of each contour's
+  perimeter (larger = coarser).
+
+```bash
+# Smaller .slp via stride encoding (default) + despeckle + a polygon ROI for interop
+sleap-nn track -i video.mp4 -m models/bottomup_segmentation/ \
+    --mask_cleanup --mask_cleanup_radius 2 \
+    --mask_output both --polygon_epsilon 0.02
+```
+
 ---
 
 ## Filtering Instances

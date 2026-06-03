@@ -2194,7 +2194,18 @@ class BottomUpSegmentationDataset(BaseDataset):
                 lf_masks = getattr(lf, "masks", None)
                 if not lf_masks:
                     continue
-                mask_arrays = [np.asarray(m.data, dtype=bool) for m in lf_masks]
+                # Scale-aware decode: masks written by the segmentation inference
+                # layer are encoded at output-stride (non-identity scale); decode
+                # them up to the IMAGE-pixel grid so self-training / pseudo-label
+                # ``.slp`` files yield correctly-scaled targets (a stride-res
+                # ``m.data`` would silently mis-scale the GT, since __getitem__'s
+                # resize branch only fires on a preprocessing size change). Scale-1
+                # GT masks take the zero-copy fast path.
+                from sleap_nn.inference.segmentation_convert import (
+                    decode_mask_to_image_res,
+                )
+
+                mask_arrays = [decode_mask_to_image_res(m) for m in lf_masks]
                 if len(mask_arrays) == 0:
                     continue
                 video_idx = label.videos.index(lf.video)

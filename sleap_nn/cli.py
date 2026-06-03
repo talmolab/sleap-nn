@@ -1455,6 +1455,10 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
+        "mask_cleanup_radius": kwargs.get("mask_cleanup_radius", 0),
+        "full_res_masks": kwargs.get("full_res_masks", False),
+        "mask_output": kwargs.get("mask_output", "mask"),
+        "polygon_epsilon": kwargs.get("polygon_epsilon", 0.01),
     }
     preprocess_config = _build_preprocess_config(kwargs)
     if preprocess_config is not None:
@@ -1496,6 +1500,10 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
             "n_points",
             "fg_threshold",
             "min_mask_area",
+            "mask_cleanup_radius",
+            "full_res_masks",
+            "mask_output",
+            "polygon_epsilon",
             "backbone_ckpt_path",
             "head_ckpt_path",
             "preprocess_config",
@@ -1810,6 +1818,10 @@ def _run_stream_to_file(
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
+        "mask_cleanup_radius": kwargs.get("mask_cleanup_radius", 0),
+        "full_res_masks": kwargs.get("full_res_masks", False),
+        "mask_output": kwargs.get("mask_output", "mask"),
+        "polygon_epsilon": kwargs.get("polygon_epsilon", 0.01),
     }
     preprocess_config = _build_preprocess_config(kwargs)
     if preprocess_config is not None:
@@ -2047,7 +2059,8 @@ def _common_inference_options(f):
             default=0,
             help="Drop predicted masks smaller than this many original-image "
             "pixels to suppress over-segmentation (bottom-up segmentation "
-            "models only). 0 disables.",
+            "models only). 0 disables. Measured at output-stride resolution and "
+            "converted from original-pixel units.",
         ),
         click.option(
             "--center_nms_kernel",
@@ -2066,6 +2079,53 @@ def _common_inference_options(f):
             default=False,
             help="Keep only each predicted mask's largest connected component "
             "and fill interior holes (bottom-up segmentation models only).",
+        ),
+        click.option(
+            "--mask_cleanup_radius",
+            "--mask-cleanup-radius",
+            "mask_cleanup_radius",
+            type=int,
+            default=0,
+            help="When --mask_cleanup is set, also apply a morphological "
+            "open->close with an elliptical kernel of this radius (output-stride "
+            "pixels) before keep-largest-CC/fill-holes; despeckles and closes "
+            "pinholes. 0 keeps the keep-largest+fill behavior (bottom-up "
+            "segmentation models only).",
+        ),
+        click.option(
+            "--full_res_masks/--no-full_res_masks",
+            "--full-res-masks/--no-full-res-masks",
+            "full_res_masks",
+            default=False,
+            help="Encode predicted segmentation masks at full ORIGINAL "
+            "resolution instead of the model output-stride grid. Default off: "
+            "output-stride encoding is ~stride^2 smaller and lossless at model "
+            "resolution, carrying the image mapping via sio scale/offset. Enable "
+            "only for legacy consumers that read mask.data assuming original "
+            "resolution (bottom-up segmentation models only).",
+        ),
+        click.option(
+            "--mask_output",
+            "--mask-output",
+            "mask_output",
+            type=click.Choice(["mask", "polygon", "both"]),
+            default="mask",
+            help="Predicted-mask output representation: 'mask' (RLE "
+            "SegmentationMask in LabeledFrame.masks, default), 'polygon' "
+            "(Douglas-Peucker-simplified sio.PredictedROI into LabeledFrame.rois "
+            "only), or 'both' (exact mask + simplified ROI for interop). "
+            "Bottom-up segmentation models only.",
+        ),
+        click.option(
+            "--polygon_epsilon",
+            "--polygon-epsilon",
+            "polygon_epsilon",
+            type=float,
+            default=0.01,
+            help="Douglas-Peucker simplification tolerance for --mask_output "
+            "polygon/both, as a fraction of each contour's perimeter. Larger = "
+            "coarser polygons. 0 disables simplification (bottom-up segmentation "
+            "models only).",
         ),
         click.option(
             "--queue_maxsize",
