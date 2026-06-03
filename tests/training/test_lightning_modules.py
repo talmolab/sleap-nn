@@ -241,7 +241,7 @@ def test_centroid_model(config, tmp_path: str):
     assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
 
 
-def test_single_instance_model(config, tmp_path: str):
+def test_single_instance_model(config, tmp_path: str, minimal_instance):
     """Test the SingleInstanceLightningModule training."""
     head_config = config.model_config.head_configs.centered_instance
     del config.model_config.head_configs.centered_instance
@@ -252,7 +252,17 @@ def test_single_instance_model(config, tmp_path: str):
     OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(config, "trainer_config.run_name", "test_single_instance_model_1")
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
-    model_trainer = ModelTrainer.get_model_trainer_from_config(config)
+
+    # Single-instance training requires at most one instance per frame.
+    single_instance_labels = sio.load_slp(minimal_instance)
+    for lf in single_instance_labels:
+        lf.instances = [lf.instances[0]]
+
+    model_trainer = ModelTrainer.get_model_trainer_from_config(
+        config,
+        train_labels=[single_instance_labels],
+        val_labels=[single_instance_labels],
+    )
     train_dataset, val_dataset = get_train_val_datasets(
         train_labels=model_trainer.train_labels,
         val_labels=model_trainer.val_labels,
@@ -299,7 +309,11 @@ def test_single_instance_model(config, tmp_path: str):
     OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(config, "trainer_config.run_name", "test_single_instance_model_2")
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
-    model_trainer = ModelTrainer.get_model_trainer_from_config(config)
+    model_trainer = ModelTrainer.get_model_trainer_from_config(
+        config,
+        train_labels=[single_instance_labels],
+        val_labels=[single_instance_labels],
+    )
     train_dataset, val_dataset = get_train_val_datasets(
         train_labels=model_trainer.train_labels,
         val_labels=model_trainer.val_labels,
