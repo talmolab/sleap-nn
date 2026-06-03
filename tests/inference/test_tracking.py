@@ -424,3 +424,139 @@ def test_build_tracker_config_explicit_sentinels():
     assert cfg2.scoring_method_explicit is True
     assert cfg2.features == "bboxes"
     assert cfg2.scoring_method == "iou"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Mask-IoU tracking for bottom-up segmentation (#619)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _disk(h, w, cy, cx, r):
+    yy, xx = np.ogrid[:h, :w]
+    return ((yy - cy) ** 2 + (xx - cx) ** 2) <= r**2
+
+
+def _make_mask_labels(video, frames_pts, h=80, w=80, score=0.9):
+    """Mask-only labels: ``frames_pts`` is a list (per frame) of (cy, cx) disk
+    centers; each becomes a PredictedSegmentationMask. No skeleton, no
+    predicted keypoint instances (a bottom-up segmentation output)."""
+    lfs = []
+    for i, pts in enumerate(frames_pts):
+        masks = [
+            sio.PredictedSegmentationMask.from_numpy(
+                _disk(h, w, cy, cx, 10), score=score
+            )
+            for cy, cx in pts
+        ]
+        lfs.append(sio.LabeledFrame(video=video, frame_idx=i, masks=masks))
+    return sio.Labels(videos=[video], labeled_frames=lfs)
+
+
+def _mask_cfg(**kw):
+    """TrackerConfig with features/scoring left implicit so seg auto-default fires."""
+    kw.setdefault("features_explicit", False)
+    kw.setdefault("scoring_method_explicit", False)
+    return TrackerConfig(**kw)
+
+
+def test_apply_tracking_masks_preserved_and_stable(video):
+    """Mask tracking preserves every mask and gives a moving pair stable ids."""
+    # Two animals drifting; each frame's masks overlap only their predecessor.
+    frames = [[(20 + i, 20 + i), (60 + i, 60 + i)] for i in range(6)]
+    labels = _make_mask_labels(video, frames)
+    out = apply_tracking(labels, _mask_cfg(window_size=5))
+
+    assert len(out.labeled_frames) == 6
+    # No masks dropped; instances stay empty (mask-only model).
+    assert all(len(lf.masks) == 2 for lf in out.labeled_frames)
+    assert all(len(lf.instances) == 0 for lf in out.labeled_frames)
+    # Every tracked mask carries a track + finite tracking_score.
+    all_masks = [m for lf in out.labeled_frames for m in lf.masks]
+    assert all(m.track is not None for m in all_masks)
+    assert all(m.tracking_score is not None for m in all_masks)
+    # Exactly two stable tracks, one per spatial lane across all frames.
+    lanes = {}
+    for lf in out.labeled_frames:
+        for m in lf.masks:
+            lane = "A" if m.bbox[0] < 40 else "B"
+            lanes.setdefault(lane, set()).add(m.track.name)
+    assert all(len(names) == 1 for names in lanes.values())
+    assert lanes["A"] != lanes["B"]
+
+
+def test_apply_tracking_masks_disjoint_extra_new_track(video):
+    """An extra non-overlapping mask spawns a new track id."""
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22), (60, 60)]])
+    out = apply_tracking(labels, _mask_cfg(window_size=5))
+    f1 = sorted(out.labeled_frames, key=lambda lf: lf.frame_idx)[1]
+    by_lane = {("near" if m.bbox[0] < 40 else "far"): m.track.name for m in f1.masks}
+    assert by_lane["near"] != by_lane["far"]
+
+
+def test_apply_tracking_masks_auto_default(video, caplog):
+    """Mask-only labels auto-resolve features='masks'/scoring='mask_iou'."""
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+    out = apply_tracking(labels, _mask_cfg(window_size=5))
+    tracked = [m for lf in out.labeled_frames for m in lf.masks]
+    assert tracked and all(m.track is not None for m in tracked)
+
+
+def test_apply_tracking_masks_explicit_masks_respected(video):
+    """Explicit features='masks'+scoring='mask_iou' is honored (no override/raise)."""
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+    cfg = TrackerConfig(
+        window_size=5, features="masks", scoring_method="mask_iou"
+    )  # explicit (both *_explicit default True)
+    out = apply_tracking(labels, cfg)
+    assert all(m.track is not None for lf in out.labeled_frames for m in lf.masks)
+
+
+def test_apply_tracking_masks_explicit_incompatible_raises(video):
+    """A seg model with explicit non-mask features fails fast (no silent drop)."""
+    labels = _make_mask_labels(video, [[(20, 20)]])
+    cfg = TrackerConfig(features="keypoints", scoring_method="oks")  # explicit
+    with pytest.raises(ValueError, match="features='masks'"):
+        apply_tracking(labels, cfg)
+
+
+@pytest.mark.parametrize(
+    "kw, match",
+    [
+        ({"use_flow": True}, "motion models"),
+        ({"use_kalman": True, "tracking_target_instance_count": 2}, "motion models"),
+        ({"tracking_clean_instance_count": 2}, "cull/clean"),
+        (
+            {"tracking_pre_cull_to_target": 1, "tracking_target_instance_count": 2},
+            "cull/clean",
+        ),
+    ],
+)
+def test_apply_tracking_masks_forbidden_combos_raise(video, kw, match):
+    """Motion models and pose-shaped cull/clean ops are rejected in mask mode."""
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+    with pytest.raises(ValueError, match=match):
+        apply_tracking(labels, _mask_cfg(window_size=5, **kw))
+
+
+def test_apply_tracking_masks_empty_frame_passthrough(video):
+    """A mask-less frame mid-sequence passes through (masks=[]) without crashing."""
+    labels = _make_mask_labels(video, [[(20, 20)], [], [(24, 24)]])
+    out = apply_tracking(labels, _mask_cfg(window_size=5))
+    by_idx = {lf.frame_idx: lf for lf in out.labeled_frames}
+    assert len(by_idx[1].masks) == 0
+    assert len(by_idx[0].masks) == 1 and len(by_idx[2].masks) == 1
+
+
+def test_apply_tracking_masks_roundtrip_persistence(video, tmp_path):
+    """Tracked mask track names + tracking scores survive save/load_slp."""
+    labels = _make_mask_labels(video, [[(20, 20), (60, 60)], [(22, 22), (62, 62)]])
+    out = apply_tracking(labels, _mask_cfg(window_size=5))
+    path = tmp_path / "tracked_masks.slp"
+    out.save(path.as_posix())
+    reloaded = sio.load_slp(path.as_posix())
+    masks = [m for lf in reloaded.labeled_frames for m in lf.masks]
+    assert len(masks) == 4
+    assert all(m.track is not None for m in masks)
+    assert all(
+        m.tracking_score is not None and np.isfinite(m.tracking_score) for m in masks
+    )

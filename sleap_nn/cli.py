@@ -2207,13 +2207,22 @@ def _common_inference_options(f):
         # --candidates_method default=None pattern. A single-node / centroid
         # model then resolves these to centroids/euclidean_dist in
         # apply_tracking (#586).
-        click.option("--features", type=str, default=None),
+        click.option(
+            "--features",
+            type=str,
+            default=None,
+            help="Feature for track association: one of keypoints, centroids, "
+            "bboxes, masks. Left unset, single-node/centroid models resolve to "
+            "'centroids' and bottom-up segmentation (mask) models to 'masks'.",
+        ),
         click.option(
             "--scoring_method",
             type=str,
             default=None,
-            help="Track association scoring method. Single-node / centroid "
-            "models resolve to euclidean_dist when left unset.",
+            help="Track association scoring method: one of oks, cosine_sim, "
+            "iou, mask_iou, euclidean_dist. Left unset, single-node/centroid "
+            "models resolve to 'euclidean_dist' and segmentation (mask) models "
+            "to 'mask_iou'.",
         ),
         click.option("--scoring_reduction", type=str, default="mean"),
         click.option("--robust_best_instance", type=float, default=1.0),

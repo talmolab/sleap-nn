@@ -1279,16 +1279,8 @@ class Predictor:
             )
 
         # Segmentation emits sio.PredictedSegmentationMask objects to
-        # LabeledFrame.masks; the tracker only handles sio.PredictedInstance and
-        # reads only LabeledFrame.instances, so it would silently drop every
-        # mask. Fail fast rather than write a mask-less tracked .slp.
-        if self.tracker_config is not None and self._is_segmentation_layer():
-            raise ValueError(
-                "Tracking is not yet supported for bottom-up segmentation "
-                "models: masks are emitted to LabeledFrame.masks, which the "
-                "tracker (operating on sio.PredictedInstance objects) would "
-                "drop, producing a mask-less output. Re-run without tracking."
-            )
+        # LabeledFrame.masks; apply_tracking auto-detects the mask-only labels
+        # and tracks them by pixel mask-IoU (#619), so tracking is supported.
 
         provider, auto_videos = self._make_provider(source, frames=frames)
         if videos is None:

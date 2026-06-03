@@ -76,6 +76,43 @@ def get_bbox(pred_instance: Union[sio.PredictedInstance, np.ndarray]):
     return bbox
 
 
+def is_segmentation_mask(obj) -> bool:
+    """True if ``obj`` is a segmentation mask rather than a keypoint instance.
+
+    Mask tracking flows ``sio.PredictedSegmentationMask`` objects through the
+    same code paths as ``sio.PredictedInstance``; this is the single predicate
+    used to dispatch the pose-vs-mask differences (no ``.numpy()`` keypoints).
+    """
+    return isinstance(obj, (sio.PredictedSegmentationMask, sio.SegmentationMask))
+
+
+def get_mask(pred_mask: Union[sio.PredictedSegmentationMask, np.ndarray]) -> np.ndarray:
+    """Return the boolean mask array for a `PredictedSegmentationMask`.
+
+    Mirrors :func:`get_keypoints`/:func:`get_bbox` as the ``"masks"`` feature
+    extractor. Decodes the RLE to a dense ``HxW`` bool array once (the result is
+    cached as the candidate feature, so scoring does not re-decode).
+    """
+    if isinstance(pred_mask, np.ndarray):
+        return pred_mask
+    return np.asarray(pred_mask.data, dtype=bool)
+
+
+def count_valid_points(obj) -> int:
+    """Number of valid points used to gate track spawning/matching.
+
+    For a keypoint instance this is the count of non-NaN nodes; for a
+    segmentation mask there are no keypoints, so the mask area (foreground px)
+    is the analogous "support" measure (``min_new_track_points`` /
+    ``min_match_points`` then read as a pixel-area threshold; default 0 keeps
+    every non-empty mask and drops empty ones).
+    """
+    if is_segmentation_mask(obj):
+        return int(obj.area)
+    points = obj if isinstance(obj, np.ndarray) else obj.numpy()
+    return int((~np.isnan(points).any(axis=1)).sum())
+
+
 def compute_euclidean_distance(a, b):
     """Return the negative euclidean distance between a and b points."""
     return -np.linalg.norm(a - b)
@@ -99,6 +136,22 @@ def compute_iou(a, b):
 
     iou = intersection_area / union_area
     return iou
+
+
+def compute_mask_iou(a: np.ndarray, b: np.ndarray) -> float:
+    """Return the IoU of two boolean segmentation masks (higher = more similar).
+
+    Pixel mask-IoU (reuses :func:`sleap_nn.evaluation._mask_iou`: top-left
+    aligned, shape-mismatch safe, empty/empty -> 1.0). This is the ``"mask_iou"``
+    scoring method — a similarity, like ``oks``/``iou``; the cost negation
+    (``cost = -score``) happens in :meth:`Tracker.scores_to_cost_matrix`, so it
+    must NOT be negated here. Pixel IoU (not bbox-IoU on ``mask.bbox``) sidesteps
+    the XYWH-vs-XYXY bbox-format issue and is the literal mask-IoU the tracker
+    needs.
+    """
+    from sleap_nn.evaluation import _mask_iou
+
+    return _mask_iou(np.asarray(a, dtype=bool), np.asarray(b, dtype=bool))
 
 
 def compute_cosine_sim(a, b):

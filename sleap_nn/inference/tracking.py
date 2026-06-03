@@ -81,12 +81,13 @@ class TrackerConfig:
     tracking_clean_iou_threshold: float = 0.0
     post_connect_single_breaks: bool = False
 
-    # Single-node (centroid) default resolution ─────────────────────────
+    # Single-node (centroid) / segmentation (mask) default resolution ───
     # True (the default) means the user explicitly chose ``scoring_method`` /
     # ``features`` — direct constructors keep current behavior. The CLI sets
     # these False when the corresponding flag was left at its sentinel, which
-    # lets ``apply_tracking`` substitute single-node-appropriate defaults
-    # (``euclidean_dist`` / ``centroids``) for a 1-node skeleton.
+    # lets ``apply_tracking`` substitute task-appropriate defaults:
+    # ``euclidean_dist``/``centroids`` for a 1-node skeleton, and
+    # ``mask_iou``/``masks`` for a bottom-up segmentation (mask-only) model.
     scoring_method_explicit: bool = True
     features_explicit: bool = True
 
@@ -173,6 +174,51 @@ def apply_tracking(
                 effective_features,
             )
 
+    # Segmentation (mask-only) default resolution. A bottom-up segmentation
+    # model emits sio.PredictedSegmentationMask into LabeledFrame.masks and no
+    # predicted keypoint instances (no skeleton); track masks by pixel mask-IoU.
+    # Detect on the labels content (available here, after prediction), mirroring
+    # the single-node centroid branch.
+    is_mask_mode = any(
+        getattr(lf, "masks", None) for lf in labels.labeled_frames
+    ) and not any(lf.has_predicted_instances for lf in labels.labeled_frames)
+    if is_mask_mode:
+        if not config.scoring_method_explicit:
+            effective_scoring_method = "mask_iou"
+        if not config.features_explicit:
+            effective_features = "masks"
+        if effective_features != "masks" or effective_scoring_method != "mask_iou":
+            raise ValueError(
+                "Tracking a bottom-up segmentation (mask-only) model requires "
+                "features='masks' and scoring_method='mask_iou' (got features="
+                f"{effective_features!r}, scoring_method={effective_scoring_method!r}). "
+                "Leave --features/--scoring_method unset to auto-select them."
+            )
+        # Motion models and pose-shaped cull/clean ops are out of MVP scope for
+        # masks (they call .numpy()/same_pose_as on keypoint instances). Fail
+        # fast with a clear message rather than crash mid-stream.
+        if config.use_flow or config.use_kalman:
+            raise ValueError(
+                "Mask tracking does not support motion models "
+                "(--use_flow/--use_kalman); they are out of scope for the "
+                "segmentation tracker MVP."
+            )
+        if (
+            config.tracking_pre_cull_to_target
+            or config.tracking_clean_instance_count
+            or config.post_connect_single_breaks
+        ):
+            raise ValueError(
+                "Mask tracking does not support the instance cull/clean/connect "
+                "options (tracking_pre_cull_to_target / "
+                "tracking_clean_instance_count / post_connect_single_breaks); "
+                "these operate on keypoint poses, not masks."
+            )
+        logger.info(
+            "Segmentation model detected; applying mask tracking defaults: "
+            "features='masks', scoring_method='mask_iou'."
+        )
+
     tracker = Tracker.from_config(
         window_size=config.window_size,
         min_new_track_points=config.min_new_track_points,
@@ -216,30 +262,45 @@ def apply_tracking(
     n_frames = len(ordered_lfs)
     for i, lf in enumerate(ordered_lfs):
         instances: list = []
-        if lf.has_user_instances:
-            instances_to_track = lf.user_instances
-            if lf.has_predicted_instances:
-                instances = list(lf.predicted_instances)
+        masks: list = []
+        if is_mask_mode:
+            # Track segmentation masks: feed lf.masks through the same tracker
+            # (duck-typed), get back the same mask objects with track /
+            # tracking_score set, and preserve them on the rebuilt frame so
+            # they are NOT dropped (the #614 breakage). Instances stay empty.
+            if lf.masks:
+                masks = tracker.track(
+                    untracked_instances=list(lf.masks),
+                    frame_idx=lf.frame_idx,
+                    image=None,
+                )
         else:
-            instances_to_track = lf.predicted_instances
-        instances.extend(
-            tracker.track(
-                untracked_instances=instances_to_track,
-                frame_idx=lf.frame_idx,
-                image=lf.image if needs_image else None,
+            if lf.has_user_instances:
+                instances_to_track = lf.user_instances
+                if lf.has_predicted_instances:
+                    instances = list(lf.predicted_instances)
+            else:
+                instances_to_track = lf.predicted_instances
+            instances.extend(
+                tracker.track(
+                    untracked_instances=instances_to_track,
+                    frame_idx=lf.frame_idx,
+                    image=lf.image if needs_image else None,
+                )
             )
-        )
         tracked_lfs.append(
             sio.LabeledFrame(
                 video=lf.video,
                 frame_idx=lf.frame_idx,
                 instances=instances,
+                masks=masks,
             )
         )
         if progress_callback is not None:
             progress_callback(i + 1, n_frames)
 
-    if config.tracking_clean_instance_count > 0:
+    # Cull/connect cleanups are pose-only (and rejected above for mask mode).
+    if not is_mask_mode and config.tracking_clean_instance_count > 0:
         tracked_lfs = cull_instances(
             tracked_lfs,
             config.tracking_clean_instance_count,
@@ -250,7 +311,7 @@ def apply_tracking(
                 tracked_lfs, config.tracking_clean_instance_count
             )
 
-    if config.post_connect_single_breaks:
+    if not is_mask_mode and config.post_connect_single_breaks:
         tracked_lfs = connect_single_breaks(
             tracked_lfs, max_instances=config.tracking_target_instance_count
         )
