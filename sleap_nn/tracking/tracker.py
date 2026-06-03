@@ -680,6 +680,8 @@ class FlowShiftTracker(Tracker):
             )
             for fidx, ref_candidate_list in ref_candidates.items():
                 ref_pts = [x.src_instance.numpy() for x in ref_candidate_list]
+                if not ref_pts:
+                    continue
                 shifted_pts, status, errs = self._compute_optical_flow(
                     ref_pts=ref_pts,
                     ref_img=ref_candidate_list[0].image,
@@ -719,6 +721,8 @@ class FlowShiftTracker(Tracker):
             )
             for ref_candidate in candidates_list:
                 ref_pts = [x.numpy() for x in ref_candidate.src_instances]
+                if not ref_pts:
+                    continue
                 shifted_pts, status, errs = self._compute_optical_flow(
                     ref_pts=ref_pts, ref_img=ref_candidate.image, new_img=new_img
                 )
