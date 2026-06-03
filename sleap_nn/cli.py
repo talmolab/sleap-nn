@@ -2114,7 +2114,8 @@ def _common_inference_options(f):
             "SegmentationMask in LabeledFrame.masks, default), 'polygon' "
             "(Douglas-Peucker-simplified sio.PredictedROI into LabeledFrame.rois "
             "only), or 'both' (exact mask + simplified ROI for interop). "
-            "Bottom-up segmentation models only.",
+            "polygon/both are CPU-heavy on noisy masks (cost scales with RLE-run "
+            "count) — pair with --mask_cleanup. Bottom-up segmentation models only.",
         ),
         click.option(
             "--polygon_epsilon",

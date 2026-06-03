@@ -91,6 +91,11 @@ def build_predicted_roi(
     Douglas-Peucker (``geometry.simplify``) at a tolerance of ``epsilon`` times
     the silhouette perimeter.
 
+    Cost note: ``to_polygon()`` builds and unions one box per RLE run, so this is
+    CPU-heavy for fragmented/speckled masks (thousands of runs). Callers exposing
+    polygon output should pair it with ``mask_cleanup`` (keep-largest-CC) so each
+    instance is a single clean component before polygonization.
+
     Args:
         mask_obj: A sio (Predicted)SegmentationMask.
         score: Detection confidence carried onto the ROI.

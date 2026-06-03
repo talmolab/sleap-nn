@@ -230,6 +230,15 @@ when indexing an image.
 - `--polygon_epsilon` (default `0.01`): simplification tolerance as a fraction of each contour's
   perimeter (larger = coarser).
 
+!!! warning "Polygon output is CPU-heavy on noisy masks — pair it with `--mask_cleanup`"
+    Building a polygon walks the mask's boundary, so its cost scales with the number of RLE runs.
+    A clean single-blob mask polygonizes in ~10&nbsp;ms; a fragmented/speckled mask (thousands of
+    runs) can be ~10&times; slower per mask and dominate inference time. `--mask_output polygon`/`both`
+    is therefore best paired with **`--mask_cleanup`** (keep-largest-CC removes the speckle, so each
+    instance is a single component). The default `--mask_output mask` does no polygon work and is
+    *cheaper* than the pre-#618 behavior (masks are encoded at output-stride resolution, not upsampled
+    to full resolution first). Memory for the default path is unaffected.
+
 ```bash
 # Smaller .slp via stride encoding (default) + despeckle + a polygon ROI for interop
 sleap-nn track -i video.mp4 -m models/bottomup_segmentation/ \
