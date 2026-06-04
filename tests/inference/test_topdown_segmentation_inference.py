@@ -41,20 +41,24 @@ class _StubMaskLayer:
     the same row order ``_run_stage_2`` builds the crops (sorted by valid (b, i)).
     """
 
-    def __init__(self, crop_masks, output_stride):
+    def __init__(self, crop_masks, output_stride, input_scale=1.0):
         self._crop_masks = crop_masks  # (n_valid, 1, h, w) float
         self.output_stride = output_stride
         self.use_gt_peaks = False
+        # _run_stage_2 reads preprocess_config.scale (the seg model's input_scale).
+        self.preprocess_config = type("_PP", (), {"scale": float(input_scale)})()
 
     def predict(self, crops):
         return Outputs(crops=self._crop_masks)
 
 
-def _make_layer(crop_masks, crop_size, output_stride):
+def _make_layer(crop_masks, crop_size, output_stride, input_scale=1.0):
     """Build a ``TopDownSegmentationLayer`` via ``__new__`` with a stub stage 2."""
     layer = TopDownSegmentationLayer.__new__(TopDownSegmentationLayer)
     layer.centroid_layer = None  # not used by _run_stage_2
-    layer.centered_instance_layer = _StubMaskLayer(crop_masks, output_stride)
+    layer.centered_instance_layer = _StubMaskLayer(
+        crop_masks, output_stride, input_scale
+    )
     layer.crop_size = crop_size
     layer.centroid_nms = False
     layer.centroid_nms_threshold = 0.5
@@ -162,6 +166,47 @@ def test_topdown_seg_two_crops_do_not_collide():
     assert abs(x0 - c0[0]) <= 4 and abs(y0 - c0[1]) <= 4
     assert abs(x1 - c1[0]) <= 4 and abs(y1 - c1[1]) <= 4
     assert (abs(x0 - x1) + abs(y0 - y1)) > 100  # decisively non-colliding
+
+
+def test_topdown_seg_input_scale_folded_into_scale():
+    """A seg model with input_scale != 1 still places masks at the centroid.
+
+    The seg model downscales each crop by its input_scale before the head, so the
+    head mask is at crop*input_scale/stride px; _run_stage_2 must fold input_scale
+    into the emitted scale = (eff*input_scale)/stride for the decode to recover
+    the true crop extent and land the mask at the full-frame centroid.
+    """
+    s = 2
+    isc = 0.5
+    ch = cw = 80
+    cx, cy = 200.0, 150.0  # image-space centroid (eff_scale = 1)
+    # Head mask resolution = crop * input_scale / stride = 80 * 0.5 / 2 = 20.
+    mh = mw = int(ch * isc) // s
+    crop_mask = _disk(mh, mw, mh // 2, mw // 2, 5).astype(np.float32)
+    crop_masks = torch.from_numpy(crop_mask)[None, None]
+
+    layer = _make_layer(
+        crop_masks, crop_size=(ch, cw), output_stride=s, input_scale=isc
+    )
+    out = layer._run_stage_2(
+        torch.zeros(1, 1, 512, 512),
+        torch.tensor([[[cx, cy]]]),
+        torch.tensor([[0.9]]),
+        torch.tensor([[True]]),
+        eff_scale=torch.tensor([1.0]),
+    )
+    inst = out.pred_masks[0][0]
+    # scale = (eff * input_scale) / stride = 0.5 / 2 = 0.25 (NOT eff/stride = 0.5).
+    assert abs(inst["scale"][0] - (isc / s)) < 1e-9
+    assert abs(inst["scale"][1] - (isc / s)) < 1e-9
+    # Decoded mask recovers the true 80px crop extent and lands at the centroid.
+    m = sio.PredictedSegmentationMask.from_numpy(
+        inst["mask"], score=inst["score"], scale=inst["scale"], offset=inst["offset"]
+    )
+    decoded = decode_mask_to_image_res(m)
+    ys, xs = np.nonzero(decoded)
+    assert xs.size > 0
+    assert abs(xs.mean() - cx) <= 4 and abs(ys.mean() - cy) <= 4
 
 
 def test_topdown_seg_empty_batch_emits_empty_frames():

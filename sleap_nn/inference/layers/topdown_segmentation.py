@@ -106,10 +106,9 @@ class CenteredInstanceMaskLayer(InferenceLayer):
         logits = self._extract_confmaps(raw_out)  # (N, 1, h, w)
         probs = torch.sigmoid(logits.detach())
         masks = (probs > self.fg_threshold).float()  # (N, 1, h, w)
-        # Per-crop score: mean foreground probability over the predicted mask
-        # (falls back to the centroid confidence at the composed layer when a
-        # crop is empty). Kept on ``instance_scores`` in the (N, 1) layout the
-        # composed layer's scatter expects.
+        # Per-crop score: mean foreground probability over the predicted mask.
+        # An empty crop scores 0.0 (and is dropped by ``Outputs.to_masks``). Kept
+        # on ``instance_scores`` in the (N, 1) layout the composed layer expects.
         denom = masks.sum(dim=(2, 3)).clamp(min=1.0)
         score = (probs * masks).sum(dim=(2, 3)) / denom  # (N, 1)
         return Outputs(crops=masks, instance_scores=score, preprocess_info=info)
