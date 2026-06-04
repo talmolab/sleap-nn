@@ -2435,15 +2435,17 @@ def info(path):
 )
 @click.option(
     "--source",
-    type=click.Choice(["skeleton", "sam", "hybrid"]),
+    type=click.Choice(["skeleton", "sam", "hybrid", "sam3", "hybrid_sam3"]),
     default="skeleton",
     show_default=True,
     help=(
         "Pseudomask GT source: 'skeleton' (dilated skeleton burn, no extra "
-        "deps), 'sam' (Segment Anything keypoint-prompted, drops low-quality "
-        "instances), or 'hybrid' (SAM with per-instance skeleton fallback). "
-        "'sam'/'hybrid' require the optional 'sleap-nn[sam]' extra and a "
-        "checkpoint."
+        "deps), 'sam' (Segment Anything 1 keypoint-prompted, drops low-quality "
+        "instances), 'hybrid' (SAM1 with per-instance skeleton fallback), "
+        "'sam3' (SAM 3 keypoint-prompted), or 'hybrid_sam3' (SAM3 with "
+        "skeleton fallback). 'sam'/'hybrid' need the 'sleap-nn[sam]' extra + a "
+        "checkpoint; 'sam3'/'hybrid_sam3' need 'sleap-nn[sam3]' + access to the "
+        "gated facebook/sam3 model (huggingface-cli login)."
     ),
 )
 @click.option(
@@ -2485,14 +2487,21 @@ def info(path):
     type=click.Choice(["vit_h", "vit_l", "vit_b"]),
     default="vit_h",
     show_default=True,
-    help="SAM model registry key.",
+    help="SAM1 model registry key.",
+)
+@click.option(
+    "--sam3-model-id",
+    type=str,
+    default="facebook/sam3",
+    show_default=True,
+    help="HF model id for --source sam3/hybrid_sam3 (gated; huggingface-cli login).",
 )
 @click.option(
     "--device",
     type=str,
     default="cuda",
     show_default=True,
-    help="Torch device for SAM.",
+    help="Torch device for the segmentation model.",
 )
 @click.option(
     "--overlay",
@@ -2510,6 +2519,7 @@ def make_masks(
     min_dilate,
     sam_checkpoint,
     sam_model_type,
+    sam3_model_id,
     device,
     overlay,
 ):
@@ -2525,6 +2535,8 @@ def make_masks(
         sleap-nn make-masks -i train.pkg.slp -o train_seg.pkg.slp
 
         sleap-nn make-masks -i train.pkg.slp -o train_seg.pkg.slp --source hybrid --sam-checkpoint sam_vit_h_4b8939.pth
+
+        sleap-nn make-masks -i train.pkg.slp -o train_seg.pkg.slp --source sam3
     """
     from sleap_nn.data.pseudomasks import make_pseudomasks_cli
 
@@ -2538,6 +2550,7 @@ def make_masks(
         min_dilate=min_dilate,
         sam_checkpoint=sam_checkpoint,
         sam_model_type=sam_model_type,
+        sam3_model_id=sam3_model_id,
         device=device,
         overlay=overlay,
     )

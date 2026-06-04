@@ -1052,6 +1052,8 @@ class TestMakeMasksCommand:
         assert "skeleton" in result.output
         assert "sam" in result.output
         assert "hybrid" in result.output
+        assert "sam3" in result.output
+        assert "hybrid_sam3" in result.output
 
     def test_make_masks_skeleton(self, minimal_instance, tmp_path):
         """make-masks --source skeleton writes a reloadable seg .pkg.slp."""

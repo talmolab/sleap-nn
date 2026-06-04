@@ -94,6 +94,11 @@ tensorrt = [
 # pass) and only needed for the one-shot offline pseudomask prep step, so it is
 # kept out of the default deps; the skeleton source stays dependency-free.
 sam = ["segment-anything>=1.0"]
+# Optional dependency for the SAM3-backed pseudomask GT source
+# (`sleap-nn make-masks --source sam3/hybrid_sam3`). SAM3 ships in transformers
+# (>=5.0) and the gated `facebook/sam3` weights are pulled at runtime
+# (huggingface-cli login). Like `sam`, only needed for the offline prep step.
+sam3 = ["transformers>=5.0"]
 
 [dependency-groups]
 # PEP 735: Dev-only dependencies (`dev` is installed automatically by `uv sync`)

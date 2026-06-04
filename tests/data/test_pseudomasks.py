@@ -1,10 +1,11 @@
 """Tests for pose -> per-instance segmentation pseudomask generation.
 
 Covers the dependency-free skeleton rasterizer + the ``generate_pseudomasks``
-skeleton path (mask count, type, roundtrip), the unknown-source guard, and the
+skeleton path (mask count, type, roundtrip), the unknown-source guard, the
 SAM-path lazy-import error surface (exercised by faking ``segment-anything``
-absent). The full SAM / hybrid GPU path is gated behind ``segment_anything`` +
-a checkpoint and skipped when unavailable.
+absent), and the SAM3 speckle cleanup + lazy-import surface (faking
+``transformers`` absent). The full SAM / SAM3 GPU paths are gated behind their
+deps + a checkpoint / gated model and skipped when unavailable.
 """
 
 import builtins
@@ -21,7 +22,9 @@ from sleap_nn.data.pseudomasks import (
     _kpt_box,
     _pick,
     _disjointify,
+    _cleanup_speckle,
     _load_sam_predictor,
+    _load_sam3,
 )
 
 
@@ -236,3 +239,223 @@ def test_generate_pseudomasks_hybrid_smoke(minimal_instance):
     # Hybrid guarantees a mask for every kept instance.
     assert len(lf.masks) == n_inst
     assert all(isinstance(m, sio.UserSegmentationMask) for m in lf.masks)
+
+
+# ---------------------------------------------------------------------------
+# SAM3 speckle cleanup (dependency-free).
+# ---------------------------------------------------------------------------
+def test_cleanup_speckle_keeps_keypoint_blob_drops_specks():
+    """Cleanup keeps the keypoint-connected blob and removes detached specks."""
+    h, w = 80, 80
+    m = np.zeros((h, w), bool)
+    m[20:50, 20:50] = True  # main body (contains the keypoint)
+    m[5, 5] = True  # isolated single-pixel speck (removed by opening)
+    m[70:73, 70:73] = True  # small detached speck far from any keypoint
+    kpts = np.array([[35.0, 35.0]], np.float32)
+
+    out = _cleanup_speckle(m, kpts, radius=2)
+
+    # The keypoint stays inside the cleaned mask; the far speck is gone.
+    assert out[35, 35]
+    assert not out[71, 71]
+    assert not out[5, 5]
+    # Result is a single connected component.
+    from scipy import ndimage
+
+    _, n = ndimage.label(out)
+    assert n == 1
+
+
+def test_cleanup_speckle_empty_mask_is_noop():
+    """An all-False mask is returned unchanged (no components to keep)."""
+    m = np.zeros((30, 30), bool)
+    out = _cleanup_speckle(m, np.array([[10.0, 10.0]], np.float32))
+    assert not out.any()
+
+
+def test_cleanup_speckle_no_keypoint_hit_keeps_largest():
+    """If no keypoint lands on a component, the largest one is kept."""
+    h, w = 80, 80
+    m = np.zeros((h, w), bool)
+    m[10:40, 10:40] = True  # large blob
+    m[60:65, 60:65] = True  # smaller blob
+    # Keypoint in empty space -> falls back to largest component.
+    out = _cleanup_speckle(m, np.array([[1.0, 1.0]], np.float32), radius=2)
+    assert out[25, 25]  # large blob kept
+    assert not out[62, 62]  # smaller blob dropped
+
+
+# ---------------------------------------------------------------------------
+# SAM3 lazy-import error surface (transformers faked absent).
+# ---------------------------------------------------------------------------
+def test_load_sam3_missing_dep_raises(monkeypatch):
+    """When transformers (SAM3) is absent, a friendly ImportError is raised."""
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "transformers" or name.startswith("transformers."):
+            raise ImportError("No module named 'transformers'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    with pytest.raises(ImportError, match=r"sleap-nn\[sam3\]"):
+        _load_sam3()
+
+
+def test_generate_pseudomasks_sam3_missing_dep_raises(minimal_instance, monkeypatch):
+    """source='sam3' surfaces the friendly ImportError when SAM3 is absent."""
+    labels = sio.load_slp(str(minimal_instance))
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "transformers" or name.startswith("transformers."):
+            raise ImportError("No module named 'transformers'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    with pytest.raises(ImportError, match=r"sleap-nn\[sam3\]"):
+        generate_pseudomasks(labels, source="sam3")
+
+
+# ---------------------------------------------------------------------------
+# SAM3 frame-loop wiring (transformers FAKED, no GPU / no weights).
+# ---------------------------------------------------------------------------
+class _FakeTorchTensor:
+    """Minimal stand-in exposing the ``.cpu().numpy()`` / ``.float()`` chain."""
+
+    def __init__(self, arr):
+        self._a = arr
+
+    def float(self):
+        return self
+
+    def cpu(self):
+        return self
+
+    def numpy(self):
+        return self._a
+
+
+class _FakeInputs(dict):
+    def to(self, *_a, **_k):
+        return self
+
+
+class _FakeSam3Processor:
+    """Builds a fake batched input + returns plausible per-object candidates.
+
+    For each prompted object it emits 3 candidates: a tight box around the
+    keypoint bbox plus a couple of detached single-pixel specks (so the real
+    ``_cleanup_speckle`` has something to remove), and a deliberately oversized
+    whole-frame candidate (so ``_pick`` must reject it).
+    """
+
+    def __init__(self, hw, n_obj_ref):
+        self._hw = hw
+        self._n_obj_ref = n_obj_ref
+
+    def __call__(self, images, input_points, input_boxes, **_k):
+        self._boxes = input_boxes[0]  # [obj][xyxy]
+        self._points = input_points[0]  # [obj][pt][xy]
+        self._n_obj = len(self._boxes)
+        self._n_obj_ref[0] = self._n_obj
+        return _FakeInputs(original_sizes=[self._hw])
+
+    def post_process_masks(self, pred_masks, original_sizes, binarize):
+        h, w = self._hw
+        n_cand = 3
+        out = np.zeros((self._n_obj, n_cand, h, w), bool)
+        for j in range(self._n_obj):
+            pts = np.asarray(self._points[j], float)
+            x0 = int(np.floor(pts[:, 0].min())) - 6
+            y0 = int(np.floor(pts[:, 1].min())) - 6
+            x1 = int(np.ceil(pts[:, 0].max())) + 6
+            y1 = int(np.ceil(pts[:, 1].max())) + 6
+            x0, y0 = max(0, x0), max(0, y0)
+            x1, y1 = min(w, x1), min(h, y1)
+            # candidate 0: a tight body covering the keypoints (own-containment
+            # ok, area comparable to the dilated skeleton so the area-ratio
+            # filter accepts it) + 2 detached single-pixel specks for
+            # _cleanup_speckle to remove.
+            out[j, 0, y0:y1, x0:x1] = True
+            out[j, 0, 1, 1] = True
+            out[j, 0, h - 2, w - 2] = True
+            # candidate 1: slightly smaller body covering the keypoints.
+            out[j, 1, y0 + 2 : max(y0 + 3, y1 - 2), x0 + 2 : max(x0 + 3, x1 - 2)] = True
+            # candidate 2: oversized whole-frame (must be rejected by _pick).
+            out[j, 2, :, :] = True
+        return [_FakeTensor4D(out)]
+
+
+class _FakeTensor4D:
+    def __init__(self, arr):
+        self._a = arr
+
+    def cpu(self):
+        return self
+
+    def numpy(self):
+        return self._a
+
+
+class _FakeSam3Model:
+    """Returns synthetic ``pred_masks`` + ``iou_scores`` for the frame batch."""
+
+    def __init__(self, n_obj_ref):
+        self._n_obj_ref = n_obj_ref
+
+    def __call__(self, original_sizes=None, **_k):
+        n_obj = self._n_obj_ref[0]
+        # candidate 0 (tight body) gets the highest score among survivors.
+        scores = np.tile(np.array([0.8, 0.6, 0.95]), (n_obj, 1))[None]
+        return type(
+            "Out",
+            (),
+            {"pred_masks": None, "iou_scores": _FakeTorchTensor(scores)},
+        )()
+
+
+@pytest.mark.parametrize("source", ["sam3", "hybrid_sam3"])
+def test_generate_pseudomasks_sam3_frame_loop_faked(
+    minimal_instance, monkeypatch, source
+):
+    """The full sam3/hybrid_sam3 frame loop runs end-to-end with a faked model.
+
+    Exercises prompt building, candidate selection (``_pick`` rejecting the
+    oversized whole-frame candidate), speckle cleanup, disjointify, the
+    recalibrated quality filter, and assembly into ``UserSegmentationMask`` --
+    all without ``transformers`` / GPU / weights.
+    """
+    import sleap_nn.data.pseudomasks as pm
+
+    labels = sio.load_slp(str(minimal_instance))
+    n_inst = len(labels[0].instances)
+    h, w = labels.videos[0].shape[1], labels.videos[0].shape[2]
+
+    n_obj_ref = [0]
+
+    def fake_load_sam3(model_id=pm.SAM3_MODEL_ID, device="cuda"):
+        proc = _FakeSam3Processor((h, w), n_obj_ref)
+        return _FakeSam3Model(n_obj_ref), proc
+
+    monkeypatch.setattr(pm, "_load_sam3", fake_load_sam3)
+
+    out = generate_pseudomasks(labels, source=source, device="cpu")
+
+    assert len(out.labeled_frames) == 1
+    lf = out.labeled_frames[0]
+    # Both instances keep GT (tight candidate passes the filter / hybrid falls back).
+    assert len(lf.masks) == n_inst
+    assert len(lf.instances) == n_inst
+    for m, inst in zip(lf.masks, lf.instances):
+        mm = np.asarray(m.data, dtype=bool)
+        assert isinstance(m, sio.UserSegmentationMask)
+        assert mm.any()
+        # The oversized whole-frame candidate must NOT have been selected.
+        assert mm.mean() < 0.9
+        # Speckle in the far corner must be gone (cleanup kept the keypoint blob).
+        assert not mm[h - 2, w - 2]
+    # Disjoint: no pixel claimed by both instance masks.
+    a = np.asarray(lf.masks[0].data, bool)
+    b = np.asarray(lf.masks[1].data, bool)
+    assert not (a & b).any()
