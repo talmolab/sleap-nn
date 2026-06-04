@@ -2360,12 +2360,12 @@ def infer(**kwargs):
 )
 @click.option(
     "--match_method",
-    type=click.Choice(["oks", "centroid", "auto"]),
+    type=click.Choice(["oks", "centroid", "mask", "auto"]),
     default="auto",
     help=(
         "Matching method: 'oks' (full-skeleton), 'centroid' (single-point "
-        "pixel-distance), or 'auto' (centroid when the prediction skeleton is "
-        "single-node). Default: auto."
+        "pixel-distance), 'mask' (instance-segmentation mask IoU), or 'auto' "
+        "(centroid when the prediction skeleton is single-node). Default: auto."
     ),
 )
 @click.option(
