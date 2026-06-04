@@ -75,10 +75,12 @@ sleap-nn predict video.mp4 \
 
 Each predicted instance's mask is placed back at its full-frame location and
 written as a `sio.PredictedSegmentationMask` on `frame.masks` (RLE-backed, with
-the crop `scale`/`offset` baked in). The bottom-up segmentation post-processing
-flags are reused — `--fg_threshold`, `--min_mask_area`, `--mask_cleanup`,
-`--full_res_masks`, `--mask_output {mask,polygon,both}`, `--polygon_epsilon` — and
-no new flags are added. Rendering needs no extra wiring:
+the crop `scale`/`offset` baked in). Top-down segmentation honors the
+`--fg_threshold`, `--mask_output {mask,polygon,both}`, and `--polygon_epsilon`
+post-processing flags, and adds no new flags. The remaining segmentation flags
+— `--min_mask_area`, `--mask_cleanup`/`--mask_cleanup_radius`, and
+`--full_res_masks` — are **bottom-up-only** (each crop already yields one clean
+mask, so they are no-ops for top-down). Rendering needs no extra wiring:
 
 ```python
 import sleap_io as sio
