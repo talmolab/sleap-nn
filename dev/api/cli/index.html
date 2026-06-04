@@ -989,6 +989,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../guides/topdown-segmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Top-Down Segmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../guides/inference-performance/" class="md-nav__link">
         
   
@@ -7615,12 +7643,12 @@ generate a config with smart defaults based on your data.</p>
 </span><span id="__span-0-2360"><a id="__codelineno-0-2360" name="__codelineno-0-2360"></a><span class="p">)</span>
 </span><span id="__span-0-2361"><a id="__codelineno-0-2361" name="__codelineno-0-2361"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
 </span><span id="__span-0-2362"><a id="__codelineno-0-2362" name="__codelineno-0-2362"></a>    <span class="s2">&quot;--match_method&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2363"><a id="__codelineno-0-2363" name="__codelineno-0-2363"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">([</span><span class="s2">&quot;oks&quot;</span><span class="p">,</span> <span class="s2">&quot;centroid&quot;</span><span class="p">,</span> <span class="s2">&quot;auto&quot;</span><span class="p">]),</span>
+</span><span id="__span-0-2363"><a id="__codelineno-0-2363" name="__codelineno-0-2363"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">([</span><span class="s2">&quot;oks&quot;</span><span class="p">,</span> <span class="s2">&quot;centroid&quot;</span><span class="p">,</span> <span class="s2">&quot;mask&quot;</span><span class="p">,</span> <span class="s2">&quot;auto&quot;</span><span class="p">]),</span>
 </span><span id="__span-0-2364"><a id="__codelineno-0-2364" name="__codelineno-0-2364"></a>    <span class="n">default</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
 </span><span id="__span-0-2365"><a id="__codelineno-0-2365" name="__codelineno-0-2365"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
 </span><span id="__span-0-2366"><a id="__codelineno-0-2366" name="__codelineno-0-2366"></a>        <span class="s2">&quot;Matching method: &#39;oks&#39; (full-skeleton), &#39;centroid&#39; (single-point &quot;</span>
-</span><span id="__span-0-2367"><a id="__codelineno-0-2367" name="__codelineno-0-2367"></a>        <span class="s2">&quot;pixel-distance), or &#39;auto&#39; (centroid when the prediction skeleton is &quot;</span>
-</span><span id="__span-0-2368"><a id="__codelineno-0-2368" name="__codelineno-0-2368"></a>        <span class="s2">&quot;single-node). Default: auto.&quot;</span>
+</span><span id="__span-0-2367"><a id="__codelineno-0-2367" name="__codelineno-0-2367"></a>        <span class="s2">&quot;pixel-distance), &#39;mask&#39; (instance-segmentation mask IoU), or &#39;auto&#39; &quot;</span>
+</span><span id="__span-0-2368"><a id="__codelineno-0-2368" name="__codelineno-0-2368"></a>        <span class="s2">&quot;(centroid when the prediction skeleton is single-node). Default: auto.&quot;</span>
 </span><span id="__span-0-2369"><a id="__codelineno-0-2369" name="__codelineno-0-2369"></a>    <span class="p">),</span>
 </span><span id="__span-0-2370"><a id="__codelineno-0-2370" name="__codelineno-0-2370"></a><span class="p">)</span>
 </span><span id="__span-0-2371"><a id="__codelineno-0-2371" name="__codelineno-0-2371"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>

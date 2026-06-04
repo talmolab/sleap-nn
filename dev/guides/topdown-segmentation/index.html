@@ -8,31 +8,31 @@
       
       
       
-        <link rel="canonical" href="https://nn.sleap.ai/dev/api/tracking/candidates/">
+        <link rel="canonical" href="https://nn.sleap.ai/dev/guides/topdown-segmentation/">
       
       
-        <link rel="prev" href="../">
+        <link rel="prev" href="../centroid-only-inference/">
       
       
-        <link rel="next" href="fixed_window/">
+        <link rel="next" href="../inference-performance/">
       
       
         
       
       
-      <link rel="icon" href="../../../assets/favicon.ico">
+      <link rel="icon" href="../../assets/favicon.ico">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
     
     
       
-        <title>candidates - sleap-nn documentation</title>
+        <title>Top-Down Segmentation - sleap-nn documentation</title>
       
     
     
-      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,11 +51,11 @@
       
     
     
-      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
     
-    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sleap_nn.tracking.candidates" class="md-skip">
+        <a href="#top-down-crop-centered-instance-segmentation" class="md-skip">
           Skip to content
         </a>
       
@@ -100,9 +100,9 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../../.." title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+    <a href="../.." title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
       
-  <img src="../../../assets/sleap-logo.png" alt="logo">
+  <img src="../../assets/sleap-logo.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -119,7 +119,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              candidates
+              Top-Down Segmentation
             
           </span>
         </div>
@@ -226,7 +226,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../.." class="md-tabs__link">
+      <a href="../.." class="md-tabs__link">
         
   
   
@@ -245,7 +245,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../../installation/" class="md-tabs__link">
+      <a href="../../installation/" class="md-tabs__link">
         
   
   
@@ -264,7 +264,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../../tutorials/" class="md-tabs__link">
+      <a href="../../tutorials/" class="md-tabs__link">
         
   
   
@@ -281,9 +281,11 @@
   
   
   
+    
   
-    <li class="md-tabs__item">
-      <a href="../../../guides/" class="md-tabs__link">
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="../" class="md-tabs__link">
         
   
   
@@ -302,7 +304,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../../reference/" class="md-tabs__link">
+      <a href="../../reference/" class="md-tabs__link">
         
   
   
@@ -319,13 +321,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../../" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../api/" class="md-tabs__link">
           
   
   
@@ -343,7 +343,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../../../changelog/" class="md-tabs__link">
+      <a href="../../changelog/" class="md-tabs__link">
         
   
   
@@ -403,9 +403,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../.." title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+    <a href="../.." title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
       
-  <img src="../../../assets/sleap-logo.png" alt="logo">
+  <img src="../../assets/sleap-logo.png" alt="logo">
 
     </a>
     sleap-nn documentation
@@ -432,7 +432,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../.." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -459,7 +459,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../installation/" class="md-nav__link">
+      <a href="../../installation/" class="md-nav__link">
         
   
   
@@ -503,7 +503,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../tutorials/" class="md-nav__link ">
+            <a href="../../tutorials/" class="md-nav__link ">
               
   
   
@@ -545,7 +545,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../getting-started/quickstart/" class="md-nav__link">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
         
   
   
@@ -573,7 +573,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../getting-started/first-model/" class="md-nav__link">
+      <a href="../../getting-started/first-model/" class="md-nav__link">
         
   
   
@@ -601,7 +601,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../tutorials/notebooks/" class="md-nav__link">
+      <a href="../../tutorials/notebooks/" class="md-nav__link">
         
   
   
@@ -633,27 +633,32 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../guides/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -671,13 +676,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -701,10 +706,13 @@
       
       
         
+          
+          
+        
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
@@ -712,7 +720,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../guides/training/" class="md-nav__link ">
+            <a href="../training/" class="md-nav__link ">
               
   
   
@@ -730,7 +738,7 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_4_1" id="__nav_4_1_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
@@ -754,7 +762,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../guides/config-generator/" class="md-nav__link">
+      <a href="../config-generator/" class="md-nav__link">
         
   
   
@@ -782,7 +790,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../guides/negative-frames/" class="md-nav__link">
+      <a href="../negative-frames/" class="md-nav__link">
         
   
   
@@ -810,7 +818,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../guides/monitoring/" class="md-nav__link">
+      <a href="../monitoring/" class="md-nav__link">
         
   
   
@@ -838,7 +846,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../guides/multi-gpu/" class="md-nav__link">
+      <a href="../multi-gpu/" class="md-nav__link">
         
   
   
@@ -871,8 +879,10 @@
                 
   
   
+    
   
   
+  
     
     
     
@@ -880,18 +890,21 @@
       
       
         
+          
+          
+        
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../guides/inference/" class="md-nav__link ">
+            <a href="../inference/" class="md-nav__link ">
               
   
   
@@ -909,13 +922,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_4_2" id="__nav_4_2_label" tabindex="">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -933,7 +946,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../guides/inference-api/" class="md-nav__link">
+      <a href="../inference-api/" class="md-nav__link">
         
   
   
@@ -961,7 +974,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../guides/centroid-only-inference/" class="md-nav__link">
+      <a href="../centroid-only-inference/" class="md-nav__link">
         
   
   
@@ -986,10 +999,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../../guides/topdown-segmentation/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Top-Down Segmentation
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1005,6 +1045,104 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#training-data-per-instance-masks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training data: per-instance masks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Training data: per-instance masks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#training-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Inference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gt-centroid-fallback-no-centroid-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GT-centroid fallback (no centroid model)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1017,7 +1155,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../guides/inference-performance/" class="md-nav__link">
+      <a href="../inference-performance/" class="md-nav__link">
         
   
   
@@ -1053,7 +1191,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../guides/evaluation/" class="md-nav__link">
+      <a href="../evaluation/" class="md-nav__link">
         
   
   
@@ -1081,7 +1219,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../guides/tracking/" class="md-nav__link">
+      <a href="../tracking/" class="md-nav__link">
         
   
   
@@ -1109,7 +1247,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../guides/export/" class="md-nav__link">
+      <a href="../export/" class="md-nav__link">
         
   
   
@@ -1161,7 +1299,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../reference/" class="md-nav__link ">
+            <a href="../../reference/" class="md-nav__link ">
               
   
   
@@ -1220,7 +1358,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../../configuration/" class="md-nav__link ">
+            <a href="../../configuration/" class="md-nav__link ">
               
   
   
@@ -1262,7 +1400,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../configuration/config-picker/" class="md-nav__link">
+      <a href="../../configuration/config-picker/" class="md-nav__link">
         
   
   
@@ -1290,7 +1428,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../configuration/data/" class="md-nav__link">
+      <a href="../../configuration/data/" class="md-nav__link">
         
   
   
@@ -1318,7 +1456,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../configuration/model/" class="md-nav__link">
+      <a href="../../configuration/model/" class="md-nav__link">
         
   
   
@@ -1346,7 +1484,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../configuration/trainer/" class="md-nav__link">
+      <a href="../../configuration/trainer/" class="md-nav__link">
         
   
   
@@ -1374,7 +1512,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../configuration/samples/" class="md-nav__link">
+      <a href="../../configuration/samples/" class="md-nav__link">
         
   
   
@@ -1410,7 +1548,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../reference/cli/" class="md-nav__link">
+      <a href="../../reference/cli/" class="md-nav__link">
         
   
   
@@ -1438,7 +1576,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../reference/models/" class="md-nav__link">
+      <a href="../../reference/models/" class="md-nav__link">
         
   
   
@@ -1466,7 +1604,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../reference/evaluation_metrics/" class="md-nav__link">
+      <a href="../../reference/evaluation_metrics/" class="md-nav__link">
         
   
   
@@ -1494,7 +1632,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../help/faq/" class="md-nav__link">
+      <a href="../../help/faq/" class="md-nav__link">
         
   
   
@@ -1526,31 +1664,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
             
   
   
@@ -1568,7 +1701,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1583,10 +1716,8 @@
                 
   
   
-    
   
   
-  
     
     
     
@@ -1594,21 +1725,18 @@
       
       
         
-          
-          
-        
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../" class="md-nav__link ">
+            <a href="../../api/" class="md-nav__link ">
               
   
   
@@ -1626,13 +1754,13 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_1" id="__nav_6_1_label" tabindex="">
+              <label class="md-nav__link " for="__nav_6_1" id="__nav_6_1_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_1_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_1_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_6_1">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1667,7 +1795,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../architectures/" class="md-nav__link ">
+            <a href="../../api/architectures/" class="md-nav__link ">
               
   
   
@@ -1709,7 +1837,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/common/" class="md-nav__link">
+      <a href="../../api/architectures/common/" class="md-nav__link">
         
   
   
@@ -1737,7 +1865,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/convnext/" class="md-nav__link">
+      <a href="../../api/architectures/convnext/" class="md-nav__link">
         
   
   
@@ -1765,7 +1893,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/encoder_decoder/" class="md-nav__link">
+      <a href="../../api/architectures/encoder_decoder/" class="md-nav__link">
         
   
   
@@ -1793,7 +1921,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/heads/" class="md-nav__link">
+      <a href="../../api/architectures/heads/" class="md-nav__link">
         
   
   
@@ -1821,7 +1949,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/model/" class="md-nav__link">
+      <a href="../../api/architectures/model/" class="md-nav__link">
         
   
   
@@ -1849,7 +1977,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/swint/" class="md-nav__link">
+      <a href="../../api/architectures/swint/" class="md-nav__link">
         
   
   
@@ -1877,7 +2005,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/unet/" class="md-nav__link">
+      <a href="../../api/architectures/unet/" class="md-nav__link">
         
   
   
@@ -1905,7 +2033,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/utils/" class="md-nav__link">
+      <a href="../../api/architectures/utils/" class="md-nav__link">
         
   
   
@@ -1941,7 +2069,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../cli/" class="md-nav__link">
+      <a href="../../api/cli/" class="md-nav__link">
         
   
   
@@ -1986,7 +2114,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../config/" class="md-nav__link ">
+            <a href="../../api/config/" class="md-nav__link ">
               
   
   
@@ -2028,7 +2156,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/data_config/" class="md-nav__link">
+      <a href="../../api/config/data_config/" class="md-nav__link">
         
   
   
@@ -2056,7 +2184,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/get_config/" class="md-nav__link">
+      <a href="../../api/config/get_config/" class="md-nav__link">
         
   
   
@@ -2084,7 +2212,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/model_config/" class="md-nav__link">
+      <a href="../../api/config/model_config/" class="md-nav__link">
         
   
   
@@ -2112,7 +2240,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/trainer_config/" class="md-nav__link">
+      <a href="../../api/config/trainer_config/" class="md-nav__link">
         
   
   
@@ -2140,7 +2268,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/training_job_config/" class="md-nav__link">
+      <a href="../../api/config/training_job_config/" class="md-nav__link">
         
   
   
@@ -2168,7 +2296,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/utils/" class="md-nav__link">
+      <a href="../../api/config/utils/" class="md-nav__link">
         
   
   
@@ -2221,7 +2349,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../config_generator/" class="md-nav__link ">
+            <a href="../../api/config_generator/" class="md-nav__link ">
               
   
   
@@ -2263,7 +2391,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/analyzer/" class="md-nav__link">
+      <a href="../../api/config_generator/analyzer/" class="md-nav__link">
         
   
   
@@ -2291,7 +2419,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/architecture_estimates/" class="md-nav__link">
+      <a href="../../api/config_generator/architecture_estimates/" class="md-nav__link">
         
   
   
@@ -2319,7 +2447,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/generator/" class="md-nav__link">
+      <a href="../../api/config_generator/generator/" class="md-nav__link">
         
   
   
@@ -2347,7 +2475,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/memory/" class="md-nav__link">
+      <a href="../../api/config_generator/memory/" class="md-nav__link">
         
   
   
@@ -2375,7 +2503,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/recommender/" class="md-nav__link">
+      <a href="../../api/config_generator/recommender/" class="md-nav__link">
         
   
   
@@ -2420,7 +2548,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../config_generator/tui/" class="md-nav__link ">
+            <a href="../../api/config_generator/tui/" class="md-nav__link ">
               
   
   
@@ -2462,7 +2590,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/tui/app/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/app/" class="md-nav__link">
         
   
   
@@ -2507,7 +2635,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../config_generator/tui/screens/" class="md-nav__link ">
+            <a href="../../api/config_generator/tui/screens/" class="md-nav__link ">
               
   
   
@@ -2549,7 +2677,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/tui/screens/configure_screen/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/screens/configure_screen/" class="md-nav__link">
         
   
   
@@ -2577,7 +2705,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/tui/screens/export_screen/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/screens/export_screen/" class="md-nav__link">
         
   
   
@@ -2605,7 +2733,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/tui/screens/load_screen/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/screens/load_screen/" class="md-nav__link">
         
   
   
@@ -2633,7 +2761,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/tui/screens/model_select_screen/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/screens/model_select_screen/" class="md-nav__link">
         
   
   
@@ -2669,7 +2797,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/tui/state/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/state/" class="md-nav__link">
         
   
   
@@ -2714,7 +2842,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../config_generator/tui/widgets/" class="md-nav__link ">
+            <a href="../../api/config_generator/tui/widgets/" class="md-nav__link ">
               
   
   
@@ -2756,7 +2884,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/tui/widgets/collapsible/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/widgets/collapsible/" class="md-nav__link">
         
   
   
@@ -2784,7 +2912,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/tui/widgets/info_box/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/widgets/info_box/" class="md-nav__link">
         
   
   
@@ -2812,7 +2940,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/tui/widgets/memory_gauge/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/widgets/memory_gauge/" class="md-nav__link">
         
   
   
@@ -2840,7 +2968,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/tui/widgets/recommendation/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/widgets/recommendation/" class="md-nav__link">
         
   
   
@@ -2868,7 +2996,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/tui/widgets/size_display/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/widgets/size_display/" class="md-nav__link">
         
   
   
@@ -2896,7 +3024,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config_generator/tui/widgets/slider/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/widgets/slider/" class="md-nav__link">
         
   
   
@@ -2965,7 +3093,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../data/" class="md-nav__link ">
+            <a href="../../api/data/" class="md-nav__link ">
               
   
   
@@ -3007,7 +3135,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/augmentation/" class="md-nav__link">
+      <a href="../../api/data/augmentation/" class="md-nav__link">
         
   
   
@@ -3035,7 +3163,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/confidence_maps/" class="md-nav__link">
+      <a href="../../api/data/confidence_maps/" class="md-nav__link">
         
   
   
@@ -3063,7 +3191,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/custom_datasets/" class="md-nav__link">
+      <a href="../../api/data/custom_datasets/" class="md-nav__link">
         
   
   
@@ -3091,7 +3219,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/edge_maps/" class="md-nav__link">
+      <a href="../../api/data/edge_maps/" class="md-nav__link">
         
   
   
@@ -3119,7 +3247,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/identity/" class="md-nav__link">
+      <a href="../../api/data/identity/" class="md-nav__link">
         
   
   
@@ -3147,7 +3275,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/instance_centroids/" class="md-nav__link">
+      <a href="../../api/data/instance_centroids/" class="md-nav__link">
         
   
   
@@ -3175,7 +3303,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/instance_cropping/" class="md-nav__link">
+      <a href="../../api/data/instance_cropping/" class="md-nav__link">
         
   
   
@@ -3203,7 +3331,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/normalization/" class="md-nav__link">
+      <a href="../../api/data/normalization/" class="md-nav__link">
         
   
   
@@ -3231,7 +3359,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/providers/" class="md-nav__link">
+      <a href="../../api/data/providers/" class="md-nav__link">
         
   
   
@@ -3259,7 +3387,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/resizing/" class="md-nav__link">
+      <a href="../../api/data/resizing/" class="md-nav__link">
         
   
   
@@ -3287,7 +3415,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/segmentation_maps/" class="md-nav__link">
+      <a href="../../api/data/segmentation_maps/" class="md-nav__link">
         
   
   
@@ -3315,7 +3443,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/skia_augmentation/" class="md-nav__link">
+      <a href="../../api/data/skia_augmentation/" class="md-nav__link">
         
   
   
@@ -3343,7 +3471,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/utils/" class="md-nav__link">
+      <a href="../../api/data/utils/" class="md-nav__link">
         
   
   
@@ -3379,7 +3507,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../evaluation/" class="md-nav__link">
+      <a href="../../api/evaluation/" class="md-nav__link">
         
   
   
@@ -3424,7 +3552,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../export/" class="md-nav__link ">
+            <a href="../../api/export/" class="md-nav__link ">
               
   
   
@@ -3466,7 +3594,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../export/cli/" class="md-nav__link">
+      <a href="../../api/export/cli/" class="md-nav__link">
         
   
   
@@ -3511,7 +3639,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../export/exporters/" class="md-nav__link ">
+            <a href="../../api/export/exporters/" class="md-nav__link ">
               
   
   
@@ -3553,7 +3681,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../export/exporters/onnx_exporter/" class="md-nav__link">
+      <a href="../../api/export/exporters/onnx_exporter/" class="md-nav__link">
         
   
   
@@ -3581,7 +3709,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../export/exporters/tensorrt_exporter/" class="md-nav__link">
+      <a href="../../api/export/exporters/tensorrt_exporter/" class="md-nav__link">
         
   
   
@@ -3617,7 +3745,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../export/metadata/" class="md-nav__link">
+      <a href="../../api/export/metadata/" class="md-nav__link">
         
   
   
@@ -3645,7 +3773,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../export/utils/" class="md-nav__link">
+      <a href="../../api/export/utils/" class="md-nav__link">
         
   
   
@@ -3690,7 +3818,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../export/wrappers/" class="md-nav__link ">
+            <a href="../../api/export/wrappers/" class="md-nav__link ">
               
   
   
@@ -3732,7 +3860,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../export/wrappers/base/" class="md-nav__link">
+      <a href="../../api/export/wrappers/base/" class="md-nav__link">
         
   
   
@@ -3760,7 +3888,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../export/wrappers/bottomup/" class="md-nav__link">
+      <a href="../../api/export/wrappers/bottomup/" class="md-nav__link">
         
   
   
@@ -3788,7 +3916,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../export/wrappers/bottomup_multiclass/" class="md-nav__link">
+      <a href="../../api/export/wrappers/bottomup_multiclass/" class="md-nav__link">
         
   
   
@@ -3816,7 +3944,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../export/wrappers/centered_instance/" class="md-nav__link">
+      <a href="../../api/export/wrappers/centered_instance/" class="md-nav__link">
         
   
   
@@ -3844,7 +3972,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../export/wrappers/centroid/" class="md-nav__link">
+      <a href="../../api/export/wrappers/centroid/" class="md-nav__link">
         
   
   
@@ -3872,7 +4000,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../export/wrappers/single_instance/" class="md-nav__link">
+      <a href="../../api/export/wrappers/single_instance/" class="md-nav__link">
         
   
   
@@ -3900,7 +4028,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../export/wrappers/topdown/" class="md-nav__link">
+      <a href="../../api/export/wrappers/topdown/" class="md-nav__link">
         
   
   
@@ -3928,7 +4056,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../export/wrappers/topdown_multiclass/" class="md-nav__link">
+      <a href="../../api/export/wrappers/topdown_multiclass/" class="md-nav__link">
         
   
   
@@ -3989,7 +4117,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../inference/" class="md-nav__link ">
+            <a href="../../api/inference/" class="md-nav__link ">
               
   
   
@@ -4031,7 +4159,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/bottomup/" class="md-nav__link">
+      <a href="../../api/inference/bottomup/" class="md-nav__link">
         
   
   
@@ -4059,7 +4187,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/centroid_convert/" class="md-nav__link">
+      <a href="../../api/inference/centroid_convert/" class="md-nav__link">
         
   
   
@@ -4087,7 +4215,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/filters/" class="md-nav__link">
+      <a href="../../api/inference/filters/" class="md-nav__link">
         
   
   
@@ -4115,7 +4243,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/identity/" class="md-nav__link">
+      <a href="../../api/inference/identity/" class="md-nav__link">
         
   
   
@@ -4160,7 +4288,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../inference/layers/" class="md-nav__link ">
+            <a href="../../api/inference/layers/" class="md-nav__link ">
               
   
   
@@ -4219,7 +4347,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../inference/layers/backends/" class="md-nav__link ">
+            <a href="../../api/inference/layers/backends/" class="md-nav__link ">
               
   
   
@@ -4261,7 +4389,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/backends/base/" class="md-nav__link">
+      <a href="../../api/inference/layers/backends/base/" class="md-nav__link">
         
   
   
@@ -4289,7 +4417,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/backends/onnx_backend/" class="md-nav__link">
+      <a href="../../api/inference/layers/backends/onnx_backend/" class="md-nav__link">
         
   
   
@@ -4317,7 +4445,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/backends/tensorrt_backend/" class="md-nav__link">
+      <a href="../../api/inference/layers/backends/tensorrt_backend/" class="md-nav__link">
         
   
   
@@ -4345,7 +4473,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/backends/torch_backend/" class="md-nav__link">
+      <a href="../../api/inference/layers/backends/torch_backend/" class="md-nav__link">
         
   
   
@@ -4381,7 +4509,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/base/" class="md-nav__link">
+      <a href="../../api/inference/layers/base/" class="md-nav__link">
         
   
   
@@ -4409,7 +4537,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/bottomup/" class="md-nav__link">
+      <a href="../../api/inference/layers/bottomup/" class="md-nav__link">
         
   
   
@@ -4437,7 +4565,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/bottomup_multiclass/" class="md-nav__link">
+      <a href="../../api/inference/layers/bottomup_multiclass/" class="md-nav__link">
         
   
   
@@ -4465,7 +4593,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/centered_instance/" class="md-nav__link">
+      <a href="../../api/inference/layers/centered_instance/" class="md-nav__link">
         
   
   
@@ -4493,7 +4621,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/centroid/" class="md-nav__link">
+      <a href="../../api/inference/layers/centroid/" class="md-nav__link">
         
   
   
@@ -4521,7 +4649,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/configs/" class="md-nav__link">
+      <a href="../../api/inference/layers/configs/" class="md-nav__link">
         
   
   
@@ -4549,7 +4677,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/exported/" class="md-nav__link">
+      <a href="../../api/inference/layers/exported/" class="md-nav__link">
         
   
   
@@ -4577,7 +4705,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/segmentation/" class="md-nav__link">
+      <a href="../../api/inference/layers/segmentation/" class="md-nav__link">
         
   
   
@@ -4605,7 +4733,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/single_instance/" class="md-nav__link">
+      <a href="../../api/inference/layers/single_instance/" class="md-nav__link">
         
   
   
@@ -4633,7 +4761,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/topdown/" class="md-nav__link">
+      <a href="../../api/inference/layers/topdown/" class="md-nav__link">
         
   
   
@@ -4661,7 +4789,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/topdown_multiclass/" class="md-nav__link">
+      <a href="../../api/inference/layers/topdown_multiclass/" class="md-nav__link">
         
   
   
@@ -4689,7 +4817,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/layers/topdown_segmentation/" class="md-nav__link">
+      <a href="../../api/inference/layers/topdown_segmentation/" class="md-nav__link">
         
   
   
@@ -4725,7 +4853,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/loaders/" class="md-nav__link">
+      <a href="../../api/inference/loaders/" class="md-nav__link">
         
   
   
@@ -4770,7 +4898,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../inference/ops/" class="md-nav__link ">
+            <a href="../../api/inference/ops/" class="md-nav__link ">
               
   
   
@@ -4812,7 +4940,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/ops/coord/" class="md-nav__link">
+      <a href="../../api/inference/ops/coord/" class="md-nav__link">
         
   
   
@@ -4840,7 +4968,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/ops/crops/" class="md-nav__link">
+      <a href="../../api/inference/ops/crops/" class="md-nav__link">
         
   
   
@@ -4868,7 +4996,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/ops/filters/" class="md-nav__link">
+      <a href="../../api/inference/ops/filters/" class="md-nav__link">
         
   
   
@@ -4896,7 +5024,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/ops/identity/" class="md-nav__link">
+      <a href="../../api/inference/ops/identity/" class="md-nav__link">
         
   
   
@@ -4924,7 +5052,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/ops/paf/" class="md-nav__link">
+      <a href="../../api/inference/ops/paf/" class="md-nav__link">
         
   
   
@@ -4952,7 +5080,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/ops/peaks/" class="md-nav__link">
+      <a href="../../api/inference/ops/peaks/" class="md-nav__link">
         
   
   
@@ -4988,7 +5116,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/outputs/" class="md-nav__link">
+      <a href="../../api/inference/outputs/" class="md-nav__link">
         
   
   
@@ -5016,7 +5144,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/paf_grouping/" class="md-nav__link">
+      <a href="../../api/inference/paf_grouping/" class="md-nav__link">
         
   
   
@@ -5044,7 +5172,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/peak_finding/" class="md-nav__link">
+      <a href="../../api/inference/peak_finding/" class="md-nav__link">
         
   
   
@@ -5072,7 +5200,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/postprocessing/" class="md-nav__link">
+      <a href="../../api/inference/postprocessing/" class="md-nav__link">
         
   
   
@@ -5100,7 +5228,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/predictor/" class="md-nav__link">
+      <a href="../../api/inference/predictor/" class="md-nav__link">
         
   
   
@@ -5128,7 +5256,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/predictors/" class="md-nav__link">
+      <a href="../../api/inference/predictors/" class="md-nav__link">
         
   
   
@@ -5156,7 +5284,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/preprocess_info/" class="md-nav__link">
+      <a href="../../api/inference/preprocess_info/" class="md-nav__link">
         
   
   
@@ -5184,7 +5312,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/provenance/" class="md-nav__link">
+      <a href="../../api/inference/provenance/" class="md-nav__link">
         
   
   
@@ -5212,7 +5340,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/providers/" class="md-nav__link">
+      <a href="../../api/inference/providers/" class="md-nav__link">
         
   
   
@@ -5240,7 +5368,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/run/" class="md-nav__link">
+      <a href="../../api/inference/run/" class="md-nav__link">
         
   
   
@@ -5268,7 +5396,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/segmentation/" class="md-nav__link">
+      <a href="../../api/inference/segmentation/" class="md-nav__link">
         
   
   
@@ -5296,7 +5424,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/segmentation_convert/" class="md-nav__link">
+      <a href="../../api/inference/segmentation_convert/" class="md-nav__link">
         
   
   
@@ -5324,7 +5452,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/single_instance/" class="md-nav__link">
+      <a href="../../api/inference/single_instance/" class="md-nav__link">
         
   
   
@@ -5352,7 +5480,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/streaming/" class="md-nav__link">
+      <a href="../../api/inference/streaming/" class="md-nav__link">
         
   
   
@@ -5380,7 +5508,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/topdown/" class="md-nav__link">
+      <a href="../../api/inference/topdown/" class="md-nav__link">
         
   
   
@@ -5408,7 +5536,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/tracking/" class="md-nav__link">
+      <a href="../../api/inference/tracking/" class="md-nav__link">
         
   
   
@@ -5436,7 +5564,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/utils/" class="md-nav__link">
+      <a href="../../api/inference/utils/" class="md-nav__link">
         
   
   
@@ -5464,7 +5592,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/writer/" class="md-nav__link">
+      <a href="../../api/inference/writer/" class="md-nav__link">
         
   
   
@@ -5500,7 +5628,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../legacy_models/" class="md-nav__link">
+      <a href="../../api/legacy_models/" class="md-nav__link">
         
   
   
@@ -5528,7 +5656,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../model_info/" class="md-nav__link">
+      <a href="../../api/model_info/" class="md-nav__link">
         
   
   
@@ -5556,7 +5684,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../predict/" class="md-nav__link">
+      <a href="../../api/predict/" class="md-nav__link">
         
   
   
@@ -5584,7 +5712,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../system_info/" class="md-nav__link">
+      <a href="../../api/system_info/" class="md-nav__link">
         
   
   
@@ -5609,8 +5737,6 @@
                 
   
   
-    
-  
   
   
     
@@ -5623,15 +5749,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_13" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_13" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../../api/tracking/" class="md-nav__link ">
               
   
   
@@ -5655,7 +5781,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_13_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_13_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_6_1_13">
             <span class="md-nav__icon md-icon"></span>
             
@@ -5670,8 +5796,6 @@
                 
   
   
-    
-  
   
   
     
@@ -5684,15 +5808,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_13_1" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_13_1" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="./" class="md-nav__link md-nav__link--active">
+            <a href="../../api/tracking/candidates/" class="md-nav__link ">
               
   
   
@@ -5710,13 +5834,13 @@
             </a>
             
               
-              <label class="md-nav__link md-nav__link--active" for="__nav_6_1_13_1" id="__nav_6_1_13_1_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_6_1_13_1" id="__nav_6_1_13_1_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_6_1_13_1_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_6_1_13_1_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_6_1_13_1">
             <span class="md-nav__icon md-icon"></span>
             
@@ -5734,7 +5858,7 @@
   
   
     <li class="md-nav__item">
-      <a href="fixed_window/" class="md-nav__link">
+      <a href="../../api/tracking/candidates/fixed_window/" class="md-nav__link">
         
   
   
@@ -5762,7 +5886,7 @@
   
   
     <li class="md-nav__item">
-      <a href="local_queues/" class="md-nav__link">
+      <a href="../../api/tracking/candidates/local_queues/" class="md-nav__link">
         
   
   
@@ -5798,7 +5922,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../track_instance/" class="md-nav__link">
+      <a href="../../api/tracking/track_instance/" class="md-nav__link">
         
   
   
@@ -5826,7 +5950,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tracker/" class="md-nav__link">
+      <a href="../../api/tracking/tracker/" class="md-nav__link">
         
   
   
@@ -5854,7 +5978,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../utils/" class="md-nav__link">
+      <a href="../../api/tracking/utils/" class="md-nav__link">
         
   
   
@@ -5890,7 +6014,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../train/" class="md-nav__link">
+      <a href="../../api/train/" class="md-nav__link">
         
   
   
@@ -5935,7 +6059,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../training/" class="md-nav__link ">
+            <a href="../../api/training/" class="md-nav__link ">
               
   
   
@@ -5977,7 +6101,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/callbacks/" class="md-nav__link">
+      <a href="../../api/training/callbacks/" class="md-nav__link">
         
   
   
@@ -6005,7 +6129,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/lightning_modules/" class="md-nav__link">
+      <a href="../../api/training/lightning_modules/" class="md-nav__link">
         
   
   
@@ -6033,7 +6157,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/losses/" class="md-nav__link">
+      <a href="../../api/training/losses/" class="md-nav__link">
         
   
   
@@ -6061,7 +6185,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/model_trainer/" class="md-nav__link">
+      <a href="../../api/training/model_trainer/" class="md-nav__link">
         
   
   
@@ -6089,7 +6213,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/schedulers/" class="md-nav__link">
+      <a href="../../api/training/schedulers/" class="md-nav__link">
         
   
   
@@ -6117,7 +6241,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/utils/" class="md-nav__link">
+      <a href="../../api/training/utils/" class="md-nav__link">
         
   
   
@@ -6168,7 +6292,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../changelog/" class="md-nav__link">
+      <a href="../../changelog/" class="md-nav__link">
         
   
   
@@ -6232,6 +6356,8 @@
   
   
   
+    
+  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -6240,10 +6366,77 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.candidates" class="md-nav__link">
+  <a href="#training-data-per-instance-masks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        candidates
+        Training data: per-instance masks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Training data: per-instance masks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#training-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training notes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Inference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gt-centroid-fallback-no-centroid-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GT-centroid fallback (no centroid model)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evaluation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
       
     </span>
   </a>
@@ -6270,83 +6463,109 @@
   
 
 
-  <h1>candidates</h1>
-
-<div class="doc doc-object doc-module">
-
-
-
-<h2 id="sleap_nn.tracking.candidates" class="doc doc-heading">
-            <code>sleap_nn.tracking.candidates</code>
-
-
-<a href="#sleap_nn.tracking.candidates" class="headerlink" title="Permanent link">&para;</a></h2>
-
-    <div class="doc doc-contents first">
-
-        <p>Candidate generation modules for tracking.</p>
-
-
-
-
-
-
-<p><span class="doc-section-title">Modules:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;sleap_nn.tracking.candidates.fixed_window&lt;/code&gt;" href="fixed_window/#sleap_nn.tracking.candidates.fixed_window">fixed_window</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>Module to generate Fixed window candidates.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;sleap_nn.tracking.candidates.local_queues&lt;/code&gt;" href="local_queues/#sleap_nn.tracking.candidates.local_queues">local_queues</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>Module to generate Tracking local queue candidates.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-
-
-
-
-
-
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-
-
-  </div>
-
-    </div>
-
-</div>
+<h1 id="top-down-crop-centered-instance-segmentation">Top-down (crop-centered) instance segmentation<a class="headerlink" href="#top-down-crop-centered-instance-segmentation" title="Permanent link">&para;</a></h1>
+<p>Predict a <strong>binary foreground mask per instance</strong> using the top-down recipe: a
+<code>centroid</code> model detects each animal, a crop is taken around it, and a
+segmentation model predicts the mask of the <strong>centered</strong> instance in that crop.
+This is the segmentation analog of top-down pose (<code>centroid</code> + <code>centered_instance</code>)
+and sidesteps the bottom-up grouping / over-segmentation problem entirely — each
+crop yields exactly one clean mask.</p>
+<p>Use it when you want per-instance masks and already use (or can train) a centroid
+model; prefer <strong>bottom-up</strong> segmentation (<code>bottomup_segmentation</code>) when you want a
+single-pass, detector-free model.</p>
+<p>Model type / head-config key: <strong><code>centered_instance_segmentation</code></strong>. Sample config:
+<a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_centered_instance_segmentation_unet.yaml"><code>config_topdown_centered_instance_segmentation_unet.yaml</code></a>.</p>
+<h2 id="training-data-per-instance-masks">Training data: per-instance masks<a class="headerlink" href="#training-data-per-instance-masks" title="Permanent link">&para;</a></h2>
+<p>The training labels must carry one <code>sio.SegmentationMask</code> per instance on
+<code>LabeledFrame.masks</code>, <strong>linked to its instance</strong> via <code>mask.instance</code> (the data
+loader associates each crop with the centered instance's mask through that link,
+falling back to bounding-box IoU if it is absent). Tracks are preserved.</p>
+<p>If you only have poses, you can synthesize plausible masks by rasterizing each
+instance's skeleton (thick edges + node disks + a dilation) into a boolean array
+and attaching it with the link set:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;poses.pkg.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">for</span> <span class="n">lf</span> <span class="ow">in</span> <span class="n">labels</span><span class="p">:</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">masks</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="k">for</span> <span class="n">inst</span> <span class="ow">in</span> <span class="n">lf</span><span class="o">.</span><span class="n">instances</span><span class="p">:</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        <span class="n">blob</span> <span class="o">=</span> <span class="n">rasterize_pose</span><span class="p">(</span><span class="n">inst</span><span class="p">)</span>               <span class="c1"># bool (H, W) — your rasterizer</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        <span class="n">masks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>            <span class="n">sio</span><span class="o">.</span><span class="n">UserSegmentationMask</span><span class="o">.</span><span class="n">from_numpy</span><span class="p">(</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>                <span class="n">blob</span><span class="p">,</span> <span class="n">instance</span><span class="o">=</span><span class="n">inst</span><span class="p">,</span> <span class="n">track</span><span class="o">=</span><span class="nb">getattr</span><span class="p">(</span><span class="n">inst</span><span class="p">,</span> <span class="s2">&quot;track&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>            <span class="p">)</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>        <span class="p">)</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    <span class="n">lf</span><span class="o">.</span><span class="n">masks</span> <span class="o">=</span> <span class="n">masks</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="n">labels</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="s2">&quot;poses_masked.pkg.slp&quot;</span><span class="p">,</span> <span class="n">embed</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>   <span class="c1"># embed to keep it self-contained</span>
+</span></code></pre></div>
+<h3 id="training-notes">Training notes<a class="headerlink" href="#training-notes" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Head:</strong> a single <code>SegmentationHead</code> (BCE+Dice, logits). The crop is centered
+  on <code>anchor_part</code> (a node name in the <code>segmentation</code> head config) — set it to
+  match your centroid model's anchor; <code>null</code> centers on the mean of each
+  instance's visible nodes.</li>
+<li><strong>Supervision:</strong> only the centered instance is foreground; other instances'
+  pixels inside the crop are background (no ignore region in v1).</li>
+<li><strong>Augmentation:</strong> intensity augmentation is supported; <strong>geometric augmentation
+  is skipped in v1</strong> (masks are not co-transformed with the crop) — set
+  <code>augmentation_config.geometric: null</code> and train at <code>scale: 1.0</code> with crop dims
+  divisible by <code>max_stride</code>.</li>
+<li><strong>Metrics:</strong> <code>val/fg_iou</code> (foreground IoU) is logged each epoch.</li>
+</ul>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config_topdown_centered_instance_segmentation_unet<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>data_config.train_labels_path<span class="o">=[</span>train.pkg.slp<span class="o">]</span><span class="w"> </span>data_config.val_labels_path<span class="o">=[</span>val.pkg.slp<span class="o">]</span>
+</span></code></pre></div>
+<h2 id="inference">Inference<a class="headerlink" href="#inference" title="Permanent link">&para;</a></h2>
+<p>Top-down seg needs <strong>two model dirs</strong> — a <code>centroid</code> model and the
+<code>centered_instance_segmentation</code> model — composed via repeated <code>--model_paths</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--model_paths<span class="w"> </span>centroid_model_dir<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--model_paths<span class="w"> </span>centered_instance_segmentation_model_dir<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--fg_threshold<span class="w"> </span><span class="m">0</span>.5<span class="w"> </span>-o<span class="w"> </span>predictions.slp
+</span></code></pre></div>
+<p>Each predicted instance's mask is placed back at its full-frame location and
+written as a <code>sio.PredictedSegmentationMask</code> on <code>frame.masks</code> (RLE-backed, with
+the crop <code>scale</code>/<code>offset</code> baked in). Top-down segmentation honors the
+<code>--fg_threshold</code>, <code>--mask_output {mask,polygon,both}</code>, and <code>--polygon_epsilon</code>
+post-processing flags, and adds no new flags. The remaining segmentation flags
+— <code>--min_mask_area</code>, <code>--mask_cleanup</code>/<code>--mask_cleanup_radius</code>, and
+<code>--full_res_masks</code> — are <strong>bottom-up-only</strong> (each crop already yields one clean
+mask, so they are no-ops for top-down). Rendering needs no extra wiring:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">labels</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">masks</span><span class="p">:</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">sio</span><span class="o">.</span><span class="n">PredictedSegmentationMask</span><span class="p">)</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">sio</span><span class="o">.</span><span class="n">render_image</span><span class="p">(</span><span class="n">labels</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">save_path</span><span class="o">=</span><span class="s2">&quot;overlay.png&quot;</span><span class="p">)</span>   <span class="c1"># masks auto-overlay</span>
+</span></code></pre></div>
+<h3 id="gt-centroid-fallback-no-centroid-model">GT-centroid fallback (no centroid model)<a class="headerlink" href="#gt-centroid-fallback-no-centroid-model" title="Permanent link">&para;</a></h3>
+<p>Given <strong>only</strong> the segmentation model dir, inference crops the <strong>ground-truth</strong>
+instances from the source <code>.slp</code> (a GT-centroid fallback) and predicts a mask per
+GT instance. This is what post-training evaluation uses, and is handy for scoring
+the segmentation model in isolation:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>labeled.pkg.slp<span class="w"> </span>--model_paths<span class="w"> </span>centered_instance_segmentation_model_dir
+</span></code></pre></div>
+<h2 id="evaluation">Evaluation<a class="headerlink" href="#evaluation" title="Permanent link">&para;</a></h2>
+<p>Post-training evaluation runs automatically (<code>trainer_config.eval.enabled: true</code>)
+using mask-IoU matching, equivalent to:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--ground_truth_path<span class="w"> </span>gt.slp<span class="w"> </span>--predicted_path<span class="w"> </span>pred.slp<span class="w"> </span>--match_method<span class="w"> </span>mask
+</span></code></pre></div>
+<p><code>match_method="mask"</code> matches predicted vs GT masks by IoU (Hungarian) and reports
+detection precision/recall/F1, mean mask IoU, panoptic quality, boundary IoU, and
+COCO-style mask AP/AR. <code>match_threshold</code> is the minimum IoU in <code>(0, 1]</code>.</p>
+<blockquote>
+<p><strong>Note:</strong> frame pairing matches predicted and GT frames by video identity. If
+your GT <code>.pkg.slp</code> was <em>derived</em> by re-embedding images from another file, its
+embedded videos point back at the original source, so a prediction's video
+provenance may not match the derived file and pairing is skipped (logged, not
+fatal). Evaluate against a <code>.slp</code> whose videos resolve consistently (a normal
+single-source <code>.pkg.slp</code> or on-disk videos).</p>
+</blockquote>
+<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../inference/">Bottom-up segmentation</a> — single-pass, detector-free masks.</li>
+<li><a href="../centroid-only-inference/">Centroid-only inference</a> — the centroid stage standalone.</li>
+</ul>
 
 
 
@@ -6429,10 +6648,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>
