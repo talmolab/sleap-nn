@@ -6721,11 +6721,11 @@
 <tbody>
 <tr>
 <td><code>--extra gpu</code></td>
-<td>CUDA 13.0 (alias for <code>torch-cuda130</code>)</td>
+<td>CUDA 13.0 (same as <code>--extra torch-cuda130</code>)</td>
 </tr>
 <tr>
 <td><code>--extra cpu</code></td>
-<td>CPU-only (alias for <code>torch-cpu</code>)</td>
+<td>CPU-only / macOS Apple MPS (same as <code>--extra torch-cpu</code>)</td>
 </tr>
 <tr>
 <td><code>--extra torch-cuda128</code></td>
@@ -6740,6 +6740,17 @@
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>On macOS, use <code>--extra cpu</code> — the MPS backend is automatically available.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code>--extra gpu</code> (CUDA) is for x86-64 / Windows-AMD64 only; NVIDIA CUDA wheels
+are not published for Linux aarch64. On Linux aarch64 use <code>--extra cpu</code>.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>On Windows the CUDA runtime (including cuDNN) ships <em>inside</em> the PyTorch
+wheel, so you will not see a separate <code>nvidia-cudnn-cu13</code> package — that is
+expected. On Linux it is a separate dependency that <code>--extra gpu</code> pulls in.</p>
 </div>
 <p><strong>Step 4: Run commands</strong></p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>uv<span class="w"> </span>run<span class="w"> </span>sleap-nn<span class="w"> </span>--help
