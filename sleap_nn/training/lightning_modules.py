@@ -298,10 +298,11 @@ class LightningModel(L.LightningModule):
             "multi_class_bottomup": BottomUpMultiClassLightningModule,
             "multi_class_topdown": TopDownCenteredInstanceMultiClassLightningModule,
             "bottomup_segmentation": BottomUpSegmentationLightningModule,
+            "centered_instance_segmentation": TopDownCenteredInstanceSegmentationLightningModule,
         }
 
         if model_type not in lightning_models:
-            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`]"
+            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`]"
             logger.error(message)
             raise ValueError(message)
 
@@ -3009,3 +3010,138 @@ class BottomUpSegmentationLightningModule(LightningModel):
         union = pred_fg_binary.sum() + y_fg.sum() - intersection
         iou = intersection / (union + 1e-6)
         self.log("val/fg_iou", iou, on_step=False, on_epoch=True, sync_dist=True)
+
+
+class TopDownCenteredInstanceSegmentationLightningModule(LightningModel):
+    """Lightning Module for top-down (crop-centered) instance segmentation (#622).
+
+    Predicts a single binary foreground mask of the centered instance on a
+    centroid crop. Combines the crop I/O of
+    :class:`TopDownCenteredInstanceLightningModule` (``instance_image`` input)
+    with the bce-dice foreground loss / IoU metric of
+    :class:`BottomUpSegmentationLightningModule`. Composed with a ``centroid``
+    model for full top-down inference; the head emits logits.
+    """
+
+    def __init__(
+        self,
+        model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
+        negative_loss_weight: Optional[float] = 1.0,
+    ):
+        """Initialise the configs and the model."""
+        super().__init__(
+            model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
+            negative_loss_weight=negative_loss_weight,
+        )
+        self.seg_output_stride = self.head_configs[
+            self.model_type
+        ].segmentation.output_stride
+
+    def forward(self, img):
+        """Forward pass of the model returning foreground-mask LOGITS."""
+        img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
+        return self.model(img)["SegmentationHead"]
+
+    def training_step(self, batch, batch_idx):
+        """Training step (bce-dice on the centered-instance foreground mask)."""
+        X = torch.squeeze(batch["instance_image"], dim=1)
+        y_fg = torch.squeeze(batch["foreground_mask"], dim=1)
+        X = normalize_on_gpu(X)
+        pred_fg = self.model(X)["SegmentationHead"]  # logits
+        loss = compute_bce_dice_loss(pred_fg, y_fg)
+
+        self.log(
+            "loss", loss, prog_bar=True, on_step=True, on_epoch=False, sync_dist=True
+        )
+        self._accumulate_loss(loss)
+        self.log("train/fg_loss", loss, on_step=False, on_epoch=True, sync_dist=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step (val loss + foreground IoU)."""
+        X = torch.squeeze(batch["instance_image"], dim=1)
+        y_fg = torch.squeeze(batch["foreground_mask"], dim=1)
+        X = normalize_on_gpu(X)
+        pred_fg = self.model(X)["SegmentationHead"]  # logits
+        val_loss = compute_bce_dice_loss(pred_fg, y_fg)
+
+        self.log(
+            "val/loss",
+            val_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        self.log("val/fg_loss", val_loss, on_step=False, on_epoch=True, sync_dist=True)
+
+        pred_fg_binary = (pred_fg > 0.0).float()
+        intersection = (pred_fg_binary * y_fg).sum()
+        union = pred_fg_binary.sum() + y_fg.sum() - intersection
+        iou = intersection / (union + 1e-6)
+        self.log("val/fg_iou", iou, on_step=False, on_epoch=True, sync_dist=True)
+
+    def get_visualization_data(self, sample) -> VisualizationData:
+        """Crop-flavored viz: image + predicted foreground probability overlay."""
+        ex = sample.copy()
+        for k, v in ex.items():
+            if isinstance(v, torch.Tensor):
+                ex[k] = v.to(device=self.device)
+        ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
+        with torch.no_grad():
+            logits = self.forward(ex["instance_image"])
+            fg_prob = torch.sigmoid(logits)[0].cpu().numpy().transpose(1, 2, 0)
+        img_np = ex["instance_image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        return VisualizationData(
+            image=img_np,
+            pred_confmaps=fg_prob,
+            pred_peaks=np.zeros((0, 1, 2)),
+            pred_peak_values=np.zeros((0,)),
+            gt_instances=np.zeros((0, 1, 2)),
+            node_names=["mask"],
+            output_scale=fg_prob.shape[0] / img_np.shape[0],
+            is_paired=False,
+        )
+
+    def visualize_example(self, sample):
+        """Visualize the predicted foreground mask over the crop during training."""
+        data = self.get_visualization_data(sample)
+        scale = 1.0
+        if data.image.shape[0] < 512:
+            scale = 2.0
+        if data.image.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(data.image, dpi=72 * scale, scale=scale)
+        plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
+        return fig

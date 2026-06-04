@@ -34,6 +34,8 @@ from sleap_nn.config.model_config import (
     TopDownCenteredInstanceMultiClassConfig,
     ClassVectorsConfig,
     BottomUpSegmentationConfig,
+    CenteredInstanceSegmentationConfig,
+    CenteredInstanceSegmentationHeadConfig,
     SegmentationHeadConfig,
     InstanceCenterConfig,
     CenterOffsetConfig,
@@ -394,9 +396,15 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
                 center=InstanceCenterConfig(),
                 offsets=CenterOffsetConfig(),
             )
+        elif head_cfg == "centered_instance_segmentation":
+            head_configs.centered_instance_segmentation = (
+                CenteredInstanceSegmentationConfig(
+                    segmentation=CenteredInstanceSegmentationHeadConfig()
+                )
+            )
         else:
             raise ValueError(
-                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown', 'bottomup_segmentation']"
+                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown', 'bottomup_segmentation', 'centered_instance_segmentation']"
             )
 
     elif isinstance(head_cfg, dict):
@@ -460,6 +468,18 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
                 segmentation=SegmentationHeadConfig(**seg["segmentation"]),
                 center=InstanceCenterConfig(**seg["center"]),
                 offsets=CenterOffsetConfig(**seg["offsets"]),
+            )
+        elif (
+            "centered_instance_segmentation" in head_cfg
+            and head_cfg["centered_instance_segmentation"] is not None
+        ):
+            seg = head_cfg["centered_instance_segmentation"]
+            head_configs.centered_instance_segmentation = (
+                CenteredInstanceSegmentationConfig(
+                    segmentation=CenteredInstanceSegmentationHeadConfig(
+                        **seg["segmentation"]
+                    )
+                )
             )
 
     return head_configs

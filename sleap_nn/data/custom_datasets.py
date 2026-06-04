@@ -1407,6 +1407,410 @@ class CenteredInstanceDataset(BaseDataset):
         return sample
 
 
+def _bbox_iou(
+    a: Tuple[float, float, float, float], b: Tuple[float, float, float, float]
+) -> float:
+    """IoU of two ``(x0, y0, x1, y1)`` axis-aligned boxes."""
+    ix0, iy0 = max(a[0], b[0]), max(a[1], b[1])
+    ix1, iy1 = min(a[2], b[2]), min(a[3], b[3])
+    iw, ih = max(0.0, ix1 - ix0), max(0.0, iy1 - iy0)
+    inter = iw * ih
+    if inter <= 0:
+        return 0.0
+    area_a = max(0.0, a[2] - a[0]) * max(0.0, a[3] - a[1])
+    area_b = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+    union = area_a + area_b - inter
+    return float(inter / union) if union > 0 else 0.0
+
+
+def _match_mask_to_instance(
+    inst: sio.Instance, lf_masks: List
+) -> Optional["sio.SegmentationMask"]:
+    """Find the segmentation mask belonging to ``inst`` on a labeled frame.
+
+    Primary key is the one-way ``mask.instance`` identity link (set by sio and by
+    the burned-in pseudo-label data). Falls back to the mask whose image-space
+    bounding box best overlaps the instance's keypoint bounding box, so datasets
+    without the explicit link still associate correctly.
+    """
+    if not lf_masks:
+        return None
+    for m in lf_masks:
+        if getattr(m, "instance", None) is inst:
+            return m
+    # Fallback: max bbox-IoU between the keypoint bbox and each mask's bbox.
+    pts = inst.numpy()
+    vis = pts[~np.isnan(pts).any(axis=1)]
+    if len(vis) == 0:
+        return None
+    inst_box = (
+        float(vis[:, 0].min()),
+        float(vis[:, 1].min()),
+        float(vis[:, 0].max()),
+        float(vis[:, 1].max()),
+    )
+    best, best_iou = None, 0.0
+    for m in lf_masks:
+        mx, my, mw, mh = m.bbox  # image-space (x, y, w, h)
+        iou = _bbox_iou(inst_box, (mx, my, mx + mw, my + mh))
+        if iou > best_iou:
+            best, best_iou = m, iou
+    return best
+
+
+def _kp_bbox(inst: sio.Instance) -> Optional[Tuple[float, float, float, float]]:
+    """Keypoint bounding box ``(x0, y0, x1, y1)`` of an instance, or None."""
+    pts = inst.numpy()
+    vis = pts[~np.isnan(pts).any(axis=1)]
+    if len(vis) == 0:
+        return None
+    return (
+        float(vis[:, 0].min()),
+        float(vis[:, 1].min()),
+        float(vis[:, 0].max()),
+        float(vis[:, 1].max()),
+    )
+
+
+def _associate_masks(
+    instances: List, lf_masks: List
+) -> Dict[int, "sio.SegmentationMask"]:
+    """One-to-one assign each instance at most one mask on a frame (no reuse).
+
+    Identity links (``mask.instance``) are resolved first and their masks removed
+    from the pool; remaining instances are matched to remaining masks by greedy
+    descending bbox-IoU (> 0). This prevents two overlapping instances (the
+    multi-animal case) from both grabbing the same mask, and prevents an unlinked
+    instance from stealing a mask already claimed by another instance's link.
+    """
+    assigned: Dict[int, "sio.SegmentationMask"] = {}
+    used: set = set()
+    # 1) Identity links first.
+    unlinked = []
+    for i, inst in enumerate(instances):
+        if inst.is_empty:
+            continue
+        linked = next(
+            (
+                m
+                for m in lf_masks
+                if id(m) not in used and getattr(m, "instance", None) is inst
+            ),
+            None,
+        )
+        if linked is not None:
+            assigned[i] = linked
+            used.add(id(linked))
+        else:
+            unlinked.append(i)
+    # 2) Greedy max-IoU one-to-one for the rest over the remaining masks.
+    triples = []
+    for i in unlinked:
+        ibox = _kp_bbox(instances[i])
+        if ibox is None:
+            continue
+        for m in lf_masks:
+            if id(m) in used:
+                continue
+            mx, my, mw, mh = m.bbox
+            iou = _bbox_iou(ibox, (mx, my, mx + mw, my + mh))
+            if iou > 0.0:
+                triples.append((iou, i, m))
+    triples.sort(key=lambda t: -t[0])
+    for iou, i, m in triples:
+        if i in assigned or id(m) in used:
+            continue
+        assigned[i] = m
+        used.add(id(m))
+    return assigned
+
+
+class CenteredInstanceSegmentationDataset(CenteredInstanceDataset):
+    """Dataset for top-down (crop-centered) instance segmentation (#622).
+
+    Subclasses :class:`CenteredInstanceDataset`: reuses the centroid-crop
+    pipeline but replaces the keypoint confidence-map GT with a single binary
+    foreground mask of ONLY the centered instance (other instances' foreground
+    inside the crop is background). The centered instance's full-frame mask is
+    captured into the sample index at construction time (via the one-way
+    ``mask.instance`` link, with a bbox-IoU fallback), decoded on access, and
+    carried through the SAME size-matcher / crop / resize / pad operations as the
+    image so it stays pixel-aligned with ``instance_image``; it is then
+    downsampled to the segmentation head's output stride.
+
+    Note:
+        Geometric augmentation is unsupported in v1 (masks are not co-transformed
+        with the image) and is skipped with a warning; intensity augmentation is
+        applied normally. Train at ``scale=1.0`` with crop dims divisible by
+        ``max_stride`` (the mask resize/pad mirror the image but are not
+        sub-pixel pad-aware).
+
+    Attributes:
+        seg_head_config: Configuration for the segmentation head (``output_stride``).
+    """
+
+    def __init__(
+        self,
+        labels: List[sio.Labels],
+        crop_size: int,
+        seg_head_config: DictConfig,
+        max_stride: int,
+        anchor_ind: Optional[int] = None,
+        user_instances_only: bool = True,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
+        intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        geometric_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        scale: float = 1.0,
+        apply_aug: bool = False,
+        max_hw: Tuple[Optional[int]] = (None, None),
+        cache_img: Optional[str] = None,
+        cache_img_path: Optional[str] = None,
+        use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
+        parallel_caching: bool = True,
+        cache_workers: int = 0,
+    ) -> None:
+        """Initialize class attributes."""
+        self.seg_head_config = seg_head_config
+        self._warned_geometric_aug = False
+        super().__init__(
+            labels=labels,
+            crop_size=crop_size,
+            # The base class only uses confmap_head_config in its (overridden)
+            # __getitem__; reuse the seg head config (it carries `output_stride`).
+            confmap_head_config=seg_head_config,
+            max_stride=max_stride,
+            anchor_ind=anchor_ind,
+            user_instances_only=user_instances_only,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
+            intensity_aug=intensity_aug,
+            geometric_aug=geometric_aug,
+            scale=scale,
+            apply_aug=apply_aug,
+            max_hw=max_hw,
+            cache_img=cache_img,
+            cache_img_path=cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
+        )
+
+    def _get_instance_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+        """Index per (frame, instance), capturing each instance's mask object.
+
+        The associated ``sio.SegmentationMask`` (RLE-compact, picklable) is stored
+        in each sample so ``__getitem__`` never needs a live ``Labels`` handle
+        (correct under the memory/disk image caching paths). Instances with no
+        associated mask are skipped.
+        """
+        instance_idx_list = []
+        n_missing = 0
+        for labels_idx, label in enumerate(labels):
+            for lf_idx, lf in enumerate(label):
+                if self.user_instances_only:
+                    if lf.user_instances is not None and len(lf.user_instances) > 0:
+                        lf.instances = lf.user_instances
+                    else:
+                        continue
+                lf_masks = getattr(lf, "masks", None) or []
+                # One-to-one mask<->instance assignment per frame (no mask reused
+                # across overlapping instances).
+                assigned = _associate_masks(lf.instances, lf_masks)
+                for inst_idx, inst in enumerate(lf.instances):
+                    if inst.is_empty:
+                        continue
+                    mask_obj = assigned.get(inst_idx)
+                    if mask_obj is None:
+                        n_missing += 1
+                        continue
+                    video_idx = labels[labels_idx].videos.index(lf.video)
+                    instance_idx_list.append(
+                        {
+                            "labels_idx": labels_idx,
+                            "lf_idx": lf_idx,
+                            "inst_idx": inst_idx,
+                            "video_idx": video_idx,
+                            "instances": (
+                                lf.instances if self.cache_img is not None else None
+                            ),
+                            "frame_idx": lf.frame_idx,
+                            "mask_obj": mask_obj,
+                        }
+                    )
+        if n_missing:
+            logger.warning(
+                f"CenteredInstanceSegmentationDataset: skipped {n_missing} "
+                f"instance(s) with no associated segmentation mask."
+            )
+        return instance_idx_list
+
+    def __getitem__(self, index) -> Dict:
+        """Return dict with cropped image and the centered-instance mask GT."""
+        from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
+
+        meta = self.instance_idx_list[index]
+        labels_idx = meta["labels_idx"]
+        lf_idx = meta["lf_idx"]
+        inst_idx = meta["inst_idx"]
+        video_idx = meta["video_idx"]
+        lf_frame_idx = meta["frame_idx"]
+
+        if self.cache_img is not None:
+            instances_list = meta["instances"]
+            if self.cache_img == "disk":
+                img = np.array(
+                    Image.open(
+                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                    )
+                )
+            elif self.cache_img == "memory":
+                img = self.cache[(labels_idx, lf_idx)].copy()
+        else:
+            lf = self.labels_list[labels_idx][lf_idx]
+            instances_list = lf.instances
+            img = lf.image
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
+
+        image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+        instances = np.stack([inst.numpy() for inst in instances_list], axis=0)
+        image = np.expand_dims(image, axis=0)  # (1, C, H, W)
+        instances = np.expand_dims(instances, axis=0)  # (1, num, nodes, 2)
+        instances = torch.from_numpy(instances.astype("float32"))
+        image = torch.from_numpy(image.copy())
+
+        num_instances = instances.shape[1]
+        orig_img_height, orig_img_width = image.shape[-2:]
+        instances = instances[:, inst_idx]
+
+        # Decode the centered instance's mask and place it on the EXACT full-frame
+        # canvas so it shares the image's pixel grid. `decode_mask_to_image_res`
+        # returns a partial-frame array for masks carrying a non-identity
+        # scale/offset (e.g. a pseudo-label `.slp` written by a top-down seg
+        # model); without this placement the mask desyncs from the (full-frame)
+        # image under the shared size-matcher/crop and the GT is silently
+        # corrupted. Clamp to frame bounds (decoded extent can be +/-1 px).
+        mask_np = decode_mask_to_image_res(meta["mask_obj"])
+        if mask_np.shape[:2] != (orig_img_height, orig_img_width):
+            full = np.zeros((orig_img_height, orig_img_width), dtype=bool)
+            h0 = min(mask_np.shape[0], orig_img_height)
+            w0 = min(mask_np.shape[1], orig_img_width)
+            full[:h0, :w0] = mask_np[:h0, :w0]
+            mask_np = full
+        mask_t = torch.from_numpy(np.ascontiguousarray(mask_np, dtype=np.float32))[
+            None, None
+        ]
+
+        if self.ensure_rgb:
+            image = convert_to_rgb(image)
+        elif self.ensure_grayscale:
+            image = convert_to_grayscale(image)
+
+        # Size matcher (apply the SAME geometry to image and mask).
+        image, eff_scale = apply_sizematcher(
+            image, max_height=self.max_hw[0], max_width=self.max_hw[1]
+        )
+        mask_t, _ = apply_sizematcher(
+            mask_t, max_height=self.max_hw[0], max_width=self.max_hw[1]
+        )
+        instances = instances * eff_scale
+
+        centroids = generate_centroids(instances, anchor_ind=self.anchor_ind)
+        instance, centroid = instances[0], centroids[0]
+
+        # Oversized (sqrt(2)) crop for rotation headroom — kept for parity with
+        # CenteredInstanceDataset even though geometric aug is skipped here.
+        crop_size_aug = (
+            (np.array([self.crop_size, self.crop_size]) * np.sqrt(2))
+            .astype(np.int32)
+            .tolist()
+        )
+        sample = generate_crops(image, instance, centroid, crop_size_aug)
+        # Carry the mask through the IDENTICAL crop bbox.
+        mask_t = crop_and_resize(
+            mask_t, boxes=sample["instance_bbox"], size=crop_size_aug
+        )
+
+        sample["frame_idx"] = torch.tensor(lf_frame_idx, dtype=torch.int32)
+        sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
+        sample["num_instances"] = num_instances
+        sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width]).unsqueeze(
+            0
+        )
+        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
+
+        # Intensity augmentation on the image only (mask is intensity-invariant).
+        if self.apply_aug and self.intensity_aug is not None:
+            (
+                sample["instance_image"],
+                sample["instance"],
+            ) = apply_intensity_augmentation(
+                sample["instance_image"], sample["instance"], **self.intensity_aug
+            )
+        # Geometric augmentation is unsupported in v1 (mask co-transform deferred).
+        if (
+            self.apply_aug
+            and self.geometric_aug is not None
+            and not self._warned_geometric_aug
+        ):
+            logger.warning(
+                "Geometric augmentation is configured but not supported for "
+                "CenteredInstanceSegmentationDataset (masks are not co-transformed "
+                "with the crop in v1); it is skipped. Only intensity augmentation "
+                "is applied."
+            )
+            self._warned_geometric_aug = True
+
+        # Re-crop to the exact crop size (same bbox for image and mask).
+        sample["instance_bbox"] = torch.unsqueeze(
+            make_centered_bboxes(sample["centroid"][0], self.crop_size, self.crop_size),
+            0,
+        )
+        sample["instance_image"] = crop_and_resize(
+            sample["instance_image"],
+            boxes=sample["instance_bbox"],
+            size=(self.crop_size, self.crop_size),
+        )
+        mask_t = crop_and_resize(
+            mask_t, boxes=sample["instance_bbox"], size=(self.crop_size, self.crop_size)
+        )
+        point = sample["instance_bbox"][0][0]
+        sample["instance"] = sample["instance"] - point
+        sample["centroid"] = sample["centroid"] - point
+
+        # Resize image + keypoints by scale; match the mask to the image size.
+        sample["instance_image"], sample["instance"] = apply_resizer(
+            sample["instance_image"], sample["instance"], scale=self.scale
+        )
+        tgt_hw = sample["instance_image"].shape[-2:]
+        if tuple(mask_t.shape[-2:]) != tuple(tgt_hw):
+            mask_t = F.interpolate(
+                mask_t, size=(int(tgt_hw[0]), int(tgt_hw[1])), mode="area"
+            )
+
+        # Pad both to the model's max stride (bottom-right).
+        sample["instance_image"] = apply_pad_to_stride(
+            sample["instance_image"], max_stride=self.max_stride
+        )
+        mask_t = apply_pad_to_stride(mask_t, max_stride=self.max_stride)
+
+        img_hw = sample["instance_image"].shape[-2:]
+        mask_bool = mask_t[0, 0].numpy() > 0.5
+        # Single-element list -> the centered instance's mask only (no union),
+        # downsampled + thresholded to the seg head's output stride.
+        sample["foreground_mask"] = generate_foreground_mask(
+            [mask_bool],
+            img_hw=img_hw,
+            output_stride=self.seg_head_config.output_stride,
+        )
+        sample["labels_idx"] = labels_idx
+
+        return sample
+
+
 class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
     """Dataset class for instance-centered confidence map ID models.
 
@@ -2398,6 +2802,7 @@ def get_train_val_datasets(
     if use_negative_frames and model_type in (
         "centered_instance",
         "multi_class_topdown",
+        "centered_instance_segmentation",
     ):
         logger.warning(
             f"use_negative_frames is enabled but model_type='{model_type}' "
@@ -2813,6 +3218,75 @@ def get_train_val_datasets(
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
             use_negative_frames=False,
+        )
+
+    elif model_type == "centered_instance_segmentation":
+        seg_cfg = config.model_config.head_configs.centered_instance_segmentation
+        anchor_part = seg_cfg.segmentation.anchor_part
+        if anchor_part is not None:
+            nodes = [x["name"] for x in config.data_config.skeletons[0]["nodes"]]
+            anchor_ind = nodes.index(anchor_part)
+        else:
+            anchor_ind = None
+        train_dataset = CenteredInstanceSegmentationDataset(
+            labels=train_labels,
+            crop_size=config.data_config.preprocessing.crop_size,
+            seg_head_config=seg_cfg.segmentation,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            anchor_ind=anchor_ind,
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            intensity_aug=(
+                config.data_config.augmentation_config.intensity
+                if config.data_config.augmentation_config is not None
+                else None
+            ),
+            geometric_aug=(
+                config.data_config.augmentation_config.geometric
+                if config.data_config.augmentation_config is not None
+                else None
+            ),
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=config.data_config.use_augmentations_train,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=train_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
+        )
+        val_dataset = CenteredInstanceSegmentationDataset(
+            labels=val_labels,
+            crop_size=config.data_config.preprocessing.crop_size,
+            seg_head_config=seg_cfg.segmentation,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            anchor_ind=anchor_ind,
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            intensity_aug=None,
+            geometric_aug=None,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=False,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=val_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
         )
 
     else:
