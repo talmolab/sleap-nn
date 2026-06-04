@@ -425,6 +425,18 @@ def test_build_tracker_config_explicit_sentinels():
     assert cfg2.features == "bboxes"
     assert cfg2.scoring_method == "iou"
 
+    # candidates_method: unset (None) → not explicit; set → explicit.
+    assert (
+        _build_tracker_config({"candidates_method": None}).candidates_method_explicit
+        is False
+    )
+    assert (
+        _build_tracker_config(
+            {"candidates_method": "local_queues"}
+        ).candidates_method_explicit
+        is True
+    )
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Mask-IoU tracking for bottom-up segmentation (#619)
@@ -523,6 +535,61 @@ def test_apply_tracking_masks_bumps_default_window(video, monkeypatch):
     # An explicit non-default window is respected (the user's choice).
     apply_tracking(labels, _mask_cfg(window_size=8))
     assert captured["window_size"] == 8
+
+
+def test_apply_tracking_masks_defaults_local_queues(video, monkeypatch):
+    """Mask mode defaults candidates_method to local_queues when not explicit."""
+    captured = _capture_from_config_kwargs(monkeypatch)
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+    apply_tracking(labels, _mask_cfg(window_size=5, candidates_method_explicit=False))
+    assert captured["candidates_method"] == "local_queues"
+
+
+def test_apply_tracking_masks_explicit_candidates_method_respected(video, monkeypatch):
+    """An explicit candidates_method is honored in mask mode (no override)."""
+    captured = _capture_from_config_kwargs(monkeypatch)
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+    apply_tracking(
+        labels,
+        _mask_cfg(
+            window_size=5,
+            candidates_method="fixed_window",
+            candidates_method_explicit=True,
+        ),
+    )
+    assert captured["candidates_method"] == "fixed_window"
+
+
+def test_apply_tracking_masks_derives_max_tracks_from_target(video, monkeypatch):
+    """Mask mode caps tracks at the known target count when max_tracks is unset.
+
+    The cap is what lifts local_queues identity from ~0.52 to ~0.91 on the real
+    over-segmented clip; deriving it from the target count makes
+    --tracking_target_instance_count N enough.
+    """
+    captured = _capture_from_config_kwargs(monkeypatch)
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+    apply_tracking(
+        labels,
+        _mask_cfg(
+            window_size=5,
+            candidates_method_explicit=False,
+            tracking_target_instance_count=3,
+        ),
+    )
+    assert captured["max_tracks"] == 3
+    # An explicit max_tracks wins over the derived one.
+    captured.clear()
+    apply_tracking(
+        labels,
+        _mask_cfg(
+            window_size=5,
+            candidates_method_explicit=False,
+            max_tracks=2,
+            tracking_target_instance_count=3,
+        ),
+    )
+    assert captured["max_tracks"] == 2
 
 
 def test_apply_tracking_masks_explicit_masks_respected(video):

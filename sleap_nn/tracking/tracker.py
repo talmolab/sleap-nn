@@ -104,11 +104,13 @@ class Tracker:
         "cosine_sim": compute_cosine_sim,
         "euclidean_dist": compute_euclidean_distance,
     }
-    _quantile_method = functools.partial(np.quantile, q=robust_best_instance)
     _scoring_reduction_methods: Dict[str, Any] = {
         "mean": np.nanmean,
         "max": np.nanmax,
-        "robust_quantile": _quantile_method,
+        # `robust_quantile` is resolved per-instance in `get_scores` so it honors
+        # `self.robust_best_instance`; this entry only registers the valid key
+        # (a class-level functools.partial would freeze `q` at the class default).
+        "robust_quantile": np.nanmax,
     }
     _feature_methods: Dict[str, Any] = {
         "keypoints": get_keypoints,
@@ -526,6 +528,13 @@ class Tracker:
             # prediction (`kf_track_features="keypoints"`).
             scoring_method = functools.partial(compute_oks, stddev=self.oks_stddev)
         scoring_reduction = self._scoring_reduction_methods[self.scoring_reduction]
+        if self.scoring_reduction == "robust_quantile":
+            # Resolve at runtime so the per-instance `robust_best_instance` is
+            # honored (a class-level partial freezes `q` at the class default).
+            # `nanquantile` matches the NaN-handling of `nanmean`/`nanmax`.
+            scoring_reduction = functools.partial(
+                np.nanquantile, q=self.robust_best_instance
+            )
 
         # Get list of features for the `current_instances`.
         if self.is_local_queue:
@@ -546,7 +555,13 @@ class Tracker:
                     > self.min_match_points  # candidates with min support (non-NaN
                     # keypoints, or mask area px for segmentation masks)
                 ]
-                score_trackid = scoring_reduction(scores_trackid)  # scoring reduction
+                # An empty candidate list (all filtered by `min_match_points`)
+                # reduces to NaN (-> inf cost in `scores_to_cost_matrix`); guard
+                # explicitly since `np.nanmax([])` / `np.nanquantile([])` raise
+                # (only `np.nanmean([])` returns NaN).
+                score_trackid = (
+                    np.nan if not scores_trackid else scoring_reduction(scores_trackid)
+                )
                 scores[f_idx][t_idx] = score_trackid
 
         return scores
