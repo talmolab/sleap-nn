@@ -28,6 +28,7 @@ loaded lazily so the default skeleton path stays dependency-free.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 
@@ -38,6 +39,11 @@ from loguru import logger
 
 # ---------------------------------------------------------------------------
 # Locked SAM recipe constants (module defaults).
+#
+# These remain the single source of truth for the default recipe; the
+# :class:`PseudomaskGenerator` dataclass fields default to these values (so the
+# constants and the dataclass can never drift), and the free helper functions
+# keep them as keyword-argument defaults for back-compat.
 # ---------------------------------------------------------------------------
 #: Minimum SAM predicted-IoU for a SAM mask to be accepted.
 PRED_IOU_MIN = 0.88
@@ -56,6 +62,11 @@ SAM_MAX_BOX_AREA_FACTOR = 1.5
 #: CLAHE parameters applied to the grayscale image before prompting SAM.
 CLAHE_CLIP_LIMIT = 3.0
 CLAHE_TILE_GRID = (8, 8)
+#: Skeleton-rasterizer defaults (shared by the rasterizer + the generator).
+NODE_RADIUS = 4
+EDGE_THICKNESS = 4
+DILATE_FRAC = 0.10
+MIN_DILATE = 4
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +254,10 @@ def _sam_instance_masks(
     kpts: Sequence[np.ndarray],
     clahe: bool = True,
     max_box_area_factor: float = SAM_MAX_BOX_AREA_FACTOR,
+    box_margin_frac: float = SAM_BOX_MARGIN_FRAC,
+    box_margin_min: float = SAM_BOX_MARGIN_MIN,
+    clahe_clip_limit: float = CLAHE_CLIP_LIMIT,
+    clahe_tile_grid: Tuple[int, int] = CLAHE_TILE_GRID,
 ) -> Tuple[List[np.ndarray], List[float]]:
     """Run the locked SAM recipe on one frame.
 
@@ -257,6 +272,10 @@ def _sam_instance_masks(
         kpts: List of ``(n_i, 2)`` visible xy keypoints per instance.
         clahe: Whether to CLAHE-equalize before prompting SAM.
         max_box_area_factor: Passed through to :func:`_pick`.
+        box_margin_frac: Keypoint-box margin fraction passed to :func:`_kpt_box`.
+        box_margin_min: Keypoint-box minimum margin passed to :func:`_kpt_box`.
+        clahe_clip_limit: CLAHE clip limit applied when ``clahe`` is true.
+        clahe_tile_grid: CLAHE tile grid applied when ``clahe`` is true.
 
     Returns:
         Tuple ``(masks, pred_ious)`` where ``masks`` is a list of disjoint
@@ -264,7 +283,7 @@ def _sam_instance_masks(
         predicted-IoU of the chosen candidate.
     """
     if clahe:
-        src = cv2.createCLAHE(CLAHE_CLIP_LIMIT, CLAHE_TILE_GRID).apply(img_gray)
+        src = cv2.createCLAHE(clahe_clip_limit, clahe_tile_grid).apply(img_gray)
     else:
         src = img_gray
     predictor.set_image(np.stack([src] * 3, -1).astype(np.uint8))
@@ -276,7 +295,12 @@ def _sam_instance_masks(
             masks.append(np.zeros((h, w), bool))
             pred_ious.append(0.0)
             continue
-        box = _kpt_box(ks, img_gray.shape)
+        box = _kpt_box(
+            ks,
+            img_gray.shape,
+            margin_frac=box_margin_frac,
+            margin_min=box_margin_min,
+        )
         ms, sc, _ = predictor.predict(
             point_coords=ks.astype(np.float32),
             point_labels=np.ones(len(ks), np.int32),
@@ -348,14 +372,219 @@ def _own_containment(mask: np.ndarray, kpts: np.ndarray, hw: Tuple[int, int]) ->
 # ---------------------------------------------------------------------------
 # Top-level generator.
 # ---------------------------------------------------------------------------
+@dataclass
+class PseudomaskGenerator:
+    """Configurable pose -> per-instance pseudomask generator.
+
+    Bundles every tunable of the skeleton/SAM/hybrid recipe as a field with the
+    same defaults as the module-level constants (the single source of truth), so
+    callers can construct one generator and reuse it. The free helper functions
+    (:func:`rasterize_instance_mask`, :func:`_kpt_box`, :func:`_pick`,
+    :func:`_disjointify`, :func:`_sam_instance_masks`, :func:`_own_containment`)
+    remain available and receive the relevant fields when :meth:`run` calls them.
+
+    Attributes:
+        source: GT source, one of ``"skeleton"`` (default), ``"sam"``,
+            ``"hybrid"``. ``"sam"``/``"hybrid"`` require ``segment-anything`` +
+            a checkpoint.
+        node_radius: Skeleton-rasterizer node disk radius (px).
+        edge_thickness: Skeleton-rasterizer edge line thickness (px).
+        dilate_frac: Skeleton-rasterizer dilation as a fraction of bbox diagonal.
+        min_dilate: Skeleton-rasterizer minimum dilation radius (px).
+        sam_checkpoint: Path to the SAM checkpoint (required for sam/hybrid).
+        sam_model_type: SAM model registry key.
+        device: Torch device for SAM.
+        pred_iou_min: SAM quality filter: minimum predicted-IoU.
+        own_containment_min: SAM quality filter: minimum own-keypoint containment.
+        area_ratio_range: SAM quality filter: ``(min, max)`` for SAM/skeleton area.
+        sam_box_margin_frac: SAM keypoint-box margin as a fraction of the side.
+        sam_box_margin_min: SAM keypoint-box minimum margin (px).
+        sam_max_box_area_factor: Reject SAM candidates above this * box-area.
+        clahe_clip_limit: CLAHE clip limit applied before prompting SAM.
+        clahe_tile_grid: CLAHE tile grid applied before prompting SAM.
+    """
+
+    source: str = "skeleton"
+    node_radius: int = NODE_RADIUS
+    edge_thickness: int = EDGE_THICKNESS
+    dilate_frac: float = DILATE_FRAC
+    min_dilate: int = MIN_DILATE
+    sam_checkpoint: Optional[str] = None
+    sam_model_type: str = "vit_h"
+    device: str = "cuda"
+    pred_iou_min: float = PRED_IOU_MIN
+    own_containment_min: float = OWN_CONTAIN_MIN
+    area_ratio_range: Tuple[float, float] = (AREA_RATIO_MIN, AREA_RATIO_MAX)
+    sam_box_margin_frac: float = SAM_BOX_MARGIN_FRAC
+    sam_box_margin_min: float = SAM_BOX_MARGIN_MIN
+    sam_max_box_area_factor: float = SAM_MAX_BOX_AREA_FACTOR
+    clahe_clip_limit: float = CLAHE_CLIP_LIMIT
+    clahe_tile_grid: Tuple[int, int] = field(default_factory=lambda: CLAHE_TILE_GRID)
+
+    def run(self, labels: sio.Labels) -> sio.Labels:
+        """Generate per-instance segmentation pseudomasks from pose keypoints.
+
+        For every labeled frame with at least one posed instance, generates a
+        boolean silhouette per instance and attaches it as a
+        ``sio.UserSegmentationMask``. The original keypoint instances are
+        retained (needed for downstream eval frame-pairing) and embedded images
+        are preserved on save.
+
+        Args:
+            labels: Source ``sio.Labels`` carrying keypoint instances + images.
+
+        Returns:
+            New ``sio.Labels`` with per-frame ``UserSegmentationMask`` objects.
+
+        Raises:
+            ValueError: If ``source`` is not one of the supported values.
+            ImportError: If ``source`` needs SAM but ``segment-anything`` is
+                absent.
+        """
+        source = self.source
+        if source not in ("skeleton", "sam", "hybrid"):
+            raise ValueError(
+                f"Unknown pseudomask source {source!r}; expected one of "
+                "'skeleton', 'sam', 'hybrid'."
+            )
+
+        skel = labels.skeletons[0]
+        edge_inds = list(skel.edge_inds)
+        skel_kw = dict(
+            node_radius=self.node_radius,
+            edge_thickness=self.edge_thickness,
+            dilate_frac=self.dilate_frac,
+            min_dilate=self.min_dilate,
+        )
+
+        predictor = None
+        use_sam = source in ("sam", "hybrid")
+        if use_sam:
+            predictor = _load_sam_predictor(
+                self.sam_checkpoint,
+                model_type=self.sam_model_type,
+                device=self.device,
+            )
+
+        area_min, area_max = self.area_ratio_range
+
+        lfs = [lf for lf in labels.labeled_frames if len(lf.instances) > 0]
+        logger.info(
+            f"Generating '{source}' pseudomasks for {len(lfs)} labeled frames "
+            f"(skeleton: {len(skel.nodes)} nodes / {len(edge_inds)} edges)."
+        )
+
+        new_lfs: List[sio.LabeledFrame] = []
+        n_masks = 0
+        n_sam = 0
+        n_fallback = 0
+        n_dropped = 0
+        for lf in lfs:
+            video = lf.video
+            h, w = video.shape[1], video.shape[2]
+
+            # Per-instance skeleton masks + keypoints, index-aligned to kept
+            # instances. Instances with no pose or an empty skeleton mask are
+            # skipped (mirrors offline scratch behavior).
+            kept_instances = []
+            skel_masks: List[np.ndarray] = []
+            kpts_all: List[np.ndarray] = []
+            for inst in lf.instances:
+                pts = inst.numpy()[:, :2]
+                if np.isnan(pts).all():
+                    continue
+                sm = rasterize_instance_mask(pts, edge_inds, (h, w), **skel_kw)
+                if not sm.any():
+                    continue
+                kept_instances.append(inst)
+                skel_masks.append(sm)
+                kpts_all.append(pts[~np.isnan(pts).any(axis=1)].astype(np.float32))
+
+            if not skel_masks:
+                continue
+
+            if not use_sam:
+                final_masks = skel_masks
+            else:
+                img = np.asarray(lf.image)
+                if img.ndim == 3:
+                    img = img[..., 0]
+                sam_masks, pred_ious = _sam_instance_masks(
+                    predictor,
+                    img,
+                    kpts_all,
+                    max_box_area_factor=self.sam_max_box_area_factor,
+                    box_margin_frac=self.sam_box_margin_frac,
+                    box_margin_min=self.sam_box_margin_min,
+                    clahe_clip_limit=self.clahe_clip_limit,
+                    clahe_tile_grid=self.clahe_tile_grid,
+                )
+                final_masks = []
+                for i in range(len(skel_masks)):
+                    sm = skel_masks[i]
+                    mm = sam_masks[i]
+                    sam_area = int(mm.sum())
+                    skel_area = max(1, int(sm.sum()))
+                    area_ratio = sam_area / skel_area
+                    oc = _own_containment(mm, kpts_all[i], (h, w))
+                    keep = (
+                        sam_area > 0
+                        and pred_ious[i] >= self.pred_iou_min
+                        and oc >= self.own_containment_min
+                        and area_min <= area_ratio <= area_max
+                    )
+                    if keep:
+                        final_masks.append(mm)
+                        n_sam += 1
+                    elif source == "hybrid":
+                        final_masks.append(sm)  # per-instance skeleton fallback
+                        n_fallback += 1
+                    else:  # source == "sam": drop the rejected instance entirely
+                        final_masks.append(None)
+                        n_dropped += 1
+
+            masks_obj = []
+            kept_for_frame = []
+            for inst, m in zip(kept_instances, final_masks):
+                if m is None:
+                    continue
+                masks_obj.append(sio.UserSegmentationMask.from_numpy(m.astype(bool)))
+                kept_for_frame.append(inst)
+            if not masks_obj:
+                continue
+            n_masks += len(masks_obj)
+            new_lfs.append(
+                sio.LabeledFrame(
+                    video=video,
+                    frame_idx=lf.frame_idx,
+                    instances=kept_for_frame,  # retain poses for eval pairing
+                    masks=masks_obj,
+                )
+            )
+
+        out_labels = sio.Labels(
+            videos=labels.videos, skeletons=[skel], labeled_frames=new_lfs
+        )
+        mpf = n_masks / max(1, len(new_lfs))
+        logger.info(
+            f"Built {len(new_lfs)} frames, {n_masks} masks ({mpf:.2f} masks/frame)."
+        )
+        if use_sam:
+            logger.info(
+                f"SAM masks: {n_sam}; skeleton-fallback: {n_fallback}; "
+                f"dropped: {n_dropped}."
+            )
+        return out_labels
+
+
 def generate_pseudomasks(
     labels: sio.Labels,
     source: str = "skeleton",
     *,
-    node_radius: int = 4,
-    edge_thickness: int = 4,
-    dilate_frac: float = 0.10,
-    min_dilate: int = 4,
+    node_radius: int = NODE_RADIUS,
+    edge_thickness: int = EDGE_THICKNESS,
+    dilate_frac: float = DILATE_FRAC,
+    min_dilate: int = MIN_DILATE,
     sam_checkpoint: Optional[str] = None,
     sam_model_type: str = "vit_h",
     device: str = "cuda",
@@ -365,11 +594,9 @@ def generate_pseudomasks(
 ) -> sio.Labels:
     """Generate per-instance segmentation pseudomasks from pose keypoints.
 
-    For every labeled frame with at least one posed instance, generates a
-    boolean silhouette per instance and attaches it as a
-    ``sio.UserSegmentationMask``. The original keypoint instances are retained
-    (needed for downstream eval frame-pairing) and embedded images are
-    preserved on save.
+    Thin wrapper that builds a :class:`PseudomaskGenerator` from the given
+    keyword arguments and calls :meth:`PseudomaskGenerator.run`. Preserved as the
+    stable public function entry point.
 
     Args:
         labels: Source ``sio.Labels`` carrying keypoint instances + image data.
@@ -394,128 +621,19 @@ def generate_pseudomasks(
         ValueError: If ``source`` is not one of the supported values.
         ImportError: If ``source`` needs SAM but ``segment-anything`` is absent.
     """
-    if source not in ("skeleton", "sam", "hybrid"):
-        raise ValueError(
-            f"Unknown pseudomask source {source!r}; expected one of "
-            "'skeleton', 'sam', 'hybrid'."
-        )
-
-    skel = labels.skeletons[0]
-    edge_inds = list(skel.edge_inds)
-    skel_kw = dict(
+    return PseudomaskGenerator(
+        source=source,
         node_radius=node_radius,
         edge_thickness=edge_thickness,
         dilate_frac=dilate_frac,
         min_dilate=min_dilate,
-    )
-
-    predictor = None
-    use_sam = source in ("sam", "hybrid")
-    if use_sam:
-        predictor = _load_sam_predictor(
-            sam_checkpoint, model_type=sam_model_type, device=device
-        )
-
-    area_min, area_max = area_ratio_range
-
-    lfs = [lf for lf in labels.labeled_frames if len(lf.instances) > 0]
-    logger.info(
-        f"Generating '{source}' pseudomasks for {len(lfs)} labeled frames "
-        f"(skeleton: {len(skel.nodes)} nodes / {len(edge_inds)} edges)."
-    )
-
-    new_lfs: List[sio.LabeledFrame] = []
-    n_masks = 0
-    n_sam = 0
-    n_fallback = 0
-    n_dropped = 0
-    for lf in lfs:
-        video = lf.video
-        h, w = video.shape[1], video.shape[2]
-
-        # Per-instance skeleton masks + keypoints, index-aligned to kept
-        # instances. Instances with no pose or an empty skeleton mask are
-        # skipped (mirrors offline scratch behavior).
-        kept_instances = []
-        skel_masks: List[np.ndarray] = []
-        kpts_all: List[np.ndarray] = []
-        for inst in lf.instances:
-            pts = inst.numpy()[:, :2]
-            if np.isnan(pts).all():
-                continue
-            sm = rasterize_instance_mask(pts, edge_inds, (h, w), **skel_kw)
-            if not sm.any():
-                continue
-            kept_instances.append(inst)
-            skel_masks.append(sm)
-            kpts_all.append(pts[~np.isnan(pts).any(axis=1)].astype(np.float32))
-
-        if not skel_masks:
-            continue
-
-        if not use_sam:
-            final_masks = skel_masks
-        else:
-            img = np.asarray(lf.image)
-            if img.ndim == 3:
-                img = img[..., 0]
-            sam_masks, pred_ious = _sam_instance_masks(predictor, img, kpts_all)
-            final_masks = []
-            for i in range(len(skel_masks)):
-                sm = skel_masks[i]
-                mm = sam_masks[i]
-                sam_area = int(mm.sum())
-                skel_area = max(1, int(sm.sum()))
-                area_ratio = sam_area / skel_area
-                oc = _own_containment(mm, kpts_all[i], (h, w))
-                keep = (
-                    sam_area > 0
-                    and pred_ious[i] >= pred_iou_min
-                    and oc >= own_containment_min
-                    and area_min <= area_ratio <= area_max
-                )
-                if keep:
-                    final_masks.append(mm)
-                    n_sam += 1
-                elif source == "hybrid":
-                    final_masks.append(sm)  # per-instance skeleton fallback
-                    n_fallback += 1
-                else:  # source == "sam": drop the rejected instance entirely
-                    final_masks.append(None)
-                    n_dropped += 1
-
-        masks_obj = []
-        kept_for_frame = []
-        for inst, m in zip(kept_instances, final_masks):
-            if m is None:
-                continue
-            masks_obj.append(sio.UserSegmentationMask.from_numpy(m.astype(bool)))
-            kept_for_frame.append(inst)
-        if not masks_obj:
-            continue
-        n_masks += len(masks_obj)
-        new_lfs.append(
-            sio.LabeledFrame(
-                video=video,
-                frame_idx=lf.frame_idx,
-                instances=kept_for_frame,  # retain poses for eval frame-pairing
-                masks=masks_obj,
-            )
-        )
-
-    out_labels = sio.Labels(
-        videos=labels.videos, skeletons=[skel], labeled_frames=new_lfs
-    )
-    mpf = n_masks / max(1, len(new_lfs))
-    logger.info(
-        f"Built {len(new_lfs)} frames, {n_masks} masks ({mpf:.2f} masks/frame)."
-    )
-    if use_sam:
-        logger.info(
-            f"SAM masks: {n_sam}; skeleton-fallback: {n_fallback}; "
-            f"dropped: {n_dropped}."
-        )
-    return out_labels
+        sam_checkpoint=sam_checkpoint,
+        sam_model_type=sam_model_type,
+        device=device,
+        pred_iou_min=pred_iou_min,
+        own_containment_min=own_containment_min,
+        area_ratio_range=area_ratio_range,
+    ).run(labels)
 
 
 def make_pseudomasks_cli(
@@ -523,10 +641,10 @@ def make_pseudomasks_cli(
     out: str,
     source: str = "skeleton",
     *,
-    node_radius: int = 4,
-    edge_thickness: int = 4,
-    dilate_frac: float = 0.10,
-    min_dilate: int = 4,
+    node_radius: int = NODE_RADIUS,
+    edge_thickness: int = EDGE_THICKNESS,
+    dilate_frac: float = DILATE_FRAC,
+    min_dilate: int = MIN_DILATE,
     sam_checkpoint: Optional[str] = None,
     sam_model_type: str = "vit_h",
     device: str = "cuda",
@@ -554,8 +672,7 @@ def make_pseudomasks_cli(
     logger.info(f"Loading {src_path} ...")
     labels = sio.load_slp(src_path)
 
-    out_labels = generate_pseudomasks(
-        labels,
+    out_labels = PseudomaskGenerator(
         source=source,
         node_radius=node_radius,
         edge_thickness=edge_thickness,
@@ -564,7 +681,7 @@ def make_pseudomasks_cli(
         sam_checkpoint=sam_checkpoint,
         sam_model_type=sam_model_type,
         device=device,
-    )
+    ).run(labels)
 
     out_path = Path(out).expanduser()
     out_path.parent.mkdir(parents=True, exist_ok=True)
