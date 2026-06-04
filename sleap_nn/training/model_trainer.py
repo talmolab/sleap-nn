@@ -359,6 +359,52 @@ class ModelTrainer:
         logger.info(f"# Train Labeled frames: {total_train_lfs}")
         logger.info(f"# Val Labeled frames: {total_val_lfs}")
 
+        # Single-instance models assume exactly one instance per frame; fail fast
+        # with a clear error if any frame has more than one.
+        if self.model_type == "single_instance":
+            self._validate_single_instance_labels(self.train_labels, "train")
+            self._validate_single_instance_labels(self.val_labels, "validation")
+
+    def _validate_single_instance_labels(
+        self, labels: List[sio.Labels], split_name: str
+    ):
+        """Ensure no frame has more than one instance for single-instance models.
+
+        Single-instance confidence-map generation flattens the instance dimension
+        (see `sleap_nn.data.confidence_maps.generate_confmaps`), so a frame with
+        more than one instance would silently merge multiple animals into a single
+        instance with `n_instances * n_nodes` "nodes" and corrupt training. This
+        raises a clear error instead, naming the offending frame.
+
+        Args:
+            labels: List of `sio.Labels` objects to validate.
+            split_name: Name of the split (e.g. "train", "validation") for the
+                error message.
+
+        Raises:
+            ValueError: If any frame contains more than one (non-empty) instance.
+        """
+        user_instances_only = OmegaConf.select(
+            self.config, "data_config.user_instances_only", default=True
+        )
+        for label in labels:
+            for lf in label:
+                if user_instances_only and lf.user_instances is not None:
+                    instances = lf.user_instances
+                else:
+                    instances = lf.instances
+                instances = [inst for inst in instances if not inst.is_empty]
+                if len(instances) > 1:
+                    video_idx = label.videos.index(lf.video)
+                    raise ValueError(
+                        f"Single-instance training requires at most one instance "
+                        f"per frame, but the {split_name} frame at (video index "
+                        f"{video_idx}, frame_idx {lf.frame_idx}) has "
+                        f"{len(instances)} instances. Remove the extra instance(s) "
+                        f"from this frame, or train a multi-instance (top-down or "
+                        f"bottom-up) model instead."
+                    )
+
     def _setup_preprocessing_config(self):
         """Setup preprocessing config."""
         # compute max_heigt, max_width, and crop_size (if not provided in the config)
