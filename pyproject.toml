@@ -68,8 +68,13 @@ readme = { file = ["README.md"], content-type = "text/markdown" }
 
 [project.optional-dependencies]
 torch = ["torch", "torchvision>=0.20.0"]  # redundant (now default deps), kept for backwards compat
-cpu = ["sleap-nn[torch-cpu]"]
-gpu = ["sleap-nn[torch-cuda130]"]
+# First-class extras (NOT aliases): each owns its own torch index source in
+# [tool.uv.sources] below. Defining them as `sleap-nn[torch-cuda130]` aliases
+# left the transitive nvidia-cudnn marker keyed on the `torch-cuda130` extra, so
+# `uv sync --extra gpu` pulled torch+cu130 without cuDNN (#632). Giving gpu/cpu
+# their own source entries makes uv attach the cuDNN markers to these extras.
+cpu = ["torch", "torchvision>=0.20.0"]
+gpu = ["torch", "torchvision>=0.20.0"]
 torch-cpu = ["torch", "torchvision>=0.20.0"]
 torch-cuda118 = ["torch", "torchvision>=0.20.0"]
 torch-cuda128 = ["torch", "torchvision>=0.20.0"]
@@ -148,12 +153,20 @@ conflicts = [
 sleap-io = { git = "https://github.com/talmolab/sleap-io.git", rev = "4ee1fb388aefcd3f87691f741e0b6b34db482e8e" }
 torch = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
+    # `cpu`/`gpu` are first-class extras (see [project.optional-dependencies]).
+    # `cpu` is markerless like `torch-cpu` so macOS resolves the CPU/MPS wheel.
+    # `gpu` mirrors `torch-cuda130` exactly (keep the AMD64 alternative — dropping
+    # it regressed Windows to CPU-only torch in #479).
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu130", extra = "gpu", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu118", extra = "torch-cuda118", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu128", extra = "torch-cuda128", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu130", extra = "torch-cuda130", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
 ]
 torchvision = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu130", extra = "gpu", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu118", extra = "torch-cuda118", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu128", extra = "torch-cuda128", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu130", extra = "torch-cuda130", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
