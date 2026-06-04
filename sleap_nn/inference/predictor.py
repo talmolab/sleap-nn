@@ -53,6 +53,10 @@ from sleap_nn.inference.layers.topdown_multiclass import (
     CenteredInstanceMultiClassLayer,
     TopDownMultiClassLayer,
 )
+from sleap_nn.inference.layers.topdown_segmentation import (
+    CenteredInstanceMaskLayer,
+    TopDownSegmentationLayer,
+)
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.providers import Provider
 from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
@@ -399,6 +403,46 @@ def _build_topdown_multiclass_layer(
     )
 
 
+def _build_centered_instance_mask_layer(
+    mask_model: Any, device: str
+) -> CenteredInstanceMaskLayer:
+    """Wrap a ``CenteredInstanceMaskInferenceModel`` in a mask layer (stage 2)."""
+    return CenteredInstanceMaskLayer(
+        backend=TorchBackend(model=mask_model.torch_model, device=device),
+        output_stride=mask_model.output_stride,
+        max_stride=mask_model.max_stride,
+        fg_threshold=getattr(mask_model, "fg_threshold", 0.5),
+        preprocess_config=PreprocessConfig(scale=mask_model.input_scale),
+        postprocess_config=PostprocessConfig(),
+    )
+
+
+def _build_topdown_segmentation_layer(
+    predictor: Any, device: str
+) -> TopDownSegmentationLayer:
+    """Compose centroid + per-crop-mask stages into a ``TopDownSegmentationLayer``."""
+    inf = predictor.inference_model
+    centroid_model = inf.centroid_crop
+    mask_model = inf.instance_peaks
+    # GT-centroid fallback (seg dir only, no centroid model): the CentroidCrop was
+    # built with ``use_gt_centroids=True`` and carries no torch_model, so build a
+    # GT-only centroid layer (mirrors the centered-instance-only branch below).
+    if getattr(centroid_model, "use_gt_centroids", False):
+        mask_layer = _build_centered_instance_mask_layer(mask_model, device)
+        centroid_layer = _build_centroid_layer_gt_only(predictor, mask_layer.backend)
+    else:
+        centroid_layer = _build_centroid_layer(centroid_model, device, assets=predictor)
+        mask_layer = _build_centered_instance_mask_layer(mask_model, device)
+    crop_h, crop_w = centroid_model.crop_hw
+    return TopDownSegmentationLayer(
+        centroid_layer=centroid_layer,
+        centered_instance_layer=mask_layer,
+        crop_size=(crop_h, crop_w),
+        mask_output=getattr(mask_model, "mask_output", "mask"),
+        polygon_epsilon=getattr(mask_model, "polygon_epsilon", 0.01),
+    )
+
+
 def _select_layer(assets: Any, model_types: List[str], device: str):
     """Dispatch on detected model types and build the appropriate layer composition."""
     if "single_instance" in model_types:
@@ -409,6 +453,11 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
         return _build_bottomup_multiclass_layer(assets, device)
     if "bottomup_segmentation" in model_types:
         return _build_bottomup_segmentation_layer(assets, device)
+    # Top-down (crop-centered) segmentation: a centroid + centered_instance_segmentation
+    # pair, OR a seg dir alone (GT-centroid fallback). Checked BEFORE the bare
+    # ``has_centroid`` branch so a centroid+seg pair isn't routed to centroid-only.
+    if "centered_instance_segmentation" in model_types:
+        return _build_topdown_segmentation_layer(assets, device)
     has_centroid = "centroid" in model_types
     has_centered = "centered_instance" in model_types
     has_multi_centered = "multi_class_topdown" in model_types
@@ -827,6 +876,9 @@ class Predictor:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")
             spec.append(f"full_res_masks={full_res_masks}")
+            spec.append(f"mask_output={mask_output}")
+        if "centered_instance_segmentation" in model_types:
+            spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"mask_output={mask_output}")
         logger.info("Loaded inference model | " + " | ".join(spec))
 
@@ -1741,8 +1793,13 @@ class Predictor:
         return isinstance(self.layer, (CentroidLayer, ExportedCentroidLayer))
 
     def _is_segmentation_layer(self) -> bool:
-        """``True`` iff ``layer`` is a bottom-up instance-segmentation layer."""
-        return isinstance(self.layer, SegmentationLayer)
+        """``True`` iff ``layer`` is a mask-producing instance-segmentation layer.
+
+        Covers both bottom-up (:class:`SegmentationLayer`) and top-down
+        (:class:`TopDownSegmentationLayer`). Gates tracking/no-skeleton/mask-count
+        behavior — a top-down seg layer emits ``pred_masks`` just like bottom-up.
+        """
+        return isinstance(self.layer, (SegmentationLayer, TopDownSegmentationLayer))
 
     def _resolve_centroid_packaging(self) -> _CentroidPackaging:
         """Resolve the single-source centroid output-packaging decision.

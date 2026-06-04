@@ -618,6 +618,20 @@ def run_inference(
                     "  from sleap_nn.inference.run import predict\n"
                     "  predict(src, model_paths=[centroid_dir], centroid_only=True)"
                 )
+            if "centered_instance_segmentation" in _types:
+                # The legacy Predictor.from_model_paths has no segmentation
+                # branch: a centroid+seg pair silently drops the seg model (emits
+                # centroid keypoints), and a seg-only dir raises a generic error.
+                # Redirect to the new flow, which composes them correctly.
+                raise ValueError(
+                    "Top-down segmentation models are not supported by the legacy "
+                    "`track` / `run_inference` pipeline. Use the new flow:\n"
+                    "  sleap-nn predict --data_path <video|.slp> "
+                    "--model_paths <centroid_dir> --model_paths <seg_dir>\n"
+                    "or, from Python:\n"
+                    "  from sleap_nn.inference.run import predict\n"
+                    "  predict(src, model_paths=[centroid_dir, seg_dir])"
+                )
 
         start_inf_time = time()
         start_datetime = datetime.now()
