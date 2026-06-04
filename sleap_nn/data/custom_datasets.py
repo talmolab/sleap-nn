@@ -46,6 +46,7 @@ from sleap_nn.data.augmentation import (
     apply_geometric_augmentation,
     apply_intensity_augmentation,
 )
+from sleap_nn.data.utils import get_symmetric_inds
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.edge_maps import generate_pafs
 from sleap_nn.data.segmentation_maps import (
@@ -344,6 +345,30 @@ class BaseDataset(Dataset):
         self.num_nodes = (
             len(labels[0].skeletons[0].nodes) if labels and labels[0].skeletons else 0
         )
+
+        # Resolve symmetric node-index pairs once for flip augmentation. After
+        # mirroring an image, left/right symmetric parts must be swapped to keep
+        # labels correct. Read from the raw skeleton (version-proof; see
+        # `get_symmetric_inds`).
+        self.symmetric_inds = (
+            get_symmetric_inds(labels[0].skeletons[0])
+            if labels and labels[0].skeletons
+            else []
+        )
+        # Warn about the silent correctness footgun: flipping a left/right
+        # asymmetric skeleton without symmetries teaches the model wrong labels.
+        flip_p = (
+            self.geometric_aug.get("flip_p", 0.0)
+            if self.geometric_aug is not None
+            else 0.0
+        )
+        if self.apply_aug and flip_p and flip_p > 0 and not self.symmetric_inds:
+            logger.warning(
+                "Flip augmentation is enabled (flip_p > 0) but the skeleton has no "
+                "symmetries. Flipping will not swap any nodes, which is only correct "
+                "if the labeled animal is truly left/right symmetric. Add symmetry "
+                "pairs to the skeleton to fix this."
+            )
 
         self.cache_img = cache_img
         self.cache_img_path = cache_img_path
@@ -701,6 +726,7 @@ class BaseDataset(Dataset):
                 sample["image"], sample["instances"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["instances"],
+                    symmetric_inds=self.symmetric_inds,
                     **self.geometric_aug,
                 )
 
@@ -1331,6 +1357,7 @@ class CenteredInstanceDataset(BaseDataset):
                 ) = apply_geometric_augmentation(
                     sample["instance_image"],
                     sample["instance"],
+                    symmetric_inds=self.symmetric_inds,
                     **self.geometric_aug,
                 )
 
@@ -1593,6 +1620,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
                 ) = apply_geometric_augmentation(
                     sample["instance_image"],
                     sample["instance"],
+                    symmetric_inds=self.symmetric_inds,
                     **self.geometric_aug,
                 )
 
@@ -1815,6 +1843,9 @@ class CentroidDataset(BaseDataset):
                 sample["image"], sample["centroids"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["centroids"],
+                    # Centroids are one point per instance (no node axis), so no
+                    # symmetric swap applies — just mirror the coordinates.
+                    symmetric_inds=[],
                     **self.geometric_aug,
                 )
 
