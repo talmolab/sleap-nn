@@ -7,6 +7,7 @@ from sleap_nn.tracking.track_instance import (
     TrackInstanceLocalQueue,
     TrackedInstanceFeature,
 )
+from sleap_nn.tracking.utils import count_valid_points
 from collections import defaultdict, deque
 from loguru import logger
 
@@ -103,10 +104,9 @@ class LocalQueueCandidates:
         """Add new track IDs to the `TrackInstanceLocalQueue` objects and to the tracker queue."""
         track_instances = []
         for t in current_instances:
-            # Spawning a new track only if num visbile points is more than the threshold
-            num_visible_keypoints = (
-                ~np.isnan(t.src_instance.numpy()).any(axis=1)
-            ).sum()
+            # Spawn a new track only if support exceeds the threshold (non-NaN
+            # keypoints, or foreground area in px for segmentation masks).
+            num_visible_keypoints = count_valid_points(t.src_instance)
             if num_visible_keypoints > self.min_new_track_points:
                 new_track_id = self.get_new_track_id()
                 if new_track_id is not None:

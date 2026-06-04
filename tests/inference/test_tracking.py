@@ -424,3 +424,312 @@ def test_build_tracker_config_explicit_sentinels():
     assert cfg2.scoring_method_explicit is True
     assert cfg2.features == "bboxes"
     assert cfg2.scoring_method == "iou"
+
+    # candidates_method: unset (None) → not explicit; set → explicit.
+    assert (
+        _build_tracker_config({"candidates_method": None}).candidates_method_explicit
+        is False
+    )
+    assert (
+        _build_tracker_config(
+            {"candidates_method": "local_queues"}
+        ).candidates_method_explicit
+        is True
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Mask-IoU tracking for bottom-up segmentation (#619)
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _disk(h, w, cy, cx, r):
+    yy, xx = np.ogrid[:h, :w]
+    return ((yy - cy) ** 2 + (xx - cx) ** 2) <= r**2
+
+
+def _make_mask_labels(video, frames_pts, h=80, w=80, score=0.9):
+    """Mask-only labels: ``frames_pts`` is a list (per frame) of (cy, cx) disk
+    centers; each becomes a PredictedSegmentationMask. No skeleton, no
+    predicted keypoint instances (a bottom-up segmentation output)."""
+    lfs = []
+    for i, pts in enumerate(frames_pts):
+        masks = [
+            sio.PredictedSegmentationMask.from_numpy(
+                _disk(h, w, cy, cx, 10), score=score
+            )
+            for cy, cx in pts
+        ]
+        lfs.append(sio.LabeledFrame(video=video, frame_idx=i, masks=masks))
+    return sio.Labels(videos=[video], labeled_frames=lfs)
+
+
+def _mask_cfg(**kw):
+    """TrackerConfig with features/scoring left implicit so seg auto-default fires."""
+    kw.setdefault("features_explicit", False)
+    kw.setdefault("scoring_method_explicit", False)
+    return TrackerConfig(**kw)
+
+
+def _make_stride_mask_labels(video, frames_pts, h=80, w=80, score=0.9, stride=2):
+    """Like ``_make_mask_labels`` but masks are stored at output-stride resolution
+    (``scale=1/stride``), as the default inference path (``full_res_masks=False``)
+    emits. Disk centers/radius are in IMAGE pixels."""
+    yy, xx = np.ogrid[:h, :w]
+    lfs = []
+    for i, pts in enumerate(frames_pts):
+        masks = []
+        for cy, cx in pts:
+            full = ((yy - cy) ** 2 + (xx - cx) ** 2) <= 10**2
+            small = full[::stride, ::stride]
+            s = 1.0 / stride
+            masks.append(
+                sio.PredictedSegmentationMask.from_numpy(
+                    small, scale=(s, s), score=score
+                )
+            )
+        lfs.append(sio.LabeledFrame(video=video, frame_idx=i, masks=masks))
+    return sio.Labels(videos=[video], labeled_frames=lfs)
+
+
+def test_apply_tracking_stride_masks_keep_identity(video):
+    """Output-stride masks (scale!=1, the default path) must track by image-grid IoU.
+
+    Regression (finalize-review blocker): `get_mask` used to crop stride-res
+    `.data` with image-space bbox indices -> empty features -> IoU 1.0 for every
+    pair -> arbitrary identity. A drifting two-lane scene must yield two stable
+    tracks, exactly as the scale-1 case does.
+    """
+    frames = [[(20 + i, 20 + i), (60 + i, 60 + i)] for i in range(6)]
+    labels = _make_stride_mask_labels(video, frames)
+    # sanity: masks really are stride-stored
+    assert tuple(labels.labeled_frames[0].masks[0].scale) != (1.0, 1.0)
+    out = apply_tracking(labels, _mask_cfg(window_size=5))
+    assert all(len(lf.masks) == 2 for lf in out.labeled_frames)
+    lanes = {}
+    for lf in out.labeled_frames:
+        for m in lf.masks:
+            assert m.track is not None
+            lane = "A" if m.bbox[0] < 40 else "B"
+            lanes.setdefault(lane, set()).add(m.track.name)
+    assert all(len(names) == 1 for names in lanes.values())  # each lane = 1 track
+    assert lanes["A"] != lanes["B"]  # and they are distinct
+    # Decisive bug tell: with the old stride bug every feature decoded to area 0,
+    # so every score was the degenerate empty-vs-empty IoU 1.0. The fix yields
+    # real partial overlap for the drifting disks, so later-frame matches score
+    # strictly below 1.0.
+    later_scores = [m.tracking_score for lf in out.labeled_frames[1:] for m in lf.masks]
+    assert later_scores and all(0.0 < s for s in later_scores)
+    assert any(s < 0.999 for s in later_scores)
+
+
+def test_apply_tracking_masks_derived_cap_e2e(video):
+    """End-to-end: the mask-mode derived `max_tracks` cap actually caps tracks.
+
+    Three non-overlapping lanes (an over-split stand-in). With a target count of 2
+    (candidates_method left unset -> local_queues), exactly 2 tracks survive;
+    uncapped, all 3 spawn. Exercises the REAL tracker, not a NoopTracker.
+    """
+    frames = [[(15, 15), (40, 40), (65, 65)] for _ in range(5)]
+    labels = _make_mask_labels(video, frames)
+
+    capped = apply_tracking(
+        labels,
+        _mask_cfg(candidates_method_explicit=False, tracking_target_instance_count=2),
+    )
+    n_capped = len(
+        {m.track.name for lf in capped.labeled_frames for m in lf.masks if m.track}
+    )
+    assert n_capped == 2
+
+    # reset tracks (apply_tracking mutates the shared mask objects' .track)
+    for lf in labels.labeled_frames:
+        for m in lf.masks:
+            m.track = None
+    uncapped = apply_tracking(labels, _mask_cfg(candidates_method_explicit=False))
+    n_uncapped = len(
+        {m.track.name for lf in uncapped.labeled_frames for m in lf.masks if m.track}
+    )
+    assert n_uncapped == 3
+
+
+def test_apply_tracking_masks_preserved_and_stable(video):
+    """Mask tracking preserves every mask and gives a moving pair stable ids."""
+    # Two animals drifting; each frame's masks overlap only their predecessor.
+    frames = [[(20 + i, 20 + i), (60 + i, 60 + i)] for i in range(6)]
+    labels = _make_mask_labels(video, frames)
+    out = apply_tracking(labels, _mask_cfg(window_size=5))
+
+    assert len(out.labeled_frames) == 6
+    # No masks dropped; instances stay empty (mask-only model).
+    assert all(len(lf.masks) == 2 for lf in out.labeled_frames)
+    assert all(len(lf.instances) == 0 for lf in out.labeled_frames)
+    # Every tracked mask carries a track + finite tracking_score.
+    all_masks = [m for lf in out.labeled_frames for m in lf.masks]
+    assert all(m.track is not None for m in all_masks)
+    assert all(m.tracking_score is not None for m in all_masks)
+    # Exactly two stable tracks, one per spatial lane across all frames.
+    lanes = {}
+    for lf in out.labeled_frames:
+        for m in lf.masks:
+            lane = "A" if m.bbox[0] < 40 else "B"
+            lanes.setdefault(lane, set()).add(m.track.name)
+    assert all(len(names) == 1 for names in lanes.values())
+    assert lanes["A"] != lanes["B"]
+
+
+def test_apply_tracking_masks_disjoint_extra_new_track(video):
+    """An extra non-overlapping mask spawns a new track id."""
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22), (60, 60)]])
+    out = apply_tracking(labels, _mask_cfg(window_size=5))
+    f1 = sorted(out.labeled_frames, key=lambda lf: lf.frame_idx)[1]
+    by_lane = {("near" if m.bbox[0] < 40 else "far"): m.track.name for m in f1.masks}
+    assert by_lane["near"] != by_lane["far"]
+
+
+def test_apply_tracking_masks_auto_default(video, caplog):
+    """Mask-only labels auto-resolve features='masks'/scoring='mask_iou'."""
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+    out = apply_tracking(labels, _mask_cfg(window_size=5))
+    tracked = [m for lf in out.labeled_frames for m in lf.masks]
+    assert tracked and all(m.track is not None for m in tracked)
+
+
+def test_apply_tracking_masks_bumps_default_window(video, monkeypatch):
+    """Mask mode raises the default window_size; an explicit value is kept."""
+    import sleap_nn.inference.tracking as trk
+    import sleap_nn.tracking.tracker as trk_mod
+
+    captured = {}
+    real_from_config = trk_mod.Tracker.from_config
+
+    def _spy(*args, **kwargs):
+        captured["window_size"] = kwargs.get("window_size")
+        return real_from_config(*args, **kwargs)
+
+    monkeypatch.setattr(trk_mod.Tracker, "from_config", staticmethod(_spy))
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+
+    # Default window (DEFAULT_WINDOW_SIZE) -> bumped to DEFAULT_MASK_WINDOW_SIZE.
+    apply_tracking(labels, _mask_cfg(window_size=trk.DEFAULT_WINDOW_SIZE))
+    assert captured["window_size"] == trk.DEFAULT_MASK_WINDOW_SIZE
+
+    # An explicit non-default window is respected (the user's choice).
+    apply_tracking(labels, _mask_cfg(window_size=8))
+    assert captured["window_size"] == 8
+
+
+def test_apply_tracking_masks_defaults_local_queues(video, monkeypatch):
+    """Mask mode defaults candidates_method to local_queues when not explicit."""
+    captured = _capture_from_config_kwargs(monkeypatch)
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+    apply_tracking(labels, _mask_cfg(window_size=5, candidates_method_explicit=False))
+    assert captured["candidates_method"] == "local_queues"
+
+
+def test_apply_tracking_masks_explicit_candidates_method_respected(video, monkeypatch):
+    """An explicit candidates_method is honored in mask mode (no override)."""
+    captured = _capture_from_config_kwargs(monkeypatch)
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+    apply_tracking(
+        labels,
+        _mask_cfg(
+            window_size=5,
+            candidates_method="fixed_window",
+            candidates_method_explicit=True,
+        ),
+    )
+    assert captured["candidates_method"] == "fixed_window"
+
+
+def test_apply_tracking_masks_derives_max_tracks_from_target(video, monkeypatch):
+    """Mask mode caps tracks at the known target count when max_tracks is unset.
+
+    The cap is what lifts local_queues identity from ~0.52 to ~0.91 on the real
+    over-segmented clip; deriving it from the target count makes
+    --tracking_target_instance_count N enough.
+    """
+    captured = _capture_from_config_kwargs(monkeypatch)
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+    apply_tracking(
+        labels,
+        _mask_cfg(
+            window_size=5,
+            candidates_method_explicit=False,
+            tracking_target_instance_count=3,
+        ),
+    )
+    assert captured["max_tracks"] == 3
+    # An explicit max_tracks wins over the derived one.
+    captured.clear()
+    apply_tracking(
+        labels,
+        _mask_cfg(
+            window_size=5,
+            candidates_method_explicit=False,
+            max_tracks=2,
+            tracking_target_instance_count=3,
+        ),
+    )
+    assert captured["max_tracks"] == 2
+
+
+def test_apply_tracking_masks_explicit_masks_respected(video):
+    """Explicit features='masks'+scoring='mask_iou' is honored (no override/raise)."""
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+    cfg = TrackerConfig(
+        window_size=5, features="masks", scoring_method="mask_iou"
+    )  # explicit (both *_explicit default True)
+    out = apply_tracking(labels, cfg)
+    assert all(m.track is not None for lf in out.labeled_frames for m in lf.masks)
+
+
+def test_apply_tracking_masks_explicit_incompatible_raises(video):
+    """A seg model with explicit non-mask features fails fast (no silent drop)."""
+    labels = _make_mask_labels(video, [[(20, 20)]])
+    cfg = TrackerConfig(features="keypoints", scoring_method="oks")  # explicit
+    with pytest.raises(ValueError, match="features='masks'"):
+        apply_tracking(labels, cfg)
+
+
+@pytest.mark.parametrize(
+    "kw, match",
+    [
+        ({"use_flow": True}, "motion models"),
+        ({"use_kalman": True, "tracking_target_instance_count": 2}, "motion models"),
+        ({"tracking_clean_instance_count": 2}, "cull/clean"),
+        (
+            {"tracking_pre_cull_to_target": 1, "tracking_target_instance_count": 2},
+            "cull/clean",
+        ),
+    ],
+)
+def test_apply_tracking_masks_forbidden_combos_raise(video, kw, match):
+    """Motion models and pose-shaped cull/clean ops are rejected in mask mode."""
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+    with pytest.raises(ValueError, match=match):
+        apply_tracking(labels, _mask_cfg(window_size=5, **kw))
+
+
+def test_apply_tracking_masks_empty_frame_passthrough(video):
+    """A mask-less frame mid-sequence passes through (masks=[]) without crashing."""
+    labels = _make_mask_labels(video, [[(20, 20)], [], [(24, 24)]])
+    out = apply_tracking(labels, _mask_cfg(window_size=5))
+    by_idx = {lf.frame_idx: lf for lf in out.labeled_frames}
+    assert len(by_idx[1].masks) == 0
+    assert len(by_idx[0].masks) == 1 and len(by_idx[2].masks) == 1
+
+
+def test_apply_tracking_masks_roundtrip_persistence(video, tmp_path):
+    """Tracked mask track names + tracking scores survive save/load_slp."""
+    labels = _make_mask_labels(video, [[(20, 20), (60, 60)], [(22, 22), (62, 62)]])
+    out = apply_tracking(labels, _mask_cfg(window_size=5))
+    path = tmp_path / "tracked_masks.slp"
+    out.save(path.as_posix())
+    reloaded = sio.load_slp(path.as_posix())
+    masks = [m for lf in reloaded.labeled_frames for m in lf.masks]
+    assert len(masks) == 4
+    assert all(m.track is not None for m in masks)
+    assert all(
+        m.tracking_score is not None and np.isfinite(m.tracking_score) for m in masks
+    )

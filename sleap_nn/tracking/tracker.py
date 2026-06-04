@@ -34,8 +34,12 @@ from sleap_nn.tracking.utils import (
     get_bbox,
     get_centroid,
     get_keypoints,
+    get_mask,
+    count_valid_points,
+    is_segmentation_mask,
     compute_euclidean_distance,
     compute_iou,
+    compute_mask_iou,
     compute_cosine_sim,
     cull_instances,
     cull_frame_instances,
@@ -53,12 +57,16 @@ class Tracker:
 
     Attributes:
         candidate: Instance of either `FixedWindowCandidates` or `LocalQueueCandidates`.
-        min_match_points: Minimum non-NaN points for match candidates. Default: 0.
+        min_match_points: Minimum support for match candidates: non-NaN keypoints,
+            or foreground area (px) for `features="masks"`. Default: 0.
         features: Feature representation for the candidates to update current detections.
-            One of [`keypoints`, `centroids`, `bboxes`, `image`]. Default: `keypoints`.
+            One of [`keypoints`, `centroids`, `bboxes`, `masks`, `image`]. `masks`
+            tracks bottom-up segmentation `PredictedSegmentationMask` objects.
+            Default: `keypoints`.
         scoring_method: Method to compute association score between features from the
             current frame and the previous tracks. One of [`oks`, `cosine_sim`, `iou`,
-            `euclidean_dist`]. Default: `oks`.
+            `mask_iou`, `euclidean_dist`]. `mask_iou` is the pixel IoU between two
+            segmentation masks (pair with `features="masks"`). Default: `oks`.
         scoring_reduction: Method to aggregate and reduce multiple scores if there are
             several detections associated with the same track. One of [`mean`, `max`,
             `robust_quantile`]. Default: `mean`.
@@ -92,19 +100,23 @@ class Tracker:
     _scoring_functions: Dict[str, Any] = {
         "oks": compute_oks,
         "iou": compute_iou,
+        "mask_iou": compute_mask_iou,
         "cosine_sim": compute_cosine_sim,
         "euclidean_dist": compute_euclidean_distance,
     }
-    _quantile_method = functools.partial(np.quantile, q=robust_best_instance)
     _scoring_reduction_methods: Dict[str, Any] = {
         "mean": np.nanmean,
         "max": np.nanmax,
-        "robust_quantile": _quantile_method,
+        # `robust_quantile` is resolved per-instance in `get_scores` so it honors
+        # `self.robust_best_instance`; this entry only registers the valid key
+        # (a class-level functools.partial would freeze `q` at the class default).
+        "robust_quantile": np.nanmax,
     }
     _feature_methods: Dict[str, Any] = {
         "keypoints": get_keypoints,
         "centroids": get_centroid,
         "bboxes": get_bbox,
+        "masks": get_mask,
     }
     _track_matching_methods: Dict[str, Any] = {
         "hungarian": hungarian_matching,
@@ -150,17 +162,20 @@ class Tracker:
             window_size: Number of frames to look for in the candidate instances to match
                 with the current detections. Default: 5.
             min_new_track_points: We won't spawn a new track for an instance with
-                fewer than this many non-nan points. Default: 0.
+                fewer than this many non-nan points (for `features="masks"`, this
+                is read as a foreground-area floor in px). Default: 0.
             candidates_method: Either of `fixed_window` or `local_queues`. In fixed window
                 method, candidates from the last `window_size` frames. In local queues,
                 last `window_size` instances for each track ID is considered for matching
                 against the current detection. Default: `fixed_window`.
-            min_match_points: Minimum non-NaN points for match candidates. Default: 0.
+            min_match_points: Minimum support for match candidates: non-NaN
+                keypoints, or foreground area (px) for `features="masks"`. Default: 0.
             features: Feature representation for the candidates to update current detections.
-                One of [`keypoints`, `centroids`, `bboxes`, `image`]. Default: `keypoints`.
+                One of [`keypoints`, `centroids`, `bboxes`, `masks`, `image`].
+                Default: `keypoints`.
             scoring_method: Method to compute association score between features from the
                 current frame and the previous tracks. One of [`oks`, `cosine_sim`, `iou`,
-                `euclidean_dist`]. Default: `oks`.
+                `mask_iou`, `euclidean_dist`]. Default: `oks`.
             scoring_reduction: Method to aggregate and reduce multiple scores if there are
                 several detections associated with the same track. One of [`mean`, `max`,
                 `robust_quantile`]. Default: `mean`.
@@ -348,8 +363,15 @@ class Tracker:
         Returns:
             List of `sio.PredictedInstance` objects, each having an assigned track.
         """
+        # Pre-cull is pose-only (cull_frame_instances uses same_pose_as / bbox);
+        # segmentation masks are scoped out of cull for the MVP (apply_tracking
+        # rejects the pre-cull flags in mask mode, so this is belt-and-braces).
+        masks_input = bool(untracked_instances) and is_segmentation_mask(
+            untracked_instances[0]
+        )
         if (
-            self.tracking_target_instance_count is not None
+            not masks_input
+            and self.tracking_target_instance_count is not None
             and self.tracking_target_instance_count
             and self.tracking_pre_cull_to_target
         ):
@@ -431,7 +453,7 @@ class Tracker:
             assigned for the untracked instances and track_id set as `None`.
         """
         if self.features not in self._feature_methods:
-            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"
+            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes`, `masks` and `image`"
             logger.error(message)
             raise ValueError(message)
 
@@ -490,7 +512,7 @@ class Tracker:
             scores: Score matrix of shape (num_new_instances, num_existing_tracks)
         """
         if self.scoring_method not in self._scoring_functions:
-            message = "Invalid `scoring_method` argument. Please provide one of `oks`, `cosine_sim`, `iou`, and `euclidean_dist`."
+            message = "Invalid `scoring_method` argument. Please provide one of `oks`, `cosine_sim`, `iou`, `mask_iou`, and `euclidean_dist`."
             logger.error(message)
             raise ValueError(message)
 
@@ -506,6 +528,13 @@ class Tracker:
             # prediction (`kf_track_features="keypoints"`).
             scoring_method = functools.partial(compute_oks, stddev=self.oks_stddev)
         scoring_reduction = self._scoring_reduction_methods[self.scoring_reduction]
+        if self.scoring_reduction == "robust_quantile":
+            # Resolve at runtime so the per-instance `robust_best_instance` is
+            # honored (a class-level partial freezes `q` at the class default).
+            # `nanquantile` matches the NaN-handling of `nanmean`/`nanmax`.
+            scoring_reduction = functools.partial(
+                np.nanquantile, q=self.robust_best_instance
+            )
 
         # Get list of features for the `current_instances`.
         if self.is_local_queue:
@@ -522,10 +551,17 @@ class Tracker:
                 scores_trackid = [
                     scoring_method(f, x.feature)
                     for x in candidates_feature_dict[track_id]
-                    if (~np.isnan(x.src_predicted_instance.numpy()).any(axis=1)).sum()
-                    > self.min_match_points  # only if the candidates have min non-nan points
+                    if count_valid_points(x.src_predicted_instance)
+                    > self.min_match_points  # candidates with min support (non-NaN
+                    # keypoints, or mask area px for segmentation masks)
                 ]
-                score_trackid = scoring_reduction(scores_trackid)  # scoring reduction
+                # An empty candidate list (all filtered by `min_match_points`)
+                # reduces to NaN (-> inf cost in `scores_to_cost_matrix`); guard
+                # explicitly because `np.nanmax([])` raises (`np.nanmean([])` /
+                # `np.nanquantile([])` return NaN, but `max` must not crash).
+                score_trackid = (
+                    np.nan if not scores_trackid else scoring_reduction(scores_trackid)
+                )
                 scores[f_idx][t_idx] = score_trackid
 
         return scores
@@ -771,7 +807,7 @@ class FlowShiftTracker(Tracker):
         """
         # get feature method for the shifted instances
         if self.features not in self._feature_methods:
-            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"
+            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes`, `masks` and `image`"
             logger.error(message)
             raise ValueError(message)
         feature_method = self._feature_methods[self.features]
@@ -945,7 +981,7 @@ class KalmanShiftTracker(Tracker):
             `TrackedInstanceFeature`.
         """
         if self.features not in self._feature_methods:
-            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"
+            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes`, `masks` and `image`"
             logger.error(message)
             raise ValueError(message)
         feature_method = self._feature_methods[self.features]

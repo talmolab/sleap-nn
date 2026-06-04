@@ -341,27 +341,45 @@ def test_incremental_writer_finalizes_mask_only_no_skeleton(tmp_path):
     assert isinstance(labels.masks[0], sio.PredictedSegmentationMask)
 
 
-def test_predict_rejects_tracking_for_segmentation():
-    """``predict()`` fails fast when tracking is requested for a seg model.
+def test_segmentation_masks_are_tracked_not_dropped():
+    """Tracking a mask-only seg output assigns track ids and preserves masks.
 
-    Without the guard the tracker (which reads only ``LabeledFrame.instances``)
-    runs over the empty instance lists of mask-only frames and rebuilds them
-    without ``masks=``, silently dropping every mask. Mirrors the existing
-    ``emit_centroid`` guard.
+    Replaces the #614 fail-fast guard (``predict --tracking`` on a seg model
+    used to raise): ``apply_tracking`` now auto-detects mask-only labels and
+    tracks them by mask-IoU (#619), keeping every mask. Exercises the
+    ``apply_tracking`` seam directly (predict() wires it at predictor.py).
     """
-    import pytest
+    from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
 
-    from sleap_nn.inference.predictor import Predictor
+    video = sio.Video.from_filename("dummy.mp4")
 
-    pred = Predictor.__new__(Predictor)
-    pred.layer = SegmentationLayer.__new__(SegmentationLayer)
-    pred.tracker_config = object()  # any non-None config triggers the guard
-    pred.emit_centroid = "instance"  # so the centroid guard passes first
+    def _frame(idx, centers):
+        masks = [
+            sio.PredictedSegmentationMask.from_numpy(
+                _disk(80, 80, cy, cx, 10), score=0.9
+            )
+            for cy, cx in centers
+        ]
+        return sio.LabeledFrame(video=video, frame_idx=idx, masks=masks)
 
-    with pytest.raises(
-        ValueError, match="not yet supported for bottom-up segmentation"
-    ):
-        pred.predict("dummy.mp4", make_labels=True)
+    labels = sio.Labels(
+        videos=[video],
+        labeled_frames=[
+            _frame(0, [(20, 20), (60, 60)]),
+            _frame(1, [(22, 22), (62, 62)]),
+        ],
+    )
+    # features/scoring left implicit so the segmentation auto-default fires.
+    out = apply_tracking(
+        labels,
+        TrackerConfig(
+            window_size=5, features_explicit=False, scoring_method_explicit=False
+        ),
+    )
+    # Masks preserved (not dropped) and every mask carries a track id.
+    assert all(len(lf.masks) == 2 for lf in out.labeled_frames)
+    masks = [m for lf in out.labeled_frames for m in lf.masks]
+    assert all(m.track is not None for m in masks)
 
 
 def test_segmentation_layer_min_mask_area_drops_tiny_masks():

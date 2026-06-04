@@ -1214,6 +1214,10 @@ def _build_tracker_config(kwargs: dict) -> "object":
 
     # Default candidates_method to local_queues when max_tracks is set but the
     # user did not explicitly choose a method (the click default is None).
+    # Record explicitness so apply_tracking can default mask-mode tracking to
+    # local_queues (much better identity on over-segmented masks) unless the user
+    # explicitly picked a method.
+    candidates_method_explicit = kwargs.get("candidates_method") is not None
     candidates_method = kwargs.get("candidates_method")
     if candidates_method is None:
         candidates_method = "local_queues" if max_tracks is not None else "fixed_window"
@@ -1251,6 +1255,7 @@ def _build_tracker_config(kwargs: dict) -> "object":
         scoring_method=scoring_method,
         features_explicit=features_explicit,
         scoring_method_explicit=scoring_method_explicit,
+        candidates_method_explicit=candidates_method_explicit,
         scoring_reduction=kwargs.get("scoring_reduction", "mean"),
         robust_best_instance=kwargs.get("robust_best_instance", 1.0),
         oks_stddev=kwargs.get("oks_stddev", 0.025),
@@ -2207,13 +2212,22 @@ def _common_inference_options(f):
         # --candidates_method default=None pattern. A single-node / centroid
         # model then resolves these to centroids/euclidean_dist in
         # apply_tracking (#586).
-        click.option("--features", type=str, default=None),
+        click.option(
+            "--features",
+            type=str,
+            default=None,
+            help="Feature for track association: one of keypoints, centroids, "
+            "bboxes, masks. Left unset, single-node/centroid models resolve to "
+            "'centroids' and bottom-up segmentation (mask) models to 'masks'.",
+        ),
         click.option(
             "--scoring_method",
             type=str,
             default=None,
-            help="Track association scoring method. Single-node / centroid "
-            "models resolve to euclidean_dist when left unset.",
+            help="Track association scoring method: one of oks, cosine_sim, "
+            "iou, mask_iou, euclidean_dist. Left unset, single-node/centroid "
+            "models resolve to 'euclidean_dist' and segmentation (mask) models "
+            "to 'mask_iou'.",
         ),
         click.option("--scoring_reduction", type=str, default="mean"),
         click.option("--robust_best_instance", type=float, default=1.0),

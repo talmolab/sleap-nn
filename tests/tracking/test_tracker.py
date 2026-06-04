@@ -654,6 +654,86 @@ def test_post_clean_up(
     assert len(tracked_lfs[0].instances) == 1
 
 
+def test_get_scores_robust_quantile_honors_best_instance():
+    """`robust_quantile` reduction must use the per-instance `robust_best_instance`.
+
+    Regression: `_quantile_method` used to be a class-level
+    `functools.partial(np.quantile, q=robust_best_instance)` that froze `q` at the
+    class default (1.0), so `robust_quantile` was a silent no-op == max. It is now
+    resolved at runtime in `get_scores`.
+    """
+    # One track with three candidates at euclidean distances 1/5/10 from the
+    # current centroid -> scores [-1, -5, -10].
+    cands = [
+        TrackedInstanceFeature(
+            feature=np.array([d, 0.0]),
+            src_predicted_instance=np.array([[0.0, 0.0]]),  # 1 valid point
+            frame_idx=0,
+            tracking_score=1.0,
+        )
+        for d in (1.0, 5.0, 10.0)
+    ]
+    cdict = {0: cands}
+    current = [
+        TrackInstanceLocalQueue(
+            src_instance=np.array([[0.0, 0.0]]),
+            src_instance_idx=0,
+            feature=np.array([0.0, 0.0]),
+            frame_idx=1,
+        )
+    ]
+
+    def score(rbi):
+        t = Tracker.from_config(
+            candidates_method="local_queues",
+            features="centroids",
+            scoring_method="euclidean_dist",
+            scoring_reduction="robust_quantile",
+            robust_best_instance=rbi,
+        )
+        t.candidate.current_tracks = [0]
+        return t.get_scores(current, cdict)[0, 0]
+
+    assert np.isclose(score(1.0), -1.0)  # q=1.0 -> max
+    assert np.isclose(score(0.5), -5.0)  # q=0.5 -> median (was silently -1.0)
+    assert np.isclose(score(0.0), -10.0)  # q=0.0 -> min
+
+
+def test_get_scores_empty_candidate_list_no_crash():
+    """An all-filtered candidate list reduces to NaN (not a crash) under `max`.
+
+    `np.nanmax([])` raises (`np.nanmean([])`/`np.nanquantile([])` return NaN);
+    `get_scores` guards the empty case explicitly so a high `min_match_points`
+    (or an explicit `scoring_reduction="max"`) cannot crash mid-stream.
+    """
+    cands = [
+        TrackedInstanceFeature(
+            feature=np.array([1.0, 0.0]),
+            src_predicted_instance=np.array([[0.0, 0.0]]),  # 1 valid point < floor
+            frame_idx=0,
+            tracking_score=1.0,
+        )
+    ]
+    current = [
+        TrackInstanceLocalQueue(
+            src_instance=np.array([[0.0, 0.0]]),
+            src_instance_idx=0,
+            feature=np.array([0.0, 0.0]),
+            frame_idx=1,
+        )
+    ]
+    t = Tracker.from_config(
+        candidates_method="local_queues",
+        features="centroids",
+        scoring_method="euclidean_dist",
+        scoring_reduction="max",
+        min_match_points=100,  # filters out the lone 1-point candidate
+    )
+    t.candidate.current_tracks = [0]
+    scores = t.get_scores(current, {0: cands})
+    assert np.isnan(scores[0, 0])
+
+
 # Tests for connect_single_breaks fix (GitHub issue: sleap#2618)
 from sleap_nn.tracking.tracker import connect_single_breaks
 

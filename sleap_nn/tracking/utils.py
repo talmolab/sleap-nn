@@ -76,6 +76,111 @@ def get_bbox(pred_instance: Union[sio.PredictedInstance, np.ndarray]):
     return bbox
 
 
+def is_segmentation_mask(obj) -> bool:
+    """True if ``obj`` is a segmentation mask rather than a keypoint instance.
+
+    Mask tracking flows ``sio.PredictedSegmentationMask`` objects through the
+    same code paths as ``sio.PredictedInstance``; this is the single predicate
+    used to dispatch the pose-vs-mask differences (no ``.numpy()`` keypoints).
+    """
+    return isinstance(obj, (sio.PredictedSegmentationMask, sio.SegmentationMask))
+
+
+class MaskFeature:
+    """Compact mask feature for fast IoU: a tight bbox crop + absolute offset.
+
+    A full-resolution segmentation mask (e.g. 1280x1024) is almost all
+    background, so the per-pair mask-IoU only needs the foreground bbox: store
+    the cropped boolean array (``crop``), its absolute top-left ``(y0, x0)`` in
+    the original image frame, and the foreground ``area`` (px, precomputed). IoU
+    between two features then AND-s only the *overlap* of their bboxes (usually
+    tiny or empty) and reads ``area`` in O(1) — vs. allocating + AND/OR-ing a
+    full-resolution canvas per pair. Coordinates are absolute, so this matches
+    the full-canvas :func:`sleap_nn.evaluation._mask_iou` exactly.
+    """
+
+    __slots__ = ("crop", "y0", "x0", "area")
+
+    def __init__(self, crop: np.ndarray, y0: int, x0: int, area: int):
+        """Store the bbox crop, its absolute top-left ``(y0, x0)`` and area."""
+        self.crop = crop
+        self.y0 = int(y0)
+        self.x0 = int(x0)
+        self.area = int(area)
+
+
+def _mask_feature_from_dense(data: np.ndarray) -> MaskFeature:
+    """Build a :class:`MaskFeature` from a dense bool mask (scans for the bbox)."""
+    data = np.ascontiguousarray(data, dtype=bool)
+    rows = np.any(data, axis=1)
+    if not rows.any():
+        return MaskFeature(np.zeros((0, 0), dtype=bool), 0, 0, 0)
+    cols = np.any(data, axis=0)
+    y0 = int(np.argmax(rows))
+    y1 = len(rows) - int(np.argmax(rows[::-1]))
+    x0 = int(np.argmax(cols))
+    x1 = len(cols) - int(np.argmax(cols[::-1]))
+    crop = data[y0:y1, x0:x1]
+    return MaskFeature(crop, y0, x0, int(np.count_nonzero(crop)))
+
+
+def get_mask(
+    pred_mask: Union["sio.PredictedSegmentationMask", np.ndarray, MaskFeature],
+) -> MaskFeature:
+    """Return a compact :class:`MaskFeature` for a `PredictedSegmentationMask`.
+
+    Mirrors :func:`get_keypoints`/:func:`get_bbox` as the ``"masks"`` feature
+    extractor. The mask is decoded onto the **image-pixel grid** first, then
+    cropped to its foreground bbox (using the mask's own ``.bbox`` when available,
+    avoiding a scan); the crop is cached as the candidate feature so scoring
+    reuses it without re-decoding and only touches the foreground region.
+
+    The image-grid decode is essential: sio ``.data`` decodes at the mask's
+    *stored* resolution, which for the default inference path
+    (``full_res_masks=False``, masks encoded at output-stride, ``scale~=0.5``) is
+    NOT the image grid, while ``.bbox`` is always in IMAGE space. Cropping the
+    stride-res ``.data`` with image-space bbox indices would slice the wrong
+    region (often entirely out of bounds -> empty -> ``compute_mask_iou`` 1.0 for
+    every pair, scrambling identity). :func:`decode_mask_to_image_res` is a
+    zero-copy passthrough for ``scale==1`` masks (legacy full-res), so that path
+    is unchanged.
+    """
+    if isinstance(pred_mask, MaskFeature):
+        return pred_mask
+    if isinstance(pred_mask, np.ndarray):
+        return _mask_feature_from_dense(pred_mask)
+    from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
+
+    data = decode_mask_to_image_res(pred_mask)
+    bbox = getattr(pred_mask, "bbox", None)
+    if bbox is not None:
+        # PredictedSegmentationMask.bbox is (x, y, width, height) (XYWH), in IMAGE
+        # space -- consistent with the image-grid `data` decoded above.
+        x, y, w, h = (int(round(float(v))) for v in bbox)
+        height, width = data.shape
+        y0, x0 = max(0, y), max(0, x)
+        y1, x1 = min(height, y + h), min(width, x + w)
+        if y1 > y0 and x1 > x0:
+            crop = data[y0:y1, x0:x1]
+            return MaskFeature(crop, y0, x0, int(np.count_nonzero(crop)))
+    return _mask_feature_from_dense(data)
+
+
+def count_valid_points(obj) -> int:
+    """Number of valid points used to gate track spawning/matching.
+
+    For a keypoint instance this is the count of non-NaN nodes; for a
+    segmentation mask there are no keypoints, so the mask area (foreground px)
+    is the analogous "support" measure (``min_new_track_points`` /
+    ``min_match_points`` then read as a pixel-area threshold; default 0 keeps
+    every non-empty mask and drops empty ones).
+    """
+    if is_segmentation_mask(obj):
+        return int(obj.area)
+    points = obj if isinstance(obj, np.ndarray) else obj.numpy()
+    return int((~np.isnan(points).any(axis=1)).sum())
+
+
 def compute_euclidean_distance(a, b):
     """Return the negative euclidean distance between a and b points."""
     return -np.linalg.norm(a - b)
@@ -99,6 +204,44 @@ def compute_iou(a, b):
 
     iou = intersection_area / union_area
     return iou
+
+
+def compute_mask_iou(a, b) -> float:
+    """Return the IoU of two segmentation masks (higher = more similar).
+
+    The ``"mask_iou"`` scoring method. Operates on :class:`MaskFeature` (the
+    ``"masks"`` feature); raw dense bool arrays are accepted too (coerced via
+    :func:`get_mask`). The intersection is computed only over the *overlap* of
+    the two foreground bboxes — see :class:`MaskFeature` — which is numerically
+    identical to the full-canvas :func:`sleap_nn.evaluation._mask_iou` (top-left
+    aligned, shape-mismatch safe, empty/empty -> 1.0) but avoids touching the
+    background. This is a similarity, like ``oks``/``iou``; the cost negation
+    (``cost = -score``) happens in :meth:`Tracker.scores_to_cost_matrix`, so it
+    must NOT be negated here. Pixel IoU (not bbox-IoU on ``mask.bbox``) sidesteps
+    the XYWH-vs-XYXY bbox-format issue.
+    """
+    fa = a if isinstance(a, MaskFeature) else get_mask(a)
+    fb = b if isinstance(b, MaskFeature) else get_mask(b)
+    inter = _mask_feature_intersection(fa, fb)
+    union = fa.area + fb.area - inter
+    # union == 0 only when both masks are empty -> identical -> 1.0 (matches the
+    # _mask_iou degenerate contract).
+    return 1.0 if union == 0 else float(inter / union)
+
+
+def _mask_feature_intersection(fa: MaskFeature, fb: MaskFeature) -> int:
+    """Foreground-overlap pixel count between two :class:`MaskFeature` (px)."""
+    if fa.area == 0 or fb.area == 0:
+        return 0
+    ay1, ax1 = fa.y0 + fa.crop.shape[0], fa.x0 + fa.crop.shape[1]
+    by1, bx1 = fb.y0 + fb.crop.shape[0], fb.x0 + fb.crop.shape[1]
+    oy0, oy1 = max(fa.y0, fb.y0), min(ay1, by1)
+    ox0, ox1 = max(fa.x0, fb.x0), min(ax1, bx1)
+    if oy1 <= oy0 or ox1 <= ox0:
+        return 0  # bboxes disjoint -> no intersection (no array op)
+    a_sub = fa.crop[oy0 - fa.y0 : oy1 - fa.y0, ox0 - fa.x0 : ox1 - fa.x0]
+    b_sub = fb.crop[oy0 - fb.y0 : oy1 - fb.y0, ox0 - fb.x0 : ox1 - fb.x0]
+    return int(np.count_nonzero(a_sub & b_sub))
 
 
 def compute_cosine_sim(a, b):

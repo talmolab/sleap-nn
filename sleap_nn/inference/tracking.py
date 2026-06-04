@@ -39,6 +39,13 @@ import sleap_io as sio
 
 logger = logging.getLogger(__name__)
 
+# Default candidate window. Mask tracking uses a larger default than the
+# pose/centroid default because bottom-up segmentation is over-segmented (a
+# momentarily over-split or missed instance must survive more frames to keep its
+# identity); the cropped mask-IoU (`MaskFeature`) makes the larger window cheap.
+DEFAULT_WINDOW_SIZE = 5
+DEFAULT_MASK_WINDOW_SIZE = 25
+
 
 @attrs.frozen(eq=False)
 class TrackerConfig:
@@ -50,7 +57,7 @@ class TrackerConfig:
     """
 
     # Tracker.from_config kwargs ────────────────────────────────────────
-    window_size: int = 5
+    window_size: int = DEFAULT_WINDOW_SIZE
     min_new_track_points: int = 0
     candidates_method: str = "fixed_window"
     min_match_points: int = 0
@@ -81,14 +88,19 @@ class TrackerConfig:
     tracking_clean_iou_threshold: float = 0.0
     post_connect_single_breaks: bool = False
 
-    # Single-node (centroid) default resolution ─────────────────────────
+    # Single-node (centroid) / segmentation (mask) default resolution ───
     # True (the default) means the user explicitly chose ``scoring_method`` /
     # ``features`` — direct constructors keep current behavior. The CLI sets
     # these False when the corresponding flag was left at its sentinel, which
-    # lets ``apply_tracking`` substitute single-node-appropriate defaults
-    # (``euclidean_dist`` / ``centroids``) for a 1-node skeleton.
+    # lets ``apply_tracking`` substitute task-appropriate defaults:
+    # ``euclidean_dist``/``centroids`` for a 1-node skeleton, and
+    # ``mask_iou``/``masks`` for a bottom-up segmentation (mask-only) model.
+    # ``candidates_method_explicit`` lets mask mode default the candidate maker to
+    # ``local_queues`` (far better identity on over-segmented masks than the
+    # ``fixed_window`` default) unless the user explicitly chose a method.
     scoring_method_explicit: bool = True
     features_explicit: bool = True
+    candidates_method_explicit: bool = True
 
 
 def apply_tracking(
@@ -157,6 +169,9 @@ def apply_tracking(
     # frozen config is never mutated. Multi-node / multi-skeleton: unchanged.
     effective_scoring_method = config.scoring_method
     effective_features = config.features
+    effective_window_size = config.window_size
+    effective_candidates_method = config.candidates_method
+    effective_max_tracks = config.max_tracks
     if len(labels.skeletons) == 1 and len(labels.skeletons[0].nodes) == 1:
         if not config.scoring_method_explicit:
             effective_scoring_method = "euclidean_dist"
@@ -173,10 +188,76 @@ def apply_tracking(
                 effective_features,
             )
 
+    # Segmentation (mask-only) default resolution. A bottom-up segmentation
+    # model emits sio.PredictedSegmentationMask into LabeledFrame.masks and no
+    # predicted keypoint instances (no skeleton); track masks by pixel mask-IoU.
+    # Detect on the labels content (available here, after prediction), mirroring
+    # the single-node centroid branch.
+    is_mask_mode = any(
+        getattr(lf, "masks", None) for lf in labels.labeled_frames
+    ) and not any(lf.has_predicted_instances for lf in labels.labeled_frames)
+    if is_mask_mode:
+        if not config.scoring_method_explicit:
+            effective_scoring_method = "mask_iou"
+        if not config.features_explicit:
+            effective_features = "masks"
+        if effective_features != "masks" or effective_scoring_method != "mask_iou":
+            raise ValueError(
+                "Tracking a bottom-up segmentation (mask-only) model requires "
+                "features='masks' and scoring_method='mask_iou' (got features="
+                f"{effective_features!r}, scoring_method={effective_scoring_method!r}). "
+                "Leave --features/--scoring_method unset to auto-select them."
+            )
+        # Motion models and pose-shaped cull/clean ops are out of MVP scope for
+        # masks (they call .numpy()/same_pose_as on keypoint instances). Fail
+        # fast with a clear message rather than crash mid-stream.
+        if config.use_flow or config.use_kalman:
+            raise ValueError(
+                "Mask tracking does not support motion models "
+                "(--use_flow/--use_kalman); they are out of scope for the "
+                "segmentation tracker MVP."
+            )
+        if (
+            config.tracking_pre_cull_to_target
+            or config.tracking_clean_instance_count
+            or config.post_connect_single_breaks
+        ):
+            raise ValueError(
+                "Mask tracking does not support the instance cull/clean/connect "
+                "options (tracking_pre_cull_to_target / "
+                "tracking_clean_instance_count / post_connect_single_breaks); "
+                "these operate on keypoint poses, not masks."
+            )
+        # Bottom-up segmentation is over-segmented; a larger candidate window
+        # keeps identities across transient over-splits/misses. Bump the default
+        # only (a non-default window_size is the user's explicit choice).
+        if config.window_size == DEFAULT_WINDOW_SIZE:
+            effective_window_size = DEFAULT_MASK_WINDOW_SIZE
+        # `fixed_window` fragments identity badly on over-segmented masks (its
+        # bounded deque forgets any track absent for >window_size frames and mints
+        # a fresh id); `local_queues` keeps `current_tracks` and re-binds across
+        # gaps. Validated on the 5-mice OFT clip (GT-identity purity: fixed_window
+        # 0.28 -> local_queues+cap 0.91). Default to local_queues unless the user
+        # explicitly chose a method; cap at the known target count when available
+        # (the cap is what lifts local_queues from ~0.52 to ~0.91).
+        if not config.candidates_method_explicit:
+            effective_candidates_method = "local_queues"
+        if effective_max_tracks is None and config.tracking_target_instance_count:
+            effective_max_tracks = config.tracking_target_instance_count
+        logger.info(
+            "Segmentation model detected; applying mask tracking defaults: "
+            "features='masks', scoring_method='mask_iou', window_size=%d, "
+            "candidates_method=%r, max_tracks=%s. For best identity, pass the "
+            "known animal count via --max_tracks/--tracking_target_instance_count.",
+            effective_window_size,
+            effective_candidates_method,
+            effective_max_tracks,
+        )
+
     tracker = Tracker.from_config(
-        window_size=config.window_size,
+        window_size=effective_window_size,
         min_new_track_points=config.min_new_track_points,
-        candidates_method=config.candidates_method,
+        candidates_method=effective_candidates_method,
         min_match_points=config.min_match_points,
         features=effective_features,
         scoring_method=effective_scoring_method,
@@ -184,7 +265,7 @@ def apply_tracking(
         robust_best_instance=config.robust_best_instance,
         oks_stddev=config.oks_stddev,
         track_matching_method=config.track_matching_method,
-        max_tracks=config.max_tracks,
+        max_tracks=effective_max_tracks,
         use_flow=config.use_flow,
         of_img_scale=config.of_img_scale,
         of_window_size=config.of_window_size,
@@ -216,30 +297,45 @@ def apply_tracking(
     n_frames = len(ordered_lfs)
     for i, lf in enumerate(ordered_lfs):
         instances: list = []
-        if lf.has_user_instances:
-            instances_to_track = lf.user_instances
-            if lf.has_predicted_instances:
-                instances = list(lf.predicted_instances)
+        masks: list = []
+        if is_mask_mode:
+            # Track segmentation masks: feed lf.masks through the same tracker
+            # (duck-typed), get back the same mask objects with track /
+            # tracking_score set, and preserve them on the rebuilt frame so
+            # they are NOT dropped (the #614 breakage). Instances stay empty.
+            if lf.masks:
+                masks = tracker.track(
+                    untracked_instances=list(lf.masks),
+                    frame_idx=lf.frame_idx,
+                    image=None,
+                )
         else:
-            instances_to_track = lf.predicted_instances
-        instances.extend(
-            tracker.track(
-                untracked_instances=instances_to_track,
-                frame_idx=lf.frame_idx,
-                image=lf.image if needs_image else None,
+            if lf.has_user_instances:
+                instances_to_track = lf.user_instances
+                if lf.has_predicted_instances:
+                    instances = list(lf.predicted_instances)
+            else:
+                instances_to_track = lf.predicted_instances
+            instances.extend(
+                tracker.track(
+                    untracked_instances=instances_to_track,
+                    frame_idx=lf.frame_idx,
+                    image=lf.image if needs_image else None,
+                )
             )
-        )
         tracked_lfs.append(
             sio.LabeledFrame(
                 video=lf.video,
                 frame_idx=lf.frame_idx,
                 instances=instances,
+                masks=masks,
             )
         )
         if progress_callback is not None:
             progress_callback(i + 1, n_frames)
 
-    if config.tracking_clean_instance_count > 0:
+    # Cull/connect cleanups are pose-only (and rejected above for mask mode).
+    if not is_mask_mode and config.tracking_clean_instance_count > 0:
         tracked_lfs = cull_instances(
             tracked_lfs,
             config.tracking_clean_instance_count,
@@ -250,7 +346,7 @@ def apply_tracking(
                 tracked_lfs, config.tracking_clean_instance_count
             )
 
-    if config.post_connect_single_breaks:
+    if not is_mask_mode and config.post_connect_single_breaks:
         tracked_lfs = connect_single_breaks(
             tracked_lfs, max_instances=config.tracking_target_instance_count
         )
