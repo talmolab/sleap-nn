@@ -503,3 +503,94 @@ def test_stride_encoded_slp_trains_with_correct_scale(minimal_instance_seg, tmp_
     inter = (got["foreground_mask"] * ref["foreground_mask"]).sum().item()
     union = ((got["foreground_mask"] + ref["foreground_mask"]) > 0).sum().item()
     assert union > 0 and inter / union > 0.9
+
+
+# ── D. offset-aware decode (#622 top-down crop-centered masks) ────────────────
+#
+# Top-down segmentation is the first producer of non-zero-offset masks (every
+# bottom-up prediction emits offset (0, 0)). `decode_mask_to_image_res` must
+# bake the crop offset into the decoded array so eval IoU / placement is at the
+# correct full-frame location — otherwise two crops collide at the origin.
+
+
+def _fg_bbox(arr):
+    """Top-left (x, y) of the True region of a boolean array (or None)."""
+    ys, xs = np.where(arr)
+    if ys.size == 0:
+        return None
+    return (int(xs.min()), int(ys.min()))
+
+
+def test_decode_offset_zero_byte_identical():
+    """scale-1, offset-0 masks take the zero-copy fast path (unchanged)."""
+    m = np.zeros((40, 50), bool)
+    m[5:30, 8:42] = True
+    sm = build_predicted_segmentation_mask(m, 0.9)  # scale (1,1), offset (0,0)
+    out = decode_mask_to_image_res(sm)
+    assert out.shape == m.shape
+    assert np.array_equal(out, m)
+
+
+def test_decode_offset_places_mask_at_image_origin():
+    """A crop mask at offset (x0, y0) decodes with its content at (x0, y0)."""
+    crop = np.zeros((40, 40), bool)
+    crop[5:35, 5:35] = True
+    sm = build_predicted_segmentation_mask(crop, 0.9, offset=(100.0, 70.0))
+    out = decode_mask_to_image_res(sm)
+    # Content shifted by the offset; array grows to (oy + h, ox + w).
+    assert out.shape == (70 + 40, 100 + 40)
+    assert _fg_bbox(out) == (100 + 5, 70 + 5)
+    # The crop content itself is preserved (just relocated).
+    assert out[70:110, 100:140].sum() == crop.sum()
+
+
+def test_decode_offset_with_scale():
+    """Offset is applied at image resolution after scale up-sampling."""
+    small = np.ones((10, 10), bool)  # stride-2 crop
+    sm = build_predicted_segmentation_mask(
+        small, 0.9, scale=(0.5, 0.5), offset=(60.0, 40.0)
+    )
+    out = decode_mask_to_image_res(sm)
+    # 10x10 @ stride 2 -> 20x20 content, placed at (60, 40).
+    assert _fg_bbox(out) == (60, 40)
+    assert out[40:60, 60:80].all()
+
+
+def test_decode_negative_offset_clips_offframe():
+    """A crop spilling off the top/left edge clips the off-frame rows/cols."""
+    crop = np.ones((30, 30), bool)
+    sm = build_predicted_segmentation_mask(crop, 0.9, offset=(-10.0, -8.0))
+    out = decode_mask_to_image_res(sm)
+    # 10 cols + 8 rows fall off-frame and are dropped.
+    assert out.shape == (30 - 8, 30 - 10)
+    assert out.all()
+
+
+def test_eval_matches_offset_crops_to_correct_gt():
+    """Regression: two crop-centered preds match their own full-frame GT.
+
+    Without offset-aware decode both crops decode to the origin, collide, and
+    the Hungarian match is wrong / IoU ~0. This asserts the fixed behavior.
+    """
+    from sleap_nn.evaluation import match_masks
+
+    H = W = 400
+    # Two well-separated GT instances (full-frame, offset 0).
+    gt_a = np.zeros((H, W), bool)
+    gt_a[100:140, 100:140] = True
+    gt_b = np.zeros((H, W), bool)
+    gt_b[300:340, 300:340] = True
+
+    # Predictions emitted as 40x40 crops at the matching offsets.
+    sq = np.ones((40, 40), bool)
+    pred_a = decode_mask_to_image_res(
+        build_predicted_segmentation_mask(sq, 0.9, offset=(100.0, 100.0))
+    )
+    pred_b = decode_mask_to_image_res(
+        build_predicted_segmentation_mask(sq, 0.8, offset=(300.0, 300.0))
+    )
+
+    mp, mg, up, ug, ious = match_masks([pred_a, pred_b], [gt_a, gt_b], min_iou=0.5)
+    assert sorted(zip(mp.tolist(), mg.tolist())) == [(0, 0), (1, 1)]
+    assert up.size == 0 and ug.size == 0
+    assert (ious >= 0.99).all()

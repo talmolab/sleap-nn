@@ -148,9 +148,12 @@ conflicts = [
 # sleap-io 0.8.0 is not yet released on PyPI; track main for the segmentation
 # (SegmentationMask / Labels.get_masks) APIs. Pinned to a commit for
 # reproducibility — update or drop once sleap-io 0.8.0 is published.
-# Bumped to include render: auto-draw SegmentationMask overlays (#461) + roi_wkb
-# gzip (#465).
-sleap-io = { git = "https://github.com/talmolab/sleap-io.git", rev = "4ee1fb388aefcd3f87691f741e0b6b34db482e8e" }
+# Bumped to include render fixes needed for top-down segmentation viz (#622):
+# color segmentation masks/ROI/bbox by track identity (#470), scope
+# render_image centroids to the rendered video (#468), and render
+# instance-less frames (#466) — on top of mask overlays (#461) + roi_wkb gzip
+# (#465).
+sleap-io = { git = "https://github.com/talmolab/sleap-io.git", rev = "f902a32aef6a089f885adcf4c13916359ad8cbd3" }
 torch = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
     # `cpu`/`gpu` are first-class extras (see [project.optional-dependencies]).
