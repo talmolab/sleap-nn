@@ -200,6 +200,13 @@ def predict(
     center_nms_kernel: int = 3,
     mask_cleanup: bool = False,
     mask_cleanup_radius: int = 0,
+    distance_gate_alpha: Optional[float] = None,
+    merge_fragments: bool = False,
+    merge_method: str = "greedy",
+    merge_thresholds: tuple = (0.85, 0.6, 0.4),
+    merge_w_valley: float = 1.0,
+    merge_w_offset: float = 0.25,
+    merge_dilate: int = 1,
     full_res_masks: bool = False,
     mask_output: str = "mask",
     polygon_epsilon: float = 0.01,
@@ -282,6 +289,24 @@ def predict(
         mask_cleanup_radius: Morphological open->close radius (output-stride
             pixels) applied during ``mask_cleanup``; ``0`` keeps keep-largest +
             fill only (bottom-up segmentation only).
+        distance_gate_alpha: Adaptive distance-gate strength; ``None`` (default)
+            keeps the byte-for-byte argmin grouping. When set, foreground pixels
+            whose offset-predicted center exceeds ``alpha*sqrt(area/pi)`` from
+            their assigned center are dropped (bottom-up segmentation only).
+        merge_fragments: Enable the RAG fragment-merge that re-fuses
+            over-segmented animal halves while keeping touching distinct animals
+            apart; ``False`` (default) is byte-for-byte today (bottom-up
+            segmentation only).
+        merge_method: ``"greedy"`` (default) or ``"multicut"`` agglomeration;
+            inert when ``merge_fragments=False`` (bottom-up segmentation only).
+        merge_thresholds: Greedy-merge decreasing affinity thresholds (default
+            ``(0.85, 0.6, 0.4)``); inert when off (bottom-up segmentation only).
+        merge_w_valley: Center-valley merge-term weight (default ``1.0``); inert
+            when off (bottom-up segmentation only).
+        merge_w_offset: Offset-agreement merge-term weight (default ``0.25``);
+            inert when off (bottom-up segmentation only).
+        merge_dilate: Merge contact-test dilation iterations (default ``1``);
+            inert when off (bottom-up segmentation only).
         full_res_masks: Encode masks at full original resolution instead of the
             output-stride grid (default ``False``: stride encoding is ~stride^2
             smaller and lossless at model resolution; bottom-up segmentation only).
@@ -425,6 +450,13 @@ def predict(
         build_kwargs["center_nms_kernel"] = center_nms_kernel
         build_kwargs["mask_cleanup"] = mask_cleanup
         build_kwargs["mask_cleanup_radius"] = mask_cleanup_radius
+        build_kwargs["distance_gate_alpha"] = distance_gate_alpha
+        build_kwargs["merge_fragments"] = merge_fragments
+        build_kwargs["merge_method"] = merge_method
+        build_kwargs["merge_thresholds"] = merge_thresholds
+        build_kwargs["merge_w_valley"] = merge_w_valley
+        build_kwargs["merge_w_offset"] = merge_w_offset
+        build_kwargs["merge_dilate"] = merge_dilate
         build_kwargs["full_res_masks"] = full_res_masks
         build_kwargs["mask_output"] = mask_output
         build_kwargs["polygon_epsilon"] = polygon_epsilon

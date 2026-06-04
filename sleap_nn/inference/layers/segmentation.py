@@ -24,7 +24,10 @@ from sleap_nn.inference.layers.base import InferenceLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.preprocess_info import PreprocInfo
-from sleap_nn.inference.segmentation import group_instances_from_offsets
+from sleap_nn.inference.segmentation import (
+    group_instances_from_offsets,
+    merge_instances,
+)
 
 
 class SegmentationLayer(InferenceLayer):
@@ -57,6 +60,26 @@ class SegmentationLayer(InferenceLayer):
         mask_cleanup_radius: Morphological open->close kernel radius (in
             output-stride pixels) applied during ``mask_cleanup`` before
             keep-largest-CC. ``0`` (default) keeps the keep-largest+fill behavior.
+        distance_gate_alpha: Adaptive distance-gate strength forwarded to
+            :func:`group_instances_from_offsets`. ``None`` (default) keeps the
+            byte-for-byte argmin grouping; when set, foreground pixels whose
+            offset-predicted center exceeds ``alpha*sqrt(area/pi)`` from their
+            assigned center are dropped (a scale-free stray-pixel/phantom filter).
+        merge_fragments: When ``True``, run the RAG fragment-merge
+            (:func:`merge_instances`) over the grouped masks BEFORE upsample and
+            ``min_mask_area`` to re-fuse over-segmented halves of one animal while
+            keeping genuinely-touching distinct animals apart. ``False`` (default)
+            is byte-for-byte today (the merge is never invoked).
+        merge_method: Merge agglomeration — ``"greedy"`` (default) or
+            ``"multicut"``. Inert when ``merge_fragments=False``.
+        merge_thresholds: Decreasing affinity thresholds for the greedy merge
+            phases (default ``(0.85, 0.6, 0.4)``). Inert when off.
+        merge_w_valley: Weight on the center-valley ridge merge term (default
+            ``1.0``). Inert when off.
+        merge_w_offset: Weight on the offset-agreement merge term (default
+            ``0.25``). Inert when off.
+        merge_dilate: Dilation iterations for the merge contact test (default
+            ``1``). Inert when off.
         full_res_masks: When ``True``, encode masks at full ORIGINAL resolution
             (legacy behavior) instead of the model output-stride grid. Default
             ``False``: output-stride encoding is ~stride^2 smaller and lossless
@@ -87,6 +110,13 @@ class SegmentationLayer(InferenceLayer):
         center_nms_kernel: int = 3,
         mask_cleanup: bool = False,
         mask_cleanup_radius: int = 0,
+        distance_gate_alpha: Optional[float] = None,
+        merge_fragments: bool = False,
+        merge_method: str = "greedy",
+        merge_thresholds: tuple = (0.85, 0.6, 0.4),
+        merge_w_valley: float = 1.0,
+        merge_w_offset: float = 0.25,
+        merge_dilate: int = 1,
         full_res_masks: bool = False,
         mask_output: str = "mask",
         polygon_epsilon: float = 0.01,
@@ -108,6 +138,15 @@ class SegmentationLayer(InferenceLayer):
         self.center_nms_kernel = int(center_nms_kernel)
         self.mask_cleanup = bool(mask_cleanup)
         self.mask_cleanup_radius = int(mask_cleanup_radius)
+        self.distance_gate_alpha = (
+            None if distance_gate_alpha is None else float(distance_gate_alpha)
+        )
+        self.merge_fragments = bool(merge_fragments)
+        self.merge_method = str(merge_method)
+        self.merge_thresholds = tuple(merge_thresholds)
+        self.merge_w_valley = float(merge_w_valley)
+        self.merge_w_offset = float(merge_w_offset)
+        self.merge_dilate = int(merge_dilate)
         self.full_res_masks = bool(full_res_masks)
         self.mask_output = str(mask_output)
         self.polygon_epsilon = float(polygon_epsilon)
@@ -152,6 +191,8 @@ class SegmentationLayer(InferenceLayer):
         # through ``__new__`` and set only a subset of attributes.
         full_res_masks = getattr(self, "full_res_masks", False)
         mask_cleanup_radius = getattr(self, "mask_cleanup_radius", 0)
+        distance_gate_alpha = getattr(self, "distance_gate_alpha", None)
+        merge_fragments = getattr(self, "merge_fragments", False)
         B = foreground.shape[0]
         pred_masks: List[List[dict]] = []
         for b in range(B):
@@ -166,7 +207,23 @@ class SegmentationLayer(InferenceLayer):
                 center_nms_kernel=getattr(self, "center_nms_kernel", 3),
                 mask_cleanup=getattr(self, "mask_cleanup", False),
                 mask_cleanup_radius=mask_cleanup_radius,
+                distance_gate_alpha=distance_gate_alpha,
             )
+            # Fragment-merge over the grid-resolution masks BEFORE upsample +
+            # ``min_mask_area``. Inert (untouched ``instances``) when
+            # ``merge_fragments`` is False — the byte-for-byte default.
+            if merge_fragments and len(instances) > 1:
+                instances = merge_instances(
+                    instances,
+                    center_heatmap[b, 0].numpy(),
+                    offsets[b].numpy(),
+                    self.output_stride,
+                    method=getattr(self, "merge_method", "greedy"),
+                    dilate_iters=getattr(self, "merge_dilate", 1),
+                    w_valley=getattr(self, "merge_w_valley", 1.0),
+                    w_offset=getattr(self, "merge_w_offset", 0.25),
+                    thresholds=getattr(self, "merge_thresholds", (0.85, 0.6, 0.4)),
+                )
             frame_masks: List[dict] = []
             # ``min_mask_area`` is an ORIGINAL-image-pixel floor. ``max(1, ...)``
             # keeps the empty-mask drop when the filter is off.
