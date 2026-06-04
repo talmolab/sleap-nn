@@ -133,7 +133,7 @@ def get_mask(
     extractor. The mask is decoded onto the **image-pixel grid** first, then
     cropped to its foreground bbox (using the mask's own ``.bbox`` when available,
     avoiding a scan); the crop is cached as the candidate feature so scoring
-    re-uses it without re-decoding and only touches the foreground region.
+    reuses it without re-decoding and only touches the foreground region.
 
     The image-grid decode is essential: sio ``.data`` decodes at the mask's
     *stored* resolution, which for the default inference path
