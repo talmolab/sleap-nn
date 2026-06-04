@@ -117,15 +117,13 @@ def test_geometric_config_initialization():
     assert config.scale_max == 1.2
 
 
-def test_geometric_config_flip_fields():
-    """Flip fields default to disabled and validate flip_p as a proportion."""
+def test_geometric_config_flip_field():
+    """flip_p defaults to disabled and is validated as a proportion."""
     config = GeometricConfig()
     assert config.flip_p == 0.0
-    assert config.flip_horizontal is True
 
-    config = GeometricConfig(flip_p=1.0, flip_horizontal=False)
+    config = GeometricConfig(flip_p=1.0)
     assert config.flip_p == 1.0
-    assert config.flip_horizontal is False
 
     with pytest.raises(ValueError):
         GeometricConfig(flip_p=1.5)
@@ -137,7 +135,6 @@ def test_get_aug_config_flip_preset():
 
     aug = get_aug_config(geometric_aug="flip")
     assert aug.geometric.flip_p == 1.0
-    assert aug.geometric.flip_horizontal is True
 
 
 def test_validate_proportion(caplog):

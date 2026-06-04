@@ -17,14 +17,13 @@ def apply_flip_augmentation(
     image: torch.Tensor,
     instances: torch.Tensor,
     symmetric_inds: Optional[Sequence[Tuple[int, int]]] = None,
-    horizontal: bool = True,
     flip_p: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Randomly mirror an image and keypoints, swapping symmetric node pairs.
+    """Randomly mirror an image and keypoints left/right, swapping symmetric pairs.
 
-    When an image is mirrored, left/right (or top/bottom) symmetric body parts
-    physically exchange sides, so their node slots must be swapped to keep semantic
-    labels correct. Ported from SLEAP v1.4's ``RandomFlipper``.
+    When an image is mirrored left/right, left/right symmetric body parts physically
+    exchange sides, so their node slots must be swapped to keep semantic labels
+    correct. Ported from SLEAP v1.4's ``RandomFlipper`` (horizontal flip).
 
     Args:
         image: Input image. Shape: (n_samples, C, H, W)
@@ -32,7 +31,6 @@ def apply_flip_augmentation(
         symmetric_inds: Iterable of ``(i, j)`` node-index pairs to swap after mirroring.
             ``None``/empty means no swap (correct only for truly symmetric labeling,
             e.g. centroids).
-        horizontal: If ``True``, flip left/right; if ``False``, flip up/down.
         flip_p: Probability of applying the flip. ``0`` disables (no-op).
 
     Returns:
@@ -43,7 +41,6 @@ def apply_flip_augmentation(
         image=image,
         instances=instances,
         symmetric_inds=symmetric_inds,
-        horizontal=horizontal,
         flip_p=flip_p,
     )
 
@@ -125,7 +122,6 @@ def apply_geometric_augmentation(
     mixup_lambda_max: Optional[float] = 0.05,
     mixup_p: float = 0.0,
     flip_p: float = 0.0,
-    flip_horizontal: bool = True,
     symmetric_inds: Optional[Sequence[Tuple[int, int]]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Apply geometric augmentation on image and instances.
@@ -155,9 +151,8 @@ def apply_geometric_augmentation(
         mixup_lambda_min: Minimum mixup strength value. Default: 0.01.
         mixup_lambda_max: Maximum mixup strength value. Default: 0.05.
         mixup_p: Probability of applying random mixup v2. Default: 0.0.
-        flip_p: Probability of mirroring the sample (with symmetric-node swap).
-            Default: 0.0 (disabled).
-        flip_horizontal: If True, flip left/right; if False, flip up/down. Default: True.
+        flip_p: Probability of mirroring the sample left/right (with symmetric-node
+            swap). Default: 0.0 (disabled).
         symmetric_inds: Node-index pairs to swap after mirroring. Passed separately
             from the config scalars because it is runtime skeleton data. None/empty
             means no swap. Default: None.
@@ -187,6 +182,5 @@ def apply_geometric_augmentation(
         mixup_lambda_max=mixup_lambda_max,
         mixup_p=mixup_p,
         flip_p=flip_p,
-        flip_horizontal=flip_horizontal,
         symmetric_inds=symmetric_inds,
     )

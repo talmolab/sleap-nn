@@ -158,16 +158,15 @@ augmentation_config:
     mixup_lambda_min: 0.01
     mixup_lambda_max: 0.05
 
-    # Flip (mirror image + keypoints, swapping symmetric node pairs)
-    flip_p: 0.0           # 0 disables; >0 enables (uses skeleton symmetries)
-    flip_horizontal: true # true = left/right, false = up/down
+    # Flip (mirror image + keypoints left/right, swapping symmetric node pairs)
+    flip_p: 0.0  # 0 disables; >0 enables left/right flip (uses skeleton symmetries)
 ```
 
-> **Flip & skeleton symmetries:** when `flip_p > 0`, left/right symmetric body
-> parts (e.g. `left_paw` ↔ `right_paw`) are swapped after mirroring so labels stay
-> correct. Symmetry pairs are read from the skeleton. If the skeleton has **no**
-> symmetries, flipping is only correct when the animal is truly left/right
-> symmetric in labeling — a warning is logged otherwise.
+> **Flip & skeleton symmetries:** when `flip_p > 0`, the image and keypoints are
+> mirrored left/right and left/right symmetric body parts (e.g. `left_paw` ↔
+> `right_paw`) are swapped so labels stay correct. Symmetry pairs are read from the
+> skeleton. If the skeleton has **no** symmetries, flipping is only correct when the
+> animal is truly left/right symmetric in labeling — a warning is logged otherwise.
 
 ---
 
@@ -298,5 +297,4 @@ data_config:
 | `mixup_lambda_min` | float | `0.01` | Minimum mixup strength |
 | `mixup_lambda_max` | float | `0.05` | Maximum mixup strength |
 | `mixup_p` | float | `0.0` | Probability of applying mixup |
-| `flip_p` | float | `0.0` | Probability of mirroring image + keypoints (swaps symmetric node pairs) |
-| `flip_horizontal` | bool | `true` | `true` = left/right flip, `false` = up/down flip |
+| `flip_p` | float | `0.0` | Probability of mirroring image + keypoints left/right (swaps symmetric node pairs) |

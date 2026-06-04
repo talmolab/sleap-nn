@@ -169,7 +169,7 @@ class TestSkiaChannelOrdering:
 
 
 class TestFlipAugmentation:
-    """Tests for symmetry-aware horizontal/vertical flip augmentation."""
+    """Tests for symmetry-aware horizontal (left/right) flip augmentation."""
 
     def _img_and_instances(self):
         """Return a small (1,1,2,3) image and (1,1,2,2) two-node instance."""
@@ -183,7 +183,7 @@ class TestFlipAugmentation:
         """H-flip mirrors x (x' = W-1-x) and reverses image columns."""
         img, instances = self._img_and_instances()
         out_img, out_inst = apply_flip_augmentation(
-            img, instances, symmetric_inds=None, horizontal=True, flip_p=1.0
+            img, instances, symmetric_inds=None, flip_p=1.0
         )
         # W=3 -> columns reversed.
         assert torch.equal(
@@ -193,24 +193,11 @@ class TestFlipAugmentation:
         assert torch.allclose(out_inst[0, 0], torch.tensor([[2.0, 0.0], [0.0, 1.0]]))
         assert out_img.dtype == torch.uint8
 
-    def test_vertical_flip_coords_and_image(self):
-        """V-flip mirrors y (y' = H-1-y) and reverses image rows."""
-        img, instances = self._img_and_instances()
-        out_img, out_inst = apply_flip_augmentation(
-            img, instances, symmetric_inds=None, horizontal=False, flip_p=1.0
-        )
-        # H=2 -> rows reversed.
-        assert torch.equal(
-            out_img[0, 0], torch.tensor([[3, 4, 5], [0, 1, 2]], dtype=torch.uint8)
-        )
-        # y mirrored: node0 (0,0)->(0,1); node1 (2,1)->(2,0).
-        assert torch.allclose(out_inst[0, 0], torch.tensor([[0.0, 1.0], [2.0, 0.0]]))
-
     def test_symmetry_swap(self):
         """Symmetric node pairs are swapped after mirroring."""
         img, instances = self._img_and_instances()
         _, out_inst = apply_flip_augmentation(
-            img, instances, symmetric_inds=[(0, 1)], horizontal=True, flip_p=1.0
+            img, instances, symmetric_inds=[(0, 1)], flip_p=1.0
         )
         # node1 mirrored (0,1) lands in slot 0; node0 mirrored (2,0) in slot 1.
         assert torch.allclose(out_inst[0, 0], torch.tensor([[0.0, 1.0], [2.0, 0.0]]))
@@ -236,7 +223,7 @@ class TestFlipAugmentation:
         img, _ = self._img_and_instances()
         instances = torch.tensor([[[[float("nan"), float("nan")], [2.0, 1.0]]]])
         _, out_inst = apply_flip_augmentation(
-            img, instances, symmetric_inds=[(0, 1)], horizontal=True, flip_p=1.0
+            img, instances, symmetric_inds=[(0, 1)], flip_p=1.0
         )
         # NaN node swapped into slot 1, still NaN.
         assert torch.isnan(out_inst[0, 0, 1, 0])
@@ -247,7 +234,7 @@ class TestFlipAugmentation:
         img = torch.arange(6, dtype=torch.uint8).reshape(1, 1, 2, 3)
         instances = torch.tensor([[[0.0, 0.0], [2.0, 1.0]]])  # (1, 2, 2)
         _, out_inst = apply_flip_augmentation(
-            img, instances, symmetric_inds=[(0, 1)], horizontal=True, flip_p=1.0
+            img, instances, symmetric_inds=[(0, 1)], flip_p=1.0
         )
         assert out_inst.shape == (1, 2, 2)
         assert torch.allclose(out_inst[0], torch.tensor([[0.0, 1.0], [2.0, 0.0]]))
@@ -256,10 +243,10 @@ class TestFlipAugmentation:
         """Flipping twice (with the same swap) restores the original."""
         img, instances = self._img_and_instances()
         once_img, once_inst = apply_flip_augmentation(
-            img, instances, symmetric_inds=[(0, 1)], horizontal=True, flip_p=1.0
+            img, instances, symmetric_inds=[(0, 1)], flip_p=1.0
         )
         twice_img, twice_inst = apply_flip_augmentation(
-            once_img, once_inst, symmetric_inds=[(0, 1)], horizontal=True, flip_p=1.0
+            once_img, once_inst, symmetric_inds=[(0, 1)], flip_p=1.0
         )
         assert torch.equal(twice_img, img)
         assert torch.allclose(twice_inst, instances)
@@ -275,7 +262,6 @@ class TestFlipAugmentation:
             scale_p=0.0,
             translate_p=0.0,
             flip_p=1.0,
-            flip_horizontal=True,
             symmetric_inds=[(0, 1)],
         )
         assert torch.equal(

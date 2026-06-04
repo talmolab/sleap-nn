@@ -1378,9 +1378,7 @@ def test_flip_augmentation_resolves_symmetries(minimal_instance):
         confmap_head_config=confmap_head,
         pafs_head_config=pafs_head,
         labels=[labels],
-        geometric_aug=DictConfig(
-            {"flip_p": 1.0, "flip_horizontal": True, "affine_p": 0.0}
-        ),
+        geometric_aug=DictConfig({"flip_p": 1.0, "affine_p": 0.0}),
         apply_aug=True,
     )
 
