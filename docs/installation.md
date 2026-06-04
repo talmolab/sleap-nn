@@ -294,6 +294,11 @@ This installs with CUDA 13.0 support. Other backends:
     `--extra gpu` (CUDA) is for x86-64 / Windows-AMD64 only; NVIDIA CUDA wheels
     are not published for Linux aarch64. On Linux aarch64 use `--extra cpu`.
 
+!!! note
+    On Windows the CUDA runtime (including cuDNN) ships *inside* the PyTorch
+    wheel, so you will not see a separate `nvidia-cudnn-cu13` package — that is
+    expected. On Linux it is a separate dependency that `--extra gpu` pulls in.
+
 **Step 4: Run commands**
 
 ```bash

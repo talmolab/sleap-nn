@@ -37,6 +37,11 @@ jobs:
         # substring of the extra name is NOT sufficient — it also appears inside
         # always-false conflict AND-pairs — so we match the full live disjunct on
         # the nvidia-cudnn-cu13 dependency line. See #632.
+        #
+        # We assert ONLY the linux/x86_64 clause on purpose: PyTorch's win_amd64
+        # cu130 wheel bundles cuDNN inside the wheel and declares no separate
+        # nvidia-cudnn-cu13 dependency, so a Windows clause can never exist here.
+        # Do not "fix" this guard by adding one.
         run: |
           grep -F "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-8-sleap-nn-gpu')" uv.lock \
             | grep -qF 'nvidia-cudnn-cu13' \
