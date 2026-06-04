@@ -1039,3 +1039,39 @@ def test_eval_command(
     # Run the command and check for errors
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     assert Path(f"{tmp_path}/metrics_test.npz").exists()
+
+
+class TestMakeMasksCommand:
+    """Tests for the ``make-masks`` pseudomask-generation subcommand."""
+
+    def test_make_masks_help(self):
+        """make-masks --help lists the source modes and options."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["make-masks", "--help"])
+        assert result.exit_code == 0
+        assert "skeleton" in result.output
+        assert "sam" in result.output
+        assert "hybrid" in result.output
+
+    def test_make_masks_skeleton(self, minimal_instance, tmp_path):
+        """make-masks --source skeleton writes a reloadable seg .pkg.slp."""
+        out_path = tmp_path / "make_masks_seg.pkg.slp"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "make-masks",
+                "--src",
+                str(minimal_instance),
+                "--out",
+                out_path.as_posix(),
+                "--source",
+                "skeleton",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert out_path.exists()
+        labels = sio.load_slp(out_path.as_posix())
+        lf = labels.labeled_frames[0]
+        assert len(lf.masks) >= 1
+        assert isinstance(lf.masks[0], sio.UserSegmentationMask)

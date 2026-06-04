@@ -212,6 +212,12 @@ class DataConfig:
             Values < 1 down-weight negatives; values > 1 up-weight them. Only has effect when
             ``use_negative_frames`` is ``True``. *Default*: `1.0`.
         skeletons: skeleton configuration for the `.slp` file. This will be pulled from the train dataset and saved to the `training_config.yaml`
+        pseudomask_source: (str) Optional provenance string recording how the per-instance segmentation
+            pseudomask GT in the training labels was generated (e.g. ``"skeleton"``, ``"sam"``, ``"hybrid"``),
+            for bottom-up instance-segmentation models whose masks were produced offline by
+            ``sleap-nn make-masks``. This is a record-keeping field only; pseudomask generation is an explicit
+            offline prep step (SAM is far too heavy to run per-epoch) and is NOT run by the training pipeline.
+            *Default*: `None`.
     """
 
     train_labels_path: Optional[List[str]] = None
@@ -237,6 +243,7 @@ class DataConfig:
     use_negative_frames: bool = False
     negative_loss_weight: float = field(default=1.0, validator=validators.gt(0))
     skeletons: Optional[list] = None
+    pseudomask_source: Optional[str] = None
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:

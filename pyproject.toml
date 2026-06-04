@@ -89,6 +89,11 @@ tensorrt = [
     "tensorrt>=10.13.0; sys_platform == 'linux' or sys_platform == 'win32'",
     "torch-tensorrt>=2.5.0; sys_platform == 'linux' or sys_platform == 'win32'",
 ]
+# Optional dependency for the SAM-backed pseudomask GT source
+# (`sleap-nn make-masks --source sam/hybrid`). Heavy (ViT-H checkpoint + GPU
+# pass) and only needed for the one-shot offline pseudomask prep step, so it is
+# kept out of the default deps; the skeleton source stays dependency-free.
+sam = ["segment-anything>=1.0"]
 
 [dependency-groups]
 # PEP 735: Dev-only dependencies (`dev` is installed automatically by `uv sync`)

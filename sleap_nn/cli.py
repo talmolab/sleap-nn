@@ -2418,6 +2418,131 @@ def info(path):
     print_model_info(path)
 
 
+@cli.command("make-masks", context_settings=CONTEXT_SETTINGS)
+@click.option(
+    "--src",
+    "-i",
+    type=str,
+    required=True,
+    help="Source pose .slp / .pkg.slp (with image data).",
+)
+@click.option(
+    "--out",
+    "-o",
+    type=str,
+    required=True,
+    help="Output .pkg.slp path (saved with embedded images).",
+)
+@click.option(
+    "--source",
+    type=click.Choice(["skeleton", "sam", "hybrid"]),
+    default="skeleton",
+    show_default=True,
+    help=(
+        "Pseudomask GT source: 'skeleton' (dilated skeleton burn, no extra "
+        "deps), 'sam' (Segment Anything keypoint-prompted, drops low-quality "
+        "instances), or 'hybrid' (SAM with per-instance skeleton fallback). "
+        "'sam'/'hybrid' require the optional 'sleap-nn[sam]' extra and a "
+        "checkpoint."
+    ),
+)
+@click.option(
+    "--node-radius",
+    type=int,
+    default=4,
+    show_default=True,
+    help="Skeleton node disk radius (px).",
+)
+@click.option(
+    "--edge-thickness",
+    type=int,
+    default=4,
+    show_default=True,
+    help="Skeleton edge line thickness (px).",
+)
+@click.option(
+    "--dilate-frac",
+    type=float,
+    default=0.10,
+    show_default=True,
+    help="Skeleton dilation as a fraction of the keypoint bbox diagonal.",
+)
+@click.option(
+    "--min-dilate",
+    type=int,
+    default=4,
+    show_default=True,
+    help="Minimum skeleton dilation radius (px).",
+)
+@click.option(
+    "--sam-checkpoint",
+    type=str,
+    default=None,
+    help="Path to the SAM checkpoint (required for --source sam/hybrid).",
+)
+@click.option(
+    "--sam-model-type",
+    type=click.Choice(["vit_h", "vit_l", "vit_b"]),
+    default="vit_h",
+    show_default=True,
+    help="SAM model registry key.",
+)
+@click.option(
+    "--device",
+    type=str,
+    default="cuda",
+    show_default=True,
+    help="Torch device for SAM.",
+)
+@click.option(
+    "--overlay",
+    type=str,
+    default=None,
+    help="Optional path to write a colored mask overlay PNG of frame 0.",
+)
+def make_masks(
+    src,
+    out,
+    source,
+    node_radius,
+    edge_thickness,
+    dilate_frac,
+    min_dilate,
+    sam_checkpoint,
+    sam_model_type,
+    device,
+    overlay,
+):
+    """Generate per-instance segmentation pseudomasks from pose keypoints.
+
+    Reads a pose ``.slp`` whose frames carry keypoint instances + image data and
+    writes a new embedded ``.pkg.slp`` whose frames carry both the original
+    poses (retained for eval frame-pairing) and per-instance
+    ``UserSegmentationMask`` ground truth, ready for bottom-up
+    instance-segmentation training.
+
+    Examples:
+        sleap-nn make-masks -i train.pkg.slp -o train_seg.pkg.slp
+
+        sleap-nn make-masks -i train.pkg.slp -o train_seg.pkg.slp --source hybrid --sam-checkpoint sam_vit_h_4b8939.pth
+    """
+    from sleap_nn.data.pseudomasks import make_pseudomasks_cli
+
+    make_pseudomasks_cli(
+        src=src,
+        out=out,
+        source=source,
+        node_radius=node_radius,
+        edge_thickness=edge_thickness,
+        dilate_frac=dilate_frac,
+        min_dilate=min_dilate,
+        sam_checkpoint=sam_checkpoint,
+        sam_model_type=sam_model_type,
+        device=device,
+        overlay=overlay,
+    )
+
+
 def _register_export_commands():
     """Lazily import and register the export command."""
     from sleap_nn.export.cli import export as export_command
