@@ -4656,6 +4656,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/topdown_segmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    topdown_segmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -5286,6 +5314,17 @@
     <span class="md-ellipsis">
       
         BottomUpSegmentationInferenceModel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CenteredInstanceMaskInferenceModel
       
     </span>
   </a>
@@ -6298,6 +6337,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CenteredInstanceMaskInferenceModel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#sleap_nn.inference.segmentation.find_center_peaks" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6383,6 +6433,14 @@
             <td>
               <div class="doc-md-description">
                 <p>Inference model for bottom-up instance segmentation.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;CenteredInstanceMaskInferenceModel&lt;/code&gt; (&lt;code&gt;sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel&lt;/code&gt;)" href="#sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel">CenteredInstanceMaskInferenceModel</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Stage-2 holder for top-down (crop-centered) instance segmentation (#622).</p>
               </div>
             </td>
           </tr>
@@ -6598,48 +6656,7 @@ keeps all detected centers.</p>
 
               <details class="mkdocstrings-source">
                 <summary>Source code in <code>sleap_nn/inference/segmentation.py</code></summary>
-                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-224">224</a></span>
-<span class="normal"><a href="#__codelineno-0-225">225</a></span>
-<span class="normal"><a href="#__codelineno-0-226">226</a></span>
-<span class="normal"><a href="#__codelineno-0-227">227</a></span>
-<span class="normal"><a href="#__codelineno-0-228">228</a></span>
-<span class="normal"><a href="#__codelineno-0-229">229</a></span>
-<span class="normal"><a href="#__codelineno-0-230">230</a></span>
-<span class="normal"><a href="#__codelineno-0-231">231</a></span>
-<span class="normal"><a href="#__codelineno-0-232">232</a></span>
-<span class="normal"><a href="#__codelineno-0-233">233</a></span>
-<span class="normal"><a href="#__codelineno-0-234">234</a></span>
-<span class="normal"><a href="#__codelineno-0-235">235</a></span>
-<span class="normal"><a href="#__codelineno-0-236">236</a></span>
-<span class="normal"><a href="#__codelineno-0-237">237</a></span>
-<span class="normal"><a href="#__codelineno-0-238">238</a></span>
-<span class="normal"><a href="#__codelineno-0-239">239</a></span>
-<span class="normal"><a href="#__codelineno-0-240">240</a></span>
-<span class="normal"><a href="#__codelineno-0-241">241</a></span>
-<span class="normal"><a href="#__codelineno-0-242">242</a></span>
-<span class="normal"><a href="#__codelineno-0-243">243</a></span>
-<span class="normal"><a href="#__codelineno-0-244">244</a></span>
-<span class="normal"><a href="#__codelineno-0-245">245</a></span>
-<span class="normal"><a href="#__codelineno-0-246">246</a></span>
-<span class="normal"><a href="#__codelineno-0-247">247</a></span>
-<span class="normal"><a href="#__codelineno-0-248">248</a></span>
-<span class="normal"><a href="#__codelineno-0-249">249</a></span>
-<span class="normal"><a href="#__codelineno-0-250">250</a></span>
-<span class="normal"><a href="#__codelineno-0-251">251</a></span>
-<span class="normal"><a href="#__codelineno-0-252">252</a></span>
-<span class="normal"><a href="#__codelineno-0-253">253</a></span>
-<span class="normal"><a href="#__codelineno-0-254">254</a></span>
-<span class="normal"><a href="#__codelineno-0-255">255</a></span>
-<span class="normal"><a href="#__codelineno-0-256">256</a></span>
-<span class="normal"><a href="#__codelineno-0-257">257</a></span>
-<span class="normal"><a href="#__codelineno-0-258">258</a></span>
-<span class="normal"><a href="#__codelineno-0-259">259</a></span>
-<span class="normal"><a href="#__codelineno-0-260">260</a></span>
-<span class="normal"><a href="#__codelineno-0-261">261</a></span>
-<span class="normal"><a href="#__codelineno-0-262">262</a></span>
-<span class="normal"><a href="#__codelineno-0-263">263</a></span>
-<span class="normal"><a href="#__codelineno-0-264">264</a></span>
-<span class="normal"><a href="#__codelineno-0-265">265</a></span>
+                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-265">265</a></span>
 <span class="normal"><a href="#__codelineno-0-266">266</a></span>
 <span class="normal"><a href="#__codelineno-0-267">267</a></span>
 <span class="normal"><a href="#__codelineno-0-268">268</a></span>
@@ -6696,105 +6713,146 @@ keeps all detected centers.</p>
 <span class="normal"><a href="#__codelineno-0-319">319</a></span>
 <span class="normal"><a href="#__codelineno-0-320">320</a></span>
 <span class="normal"><a href="#__codelineno-0-321">321</a></span>
-<span class="normal"><a href="#__codelineno-0-322">322</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-224"><a id="__codelineno-0-224" name="__codelineno-0-224"></a><span class="k">class</span><span class="w"> </span><span class="nc">BottomUpSegmentationInferenceModel</span><span class="p">(</span><span class="n">L</span><span class="o">.</span><span class="n">LightningModule</span><span class="p">):</span>
-</span><span id="__span-0-225"><a id="__codelineno-0-225" name="__codelineno-0-225"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Inference model for bottom-up instance segmentation.</span>
-</span><span id="__span-0-226"><a id="__codelineno-0-226" name="__codelineno-0-226"></a>
-</span><span id="__span-0-227"><a id="__codelineno-0-227" name="__codelineno-0-227"></a><span class="sd">    Wraps a trained model and post-processing into a single forward pass.</span>
-</span><span id="__span-0-228"><a id="__codelineno-0-228" name="__codelineno-0-228"></a><span class="sd">    Input images should already be padded to stride before being passed to this</span>
-</span><span id="__span-0-229"><a id="__codelineno-0-229" name="__codelineno-0-229"></a><span class="sd">    model (handled by the predictor&#39;s ``_run_inference_on_batch``).</span>
-</span><span id="__span-0-230"><a id="__codelineno-0-230" name="__codelineno-0-230"></a>
-</span><span id="__span-0-231"><a id="__codelineno-0-231" name="__codelineno-0-231"></a><span class="sd">    Attributes:</span>
-</span><span id="__span-0-232"><a id="__codelineno-0-232" name="__codelineno-0-232"></a><span class="sd">        torch_model: Callable model that returns head output dict.</span>
-</span><span id="__span-0-233"><a id="__codelineno-0-233" name="__codelineno-0-233"></a><span class="sd">        fg_threshold: Threshold for foreground binarization.</span>
-</span><span id="__span-0-234"><a id="__codelineno-0-234" name="__codelineno-0-234"></a><span class="sd">        peak_threshold: Minimum peak value for center detection.</span>
-</span><span id="__span-0-235"><a id="__codelineno-0-235" name="__codelineno-0-235"></a><span class="sd">        output_stride: Stride of the model output maps.</span>
-</span><span id="__span-0-236"><a id="__codelineno-0-236" name="__codelineno-0-236"></a><span class="sd">        min_mask_area: Minimum mask area (original-image pixels) carried through</span>
-</span><span id="__span-0-237"><a id="__codelineno-0-237" name="__codelineno-0-237"></a><span class="sd">            to ``SegmentationLayer`` to drop tiny spurious masks. ``0`` disables</span>
-</span><span id="__span-0-238"><a id="__codelineno-0-238" name="__codelineno-0-238"></a><span class="sd">            it. Not applied here (``forward`` returns output-stride masks for</span>
-</span><span id="__span-0-239"><a id="__codelineno-0-239" name="__codelineno-0-239"></a><span class="sd">            training visualization); see ``SegmentationLayer.postprocess``.</span>
-</span><span id="__span-0-240"><a id="__codelineno-0-240" name="__codelineno-0-240"></a><span class="sd">        max_instances: Optional cap on instances per frame (highest-scoring</span>
-</span><span id="__span-0-241"><a id="__codelineno-0-241" name="__codelineno-0-241"></a><span class="sd">            centers kept). Carried through to ``SegmentationLayer``; ``None``</span>
-</span><span id="__span-0-242"><a id="__codelineno-0-242" name="__codelineno-0-242"></a><span class="sd">            keeps all detected centers.</span>
-</span><span id="__span-0-243"><a id="__codelineno-0-243" name="__codelineno-0-243"></a><span class="sd">        center_nms_kernel: Odd window size for center-peak NMS. Default ``3``.</span>
-</span><span id="__span-0-244"><a id="__codelineno-0-244" name="__codelineno-0-244"></a><span class="sd">        mask_cleanup: Keep-largest-CC + hole-fill per mask. Default ``False``.</span>
-</span><span id="__span-0-245"><a id="__codelineno-0-245" name="__codelineno-0-245"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-246"><a id="__codelineno-0-246" name="__codelineno-0-246"></a>
-</span><span id="__span-0-247"><a id="__codelineno-0-247" name="__codelineno-0-247"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-0-248"><a id="__codelineno-0-248" name="__codelineno-0-248"></a>        <span class="bp">self</span><span class="p">,</span>
-</span><span id="__span-0-249"><a id="__codelineno-0-249" name="__codelineno-0-249"></a>        <span class="n">torch_model</span><span class="p">,</span>
-</span><span id="__span-0-250"><a id="__codelineno-0-250" name="__codelineno-0-250"></a>        <span class="n">fg_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
-</span><span id="__span-0-251"><a id="__codelineno-0-251" name="__codelineno-0-251"></a>        <span class="n">peak_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
-</span><span id="__span-0-252"><a id="__codelineno-0-252" name="__codelineno-0-252"></a>        <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
-</span><span id="__span-0-253"><a id="__codelineno-0-253" name="__codelineno-0-253"></a>        <span class="n">input_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-</span><span id="__span-0-254"><a id="__codelineno-0-254" name="__codelineno-0-254"></a>        <span class="n">min_mask_area</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-</span><span id="__span-0-255"><a id="__codelineno-0-255" name="__codelineno-0-255"></a>        <span class="n">max_instances</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-256"><a id="__codelineno-0-256" name="__codelineno-0-256"></a>        <span class="n">center_nms_kernel</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
-</span><span id="__span-0-257"><a id="__codelineno-0-257" name="__codelineno-0-257"></a>        <span class="n">mask_cleanup</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-</span><span id="__span-0-258"><a id="__codelineno-0-258" name="__codelineno-0-258"></a>        <span class="n">mask_cleanup_radius</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-</span><span id="__span-0-259"><a id="__codelineno-0-259" name="__codelineno-0-259"></a>        <span class="n">full_res_masks</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-</span><span id="__span-0-260"><a id="__codelineno-0-260" name="__codelineno-0-260"></a>        <span class="n">mask_output</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mask&quot;</span><span class="p">,</span>
-</span><span id="__span-0-261"><a id="__codelineno-0-261" name="__codelineno-0-261"></a>        <span class="n">polygon_epsilon</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span>
-</span><span id="__span-0-262"><a id="__codelineno-0-262" name="__codelineno-0-262"></a>    <span class="p">):</span>
-</span><span id="__span-0-263"><a id="__codelineno-0-263" name="__codelineno-0-263"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the inference model.&quot;&quot;&quot;</span>
-</span><span id="__span-0-264"><a id="__codelineno-0-264" name="__codelineno-0-264"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-</span><span id="__span-0-265"><a id="__codelineno-0-265" name="__codelineno-0-265"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">torch_model</span> <span class="o">=</span> <span class="n">torch_model</span>
-</span><span id="__span-0-266"><a id="__codelineno-0-266" name="__codelineno-0-266"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">fg_threshold</span> <span class="o">=</span> <span class="n">fg_threshold</span>
-</span><span id="__span-0-267"><a id="__codelineno-0-267" name="__codelineno-0-267"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">peak_threshold</span> <span class="o">=</span> <span class="n">peak_threshold</span>
-</span><span id="__span-0-268"><a id="__codelineno-0-268" name="__codelineno-0-268"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">output_stride</span> <span class="o">=</span> <span class="n">output_stride</span>
-</span><span id="__span-0-269"><a id="__codelineno-0-269" name="__codelineno-0-269"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_scale</span>
-</span><span id="__span-0-270"><a id="__codelineno-0-270" name="__codelineno-0-270"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">min_mask_area</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">min_mask_area</span><span class="p">)</span>
-</span><span id="__span-0-271"><a id="__codelineno-0-271" name="__codelineno-0-271"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">max_instances</span> <span class="o">=</span> <span class="n">max_instances</span>
-</span><span id="__span-0-272"><a id="__codelineno-0-272" name="__codelineno-0-272"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">center_nms_kernel</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">center_nms_kernel</span><span class="p">)</span>
-</span><span id="__span-0-273"><a id="__codelineno-0-273" name="__codelineno-0-273"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">mask_cleanup</span><span class="p">)</span>
-</span><span id="__span-0-274"><a id="__codelineno-0-274" name="__codelineno-0-274"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup_radius</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">mask_cleanup_radius</span><span class="p">)</span>
-</span><span id="__span-0-275"><a id="__codelineno-0-275" name="__codelineno-0-275"></a>        <span class="c1"># Output-packaging knobs carried for ``_build_bottomup_segmentation_layer``</span>
-</span><span id="__span-0-276"><a id="__codelineno-0-276" name="__codelineno-0-276"></a>        <span class="c1"># (read off this model via getattr). ``forward`` itself only emits</span>
-</span><span id="__span-0-277"><a id="__codelineno-0-277" name="__codelineno-0-277"></a>        <span class="c1"># output-stride masks for training viz, so it consumes ``mask_cleanup_radius``</span>
-</span><span id="__span-0-278"><a id="__codelineno-0-278" name="__codelineno-0-278"></a>        <span class="c1"># but not the packaging-time ``full_res_masks``/``mask_output``/``polygon_epsilon``.</span>
-</span><span id="__span-0-279"><a id="__codelineno-0-279" name="__codelineno-0-279"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">full_res_masks</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">full_res_masks</span><span class="p">)</span>
-</span><span id="__span-0-280"><a id="__codelineno-0-280" name="__codelineno-0-280"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">mask_output</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">mask_output</span><span class="p">)</span>
-</span><span id="__span-0-281"><a id="__codelineno-0-281" name="__codelineno-0-281"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">polygon_epsilon</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">polygon_epsilon</span><span class="p">)</span>
-</span><span id="__span-0-282"><a id="__codelineno-0-282" name="__codelineno-0-282"></a>
-</span><span id="__span-0-283"><a id="__codelineno-0-283" name="__codelineno-0-283"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="n">Dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">]]:</span>
-</span><span id="__span-0-284"><a id="__codelineno-0-284" name="__codelineno-0-284"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Run inference on a batch of images.</span>
-</span><span id="__span-0-285"><a id="__codelineno-0-285" name="__codelineno-0-285"></a>
-</span><span id="__span-0-286"><a id="__codelineno-0-286" name="__codelineno-0-286"></a><span class="sd">        Args:</span>
-</span><span id="__span-0-287"><a id="__codelineno-0-287" name="__codelineno-0-287"></a><span class="sd">            batch: Dict with &quot;image&quot; key. Shape: (B, C, H, W). Images should</span>
-</span><span id="__span-0-288"><a id="__codelineno-0-288" name="__codelineno-0-288"></a><span class="sd">                already be padded to the model&#39;s max stride.</span>
-</span><span id="__span-0-289"><a id="__codelineno-0-289" name="__codelineno-0-289"></a>
-</span><span id="__span-0-290"><a id="__codelineno-0-290" name="__codelineno-0-290"></a><span class="sd">        Returns:</span>
-</span><span id="__span-0-291"><a id="__codelineno-0-291" name="__codelineno-0-291"></a><span class="sd">            List of instance lists (one per batch element). Each instance is a dict</span>
-</span><span id="__span-0-292"><a id="__codelineno-0-292" name="__codelineno-0-292"></a><span class="sd">            with &quot;mask&quot;, &quot;center&quot;, and &quot;score&quot; keys.</span>
-</span><span id="__span-0-293"><a id="__codelineno-0-293" name="__codelineno-0-293"></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="__span-0-294"><a id="__codelineno-0-294" name="__codelineno-0-294"></a>        <span class="n">images</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s2">&quot;image&quot;</span><span class="p">]</span>
-</span><span id="__span-0-295"><a id="__codelineno-0-295" name="__codelineno-0-295"></a>        <span class="k">if</span> <span class="n">images</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">5</span><span class="p">:</span>
-</span><span id="__span-0-296"><a id="__codelineno-0-296" name="__codelineno-0-296"></a>            <span class="n">images</span> <span class="o">=</span> <span class="n">images</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-</span><span id="__span-0-297"><a id="__codelineno-0-297" name="__codelineno-0-297"></a>
-</span><span id="__span-0-298"><a id="__codelineno-0-298" name="__codelineno-0-298"></a>        <span class="n">images</span> <span class="o">=</span> <span class="n">images</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
-</span><span id="__span-0-299"><a id="__codelineno-0-299" name="__codelineno-0-299"></a>
-</span><span id="__span-0-300"><a id="__codelineno-0-300" name="__codelineno-0-300"></a>        <span class="n">output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">torch_model</span><span class="p">(</span><span class="n">images</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
-</span><span id="__span-0-301"><a id="__codelineno-0-301" name="__codelineno-0-301"></a>
-</span><span id="__span-0-302"><a id="__codelineno-0-302" name="__codelineno-0-302"></a>        <span class="n">foreground</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;SegmentationHead&quot;</span><span class="p">]</span>
-</span><span id="__span-0-303"><a id="__codelineno-0-303" name="__codelineno-0-303"></a>        <span class="n">center_heatmap</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;InstanceCenterHead&quot;</span><span class="p">]</span>
-</span><span id="__span-0-304"><a id="__codelineno-0-304" name="__codelineno-0-304"></a>        <span class="n">offsets</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;CenterOffsetHead&quot;</span><span class="p">]</span>
-</span><span id="__span-0-305"><a id="__codelineno-0-305" name="__codelineno-0-305"></a>
-</span><span id="__span-0-306"><a id="__codelineno-0-306" name="__codelineno-0-306"></a>        <span class="n">batch_results</span> <span class="o">=</span> <span class="p">[]</span>
-</span><span id="__span-0-307"><a id="__codelineno-0-307" name="__codelineno-0-307"></a>        <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">foreground</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
-</span><span id="__span-0-308"><a id="__codelineno-0-308" name="__codelineno-0-308"></a>            <span class="n">instances</span> <span class="o">=</span> <span class="n">group_instances_from_offsets</span><span class="p">(</span>
-</span><span id="__span-0-309"><a id="__codelineno-0-309" name="__codelineno-0-309"></a>                <span class="n">foreground</span><span class="o">=</span><span class="n">foreground</span><span class="p">[</span><span class="n">b</span> <span class="p">:</span> <span class="n">b</span> <span class="o">+</span> <span class="mi">1</span><span class="p">],</span>
-</span><span id="__span-0-310"><a id="__codelineno-0-310" name="__codelineno-0-310"></a>                <span class="n">center_heatmap</span><span class="o">=</span><span class="n">center_heatmap</span><span class="p">[</span><span class="n">b</span> <span class="p">:</span> <span class="n">b</span> <span class="o">+</span> <span class="mi">1</span><span class="p">],</span>
-</span><span id="__span-0-311"><a id="__codelineno-0-311" name="__codelineno-0-311"></a>                <span class="n">offsets</span><span class="o">=</span><span class="n">offsets</span><span class="p">[</span><span class="n">b</span> <span class="p">:</span> <span class="n">b</span> <span class="o">+</span> <span class="mi">1</span><span class="p">],</span>
-</span><span id="__span-0-312"><a id="__codelineno-0-312" name="__codelineno-0-312"></a>                <span class="n">fg_threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">fg_threshold</span><span class="p">,</span>
-</span><span id="__span-0-313"><a id="__codelineno-0-313" name="__codelineno-0-313"></a>                <span class="n">peak_threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">peak_threshold</span><span class="p">,</span>
-</span><span id="__span-0-314"><a id="__codelineno-0-314" name="__codelineno-0-314"></a>                <span class="n">output_stride</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_stride</span><span class="p">,</span>
-</span><span id="__span-0-315"><a id="__codelineno-0-315" name="__codelineno-0-315"></a>                <span class="n">max_instances</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">max_instances</span><span class="p">,</span>
-</span><span id="__span-0-316"><a id="__codelineno-0-316" name="__codelineno-0-316"></a>                <span class="n">center_nms_kernel</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">center_nms_kernel</span><span class="p">,</span>
-</span><span id="__span-0-317"><a id="__codelineno-0-317" name="__codelineno-0-317"></a>                <span class="n">mask_cleanup</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup</span><span class="p">,</span>
-</span><span id="__span-0-318"><a id="__codelineno-0-318" name="__codelineno-0-318"></a>                <span class="n">mask_cleanup_radius</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup_radius</span><span class="p">,</span>
-</span><span id="__span-0-319"><a id="__codelineno-0-319" name="__codelineno-0-319"></a>            <span class="p">)</span>
-</span><span id="__span-0-320"><a id="__codelineno-0-320" name="__codelineno-0-320"></a>            <span class="n">batch_results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">instances</span><span class="p">)</span>
-</span><span id="__span-0-321"><a id="__codelineno-0-321" name="__codelineno-0-321"></a>
-</span><span id="__span-0-322"><a id="__codelineno-0-322" name="__codelineno-0-322"></a>        <span class="k">return</span> <span class="n">batch_results</span>
+<span class="normal"><a href="#__codelineno-0-322">322</a></span>
+<span class="normal"><a href="#__codelineno-0-323">323</a></span>
+<span class="normal"><a href="#__codelineno-0-324">324</a></span>
+<span class="normal"><a href="#__codelineno-0-325">325</a></span>
+<span class="normal"><a href="#__codelineno-0-326">326</a></span>
+<span class="normal"><a href="#__codelineno-0-327">327</a></span>
+<span class="normal"><a href="#__codelineno-0-328">328</a></span>
+<span class="normal"><a href="#__codelineno-0-329">329</a></span>
+<span class="normal"><a href="#__codelineno-0-330">330</a></span>
+<span class="normal"><a href="#__codelineno-0-331">331</a></span>
+<span class="normal"><a href="#__codelineno-0-332">332</a></span>
+<span class="normal"><a href="#__codelineno-0-333">333</a></span>
+<span class="normal"><a href="#__codelineno-0-334">334</a></span>
+<span class="normal"><a href="#__codelineno-0-335">335</a></span>
+<span class="normal"><a href="#__codelineno-0-336">336</a></span>
+<span class="normal"><a href="#__codelineno-0-337">337</a></span>
+<span class="normal"><a href="#__codelineno-0-338">338</a></span>
+<span class="normal"><a href="#__codelineno-0-339">339</a></span>
+<span class="normal"><a href="#__codelineno-0-340">340</a></span>
+<span class="normal"><a href="#__codelineno-0-341">341</a></span>
+<span class="normal"><a href="#__codelineno-0-342">342</a></span>
+<span class="normal"><a href="#__codelineno-0-343">343</a></span>
+<span class="normal"><a href="#__codelineno-0-344">344</a></span>
+<span class="normal"><a href="#__codelineno-0-345">345</a></span>
+<span class="normal"><a href="#__codelineno-0-346">346</a></span>
+<span class="normal"><a href="#__codelineno-0-347">347</a></span>
+<span class="normal"><a href="#__codelineno-0-348">348</a></span>
+<span class="normal"><a href="#__codelineno-0-349">349</a></span>
+<span class="normal"><a href="#__codelineno-0-350">350</a></span>
+<span class="normal"><a href="#__codelineno-0-351">351</a></span>
+<span class="normal"><a href="#__codelineno-0-352">352</a></span>
+<span class="normal"><a href="#__codelineno-0-353">353</a></span>
+<span class="normal"><a href="#__codelineno-0-354">354</a></span>
+<span class="normal"><a href="#__codelineno-0-355">355</a></span>
+<span class="normal"><a href="#__codelineno-0-356">356</a></span>
+<span class="normal"><a href="#__codelineno-0-357">357</a></span>
+<span class="normal"><a href="#__codelineno-0-358">358</a></span>
+<span class="normal"><a href="#__codelineno-0-359">359</a></span>
+<span class="normal"><a href="#__codelineno-0-360">360</a></span>
+<span class="normal"><a href="#__codelineno-0-361">361</a></span>
+<span class="normal"><a href="#__codelineno-0-362">362</a></span>
+<span class="normal"><a href="#__codelineno-0-363">363</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-265"><a id="__codelineno-0-265" name="__codelineno-0-265"></a><span class="k">class</span><span class="w"> </span><span class="nc">BottomUpSegmentationInferenceModel</span><span class="p">(</span><span class="n">L</span><span class="o">.</span><span class="n">LightningModule</span><span class="p">):</span>
+</span><span id="__span-0-266"><a id="__codelineno-0-266" name="__codelineno-0-266"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Inference model for bottom-up instance segmentation.</span>
+</span><span id="__span-0-267"><a id="__codelineno-0-267" name="__codelineno-0-267"></a>
+</span><span id="__span-0-268"><a id="__codelineno-0-268" name="__codelineno-0-268"></a><span class="sd">    Wraps a trained model and post-processing into a single forward pass.</span>
+</span><span id="__span-0-269"><a id="__codelineno-0-269" name="__codelineno-0-269"></a><span class="sd">    Input images should already be padded to stride before being passed to this</span>
+</span><span id="__span-0-270"><a id="__codelineno-0-270" name="__codelineno-0-270"></a><span class="sd">    model (handled by the predictor&#39;s ``_run_inference_on_batch``).</span>
+</span><span id="__span-0-271"><a id="__codelineno-0-271" name="__codelineno-0-271"></a>
+</span><span id="__span-0-272"><a id="__codelineno-0-272" name="__codelineno-0-272"></a><span class="sd">    Attributes:</span>
+</span><span id="__span-0-273"><a id="__codelineno-0-273" name="__codelineno-0-273"></a><span class="sd">        torch_model: Callable model that returns head output dict.</span>
+</span><span id="__span-0-274"><a id="__codelineno-0-274" name="__codelineno-0-274"></a><span class="sd">        fg_threshold: Threshold for foreground binarization.</span>
+</span><span id="__span-0-275"><a id="__codelineno-0-275" name="__codelineno-0-275"></a><span class="sd">        peak_threshold: Minimum peak value for center detection.</span>
+</span><span id="__span-0-276"><a id="__codelineno-0-276" name="__codelineno-0-276"></a><span class="sd">        output_stride: Stride of the model output maps.</span>
+</span><span id="__span-0-277"><a id="__codelineno-0-277" name="__codelineno-0-277"></a><span class="sd">        min_mask_area: Minimum mask area (original-image pixels) carried through</span>
+</span><span id="__span-0-278"><a id="__codelineno-0-278" name="__codelineno-0-278"></a><span class="sd">            to ``SegmentationLayer`` to drop tiny spurious masks. ``0`` disables</span>
+</span><span id="__span-0-279"><a id="__codelineno-0-279" name="__codelineno-0-279"></a><span class="sd">            it. Not applied here (``forward`` returns output-stride masks for</span>
+</span><span id="__span-0-280"><a id="__codelineno-0-280" name="__codelineno-0-280"></a><span class="sd">            training visualization); see ``SegmentationLayer.postprocess``.</span>
+</span><span id="__span-0-281"><a id="__codelineno-0-281" name="__codelineno-0-281"></a><span class="sd">        max_instances: Optional cap on instances per frame (highest-scoring</span>
+</span><span id="__span-0-282"><a id="__codelineno-0-282" name="__codelineno-0-282"></a><span class="sd">            centers kept). Carried through to ``SegmentationLayer``; ``None``</span>
+</span><span id="__span-0-283"><a id="__codelineno-0-283" name="__codelineno-0-283"></a><span class="sd">            keeps all detected centers.</span>
+</span><span id="__span-0-284"><a id="__codelineno-0-284" name="__codelineno-0-284"></a><span class="sd">        center_nms_kernel: Odd window size for center-peak NMS. Default ``3``.</span>
+</span><span id="__span-0-285"><a id="__codelineno-0-285" name="__codelineno-0-285"></a><span class="sd">        mask_cleanup: Keep-largest-CC + hole-fill per mask. Default ``False``.</span>
+</span><span id="__span-0-286"><a id="__codelineno-0-286" name="__codelineno-0-286"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-287"><a id="__codelineno-0-287" name="__codelineno-0-287"></a>
+</span><span id="__span-0-288"><a id="__codelineno-0-288" name="__codelineno-0-288"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+</span><span id="__span-0-289"><a id="__codelineno-0-289" name="__codelineno-0-289"></a>        <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-0-290"><a id="__codelineno-0-290" name="__codelineno-0-290"></a>        <span class="n">torch_model</span><span class="p">,</span>
+</span><span id="__span-0-291"><a id="__codelineno-0-291" name="__codelineno-0-291"></a>        <span class="n">fg_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+</span><span id="__span-0-292"><a id="__codelineno-0-292" name="__codelineno-0-292"></a>        <span class="n">peak_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
+</span><span id="__span-0-293"><a id="__codelineno-0-293" name="__codelineno-0-293"></a>        <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-0-294"><a id="__codelineno-0-294" name="__codelineno-0-294"></a>        <span class="n">input_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-0-295"><a id="__codelineno-0-295" name="__codelineno-0-295"></a>        <span class="n">min_mask_area</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-0-296"><a id="__codelineno-0-296" name="__codelineno-0-296"></a>        <span class="n">max_instances</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-297"><a id="__codelineno-0-297" name="__codelineno-0-297"></a>        <span class="n">center_nms_kernel</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
+</span><span id="__span-0-298"><a id="__codelineno-0-298" name="__codelineno-0-298"></a>        <span class="n">mask_cleanup</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-299"><a id="__codelineno-0-299" name="__codelineno-0-299"></a>        <span class="n">mask_cleanup_radius</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-0-300"><a id="__codelineno-0-300" name="__codelineno-0-300"></a>        <span class="n">full_res_masks</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-301"><a id="__codelineno-0-301" name="__codelineno-0-301"></a>        <span class="n">mask_output</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mask&quot;</span><span class="p">,</span>
+</span><span id="__span-0-302"><a id="__codelineno-0-302" name="__codelineno-0-302"></a>        <span class="n">polygon_epsilon</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span>
+</span><span id="__span-0-303"><a id="__codelineno-0-303" name="__codelineno-0-303"></a>    <span class="p">):</span>
+</span><span id="__span-0-304"><a id="__codelineno-0-304" name="__codelineno-0-304"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the inference model.&quot;&quot;&quot;</span>
+</span><span id="__span-0-305"><a id="__codelineno-0-305" name="__codelineno-0-305"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+</span><span id="__span-0-306"><a id="__codelineno-0-306" name="__codelineno-0-306"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">torch_model</span> <span class="o">=</span> <span class="n">torch_model</span>
+</span><span id="__span-0-307"><a id="__codelineno-0-307" name="__codelineno-0-307"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">fg_threshold</span> <span class="o">=</span> <span class="n">fg_threshold</span>
+</span><span id="__span-0-308"><a id="__codelineno-0-308" name="__codelineno-0-308"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">peak_threshold</span> <span class="o">=</span> <span class="n">peak_threshold</span>
+</span><span id="__span-0-309"><a id="__codelineno-0-309" name="__codelineno-0-309"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">output_stride</span> <span class="o">=</span> <span class="n">output_stride</span>
+</span><span id="__span-0-310"><a id="__codelineno-0-310" name="__codelineno-0-310"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_scale</span>
+</span><span id="__span-0-311"><a id="__codelineno-0-311" name="__codelineno-0-311"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">min_mask_area</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">min_mask_area</span><span class="p">)</span>
+</span><span id="__span-0-312"><a id="__codelineno-0-312" name="__codelineno-0-312"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">max_instances</span> <span class="o">=</span> <span class="n">max_instances</span>
+</span><span id="__span-0-313"><a id="__codelineno-0-313" name="__codelineno-0-313"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">center_nms_kernel</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">center_nms_kernel</span><span class="p">)</span>
+</span><span id="__span-0-314"><a id="__codelineno-0-314" name="__codelineno-0-314"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">mask_cleanup</span><span class="p">)</span>
+</span><span id="__span-0-315"><a id="__codelineno-0-315" name="__codelineno-0-315"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup_radius</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">mask_cleanup_radius</span><span class="p">)</span>
+</span><span id="__span-0-316"><a id="__codelineno-0-316" name="__codelineno-0-316"></a>        <span class="c1"># Output-packaging knobs carried for ``_build_bottomup_segmentation_layer``</span>
+</span><span id="__span-0-317"><a id="__codelineno-0-317" name="__codelineno-0-317"></a>        <span class="c1"># (read off this model via getattr). ``forward`` itself only emits</span>
+</span><span id="__span-0-318"><a id="__codelineno-0-318" name="__codelineno-0-318"></a>        <span class="c1"># output-stride masks for training viz, so it consumes ``mask_cleanup_radius``</span>
+</span><span id="__span-0-319"><a id="__codelineno-0-319" name="__codelineno-0-319"></a>        <span class="c1"># but not the packaging-time ``full_res_masks``/``mask_output``/``polygon_epsilon``.</span>
+</span><span id="__span-0-320"><a id="__codelineno-0-320" name="__codelineno-0-320"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">full_res_masks</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">full_res_masks</span><span class="p">)</span>
+</span><span id="__span-0-321"><a id="__codelineno-0-321" name="__codelineno-0-321"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">mask_output</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">mask_output</span><span class="p">)</span>
+</span><span id="__span-0-322"><a id="__codelineno-0-322" name="__codelineno-0-322"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">polygon_epsilon</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">polygon_epsilon</span><span class="p">)</span>
+</span><span id="__span-0-323"><a id="__codelineno-0-323" name="__codelineno-0-323"></a>
+</span><span id="__span-0-324"><a id="__codelineno-0-324" name="__codelineno-0-324"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="n">Dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">]]:</span>
+</span><span id="__span-0-325"><a id="__codelineno-0-325" name="__codelineno-0-325"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Run inference on a batch of images.</span>
+</span><span id="__span-0-326"><a id="__codelineno-0-326" name="__codelineno-0-326"></a>
+</span><span id="__span-0-327"><a id="__codelineno-0-327" name="__codelineno-0-327"></a><span class="sd">        Args:</span>
+</span><span id="__span-0-328"><a id="__codelineno-0-328" name="__codelineno-0-328"></a><span class="sd">            batch: Dict with &quot;image&quot; key. Shape: (B, C, H, W). Images should</span>
+</span><span id="__span-0-329"><a id="__codelineno-0-329" name="__codelineno-0-329"></a><span class="sd">                already be padded to the model&#39;s max stride.</span>
+</span><span id="__span-0-330"><a id="__codelineno-0-330" name="__codelineno-0-330"></a>
+</span><span id="__span-0-331"><a id="__codelineno-0-331" name="__codelineno-0-331"></a><span class="sd">        Returns:</span>
+</span><span id="__span-0-332"><a id="__codelineno-0-332" name="__codelineno-0-332"></a><span class="sd">            List of instance lists (one per batch element). Each instance is a dict</span>
+</span><span id="__span-0-333"><a id="__codelineno-0-333" name="__codelineno-0-333"></a><span class="sd">            with &quot;mask&quot;, &quot;center&quot;, and &quot;score&quot; keys.</span>
+</span><span id="__span-0-334"><a id="__codelineno-0-334" name="__codelineno-0-334"></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="__span-0-335"><a id="__codelineno-0-335" name="__codelineno-0-335"></a>        <span class="n">images</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s2">&quot;image&quot;</span><span class="p">]</span>
+</span><span id="__span-0-336"><a id="__codelineno-0-336" name="__codelineno-0-336"></a>        <span class="k">if</span> <span class="n">images</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">5</span><span class="p">:</span>
+</span><span id="__span-0-337"><a id="__codelineno-0-337" name="__codelineno-0-337"></a>            <span class="n">images</span> <span class="o">=</span> <span class="n">images</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-338"><a id="__codelineno-0-338" name="__codelineno-0-338"></a>
+</span><span id="__span-0-339"><a id="__codelineno-0-339" name="__codelineno-0-339"></a>        <span class="n">images</span> <span class="o">=</span> <span class="n">images</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+</span><span id="__span-0-340"><a id="__codelineno-0-340" name="__codelineno-0-340"></a>
+</span><span id="__span-0-341"><a id="__codelineno-0-341" name="__codelineno-0-341"></a>        <span class="n">output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">torch_model</span><span class="p">(</span><span class="n">images</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+</span><span id="__span-0-342"><a id="__codelineno-0-342" name="__codelineno-0-342"></a>
+</span><span id="__span-0-343"><a id="__codelineno-0-343" name="__codelineno-0-343"></a>        <span class="n">foreground</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;SegmentationHead&quot;</span><span class="p">]</span>
+</span><span id="__span-0-344"><a id="__codelineno-0-344" name="__codelineno-0-344"></a>        <span class="n">center_heatmap</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;InstanceCenterHead&quot;</span><span class="p">]</span>
+</span><span id="__span-0-345"><a id="__codelineno-0-345" name="__codelineno-0-345"></a>        <span class="n">offsets</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;CenterOffsetHead&quot;</span><span class="p">]</span>
+</span><span id="__span-0-346"><a id="__codelineno-0-346" name="__codelineno-0-346"></a>
+</span><span id="__span-0-347"><a id="__codelineno-0-347" name="__codelineno-0-347"></a>        <span class="n">batch_results</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-348"><a id="__codelineno-0-348" name="__codelineno-0-348"></a>        <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">foreground</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+</span><span id="__span-0-349"><a id="__codelineno-0-349" name="__codelineno-0-349"></a>            <span class="n">instances</span> <span class="o">=</span> <span class="n">group_instances_from_offsets</span><span class="p">(</span>
+</span><span id="__span-0-350"><a id="__codelineno-0-350" name="__codelineno-0-350"></a>                <span class="n">foreground</span><span class="o">=</span><span class="n">foreground</span><span class="p">[</span><span class="n">b</span> <span class="p">:</span> <span class="n">b</span> <span class="o">+</span> <span class="mi">1</span><span class="p">],</span>
+</span><span id="__span-0-351"><a id="__codelineno-0-351" name="__codelineno-0-351"></a>                <span class="n">center_heatmap</span><span class="o">=</span><span class="n">center_heatmap</span><span class="p">[</span><span class="n">b</span> <span class="p">:</span> <span class="n">b</span> <span class="o">+</span> <span class="mi">1</span><span class="p">],</span>
+</span><span id="__span-0-352"><a id="__codelineno-0-352" name="__codelineno-0-352"></a>                <span class="n">offsets</span><span class="o">=</span><span class="n">offsets</span><span class="p">[</span><span class="n">b</span> <span class="p">:</span> <span class="n">b</span> <span class="o">+</span> <span class="mi">1</span><span class="p">],</span>
+</span><span id="__span-0-353"><a id="__codelineno-0-353" name="__codelineno-0-353"></a>                <span class="n">fg_threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">fg_threshold</span><span class="p">,</span>
+</span><span id="__span-0-354"><a id="__codelineno-0-354" name="__codelineno-0-354"></a>                <span class="n">peak_threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">peak_threshold</span><span class="p">,</span>
+</span><span id="__span-0-355"><a id="__codelineno-0-355" name="__codelineno-0-355"></a>                <span class="n">output_stride</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_stride</span><span class="p">,</span>
+</span><span id="__span-0-356"><a id="__codelineno-0-356" name="__codelineno-0-356"></a>                <span class="n">max_instances</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">max_instances</span><span class="p">,</span>
+</span><span id="__span-0-357"><a id="__codelineno-0-357" name="__codelineno-0-357"></a>                <span class="n">center_nms_kernel</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">center_nms_kernel</span><span class="p">,</span>
+</span><span id="__span-0-358"><a id="__codelineno-0-358" name="__codelineno-0-358"></a>                <span class="n">mask_cleanup</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup</span><span class="p">,</span>
+</span><span id="__span-0-359"><a id="__codelineno-0-359" name="__codelineno-0-359"></a>                <span class="n">mask_cleanup_radius</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup_radius</span><span class="p">,</span>
+</span><span id="__span-0-360"><a id="__codelineno-0-360" name="__codelineno-0-360"></a>            <span class="p">)</span>
+</span><span id="__span-0-361"><a id="__codelineno-0-361" name="__codelineno-0-361"></a>            <span class="n">batch_results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">instances</span><span class="p">)</span>
+</span><span id="__span-0-362"><a id="__codelineno-0-362" name="__codelineno-0-362"></a>
+</span><span id="__span-0-363"><a id="__codelineno-0-363" name="__codelineno-0-363"></a>        <span class="k">return</span> <span class="n">batch_results</span>
 </span></code></pre></div></td></tr></table></div>
               </details>
 
@@ -6827,75 +6885,75 @@ keeps all detected centers.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/inference/segmentation.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-247">247</a></span>
-<span class="normal"><a href="#__codelineno-0-248">248</a></span>
-<span class="normal"><a href="#__codelineno-0-249">249</a></span>
-<span class="normal"><a href="#__codelineno-0-250">250</a></span>
-<span class="normal"><a href="#__codelineno-0-251">251</a></span>
-<span class="normal"><a href="#__codelineno-0-252">252</a></span>
-<span class="normal"><a href="#__codelineno-0-253">253</a></span>
-<span class="normal"><a href="#__codelineno-0-254">254</a></span>
-<span class="normal"><a href="#__codelineno-0-255">255</a></span>
-<span class="normal"><a href="#__codelineno-0-256">256</a></span>
-<span class="normal"><a href="#__codelineno-0-257">257</a></span>
-<span class="normal"><a href="#__codelineno-0-258">258</a></span>
-<span class="normal"><a href="#__codelineno-0-259">259</a></span>
-<span class="normal"><a href="#__codelineno-0-260">260</a></span>
-<span class="normal"><a href="#__codelineno-0-261">261</a></span>
-<span class="normal"><a href="#__codelineno-0-262">262</a></span>
-<span class="normal"><a href="#__codelineno-0-263">263</a></span>
-<span class="normal"><a href="#__codelineno-0-264">264</a></span>
-<span class="normal"><a href="#__codelineno-0-265">265</a></span>
-<span class="normal"><a href="#__codelineno-0-266">266</a></span>
-<span class="normal"><a href="#__codelineno-0-267">267</a></span>
-<span class="normal"><a href="#__codelineno-0-268">268</a></span>
-<span class="normal"><a href="#__codelineno-0-269">269</a></span>
-<span class="normal"><a href="#__codelineno-0-270">270</a></span>
-<span class="normal"><a href="#__codelineno-0-271">271</a></span>
-<span class="normal"><a href="#__codelineno-0-272">272</a></span>
-<span class="normal"><a href="#__codelineno-0-273">273</a></span>
-<span class="normal"><a href="#__codelineno-0-274">274</a></span>
-<span class="normal"><a href="#__codelineno-0-275">275</a></span>
-<span class="normal"><a href="#__codelineno-0-276">276</a></span>
-<span class="normal"><a href="#__codelineno-0-277">277</a></span>
-<span class="normal"><a href="#__codelineno-0-278">278</a></span>
-<span class="normal"><a href="#__codelineno-0-279">279</a></span>
-<span class="normal"><a href="#__codelineno-0-280">280</a></span>
-<span class="normal"><a href="#__codelineno-0-281">281</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-247"><a id="__codelineno-0-247" name="__codelineno-0-247"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-0-248"><a id="__codelineno-0-248" name="__codelineno-0-248"></a>    <span class="bp">self</span><span class="p">,</span>
-</span><span id="__span-0-249"><a id="__codelineno-0-249" name="__codelineno-0-249"></a>    <span class="n">torch_model</span><span class="p">,</span>
-</span><span id="__span-0-250"><a id="__codelineno-0-250" name="__codelineno-0-250"></a>    <span class="n">fg_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
-</span><span id="__span-0-251"><a id="__codelineno-0-251" name="__codelineno-0-251"></a>    <span class="n">peak_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
-</span><span id="__span-0-252"><a id="__codelineno-0-252" name="__codelineno-0-252"></a>    <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
-</span><span id="__span-0-253"><a id="__codelineno-0-253" name="__codelineno-0-253"></a>    <span class="n">input_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-</span><span id="__span-0-254"><a id="__codelineno-0-254" name="__codelineno-0-254"></a>    <span class="n">min_mask_area</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-</span><span id="__span-0-255"><a id="__codelineno-0-255" name="__codelineno-0-255"></a>    <span class="n">max_instances</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-256"><a id="__codelineno-0-256" name="__codelineno-0-256"></a>    <span class="n">center_nms_kernel</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
-</span><span id="__span-0-257"><a id="__codelineno-0-257" name="__codelineno-0-257"></a>    <span class="n">mask_cleanup</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-</span><span id="__span-0-258"><a id="__codelineno-0-258" name="__codelineno-0-258"></a>    <span class="n">mask_cleanup_radius</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-</span><span id="__span-0-259"><a id="__codelineno-0-259" name="__codelineno-0-259"></a>    <span class="n">full_res_masks</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-</span><span id="__span-0-260"><a id="__codelineno-0-260" name="__codelineno-0-260"></a>    <span class="n">mask_output</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mask&quot;</span><span class="p">,</span>
-</span><span id="__span-0-261"><a id="__codelineno-0-261" name="__codelineno-0-261"></a>    <span class="n">polygon_epsilon</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span>
-</span><span id="__span-0-262"><a id="__codelineno-0-262" name="__codelineno-0-262"></a><span class="p">):</span>
-</span><span id="__span-0-263"><a id="__codelineno-0-263" name="__codelineno-0-263"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the inference model.&quot;&quot;&quot;</span>
-</span><span id="__span-0-264"><a id="__codelineno-0-264" name="__codelineno-0-264"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-</span><span id="__span-0-265"><a id="__codelineno-0-265" name="__codelineno-0-265"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">torch_model</span> <span class="o">=</span> <span class="n">torch_model</span>
-</span><span id="__span-0-266"><a id="__codelineno-0-266" name="__codelineno-0-266"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">fg_threshold</span> <span class="o">=</span> <span class="n">fg_threshold</span>
-</span><span id="__span-0-267"><a id="__codelineno-0-267" name="__codelineno-0-267"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">peak_threshold</span> <span class="o">=</span> <span class="n">peak_threshold</span>
-</span><span id="__span-0-268"><a id="__codelineno-0-268" name="__codelineno-0-268"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">output_stride</span> <span class="o">=</span> <span class="n">output_stride</span>
-</span><span id="__span-0-269"><a id="__codelineno-0-269" name="__codelineno-0-269"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_scale</span>
-</span><span id="__span-0-270"><a id="__codelineno-0-270" name="__codelineno-0-270"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">min_mask_area</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">min_mask_area</span><span class="p">)</span>
-</span><span id="__span-0-271"><a id="__codelineno-0-271" name="__codelineno-0-271"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">max_instances</span> <span class="o">=</span> <span class="n">max_instances</span>
-</span><span id="__span-0-272"><a id="__codelineno-0-272" name="__codelineno-0-272"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">center_nms_kernel</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">center_nms_kernel</span><span class="p">)</span>
-</span><span id="__span-0-273"><a id="__codelineno-0-273" name="__codelineno-0-273"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">mask_cleanup</span><span class="p">)</span>
-</span><span id="__span-0-274"><a id="__codelineno-0-274" name="__codelineno-0-274"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup_radius</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">mask_cleanup_radius</span><span class="p">)</span>
-</span><span id="__span-0-275"><a id="__codelineno-0-275" name="__codelineno-0-275"></a>    <span class="c1"># Output-packaging knobs carried for ``_build_bottomup_segmentation_layer``</span>
-</span><span id="__span-0-276"><a id="__codelineno-0-276" name="__codelineno-0-276"></a>    <span class="c1"># (read off this model via getattr). ``forward`` itself only emits</span>
-</span><span id="__span-0-277"><a id="__codelineno-0-277" name="__codelineno-0-277"></a>    <span class="c1"># output-stride masks for training viz, so it consumes ``mask_cleanup_radius``</span>
-</span><span id="__span-0-278"><a id="__codelineno-0-278" name="__codelineno-0-278"></a>    <span class="c1"># but not the packaging-time ``full_res_masks``/``mask_output``/``polygon_epsilon``.</span>
-</span><span id="__span-0-279"><a id="__codelineno-0-279" name="__codelineno-0-279"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">full_res_masks</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">full_res_masks</span><span class="p">)</span>
-</span><span id="__span-0-280"><a id="__codelineno-0-280" name="__codelineno-0-280"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">mask_output</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">mask_output</span><span class="p">)</span>
-</span><span id="__span-0-281"><a id="__codelineno-0-281" name="__codelineno-0-281"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">polygon_epsilon</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">polygon_epsilon</span><span class="p">)</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-288">288</a></span>
+<span class="normal"><a href="#__codelineno-0-289">289</a></span>
+<span class="normal"><a href="#__codelineno-0-290">290</a></span>
+<span class="normal"><a href="#__codelineno-0-291">291</a></span>
+<span class="normal"><a href="#__codelineno-0-292">292</a></span>
+<span class="normal"><a href="#__codelineno-0-293">293</a></span>
+<span class="normal"><a href="#__codelineno-0-294">294</a></span>
+<span class="normal"><a href="#__codelineno-0-295">295</a></span>
+<span class="normal"><a href="#__codelineno-0-296">296</a></span>
+<span class="normal"><a href="#__codelineno-0-297">297</a></span>
+<span class="normal"><a href="#__codelineno-0-298">298</a></span>
+<span class="normal"><a href="#__codelineno-0-299">299</a></span>
+<span class="normal"><a href="#__codelineno-0-300">300</a></span>
+<span class="normal"><a href="#__codelineno-0-301">301</a></span>
+<span class="normal"><a href="#__codelineno-0-302">302</a></span>
+<span class="normal"><a href="#__codelineno-0-303">303</a></span>
+<span class="normal"><a href="#__codelineno-0-304">304</a></span>
+<span class="normal"><a href="#__codelineno-0-305">305</a></span>
+<span class="normal"><a href="#__codelineno-0-306">306</a></span>
+<span class="normal"><a href="#__codelineno-0-307">307</a></span>
+<span class="normal"><a href="#__codelineno-0-308">308</a></span>
+<span class="normal"><a href="#__codelineno-0-309">309</a></span>
+<span class="normal"><a href="#__codelineno-0-310">310</a></span>
+<span class="normal"><a href="#__codelineno-0-311">311</a></span>
+<span class="normal"><a href="#__codelineno-0-312">312</a></span>
+<span class="normal"><a href="#__codelineno-0-313">313</a></span>
+<span class="normal"><a href="#__codelineno-0-314">314</a></span>
+<span class="normal"><a href="#__codelineno-0-315">315</a></span>
+<span class="normal"><a href="#__codelineno-0-316">316</a></span>
+<span class="normal"><a href="#__codelineno-0-317">317</a></span>
+<span class="normal"><a href="#__codelineno-0-318">318</a></span>
+<span class="normal"><a href="#__codelineno-0-319">319</a></span>
+<span class="normal"><a href="#__codelineno-0-320">320</a></span>
+<span class="normal"><a href="#__codelineno-0-321">321</a></span>
+<span class="normal"><a href="#__codelineno-0-322">322</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-288"><a id="__codelineno-0-288" name="__codelineno-0-288"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+</span><span id="__span-0-289"><a id="__codelineno-0-289" name="__codelineno-0-289"></a>    <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-0-290"><a id="__codelineno-0-290" name="__codelineno-0-290"></a>    <span class="n">torch_model</span><span class="p">,</span>
+</span><span id="__span-0-291"><a id="__codelineno-0-291" name="__codelineno-0-291"></a>    <span class="n">fg_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+</span><span id="__span-0-292"><a id="__codelineno-0-292" name="__codelineno-0-292"></a>    <span class="n">peak_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
+</span><span id="__span-0-293"><a id="__codelineno-0-293" name="__codelineno-0-293"></a>    <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-0-294"><a id="__codelineno-0-294" name="__codelineno-0-294"></a>    <span class="n">input_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-0-295"><a id="__codelineno-0-295" name="__codelineno-0-295"></a>    <span class="n">min_mask_area</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-0-296"><a id="__codelineno-0-296" name="__codelineno-0-296"></a>    <span class="n">max_instances</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-297"><a id="__codelineno-0-297" name="__codelineno-0-297"></a>    <span class="n">center_nms_kernel</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
+</span><span id="__span-0-298"><a id="__codelineno-0-298" name="__codelineno-0-298"></a>    <span class="n">mask_cleanup</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-299"><a id="__codelineno-0-299" name="__codelineno-0-299"></a>    <span class="n">mask_cleanup_radius</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-0-300"><a id="__codelineno-0-300" name="__codelineno-0-300"></a>    <span class="n">full_res_masks</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-301"><a id="__codelineno-0-301" name="__codelineno-0-301"></a>    <span class="n">mask_output</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mask&quot;</span><span class="p">,</span>
+</span><span id="__span-0-302"><a id="__codelineno-0-302" name="__codelineno-0-302"></a>    <span class="n">polygon_epsilon</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span>
+</span><span id="__span-0-303"><a id="__codelineno-0-303" name="__codelineno-0-303"></a><span class="p">):</span>
+</span><span id="__span-0-304"><a id="__codelineno-0-304" name="__codelineno-0-304"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the inference model.&quot;&quot;&quot;</span>
+</span><span id="__span-0-305"><a id="__codelineno-0-305" name="__codelineno-0-305"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+</span><span id="__span-0-306"><a id="__codelineno-0-306" name="__codelineno-0-306"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">torch_model</span> <span class="o">=</span> <span class="n">torch_model</span>
+</span><span id="__span-0-307"><a id="__codelineno-0-307" name="__codelineno-0-307"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">fg_threshold</span> <span class="o">=</span> <span class="n">fg_threshold</span>
+</span><span id="__span-0-308"><a id="__codelineno-0-308" name="__codelineno-0-308"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">peak_threshold</span> <span class="o">=</span> <span class="n">peak_threshold</span>
+</span><span id="__span-0-309"><a id="__codelineno-0-309" name="__codelineno-0-309"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">output_stride</span> <span class="o">=</span> <span class="n">output_stride</span>
+</span><span id="__span-0-310"><a id="__codelineno-0-310" name="__codelineno-0-310"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">=</span> <span class="n">input_scale</span>
+</span><span id="__span-0-311"><a id="__codelineno-0-311" name="__codelineno-0-311"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">min_mask_area</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">min_mask_area</span><span class="p">)</span>
+</span><span id="__span-0-312"><a id="__codelineno-0-312" name="__codelineno-0-312"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">max_instances</span> <span class="o">=</span> <span class="n">max_instances</span>
+</span><span id="__span-0-313"><a id="__codelineno-0-313" name="__codelineno-0-313"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">center_nms_kernel</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">center_nms_kernel</span><span class="p">)</span>
+</span><span id="__span-0-314"><a id="__codelineno-0-314" name="__codelineno-0-314"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">mask_cleanup</span><span class="p">)</span>
+</span><span id="__span-0-315"><a id="__codelineno-0-315" name="__codelineno-0-315"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup_radius</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">mask_cleanup_radius</span><span class="p">)</span>
+</span><span id="__span-0-316"><a id="__codelineno-0-316" name="__codelineno-0-316"></a>    <span class="c1"># Output-packaging knobs carried for ``_build_bottomup_segmentation_layer``</span>
+</span><span id="__span-0-317"><a id="__codelineno-0-317" name="__codelineno-0-317"></a>    <span class="c1"># (read off this model via getattr). ``forward`` itself only emits</span>
+</span><span id="__span-0-318"><a id="__codelineno-0-318" name="__codelineno-0-318"></a>    <span class="c1"># output-stride masks for training viz, so it consumes ``mask_cleanup_radius``</span>
+</span><span id="__span-0-319"><a id="__codelineno-0-319" name="__codelineno-0-319"></a>    <span class="c1"># but not the packaging-time ``full_res_masks``/``mask_output``/``polygon_epsilon``.</span>
+</span><span id="__span-0-320"><a id="__codelineno-0-320" name="__codelineno-0-320"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">full_res_masks</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">full_res_masks</span><span class="p">)</span>
+</span><span id="__span-0-321"><a id="__codelineno-0-321" name="__codelineno-0-321"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">mask_output</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">mask_output</span><span class="p">)</span>
+</span><span id="__span-0-322"><a id="__codelineno-0-322" name="__codelineno-0-322"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">polygon_epsilon</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">polygon_epsilon</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -6974,85 +7032,381 @@ with "mask", "center", and "score" keys.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/inference/segmentation.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-283">283</a></span>
-<span class="normal"><a href="#__codelineno-0-284">284</a></span>
-<span class="normal"><a href="#__codelineno-0-285">285</a></span>
-<span class="normal"><a href="#__codelineno-0-286">286</a></span>
-<span class="normal"><a href="#__codelineno-0-287">287</a></span>
-<span class="normal"><a href="#__codelineno-0-288">288</a></span>
-<span class="normal"><a href="#__codelineno-0-289">289</a></span>
-<span class="normal"><a href="#__codelineno-0-290">290</a></span>
-<span class="normal"><a href="#__codelineno-0-291">291</a></span>
-<span class="normal"><a href="#__codelineno-0-292">292</a></span>
-<span class="normal"><a href="#__codelineno-0-293">293</a></span>
-<span class="normal"><a href="#__codelineno-0-294">294</a></span>
-<span class="normal"><a href="#__codelineno-0-295">295</a></span>
-<span class="normal"><a href="#__codelineno-0-296">296</a></span>
-<span class="normal"><a href="#__codelineno-0-297">297</a></span>
-<span class="normal"><a href="#__codelineno-0-298">298</a></span>
-<span class="normal"><a href="#__codelineno-0-299">299</a></span>
-<span class="normal"><a href="#__codelineno-0-300">300</a></span>
-<span class="normal"><a href="#__codelineno-0-301">301</a></span>
-<span class="normal"><a href="#__codelineno-0-302">302</a></span>
-<span class="normal"><a href="#__codelineno-0-303">303</a></span>
-<span class="normal"><a href="#__codelineno-0-304">304</a></span>
-<span class="normal"><a href="#__codelineno-0-305">305</a></span>
-<span class="normal"><a href="#__codelineno-0-306">306</a></span>
-<span class="normal"><a href="#__codelineno-0-307">307</a></span>
-<span class="normal"><a href="#__codelineno-0-308">308</a></span>
-<span class="normal"><a href="#__codelineno-0-309">309</a></span>
-<span class="normal"><a href="#__codelineno-0-310">310</a></span>
-<span class="normal"><a href="#__codelineno-0-311">311</a></span>
-<span class="normal"><a href="#__codelineno-0-312">312</a></span>
-<span class="normal"><a href="#__codelineno-0-313">313</a></span>
-<span class="normal"><a href="#__codelineno-0-314">314</a></span>
-<span class="normal"><a href="#__codelineno-0-315">315</a></span>
-<span class="normal"><a href="#__codelineno-0-316">316</a></span>
-<span class="normal"><a href="#__codelineno-0-317">317</a></span>
-<span class="normal"><a href="#__codelineno-0-318">318</a></span>
-<span class="normal"><a href="#__codelineno-0-319">319</a></span>
-<span class="normal"><a href="#__codelineno-0-320">320</a></span>
-<span class="normal"><a href="#__codelineno-0-321">321</a></span>
-<span class="normal"><a href="#__codelineno-0-322">322</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-283"><a id="__codelineno-0-283" name="__codelineno-0-283"></a><span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="n">Dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">]]:</span>
-</span><span id="__span-0-284"><a id="__codelineno-0-284" name="__codelineno-0-284"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run inference on a batch of images.</span>
-</span><span id="__span-0-285"><a id="__codelineno-0-285" name="__codelineno-0-285"></a>
-</span><span id="__span-0-286"><a id="__codelineno-0-286" name="__codelineno-0-286"></a><span class="sd">    Args:</span>
-</span><span id="__span-0-287"><a id="__codelineno-0-287" name="__codelineno-0-287"></a><span class="sd">        batch: Dict with &quot;image&quot; key. Shape: (B, C, H, W). Images should</span>
-</span><span id="__span-0-288"><a id="__codelineno-0-288" name="__codelineno-0-288"></a><span class="sd">            already be padded to the model&#39;s max stride.</span>
-</span><span id="__span-0-289"><a id="__codelineno-0-289" name="__codelineno-0-289"></a>
-</span><span id="__span-0-290"><a id="__codelineno-0-290" name="__codelineno-0-290"></a><span class="sd">    Returns:</span>
-</span><span id="__span-0-291"><a id="__codelineno-0-291" name="__codelineno-0-291"></a><span class="sd">        List of instance lists (one per batch element). Each instance is a dict</span>
-</span><span id="__span-0-292"><a id="__codelineno-0-292" name="__codelineno-0-292"></a><span class="sd">        with &quot;mask&quot;, &quot;center&quot;, and &quot;score&quot; keys.</span>
-</span><span id="__span-0-293"><a id="__codelineno-0-293" name="__codelineno-0-293"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-294"><a id="__codelineno-0-294" name="__codelineno-0-294"></a>    <span class="n">images</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s2">&quot;image&quot;</span><span class="p">]</span>
-</span><span id="__span-0-295"><a id="__codelineno-0-295" name="__codelineno-0-295"></a>    <span class="k">if</span> <span class="n">images</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">5</span><span class="p">:</span>
-</span><span id="__span-0-296"><a id="__codelineno-0-296" name="__codelineno-0-296"></a>        <span class="n">images</span> <span class="o">=</span> <span class="n">images</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-</span><span id="__span-0-297"><a id="__codelineno-0-297" name="__codelineno-0-297"></a>
-</span><span id="__span-0-298"><a id="__codelineno-0-298" name="__codelineno-0-298"></a>    <span class="n">images</span> <span class="o">=</span> <span class="n">images</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
-</span><span id="__span-0-299"><a id="__codelineno-0-299" name="__codelineno-0-299"></a>
-</span><span id="__span-0-300"><a id="__codelineno-0-300" name="__codelineno-0-300"></a>    <span class="n">output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">torch_model</span><span class="p">(</span><span class="n">images</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
-</span><span id="__span-0-301"><a id="__codelineno-0-301" name="__codelineno-0-301"></a>
-</span><span id="__span-0-302"><a id="__codelineno-0-302" name="__codelineno-0-302"></a>    <span class="n">foreground</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;SegmentationHead&quot;</span><span class="p">]</span>
-</span><span id="__span-0-303"><a id="__codelineno-0-303" name="__codelineno-0-303"></a>    <span class="n">center_heatmap</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;InstanceCenterHead&quot;</span><span class="p">]</span>
-</span><span id="__span-0-304"><a id="__codelineno-0-304" name="__codelineno-0-304"></a>    <span class="n">offsets</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;CenterOffsetHead&quot;</span><span class="p">]</span>
-</span><span id="__span-0-305"><a id="__codelineno-0-305" name="__codelineno-0-305"></a>
-</span><span id="__span-0-306"><a id="__codelineno-0-306" name="__codelineno-0-306"></a>    <span class="n">batch_results</span> <span class="o">=</span> <span class="p">[]</span>
-</span><span id="__span-0-307"><a id="__codelineno-0-307" name="__codelineno-0-307"></a>    <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">foreground</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
-</span><span id="__span-0-308"><a id="__codelineno-0-308" name="__codelineno-0-308"></a>        <span class="n">instances</span> <span class="o">=</span> <span class="n">group_instances_from_offsets</span><span class="p">(</span>
-</span><span id="__span-0-309"><a id="__codelineno-0-309" name="__codelineno-0-309"></a>            <span class="n">foreground</span><span class="o">=</span><span class="n">foreground</span><span class="p">[</span><span class="n">b</span> <span class="p">:</span> <span class="n">b</span> <span class="o">+</span> <span class="mi">1</span><span class="p">],</span>
-</span><span id="__span-0-310"><a id="__codelineno-0-310" name="__codelineno-0-310"></a>            <span class="n">center_heatmap</span><span class="o">=</span><span class="n">center_heatmap</span><span class="p">[</span><span class="n">b</span> <span class="p">:</span> <span class="n">b</span> <span class="o">+</span> <span class="mi">1</span><span class="p">],</span>
-</span><span id="__span-0-311"><a id="__codelineno-0-311" name="__codelineno-0-311"></a>            <span class="n">offsets</span><span class="o">=</span><span class="n">offsets</span><span class="p">[</span><span class="n">b</span> <span class="p">:</span> <span class="n">b</span> <span class="o">+</span> <span class="mi">1</span><span class="p">],</span>
-</span><span id="__span-0-312"><a id="__codelineno-0-312" name="__codelineno-0-312"></a>            <span class="n">fg_threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">fg_threshold</span><span class="p">,</span>
-</span><span id="__span-0-313"><a id="__codelineno-0-313" name="__codelineno-0-313"></a>            <span class="n">peak_threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">peak_threshold</span><span class="p">,</span>
-</span><span id="__span-0-314"><a id="__codelineno-0-314" name="__codelineno-0-314"></a>            <span class="n">output_stride</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_stride</span><span class="p">,</span>
-</span><span id="__span-0-315"><a id="__codelineno-0-315" name="__codelineno-0-315"></a>            <span class="n">max_instances</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">max_instances</span><span class="p">,</span>
-</span><span id="__span-0-316"><a id="__codelineno-0-316" name="__codelineno-0-316"></a>            <span class="n">center_nms_kernel</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">center_nms_kernel</span><span class="p">,</span>
-</span><span id="__span-0-317"><a id="__codelineno-0-317" name="__codelineno-0-317"></a>            <span class="n">mask_cleanup</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup</span><span class="p">,</span>
-</span><span id="__span-0-318"><a id="__codelineno-0-318" name="__codelineno-0-318"></a>            <span class="n">mask_cleanup_radius</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup_radius</span><span class="p">,</span>
-</span><span id="__span-0-319"><a id="__codelineno-0-319" name="__codelineno-0-319"></a>        <span class="p">)</span>
-</span><span id="__span-0-320"><a id="__codelineno-0-320" name="__codelineno-0-320"></a>        <span class="n">batch_results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">instances</span><span class="p">)</span>
-</span><span id="__span-0-321"><a id="__codelineno-0-321" name="__codelineno-0-321"></a>
-</span><span id="__span-0-322"><a id="__codelineno-0-322" name="__codelineno-0-322"></a>    <span class="k">return</span> <span class="n">batch_results</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-324">324</a></span>
+<span class="normal"><a href="#__codelineno-0-325">325</a></span>
+<span class="normal"><a href="#__codelineno-0-326">326</a></span>
+<span class="normal"><a href="#__codelineno-0-327">327</a></span>
+<span class="normal"><a href="#__codelineno-0-328">328</a></span>
+<span class="normal"><a href="#__codelineno-0-329">329</a></span>
+<span class="normal"><a href="#__codelineno-0-330">330</a></span>
+<span class="normal"><a href="#__codelineno-0-331">331</a></span>
+<span class="normal"><a href="#__codelineno-0-332">332</a></span>
+<span class="normal"><a href="#__codelineno-0-333">333</a></span>
+<span class="normal"><a href="#__codelineno-0-334">334</a></span>
+<span class="normal"><a href="#__codelineno-0-335">335</a></span>
+<span class="normal"><a href="#__codelineno-0-336">336</a></span>
+<span class="normal"><a href="#__codelineno-0-337">337</a></span>
+<span class="normal"><a href="#__codelineno-0-338">338</a></span>
+<span class="normal"><a href="#__codelineno-0-339">339</a></span>
+<span class="normal"><a href="#__codelineno-0-340">340</a></span>
+<span class="normal"><a href="#__codelineno-0-341">341</a></span>
+<span class="normal"><a href="#__codelineno-0-342">342</a></span>
+<span class="normal"><a href="#__codelineno-0-343">343</a></span>
+<span class="normal"><a href="#__codelineno-0-344">344</a></span>
+<span class="normal"><a href="#__codelineno-0-345">345</a></span>
+<span class="normal"><a href="#__codelineno-0-346">346</a></span>
+<span class="normal"><a href="#__codelineno-0-347">347</a></span>
+<span class="normal"><a href="#__codelineno-0-348">348</a></span>
+<span class="normal"><a href="#__codelineno-0-349">349</a></span>
+<span class="normal"><a href="#__codelineno-0-350">350</a></span>
+<span class="normal"><a href="#__codelineno-0-351">351</a></span>
+<span class="normal"><a href="#__codelineno-0-352">352</a></span>
+<span class="normal"><a href="#__codelineno-0-353">353</a></span>
+<span class="normal"><a href="#__codelineno-0-354">354</a></span>
+<span class="normal"><a href="#__codelineno-0-355">355</a></span>
+<span class="normal"><a href="#__codelineno-0-356">356</a></span>
+<span class="normal"><a href="#__codelineno-0-357">357</a></span>
+<span class="normal"><a href="#__codelineno-0-358">358</a></span>
+<span class="normal"><a href="#__codelineno-0-359">359</a></span>
+<span class="normal"><a href="#__codelineno-0-360">360</a></span>
+<span class="normal"><a href="#__codelineno-0-361">361</a></span>
+<span class="normal"><a href="#__codelineno-0-362">362</a></span>
+<span class="normal"><a href="#__codelineno-0-363">363</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-324"><a id="__codelineno-0-324" name="__codelineno-0-324"></a><span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="n">Dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Dict</span><span class="p">]]:</span>
+</span><span id="__span-0-325"><a id="__codelineno-0-325" name="__codelineno-0-325"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run inference on a batch of images.</span>
+</span><span id="__span-0-326"><a id="__codelineno-0-326" name="__codelineno-0-326"></a>
+</span><span id="__span-0-327"><a id="__codelineno-0-327" name="__codelineno-0-327"></a><span class="sd">    Args:</span>
+</span><span id="__span-0-328"><a id="__codelineno-0-328" name="__codelineno-0-328"></a><span class="sd">        batch: Dict with &quot;image&quot; key. Shape: (B, C, H, W). Images should</span>
+</span><span id="__span-0-329"><a id="__codelineno-0-329" name="__codelineno-0-329"></a><span class="sd">            already be padded to the model&#39;s max stride.</span>
+</span><span id="__span-0-330"><a id="__codelineno-0-330" name="__codelineno-0-330"></a>
+</span><span id="__span-0-331"><a id="__codelineno-0-331" name="__codelineno-0-331"></a><span class="sd">    Returns:</span>
+</span><span id="__span-0-332"><a id="__codelineno-0-332" name="__codelineno-0-332"></a><span class="sd">        List of instance lists (one per batch element). Each instance is a dict</span>
+</span><span id="__span-0-333"><a id="__codelineno-0-333" name="__codelineno-0-333"></a><span class="sd">        with &quot;mask&quot;, &quot;center&quot;, and &quot;score&quot; keys.</span>
+</span><span id="__span-0-334"><a id="__codelineno-0-334" name="__codelineno-0-334"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-335"><a id="__codelineno-0-335" name="__codelineno-0-335"></a>    <span class="n">images</span> <span class="o">=</span> <span class="n">batch</span><span class="p">[</span><span class="s2">&quot;image&quot;</span><span class="p">]</span>
+</span><span id="__span-0-336"><a id="__codelineno-0-336" name="__codelineno-0-336"></a>    <span class="k">if</span> <span class="n">images</span><span class="o">.</span><span class="n">dim</span><span class="p">()</span> <span class="o">==</span> <span class="mi">5</span><span class="p">:</span>
+</span><span id="__span-0-337"><a id="__codelineno-0-337" name="__codelineno-0-337"></a>        <span class="n">images</span> <span class="o">=</span> <span class="n">images</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-338"><a id="__codelineno-0-338" name="__codelineno-0-338"></a>
+</span><span id="__span-0-339"><a id="__codelineno-0-339" name="__codelineno-0-339"></a>    <span class="n">images</span> <span class="o">=</span> <span class="n">images</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="p">)</span>
+</span><span id="__span-0-340"><a id="__codelineno-0-340" name="__codelineno-0-340"></a>
+</span><span id="__span-0-341"><a id="__codelineno-0-341" name="__codelineno-0-341"></a>    <span class="n">output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">torch_model</span><span class="p">(</span><span class="n">images</span><span class="o">.</span><span class="n">unsqueeze</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+</span><span id="__span-0-342"><a id="__codelineno-0-342" name="__codelineno-0-342"></a>
+</span><span id="__span-0-343"><a id="__codelineno-0-343" name="__codelineno-0-343"></a>    <span class="n">foreground</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;SegmentationHead&quot;</span><span class="p">]</span>
+</span><span id="__span-0-344"><a id="__codelineno-0-344" name="__codelineno-0-344"></a>    <span class="n">center_heatmap</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;InstanceCenterHead&quot;</span><span class="p">]</span>
+</span><span id="__span-0-345"><a id="__codelineno-0-345" name="__codelineno-0-345"></a>    <span class="n">offsets</span> <span class="o">=</span> <span class="n">output</span><span class="p">[</span><span class="s2">&quot;CenterOffsetHead&quot;</span><span class="p">]</span>
+</span><span id="__span-0-346"><a id="__codelineno-0-346" name="__codelineno-0-346"></a>
+</span><span id="__span-0-347"><a id="__codelineno-0-347" name="__codelineno-0-347"></a>    <span class="n">batch_results</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-348"><a id="__codelineno-0-348" name="__codelineno-0-348"></a>    <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">foreground</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+</span><span id="__span-0-349"><a id="__codelineno-0-349" name="__codelineno-0-349"></a>        <span class="n">instances</span> <span class="o">=</span> <span class="n">group_instances_from_offsets</span><span class="p">(</span>
+</span><span id="__span-0-350"><a id="__codelineno-0-350" name="__codelineno-0-350"></a>            <span class="n">foreground</span><span class="o">=</span><span class="n">foreground</span><span class="p">[</span><span class="n">b</span> <span class="p">:</span> <span class="n">b</span> <span class="o">+</span> <span class="mi">1</span><span class="p">],</span>
+</span><span id="__span-0-351"><a id="__codelineno-0-351" name="__codelineno-0-351"></a>            <span class="n">center_heatmap</span><span class="o">=</span><span class="n">center_heatmap</span><span class="p">[</span><span class="n">b</span> <span class="p">:</span> <span class="n">b</span> <span class="o">+</span> <span class="mi">1</span><span class="p">],</span>
+</span><span id="__span-0-352"><a id="__codelineno-0-352" name="__codelineno-0-352"></a>            <span class="n">offsets</span><span class="o">=</span><span class="n">offsets</span><span class="p">[</span><span class="n">b</span> <span class="p">:</span> <span class="n">b</span> <span class="o">+</span> <span class="mi">1</span><span class="p">],</span>
+</span><span id="__span-0-353"><a id="__codelineno-0-353" name="__codelineno-0-353"></a>            <span class="n">fg_threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">fg_threshold</span><span class="p">,</span>
+</span><span id="__span-0-354"><a id="__codelineno-0-354" name="__codelineno-0-354"></a>            <span class="n">peak_threshold</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">peak_threshold</span><span class="p">,</span>
+</span><span id="__span-0-355"><a id="__codelineno-0-355" name="__codelineno-0-355"></a>            <span class="n">output_stride</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">output_stride</span><span class="p">,</span>
+</span><span id="__span-0-356"><a id="__codelineno-0-356" name="__codelineno-0-356"></a>            <span class="n">max_instances</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">max_instances</span><span class="p">,</span>
+</span><span id="__span-0-357"><a id="__codelineno-0-357" name="__codelineno-0-357"></a>            <span class="n">center_nms_kernel</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">center_nms_kernel</span><span class="p">,</span>
+</span><span id="__span-0-358"><a id="__codelineno-0-358" name="__codelineno-0-358"></a>            <span class="n">mask_cleanup</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup</span><span class="p">,</span>
+</span><span id="__span-0-359"><a id="__codelineno-0-359" name="__codelineno-0-359"></a>            <span class="n">mask_cleanup_radius</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mask_cleanup_radius</span><span class="p">,</span>
+</span><span id="__span-0-360"><a id="__codelineno-0-360" name="__codelineno-0-360"></a>        <span class="p">)</span>
+</span><span id="__span-0-361"><a id="__codelineno-0-361" name="__codelineno-0-361"></a>        <span class="n">batch_results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">instances</span><span class="p">)</span>
+</span><span id="__span-0-362"><a id="__codelineno-0-362" name="__codelineno-0-362"></a>
+</span><span id="__span-0-363"><a id="__codelineno-0-363" name="__codelineno-0-363"></a>    <span class="k">return</span> <span class="n">batch_results</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel" class="doc doc-heading">
+            <code>CenteredInstanceMaskInferenceModel</code>
+
+
+<a href="#sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="lightning.LightningModule">LightningModule</span></code></p>
+
+
+
+        <p>Stage-2 holder for top-down (crop-centered) instance segmentation (#622).</p>
+<p>A thin attribute bag (no real <code>forward</code> — the modern composed
+:class:<code>~sleap_nn.inference.layers.topdown_segmentation.TopDownSegmentationLayer</code>
+drives the run) carrying the per-crop seg model + the knobs the layer
+builder reads off it. Mirrors how the legacy <code>FindInstancePeaks</code> is used
+purely as an attribute holder by the modern top-down layer builder.</p>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel.torch_model">torch_model</span></code></td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Per-crop seg Lightning module; <code>forward</code> returns the
+<code>SegmentationHead</code> logits.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel.output_stride">output_stride</span></code></td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Head-map → crop-pixel stride.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel.input_scale">input_scale</span></code></td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Input scale the model was trained with (applied to crops).</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel.max_stride">max_stride</span></code></td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Backbone max stride (crops padded to a multiple of it).</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel.fg_threshold">fg_threshold</span></code></td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Foreground probability threshold for binarization.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><span title="sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel.mask_output">mask_output</span></code></td>
+            <td>
+                  <code>/ polygon_epsilon</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Output-packaging knobs (read by the
+layer builder and forwarded to <code>Outputs.to_labels</code>).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+
+<p><span class="doc-section-title">Methods:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;fm&quot;&gt;__init__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;torch_model&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;output_stride&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;input_scale&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;1.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_stride&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;fg_threshold&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;mask_output&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&amp;#39;mask&amp;#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;polygon_epsilon&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.01&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel.__init__&lt;/code&gt;)" href="#sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel.__init__">__init__</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Stash the per-crop seg model + knobs.</p>
+                </div>
+              </td>
+            </tr>
+      </tbody>
+    </table>
+
+
+
+              <details class="mkdocstrings-source">
+                <summary>Source code in <code>sleap_nn/inference/segmentation.py</code></summary>
+                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-224">224</a></span>
+<span class="normal"><a href="#__codelineno-0-225">225</a></span>
+<span class="normal"><a href="#__codelineno-0-226">226</a></span>
+<span class="normal"><a href="#__codelineno-0-227">227</a></span>
+<span class="normal"><a href="#__codelineno-0-228">228</a></span>
+<span class="normal"><a href="#__codelineno-0-229">229</a></span>
+<span class="normal"><a href="#__codelineno-0-230">230</a></span>
+<span class="normal"><a href="#__codelineno-0-231">231</a></span>
+<span class="normal"><a href="#__codelineno-0-232">232</a></span>
+<span class="normal"><a href="#__codelineno-0-233">233</a></span>
+<span class="normal"><a href="#__codelineno-0-234">234</a></span>
+<span class="normal"><a href="#__codelineno-0-235">235</a></span>
+<span class="normal"><a href="#__codelineno-0-236">236</a></span>
+<span class="normal"><a href="#__codelineno-0-237">237</a></span>
+<span class="normal"><a href="#__codelineno-0-238">238</a></span>
+<span class="normal"><a href="#__codelineno-0-239">239</a></span>
+<span class="normal"><a href="#__codelineno-0-240">240</a></span>
+<span class="normal"><a href="#__codelineno-0-241">241</a></span>
+<span class="normal"><a href="#__codelineno-0-242">242</a></span>
+<span class="normal"><a href="#__codelineno-0-243">243</a></span>
+<span class="normal"><a href="#__codelineno-0-244">244</a></span>
+<span class="normal"><a href="#__codelineno-0-245">245</a></span>
+<span class="normal"><a href="#__codelineno-0-246">246</a></span>
+<span class="normal"><a href="#__codelineno-0-247">247</a></span>
+<span class="normal"><a href="#__codelineno-0-248">248</a></span>
+<span class="normal"><a href="#__codelineno-0-249">249</a></span>
+<span class="normal"><a href="#__codelineno-0-250">250</a></span>
+<span class="normal"><a href="#__codelineno-0-251">251</a></span>
+<span class="normal"><a href="#__codelineno-0-252">252</a></span>
+<span class="normal"><a href="#__codelineno-0-253">253</a></span>
+<span class="normal"><a href="#__codelineno-0-254">254</a></span>
+<span class="normal"><a href="#__codelineno-0-255">255</a></span>
+<span class="normal"><a href="#__codelineno-0-256">256</a></span>
+<span class="normal"><a href="#__codelineno-0-257">257</a></span>
+<span class="normal"><a href="#__codelineno-0-258">258</a></span>
+<span class="normal"><a href="#__codelineno-0-259">259</a></span>
+<span class="normal"><a href="#__codelineno-0-260">260</a></span>
+<span class="normal"><a href="#__codelineno-0-261">261</a></span>
+<span class="normal"><a href="#__codelineno-0-262">262</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-224"><a id="__codelineno-0-224" name="__codelineno-0-224"></a><span class="k">class</span><span class="w"> </span><span class="nc">CenteredInstanceMaskInferenceModel</span><span class="p">(</span><span class="n">L</span><span class="o">.</span><span class="n">LightningModule</span><span class="p">):</span>
+</span><span id="__span-0-225"><a id="__codelineno-0-225" name="__codelineno-0-225"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Stage-2 holder for top-down (crop-centered) instance segmentation (#622).</span>
+</span><span id="__span-0-226"><a id="__codelineno-0-226" name="__codelineno-0-226"></a>
+</span><span id="__span-0-227"><a id="__codelineno-0-227" name="__codelineno-0-227"></a><span class="sd">    A thin attribute bag (no real ``forward`` — the modern composed</span>
+</span><span id="__span-0-228"><a id="__codelineno-0-228" name="__codelineno-0-228"></a><span class="sd">    :class:`~sleap_nn.inference.layers.topdown_segmentation.TopDownSegmentationLayer`</span>
+</span><span id="__span-0-229"><a id="__codelineno-0-229" name="__codelineno-0-229"></a><span class="sd">    drives the run) carrying the per-crop seg model + the knobs the layer</span>
+</span><span id="__span-0-230"><a id="__codelineno-0-230" name="__codelineno-0-230"></a><span class="sd">    builder reads off it. Mirrors how the legacy ``FindInstancePeaks`` is used</span>
+</span><span id="__span-0-231"><a id="__codelineno-0-231" name="__codelineno-0-231"></a><span class="sd">    purely as an attribute holder by the modern top-down layer builder.</span>
+</span><span id="__span-0-232"><a id="__codelineno-0-232" name="__codelineno-0-232"></a>
+</span><span id="__span-0-233"><a id="__codelineno-0-233" name="__codelineno-0-233"></a><span class="sd">    Attributes:</span>
+</span><span id="__span-0-234"><a id="__codelineno-0-234" name="__codelineno-0-234"></a><span class="sd">        torch_model: Per-crop seg Lightning module; ``forward`` returns the</span>
+</span><span id="__span-0-235"><a id="__codelineno-0-235" name="__codelineno-0-235"></a><span class="sd">            ``SegmentationHead`` logits.</span>
+</span><span id="__span-0-236"><a id="__codelineno-0-236" name="__codelineno-0-236"></a><span class="sd">        output_stride: Head-map → crop-pixel stride.</span>
+</span><span id="__span-0-237"><a id="__codelineno-0-237" name="__codelineno-0-237"></a><span class="sd">        input_scale: Input scale the model was trained with (applied to crops).</span>
+</span><span id="__span-0-238"><a id="__codelineno-0-238" name="__codelineno-0-238"></a><span class="sd">        max_stride: Backbone max stride (crops padded to a multiple of it).</span>
+</span><span id="__span-0-239"><a id="__codelineno-0-239" name="__codelineno-0-239"></a><span class="sd">        fg_threshold: Foreground probability threshold for binarization.</span>
+</span><span id="__span-0-240"><a id="__codelineno-0-240" name="__codelineno-0-240"></a><span class="sd">        mask_output / polygon_epsilon: Output-packaging knobs (read by the</span>
+</span><span id="__span-0-241"><a id="__codelineno-0-241" name="__codelineno-0-241"></a><span class="sd">            layer builder and forwarded to ``Outputs.to_labels``).</span>
+</span><span id="__span-0-242"><a id="__codelineno-0-242" name="__codelineno-0-242"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-243"><a id="__codelineno-0-243" name="__codelineno-0-243"></a>
+</span><span id="__span-0-244"><a id="__codelineno-0-244" name="__codelineno-0-244"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+</span><span id="__span-0-245"><a id="__codelineno-0-245" name="__codelineno-0-245"></a>        <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-0-246"><a id="__codelineno-0-246" name="__codelineno-0-246"></a>        <span class="n">torch_model</span><span class="p">,</span>
+</span><span id="__span-0-247"><a id="__codelineno-0-247" name="__codelineno-0-247"></a>        <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-0-248"><a id="__codelineno-0-248" name="__codelineno-0-248"></a>        <span class="n">input_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-0-249"><a id="__codelineno-0-249" name="__codelineno-0-249"></a>        <span class="n">max_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-0-250"><a id="__codelineno-0-250" name="__codelineno-0-250"></a>        <span class="n">fg_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+</span><span id="__span-0-251"><a id="__codelineno-0-251" name="__codelineno-0-251"></a>        <span class="n">mask_output</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mask&quot;</span><span class="p">,</span>
+</span><span id="__span-0-252"><a id="__codelineno-0-252" name="__codelineno-0-252"></a>        <span class="n">polygon_epsilon</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span>
+</span><span id="__span-0-253"><a id="__codelineno-0-253" name="__codelineno-0-253"></a>    <span class="p">):</span>
+</span><span id="__span-0-254"><a id="__codelineno-0-254" name="__codelineno-0-254"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Stash the per-crop seg model + knobs.&quot;&quot;&quot;</span>
+</span><span id="__span-0-255"><a id="__codelineno-0-255" name="__codelineno-0-255"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+</span><span id="__span-0-256"><a id="__codelineno-0-256" name="__codelineno-0-256"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">torch_model</span> <span class="o">=</span> <span class="n">torch_model</span>
+</span><span id="__span-0-257"><a id="__codelineno-0-257" name="__codelineno-0-257"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">output_stride</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">output_stride</span><span class="p">)</span>
+</span><span id="__span-0-258"><a id="__codelineno-0-258" name="__codelineno-0-258"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">input_scale</span><span class="p">)</span>
+</span><span id="__span-0-259"><a id="__codelineno-0-259" name="__codelineno-0-259"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">max_stride</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">max_stride</span><span class="p">)</span>
+</span><span id="__span-0-260"><a id="__codelineno-0-260" name="__codelineno-0-260"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">fg_threshold</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">fg_threshold</span><span class="p">)</span>
+</span><span id="__span-0-261"><a id="__codelineno-0-261" name="__codelineno-0-261"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">mask_output</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">mask_output</span><span class="p">)</span>
+</span><span id="__span-0-262"><a id="__codelineno-0-262" name="__codelineno-0-262"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">polygon_epsilon</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">polygon_epsilon</span><span class="p">)</span>
+</span></code></pre></div></td></tr></table></div>
+              </details>
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel.__init__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">torch_model</span><span class="p">,</span> <span class="n">output_stride</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">input_scale</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">max_stride</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">fg_threshold</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">mask_output</span><span class="o">=</span><span class="s1">&#39;mask&#39;</span><span class="p">,</span> <span class="n">polygon_epsilon</span><span class="o">=</span><span class="mf">0.01</span><span class="p">)</span></code>
+
+<a href="#sleap_nn.inference.segmentation.CenteredInstanceMaskInferenceModel.__init__" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Stash the per-crop seg model + knobs.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>sleap_nn/inference/segmentation.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-244">244</a></span>
+<span class="normal"><a href="#__codelineno-0-245">245</a></span>
+<span class="normal"><a href="#__codelineno-0-246">246</a></span>
+<span class="normal"><a href="#__codelineno-0-247">247</a></span>
+<span class="normal"><a href="#__codelineno-0-248">248</a></span>
+<span class="normal"><a href="#__codelineno-0-249">249</a></span>
+<span class="normal"><a href="#__codelineno-0-250">250</a></span>
+<span class="normal"><a href="#__codelineno-0-251">251</a></span>
+<span class="normal"><a href="#__codelineno-0-252">252</a></span>
+<span class="normal"><a href="#__codelineno-0-253">253</a></span>
+<span class="normal"><a href="#__codelineno-0-254">254</a></span>
+<span class="normal"><a href="#__codelineno-0-255">255</a></span>
+<span class="normal"><a href="#__codelineno-0-256">256</a></span>
+<span class="normal"><a href="#__codelineno-0-257">257</a></span>
+<span class="normal"><a href="#__codelineno-0-258">258</a></span>
+<span class="normal"><a href="#__codelineno-0-259">259</a></span>
+<span class="normal"><a href="#__codelineno-0-260">260</a></span>
+<span class="normal"><a href="#__codelineno-0-261">261</a></span>
+<span class="normal"><a href="#__codelineno-0-262">262</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-244"><a id="__codelineno-0-244" name="__codelineno-0-244"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+</span><span id="__span-0-245"><a id="__codelineno-0-245" name="__codelineno-0-245"></a>    <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-0-246"><a id="__codelineno-0-246" name="__codelineno-0-246"></a>    <span class="n">torch_model</span><span class="p">,</span>
+</span><span id="__span-0-247"><a id="__codelineno-0-247" name="__codelineno-0-247"></a>    <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-0-248"><a id="__codelineno-0-248" name="__codelineno-0-248"></a>    <span class="n">input_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-0-249"><a id="__codelineno-0-249" name="__codelineno-0-249"></a>    <span class="n">max_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-0-250"><a id="__codelineno-0-250" name="__codelineno-0-250"></a>    <span class="n">fg_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+</span><span id="__span-0-251"><a id="__codelineno-0-251" name="__codelineno-0-251"></a>    <span class="n">mask_output</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mask&quot;</span><span class="p">,</span>
+</span><span id="__span-0-252"><a id="__codelineno-0-252" name="__codelineno-0-252"></a>    <span class="n">polygon_epsilon</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span>
+</span><span id="__span-0-253"><a id="__codelineno-0-253" name="__codelineno-0-253"></a><span class="p">):</span>
+</span><span id="__span-0-254"><a id="__codelineno-0-254" name="__codelineno-0-254"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Stash the per-crop seg model + knobs.&quot;&quot;&quot;</span>
+</span><span id="__span-0-255"><a id="__codelineno-0-255" name="__codelineno-0-255"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+</span><span id="__span-0-256"><a id="__codelineno-0-256" name="__codelineno-0-256"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">torch_model</span> <span class="o">=</span> <span class="n">torch_model</span>
+</span><span id="__span-0-257"><a id="__codelineno-0-257" name="__codelineno-0-257"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">output_stride</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">output_stride</span><span class="p">)</span>
+</span><span id="__span-0-258"><a id="__codelineno-0-258" name="__codelineno-0-258"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">input_scale</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">input_scale</span><span class="p">)</span>
+</span><span id="__span-0-259"><a id="__codelineno-0-259" name="__codelineno-0-259"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">max_stride</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">max_stride</span><span class="p">)</span>
+</span><span id="__span-0-260"><a id="__codelineno-0-260" name="__codelineno-0-260"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">fg_threshold</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">fg_threshold</span><span class="p">)</span>
+</span><span id="__span-0-261"><a id="__codelineno-0-261" name="__codelineno-0-261"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">mask_output</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">mask_output</span><span class="p">)</span>
+</span><span id="__span-0-262"><a id="__codelineno-0-262" name="__codelineno-0-262"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">polygon_epsilon</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">polygon_epsilon</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>

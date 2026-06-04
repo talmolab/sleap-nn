@@ -461,6 +461,10 @@
          <lastmod>2026-06-04</lastmod>
     </url>
     <url>
+         <loc>https://nn.sleap.ai/dev/api/inference/layers/topdown_segmentation/</loc>
+         <lastmod>2026-06-04</lastmod>
+    </url>
+    <url>
          <loc>https://nn.sleap.ai/dev/api/inference/layers/backends/</loc>
          <lastmod>2026-06-04</lastmod>
     </url>
