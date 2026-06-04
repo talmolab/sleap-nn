@@ -21,10 +21,66 @@ Usage:
     image, instances = apply_geometric_augmentation_skia(image, instances, **config)
 """
 
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple
 import numpy as np
 import torch
 import skia
+
+
+def apply_flip_augmentation_skia(
+    image: torch.Tensor,
+    instances: torch.Tensor,
+    symmetric_inds: Optional[Sequence[Tuple[int, int]]] = None,
+    horizontal: bool = True,
+    flip_p: float = 0.0,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Randomly mirror an image and its keypoints, swapping symmetric node pairs.
+
+    When an image is mirrored, left/right (or top/bottom) symmetric body parts
+    physically exchange sides, so their slots in the instance array must be swapped
+    to keep semantic labels correct (e.g. ``left_paw`` must remain ``left_paw``).
+    This mirrors the behavior of SLEAP v1.4's ``RandomFlipper``.
+
+    The flip is applied to the whole sample with probability ``flip_p`` (sampled once
+    per call). Mirroring is exact and lossless (a tensor reverse, no interpolation).
+
+    Args:
+        image: Input tensor of shape ``(1, C, H, W)`` with dtype uint8 or float32.
+        instances: Keypoints tensor of shape ``(1, n_instances, n_nodes, 2)`` or
+            ``(1, n_nodes, 2)``. The node axis is the second-to-last (``-2``).
+        symmetric_inds: Iterable of ``(i, j)`` node-index pairs to swap after
+            mirroring. ``None`` or empty means no swap (correct only if the skeleton
+            is truly left/right symmetric in labeling, e.g. centroids).
+        horizontal: If ``True``, mirror left/right (``x' = (W - 1) - x``). If
+            ``False``, mirror up/down (``y' = (H - 1) - y``).
+        flip_p: Probability of applying the flip. ``0`` disables (no-op).
+
+    Returns:
+        Tuple of ``(image, instances)``. When the flip is not applied, the inputs
+        are returned unchanged. NaN keypoints are preserved (``(W - 1) - NaN`` is
+        ``NaN``).
+    """
+    if flip_p <= 0 or np.random.random() >= flip_p:
+        return image, instances
+
+    instances = instances.clone()
+    if horizontal:
+        width = image.shape[-1]
+        image = torch.flip(image, dims=[-1])
+        instances[..., 0] = (width - 1) - instances[..., 0]
+    else:
+        height = image.shape[-2]
+        image = torch.flip(image, dims=[-2])
+        instances[..., 1] = (height - 1) - instances[..., 1]
+
+    # Swap symmetric node pairs on the node axis (-2) so labels stay correct.
+    if symmetric_inds is not None:
+        for a, b in symmetric_inds:
+            swap = instances[..., a, :].clone()
+            instances[..., a, :] = instances[..., b, :]
+            instances[..., b, :] = swap
+
+    return image, instances
 
 
 def apply_intensity_augmentation_skia(
@@ -135,6 +191,9 @@ def apply_geometric_augmentation_skia(
     mixup_lambda_min: float = 0.01,
     mixup_lambda_max: float = 0.05,
     mixup_p: float = 0.0,
+    flip_p: float = 0.0,
+    flip_horizontal: bool = True,
+    symmetric_inds: Optional[Sequence[Tuple[int, int]]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Apply geometric augmentations using Skia.
 
@@ -161,10 +220,24 @@ def apply_geometric_augmentation_skia(
         mixup_lambda_min: Min mixup strength (not implemented).
         mixup_lambda_max: Max mixup strength (not implemented).
         mixup_p: Probability of mixup (not implemented).
+        flip_p: Probability of mirroring the sample (with symmetric-node swap).
+        flip_horizontal: If True, flip left/right; if False, flip up/down.
+        symmetric_inds: Node-index pairs to swap after mirroring (see
+            ``apply_flip_augmentation_skia``). None/empty means no swap.
 
     Returns:
         Tuple of (augmented_image, augmented_instances). Image dtype matches input.
     """
+    # Apply flip first (matches SLEAP v1.4 ordering: flip before affine).
+    if flip_p > 0:
+        image, instances = apply_flip_augmentation_skia(
+            image,
+            instances,
+            symmetric_inds=symmetric_inds,
+            horizontal=flip_horizontal,
+            flip_p=flip_p,
+        )
+
     # Convert to numpy for Skia processing
     is_float = image.dtype == torch.float32
     if is_float:

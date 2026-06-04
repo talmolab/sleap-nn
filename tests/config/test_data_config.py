@@ -117,6 +117,29 @@ def test_geometric_config_initialization():
     assert config.scale_max == 1.2
 
 
+def test_geometric_config_flip_fields():
+    """Flip fields default to disabled and validate flip_p as a proportion."""
+    config = GeometricConfig()
+    assert config.flip_p == 0.0
+    assert config.flip_horizontal is True
+
+    config = GeometricConfig(flip_p=1.0, flip_horizontal=False)
+    assert config.flip_p == 1.0
+    assert config.flip_horizontal is False
+
+    with pytest.raises(ValueError):
+        GeometricConfig(flip_p=1.5)
+
+
+def test_get_aug_config_flip_preset():
+    """The 'flip' string preset enables flip_p in the geometric config."""
+    from sleap_nn.config.get_config import get_aug_config
+
+    aug = get_aug_config(geometric_aug="flip")
+    assert aug.geometric.flip_p == 1.0
+    assert aug.geometric.flip_horizontal is True
+
+
 def test_validate_proportion(caplog):
     """Test the validate_proportion helper function."""
     with pytest.raises(ValueError):

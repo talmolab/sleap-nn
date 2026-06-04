@@ -73,7 +73,7 @@ def get_aug_config(
             - Dictionary: Custom configuration matching `IntensityConfig` structure
             - None: No intensity augmentation applied
         geometric_aug: Geometric augmentation configuration. Can be:
-            - String: One of ["rotation", "scale", "translate", "erase_scale", "mixup"]
+            - String: One of ["rotation", "scale", "translate", "erase_scale", "mixup", "flip"]
             - List of strings: Multiple geometric augmentations from the allowed values
             - Dictionary: Custom configuration matching `GeometricConfig` structure
             - None: No geometric augmentation applied
@@ -151,9 +151,11 @@ def get_aug_config(
                 aug_config.geometric.erase_p = 1.0
             elif g == "mixup":
                 aug_config.geometric.mixup_p = 1.0
+            elif g == "flip":
+                aug_config.geometric.flip_p = 1.0
             else:
                 raise ValueError(
-                    f"`{geometric_aug}` is not a valid geometric augmentation option. Please use one of ['rotation', 'scale', 'translate', 'erase_scale', 'mixup']"
+                    f"`{geometric_aug}` is not a valid geometric augmentation option. Please use one of ['rotation', 'scale', 'translate', 'erase_scale', 'mixup', 'flip']"
                 )
 
     elif isinstance(geometric_aug, dict):

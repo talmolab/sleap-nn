@@ -1359,3 +1359,60 @@ def test_uint8_pipeline_centered_instance(minimal_instance):
     assert (
         sample["instance_image"].dtype == torch.uint8
     ), f"Expected uint8 image for GPU normalization, got {sample["instance_image"].dtype}"
+
+
+def test_flip_augmentation_resolves_symmetries(minimal_instance):
+    """BottomUpDataset resolves symmetric_inds and applies flip end-to-end."""
+    labels = sio.load_slp(minimal_instance)
+    # Add a symmetry between the two nodes of the minimal skeleton.
+    skel = labels.skeletons[0]
+    node_names = [n.name for n in skel.nodes]
+    skel.add_symmetry(node_names[0], node_names[1])
+
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    pafs_head = DictConfig({"sigma": 4, "output_stride": 4})
+
+    dataset = BottomUpDataset(
+        max_stride=32,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        pafs_head_config=pafs_head,
+        labels=[labels],
+        geometric_aug=DictConfig(
+            {"flip_p": 1.0, "flip_horizontal": True, "affine_p": 0.0}
+        ),
+        apply_aug=True,
+    )
+
+    # Symmetric pair resolved from the raw skeleton.
+    assert sorted(tuple(sorted(p)) for p in dataset.symmetric_inds) == [(0, 1)]
+
+    # Sample is produced without error and image is the expected shape.
+    sample = next(iter(dataset))
+    assert sample["image"].shape == (1, 1, 384, 384)
+
+
+def test_flip_augmentation_warns_without_symmetries(minimal_instance):
+    """A warning is emitted when flip is enabled but skeleton has no symmetries."""
+    from loguru import logger
+
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    pafs_head = DictConfig({"sigma": 4, "output_stride": 4})
+
+    messages = []
+    sink_id = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+    try:
+        dataset = BottomUpDataset(
+            max_stride=32,
+            scale=1.0,
+            confmap_head_config=confmap_head,
+            pafs_head_config=pafs_head,
+            labels=[sio.load_slp(minimal_instance)],
+            geometric_aug=DictConfig({"flip_p": 1.0, "affine_p": 0.0}),
+            apply_aug=True,
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert dataset.symmetric_inds == []
+    assert any("no symmetries" in m for m in messages)

@@ -8,12 +8,14 @@ import sleap_io as sio
 from sleap_nn.data.augmentation import (
     apply_intensity_augmentation,
     apply_geometric_augmentation,
+    apply_flip_augmentation,
 )
 from sleap_nn.data.skia_augmentation import (
     _transform_image_skia,
     crop_and_resize_skia,
     apply_geometric_augmentation_skia,
 )
+from sleap_nn.data.utils import get_symmetric_inds
 from sleap_nn.data.normalization import apply_normalization
 from sleap_nn.data.providers import process_lf
 
@@ -164,3 +166,138 @@ class TestSkiaChannelOrdering:
         assert (
             result[0, 0, 25, 10] > result[0, 2, 25, 10]
         ), "Left half should be red, not blue (channels may be swapped)"
+
+
+class TestFlipAugmentation:
+    """Tests for symmetry-aware horizontal/vertical flip augmentation."""
+
+    def _img_and_instances(self):
+        """Return a small (1,1,2,3) image and (1,1,2,2) two-node instance."""
+        # Pixels are distinct so mirroring is detectable.
+        img = torch.arange(6, dtype=torch.uint8).reshape(1, 1, 2, 3)
+        # node0 at (x=0, y=0); node1 at (x=2, y=1)
+        instances = torch.tensor([[[[0.0, 0.0], [2.0, 1.0]]]])
+        return img, instances
+
+    def test_horizontal_flip_coords_and_image(self):
+        """H-flip mirrors x (x' = W-1-x) and reverses image columns."""
+        img, instances = self._img_and_instances()
+        out_img, out_inst = apply_flip_augmentation(
+            img, instances, symmetric_inds=None, horizontal=True, flip_p=1.0
+        )
+        # W=3 -> columns reversed.
+        assert torch.equal(
+            out_img[0, 0], torch.tensor([[2, 1, 0], [5, 4, 3]], dtype=torch.uint8)
+        )
+        # x mirrored: node0 (0,0)->(2,0); node1 (2,1)->(0,1). No swap.
+        assert torch.allclose(out_inst[0, 0], torch.tensor([[2.0, 0.0], [0.0, 1.0]]))
+        assert out_img.dtype == torch.uint8
+
+    def test_vertical_flip_coords_and_image(self):
+        """V-flip mirrors y (y' = H-1-y) and reverses image rows."""
+        img, instances = self._img_and_instances()
+        out_img, out_inst = apply_flip_augmentation(
+            img, instances, symmetric_inds=None, horizontal=False, flip_p=1.0
+        )
+        # H=2 -> rows reversed.
+        assert torch.equal(
+            out_img[0, 0], torch.tensor([[3, 4, 5], [0, 1, 2]], dtype=torch.uint8)
+        )
+        # y mirrored: node0 (0,0)->(0,1); node1 (2,1)->(2,0).
+        assert torch.allclose(out_inst[0, 0], torch.tensor([[0.0, 1.0], [2.0, 0.0]]))
+
+    def test_symmetry_swap(self):
+        """Symmetric node pairs are swapped after mirroring."""
+        img, instances = self._img_and_instances()
+        _, out_inst = apply_flip_augmentation(
+            img, instances, symmetric_inds=[(0, 1)], horizontal=True, flip_p=1.0
+        )
+        # node1 mirrored (0,1) lands in slot 0; node0 mirrored (2,0) in slot 1.
+        assert torch.allclose(out_inst[0, 0], torch.tensor([[0.0, 1.0], [2.0, 0.0]]))
+
+    def test_flip_p_zero_is_noop(self):
+        """flip_p=0 returns inputs unchanged."""
+        img, instances = self._img_and_instances()
+        out_img, out_inst = apply_flip_augmentation(
+            img, instances, symmetric_inds=[(0, 1)], flip_p=0.0
+        )
+        assert torch.equal(out_img, img)
+        assert torch.equal(out_inst, instances)
+
+    def test_flip_p_one_always_flips(self):
+        """flip_p=1 always applies the flip (image actually changes)."""
+        img, instances = self._img_and_instances()
+        for _ in range(5):
+            out_img, _ = apply_flip_augmentation(img, instances, flip_p=1.0)
+            assert not torch.equal(out_img, img)
+
+    def test_nan_keypoints_preserved(self):
+        """NaN keypoints stay NaN through mirroring and swap."""
+        img, _ = self._img_and_instances()
+        instances = torch.tensor([[[[float("nan"), float("nan")], [2.0, 1.0]]]])
+        _, out_inst = apply_flip_augmentation(
+            img, instances, symmetric_inds=[(0, 1)], horizontal=True, flip_p=1.0
+        )
+        # NaN node swapped into slot 1, still NaN.
+        assert torch.isnan(out_inst[0, 0, 1, 0])
+        assert torch.isnan(out_inst[0, 0, 1, 1])
+
+    def test_topdown_shape_no_node_swap(self):
+        """Works on top-down crop shape (1, n_nodes, 2)."""
+        img = torch.arange(6, dtype=torch.uint8).reshape(1, 1, 2, 3)
+        instances = torch.tensor([[[0.0, 0.0], [2.0, 1.0]]])  # (1, 2, 2)
+        _, out_inst = apply_flip_augmentation(
+            img, instances, symmetric_inds=[(0, 1)], horizontal=True, flip_p=1.0
+        )
+        assert out_inst.shape == (1, 2, 2)
+        assert torch.allclose(out_inst[0], torch.tensor([[0.0, 1.0], [2.0, 0.0]]))
+
+    def test_double_flip_is_identity(self):
+        """Flipping twice (with the same swap) restores the original."""
+        img, instances = self._img_and_instances()
+        once_img, once_inst = apply_flip_augmentation(
+            img, instances, symmetric_inds=[(0, 1)], horizontal=True, flip_p=1.0
+        )
+        twice_img, twice_inst = apply_flip_augmentation(
+            once_img, once_inst, symmetric_inds=[(0, 1)], horizontal=True, flip_p=1.0
+        )
+        assert torch.equal(twice_img, img)
+        assert torch.allclose(twice_inst, instances)
+
+    def test_flip_via_geometric_wrapper(self):
+        """flip_p threads through apply_geometric_augmentation."""
+        img, instances = self._img_and_instances()
+        np.random.seed(0)
+        out_img, out_inst = apply_geometric_augmentation(
+            img,
+            instances,
+            rotation_p=0.0,
+            scale_p=0.0,
+            translate_p=0.0,
+            flip_p=1.0,
+            flip_horizontal=True,
+            symmetric_inds=[(0, 1)],
+        )
+        assert torch.equal(
+            out_img[0, 0], torch.tensor([[2, 1, 0], [5, 4, 3]], dtype=torch.uint8)
+        )
+        assert torch.allclose(out_inst[0, 0], torch.tensor([[0.0, 1.0], [2.0, 0.0]]))
+
+
+class TestGetSymmetricInds:
+    """Tests for resolving symmetric node-index pairs from a skeleton."""
+
+    def test_resolves_pairs_from_raw_symmetries(self):
+        skel = sio.Skeleton(["nose", "left_eye", "right_eye", "left_ear", "right_ear"])
+        skel.add_symmetry("left_eye", "right_eye")
+        skel.add_symmetry("left_ear", "right_ear")
+        pairs = get_symmetric_inds(skel)
+        # Within-pair order is set-derived; normalize before comparing.
+        assert sorted(tuple(sorted(p)) for p in pairs) == [(1, 2), (3, 4)]
+
+    def test_no_symmetries_returns_empty(self):
+        skel = sio.Skeleton(["a", "b", "c"])
+        assert get_symmetric_inds(skel) == []
+
+    def test_none_skeleton_returns_empty(self):
+        assert get_symmetric_inds(None) == []
