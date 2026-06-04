@@ -410,9 +410,10 @@ class ModelTrainer:
         # compute max_heigt, max_width, and crop_size (if not provided in the config)
         max_height = self.config.data_config.preprocessing.max_height
         max_width = self.config.data_config.preprocessing.max_width
-        if (
-            self.model_type == "centered_instance"
-            or self.model_type == "multi_class_topdown"
+        if self.model_type in (
+            "centered_instance",
+            "multi_class_topdown",
+            "centered_instance_segmentation",
         ):
             crop_size = self.config.data_config.preprocessing.crop_size
 
@@ -429,9 +430,10 @@ class ModelTrainer:
                 if current_max_w > max_w:
                     max_w = current_max_w
 
-            if (
-                self.model_type == "centered_instance"
-                or self.model_type == "multi_class_topdown"
+            if self.model_type in (
+                "centered_instance",
+                "multi_class_topdown",
+                "centered_instance_segmentation",
             ):
                 # compute crop size if not provided in config
                 if crop_size is None:
@@ -510,9 +512,14 @@ class ModelTrainer:
             self.config.data_config.preprocessing.max_width = max_w
 
         if (
-            self.model_type == "centered_instance"
-            or self.model_type == "multi_class_topdown"
-        ) and crop_size is None:
+            self.model_type
+            in (
+                "centered_instance",
+                "multi_class_topdown",
+                "centered_instance_segmentation",
+            )
+            and crop_size is None
+        ):
             self.config.data_config.preprocessing.crop_size = max_crop_size
 
     def _setup_head_config(self):
@@ -1082,6 +1089,14 @@ class ModelTrainer:
                         "val/fg_iou",
                     ]
                 )
+            if self.model_type == "centered_instance_segmentation":
+                csv_log_keys.extend(
+                    [
+                        "train/fg_loss",
+                        "val/fg_loss",
+                        "val/fg_iou",
+                    ]
+                )
             csv_logger = CSVLoggerCallback(
                 filepath=Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name
@@ -1222,7 +1237,10 @@ class ModelTrainer:
                         match_threshold=self.config.trainer_config.eval.match_threshold,
                     )
                 )
-            elif self.model_type == "bottomup_segmentation":
+            elif self.model_type in (
+                "bottomup_segmentation",
+                "centered_instance_segmentation",
+            ):
                 # Segmentation has no keypoint predictions for OKS/PCK; the
                 # foreground IoU logged in validation_step (val/fg_iou) serves as
                 # the epoch-level quality metric. Skip the keypoint eval callback.
