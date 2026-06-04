@@ -645,7 +645,7 @@ class InstanceCenterHead(Head):
 
     def __init__(
         self,
-        sigma: float = 10.0,
+        sigma: float = 4.0,
         output_stride: int = 2,
         loss_weight: float = 1.0,
     ) -> None:

@@ -896,16 +896,29 @@ class SegmentationHeadConfig:
 class InstanceCenterConfig:
     """Configuration for the instance center heatmap head.
 
+    This config is used exclusively by the ``bottomup_segmentation`` head; it does
+    not affect centroid (``CentroidConfMapsConfig.sigma``) or bottom-up pose
+    (``BottomUpConfMapsConfig``) models.
+
     Attributes:
         sigma: (float) Standard deviation of the Gaussian distribution used to generate
-            center heatmaps, in pixels at original image resolution. Default: 10.0.
+            center heatmaps, in pixels at original image resolution. Default: 4.0.
+
+            Caveat: 4.0 was validated empirically on mice only (compact bodies; it cut
+            learned center over-detection from 60.75 to 14.2 peaks/frame relative to the
+            old default of 10.0, which over-fires badly on elongated bodies). It is the
+            better general default than 10.0, but the optimal value is dataset-dependent:
+            elongated/large animals may want a larger sigma, tiny animals smaller. The
+            target Gaussian is always isotropic (anisotropic targets were tested and
+            performed worse). Because this is a per-head config field, users can tune it
+            per dataset without affecting any other model type.
         output_stride: (int) The stride of the output center heatmaps relative to the
             input image. Default: 2.
         loss_weight: (float) Scalar float used to weigh the loss term for this head
             during training. Default: 1.0.
     """
 
-    sigma: float = 10.0
+    sigma: float = 4.0
     output_stride: int = 2
     loss_weight: float = 1.0
 
