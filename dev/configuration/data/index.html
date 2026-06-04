@@ -6863,7 +6863,17 @@
 </span><span id="__span-8-29"><a id="__codelineno-8-29" name="__codelineno-8-29" href="#__codelineno-8-29"></a><span class="w">    </span><span class="nt">mixup_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span>
 </span><span id="__span-8-30"><a id="__codelineno-8-30" name="__codelineno-8-30" href="#__codelineno-8-30"></a><span class="w">    </span><span class="nt">mixup_lambda_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.01</span>
 </span><span id="__span-8-31"><a id="__codelineno-8-31" name="__codelineno-8-31" href="#__codelineno-8-31"></a><span class="w">    </span><span class="nt">mixup_lambda_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.05</span>
+</span><span id="__span-8-32"><a id="__codelineno-8-32" name="__codelineno-8-32" href="#__codelineno-8-32"></a>
+</span><span id="__span-8-33"><a id="__codelineno-8-33" name="__codelineno-8-33" href="#__codelineno-8-33"></a><span class="w">    </span><span class="c1"># Flip (mirror image + keypoints left/right, swapping symmetric node pairs)</span>
+</span><span id="__span-8-34"><a id="__codelineno-8-34" name="__codelineno-8-34" href="#__codelineno-8-34"></a><span class="w">    </span><span class="nt">flip_p</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0</span><span class="w">  </span><span class="c1"># 0 disables; &gt;0 enables left/right flip (uses skeleton symmetries)</span>
 </span></code></pre></div>
+<blockquote>
+<p><strong>Flip &amp; skeleton symmetries:</strong> when <code>flip_p &gt; 0</code>, the image and keypoints are
+mirrored left/right and left/right symmetric body parts (e.g. <code>left_paw</code> ↔
+<code>right_paw</code>) are swapped so labels stay correct. Symmetry pairs are read from the
+skeleton. If the skeleton has <strong>no</strong> symmetries, flipping is only correct when the
+animal is truly left/right symmetric in labeling — a warning is logged otherwise.</p>
+</blockquote>
 <hr />
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
 <h3 id="no-augmentation">No Augmentation<a class="headerlink" href="#no-augmentation" title="Permanent link">&para;</a></h3>
@@ -7267,6 +7277,12 @@
 <td>float</td>
 <td><code>0.0</code></td>
 <td>Probability of applying mixup</td>
+</tr>
+<tr>
+<td><code>flip_p</code></td>
+<td>float</td>
+<td><code>0.0</code></td>
+<td>Probability of mirroring image + keypoints left/right (swaps symmetric node pairs)</td>
 </tr>
 </tbody>
 </table>
