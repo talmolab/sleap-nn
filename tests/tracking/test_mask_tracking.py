@@ -17,6 +17,7 @@ from sleap_nn.evaluation import _mask_iou
 from sleap_nn.tracking.tracker import Tracker
 from sleap_nn.tracking.utils import (
     MaskFeature,
+    _mask_feature_from_dense,
     compute_mask_iou,
     count_valid_points,
     get_mask,
@@ -84,6 +85,43 @@ def test_get_mask_returns_compact_feature():
     arr = _disk(40, 40, 20, 20, 6)
     f2 = get_mask(arr)
     assert isinstance(f2, MaskFeature) and f2.area == int(arr.sum())
+
+
+def _stride_mask(cy, cx, r=10, h=80, w=80, score=0.9, stride=2):
+    """A mask stored at output-stride resolution (scale=1/stride), as the default
+    inference path (``full_res_masks=False``) emits."""
+    full = _disk(h, w, cy, cx, r)
+    small = full[::stride, ::stride]
+    s = 1.0 / stride
+    return sio.PredictedSegmentationMask.from_numpy(small, scale=(s, s), score=score)
+
+
+def test_get_mask_decodes_output_stride_to_image_grid():
+    """get_mask decodes stride-stored masks (scale!=1) onto the IMAGE grid.
+
+    Regression (the finalize-review blocker): the bbox-crop shortcut sliced the
+    stride-res ``.data`` with image-space ``.bbox`` indices, yielding an empty
+    feature (area 0) -> ``compute_mask_iou`` 1.0 for every pair -> scrambled
+    identity on the DEFAULT inference path (``full_res_masks=False``, scale~0.5).
+    """
+    from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
+
+    m = _stride_mask(40, 40)
+    assert tuple(m.scale) != (1.0, 1.0)  # genuinely stride-stored
+    feat = get_mask(m)
+    ref = _mask_feature_from_dense(decode_mask_to_image_res(m))
+    assert feat.area == ref.area > 0  # NOT the buggy 0
+
+    # Two shifted stride masks: IoU matches the image-grid reference and is a
+    # real partial overlap, not the degenerate empty-vs-empty 1.0.
+    m2 = _stride_mask(46, 46)
+    iou = compute_mask_iou(get_mask(m), get_mask(m2))
+    iou_ref = compute_mask_iou(
+        _mask_feature_from_dense(decode_mask_to_image_res(m)),
+        _mask_feature_from_dense(decode_mask_to_image_res(m2)),
+    )
+    assert np.isclose(iou, iou_ref)
+    assert 0.0 < iou < 1.0
 
 
 def test_compute_mask_iou_matches_full_canvas_reference():

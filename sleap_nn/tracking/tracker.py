@@ -557,8 +557,8 @@ class Tracker:
                 ]
                 # An empty candidate list (all filtered by `min_match_points`)
                 # reduces to NaN (-> inf cost in `scores_to_cost_matrix`); guard
-                # explicitly since `np.nanmax([])` / `np.nanquantile([])` raise
-                # (only `np.nanmean([])` returns NaN).
+                # explicitly because `np.nanmax([])` raises (`np.nanmean([])` /
+                # `np.nanquantile([])` return NaN, but `max` must not crash).
                 score_trackid = (
                     np.nan if not scores_trackid else scoring_reduction(scores_trackid)
                 )

@@ -700,11 +700,11 @@ def test_get_scores_robust_quantile_honors_best_instance():
 
 
 def test_get_scores_empty_candidate_list_no_crash():
-    """An all-filtered candidate list reduces to NaN (not a crash) for max/quantile.
+    """An all-filtered candidate list reduces to NaN (not a crash) under `max`.
 
-    `np.nanmax([])` / `np.nanquantile([])` raise; `get_scores` guards the empty
-    case explicitly so a high `min_match_points` (or the `max` mask default) cannot
-    crash mid-stream.
+    `np.nanmax([])` raises (`np.nanmean([])`/`np.nanquantile([])` return NaN);
+    `get_scores` guards the empty case explicitly so a high `min_match_points`
+    (or an explicit `scoring_reduction="max"`) cannot crash mid-stream.
     """
     cands = [
         TrackedInstanceFeature(

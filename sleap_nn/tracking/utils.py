@@ -130,19 +130,32 @@ def get_mask(
     """Return a compact :class:`MaskFeature` for a `PredictedSegmentationMask`.
 
     Mirrors :func:`get_keypoints`/:func:`get_bbox` as the ``"masks"`` feature
-    extractor. The RLE is decoded to a dense mask once, then cropped to its
-    foreground bbox (using the mask's own ``.bbox`` when available, avoiding a
-    scan); the crop is cached as the candidate feature so scoring re-uses it
-    without re-decoding and only touches the foreground region.
+    extractor. The mask is decoded onto the **image-pixel grid** first, then
+    cropped to its foreground bbox (using the mask's own ``.bbox`` when available,
+    avoiding a scan); the crop is cached as the candidate feature so scoring
+    re-uses it without re-decoding and only touches the foreground region.
+
+    The image-grid decode is essential: sio ``.data`` decodes at the mask's
+    *stored* resolution, which for the default inference path
+    (``full_res_masks=False``, masks encoded at output-stride, ``scale~=0.5``) is
+    NOT the image grid, while ``.bbox`` is always in IMAGE space. Cropping the
+    stride-res ``.data`` with image-space bbox indices would slice the wrong
+    region (often entirely out of bounds -> empty -> ``compute_mask_iou`` 1.0 for
+    every pair, scrambling identity). :func:`decode_mask_to_image_res` is a
+    zero-copy passthrough for ``scale==1`` masks (legacy full-res), so that path
+    is unchanged.
     """
     if isinstance(pred_mask, MaskFeature):
         return pred_mask
     if isinstance(pred_mask, np.ndarray):
         return _mask_feature_from_dense(pred_mask)
-    data = np.asarray(pred_mask.data, dtype=bool)
+    from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
+
+    data = decode_mask_to_image_res(pred_mask)
     bbox = getattr(pred_mask, "bbox", None)
     if bbox is not None:
-        # PredictedSegmentationMask.bbox is (x, y, width, height) (XYWH).
+        # PredictedSegmentationMask.bbox is (x, y, width, height) (XYWH), in IMAGE
+        # space -- consistent with the image-grid `data` decoded above.
         x, y, w, h = (int(round(float(v))) for v in bbox)
         height, width = data.shape
         y0, x0 = max(0, y), max(0, x)

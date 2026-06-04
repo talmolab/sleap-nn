@@ -471,6 +471,88 @@ def _mask_cfg(**kw):
     return TrackerConfig(**kw)
 
 
+def _make_stride_mask_labels(video, frames_pts, h=80, w=80, score=0.9, stride=2):
+    """Like ``_make_mask_labels`` but masks are stored at output-stride resolution
+    (``scale=1/stride``), as the default inference path (``full_res_masks=False``)
+    emits. Disk centers/radius are in IMAGE pixels."""
+    yy, xx = np.ogrid[:h, :w]
+    lfs = []
+    for i, pts in enumerate(frames_pts):
+        masks = []
+        for cy, cx in pts:
+            full = ((yy - cy) ** 2 + (xx - cx) ** 2) <= 10**2
+            small = full[::stride, ::stride]
+            s = 1.0 / stride
+            masks.append(
+                sio.PredictedSegmentationMask.from_numpy(
+                    small, scale=(s, s), score=score
+                )
+            )
+        lfs.append(sio.LabeledFrame(video=video, frame_idx=i, masks=masks))
+    return sio.Labels(videos=[video], labeled_frames=lfs)
+
+
+def test_apply_tracking_stride_masks_keep_identity(video):
+    """Output-stride masks (scale!=1, the default path) must track by image-grid IoU.
+
+    Regression (finalize-review blocker): `get_mask` used to crop stride-res
+    `.data` with image-space bbox indices -> empty features -> IoU 1.0 for every
+    pair -> arbitrary identity. A drifting two-lane scene must yield two stable
+    tracks, exactly as the scale-1 case does.
+    """
+    frames = [[(20 + i, 20 + i), (60 + i, 60 + i)] for i in range(6)]
+    labels = _make_stride_mask_labels(video, frames)
+    # sanity: masks really are stride-stored
+    assert tuple(labels.labeled_frames[0].masks[0].scale) != (1.0, 1.0)
+    out = apply_tracking(labels, _mask_cfg(window_size=5))
+    assert all(len(lf.masks) == 2 for lf in out.labeled_frames)
+    lanes = {}
+    for lf in out.labeled_frames:
+        for m in lf.masks:
+            assert m.track is not None
+            lane = "A" if m.bbox[0] < 40 else "B"
+            lanes.setdefault(lane, set()).add(m.track.name)
+    assert all(len(names) == 1 for names in lanes.values())  # each lane = 1 track
+    assert lanes["A"] != lanes["B"]  # and they are distinct
+    # Decisive bug tell: with the old stride bug every feature decoded to area 0,
+    # so every score was the degenerate empty-vs-empty IoU 1.0. The fix yields
+    # real partial overlap for the drifting disks, so later-frame matches score
+    # strictly below 1.0.
+    later_scores = [m.tracking_score for lf in out.labeled_frames[1:] for m in lf.masks]
+    assert later_scores and all(0.0 < s for s in later_scores)
+    assert any(s < 0.999 for s in later_scores)
+
+
+def test_apply_tracking_masks_derived_cap_e2e(video):
+    """End-to-end: the mask-mode derived `max_tracks` cap actually caps tracks.
+
+    Three non-overlapping lanes (an over-split stand-in). With a target count of 2
+    (candidates_method left unset -> local_queues), exactly 2 tracks survive;
+    uncapped, all 3 spawn. Exercises the REAL tracker, not a NoopTracker.
+    """
+    frames = [[(15, 15), (40, 40), (65, 65)] for _ in range(5)]
+    labels = _make_mask_labels(video, frames)
+
+    capped = apply_tracking(
+        labels,
+        _mask_cfg(candidates_method_explicit=False, tracking_target_instance_count=2),
+    )
+    n_capped = len(
+        {m.track.name for lf in capped.labeled_frames for m in lf.masks if m.track}
+    )
+    assert n_capped == 2
+
+    # reset tracks (apply_tracking mutates the shared mask objects' .track)
+    for lf in labels.labeled_frames:
+        for m in lf.masks:
+            m.track = None
+    uncapped = apply_tracking(labels, _mask_cfg(candidates_method_explicit=False))
+    n_uncapped = len(
+        {m.track.name for lf in uncapped.labeled_frames for m in lf.masks if m.track}
+    )
+    assert n_uncapped == 3
+
+
 def test_apply_tracking_masks_preserved_and_stable(video):
     """Mask tracking preserves every mask and gives a moving pair stable ids."""
     # Two animals drifting; each frame's masks overlap only their predecessor.
