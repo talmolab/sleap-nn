@@ -265,6 +265,9 @@ class VisualizationData:
         pred_center_heatmap: Center heatmap for segmentation models, optional.
         pred_offsets: Center-offset field (H, W, 2) for segmentation models,
             optional. Rendered as a per-pixel offset-magnitude map.
+        gt_mask: Ground-truth foreground mask (H, W) or (H, W, 1) for segmentation
+            models, optional. Rendered as a translucent overlay so the predicted
+            foreground probability can be compared against truth each epoch.
     """
 
     image: np.ndarray
@@ -279,6 +282,7 @@ class VisualizationData:
     pred_class_maps: Optional[np.ndarray] = None
     pred_center_heatmap: Optional[np.ndarray] = None
     pred_offsets: Optional[np.ndarray] = None
+    gt_mask: Optional[np.ndarray] = None
 
 
 class MatplotlibRenderer:
@@ -303,6 +307,58 @@ class MatplotlibRenderer:
         fig = plot_img(img, dpi=72 * scale, scale=scale)
         plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
         plot_peaks(data.gt_instances, data.pred_peaks, paired=data.is_paired)
+        return fig
+
+    def render_gt_mask(self, data: VisualizationData) -> matplotlib.figure.Figure:
+        """Render the predicted foreground vs the ground-truth mask overlay.
+
+        Draws the image, overlays the predicted foreground probability (as for the
+        standard confmap render), then outlines the ground-truth foreground mask so
+        the prediction can be compared against truth each epoch (the segmentation
+        analog of pose's GT-keypoint overlay).
+
+        Args:
+            data: VisualizationData with ``gt_mask`` populated.
+
+        Returns:
+            A matplotlib Figure object.
+        """
+        if data.gt_mask is None:
+            raise ValueError("gt_mask is None, cannot render GT mask overlay")
+
+        img = data.image
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+
+        gt = np.asarray(data.gt_mask)
+        if gt.ndim == 3:
+            gt = gt[..., 0]
+        gt = gt.astype(np.float32)
+
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        # Predicted foreground probability as a translucent heatmap (same overlay
+        # the confmap render uses), so pred and GT are visible together.
+        plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
+        ax = plt.gca()
+        gt_output_scale = gt.shape[0] / img.shape[0]
+        extent = [
+            -0.5,
+            gt.shape[1] / gt_output_scale - 0.5,
+            gt.shape[0] / gt_output_scale - 0.5,
+            -0.5,
+        ]
+        # GT foreground outline (single contour at the 0.5 level).
+        ax.contour(
+            np.linspace(extent[0], extent[1], gt.shape[1]),
+            np.linspace(extent[3], extent[2], gt.shape[0]),
+            gt,
+            levels=[0.5],
+            colors="lime",
+            linewidths=1.5,
+        )
         return fig
 
     def render_pafs(self, data: VisualizationData) -> matplotlib.figure.Figure:

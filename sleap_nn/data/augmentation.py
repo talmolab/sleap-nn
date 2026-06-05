@@ -18,7 +18,8 @@ def apply_flip_augmentation(
     instances: torch.Tensor,
     symmetric_inds: Optional[Sequence[Tuple[int, int]]] = None,
     flip_p: float = 0.0,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    masks: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, ...]:
     """Randomly mirror an image and keypoints left/right, swapping symmetric pairs.
 
     When an image is mirrored left/right, left/right symmetric body parts physically
@@ -32,16 +33,21 @@ def apply_flip_augmentation(
             ``None``/empty means no swap (correct only for truly symmetric labeling,
             e.g. centroids).
         flip_p: Probability of applying the flip. ``0`` disables (no-op).
+        masks: Optional segmentation masks of shape ``(n_samples, K, H, W)`` to mirror
+            under the SAME flip draw. When provided, the return tuple gains a third
+            element holding the mirrored masks. Default: None.
 
     Returns:
-        Returns tuple: (image, instances) with the flip applied (or unchanged inputs
-        when not applied). NaN keypoints are preserved.
+        ``(image, instances)`` when ``masks`` is ``None``, else
+        ``(image, instances, masks)`` with the flip applied (or unchanged inputs when
+        not applied). NaN keypoints are preserved.
     """
     return apply_flip_augmentation_skia(
         image=image,
         instances=instances,
         symmetric_inds=symmetric_inds,
         flip_p=flip_p,
+        masks=masks,
     )
 
 
@@ -123,7 +129,8 @@ def apply_geometric_augmentation(
     mixup_p: float = 0.0,
     flip_p: float = 0.0,
     symmetric_inds: Optional[Sequence[Tuple[int, int]]] = None,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    masks: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, ...]:
     """Apply geometric augmentation on image and instances.
 
     Args:
@@ -156,9 +163,15 @@ def apply_geometric_augmentation(
         symmetric_inds: Node-index pairs to swap after mirroring. Passed separately
             from the config scalars because it is runtime skeleton data. None/empty
             means no swap. Default: None.
+        masks: Optional segmentation masks of shape ``(n_samples, K, H, W)`` (float in
+            ``{0, 1}``) to co-transform with the image under the SAME sampled
+            flip/affine transform (nearest-neighbor, re-binarized). Erase/mixup are
+            image-only. When provided, the return tuple gains a third element holding
+            the co-transformed masks. Default: None.
 
     Returns:
-        Returns tuple: (image, instances) with augmentation applied.
+        ``(image, instances)`` when ``masks`` is ``None``, else
+        ``(image, instances, masks)`` with augmentation applied.
     """
     return apply_geometric_augmentation_skia(
         image=image,
@@ -183,4 +196,5 @@ def apply_geometric_augmentation(
         mixup_p=mixup_p,
         flip_p=flip_p,
         symmetric_inds=symmetric_inds,
+        masks=masks,
     )

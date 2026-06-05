@@ -961,3 +961,172 @@ def test_centered_instance_seg_train_smoke(minimal_instance_seg, tmp_path):
     csv_text = (run_dir / "training_log.csv").read_text()
     assert "val/fg_iou" in csv_text
     assert "train/fg_loss" in csv_text
+
+
+# ---------------------------------------------------------------------------
+# 10. Augmentation parity: geometric/flip aug co-transforms the mask
+# ---------------------------------------------------------------------------
+
+
+def _capture_warnings():
+    """Return (warnings_list, sink_id) for a loguru WARNING sink; remove sink after."""
+    from loguru import logger
+
+    msgs = []
+    sink_id = logger.add(lambda m: msgs.append(m.record["message"]), level="WARNING")
+    return msgs, sink_id
+
+
+def _varies_across_draws(ds, key):
+    np.random.seed(0)
+    torch.manual_seed(0)
+    a = ds[0][key].numpy().copy()
+    np.random.seed(123)
+    torch.manual_seed(123)
+    b = ds[0][key].numpy().copy()
+    return not np.array_equal(a, b)
+
+
+def test_centered_instance_seg_applies_geometric_aug_to_mask(minimal_instance):
+    """Top-down seg honors rotation: no skip-warning, image+mask vary together."""
+    from loguru import logger
+
+    labels = _two_instance_seg_labels(minimal_instance, [(120, 192), (260, 192)])
+    seg_cfg = OmegaConf.create({"output_stride": 2, "loss_weight": 1.0})
+    msgs, sink_id = _capture_warnings()
+    try:
+        ds = CenteredInstanceSegmentationDataset(
+            labels=[labels],
+            crop_size=160,
+            seg_head_config=seg_cfg,
+            max_stride=16,
+            anchor_ind=None,
+            ensure_grayscale=True,
+            apply_aug=True,
+            geometric_aug="rotation",
+            scale=1.0,
+            cache_img=None,
+        )
+        _ = ds[0]
+    finally:
+        logger.remove(sink_id)
+    assert not any("not supported" in m for m in msgs)
+    assert _varies_across_draws(ds, "instance_image")
+    assert _varies_across_draws(ds, "foreground_mask")
+
+
+def test_bottomup_seg_applies_geometric_aug_to_mask(minimal_instance_seg):
+    """Bottom-up seg honors rotation: no skip-warning, image+mask vary together."""
+    from loguru import logger
+    from sleap_nn.data.custom_datasets import BottomUpSegmentationDataset
+
+    seg_labels = sio.load_slp(minimal_instance_seg.as_posix())
+    seg_cfg = OmegaConf.create({"output_stride": 2, "loss_weight": 1.0})
+    center_cfg = OmegaConf.create(
+        {"sigma": 5.0, "output_stride": 2, "loss_weight": 1.0}
+    )
+    offset_cfg = OmegaConf.create({"output_stride": 2, "loss_weight": 0.1})
+    msgs, sink_id = _capture_warnings()
+    try:
+        ds = BottomUpSegmentationDataset(
+            labels=[seg_labels],
+            seg_head_config=seg_cfg,
+            center_head_config=center_cfg,
+            offset_head_config=offset_cfg,
+            max_stride=16,
+            ensure_grayscale=True,
+            apply_aug=True,
+            geometric_aug="rotation",
+            scale=1.0,
+            cache_img=None,
+        )
+        s = ds[0]
+    finally:
+        logger.remove(sink_id)
+    assert not any("not supported" in m for m in msgs)
+    # GT tensors keep their shapes after the co-transform.
+    oh, ow = s["image"].shape[-2] // 2, s["image"].shape[-1] // 2
+    assert s["foreground_mask"].shape == (1, 1, oh, ow)
+    assert s["center_heatmap"].shape == (1, 1, oh, ow)
+    assert _varies_across_draws(ds, "image")
+    assert _varies_across_draws(ds, "foreground_mask")
+
+
+# ---------------------------------------------------------------------------
+# 11. Per-epoch mask-IoU evaluation callback
+# ---------------------------------------------------------------------------
+
+
+def _disk_for(h, w, cx, cy, r):
+    yy, xx = np.ogrid[:h, :w]
+    return ((yy - cy) ** 2 + (xx - cx) ** 2) <= r * r
+
+
+def test_segmentation_eval_callback_compute_metrics():
+    """SegmentationEvaluationCallback matches per-instance masks by IoU."""
+    from sleap_nn.training.callbacks import SegmentationEvaluationCallback
+
+    cb = SegmentationEvaluationCallback(match_threshold=0.5)
+    h = w = 40
+    gt = [_disk_for(h, w, 10, 10, 6), _disk_for(h, w, 30, 30, 6)]
+
+    # Perfect prediction -> mean IoU 1, precision/recall 1.
+    perfect = cb._compute_metrics([{"masks": gt}], [{"masks": gt}])
+    assert perfect["mask_mean_iou"] == pytest.approx(1.0)
+    assert perfect["precision"] == 1.0 and perfect["recall"] == 1.0
+
+    # One perfect match, one miss, one false positive.
+    pred = [
+        _disk_for(h, w, 10, 10, 6),  # TP
+        _disk_for(h, w, 5, 35, 4),  # FP (no GT nearby)
+    ]
+    mixed = cb._compute_metrics([{"masks": pred}], [{"masks": gt}])
+    assert mixed["n_tp"] == 1 and mixed["n_fp"] == 1 and mixed["n_fn"] == 1
+    assert mixed["precision"] == pytest.approx(0.5)
+    assert mixed["recall"] == pytest.approx(0.5)
+    # Recall-sensitive mean counts the miss as 0.
+    assert mixed["mask_mean_iou_all_gt"] == pytest.approx(0.5)
+
+
+def test_segmentation_eval_callback_match_threshold_fallback():
+    """A pixel-distance match_threshold (>1) falls back to a valid IoU threshold."""
+    from sleap_nn.training.callbacks import SegmentationEvaluationCallback
+
+    assert SegmentationEvaluationCallback(match_threshold=50.0).match_threshold == 0.5
+    assert SegmentationEvaluationCallback(match_threshold=0.7).match_threshold == 0.7
+
+
+def test_seg_training_with_aug_viz_and_eval(minimal_instance_seg, tmp_path):
+    """End-to-end: rotation aug + GT-mask viz + mask-IoU eval run for bottom-up seg."""
+    from sleap_nn.training.model_trainer import ModelTrainer
+    from sleap_nn.config.get_config import get_aug_config
+    from loguru import logger
+
+    cfg = _seg_train_config(minimal_instance_seg.as_posix(), tmp_path)
+    cfg.data_config.use_augmentations_train = True
+    cfg.data_config.augmentation_config = OmegaConf.structured(
+        get_aug_config(intensity_aug=None, geometric_aug="rotation")
+    )
+    cfg.trainer_config.visualize_preds_during_training = True
+    cfg.trainer_config.keep_viz = True
+    cfg.trainer_config.eval = OmegaConf.create(
+        {"enabled": True, "frequency": 1, "match_threshold": 0.5}
+    )
+
+    msgs, sink_id = _capture_warnings()
+    info_msgs = []
+    info_id = logger.add(lambda m: info_msgs.append(m.record["message"]), level="INFO")
+    try:
+        ModelTrainer.get_model_trainer_from_config(cfg).train()
+    finally:
+        logger.remove(sink_id)
+        logger.remove(info_id)
+
+    run_dir = tmp_path / "seg_smoke"
+    assert (run_dir / "best.ckpt").exists()
+    # Phase A: geometric aug applied (no skip warning).
+    assert not any("not supported" in m for m in msgs)
+    # Phase B: GT-mask viz overlay written.
+    assert list(run_dir.rglob("*gt_mask*.png"))
+    # Phase C: the mask-IoU eval callback ran.
+    assert any("segmentation evaluation:" in m for m in info_msgs)
