@@ -17,11 +17,10 @@ prototype P3) is:
 2. **Build anchors.** Treat *trusted* frames (by default the frames whose
    instances carry GT/user track labels, else all frames) as identity anchors,
    yielding a sparse ``frame -> {mask_obj_id: track_name}`` map.
-3. **Canonical remap.** Collapse the per-frame anchors to a single canonical
-   ``mask_obj_id -> track_name`` map (first-seen wins;
-   :meth:`~sleap_nn.inference.sam.reconciliation.TrackNameResolver.get_canonical_mapping`),
-   with a per-frame nearest-anchor fallback for obj_ids that change identity
-   across anchors.
+3. **Canonical remap.** Name each ``mask_obj_id`` by majority vote across anchor
+   frames (strict majority wins); obj_ids with no clear majority (an exact tie)
+   are omitted from the canonical map and resolved per-frame via the nearest
+   anchor.
 4. **Relabel all frames.** For every frame, reassign each matched instance's
    ``track`` to the resolved name (creating :class:`sio.Track` objects as
    needed). Instances with no mask match keep their original track.
@@ -320,7 +319,7 @@ def retrack(
     def _resolve_name(frame_idx: int, obj_id: int) -> str | None:
         # Genuine cross-anchor identity changes route through the nearest anchor
         # (so a real SAM3 swap between two sparse GT frames flips at the
-        # midpoint). Stable obj_ids take the canonical first-seen name globally,
+        # midpoint). Stable obj_ids take the canonical majority-vote name globally,
         # immune to a single swapped/wrong anchor frame. Fallback last.
         if obj_id in ambiguous_obj_ids:
             mapping = resolver.get_mapping_at_frame(frame_idx)
@@ -364,8 +363,7 @@ def retrack(
     )
 
 
-# Re-export the predicate factories so callers can build a stricter
-# re-tracking predicate without importing the lifted module directly.
+# Public API of this module.
 __all__: list[str] = [
     "RetrackResult",
     "retrack",
