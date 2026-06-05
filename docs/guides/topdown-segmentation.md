@@ -50,11 +50,19 @@ labels.save("poses_masked.pkg.slp", embed=True)   # embed to keep it self-contai
   instance's visible nodes.
 - **Supervision:** only the centered instance is foreground; other instances'
   pixels inside the crop are background (no ignore region in v1).
-- **Augmentation:** intensity augmentation is supported; **geometric augmentation
-  is skipped in v1** (masks are not co-transformed with the crop) — set
-  `augmentation_config.geometric: null` and train at `scale: 1.0` with crop dims
-  divisible by `max_stride`.
-- **Metrics:** `val/fg_iou` (foreground IoU) is logged each epoch.
+- **Augmentation:** intensity augmentation is supported, and **geometric
+  augmentation (rotation/scale/translate/flip) co-transforms the centered-instance
+  mask** with the same affine matrix as the image+keypoints (nearest-neighbor, then
+  re-binarized) on the oversized `sqrt(2)` crop, which gives rotation headroom
+  before the re-crop. Erase/mixup stay image-only. Train at `scale: 1.0` with crop
+  dims divisible by `max_stride` (the mask resize/pad mirror the image but are not
+  sub-pixel pad-aware).
+- **Metrics:** `val/fg_iou` (per-crop foreground IoU; each crop is one instance, so
+  this is a per-instance mask-quality metric) is logged each epoch. With
+  `trainer_config.eval.enabled: true`, a `SegmentationEvaluationCallback` also logs
+  instance-level mask metrics (`eval/val/mask_mean_iou`, `mask_precision`,
+  `mask_recall`, `mask_f1`). Training viz overlays the GT mask on the predicted
+  foreground each epoch (`viz/.../gt_mask`).
 
 ```bash
 sleap-nn train --config-name config_topdown_centered_instance_segmentation_unet \

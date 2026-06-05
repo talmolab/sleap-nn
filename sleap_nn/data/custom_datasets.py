@@ -1539,11 +1539,13 @@ class CenteredInstanceSegmentationDataset(CenteredInstanceDataset):
     downsampled to the segmentation head's output stride.
 
     Note:
-        Geometric augmentation is unsupported in v1 (masks are not co-transformed
-        with the image) and is skipped with a warning; intensity augmentation is
-        applied normally. Train at ``scale=1.0`` with crop dims divisible by
-        ``max_stride`` (the mask resize/pad mirror the image but are not
-        sub-pixel pad-aware).
+        Augmentation: intensity aug is applied to the image; geometric aug
+        (rotation/scale/translate/flip) co-transforms the centered-instance mask with
+        the SAME affine matrix as the image+keypoints (nearest-neighbor, re-binarized)
+        on the oversized ``sqrt(2)`` crop, which provides rotation headroom before the
+        re-crop to ``crop_size``. Erase/mixup stay image-only. Train at ``scale=1.0``
+        with crop dims divisible by ``max_stride`` (the mask resize/pad mirror the
+        image but are not sub-pixel pad-aware).
 
     Attributes:
         seg_head_config: Configuration for the segmentation head (``output_stride``).
@@ -1573,7 +1575,6 @@ class CenteredInstanceSegmentationDataset(CenteredInstanceDataset):
     ) -> None:
         """Initialize class attributes."""
         self.seg_head_config = seg_head_config
-        self._warned_geometric_aug = False
         super().__init__(
             labels=labels,
             crop_size=crop_size,
@@ -1750,19 +1751,23 @@ class CenteredInstanceSegmentationDataset(CenteredInstanceDataset):
             ) = apply_intensity_augmentation(
                 sample["instance_image"], sample["instance"], **self.intensity_aug
             )
-        # Geometric augmentation is unsupported in v1 (mask co-transform deferred).
-        if (
-            self.apply_aug
-            and self.geometric_aug is not None
-            and not self._warned_geometric_aug
-        ):
-            logger.warning(
-                "Geometric augmentation is configured but not supported for "
-                "CenteredInstanceSegmentationDataset (masks are not co-transformed "
-                "with the crop in v1); it is skipped. Only intensity augmentation "
-                "is applied."
+        # Geometric augmentation: co-transform the centered-instance mask with the
+        # SAME flip/affine matrix as the image + keypoints (nearest-neighbor, then
+        # re-binarized). The oversized sqrt(2) crop above provides the rotation
+        # headroom; the re-crop below trims back to crop_size so no out-of-frame
+        # corners reach the model.
+        if self.apply_aug and self.geometric_aug is not None:
+            (
+                sample["instance_image"],
+                sample["instance"],
+                mask_t,
+            ) = apply_geometric_augmentation(
+                sample["instance_image"],
+                sample["instance"],
+                symmetric_inds=self.symmetric_inds,
+                masks=mask_t,
+                **self.geometric_aug,
             )
-            self._warned_geometric_aug = True
 
         # Re-crop to the exact crop size (same bbox for image and mask).
         sample["instance_bbox"] = torch.unsqueeze(
@@ -2520,10 +2525,14 @@ class BottomUpSegmentationDataset(BaseDataset):
     caching paths (where ``self.labels_list`` is ``None``).
 
     Note:
-        Geometric augmentation is unsupported (masks cannot be co-transformed
-        with the image) and is skipped with a warning. Mask resizing to the
-        preprocessed image size handles scaling but is not pad-aware; for v1
-        train with ``scale=1.0`` and input dims divisible by ``max_stride``.
+        Augmentation: intensity aug is applied to the image; geometric aug
+        (rotation/scale/translate/flip) co-transforms every per-instance mask with the
+        SAME affine matrix as the image (nearest-neighbor, re-binarized) at the
+        preprocessed resolution, before center/offset targets are derived. Erase/mixup
+        stay image-only. Mask resizing to the preprocessed image size handles scaling
+        but is not pad-aware; for v1 train with ``scale=1.0`` and input dims divisible
+        by ``max_stride`` (and prefer small rotation ranges, since a full-frame rotation
+        can clip instances at the frame edge, as it does for bottom-up pose).
 
     Attributes:
         seg_head_config: Configuration for the segmentation head.
@@ -2558,7 +2567,6 @@ class BottomUpSegmentationDataset(BaseDataset):
         self.seg_head_config = seg_head_config
         self.center_head_config = center_head_config
         self.offset_head_config = offset_head_config
-        self._warned_geometric_aug = False
         # Segmentation never uses negative frames (degenerate num_nodes/instances).
         super().__init__(
             labels=labels,
@@ -2581,12 +2589,14 @@ class BottomUpSegmentationDataset(BaseDataset):
         )
 
     def _apply_common_preprocessing(self, sample: Dict) -> Dict:
-        """Apply common preprocessing, skipping geometric augmentation.
+        """Apply common preprocessing with geometric augmentation deferred.
 
-        Geometric augmentation spatially transforms the image but cannot be
-        applied to segmentation masks (which are loaded separately). This
-        override disables geometric augmentation and logs a warning when it
-        was configured but skipped.
+        Geometric augmentation must co-transform the segmentation masks, but those
+        masks are not present in ``sample`` here (they are loaded separately), so the
+        base method would warp only the image. We disable geometric aug for the base
+        call (intensity aug still applies) and re-apply it in ``__getitem__`` once the
+        masks have been resized to the preprocessed resolution, co-transforming image
+        and masks with the same matrix.
 
         Args:
             sample: Sample dict with at least ``image`` and ``instances`` keys.
@@ -2594,20 +2604,6 @@ class BottomUpSegmentationDataset(BaseDataset):
         Returns:
             The sample dict with preprocessing applied in-place.
         """
-        if (
-            self.apply_aug
-            and self.geometric_aug is not None
-            and not self._warned_geometric_aug
-        ):
-            logger.warning(
-                "Geometric augmentation is configured but not supported for "
-                "BottomUpSegmentationDataset because masks cannot be spatially "
-                "transformed in sync with the image. Geometric augmentation "
-                "will be skipped; only intensity augmentation will be applied."
-            )
-            self._warned_geometric_aug = True
-
-        # Temporarily disable geometric aug, then call base implementation
         saved_geometric_aug = self.geometric_aug
         self.geometric_aug = None
         try:
@@ -2724,6 +2720,30 @@ class BottomUpSegmentationDataset(BaseDataset):
                 # Threshold back to binary
                 resized_masks.append((m_resized.squeeze().numpy() > 0.5))
             mask_arrays = resized_masks
+
+        # Geometric augmentation: co-transform the per-instance masks with the SAME
+        # flip/affine matrix as the image (nearest-neighbor, re-binarized). Applied
+        # here (post size-match / resize / pad) so the image and masks share a
+        # resolution, and BEFORE centroid/heatmap/offset generation so those targets
+        # are derived from the augmented masks. Bottom-up has no keypoints, so a dummy
+        # instances tensor rides along; erase/mixup stay image-only.
+        if self.apply_aug and self.geometric_aug is not None and len(mask_arrays) > 0:
+            masks_t = torch.from_numpy(
+                np.stack([m.astype(np.float32) for m in mask_arrays])
+            ).unsqueeze(
+                0
+            )  # (1, K, H, W)
+            (
+                sample_dict["image"],
+                _,
+                masks_t,
+            ) = apply_geometric_augmentation(
+                sample_dict["image"],
+                torch.zeros((1, 1, 1, 2), dtype=torch.float32),
+                masks=masks_t,
+                **self.geometric_aug,
+            )
+            mask_arrays = [masks_t[0, k].numpy() > 0.5 for k in range(masks_t.shape[1])]
 
         # Pre-compute mask centroids once for both center heatmap and offset heads
         centers = _compute_mask_centroids(mask_arrays) if len(mask_arrays) > 0 else []

@@ -58,6 +58,7 @@ from sleap_nn.training.callbacks import (
     SleapProgressBar,
     EpochEndEvaluationCallback,
     CentroidEvaluationCallback,
+    SegmentationEvaluationCallback,
     UnifiedVizCallback,
 )
 from sleap_nn import RANK
@@ -1241,10 +1242,17 @@ class ModelTrainer:
                 "bottomup_segmentation",
                 "centered_instance_segmentation",
             ):
-                # Segmentation has no keypoint predictions for OKS/PCK; the
-                # foreground IoU logged in validation_step (val/fg_iou) serves as
-                # the epoch-level quality metric. Skip the keypoint eval callback.
-                pass
+                # Segmentation has no keypoint predictions for OKS/PCK. Use a
+                # mask-IoU eval that recovers per-instance masks on the shared
+                # preprocessed grid and reports instance-level mask-IoU mAP /
+                # precision / recall (grouping-sensitive), complementing the coarse
+                # val/fg_iou logged in validation_step.
+                callbacks.append(
+                    SegmentationEvaluationCallback(
+                        eval_frequency=self.config.trainer_config.eval.frequency,
+                        match_threshold=self.config.trainer_config.eval.match_threshold,
+                    )
+                )
             else:
                 # Use standard OKS/PCK evaluation for pose models
                 callbacks.append(
