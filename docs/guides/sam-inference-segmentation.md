@@ -30,12 +30,30 @@ Download a SAM checkpoint (e.g.
 [`sam_vit_h_4b8939.pth`](https://github.com/facebookresearch/segment-anything#model-checkpoints))
 and pass its path via `sam_checkpoint=`.
 
+SAM3 (`mask_backend="sam3"`) is a second, **gated** backend behind its own extra:
+
+```bash
+pip install "sleap-nn[sam3]"
+```
+
+SAM3 lives in the gated [`facebook/sam3`](https://huggingface.co/facebook/sam3)
+Hugging Face repo and ships in `transformers>=5`. You must request access, then
+authenticate (`huggingface-cli login` or set `HF_TOKEN`) with an approved
+account. SAM3 also typically wants torch `cu130`, which **may not co-install**
+with the rest of sleap-nn: keep it in its own environment, or run the SAM3 image
+path out-of-process (write the raw masks + bookkeeping to an `.npz`) and assemble
+the `.slp` back in the sleap-nn venv. Selecting `mask_backend="sam3"` without
+`transformers` raises a clear, actionable `ImportError` pointing at this install
++ auth.
+
 ## The backend is explicit — there is no default
 
 `mask_backend` is **required** when you ask for SAM masks; nothing is selected
-silently. `"sam"` is SAM1 (this PR); `"sam3"` (the gated SAM3 image path) lands
-in a follow-up behind the `sleap_nn[sam3]` extra. Each backend stores its own
-**raw** per-model score in `PredictedSegmentationMask.score`.
+silently. `"sam"` is SAM1 (ungated, the `sleap_nn[sam]` extra); `"sam3"` is the
+gated SAM3 image path (`facebook/sam3` via `transformers`, the `sleap_nn[sam3]`
+extra). Each backend stores its own **raw** per-model score in
+`PredictedSegmentationMask.score` — and SAM3's score is on a lower scale than
+SAM1's, so its recalibrated floor (`0.5`) is **never** SAM1's `0.88`.
 
 ## Predict masks for a pose `.slp`
 
@@ -70,6 +88,36 @@ labels = run_sam_segmentation(
     device="cuda",
 )
 ```
+
+## SAM3 backend
+
+`mask_backend="sam3"` swaps SAM1 for Meta SAM 3's image visual-prompt path
+(`Sam3TrackerModel`) behind the same interface and the same prompt modes:
+
+```python
+labels = run_sam_segmentation(
+    "poses.pkg.slp",
+    mask_backend="sam3",        # gated facebook/sam3, needs the [sam3] extra
+    prompt_mode="pose",
+    device="cuda",
+    # sam3_model_id="facebook/sam3",  # the default
+)
+```
+
+Two SAM3 specifics are handled automatically and are **never** shared with SAM1:
+
+- **Recalibrated score floor (`0.5`).** SAM3's predicted-IoU is on a lower scale,
+  so its per-model floor is `SAM3_PRED_IOU_MIN = 0.5` (SAM1's `0.88` would reject
+  ~100% of SAM3 masks as a pure calibration artifact). As with SAM1 the raw score
+  is reported, not gated on.
+- **Speckle cleanup.** Raw SAM3 masks are fragmented (~14 connected components);
+  each chosen mask is passed through a morphological open + close + keep-the-
+  keypoint-connected-component cleanup (~1 component, ~97% area retained).
+
+SAM3 also runs **all instances of a frame in a single batched forward pass**
+(SAM1 loops per instance). End-to-end SAM3 is GPU-only and needs the gated
+weights, so it is exercised manually / nightly; the recipe (floor, cleanup,
+batched call) is unit-tested against a mocked SAM3.
 
 ## Prompt modes
 

@@ -9,9 +9,9 @@ mask-native tracker land in later PRs behind the same surfaces.
 Public surface
 --------------
 * :func:`get_mask_backend` — **explicit, no-default** backend selection
-  (PLAN L2). ``"sam"`` builds a SAM1 :class:`~.backends.SamBackend`; an unknown
-  or omitted name raises. ``"sam3"`` is reserved for PR-B and currently errors
-  with a pointer.
+  (PLAN L2). ``"sam"`` builds a SAM1 :class:`~.backends.SamBackend`; ``"sam3"``
+  builds a SAM3 :class:`~.backends.Sam3Backend` (gated ``facebook/sam3`` via the
+  ``sleap_nn[sam3]`` extra); an unknown or omitted name raises.
 * :func:`run_sam_segmentation` — end-to-end orchestration: load a pose ``.slp``,
   run the chosen backend with the chosen prompt mode, emit
   ``sio.PredictedSegmentationMask`` (raw score + ``instance=``/``track=``
@@ -27,13 +27,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Sequence
 
-from sleap_nn.inference.sam.backends import MaskBackend, SamBackend
+from sleap_nn.inference.sam.backends import MaskBackend, Sam3Backend, SamBackend
 from sleap_nn.inference.sam.mask_layer import SamSegmentationLayer
 from sleap_nn.inference.sam.prompts import PROMPT_MODES, SamPrompt
 
 __all__ = [
     "MaskBackend",
     "SamBackend",
+    "Sam3Backend",
     "SamSegmentationLayer",
     "SamPrompt",
     "PROMPT_MODES",
@@ -51,6 +52,7 @@ def get_mask_backend(
     *,
     sam_checkpoint: Optional[str] = None,
     sam_model_type: str = "vit_h",
+    sam3_model_id: str = "facebook/sam3",
     device: str = "cuda",
     **kwargs,
 ) -> MaskBackend:
@@ -58,10 +60,13 @@ def get_mask_backend(
 
     Args:
         mask_backend: The backend name. ``"sam"`` builds a SAM1
-            :class:`~.backends.SamBackend`; ``"sam3"`` is reserved for PR-B.
-            There is no default — the caller must name one.
+            :class:`~.backends.SamBackend`; ``"sam3"`` builds a SAM3
+            :class:`~.backends.Sam3Backend`. There is no default — the caller must
+            name one.
         sam_checkpoint: Path to the SAM1 checkpoint (required for ``"sam"``).
         sam_model_type: SAM1 model registry key.
+        sam3_model_id: Hugging Face model id for the SAM3 path (gated; the
+            ``sleap_nn[sam3]`` extra). Used only for ``"sam3"``.
         device: Torch device for the model.
         **kwargs: Forwarded to the backend constructor (e.g. ``clahe``).
 
@@ -70,7 +75,8 @@ def get_mask_backend(
 
     Raises:
         ValueError: If ``mask_backend`` is not a registered name.
-        NotImplementedError: If ``mask_backend == "sam3"`` (lands in PR-B).
+        ImportError: If ``mask_backend == "sam3"`` and ``transformers`` (with SAM3
+            support) is not installed — with an actionable install/auth message.
     """
     if mask_backend is None:
         raise ValueError(
@@ -86,9 +92,10 @@ def get_mask_backend(
             **kwargs,
         )
     if name == "sam3":
-        raise NotImplementedError(
-            "mask_backend='sam3' is added in PR-B (the SAM3 backend behind the "
-            "'sam3' extra). Use mask_backend='sam' for SAM1."
+        return Sam3Backend.from_pretrained(
+            model_id=sam3_model_id,
+            device=device,
+            **kwargs,
         )
     raise ValueError(
         f"Unknown mask_backend {mask_backend!r}; expected one of {MASK_BACKENDS}."
@@ -102,6 +109,7 @@ def run_sam_segmentation(
     prompt_mode: str = "pose",
     sam_checkpoint: Optional[str] = None,
     sam_model_type: str = "vit_h",
+    sam3_model_id: str = "facebook/sam3",
     device: str = "cuda",
     anchor_ind: Optional[int] = None,
     disjointify_masks: bool = False,
@@ -126,6 +134,7 @@ def run_sam_segmentation(
         sam_checkpoint: SAM1 checkpoint path (required for ``"sam"`` unless a
             pre-built ``backend`` is passed).
         sam_model_type: SAM1 model registry key.
+        sam3_model_id: Hugging Face model id for the gated SAM3 path (``"sam3"``).
         device: Torch device for the model.
         anchor_ind: Optional centroid anchor node index for ``"centroid"``.
         disjointify_masks: Make per-frame masks disjoint when >=2 instances.
@@ -158,6 +167,7 @@ def run_sam_segmentation(
             mask_backend,
             sam_checkpoint=sam_checkpoint,
             sam_model_type=sam_model_type,
+            sam3_model_id=sam3_model_id,
             device=device,
         )
     elif mask_backend not in MASK_BACKENDS:
