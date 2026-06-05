@@ -17,13 +17,17 @@ import torch
 
 import sleap_io as sio
 
-_CKPT = (
+# Asset paths are overridable via env vars so any GPU box can run this smoke
+# (defaults point at the prototype assets on the dev machine).
+_CKPT = os.environ.get(
+    "SLEAP_NN_SAM_CKPT",
     "/home/talmo/code/sleap-nn/scratch/2026-06-03-segmentation-methods/"
-    "experiments/07-sam-pseudomasks/models/sam_vit_h_4b8939.pth"
+    "experiments/07-sam-pseudomasks/models/sam_vit_h_4b8939.pth",
 )
-_VAL = (
+_VAL = os.environ.get(
+    "SLEAP_NN_SAM_VAL",
     "/home/talmo/code/sleap-nn/scratch/2026-06-03-segmentation-methods/data/"
-    "mice_of_seg_val.pkg.slp"
+    "mice_of_seg_val.pkg.slp",
 )
 
 pytestmark = pytest.mark.skipif(
@@ -96,54 +100,3 @@ def test_sam_pose_masks_end_to_end(tmp_path):
     assert out_path.exists()
     assert overlay_path.exists()
     sio.load_slp(out_path.as_posix())
-
-
-def test_sam_crop_center_seam_end_to_end():
-    """The crop-center seam produces masks that land at the centroid in-frame."""
-    from sleap_nn.inference.sam.backends import SamBackend
-    from sleap_nn.inference.sam.mask_layer import FindInstanceMaskSAM
-    from sleap_nn.inference.layers.topdown_segmentation import (
-        TopDownSegmentationLayer,
-    )
-    from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
-
-    labels = sio.load_slp(_VAL)
-    lf = labels.labeled_frames[0]
-    img = np.asarray(lf.image)
-    if img.ndim == 3:
-        img = img[..., 0]
-    H, W = img.shape
-    inst = lf.instances[0]
-    kpts = inst.numpy()[:, :2]
-    kpts = kpts[np.isfinite(kpts).all(1)]
-    centroid = kpts.mean(0)
-
-    backend = SamBackend.from_checkpoint(_CKPT, device="cuda")
-    layer = TopDownSegmentationLayer.__new__(TopDownSegmentationLayer)
-    layer.centroid_layer = None
-    layer.centered_instance_layer = FindInstanceMaskSAM(backend)
-    layer.crop_size = (256, 256)
-    layer.centroid_nms = False
-    layer.centroid_nms_threshold = 0.5
-    layer.return_crops = False
-    layer.mask_output = "mask"
-    layer.polygon_epsilon = 0.01
-
-    image_4d = torch.as_tensor(img, dtype=torch.float32)[None, None]
-    out = layer._run_stage_2(
-        image_4d,
-        torch.tensor([[[float(centroid[0]), float(centroid[1])]]]),
-        torch.tensor([[1.0]]),
-        torch.tensor([[True]]),
-        eff_scale=torch.tensor([1.0]),
-    )
-    pred = out.pred_masks[0][0]
-    m = sio.PredictedSegmentationMask.from_numpy(
-        pred["mask"], score=pred["score"], scale=pred["scale"], offset=pred["offset"]
-    )
-    decoded = decode_mask_to_image_res(m)
-    ys, xs = np.nonzero(decoded)
-    assert xs.size > 0
-    # The mask lands near the centroid (within a crop half-extent), not at origin.
-    assert abs(xs.mean() - centroid[0]) <= 128
-    assert abs(ys.mean() - centroid[1]) <= 128

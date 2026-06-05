@@ -8,7 +8,6 @@ from sleap_nn.inference.sam.prompts import (
     SamPrompt,
     box_prompt,
     centroid_prompt,
-    crop_center_prompt,
     kpt_box,
     pose_prompt,
     prompt_for_instance,
@@ -84,15 +83,6 @@ def test_box_prompt_box_only_no_points():
     np.testing.assert_allclose(p.box, p.reject_box)
 
 
-def test_crop_center_prompt_is_center_pixel():
-    p = crop_center_prompt((64, 80))  # (h, w)
-    assert p.mode == "crop_center"
-    # Center pixel is (w/2, h/2) = (40, 32).
-    np.testing.assert_allclose(p.point_coords[0], [40.0, 32.0])
-    # Reject box is the full crop extent.
-    np.testing.assert_allclose(p.reject_box, [0.0, 0.0, 79.0, 63.0])
-
-
 def test_prompt_for_instance_pose_with_keypoints():
     p = prompt_for_instance(
         "pose", (100, 120), keypoints=np.array([[10.0, 20.0], [30.0, 40.0]])
@@ -125,27 +115,13 @@ def test_prompt_for_instance_centroid_means_keypoints_when_no_centroid():
     np.testing.assert_allclose(p.point_coords[0], [20.0, 30.0])
 
 
-def test_prompt_for_instance_crop_center_prefers_pose_when_local_keypoints():
-    # crop_center with crop-local keypoints uses the richer pose prompt.
-    p = prompt_for_instance(
-        "crop_center", (64, 64), keypoints=np.array([[20.0, 20.0], [40.0, 40.0]])
-    )
-    assert p.mode == "pose"
-
-
-def test_prompt_for_instance_crop_center_naive_when_no_keypoints():
-    p = prompt_for_instance("crop_center", (64, 64), keypoints=None)
-    assert p.mode == "crop_center"
-    np.testing.assert_allclose(p.point_coords[0], [32.0, 32.0])
-
-
 def test_prompt_for_instance_unknown_mode_raises():
     with pytest.raises(ValueError):
         prompt_for_instance("nope", (10, 10))
 
 
 def test_prompt_modes_constant():
-    assert PROMPT_MODES == ("pose", "centroid", "box", "crop_center")
+    assert PROMPT_MODES == ("pose", "centroid", "box")
 
 
 def test_sam_prompt_is_a_dataclass():

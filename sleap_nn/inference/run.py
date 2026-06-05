@@ -297,8 +297,7 @@ def predict(
             (the default) leaves the model-driven path untouched.
         sam_checkpoint: SAM1 checkpoint path (required for ``mask_backend="sam"``).
         sam_model_type: SAM1 model registry key.
-        sam_prompt_mode: ``"pose"`` / ``"centroid"`` / ``"box"`` (PLAN §2.2; the
-            top-down crop-center seam is handled in the model-driven path).
+        sam_prompt_mode: ``"pose"`` / ``"centroid"`` / ``"box"`` (PLAN §2.2).
         sam_anchor_ind: Centroid anchor node index for ``sam_prompt_mode="centroid"``.
         sam_disjointify_masks: Make per-frame masks disjoint when >=2 instances.
         overlay_path: Optional review-overlay PNG path (PLAN L4; SAM path only).
@@ -369,6 +368,7 @@ def predict(
             anchor_ind=sam_anchor_ind,
             disjointify_masks=sam_disjointify_masks,
             overlay_path=overlay_path,
+            frames=frames,
         )
         if output_path is not None:
             save_predictions(labels, output_path, output_format=output_format)

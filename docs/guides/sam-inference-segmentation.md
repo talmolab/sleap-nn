@@ -12,10 +12,10 @@ from a trained `centered_instance_segmentation` head; here it comes from SAM,
 prompted by poses you already have. Use it to bootstrap masks from a pose model
 without training a mask model.
 
-> **v1 is prompted-only.** Four prompt modes — pose, centroid, box, and the
-> top-down crop-center-pixel seam. Unprompted ("everything") mask generation is
-> deferred. The GUI correction round-trip is gated on upstream frontend work; v1
-> ships the masks plus a review-overlay PNG.
+> **v1 is prompted-only.** Three prompt modes — pose, centroid, and box.
+> Unprompted ("everything") mask generation is deferred. The GUI correction
+> round-trip is gated on upstream frontend work; v1 ships the masks plus a
+> review-overlay PNG.
 
 ## Install
 
@@ -78,7 +78,6 @@ labels = run_sam_segmentation(
 | **pose** | every visible keypoint as a positive point **+** the padded keypoint box | a pose | cleanest; the product rule below |
 | **centroid** | a single positive point (anchor node or the mean keypoint) | a centroid | under-covers; box kept only for candidate rejection |
 | **box** | the padded pose box, no points | a pose | leaks between adjacent animals; secondary |
-| **crop-center-pixel** | the crop center `(w/2, h/2)` of an instance-centered crop | a centroid | the top-down seam (`FindInstanceMaskSAM`); needs no pose |
 
 **Product rule:** in `"pose"` mode, an instance with no visible keypoints falls
 back to its centroid as a single point. No negative points are used for
@@ -93,22 +92,10 @@ Each instance produces one `sio.PredictedSegmentationMask` on
   scores are surfaced, not dropped).
 - `instance` / `track` / `tracking_score` — populated from the source pose when
   present, so a correction is referential (which instance) not positional.
-- full-frame masks use identity `scale`/`offset`; crop-center-pixel masks pack a
-  crop-local mask at `offset=floored_top_left`, byte-identical to the trained
-  top-down segmentation layer's output.
+- full-frame masks use identity `scale`/`offset`.
 
 The original pose instances are retained alongside the masks (correction needs
 the pose).
-
-## The top-down crop-center seam
-
-`FindInstanceMaskSAM` is a drop-in twin of the trained `CenteredInstanceMaskLayer`:
-it honors the same `.predict(crops) -> Outputs(crops, instance_scores)` contract,
-so it slots straight into `TopDownSegmentationLayer._run_stage_2` and inherits the
-entire offset/scale/`to_masks`/`save` path. Each crop is prompted at its center
-pixel (the centroid the crop was centered on); because the mask comes back at
-crop-pixel resolution, `output_stride=1` and `input_scale=1`, giving
-`scale=(eff, eff)` and `offset=floored_top_left/eff`.
 
 ## Limitations
 

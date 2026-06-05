@@ -25,20 +25,16 @@ so importing this package on a default install is cheap and dependency-free.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from sleap_nn.inference.sam.backends import MaskBackend, SamBackend
-from sleap_nn.inference.sam.mask_layer import (
-    FindInstanceMaskSAM,
-    SamSegmentationLayer,
-)
+from sleap_nn.inference.sam.mask_layer import SamSegmentationLayer
 from sleap_nn.inference.sam.prompts import PROMPT_MODES, SamPrompt
 
 __all__ = [
     "MaskBackend",
     "SamBackend",
     "SamSegmentationLayer",
-    "FindInstanceMaskSAM",
     "SamPrompt",
     "PROMPT_MODES",
     "MASK_BACKENDS",
@@ -51,7 +47,7 @@ MASK_BACKENDS = ("sam", "sam3")
 
 
 def get_mask_backend(
-    mask_backend: str,
+    mask_backend: Optional[str],
     *,
     sam_checkpoint: Optional[str] = None,
     sam_model_type: str = "vit_h",
@@ -112,6 +108,7 @@ def run_sam_segmentation(
     backend: Optional[MaskBackend] = None,
     output_path: Optional[str] = None,
     overlay_path: Optional[str] = None,
+    frames: Optional[Sequence[int]] = None,
 ):
     """Predict per-instance masks for a pose ``.slp`` with a SAM backend.
 
@@ -125,9 +122,7 @@ def run_sam_segmentation(
         source: A path to a pose ``.slp``/``.pkg.slp`` (with image data) or an
             in-memory ``sio.Labels``.
         mask_backend: **Explicit** backend name (PLAN L2): ``"sam"`` / ``"sam3"``.
-        prompt_mode: ``"pose"`` / ``"centroid"`` / ``"box"`` (full-frame). The
-            crop-center-pixel mode is the top-down seam
-            (:class:`~.mask_layer.FindInstanceMaskSAM`), not this entry point.
+        prompt_mode: ``"pose"`` / ``"centroid"`` / ``"box"`` (full-frame).
         sam_checkpoint: SAM1 checkpoint path (required for ``"sam"`` unless a
             pre-built ``backend`` is passed).
         sam_model_type: SAM1 model registry key.
@@ -140,6 +135,9 @@ def run_sam_segmentation(
         output_path: Optional path to save the result embedded (``.slp``).
         overlay_path: Optional path to write a review overlay PNG of the first
             frame.
+        frames: Optional frame indices (matched against ``lf.frame_idx``) to
+            restrict masking to; ``None`` masks every labeled frame. SAM encoding
+            is the slow step, so subsetting here avoids unrequested compute.
 
     Returns:
         A new ``sio.Labels`` with per-frame ``PredictedSegmentationMask`` (and the
@@ -174,8 +172,14 @@ def run_sam_segmentation(
         disjointify_masks=disjointify_masks,
     )
 
+    if frames is not None:
+        wanted = {int(f) for f in frames}
+        source_lfs = [lf for lf in labels.labeled_frames if int(lf.frame_idx) in wanted]
+    else:
+        source_lfs = list(labels.labeled_frames)
+
     new_lfs = []
-    for lf in labels.labeled_frames:
+    for lf in source_lfs:
         frame_masks = layer.masks_for_frame(lf.image, lf.instances)
         if not frame_masks:
             continue
