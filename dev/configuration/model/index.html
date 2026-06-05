@@ -7328,7 +7328,10 @@ a fine output stride:</p>
 <li><code>fg_threshold</code> and <code>min_mask_area</code> are <strong>inference-time</strong> post-processing args
   (<code>sleap-nn infer --fg_threshold</code> / <code>--min_mask_area</code>), not training config.</li>
 <li>Train at <code>scale: 1.0</code> with input dims divisible by <code>max_stride</code> (mask resize is
-  not pad-aware in v1); geometric augmentation is skipped for masks.</li>
+  not pad-aware in v1). Geometric augmentation (rotation/scale/translate/flip)
+  co-transforms the per-instance masks with the image (nearest-neighbor,
+  re-binarized); prefer small rotation ranges since a full-frame rotation can clip
+  instances at the frame edge.</li>
 <li>See the sample config
   <a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_unet.yaml"><code>config_bottomup_segmentation_unet.yaml</code></a>.</li>
 </ul>

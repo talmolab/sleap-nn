@@ -6506,11 +6506,19 @@ and attaching it with the link set:</p>
   instance's visible nodes.</li>
 <li><strong>Supervision:</strong> only the centered instance is foreground; other instances'
   pixels inside the crop are background (no ignore region in v1).</li>
-<li><strong>Augmentation:</strong> intensity augmentation is supported; <strong>geometric augmentation
-  is skipped in v1</strong> (masks are not co-transformed with the crop) — set
-  <code>augmentation_config.geometric: null</code> and train at <code>scale: 1.0</code> with crop dims
-  divisible by <code>max_stride</code>.</li>
-<li><strong>Metrics:</strong> <code>val/fg_iou</code> (foreground IoU) is logged each epoch.</li>
+<li><strong>Augmentation:</strong> intensity augmentation is supported, and <strong>geometric
+  augmentation (rotation/scale/translate/flip) co-transforms the centered-instance
+  mask</strong> with the same affine matrix as the image+keypoints (nearest-neighbor, then
+  re-binarized) on the oversized <code>sqrt(2)</code> crop, which gives rotation headroom
+  before the re-crop. Erase/mixup stay image-only. Train at <code>scale: 1.0</code> with crop
+  dims divisible by <code>max_stride</code> (the mask resize/pad mirror the image but are not
+  sub-pixel pad-aware).</li>
+<li><strong>Metrics:</strong> <code>val/fg_iou</code> (per-crop foreground IoU; each crop is one instance, so
+  this is a per-instance mask-quality metric) is logged each epoch. With
+  <code>trainer_config.eval.enabled: true</code>, a <code>SegmentationEvaluationCallback</code> also logs
+  instance-level mask metrics (<code>eval/val/mask_mean_iou</code>, <code>mask_precision</code>,
+  <code>mask_recall</code>, <code>mask_f1</code>). Training viz overlays the GT mask on the predicted
+  foreground each epoch (<code>viz/.../gt_mask</code>).</li>
 </ul>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config_topdown_centered_instance_segmentation_unet<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>data_config.train_labels_path<span class="o">=[</span>train.pkg.slp<span class="o">]</span><span class="w"> </span>data_config.val_labels_path<span class="o">=[</span>val.pkg.slp<span class="o">]</span>
