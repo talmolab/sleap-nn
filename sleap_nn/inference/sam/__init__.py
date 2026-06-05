@@ -2,8 +2,8 @@
 
 The pivot (PLAN / README): SAM is used to *predict* per-instance masks for an
 existing pose/centroid ``.slp`` so a human can review/correct them in the GUI,
-then train — **not** to auto-generate training GT. This package is the SAM1
-prompted producer + its backend interface; SAM3, reconciliation, and the
+then train — **not** to auto-generate training GT. This package is the SAM1 +
+SAM3 prompted producers + their backend interface; reconciliation and the
 mask-native tracker land in later PRs behind the same surfaces.
 
 Public surface

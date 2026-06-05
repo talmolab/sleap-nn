@@ -641,10 +641,16 @@ class Sam3Backend(MaskBackend):
         )
 
         # Build batched per-object prompts (one image, each prompt an object).
-        # A prompt may carry points, a box, or both — forward whatever it has.
+        # Mirror SAM1 (``SamBackend.masks``): forward only a prompt's real
+        # ``box`` — never ``reject_box``, which exists solely for the
+        # candidate-rejection heuristic (:func:`_pick`). Point-only prompts
+        # (e.g. ``centroid`` mode, ``box is None``) carry no box; feeding them
+        # ``reject_box`` would hand SAM3 a whole-frame "segment everything" box
+        # and make SAM3 diverge from SAM1 on identical input.
         obj_points: List[List[List[float]]] = []
         obj_labels: List[List[int]] = []
         obj_boxes: List[List[float]] = []
+        any_box = False
         for prompt in prompts:
             pc = prompt.point_coords
             pl = prompt.point_labels
@@ -655,16 +661,23 @@ class Sam3Backend(MaskBackend):
             else:
                 obj_points.append([])
                 obj_labels.append([])
-            box = prompt.box if prompt.box is not None else prompt.reject_box
-            obj_boxes.append([float(v) for v in np.asarray(box).reshape(4)])
+            if prompt.box is not None:
+                obj_boxes.append([float(v) for v in np.asarray(prompt.box).reshape(4)])
+                any_box = True
+            else:
+                obj_boxes.append([])
 
-        inputs = self.processor(
+        processor_kwargs = dict(
             images=rgb,
             input_points=[obj_points],
             input_labels=[obj_labels],
-            input_boxes=[obj_boxes],
             return_tensors="pt",
-        ).to(self.device)
+        )
+        # Only forward boxes when a prompt actually has one (pose / box modes);
+        # a frame of point-only prompts forwards no boxes at all.
+        if any_box:
+            processor_kwargs["input_boxes"] = [obj_boxes]
+        inputs = self.processor(**processor_kwargs).to(self.device)
         with torch.no_grad():
             out = self.model(**inputs, multimask_output=True)
         post = self.processor.post_process_masks(

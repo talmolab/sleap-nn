@@ -23,7 +23,6 @@ from sleap_nn.inference.sam.backends import (
 from sleap_nn.inference.sam.prompts import (
     box_prompt,
     centroid_prompt,
-    crop_center_prompt,
     pose_prompt,
 )
 
@@ -245,6 +244,11 @@ def test_sam3_masks_batched_contract_and_cleanup():
     assert not masks[0][2, 2]
     # A single batched call over BOTH objects (the SAM3 batched path).
     assert len(proc.last_call["input_points"][0]) == 2
+    # Pose prompts carry a box -> input_boxes is forwarded, one per object, and
+    # is the prompt's real box (NOT reject_box).
+    assert proc.last_call["input_boxes"] is not None
+    assert len(proc.last_call["input_boxes"][0]) == 2
+    np.testing.assert_allclose(proc.last_call["input_boxes"][0][0], list(p0.box))
     # Mask shapes honor the (H, W) contract.
     for m in masks:
         assert m.shape == (h, w)
@@ -273,18 +277,23 @@ def test_sam3_masks_raw_score_is_not_gated():
     assert abs(scores[0] - 0.10) < 1e-5
 
 
-def test_sam3_masks_crop_center_prompt():
-    # The top-down crop-center prompt (points-only) seeds cleanup at the center.
+def test_sam3_masks_point_only_prompt_forwards_no_box():
+    # Point-only prompts (centroid mode, box is None) must NOT forward a box to
+    # SAM3. Feeding reject_box as a real box would hand SAM3 a whole-frame
+    # "segment everything" hint and make it diverge from SAM1 — a regression
+    # guard for the reject_box-as-box bug.
     h, w = 48, 48
     blob = _disk(h, w, 24, 24, 9)
     cands = np.stack([np.stack([blob])])
     backend, proc, _ = _backend(cands, np.array([[0.7]], np.float32), (h, w))
-    masks, scores = backend.masks(
-        np.zeros((h, w), np.uint8), [crop_center_prompt((h, w))]
-    )
+    prompt = centroid_prompt(np.array([24.0, 24.0]), (h, w))
+    assert prompt.box is None  # centroid mode is point-only
+    masks, scores = backend.masks(np.zeros((h, w), np.uint8), [prompt])
     assert masks[0][24, 24]
-    # The crop-center point was forwarded as this object's single positive point.
-    assert proc.last_call["input_points"][0][0] == [[w / 2.0, h / 2.0]]
+    # The centroid point was forwarded as this object's single positive point...
+    assert proc.last_call["input_points"][0][0] == [[24.0, 24.0]]
+    # ...and NO box was forwarded for the point-only prompt (the fix).
+    assert proc.last_call["input_boxes"] is None
 
 
 # ---------------------------------------------------------------------------

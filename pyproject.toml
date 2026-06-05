@@ -104,9 +104,9 @@ sam = [
 # co-install with the rest of sleap-nn — install it on its own or run the SAM3
 # image path out-of-process and assemble the `.slp` in the sleap-nn venv (the
 # two-venv handoff, PLAN §2.3 / DQ6). See docs/guides/sam-inference-segmentation.md.
+# cv2 (CLAHE / speckle cleanup) comes from the base `opencv-python` dependency.
 sam3 = [
     "transformers>=5.0",
-    "opencv-python-headless>=4.5",
 ]
 
 [dependency-groups]
