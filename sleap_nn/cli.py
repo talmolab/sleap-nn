@@ -2225,8 +2225,10 @@ def _common_inference_options(f):
             type=int,
             default=1,
             help="Dilation iterations for the fragment-merge contact test "
-            "(output-stride pixels). Default 1. Inert unless --merge_fragments "
-            "(bottom-up segmentation models only).",
+            "(output-stride pixels). Default 1; clamped to a minimum of 1 "
+            "(the grouped masks are mutually exclusive, so a zero-dilation "
+            "contact test would disable the merge). Inert unless "
+            "--merge_fragments (bottom-up segmentation models only).",
         ),
         click.option(
             "--full_res_masks/--no-full_res_masks",

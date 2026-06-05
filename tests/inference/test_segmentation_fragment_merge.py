@@ -180,6 +180,35 @@ def test_distance_gate_none_is_unchanged():
         assert ia["score"] == ib["score"]
 
 
+def test_distance_gate_none_drops_no_foreground_pixel():
+    """Independent pin of the no-op claim: ``alpha=None`` keeps EVERY fg pixel.
+
+    Stronger than comparing the default vs explicit ``None`` call (which share a
+    code path): with no gate and ``mask_cleanup=False`` every thresholded fg pixel
+    is argmin-assigned to some kept center, so the total covered area equals the
+    raw foreground count. A gate that erroneously fired on ``None`` would drop
+    pixels and break this equality; an active gate (``alpha=0.5``) provably drops
+    some (strict ``<``).
+    """
+    fg, ctr, off, *_ = _build_gate_scene()
+    common = dict(
+        fg_threshold=0.5, peak_threshold=0.2, output_stride=2, center_nms_kernel=3
+    )
+    n_fg = int((fg[0, 0] > 0.5).sum())
+
+    none = group_instances_from_offsets(
+        fg, ctr, off, distance_gate_alpha=None, **common
+    )
+    covered_none = int(sum(int(i["mask"].sum()) for i in none))
+    assert covered_none == n_fg  # nothing dropped on the default path
+
+    gated = group_instances_from_offsets(
+        fg, ctr, off, distance_gate_alpha=0.5, **common
+    )
+    covered_gated = int(sum(int(i["mask"].sum()) for i in gated))
+    assert covered_gated < n_fg  # the gate actually removed stray pixels
+
+
 # --------------------------------------------------------------------------- #
 # Fragment merge.
 # --------------------------------------------------------------------------- #
@@ -223,14 +252,91 @@ def test_merge_contact_only_over_merges_touching_pair():
 
 
 def test_merge_none_and_singleton_are_passthrough():
-    """``method='none'`` and <2 instances return the list unchanged."""
+    """``method='none'`` and <2 instances return the list unchanged (same object)."""
     instances, ctr, off, stride = _build_merge_scene()
-    same = merge_instances(
-        [dict(i) for i in instances], ctr, off, stride, method="none"
+    src = [dict(i) for i in instances]
+    same = merge_instances(src, ctr, off, stride, method="none")
+    assert same is src  # passthrough returns the input object, not a copy
+    one_src = [dict(instances[0])]
+    one = merge_instances(one_src, ctr, off, stride, method="greedy")
+    assert one is one_src and len(one) == 1
+
+
+def test_merge_edge_cases():
+    """Empty input, unknown method, and an empty-then-gated grouping are safe."""
+    instances, ctr, off, stride = _build_merge_scene()
+    # Empty instance list: no RAG, returns empty (the <=1 short-circuit).
+    assert merge_instances([], ctr, off, stride, method="greedy") == []
+    # Unknown method raises (only reachable for len>=2 past the short-circuit).
+    try:
+        merge_instances([dict(i) for i in instances], ctr, off, stride, method="bogus")
+        raise AssertionError("expected ValueError for unknown merge method")
+    except ValueError:
+        pass
+
+
+def test_group_empty_foreground_returns_empty():
+    """No foreground -> ``[]`` for both the default and the gated path (no crash)."""
+    h, w = 60, 50
+    fg = torch.zeros(1, 1, h, w)
+    ctr = torch.zeros(1, 1, h, w)
+    off = torch.zeros(1, 2, h, w)
+    common = dict(
+        fg_threshold=0.5, peak_threshold=0.2, output_stride=2, center_nms_kernel=3
     )
-    assert len(same) == len(instances)
-    one = merge_instances([dict(instances[0])], ctr, off, stride, method="greedy")
-    assert len(one) == 1
+    assert group_instances_from_offsets(fg, ctr, off, **common) == []
+    assert (
+        group_instances_from_offsets(fg, ctr, off, distance_gate_alpha=0.5, **common)
+        == []
+    )
+
+
+def _build_chain_scene(stride=2):
+    """Three colinear abutting fragments of ONE animal (a ridge across all three).
+
+    Forces the multicut to sum parallel/transitive edge costs along the chain and
+    fuse all three, exercising the cost-summation path beyond the 2-fragment case.
+    """
+    h, w = 80, 200
+    ys, xs = np.mgrid[0:h, 0:w]
+    cy = 40
+    centers = [(45, cy), (75, cy), (105, cy)]  # (cx, cy) grid, 30 apart
+    body = _ellipse(h, w, cx=75, cy=cy, rx=54, ry=10)  # spans all three
+    ctr = np.zeros((h, w), np.float64)
+    for cx, cyy in centers:
+        ctr += _gauss_peak(h, w, cx, cyy, sigma=11, amp=1.0)  # additive -> high ridge
+    ctr = np.clip(ctr, 0, 1.0)
+    off = np.zeros((2, h, w), np.float64)
+    # Split the body into three columns, each pointing at its own peak.
+    bounds = [(0, 60), (60, 90), (90, w)]
+    insts = []
+    for (cx, cyy), (x0, x1) in zip(centers, bounds):
+        m = body & (xs >= x0) & (xs < x1)
+        off[0][m] = (cx - xs[m]) * stride
+        off[1][m] = (cyy - ys[m]) * stride
+        insts.append(
+            {
+                "mask": m,
+                "center": (cx * stride + stride / 2.0, cyy * stride + stride / 2.0),
+                "score": 1.0,
+            }
+        )
+    return insts, ctr, off, stride
+
+
+def test_multicut_fuses_three_fragment_chain():
+    """Multicut collapses a 3-fragment colinear chain of one animal into one mask."""
+    insts, ctr, off, stride = _build_chain_scene()
+    assert len(insts) == 3
+    merged = merge_instances(
+        [dict(i) for i in insts], ctr, off, stride, method="multicut"
+    )
+    assert len(merged) == 1, [int(m["mask"].sum()) for m in merged]
+    # The fused mask is the union of all three fragments.
+    union = np.zeros_like(insts[0]["mask"])
+    for i in insts:
+        union |= i["mask"]
+    np.testing.assert_array_equal(merged[0]["mask"], union)
 
 
 # --------------------------------------------------------------------------- #
@@ -309,15 +415,87 @@ def test_segmentation_layer_defaults_are_byte_identical():
         assert a["offset"] == b["offset"]
 
 
-def test_segmentation_layer_gate_and_merge_change_output_when_enabled():
-    """Enabling the levers actually changes the masks (sanity that they wire in).
-
-    The gate drops the phantom instance; together gate+merge reduce the instance
-    count below the (over-segmented) baseline.
-    """
+def test_segmentation_layer_gate_changes_output_when_enabled():
+    """Enabling the distance gate drops the phantom instance at the layer level."""
     raw, info = _gate_raw_and_info()
     n_base = len(_seg_layer().postprocess(raw, info).pred_masks[0])
     n_gated = len(
         _seg_layer(distance_gate_alpha=0.5).postprocess(raw, info).pred_masks[0]
     )
     assert n_gated < n_base
+
+
+def _build_split_animal_scene(stride=2):
+    """Raw head maps for ONE animal over-segmented into two abutting halves.
+
+    Two detectable center peaks sit inside a single elongated ellipse with an
+    ADDITIVE (high-ridge) heatmap between them, so
+    :func:`group_instances_from_offsets` yields two touching fragments that the
+    valley-driven fragment-merge re-fuses into one. Returns the
+    ``SegmentationLayer.postprocess`` raw dict + info.
+    """
+    h, w = 100, 140
+    fg = np.zeros((h, w), np.float32)
+    ctr = np.zeros((h, w), np.float64)
+    off = np.zeros((2, h, w), np.float32)
+    ys, xs = np.mgrid[0:h, 0:w]
+    cx0, cy0 = 70, 50
+    ell = ((ys - cy0) / 14.0) ** 2 + ((xs - cx0) / 34.0) ** 2 <= 1.0
+    fg[ell] = 1.0
+    for cx, cy in [(60, 50), (80, 50)]:  # 20 grid apart -> two distinct peaks
+        ctr += _gauss_peak(h, w, cx, cy, sigma=8.0, amp=1.0)
+    ctr = np.clip(ctr, 0, 1.0).astype(np.float32)
+    left, right = ell & (xs < cx0), ell & (xs >= cx0)
+    off[0][left] = (60 - xs[left]) * stride
+    off[1][left] = (50 - ys[left]) * stride
+    off[0][right] = (80 - xs[right]) * stride
+    off[1][right] = (50 - ys[right]) * stride
+    raw = {
+        "SegmentationHead": torch.from_numpy(fg).reshape(1, 1, h, w),
+        "InstanceCenterHead": torch.from_numpy(ctr).reshape(1, 1, h, w),
+        "CenterOffsetHead": torch.from_numpy(off).reshape(1, 2, h, w),
+    }
+    info = PreprocInfo(
+        original_size=(h * stride, w * stride),
+        processed_size=(h * stride, w * stride),
+        eff_scale=torch.tensor([1.0]),
+        input_scale=1.0,
+        output_stride=stride,
+    )
+    return raw, info
+
+
+def test_segmentation_layer_merge_reduces_masks():
+    """``merge_fragments=True`` fuses the two split halves THROUGH the layer.
+
+    Exercises the full postprocess merge branch (the ``center_heatmap[b,0].numpy()``
+    / ``offsets[b].numpy()`` conversion + every forwarded ``merge_*`` kwarg) for
+    both agglomeration methods, and confirms the OFF default leaves the
+    over-segmented pair intact.
+    """
+    raw, info = _build_split_animal_scene()
+    n_off = len(_seg_layer(merge_fragments=False).postprocess(raw, info).pred_masks[0])
+    assert n_off == 2  # the animal is over-segmented into two fragments
+    for method in ("greedy", "multicut"):
+        n_on = len(
+            _seg_layer(merge_fragments=True, merge_method=method)
+            .postprocess(raw, info)
+            .pred_masks[0]
+        )
+        assert n_on == 1, (method, n_on)
+
+
+def test_segmentation_layer_merge_dilate_zero_still_merges():
+    """``merge_dilate=0`` is clamped to 1 so the merge is not silently disabled.
+
+    The grouped fragments are mutually exclusive; a zero-dilation contact test
+    would report no contact and skip every merge. ``_contact_fraction`` clamps to
+    at least one dilation, so the fusion still happens.
+    """
+    raw, info = _build_split_animal_scene()
+    n_on = len(
+        _seg_layer(merge_fragments=True, merge_method="greedy", merge_dilate=0)
+        .postprocess(raw, info)
+        .pred_masks[0]
+    )
+    assert n_on == 1

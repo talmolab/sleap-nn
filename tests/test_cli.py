@@ -7,7 +7,13 @@ from omegaconf import OmegaConf
 import subprocess
 from click.testing import CliRunner
 from sleap_nn.predict import run_inference
-from sleap_nn.cli import cli, print_version, parse_path_map, show_training_help
+from sleap_nn.cli import (
+    cli,
+    print_version,
+    parse_path_map,
+    show_training_help,
+    _CommaFloatTuple,
+)
 from sleap_nn import __version__
 import sleap_io as sio
 import torch
@@ -127,6 +133,37 @@ class TestParsePathMap:
             result = parse_path_map(None, None, [("/old", "C:\\new\\path")])
             assert "\\" not in result["/old"]
             assert result["/old"] == "C:/new/path"
+
+
+class TestCommaFloatTuple:
+    """Tests for the ``--merge_thresholds`` comma-separated-float Click type."""
+
+    def test_parses_comma_separated_floats(self):
+        """A CLI string is parsed into a tuple of floats."""
+        assert _CommaFloatTuple().convert("0.85,0.6,0.4", None, None) == (
+            0.85,
+            0.6,
+            0.4,
+        )
+
+    def test_single_value_and_whitespace(self):
+        """A single value parses to a 1-tuple; surrounding blanks are ignored."""
+        assert _CommaFloatTuple().convert("0.5", None, None) == (0.5,)
+        assert _CommaFloatTuple().convert("0.85, 0.4,", None, None) == (0.85, 0.4)
+
+    def test_passthrough_default_tuple_and_none(self):
+        """An already-parsed tuple/list (the option default) and ``None`` pass through."""
+        t = _CommaFloatTuple()
+        assert t.convert((0.85, 0.6, 0.4), None, None) == (0.85, 0.6, 0.4)
+        assert t.convert([0.85, 0.6], None, None) == (0.85, 0.6)
+        assert t.convert(None, None, None) is None
+
+    def test_invalid_raises_bad_parameter(self):
+        """A non-numeric token fails with a Click usage error."""
+        import click
+
+        with pytest.raises(click.exceptions.BadParameter):
+            _CommaFloatTuple().convert("0.85,abc", None, None)
 
 
 class TestShowTrainingHelp:

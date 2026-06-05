@@ -339,15 +339,21 @@ def _contact_fraction(a: np.ndarray, b: np.ndarray, dilate_iters: int = 1) -> fl
     """Symmetric touch fraction of two masks: 0 if their dilations do not touch.
 
     ``(|dilate(A) & B| + |A & dilate(B)|) / min(area_a, area_b)``.
+
+    ``dilate_iters`` is clamped to at least ``1``: the candidate masks coming out
+    of :func:`group_instances_from_offsets` are MUTUALLY EXCLUSIVE (every fg pixel
+    is argmin-assigned to exactly one center), so two abutting fragments of one
+    animal never overlap. A raw-overlap contact test (no dilation) would therefore
+    always report zero contact and silently disable the entire fragment-merge for
+    exactly the split-animal case it targets. At least one dilation is required
+    for the touch test to be meaningful.
     """
     from scipy.ndimage import binary_dilation
 
-    if dilate_iters <= 0:
-        overlap = int((a & b).sum()) * 2
-    else:
-        da = binary_dilation(a, iterations=dilate_iters)
-        db = binary_dilation(b, iterations=dilate_iters)
-        overlap = int((da & b).sum() + (a & db).sum())
+    iters = max(1, int(dilate_iters))
+    da = binary_dilation(a, iterations=iters)
+    db = binary_dilation(b, iterations=iters)
+    overlap = int((da & b).sum() + (a & db).sum())
     if overlap == 0:
         return 0.0
     denom = max(1, min(int(a.sum()), int(b.sum())))
@@ -443,13 +449,18 @@ def _build_merge_rag(
             if wsum <= 0:
                 edges[(i, j)] = contact_gate
                 continue
+            # Invert the grid->pixel convention exactly (``px = grid*stride +
+            # stride/2``; see line ~160 and ``_mask_pred_centers``) to recover the
+            # grid coordinate the heatmap is indexed in. A bare ``center / stride``
+            # would leave a half-cell (+0.5) offset on the sampled center-line.
+            half = output_stride / 2.0
             ca = (
-                instances[i]["center"][0] / output_stride,
-                instances[i]["center"][1] / output_stride,
+                (instances[i]["center"][0] - half) / output_stride,
+                (instances[i]["center"][1] - half) / output_stride,
             )
             cb = (
-                instances[j]["center"][0] / output_stride,
-                instances[j]["center"][1] / output_stride,
+                (instances[j]["center"][0] - half) / output_stride,
+                (instances[j]["center"][1] - half) / output_stride,
             )
             ridge = _center_valley_ridge(
                 center_heatmap,
