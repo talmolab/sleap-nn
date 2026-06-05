@@ -443,6 +443,63 @@ def _build_topdown_segmentation_layer(
     )
 
 
+def _build_sam_segmentation_layer(
+    predictor: Any,
+    device: str,
+    mask_backend: str,
+    *,
+    sam_checkpoint: Optional[str] = None,
+    sam_model_type: str = "vit_h",
+    prompt_mode: str = "crop_center",
+) -> TopDownSegmentationLayer:
+    """Compose a centroid stage + a SAM crop-center stage-2 (the top-down seam).
+
+    Reuses :class:`TopDownSegmentationLayer` verbatim — only the stage-2 layer is
+    swapped from the trained ``CenteredInstanceMaskLayer`` to
+    :class:`~sleap_nn.inference.sam.mask_layer.FindInstanceMaskSAM`, which prompts
+    each crop at its center pixel (PLAN §2.1, P2). The whole offset/scale/
+    ``to_masks``/``save`` path is inherited. ``mask_backend`` is **explicit /
+    required** (PLAN L2); the SAM import is lazy (inside the backend).
+
+    Args:
+        predictor: The :class:`Predictor` carrying the inference model (a centroid
+            stage; the seg/instance stage is replaced by SAM and may be absent
+            via the GT-centroid fallback).
+        device: Torch device for the SAM backend.
+        mask_backend: Explicit backend name (``"sam"`` / ``"sam3"``).
+        sam_checkpoint: SAM1 checkpoint path (required for ``"sam"``).
+        sam_model_type: SAM1 model registry key.
+        prompt_mode: The per-crop prompt mode; ``"crop_center"`` (the seam) is the
+            default and only mode wired here in PR-A.
+
+    Returns:
+        A composed :class:`TopDownSegmentationLayer` with a SAM stage-2.
+    """
+    from sleap_nn.inference.sam import get_mask_backend
+    from sleap_nn.inference.sam.mask_layer import FindInstanceMaskSAM
+
+    inf = predictor.inference_model
+    centroid_model = inf.centroid_crop
+    backend = get_mask_backend(
+        mask_backend,
+        sam_checkpoint=sam_checkpoint,
+        sam_model_type=sam_model_type,
+        device=device,
+    )
+    mask_layer = FindInstanceMaskSAM(backend)
+    if getattr(centroid_model, "use_gt_centroids", False):
+        centroid_layer = _build_centroid_layer_gt_only(predictor, None)
+    else:
+        centroid_layer = _build_centroid_layer(centroid_model, device, assets=predictor)
+    crop_h, crop_w = centroid_model.crop_hw
+    return TopDownSegmentationLayer(
+        centroid_layer=centroid_layer,
+        centered_instance_layer=mask_layer,
+        crop_size=(crop_h, crop_w),
+        mask_output="mask",
+    )
+
+
 def _select_layer(assets: Any, model_types: List[str], device: str):
     """Dispatch on detected model types and build the appropriate layer composition."""
     if "single_instance" in model_types:

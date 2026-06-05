@@ -89,6 +89,14 @@ tensorrt = [
     "tensorrt>=10.13.0; sys_platform == 'linux' or sys_platform == 'win32'",
     "torch-tensorrt>=2.5.0; sys_platform == 'linux' or sys_platform == 'win32'",
 ]
+# SAM1 prompted-mask inference (`mask_backend="sam"`). Lazy: imported only inside
+# the SAM backend, so the default install never needs it. ViT-H is Apache-2.0 and
+# ungated; download a checkpoint (e.g. sam_vit_h_4b8939.pth) separately and pass
+# it via `sam_checkpoint=`.
+sam = [
+    "segment-anything>=1.0",
+    "opencv-python-headless>=4.5",
+]
 
 [dependency-groups]
 # PEP 735: Dev-only dependencies (`dev` is installed automatically by `uv sync`)
