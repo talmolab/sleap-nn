@@ -282,21 +282,23 @@ def test_predict_sam_short_circuit_success(minimal_instance, tmp_path):
     assert any(lf.masks for lf in reloaded.labeled_frames)
 
 
-def test_predict_sam_slp_output_embeds_images(minimal_instance, tmp_path):
-    """§3.5a: the predict() SAM ``.slp`` output embeds images for review.
+def test_predict_sam_slp_output_not_embedded(minimal_instance, tmp_path):
+    """§3.5a: the predict() SAM ``.slp`` output NEVER re-embeds images.
 
-    A ``.pkg.slp`` source must round-trip with image data so a reviewer can open
-    the output without the original media. With ``output_format="slp"`` (default)
-    predict() routes ``output_path`` into ``run_sam_segmentation``, which saves
-    embedded (``labels.save(embed=True)``).
+    Mirroring the regular prediction path, the output backreferences the source
+    media via provenance instead of copying pixels (re-embedding is large and
+    wasteful, and a ``.pkg.slp`` input stays matchable to its source videos
+    regardless). The masks always serialize; only the image bytes are not
+    duplicated.
     """
-    out_path = tmp_path / "embedded.slp"
+    out_path = tmp_path / "out.slp"
+    src_pkg = Path(str(minimal_instance))
     fb = FakeBackend(_prompt_disk())
 
     orig = sam_pkg.get_mask_backend
     sam_pkg.get_mask_backend = lambda *a, **k: fb
     try:
-        # Pass the .pkg.slp path directly so the embed has real source frames.
+        # Pass the .pkg.slp path directly (the common SAM input: embedded frames).
         predict(
             str(minimal_instance),
             mask_backend="sam",
@@ -309,12 +311,14 @@ def test_predict_sam_slp_output_embeds_images(minimal_instance, tmp_path):
 
     assert out_path.exists()
     reloaded = sio.load_slp(out_path.as_posix())
-    # Embedded: the video now points at the output .slp itself (HDF5-embedded),
-    # not back at the original source media, and the pixels reload.
+    # Masks serialize into the .slp ...
+    assert any(lf.masks for lf in reloaded.labeled_frames)
+    # ... but images are NOT re-embedded: the video does not point at the output
+    # itself (no self-embed), and the output is smaller than the embedded input
+    # (no pixel duplication).
     rv = reloaded.videos[0]
-    assert Path(rv.filename).resolve() == out_path.resolve()
-    img = reloaded.labeled_frames[0].image
-    assert img is not None and img.size > 0
+    assert Path(rv.filename).resolve() != out_path.resolve()
+    assert out_path.stat().st_size < src_pkg.stat().st_size
 
 
 def test_predict_sam_forwards_sam3_model_id(minimal_instance, tmp_path):
@@ -352,15 +356,15 @@ def test_predict_sam_forwards_sam3_model_id(minimal_instance, tmp_path):
 
 
 @pytest.mark.parametrize("output_format", ["analysis_h5", "both"])
-def test_predict_sam_output_format_h5(minimal_instance, tmp_path, output_format):
-    """§3.5a: ``analysis_h5``/``both`` write the .h5 (+ embedded .slp for ``both``).
+def test_predict_sam_rejects_non_slp_output_format(
+    minimal_instance, tmp_path, output_format
+):
+    """The SAM path rejects output formats that cannot represent masks.
 
-    Guards the no-double-save + no-embed-regression invariants of the SAM
-    output-format branch (run.py): ``analysis_h5`` writes ONLY the analysis HDF5
-    (no .slp); ``both`` writes the analysis HDF5 *and* a single embedded .slp
-    (the SAM branch hands ``run_sam_segmentation`` the embed save and passes only
-    ``output_format="analysis_h5"`` to ``save_predictions``, so the .slp is never
-    written twice / non-embedded).
+    The SLEAP Analysis HDF5 format stores poses/tracks, not
+    ``PredictedSegmentationMask`` — requesting ``analysis_h5``/``both`` would
+    silently drop the masks (the actual output), so predict() raises instead of
+    writing a mask-less ``.h5``.
     """
     out_path = tmp_path / "p.slp"
     fb = FakeBackend(_prompt_disk())
@@ -368,30 +372,21 @@ def test_predict_sam_output_format_h5(minimal_instance, tmp_path, output_format)
     orig = sam_pkg.get_mask_backend
     sam_pkg.get_mask_backend = lambda *a, **k: fb
     try:
-        # Pass the .pkg.slp path directly so a "both" embed has real frames.
-        predict(
-            str(minimal_instance),
-            mask_backend="sam",
-            device="cpu",
-            sam_prompt_mode="pose",
-            output_path=out_path,
-            output_format=output_format,
-        )
+        with pytest.raises(ValueError, match="only supports output_format='slp'"):
+            predict(
+                str(minimal_instance),
+                mask_backend="sam",
+                device="cpu",
+                sam_prompt_mode="pose",
+                output_path=out_path,
+                output_format=output_format,
+            )
     finally:
         sam_pkg.get_mask_backend = orig
 
-    # The analysis HDF5 is written for both formats.
-    assert list(tmp_path.glob("*.analysis.h5")), "analysis HDF5 was not written"
-    if output_format == "both":
-        # "both" also writes an embedded .slp (video points at the output itself).
-        assert out_path.exists()
-        reloaded = sio.load_slp(out_path.as_posix())
-        assert Path(reloaded.videos[0].filename).resolve() == out_path.resolve()
-        img = reloaded.labeled_frames[0].image
-        assert img is not None and img.size > 0
-    else:
-        # "analysis_h5" writes ONLY the .h5 — no .slp (matches the legacy path).
-        assert not out_path.exists()
+    # Nothing was written (we rejected before producing any output).
+    assert not out_path.exists()
+    assert not list(tmp_path.glob("*.analysis.h5"))
 
 
 def test_predict_sam_forwards_kwargs(minimal_instance, tmp_path, monkeypatch):

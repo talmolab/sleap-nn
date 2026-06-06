@@ -16,8 +16,8 @@ Public surface
 * :func:`run_sam_segmentation` — end-to-end orchestration: load a pose ``.slp``,
   run the chosen backend with the chosen prompt mode, emit
   ``sio.PredictedSegmentationMask`` (raw score + ``instance=``/``track=``
-  populated, PLAN L8) onto each frame, and optionally save an embedded ``.slp``
-  + a review overlay PNG.
+  populated, PLAN L8) onto each frame, and optionally save the ``.slp``
+  (backreferencing the input's images, not re-embedding) + a review overlay PNG.
 * :func:`retrack` (+ :mod:`~sleap_nn.inference.sam.reconciliation` primitives) —
   the torch-less "refine existing tracks" path: correct an existing
   pose/centroid tracker's identities from identity-consistent per-frame masks.
@@ -179,7 +179,11 @@ def run_sam_segmentation(
         backend: A pre-built :class:`~.backends.MaskBackend` to use directly
             (skips loading); when given, ``mask_backend`` is still validated for
             the name but the checkpoint/device args are ignored.
-        output_path: Optional path to save the result embedded (``.slp``).
+        output_path: Optional ``.slp`` path to save the result to. Saved like the
+            regular prediction path (``labels.save``): images are **never**
+            re-embedded — the output backreferences the source media via
+            provenance, so a ``.pkg.slp`` input stays matchable to its source
+            videos without bloating the output.
         overlay_path: Optional path to write a review overlay PNG of the first
             frame.
         frames: Optional frame indices (matched against ``lf.frame_idx``) to
@@ -256,7 +260,15 @@ def run_sam_segmentation(
     if output_path is not None:
         out_path = Path(output_path).expanduser()
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out.save(out_path.as_posix(), embed=True)
+        # Save exactly like the regular prediction path (``labels.save(path)``):
+        # NEVER re-embed images — that is large and wasteful. The output
+        # backreferences the source media via provenance (sleap-io's default
+        # ``embed=False``). A ``.pkg.slp`` input is typically aggregated training
+        # data; its frames stay matchable to the source videos (by comparing
+        # source-video provenance) without copying pixels into the output, even
+        # if those videos are no longer on disk. The masks always serialize into
+        # the ``.slp`` regardless.
+        out.save(out_path.as_posix())
     if overlay_path is not None:
         # Flag masks below the backend's per-model nominal predicted-IoU floor
         # (SAM1 0.88 / SAM3 0.5) so the review overlay surfaces low-confidence

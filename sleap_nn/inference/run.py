@@ -361,25 +361,19 @@ def predict(
             )
         from sleap_nn.inference.sam import run_sam_segmentation
 
-        # Embed asymmetry fix (§3.5a): the SAM ``.slp`` output must embed images
-        # so a ``.pkg.slp`` source can be reviewed/corrected in the GUI without
-        # the original frames. ``run_sam_segmentation`` saves embedded
-        # (``labels.save(embed=True)``) when handed ``output_path``, while a plain
-        # ``save_predictions`` would not — so for the ``slp``/``both`` formats we
-        # pass ``output_path`` into ``run_sam_segmentation`` and let it embed.
-        # The analysis HDF5 (``analysis_h5``/``both``) is still produced via
-        # ``save_predictions`` so no output format regresses.
-        sam_output_format = str(output_format).lower()
-        if output_path is not None and sam_output_format not in (
-            "slp",
-            "analysis_h5",
-            "both",
-        ):
+        # Segmentation masks only serialize to ``.slp``: the SLEAP Analysis HDF5
+        # format stores poses/tracks, not ``PredictedSegmentationMask``, so it
+        # would silently drop the masks (the actual output). Reject it up front
+        # rather than write a mask-less ``.h5``.
+        if output_path is not None and str(output_format).lower() != "slp":
             raise ValueError(
-                f"Invalid output_format: {output_format!r}. Must be one of "
-                "('slp', 'analysis_h5', 'both')."
+                f"mask_backend output only supports output_format='slp' (got "
+                f"{output_format!r}); the SLEAP Analysis HDF5 format stores "
+                "poses/tracks, not segmentation masks."
             )
-        sam_save_slp = output_path if sam_output_format in ("slp", "both") else None
+        # Save handling lives in ``run_sam_segmentation``, which mirrors the
+        # regular prediction path: it backreferences the source media via
+        # provenance and never re-embeds images (small output; see its docs).
         labels = run_sam_segmentation(
             source,
             mask_backend,
@@ -390,12 +384,10 @@ def predict(
             device=device,
             anchor_ind=sam_anchor_ind,
             disjointify_masks=sam_disjointify_masks,
-            output_path=sam_save_slp,
+            output_path=output_path,
             overlay_path=overlay_path,
             frames=frames,
         )
-        if output_path is not None and sam_output_format in ("analysis_h5", "both"):
-            save_predictions(labels, output_path, output_format="analysis_h5")
         return labels
 
     if model_paths and export_dir:
