@@ -533,6 +533,14 @@
          <lastmod>2026-06-06</lastmod>
     </url>
     <url>
+         <loc>https://nn.sleap.ai/dev/api/inference/sam/reconciliation/</loc>
+         <lastmod>2026-06-06</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/inference/sam/retrack/</loc>
+         <lastmod>2026-06-06</lastmod>
+    </url>
+    <url>
          <loc>https://nn.sleap.ai/dev/api/tracking/</loc>
          <lastmod>2026-06-06</lastmod>
     </url>
