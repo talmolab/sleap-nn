@@ -479,12 +479,13 @@ def find_frame_pairs(
     # Use sleap-io's robust video matching API (added in 0.6.2)
     # The match() method returns a MatchResult with video_map: {pred_video: gt_video}
     #
-    # NOTE: sleap-io's AUTO matcher shape-rejects candidates before its definitive
-    # is_same_file check, so it fails to pair an embedded-subset GT video with its
-    # restored-original prediction counterpart (same file, different frame count) --
-    # e.g. post-training eval on an embedded .pkg.slp logs "Empty Frame Pairs". This
-    # is fixed upstream in talmolab/sleap-io#473; pull it in via the sleap-io pin
-    # rather than working around it here.
+    # NOTE: sleap-io's AUTO matcher previously shape-rejected candidates before its
+    # definitive is_same_file check, so it failed to pair an embedded-subset GT video
+    # with its restored-original prediction counterpart (same file, different frame
+    # count) -- e.g. post-training eval on an embedded .pkg.slp logged "Empty Frame
+    # Pairs". This is resolved by the pinned sleap-io (talmolab/sleap-io#473/#476),
+    # whose AUTO matcher resolves effective shape through the source_video chain, so
+    # the match here works with no workaround.
     match_result = labels_gt.match(labels_pr)
 
     frame_pairs = []
