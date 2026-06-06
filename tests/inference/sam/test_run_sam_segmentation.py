@@ -18,7 +18,10 @@ with its GT ``sio.Instance`` poses rebuilt as ``sio.PredictedInstance`` so the
 PLAN-L8 ``mask.instance`` pairing is exercised.
 """
 
+from pathlib import Path
+
 import numpy as np
+import pytest
 
 import sleap_io as sio
 
@@ -149,6 +152,51 @@ def test_run_sam_segmentation_writes_output_slp(minimal_instance, tmp_path):
     assert all(isinstance(m, sio.PredictedSegmentationMask) for m in rmasks)
 
 
+def test_run_sam_segmentation_clean_empty_frames(minimal_instance):
+    """clean_empty_frames drops 0-instance frames but keeps posed (mask-bearing) ones."""
+    src = sio.load_slp(str(minimal_instance))
+    skel = src.skeletons[0]
+    gt = src.labeled_frames[0]
+    preds = [
+        sio.PredictedInstance.from_numpy(
+            points_data=i.numpy()[:, :2],
+            skeleton=skel,
+            point_scores=np.ones(i.numpy().shape[0]),
+            score=1.0,
+        )
+        for i in gt.instances
+    ]
+    posed = sio.LabeledFrame(video=gt.video, frame_idx=gt.frame_idx, instances=preds)
+    # A 0-instance frame (reuse the embedded frame_idx so lf.image still resolves).
+    empty = sio.LabeledFrame(video=gt.video, frame_idx=gt.frame_idx, instances=[])
+    labels = sio.Labels(
+        videos=list(src.videos), skeletons=[skel], labeled_frames=[posed, empty]
+    )
+
+    # Default keeps the empty frame (matches the regular path's default).
+    kept = run_sam_segmentation(
+        labels,
+        "sam",
+        backend=FakeBackend(_prompt_disk()),
+        prompt_mode="pose",
+        clean_empty_frames=False,
+    )
+    assert len(kept.labeled_frames) == 2
+
+    # clean_empty_frames=True drops only the 0-instance frame; the posed (and now
+    # mask-bearing) frame is kept.
+    cleaned = run_sam_segmentation(
+        labels,
+        "sam",
+        backend=FakeBackend(_prompt_disk()),
+        prompt_mode="pose",
+        clean_empty_frames=True,
+    )
+    assert len(cleaned.labeled_frames) == 1
+    assert cleaned.labeled_frames[0].instances
+    assert cleaned.labeled_frames[0].masks
+
+
 def test_run_sam_segmentation_writes_overlay_png(minimal_instance, tmp_path):
     """``overlay_path`` writes a review PNG to disk."""
     labels = _pose_labels(minimal_instance)
@@ -198,9 +246,14 @@ def test_run_sam_segmentation_frames_subset_nonexistent(minimal_instance):
     assert out.labeled_frames == []
 
 
-def test_run_sam_segmentation_skips_frames_without_prompt(minimal_instance):
-    """A frame whose instances yield no prompt (all-NaN kpts) is skipped."""
-    # A frame whose only instance has all-NaN keypoints yields no prompt -> skip.
+def test_run_sam_segmentation_emits_frame_without_prompt(minimal_instance):
+    """A frame whose instances yield no prompt (all-NaN kpts) is emitted, masks=[].
+
+    §3.5b: for review continuity the frame is retained (poses preserved) with an
+    empty ``masks=[]`` rather than dropped when SAM yields no mask.
+    """
+    # A frame whose only instance has all-NaN keypoints yields no prompt -> no
+    # mask, but the frame (and its pose) must survive.
     src = sio.load_slp(str(minimal_instance))
     skel = src.skeletons[0]
     gt_lf = src.labeled_frames[0]
@@ -219,7 +272,11 @@ def test_run_sam_segmentation_skips_frames_without_prompt(minimal_instance):
     out = run_sam_segmentation(
         labels, "sam", backend=FakeBackend(_prompt_disk()), prompt_mode="pose"
     )
-    assert out.labeled_frames == []
+    assert len(out.labeled_frames) == 1
+    out_lf = out.labeled_frames[0]
+    assert int(out_lf.frame_idx) == int(gt_lf.frame_idx)
+    assert list(out_lf.masks) == []  # no mask emitted...
+    assert len(out_lf.instances) == 1  # ...but the pose is retained
 
 
 def test_run_sam_segmentation_disjointify_multi_instance(minimal_instance):
@@ -268,6 +325,113 @@ def test_predict_sam_short_circuit_success(minimal_instance, tmp_path):
     assert out_path.exists()
     reloaded = sio.load_slp(out_path.as_posix())
     assert any(lf.masks for lf in reloaded.labeled_frames)
+
+
+def test_predict_sam_slp_output_not_embedded(minimal_instance, tmp_path):
+    """§3.5a: the predict() SAM ``.slp`` output NEVER re-embeds images.
+
+    Mirroring the regular prediction path, the output backreferences the source
+    media via provenance instead of copying pixels (re-embedding is large and
+    wasteful, and a ``.pkg.slp`` input stays matchable to its source videos
+    regardless). The masks always serialize; only the image bytes are not
+    duplicated.
+    """
+    out_path = tmp_path / "out.slp"
+    src_pkg = Path(str(minimal_instance))
+    fb = FakeBackend(_prompt_disk())
+
+    orig = sam_pkg.get_mask_backend
+    sam_pkg.get_mask_backend = lambda *a, **k: fb
+    try:
+        # Pass the .pkg.slp path directly (the common SAM input: embedded frames).
+        predict(
+            str(minimal_instance),
+            mask_backend="sam",
+            device="cpu",
+            sam_prompt_mode="pose",
+            output_path=out_path,
+        )
+    finally:
+        sam_pkg.get_mask_backend = orig
+
+    assert out_path.exists()
+    reloaded = sio.load_slp(out_path.as_posix())
+    # Masks serialize into the .slp ...
+    assert any(lf.masks for lf in reloaded.labeled_frames)
+    # ... but images are NOT re-embedded: the video does not point at the output
+    # itself (no self-embed), and the output is smaller than the embedded input
+    # (no pixel duplication).
+    rv = reloaded.videos[0]
+    assert Path(rv.filename).resolve() != out_path.resolve()
+    assert out_path.stat().st_size < src_pkg.stat().st_size
+
+
+def test_predict_sam_forwards_sam3_model_id(minimal_instance, tmp_path):
+    """``sam3_model_id`` flows predict() -> run_sam_segmentation -> get_mask_backend.
+
+    §3.2: capture the ``sam3_model_id`` reaching ``get_mask_backend`` (the real
+    backend builder) to prove the value is threaded end-to-end. No real SAM3 is
+    loaded — ``get_mask_backend`` is monkeypatched to a fake.
+    """
+    labels = _pose_labels(minimal_instance)
+    captured = {}
+
+    orig = sam_pkg.get_mask_backend
+
+    def fake_get_mask_backend(mask_backend, **kwargs):
+        captured["mask_backend"] = mask_backend
+        captured["sam3_model_id"] = kwargs.get("sam3_model_id")
+        return FakeBackend(_prompt_disk())
+
+    sam_pkg.get_mask_backend = fake_get_mask_backend
+    try:
+        predict(
+            labels,
+            mask_backend="sam3",
+            device="cpu",
+            sam_prompt_mode="pose",
+            sam3_model_id="acme/custom-sam3",
+            output_path=tmp_path / "s3.slp",
+        )
+    finally:
+        sam_pkg.get_mask_backend = orig
+
+    assert captured["mask_backend"] == "sam3"
+    assert captured["sam3_model_id"] == "acme/custom-sam3"
+
+
+@pytest.mark.parametrize("output_format", ["analysis_h5", "both"])
+def test_predict_sam_rejects_non_slp_output_format(
+    minimal_instance, tmp_path, output_format
+):
+    """The SAM path rejects output formats that cannot represent masks.
+
+    The SLEAP Analysis HDF5 format stores poses/tracks, not
+    ``PredictedSegmentationMask`` — requesting ``analysis_h5``/``both`` would
+    silently drop the masks (the actual output), so predict() raises instead of
+    writing a mask-less ``.h5``.
+    """
+    out_path = tmp_path / "p.slp"
+    fb = FakeBackend(_prompt_disk())
+
+    orig = sam_pkg.get_mask_backend
+    sam_pkg.get_mask_backend = lambda *a, **k: fb
+    try:
+        with pytest.raises(ValueError, match="only supports output_format='slp'"):
+            predict(
+                str(minimal_instance),
+                mask_backend="sam",
+                device="cpu",
+                sam_prompt_mode="pose",
+                output_path=out_path,
+                output_format=output_format,
+            )
+    finally:
+        sam_pkg.get_mask_backend = orig
+
+    # Nothing was written (we rejected before producing any output).
+    assert not out_path.exists()
+    assert not list(tmp_path.glob("*.analysis.h5"))
 
 
 def test_predict_sam_forwards_kwargs(minimal_instance, tmp_path, monkeypatch):

@@ -215,6 +215,7 @@ def predict(
     mask_backend: Optional[str] = None,
     sam_checkpoint: Optional[str] = None,
     sam_model_type: str = "vit_h",
+    sam3_model_id: str = "facebook/sam3",
     sam_prompt_mode: str = "pose",
     sam_anchor_ind: Optional[int] = None,
     sam_disjointify_masks: bool = False,
@@ -322,6 +323,8 @@ def predict(
             (the default) leaves the model-driven path untouched.
         sam_checkpoint: SAM1 checkpoint path (required for ``mask_backend="sam"``).
         sam_model_type: SAM1 model registry key.
+        sam3_model_id: Hugging Face model id for the gated SAM3 path
+            (``mask_backend="sam3"``); defaults to ``"facebook/sam3"``.
         sam_prompt_mode: ``"pose"`` / ``"centroid"`` / ``"box"`` (PLAN §2.2).
         sam_anchor_ind: Centroid anchor node index for ``sam_prompt_mode="centroid"``.
         sam_disjointify_masks: Make per-frame masks disjoint when >=2 instances.
@@ -383,20 +386,34 @@ def predict(
             )
         from sleap_nn.inference.sam import run_sam_segmentation
 
+        # Segmentation masks only serialize to ``.slp``: the SLEAP Analysis HDF5
+        # format stores poses/tracks, not ``PredictedSegmentationMask``, so it
+        # would silently drop the masks (the actual output). Reject it up front
+        # rather than write a mask-less ``.h5``.
+        if output_path is not None and str(output_format).lower() != "slp":
+            raise ValueError(
+                f"mask_backend output only supports output_format='slp' (got "
+                f"{output_format!r}); the SLEAP Analysis HDF5 format stores "
+                "poses/tracks, not segmentation masks."
+            )
+        # Save handling lives in ``run_sam_segmentation``, which mirrors the
+        # regular prediction path: it backreferences the source media via
+        # provenance and never re-embeds images (small output; see its docs).
         labels = run_sam_segmentation(
             source,
             mask_backend,
             prompt_mode=sam_prompt_mode,
             sam_checkpoint=sam_checkpoint,
             sam_model_type=sam_model_type,
+            sam3_model_id=sam3_model_id,
             device=device,
             anchor_ind=sam_anchor_ind,
             disjointify_masks=sam_disjointify_masks,
+            output_path=output_path,
             overlay_path=overlay_path,
             frames=frames,
+            clean_empty_frames=clean_empty_frames,
         )
-        if output_path is not None:
-            save_predictions(labels, output_path, output_format=output_format)
         return labels
 
     if model_paths and export_dir:

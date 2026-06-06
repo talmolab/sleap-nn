@@ -16,8 +16,8 @@ Public surface
 * :func:`run_sam_segmentation` — end-to-end orchestration: load a pose ``.slp``,
   run the chosen backend with the chosen prompt mode, emit
   ``sio.PredictedSegmentationMask`` (raw score + ``instance=``/``track=``
-  populated, PLAN L8) onto each frame, and optionally save an embedded ``.slp``
-  + a review overlay PNG.
+  populated, PLAN L8) onto each frame, and optionally save the ``.slp``
+  (backreferencing the input's images, not re-embedding) + a review overlay PNG.
 * :func:`retrack` (+ :mod:`~sleap_nn.inference.sam.reconciliation` primitives) —
   the torch-less "refine existing tracks" path: correct an existing
   pose/centroid tracker's identities from identity-consistent per-frame masks.
@@ -155,6 +155,7 @@ def run_sam_segmentation(
     output_path: Optional[str] = None,
     overlay_path: Optional[str] = None,
     frames: Optional[Sequence[int]] = None,
+    clean_empty_frames: bool = False,
 ):
     """Predict per-instance masks for a pose ``.slp`` with a SAM backend.
 
@@ -179,12 +180,21 @@ def run_sam_segmentation(
         backend: A pre-built :class:`~.backends.MaskBackend` to use directly
             (skips loading); when given, ``mask_backend`` is still validated for
             the name but the checkpoint/device args are ignored.
-        output_path: Optional path to save the result embedded (``.slp``).
+        output_path: Optional ``.slp`` path to save the result to. Saved like the
+            regular prediction path (``labels.save``): images are **never**
+            re-embedded — the output backreferences the source media via
+            provenance, so a ``.pkg.slp`` input stays matchable to its source
+            videos without bloating the output.
         overlay_path: Optional path to write a review overlay PNG of the first
             frame.
         frames: Optional frame indices (matched against ``lf.frame_idx``) to
             restrict masking to; ``None`` masks every labeled frame. SAM encoding
             is the slow step, so subsetting here avoids unrequested compute.
+        clean_empty_frames: If ``True``, drop fully-empty output frames (no
+            instances and no masks) before saving/returning, mirroring the
+            regular prediction path's ``--no_empty_frames``. A frame that has
+            poses but no mask is NOT empty (its instances are retained) and is
+            kept.
 
     Returns:
         A new ``sio.Labels`` with per-frame ``PredictedSegmentationMask`` (and the
@@ -229,10 +239,15 @@ def run_sam_segmentation(
     new_lfs = []
     for lf in source_lfs:
         frame_masks = layer.masks_for_frame(lf.image, lf.instances)
-        if not frame_masks:
-            continue
-        # Reuse the standard packaging path (build_predicted_segmentation_mask).
-        masks = Outputs(pred_masks=[frame_masks]).to_masks(0)
+        # Always emit the frame for review continuity (§3.5b): when SAM yields no
+        # mask, keep the frame (video/frame_idx/instances unchanged) with an empty
+        # ``masks=[]`` rather than dropping it — the poses must survive for
+        # correction, and a missing frame would silently disappear from review.
+        if frame_masks:
+            # Reuse the standard packaging path (build_predicted_segmentation_mask).
+            masks = Outputs(pred_masks=[frame_masks]).to_masks(0)
+        else:
+            masks = []
         new_lfs.append(
             sio.LabeledFrame(
                 video=lf.video,
@@ -248,11 +263,28 @@ def run_sam_segmentation(
         labeled_frames=new_lfs,
     )
 
+    if clean_empty_frames:
+        # Mirror the regular path's --no_empty_frames: drop frames with no
+        # annotations. A posed-but-mask-less frame keeps its instances and is
+        # NOT dropped; only fully-empty source frames are removed.
+        out.clean(frames=True, skeletons=False)
+
     if output_path is not None:
         out_path = Path(output_path).expanduser()
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out.save(out_path.as_posix(), embed=True)
+        # Save exactly like the regular prediction path (``labels.save(path)``):
+        # NEVER re-embed images — that is large and wasteful. The output
+        # backreferences the source media via provenance (sleap-io's default
+        # ``embed=False``). A ``.pkg.slp`` input is typically aggregated training
+        # data; its frames stay matchable to the source videos (by comparing
+        # source-video provenance) without copying pixels into the output, even
+        # if those videos are no longer on disk. The masks always serialize into
+        # the ``.slp`` regardless.
+        out.save(out_path.as_posix())
     if overlay_path is not None:
-        save_mask_overlay(out, overlay_path)
+        # Flag masks below the backend's per-model nominal predicted-IoU floor
+        # (SAM1 0.88 / SAM3 0.5) so the review overlay surfaces low-confidence
+        # masks a human should scrutinize (§3.3 — consume pred_iou_min).
+        save_mask_overlay(out, overlay_path, low_score_threshold=backend.pred_iou_min)
 
     return out

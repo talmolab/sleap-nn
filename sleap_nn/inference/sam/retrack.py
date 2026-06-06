@@ -12,8 +12,8 @@ prototype P3) is:
 
 1. **Match.** At each frame, Hungarian-match poses to masks by keypoints-inside
    (:class:`~sleap_nn.inference.sam.reconciliation.IDReconciler`), gated by a
-   match predicate (the default requires >=1 keypoint inside; a stricter
-   ``require_min_keypoints_inside(3)`` is recommended for re-tracking).
+   match predicate (the default requires >=3 keypoints inside, i.e.
+   ``require_min_keypoints_inside(3)``, the recommended strength for re-tracking).
 2. **Build anchors.** Treat *trusted* frames (by default the frames whose
    instances carry GT/user track labels, else all frames) as identity anchors,
    yielding a sparse ``frame -> {mask_obj_id: track_name}`` map.
@@ -176,8 +176,9 @@ def retrack(
         scores: Optional per-frame mask confidence scores, ``scores[i]`` shape
             ``(N_i,)``. Defaults to all-ones when omitted.
         match_predicates: Predicates (all must pass) gating a valid match. When
-            ``None``, :class:`IDReconciler`'s default (>=1 keypoint inside) is
-            used. ``require_min_keypoints_inside(3)`` is recommended.
+            ``None``, :class:`IDReconciler`'s default
+            (``require_min_keypoints_inside(3)``, i.e. >=3 keypoints inside) is
+            used.
         exclude_nodes: Node names to ignore when counting keypoints-inside
             (e.g. unreliable tail nodes).
         anchor_frame_indices: Explicit positions into ``labeled_frames`` to use

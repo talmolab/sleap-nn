@@ -23,8 +23,8 @@ install never needs either.
 
 SAM3 specifics (NEVER shared with SAM1; harvested from the closed #643): its
 predicted-IoU is on a lower scale, so the per-model floor is recalibrated to
-:data:`SAM3_PRED_IOU_MIN` (``0.5``, **not** SAM1's ``0.88``), and its raw masks
-are speckly/fragmented, so each is passed through :func:`_cleanup_speckle`
+:attr:`Sam3Backend.pred_iou_min` (``0.5``, **not** SAM1's ``0.88``), and its raw
+masks are speckly/fragmented, so each is passed through :func:`_cleanup_speckle`
 (morphological open + close + keep-keypoint-component) before it is returned.
 """
 
@@ -38,51 +38,12 @@ import numpy as np
 
 from sleap_nn.inference.sam.prompts import SamPrompt
 
-# ---------------------------------------------------------------------------
-# Locked SAM1 recipe constants (harvested from #642 / exp-07; PLAN §1).
-# ---------------------------------------------------------------------------
-#: SAM1 candidate rejection: drop candidates whose area exceeds this * box-area
-#: (kills SAM's over-confident whole-arena candidate).
-SAM_MAX_BOX_AREA_FACTOR: float = 1.5
-#: CLAHE parameters applied to the grayscale image before encoding (SAM1).
-CLAHE_CLIP_LIMIT: float = 3.0
-CLAHE_TILE_GRID: Tuple[int, int] = (8, 8)
-#: SAM1's nominal predicted-IoU floor. Carried as a per-model attribute so the
-#: SAM3 backend can override it (SAM3 uses a recalibrated 0.5, PLAN §2.3);
-#: SAM1's raw predicted-IoU is reported as the mask score, not used as a gate.
-SAM_PRED_IOU_MIN: float = 0.88
-
-# ---------------------------------------------------------------------------
-# Locked SAM3 recipe constants (harvested from #643; PLAN §1/§2.3).
-#
-# SAM3 (Meta SAM 3, via the transformers ``Sam3Tracker*`` image visual-prompt
-# path) is a SECOND mask backend that reuses the IDENTICAL keypoint+box prompt /
-# candidate-rejection recipe as SAM1. It differs in two ways these constants
-# encode — and which must NEVER be folded into SAM1's:
-#   1. ``iou_scores`` (predicted-IoU) are on a LOWER scale than SAM1 (median
-#      ~0.68 vs SAM1's ~0.95). SAM1's ``SAM_PRED_IOU_MIN=0.88`` floor applied
-#      verbatim would drop ~100% of SAM3 masks as a pure calibration artifact,
-#      so the SAM3 floor is recalibrated to 0.5 (~SAM1's 0.88 in percentile
-#      terms). The floor is reported as the per-model attribute, not gated on.
-#   2. Raw SAM3 masks are speckly/fragmented (median ~14 connected components per
-#      mask vs SAM1's 1), with ~97% of the area in the keypoint-connected
-#      component. The speckle is cosmetic and removed by a morphological
-#      open + close + keep-keypoint-component cleanup (:func:`_cleanup_speckle`,
-#      -> median 1 component, ~97% area retained).
-# ---------------------------------------------------------------------------
-#: Minimum/nominal SAM3 predicted-IoU (recalibrated; NEVER share SAM1's 0.88).
-SAM3_PRED_IOU_MIN: float = 0.5
-#: Morphological radius (px) for the SAM3 speckle open + close cleanup.
-SAM3_CLEANUP_RADIUS: int = 3
-#: Default gated Hugging Face model id for the SAM3 image visual-prompt path.
-SAM3_MODEL_ID: str = "facebook/sam3"
-
 
 def _to_3ch_clahe(
     img_gray: np.ndarray,
     clahe: bool = True,
-    clahe_clip_limit: float = CLAHE_CLIP_LIMIT,
-    clahe_tile_grid: Tuple[int, int] = CLAHE_TILE_GRID,
+    clahe_clip_limit: float = 3.0,
+    clahe_tile_grid: Tuple[int, int] = (8, 8),
 ) -> np.ndarray:
     """Grayscale ``(H, W)`` -> optional CLAHE -> 3-channel uint8 (SAM's input).
 
@@ -112,7 +73,7 @@ def _pick(
     masks: np.ndarray,
     scores: np.ndarray,
     box: np.ndarray,
-    max_box_area_factor: float = SAM_MAX_BOX_AREA_FACTOR,
+    max_box_area_factor: float = 1.5,
 ) -> int:
     """Pick the best SAM candidate-mask index (harvested verbatim from #642).
 
@@ -167,7 +128,7 @@ def own_containment(mask: np.ndarray, kpts: np.ndarray, hw: Tuple[int, int]) -> 
 def _cleanup_speckle(
     mask: np.ndarray,
     kpts: np.ndarray,
-    radius: int = SAM3_CLEANUP_RADIUS,
+    radius: int = 3,
 ) -> np.ndarray:
     """De-speckle a (SAM3) mask, keeping the keypoint-connected blob.
 
@@ -298,7 +259,7 @@ def _load_sam_predictor(
     return SamPredictor(sam)
 
 
-def _load_sam3(model_id: str = SAM3_MODEL_ID, device: str = "cuda"):
+def _load_sam3(model_id: str = "facebook/sam3", device: str = "cuda"):
     """Lazily load the SAM3 image visual-prompt model + processor (#643).
 
     Uses the transformers ``Sam3TrackerModel`` / ``Sam3TrackerProcessor`` *image*
@@ -316,7 +277,8 @@ def _load_sam3(model_id: str = SAM3_MODEL_ID, device: str = "cuda"):
     ``docs/guides/sam-inference-segmentation.md``.
 
     Args:
-        model_id: Hugging Face model id (default :data:`SAM3_MODEL_ID`).
+        model_id: Hugging Face model id (default ``"facebook/sam3"``, the gated
+            SAM3 image visual-prompt path).
         device: Torch device to place the model on.
 
     Returns:
@@ -358,8 +320,12 @@ class MaskBackend(ABC):
     explicit (PLAN L2) — see :func:`sleap_nn.inference.sam.get_mask_backend`.
     """
 
-    #: Per-model nominal predicted-IoU floor (SAM1: 0.88; SAM3 recalibrates).
-    pred_iou_min: float = SAM_PRED_IOU_MIN
+    #: Per-model nominal predicted-IoU floor. Defaults to SAM1's ``0.88``;
+    #: :class:`Sam3Backend` overrides it with a recalibrated ``0.5`` (SAM3's
+    #: predicted-IoU is on a lower scale, PLAN §2.3). Carried as a per-model
+    #: attribute so SAM3 can override it; SAM1's raw predicted-IoU is reported as
+    #: the mask score, not used as a gate.
+    pred_iou_min: float = 0.88
 
     @abstractmethod
     def masks(
@@ -403,12 +369,21 @@ class SamBackend(MaskBackend):
         self,
         predictor,
         clahe: bool = True,
-        max_box_area_factor: float = SAM_MAX_BOX_AREA_FACTOR,
-        clahe_clip_limit: float = CLAHE_CLIP_LIMIT,
-        clahe_tile_grid: Tuple[int, int] = CLAHE_TILE_GRID,
-        pred_iou_min: float = SAM_PRED_IOU_MIN,
+        max_box_area_factor: float = 1.5,
+        clahe_clip_limit: float = 3.0,
+        clahe_tile_grid: Tuple[int, int] = (8, 8),
+        pred_iou_min: float = 0.88,
     ) -> None:
-        """Stash the predictor and the (model-specific) recipe knobs."""
+        """Stash the predictor and the (model-specific) recipe knobs.
+
+        The recipe defaults are the locked SAM1 values (harvested from #642 /
+        exp-07; PLAN §1): ``max_box_area_factor=1.5`` drops candidates whose area
+        exceeds ``1.5 * box-area`` (kills SAM's over-confident whole-arena
+        candidate, see :func:`_pick`); ``clahe_clip_limit=3.0`` /
+        ``clahe_tile_grid=(8, 8)`` are the CLAHE parameters applied to the
+        grayscale image before encoding; ``pred_iou_min=0.88`` is SAM1's nominal
+        predicted-IoU floor, reported (not gated) and carried for SAM3 parity.
+        """
         self.predictor = predictor
         self.clahe = bool(clahe)
         self.max_box_area_factor = float(max_box_area_factor)
@@ -525,13 +500,18 @@ class Sam3Backend(MaskBackend):
     :class:`SamBackend`, but two SAM3 specifics are mandatory and NEVER shared
     with SAM1 (PLAN §2.3, harvested from #643):
 
-    * **Recalibrated floor.** SAM3's predicted-IoU is on a lower scale, so the
-      per-model :attr:`pred_iou_min` defaults to :data:`SAM3_PRED_IOU_MIN`
-      (``0.5``), never SAM1's ``0.88``. As with SAM1 the raw chosen-candidate
-      score is reported, not gated on.
-    * **Speckle cleanup.** Each chosen mask is passed through
-      :func:`_cleanup_speckle` (morphological open + close + keep-keypoint-
-      component) before it is returned.
+    * **Recalibrated floor.** SAM3's ``iou_scores`` (predicted-IoU) are on a
+      LOWER scale than SAM1 (median ~0.68 vs SAM1's ~0.95). SAM1's ``0.88`` floor
+      applied verbatim would drop ~100% of SAM3 masks as a pure calibration
+      artifact, so the per-model :attr:`pred_iou_min` defaults to ``0.5``
+      (~SAM1's ``0.88`` in percentile terms), never SAM1's ``0.88``. As with SAM1
+      the raw chosen-candidate score is reported, not gated on.
+    * **Speckle cleanup.** Raw SAM3 masks are speckly/fragmented (median ~14
+      connected components per mask vs SAM1's 1), with ~97% of the area in the
+      keypoint-connected component. The speckle is cosmetic, so each chosen mask
+      is passed through :func:`_cleanup_speckle` (morphological open + close +
+      keep-keypoint-component, -> median 1 component, ~97% area retained) before
+      it is returned. Mandatory for SAM3; SAM1 masks are already solid.
 
     Unlike SAM1's per-prompt loop, SAM3 runs **all prompts for the frame in a
     single batched forward pass** (each prompt is one object), matching #643's
@@ -548,11 +528,14 @@ class Sam3Backend(MaskBackend):
         clahe_clip_limit: CLAHE clip limit.
         clahe_tile_grid: CLAHE tile grid.
         cleanup_radius: Speckle-cleanup morphological radius (px).
-        pred_iou_min: Per-model nominal predicted-IoU floor (default
-            :data:`SAM3_PRED_IOU_MIN`); reported, not gated.
+        pred_iou_min: Per-model nominal predicted-IoU floor (default ``0.5``,
+            recalibrated; NEVER SAM1's ``0.88``); reported, not gated.
     """
 
-    pred_iou_min: float = SAM3_PRED_IOU_MIN
+    #: SAM3's recalibrated predicted-IoU floor. NEVER SAM1's ``0.88`` (SAM3's
+    #: predicted-IoU is on a lower scale; the ``0.5`` value is ~SAM1's ``0.88`` in
+    #: percentile terms). Reported as the per-model score, not gated on.
+    pred_iou_min: float = 0.5
 
     def __init__(
         self,
@@ -560,13 +543,22 @@ class Sam3Backend(MaskBackend):
         processor,
         device: str = "cuda",
         clahe: bool = True,
-        max_box_area_factor: float = SAM_MAX_BOX_AREA_FACTOR,
-        clahe_clip_limit: float = CLAHE_CLIP_LIMIT,
-        clahe_tile_grid: Tuple[int, int] = CLAHE_TILE_GRID,
-        cleanup_radius: int = SAM3_CLEANUP_RADIUS,
-        pred_iou_min: float = SAM3_PRED_IOU_MIN,
+        max_box_area_factor: float = 1.5,
+        clahe_clip_limit: float = 3.0,
+        clahe_tile_grid: Tuple[int, int] = (8, 8),
+        cleanup_radius: int = 3,
+        pred_iou_min: float = 0.5,
     ) -> None:
-        """Stash the model/processor and the (SAM3-specific) recipe knobs."""
+        """Stash the model/processor and the (SAM3-specific) recipe knobs.
+
+        The SAM1-shared recipe defaults match :class:`SamBackend`
+        (``max_box_area_factor=1.5``, ``clahe_clip_limit=3.0``,
+        ``clahe_tile_grid=(8, 8)``). The SAM3-specific defaults are
+        ``cleanup_radius=3`` (the morphological open + close radius (px) for the
+        mandatory speckle cleanup) and ``pred_iou_min=0.5`` (the recalibrated
+        floor; NEVER SAM1's ``0.88``, since SAM3's predicted-IoU is on a lower
+        scale).
+        """
         self.model = model
         self.processor = processor
         self.device = str(device)
@@ -580,14 +572,14 @@ class Sam3Backend(MaskBackend):
     @classmethod
     def from_pretrained(
         cls,
-        model_id: str = SAM3_MODEL_ID,
+        model_id: str = "facebook/sam3",
         device: str = "cuda",
         **kwargs,
     ) -> "Sam3Backend":
         """Build a backend by lazily loading the gated SAM3 model + processor.
 
         Args:
-            model_id: Hugging Face model id (default :data:`SAM3_MODEL_ID`).
+            model_id: Hugging Face model id (default ``"facebook/sam3"``).
             device: Torch device for the model.
             **kwargs: Forwarded to :class:`Sam3Backend` (e.g. ``clahe``).
 

@@ -107,9 +107,9 @@ labels = run_sam_segmentation(
 Two SAM3 specifics are handled automatically and are **never** shared with SAM1:
 
 - **Recalibrated score floor (`0.5`).** SAM3's predicted-IoU is on a lower scale,
-  so its per-model floor is `SAM3_PRED_IOU_MIN = 0.5` (SAM1's `0.88` would reject
-  ~100% of SAM3 masks as a pure calibration artifact). As with SAM1 the raw score
-  is reported, not gated on.
+  so its per-model floor (`Sam3Backend.pred_iou_min`) defaults to `0.5` (SAM1's
+  `0.88` would reject ~100% of SAM3 masks as a pure calibration artifact). As with
+  SAM1 the raw score is reported, not gated on.
 - **Speckle cleanup.** Raw SAM3 masks are fragmented (~14 connected components);
   each chosen mask is passed through a morphological open + close + keep-the-
   keypoint-connected-component cleanup (~1 component, ~97% area retained).
@@ -118,6 +118,46 @@ SAM3 also runs **all instances of a frame in a single batched forward pass**
 (SAM1 loops per instance). End-to-end SAM3 is GPU-only and needs the gated
 weights, so it is exercised manually / nightly; the recipe (floor, cleanup,
 batched call) is unit-tested against a mocked SAM3.
+
+## CLI
+
+The same masks are produced from the `sleap-nn predict` command (and its hidden
+`infer` alias) by passing `--mask_backend`. When set, the input `.slp` is treated
+as a pose file and masks are produced from its existing instances — there is **no
+trained segmentation model**, so `--mask_backend` is **mutually exclusive with
+`--model_paths`** (do not pass it). The `.slp` output is saved like the regular
+prediction path — images are **not** re-embedded; the output backreferences the
+input's source media via provenance (small output; a `.pkg.slp` input stays
+matchable to its source videos), and the masks always serialize into the `.slp`.
+Only `--output_format slp` is supported (the SLEAP Analysis HDF5 format stores
+poses/tracks, not segmentation masks).
+
+SAM1 (ungated):
+
+```bash
+sleap-nn predict \
+    -i poses.pkg.slp \
+    --mask_backend sam \
+    --sam_checkpoint /path/to/sam_vit_h_4b8939.pth \
+    --sam_prompt_mode pose \
+    --overlay_path review_frame0.png \
+    -o poses_with_masks.pkg.slp
+```
+
+SAM3 (gated `facebook/sam3`, needs the `[sam3]` extra):
+
+```bash
+sleap-nn predict \
+    -i poses.pkg.slp \
+    --mask_backend sam3 \
+    --sam3_model_id facebook/sam3 \
+    --sam_prompt_mode pose \
+    -o poses_with_masks.pkg.slp
+```
+
+Every flag also has a dash-spelled alias (`--mask-backend`, `--sam-checkpoint`,
+`--sam-model-type`, `--sam-prompt-mode`, `--sam-anchor-ind`,
+`--sam-disjointify-masks`, `--sam3-model-id`, `--overlay-path`).
 
 ## Prompt modes
 
