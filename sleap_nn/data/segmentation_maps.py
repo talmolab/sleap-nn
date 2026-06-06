@@ -52,7 +52,7 @@ def generate_center_heatmap(
     masks: List[np.ndarray],
     img_hw: Tuple[int, int],
     output_stride: int = 2,
-    sigma: float = 10.0,
+    sigma: float = 4.0,
     centers: Optional[List[Tuple[float, float]]] = None,
 ) -> torch.Tensor:
     """Generate Gaussian heatmap at each instance mask centroid.

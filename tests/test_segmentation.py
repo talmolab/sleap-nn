@@ -163,6 +163,8 @@ def test_instance_center_head():
     assert head.channels == 1 and head.sigma == 10.0
     assert head.activation == "identity" and head.loss_function == "mse"
     assert head.name == "InstanceCenterHead"
+    # The no-arg default sigma matches the seg-head config default (4.0).
+    assert InstanceCenterHead().sigma == 4.0
 
 
 def test_center_offset_head():
@@ -399,8 +401,59 @@ from sleap_nn.config.model_config import (
 def test_segmentation_config_defaults():
     """Sub-config defaults match the head defaults."""
     assert SegmentationHeadConfig().output_stride == 2
-    assert InstanceCenterConfig().sigma == 10.0
+    assert InstanceCenterConfig().sigma == 4.0
     assert CenterOffsetConfig().loss_weight == 0.1
+
+
+def test_seg_center_sigma_scoped_to_seg_head():
+    """Lowering the seg center-head sigma must not touch other model types.
+
+    ``InstanceCenterConfig`` is used exclusively by ``bottomup_segmentation``.
+    Centroid models use ``CentroidConfMapsConfig.sigma`` (5.0) and bottom-up pose
+    uses ``BottomUpConfMapsConfig`` (default unchanged). This guards against an
+    accidental cross-head sigma edit.
+    """
+    from sleap_nn.config.model_config import (
+        CentroidConfMapsConfig,
+        BottomUpConfMapsConfig,
+    )
+
+    assert InstanceCenterConfig().sigma == 4.0
+    assert CentroidConfMapsConfig().sigma == 5.0
+    # Bottom-up pose conf-map sigma is independent of the seg center sigma.
+    assert BottomUpConfMapsConfig().sigma == 5.0
+
+
+def test_get_head_configs_seg_center_sigma_default():
+    """get_head_configs('bottomup_segmentation') inherits the new center sigma."""
+    from sleap_nn.config.get_config import get_head_configs
+
+    hc = get_head_configs("bottomup_segmentation")
+    assert hc.bottomup_segmentation.center.sigma == 4.0
+
+
+def test_generate_center_heatmap_clean_peaks_at_default_sigma():
+    """GT center heatmap at the new default sigma yields exactly #instances peaks.
+
+    The target Gaussian is always isotropic with one peak per instance centroid;
+    the new sharper default (4.0) must still produce a clean target (no merged or
+    split peaks) for well-separated instances.
+    """
+    from sleap_nn.inference.segmentation import find_center_peaks
+
+    h, w = 128, 128
+    masks = []
+    centroids = [(24, 24), (24, 100), (100, 24), (100, 100)]
+    for cy, cx in centroids:
+        m = np.zeros((h, w), dtype=bool)
+        m[cy - 6 : cy + 6, cx - 6 : cx + 6] = True
+        masks.append(m)
+
+    heatmap = generate_center_heatmap(
+        masks, (h, w), output_stride=2, sigma=InstanceCenterConfig().sigma
+    )
+    peaks, _ = find_center_peaks(heatmap, threshold=0.2, kernel_size=3)
+    assert peaks.shape[0] == len(masks)
 
 
 def test_head_config_oneof_bottomup_segmentation():
