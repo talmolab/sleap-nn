@@ -119,6 +119,17 @@ def group_instances_from_offsets(
             - "center": (x, y) tuple in original pixel coordinates
             - "score": float confidence score (peak value)
     """
+    # Run grouping device-consistently on CPU. find_center_peaks() routes through
+    # scipy connected-components and returns CPU peak tensors, and the per-instance
+    # masks below are built as CPU tensors (-> numpy), so a GPU input would mix
+    # cuda/cpu devices inside this function. This is a no-op for the inference path
+    # (already-CPU tensors) but is required for the GPU callers added in #649 —
+    # epoch-end mask eval and training viz both pass cuda head tensors. The cost is
+    # negligible (a few frames per epoch, not the training loop).
+    foreground = foreground.detach().cpu()
+    center_heatmap = center_heatmap.detach().cpu()
+    offsets = offsets.detach().cpu()
+
     h, w = foreground.shape[-2:]
 
     # 1. Threshold foreground
