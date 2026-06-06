@@ -298,10 +298,11 @@ class LightningModel(L.LightningModule):
             "multi_class_bottomup": BottomUpMultiClassLightningModule,
             "multi_class_topdown": TopDownCenteredInstanceMultiClassLightningModule,
             "bottomup_segmentation": BottomUpSegmentationLightningModule,
+            "centered_instance_segmentation": TopDownCenteredInstanceSegmentationLightningModule,
         }
 
         if model_type not in lightning_models:
-            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`]"
+            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`]"
             logger.error(message)
             raise ValueError(message)
 
@@ -2772,6 +2773,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
         sample,
         include_center_heatmap: bool = False,
         include_offsets: bool = False,
+        include_gt_mask: bool = False,
     ) -> VisualizationData:
         """Extract visualization data from a sample.
 
@@ -2785,6 +2787,8 @@ class BottomUpSegmentationLightningModule(LightningModel):
                 returned data for separate visualization.
             include_offsets: If True, include the center-offset field for a
                 separate offset-magnitude visualization.
+            include_gt_mask: If True, include the ground-truth foreground mask
+                for a GT-vs-prediction overlay.
 
         Returns:
             VisualizationData with foreground map and center locations.
@@ -2816,9 +2820,9 @@ class BottomUpSegmentationLightningModule(LightningModel):
 
         gt_centers = []
         if "center_heatmap" in ex:
-            gt_peaks, _ = find_center_peaks(
-                ex["center_heatmap"].unsqueeze(0), threshold=0.1
-            )
+            # center_heatmap is already (1, 1, H, W) as find_center_peaks expects;
+            # an extra unsqueeze makes it 5D and crashes the max-pool NMS.
+            gt_peaks, _ = find_center_peaks(ex["center_heatmap"], threshold=0.1)
             if len(gt_peaks) > 0:
                 gt_centers = gt_peaks.cpu().numpy()  # (N, 2) as (x, y)
 
@@ -2864,6 +2868,11 @@ class BottomUpSegmentationLightningModule(LightningModel):
             offsets = preds["CenterOffsetHead"][0].cpu().numpy()
             offsets = offsets.transpose(1, 2, 0)  # (H, W, 2) -> (dx, dy)
 
+        # Optionally include the GT foreground mask for a GT-vs-pred overlay
+        gt_mask = None
+        if include_gt_mask and "foreground_mask" in ex:
+            gt_mask = ex["foreground_mask"].squeeze().cpu().numpy()  # (H, W)
+
         return VisualizationData(
             image=img_np,
             pred_confmaps=fg_prob,
@@ -2875,6 +2884,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
             is_paired=False,
             pred_center_heatmap=center_hmap,
             pred_offsets=offsets,
+            gt_mask=gt_mask,
         )
 
     def visualize_example(self, sample):
@@ -3003,9 +3013,206 @@ class BottomUpSegmentationLightningModule(LightningModel):
             "val/offset_loss", offset_loss, on_step=False, on_epoch=True, sync_dist=True
         )
 
-        # Compute foreground IoU metric
+        # Foreground IoU averaged PER-SAMPLE (mean of per-image IoUs), not pooled
+        # over the whole batch tensor (which over-weights large/foreground-heavy
+        # images). Lightning's on_epoch aggregation then yields a true
+        # mean-per-image IoU.
         pred_fg_binary = (pred_fg > 0.0).float()
-        intersection = (pred_fg_binary * y_fg).sum()
-        union = pred_fg_binary.sum() + y_fg.sum() - intersection
-        iou = intersection / (union + 1e-6)
+        dims = (1, 2, 3)
+        intersection = (pred_fg_binary * y_fg).sum(dim=dims)
+        union = pred_fg_binary.sum(dim=dims) + y_fg.sum(dim=dims) - intersection
+        iou = (intersection / (union + 1e-6)).mean()
         self.log("val/fg_iou", iou, on_step=False, on_epoch=True, sync_dist=True)
+
+        # Optional instance-level mask eval: when enabled by the
+        # SegmentationEvaluationCallback, recover per-instance masks by grouping the
+        # predicted AND ground-truth heads on the SAME preprocessed stride grid (no
+        # original-resolution remapping), so a mask-IoU mAP/precision/recall can be
+        # computed against the instance-separated GT. Appended in lockstep with the
+        # GT so the callback pairs them positionally.
+        if self._collect_val_predictions:
+            from sleap_nn.inference.segmentation import group_instances_from_offsets
+
+            stride = seg_cfg.segmentation.output_stride
+            fg_prob = torch.sigmoid(pred_fg)
+            for i in range(X.shape[0]):
+                pred_insts = group_instances_from_offsets(
+                    foreground=fg_prob[i : i + 1],
+                    center_heatmap=pred_center[i : i + 1],
+                    offsets=pred_offsets[i : i + 1],
+                    fg_threshold=0.5,
+                    peak_threshold=0.1,
+                    output_stride=stride,
+                )
+                gt_insts = group_instances_from_offsets(
+                    foreground=y_fg[i : i + 1],
+                    center_heatmap=y_center[i : i + 1],
+                    offsets=y_offsets[i : i + 1],
+                    fg_threshold=0.5,
+                    peak_threshold=0.1,
+                    output_stride=stride,
+                )
+                self.val_predictions.append({"masks": [d["mask"] for d in pred_insts]})
+                self.val_ground_truth.append({"masks": [d["mask"] for d in gt_insts]})
+
+
+class TopDownCenteredInstanceSegmentationLightningModule(LightningModel):
+    """Lightning Module for top-down (crop-centered) instance segmentation (#622).
+
+    Predicts a single binary foreground mask of the centered instance on a
+    centroid crop. Combines the crop I/O of
+    :class:`TopDownCenteredInstanceLightningModule` (``instance_image`` input)
+    with the bce-dice foreground loss / IoU metric of
+    :class:`BottomUpSegmentationLightningModule`. Composed with a ``centroid``
+    model for full top-down inference; the head emits logits.
+    """
+
+    def __init__(
+        self,
+        model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
+        negative_loss_weight: Optional[float] = 1.0,
+    ):
+        """Initialise the configs and the model."""
+        super().__init__(
+            model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
+            negative_loss_weight=negative_loss_weight,
+        )
+        self.seg_output_stride = self.head_configs[
+            self.model_type
+        ].segmentation.output_stride
+
+    def forward(self, img):
+        """Forward pass of the model returning foreground-mask LOGITS."""
+        img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
+        return self.model(img)["SegmentationHead"]
+
+    def training_step(self, batch, batch_idx):
+        """Training step (bce-dice on the centered-instance foreground mask)."""
+        X = torch.squeeze(batch["instance_image"], dim=1)
+        y_fg = torch.squeeze(batch["foreground_mask"], dim=1)
+        X = normalize_on_gpu(X)
+        pred_fg = self.model(X)["SegmentationHead"]  # logits
+        loss = compute_bce_dice_loss(pred_fg, y_fg)
+
+        self.log(
+            "loss", loss, prog_bar=True, on_step=True, on_epoch=False, sync_dist=True
+        )
+        self._accumulate_loss(loss)
+        self.log("train/fg_loss", loss, on_step=False, on_epoch=True, sync_dist=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step (val loss + foreground IoU)."""
+        X = torch.squeeze(batch["instance_image"], dim=1)
+        y_fg = torch.squeeze(batch["foreground_mask"], dim=1)
+        X = normalize_on_gpu(X)
+        pred_fg = self.model(X)["SegmentationHead"]  # logits
+        val_loss = compute_bce_dice_loss(pred_fg, y_fg)
+
+        self.log(
+            "val/loss",
+            val_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        self.log("val/fg_loss", val_loss, on_step=False, on_epoch=True, sync_dist=True)
+
+        # Each crop is one centered instance, so the per-crop foreground IoU IS a
+        # per-instance mask-quality metric. Average PER-CROP (mean of per-image
+        # IoUs) rather than pooling over the batch tensor.
+        pred_fg_binary = (pred_fg > 0.0).float()
+        dims = (1, 2, 3)
+        intersection = (pred_fg_binary * y_fg).sum(dim=dims)
+        union = pred_fg_binary.sum(dim=dims) + y_fg.sum(dim=dims) - intersection
+        iou = (intersection / (union + 1e-6)).mean()
+        self.log("val/fg_iou", iou, on_step=False, on_epoch=True, sync_dist=True)
+
+        # Optional instance-level mask eval (enabled by SegmentationEvaluationCallback):
+        # one crop == one instance, so emit the binarized predicted crop mask and the
+        # GT crop mask as a single-instance pair on the SAME stride grid, appended in
+        # lockstep for positional pairing by the callback.
+        if self._collect_val_predictions:
+            for i in range(X.shape[0]):
+                pm = pred_fg_binary[i, 0].detach().cpu().numpy().astype(bool)
+                gm = (y_fg[i, 0] > 0.5).detach().cpu().numpy()
+                self.val_predictions.append({"masks": [pm] if pm.any() else []})
+                self.val_ground_truth.append({"masks": [gm] if gm.any() else []})
+
+    def get_visualization_data(
+        self, sample, include_gt_mask: bool = False
+    ) -> VisualizationData:
+        """Crop-flavored viz: image + predicted foreground vs GT mask overlay.
+
+        Args:
+            sample: A sample dictionary from the data pipeline.
+            include_gt_mask: If True, include the ground-truth centered-instance
+                mask for a GT-vs-prediction overlay.
+        """
+        ex = sample.copy()
+        for k, v in ex.items():
+            if isinstance(v, torch.Tensor):
+                ex[k] = v.to(device=self.device)
+        ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
+        with torch.no_grad():
+            logits = self.forward(ex["instance_image"])
+            fg_prob = torch.sigmoid(logits)[0].cpu().numpy().transpose(1, 2, 0)
+        img_np = ex["instance_image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        gt_mask = None
+        if include_gt_mask and "foreground_mask" in ex:
+            gt_mask = ex["foreground_mask"].squeeze().cpu().numpy()  # (H, W)
+        return VisualizationData(
+            image=img_np,
+            pred_confmaps=fg_prob,
+            pred_peaks=np.zeros((0, 1, 2)),
+            pred_peak_values=np.zeros((0,)),
+            gt_instances=np.zeros((0, 1, 2)),
+            node_names=["mask"],
+            output_scale=fg_prob.shape[0] / img_np.shape[0],
+            is_paired=False,
+            gt_mask=gt_mask,
+        )
+
+    def visualize_example(self, sample):
+        """Visualize the predicted foreground mask over the crop during training."""
+        data = self.get_visualization_data(sample)
+        scale = 1.0
+        if data.image.shape[0] < 512:
+            scale = 2.0
+        if data.image.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(data.image, dpi=72 * scale, scale=scale)
+        plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
+        return fig

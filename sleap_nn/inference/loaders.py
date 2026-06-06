@@ -35,7 +35,10 @@ from sleap_nn.inference.topdown import (
 )
 from sleap_nn.inference.utils import get_skeleton_from_config
 from sleap_nn.legacy_models import load_legacy_model
-from sleap_nn.inference.segmentation import BottomUpSegmentationInferenceModel
+from sleap_nn.inference.segmentation import (
+    BottomUpSegmentationInferenceModel,
+    CenteredInstanceMaskInferenceModel,
+)
 from sleap_nn.training.lightning_modules import (
     BottomUpLightningModule,
     BottomUpMultiClassLightningModule,
@@ -44,6 +47,7 @@ from sleap_nn.training.lightning_modules import (
     SingleInstanceLightningModule,
     TopDownCenteredInstanceLightningModule,
     TopDownCenteredInstanceMultiClassLightningModule,
+    TopDownCenteredInstanceSegmentationLightningModule,
 )
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -622,6 +626,152 @@ def _build_topdown(
     )
 
 
+def _build_topdown_segmentation(
+    centroid_ckpt_path: Optional[str],
+    seg_ckpt_path: str,
+    *,
+    device: str,
+    backbone_ckpt_path: Optional[str],
+    head_ckpt_path: Optional[str],
+    peak_threshold: Union[float, List[float]],
+    integral_refinement: str,
+    integral_patch_size: int,
+    max_instances: Optional[int],
+    return_confmaps: bool,
+    preprocess_config: Any,
+    anchor_part: Optional[str],
+    fg_threshold: float = 0.5,
+    mask_output: str = "mask",
+    polygon_epsilon: float = 0.01,
+) -> LoadedAssets:
+    """Load a centroid + ``centered_instance_segmentation`` pair for top-down seg.
+
+    Mirrors :func:`_build_topdown` but the second stage is a per-crop mask model
+    (no keypoint peak finding). When ``centroid_ckpt_path`` is ``None`` the
+    centroid stage falls back to GT user-instance centroids
+    (``CentroidCrop(use_gt_centroids=True)`` — the post-train auto-eval / GT-crop
+    path), exactly like ``_build_topdown(centroid_ckpt_path=None)``.
+
+    The crop size comes from the seg config (a centered-instance property);
+    ``output_stride`` / ``fg_threshold`` / ``mask_output`` / ``polygon_epsilon``
+    drive mask emission and packaging.
+    """
+    if isinstance(peak_threshold, list):
+        centroid_peak_threshold = peak_threshold[0]
+    else:
+        centroid_peak_threshold = peak_threshold
+
+    centroid_config = None
+    centroid_model = None
+    centroid_backbone_type = None
+
+    if centroid_ckpt_path is not None:
+        centroid_model, centroid_config, centroid_backbone_type = (
+            _load_lightning_module(
+                CentroidLightningModule,
+                centroid_ckpt_path,
+                model_type="centroid",
+                device=device,
+                backbone_ckpt_path=backbone_ckpt_path,
+                head_ckpt_path=head_ckpt_path,
+            )
+        )
+
+    seg_model, seg_config, seg_backbone_type = _load_lightning_module(
+        TopDownCenteredInstanceSegmentationLightningModule,
+        seg_ckpt_path,
+        model_type="centered_instance_segmentation",
+        device=device,
+        backbone_ckpt_path=backbone_ckpt_path,
+        head_ckpt_path=head_ckpt_path,
+    )
+    # Seg labels may carry no skeleton; tolerate an empty/missing one.
+    try:
+        skeletons = get_skeleton_from_config(seg_config.data_config.skeletons)
+    except Exception:  # noqa: BLE001 — skeleton is optional for segmentation
+        skeletons = []
+
+    # Resolve preprocess_config: centroid first (sizematcher), then seg (which
+    # carries the crop_size — a centered-instance property), without clobbering an
+    # explicit user crop_size.
+    user_crop_size = preprocess_config.crop_size
+    if centroid_config is not None:
+        preprocess_config = _resolve_preprocess_config(
+            preprocess_config, centroid_config
+        )
+    preprocess_config = _resolve_preprocess_config(preprocess_config, seg_config)
+    seg_crop = seg_config.data_config.preprocessing.crop_size
+    if user_crop_size is None and seg_crop is not None:
+        preprocess_config.crop_size = seg_crop
+
+    # Resolve anchor_ind (only used by the GT-centroid crop path; the real
+    # centroid model supplies crop centers directly).
+    seg_anchor = (
+        seg_config.model_config.head_configs.centered_instance_segmentation.segmentation.anchor_part
+    )
+    anch_pt = anchor_part if anchor_part is not None else seg_anchor
+    anchor_ind = None
+    if anch_pt is not None and skeletons:
+        anchor_ind = skeletons[0].node_names.index(anch_pt)
+
+    output_stride = (
+        seg_config.model_config.head_configs.centered_instance_segmentation.segmentation.output_stride
+    )
+    max_stride_seg = seg_config.model_config.backbone_config[seg_backbone_type][
+        "max_stride"
+    ]
+
+    # Build CentroidCrop (real model OR GT-centroid fallback).
+    if centroid_config is None:
+        centroid_crop = CentroidCrop(
+            use_gt_centroids=True,
+            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            anchor_ind=anchor_ind,
+            return_crops=True,
+        )
+    else:
+        max_stride_centroid = centroid_config.model_config.backbone_config[
+            centroid_backbone_type
+        ]["max_stride"]
+        centroid_crop = CentroidCrop(
+            torch_model=centroid_model,
+            peak_threshold=centroid_peak_threshold,
+            output_stride=centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
+            refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            return_confmaps=return_confmaps,
+            return_crops=True,
+            max_instances=max_instances,
+            max_stride=max_stride_centroid,
+            input_scale=centroid_config.data_config.preprocessing.scale,
+            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            use_gt_centroids=False,
+            anchor_ind=anchor_ind,
+        )
+
+    instance_masks = CenteredInstanceMaskInferenceModel(
+        torch_model=seg_model,
+        output_stride=output_stride,
+        input_scale=seg_config.data_config.preprocessing.scale,
+        max_stride=max_stride_seg,
+        fg_threshold=fg_threshold,
+        mask_output=mask_output,
+        polygon_epsilon=polygon_epsilon,
+    )
+
+    inference_model = TopDownInferenceModel(
+        centroid_crop=centroid_crop, instance_peaks=instance_masks
+    )
+    return LoadedAssets(
+        inference_model=inference_model,
+        preprocess_config=preprocess_config,
+        skeletons=skeletons,
+        centroid_config=centroid_config,
+        confmap_config=seg_config,
+        backbone_type=seg_backbone_type or centroid_backbone_type,
+    )
+
+
 def _build_topdown_multiclass(
     centroid_ckpt_path: Optional[str],
     confmap_ckpt_path: Optional[str],
@@ -894,6 +1044,29 @@ def load_model_assets(
             mask_cleanup=mask_cleanup,
             mask_cleanup_radius=mask_cleanup_radius,
             full_res_masks=full_res_masks,
+            mask_output=mask_output,
+            polygon_epsilon=polygon_epsilon,
+            **common_kwargs,
+        )
+
+    elif "centered_instance_segmentation" in model_types:
+        # Top-down (crop-centered) instance segmentation. MUST be checked BEFORE
+        # the topdown family block below: a centroid + centered_instance_segmentation
+        # pair has "centroid" in model_types, so it would otherwise enter that block
+        # and — finding neither "centered_instance" nor "multi_class_topdown" — fall
+        # to the centroid-only else, SILENTLY DROPPING the seg dir (verify/v2 #1).
+        seg_path = model_paths[model_types.index("centered_instance_segmentation")]
+        centroid_path = (
+            model_paths[model_types.index("centroid")]
+            if "centroid" in model_types
+            else None
+        )
+        assets = _build_topdown_segmentation(
+            centroid_path,
+            seg_path,
+            max_instances=max_instances,
+            anchor_part=anchor_part,
+            fg_threshold=fg_threshold,
             mask_output=mask_output,
             polygon_epsilon=polygon_epsilon,
             **common_kwargs,

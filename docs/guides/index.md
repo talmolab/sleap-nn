@@ -12,6 +12,8 @@ Task-oriented guides for common workflows.
 | [Inference](inference.md) | Run predictions on videos and label files |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Python API](inference-api.md) | `Predictor` / `predict` / `Outputs` for embedding inference in code |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Centroid-Only](centroid-only-inference.md) | Run a centroid model standalone |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Top-Down Segmentation](topdown-segmentation.md) | Per-instance masks via centroid + crop-mask |
+| &nbsp;&nbsp;&nbsp;&nbsp;[SAM-Prompted Segmentation](sam-inference-segmentation.md) | Per-instance masks from poses via Segment Anything |
 | [Evaluation](evaluation.md) | Assess model performance with metrics |
 | [Tracking](tracking.md) | Assign consistent IDs across frames |
 | [Export](export.md) | ONNX/TensorRT for production inference |

@@ -129,6 +129,8 @@ nav:
       - guides/inference.md
       - Python API: guides/inference-api.md
       - Centroid-Only: guides/centroid-only-inference.md
+      - Top-Down Segmentation: guides/topdown-segmentation.md
+      - SAM-Prompted Segmentation: guides/sam-inference-segmentation.md
       - Performance: guides/inference-performance.md
     - Evaluation: guides/evaluation.md
     - Tracking: guides/tracking.md

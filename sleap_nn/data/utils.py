@@ -19,6 +19,39 @@ def ensure_list(x: Any) -> List[Any]:
     return x
 
 
+def get_symmetric_inds(skeleton: "sio.Skeleton") -> List[Tuple[int, int]]:
+    """Resolve symmetric node-index pairs from a skeleton's raw symmetries.
+
+    Used by flip augmentation to swap left/right (or top/bottom) symmetric body
+    parts after mirroring, so semantic labels stay correct.
+
+    This intentionally reads only the stable ``skeleton.symmetries`` field (each
+    ``Symmetry`` iterates to its two ``Node``s) and resolves indices via the node
+    ordering ourselves, rather than relying on newer sleap-io convenience
+    properties (``symmetry_inds``, ``symmetry_names``, ``flipped_node_inds``) that
+    are absent in older sleap-io versions.
+
+    Args:
+        skeleton: A ``sleap_io.Skeleton``. May be ``None`` or lack symmetries.
+
+    Returns:
+        A list of ``(i, j)`` node-index pairs (possibly empty). Within-pair order is
+        irrelevant since the swap is symmetric (``a<->b == b<->a``).
+    """
+    if skeleton is None:
+        return []
+    try:
+        names = [node.name for node in skeleton.nodes]
+        pairs = []
+        for symmetry in getattr(skeleton, "symmetries", []) or []:
+            node_a, node_b = list(symmetry)
+            pairs.append((names.index(node_a.name), names.index(node_b.name)))
+        return pairs
+    except Exception as e:  # pragma: no cover - defensive against API drift
+        logger.warning(f"Could not resolve skeleton symmetries for flip aug: {e}")
+        return []
+
+
 def make_grid_vectors(
     image_height: int, image_width: int, output_stride: int = 1
 ) -> Tuple[torch.Tensor, torch.Tensor]:

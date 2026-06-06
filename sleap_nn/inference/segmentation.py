@@ -221,6 +221,47 @@ def _clean_instance_mask(mask: np.ndarray, radius: int = 0) -> np.ndarray:
     return binary_fill_holes(mask)
 
 
+class CenteredInstanceMaskInferenceModel(L.LightningModule):
+    """Stage-2 holder for top-down (crop-centered) instance segmentation (#622).
+
+    A thin attribute bag (no real ``forward`` — the modern composed
+    :class:`~sleap_nn.inference.layers.topdown_segmentation.TopDownSegmentationLayer`
+    drives the run) carrying the per-crop seg model + the knobs the layer
+    builder reads off it. Mirrors how the legacy ``FindInstancePeaks`` is used
+    purely as an attribute holder by the modern top-down layer builder.
+
+    Attributes:
+        torch_model: Per-crop seg Lightning module; ``forward`` returns the
+            ``SegmentationHead`` logits.
+        output_stride: Head-map → crop-pixel stride.
+        input_scale: Input scale the model was trained with (applied to crops).
+        max_stride: Backbone max stride (crops padded to a multiple of it).
+        fg_threshold: Foreground probability threshold for binarization.
+        mask_output / polygon_epsilon: Output-packaging knobs (read by the
+            layer builder and forwarded to ``Outputs.to_labels``).
+    """
+
+    def __init__(
+        self,
+        torch_model,
+        output_stride: int = 2,
+        input_scale: float = 1.0,
+        max_stride: int = 1,
+        fg_threshold: float = 0.5,
+        mask_output: str = "mask",
+        polygon_epsilon: float = 0.01,
+    ):
+        """Stash the per-crop seg model + knobs."""
+        super().__init__()
+        self.torch_model = torch_model
+        self.output_stride = int(output_stride)
+        self.input_scale = float(input_scale)
+        self.max_stride = int(max_stride)
+        self.fg_threshold = float(fg_threshold)
+        self.mask_output = str(mask_output)
+        self.polygon_epsilon = float(polygon_epsilon)
+
+
 class BottomUpSegmentationInferenceModel(L.LightningModule):
     """Inference model for bottom-up instance segmentation.
 

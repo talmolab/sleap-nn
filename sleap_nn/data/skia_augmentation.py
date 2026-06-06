@@ -21,10 +21,70 @@ Usage:
     image, instances = apply_geometric_augmentation_skia(image, instances, **config)
 """
 
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple
 import numpy as np
 import torch
 import skia
+
+
+def apply_flip_augmentation_skia(
+    image: torch.Tensor,
+    instances: torch.Tensor,
+    symmetric_inds: Optional[Sequence[Tuple[int, int]]] = None,
+    flip_p: float = 0.0,
+    masks: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, ...]:
+    """Randomly mirror an image and its keypoints left/right, swapping symmetries.
+
+    When an image is mirrored left/right, left/right symmetric body parts physically
+    exchange sides, so their slots in the instance array must be swapped to keep
+    semantic labels correct (e.g. ``left_paw`` must remain ``left_paw``). This
+    mirrors the behavior of SLEAP v1.4's ``RandomFlipper`` (horizontal flip).
+
+    The flip is applied to the whole sample with probability ``flip_p`` (sampled once
+    per call). Mirroring is exact and lossless (a tensor reverse, no interpolation).
+
+    Args:
+        image: Input tensor of shape ``(1, C, H, W)`` with dtype uint8 or float32.
+        instances: Keypoints tensor of shape ``(1, n_instances, n_nodes, 2)`` or
+            ``(1, n_nodes, 2)``. The node axis is the second-to-last (``-2``).
+        symmetric_inds: Iterable of ``(i, j)`` node-index pairs to swap after
+            mirroring. ``None`` or empty means no swap (correct only if the skeleton
+            is truly left/right symmetric in labeling, e.g. centroids).
+        flip_p: Probability of applying the flip. ``0`` disables (no-op).
+        masks: Optional segmentation masks of shape ``(1, K, H, W)`` to co-transform
+            with the image under the SAME flip draw. Mirroring a binary mask is exact
+            and lossless (a tensor reverse). Symmetric-node swapping does not apply to
+            masks (a mask just mirrors). When provided, the return value gains a third
+            element holding the mirrored masks.
+
+    Returns:
+        ``(image, instances)`` when ``masks`` is ``None``, else
+        ``(image, instances, masks)``. When the flip is not applied, the inputs are
+        returned unchanged. NaN keypoints are preserved (``(W - 1) - NaN`` is ``NaN``).
+    """
+    if flip_p <= 0 or np.random.random() >= flip_p:
+        if masks is not None:
+            return image, instances, masks
+        return image, instances
+
+    instances = instances.clone()
+    width = image.shape[-1]
+    image = torch.flip(image, dims=[-1])
+    instances[..., 0] = (width - 1) - instances[..., 0]
+
+    # Swap symmetric node pairs on the node axis (-2) so labels stay correct.
+    if symmetric_inds is not None:
+        for a, b in symmetric_inds:
+            swap = instances[..., a, :].clone()
+            instances[..., a, :] = instances[..., b, :]
+            instances[..., b, :] = swap
+
+    if masks is not None:
+        masks = torch.flip(masks, dims=[-1])
+        return image, instances, masks
+
+    return image, instances
 
 
 def apply_intensity_augmentation_skia(
@@ -135,7 +195,10 @@ def apply_geometric_augmentation_skia(
     mixup_lambda_min: float = 0.01,
     mixup_lambda_max: float = 0.05,
     mixup_p: float = 0.0,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    flip_p: float = 0.0,
+    symmetric_inds: Optional[Sequence[Tuple[int, int]]] = None,
+    masks: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, ...]:
     """Apply geometric augmentations using Skia.
 
     Matches API of sleap_nn.data.augmentation.apply_geometric_augmentation.
@@ -161,10 +224,41 @@ def apply_geometric_augmentation_skia(
         mixup_lambda_min: Min mixup strength (not implemented).
         mixup_lambda_max: Max mixup strength (not implemented).
         mixup_p: Probability of mixup (not implemented).
+        flip_p: Probability of mirroring the sample left/right (with symmetric-node
+            swap).
+        symmetric_inds: Node-index pairs to swap after mirroring (see
+            ``apply_flip_augmentation_skia``). None/empty means no swap.
+        masks: Optional segmentation masks of shape ``(1, K, H, W)`` (float in
+            ``{0, 1}``) to co-transform with the image under the SAME sampled flip +
+            affine ``matrix``. Masks are warped with nearest-neighbor sampling (crisp
+            binary, no interpolation fringe) and re-binarized. Erase/mixup are
+            image-only and never touch masks (they simulate occlusion/blending while
+            the object — and thus its ground-truth mask — remains). When provided, the
+            return value gains a third element holding the co-transformed masks.
 
     Returns:
-        Tuple of (augmented_image, augmented_instances). Image dtype matches input.
+        ``(augmented_image, augmented_instances)`` when ``masks`` is ``None``, else
+        ``(augmented_image, augmented_instances, augmented_masks)``. Image dtype
+        matches input.
     """
+    # Apply flip first (matches SLEAP v1.4 ordering: flip before affine).
+    if flip_p > 0:
+        if masks is not None:
+            image, instances, masks = apply_flip_augmentation_skia(
+                image,
+                instances,
+                symmetric_inds=symmetric_inds,
+                flip_p=flip_p,
+                masks=masks,
+            )
+        else:
+            image, instances = apply_flip_augmentation_skia(
+                image,
+                instances,
+                symmetric_inds=symmetric_inds,
+                flip_p=flip_p,
+            )
+
     # Convert to numpy for Skia processing
     is_float = image.dtype == torch.float32
     if is_float:
@@ -229,8 +323,11 @@ def apply_geometric_augmentation_skia(
     if has_transform:
         img_np = _transform_image_skia(img_np, matrix)
         instances = _transform_keypoints_tensor(instances, matrix)
+        if masks is not None:
+            masks = _transform_masks_skia(masks, matrix)
 
-    # Apply random erasing
+    # Apply random erasing (image-only; masks are intentionally untouched because
+    # erase simulates occlusion of an object that is still present in the GT).
     if erase_p > 0 and np.random.random() < erase_p:
         img_np = _apply_random_erase(
             img_np, erase_scale_min, erase_scale_max, erase_ratio_min, erase_ratio_max
@@ -241,6 +338,8 @@ def apply_geometric_augmentation_skia(
     if is_float:
         result_tensor = result_tensor.float() / 255.0
 
+    if masks is not None:
+        return result_tensor, instances, masks
     return result_tensor, instances
 
 
@@ -291,6 +390,60 @@ def _transform_image_skia(image: np.ndarray, matrix: skia.Matrix) -> np.ndarray:
     if channels == 1:
         return output_rgba[:, :, 0:1]
     return output_rgba[:, :, :3]
+
+
+def _transform_mask_skia(mask: np.ndarray, matrix: skia.Matrix) -> np.ndarray:
+    """Warp a single ``(H, W)`` binary mask with ``matrix`` (nearest-neighbor).
+
+    Mirrors ``_transform_image_skia`` but forces nearest-neighbor sampling with
+    antialiasing off, so a segmentation label map stays crisply binary under the same
+    affine ``matrix`` used for the image (no bilinear gray fringe). The result is
+    re-binarized at 0.5. Out-of-frame regions become background (0), matching the
+    image being filled with the canvas clear color.
+
+    Args:
+        mask: ``(H, W)`` boolean or ``{0, 1}`` array.
+        matrix: The SAME ``skia.Matrix`` applied to the image for this sample.
+
+    Returns:
+        ``(H, W)`` boolean array.
+    """
+    h, w = mask.shape[:2]
+    src = np.asarray(mask).astype(np.uint8) * 255
+    src_rgba = np.ascontiguousarray(
+        np.stack([src, src, src, np.full((h, w), 255, np.uint8)], axis=-1)
+    )
+    skia_image = skia.Image.fromarray(
+        src_rgba, colorType=skia.ColorType.kRGBA_8888_ColorType
+    )
+
+    output_rgba = np.zeros((h, w, 4), dtype=np.uint8)
+    output_rgba[:, :, 3] = 255
+    surface = skia.Surface(output_rgba, colorType=skia.ColorType.kRGBA_8888_ColorType)
+    canvas = surface.getCanvas()
+    canvas.clear(skia.Color4f(0, 0, 0, 1))
+    canvas.setMatrix(matrix)
+
+    paint = skia.Paint()
+    paint.setAntiAlias(False)  # crisp edges for a label map
+    sampling = skia.SamplingOptions(skia.FilterMode.kNearest)
+    canvas.drawImage(skia_image, 0, 0, sampling, paint)
+    surface.flushAndSubmit()
+
+    return output_rgba[:, :, 0] > 127
+
+
+def _transform_masks_skia(masks: torch.Tensor, matrix: skia.Matrix) -> torch.Tensor:
+    """Warp a ``(1, K, H, W)`` float mask tensor with ``matrix`` (nearest-neighbor).
+
+    Applies :func:`_transform_mask_skia` to each of the ``K`` masks under the SAME
+    matrix and returns a re-binarized float tensor of the same shape/dtype/device.
+    """
+    arr = masks.detach().cpu().numpy()  # (1, K, H, W)
+    out = np.empty_like(arr)
+    for k in range(arr.shape[1]):
+        out[0, k] = _transform_mask_skia(arr[0, k] > 0.5, matrix).astype(arr.dtype)
+    return torch.from_numpy(out).to(masks.dtype)
 
 
 def _transform_keypoints_tensor(

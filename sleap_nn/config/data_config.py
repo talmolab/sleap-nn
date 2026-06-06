@@ -125,6 +125,7 @@ class GeometricConfig:
         mixup_lambda_min: (float) Minimum mixup strength value. *Default*: `0.01`.
         mixup_lambda_max: (float) Maximum mixup strength value. *Default*: `0.05`.
         mixup_p: (float) Probability of applying random mixup v2. *Default*: `0.0`.
+        flip_p: (float) Probability of mirroring the image and keypoints left/right (`x' = (W-1) - x`). When applied, left/right symmetric body parts are swapped using the skeleton's symmetries so labels stay correct. *Correctness note*: if the skeleton has no symmetries, flipping is only valid when the animal is truly left/right symmetric in labeling; a warning is emitted otherwise. *Default*: `0.0` (disabled).
     """
 
     rotation_min: float = field(default=-15.0, validator=validators.ge(-180))
@@ -145,6 +146,7 @@ class GeometricConfig:
     mixup_lambda_min: float = field(default=0.01, validator=validators.ge(0))
     mixup_lambda_max: float = field(default=0.05, validator=validators.le(1))
     mixup_p: float = field(default=0.0, validator=validate_proportion)
+    flip_p: float = field(default=0.0, validator=validate_proportion)
 
 
 @define

@@ -10,7 +10,7 @@ identically.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 import numpy as np
 
@@ -23,6 +23,9 @@ def build_predicted_segmentation_mask(
     score: float,
     scale: Tuple[float, float] = (1.0, 1.0),
     offset: Tuple[float, float] = (0.0, 0.0),
+    instance: "Optional[sio.PredictedInstance]" = None,
+    track: "Optional[sio.Track]" = None,
+    tracking_score: Optional[float] = None,
 ) -> "sio.PredictedSegmentationMask":
     """Build a ``sio.PredictedSegmentationMask`` from a boolean mask array.
 
@@ -36,19 +39,35 @@ def build_predicted_segmentation_mask(
         offset: Origin ``(x, y)`` of the mask in image pixels. The segmentation
             layer keeps this ``(0.0, 0.0)`` because every preprocessing pad is
             bottom-right (valid content top-left aligned).
+        instance: Optional paired ``sio.PredictedInstance`` set on the mask's
+            ``instance`` field (PLAN L8 — populated when the mask was produced
+            from a pose/centroid, making correction referential not positional).
+            Defaults to ``None`` so existing model-driven callers are unchanged.
+        track: Optional ``sio.Track`` set on the mask's ``track`` field (PLAN L8).
+        tracking_score: Optional track-assignment confidence set on the mask's
+            ``tracking_score`` field.
 
     Returns:
         A ``sio.PredictedSegmentationMask`` (RLE-backed) carrying ``score`` and
-        the ``scale``/``offset`` that map it back to image pixels.
+        the ``scale``/``offset`` that map it back to image pixels, plus the
+        optional ``instance``/``track``/``tracking_score`` provenance.
     """
     import sleap_io as sio
 
     mask = np.ascontiguousarray(mask, dtype=bool)
+    kwargs: dict[str, Any] = {}
+    if instance is not None:
+        kwargs["instance"] = instance
+    if track is not None:
+        kwargs["track"] = track
+    if tracking_score is not None:
+        kwargs["tracking_score"] = float(tracking_score)
     return sio.PredictedSegmentationMask.from_numpy(
         mask,
         score=float(score),
         scale=(float(scale[0]), float(scale[1])),
         offset=(float(offset[0]), float(offset[1])),
+        **kwargs,
     )
 
 
@@ -60,9 +79,16 @@ def decode_mask_to_image_res(m: "sio.SegmentationMask") -> np.ndarray:
     at output-stride by :class:`SegmentationLayer`), this nearest-neighbor
     resamples it up to its image extent so every consumer — eval IoU
     (:func:`sleap_nn.evaluation._frame_masks`) and the segmentation training data
-    loader — compares masks on a common original-image grid. Scale-1 masks
-    (legacy full-res GT/preds) take a zero-copy fast path, so old ``.slp`` files
-    behave exactly as before.
+    loader — compares masks on a common original-image grid. Scale-1,
+    offset-0 masks (legacy full-res GT/preds, all bottom-up predictions) take a
+    zero-copy fast path, so old ``.slp`` files behave exactly as before.
+
+    A non-identity ``offset`` (the crop origin ``(x, y)`` of a top-down
+    crop-centered mask) is baked in by top-left zero-padding so the mask lands
+    at its full-frame location for IoU/placement; without this, two crops at
+    different offsets would both decode to the origin and collide (sio
+    ``resampled``/``image_extent`` drop the offset). Offset-0 masks are
+    unaffected.
 
     Note:
         ``image_extent`` can differ from the true frame size by +/-1 px because
@@ -72,11 +98,39 @@ def decode_mask_to_image_res(m: "sio.SegmentationMask") -> np.ndarray:
         the actual frame size. For IoU on a shared max-canvas the +/-1 lands on a
         background row/col and does not change the result.
     """
-    scale = getattr(m, "scale", (1.0, 1.0))
-    if tuple(scale) == (1.0, 1.0):
+    scale = tuple(getattr(m, "scale", (1.0, 1.0)))
+    offset = tuple(getattr(m, "offset", (0.0, 0.0)))
+    # Fast path: full-res, origin-anchored masks (legacy full-res GT/preds and
+    # every bottom-up prediction, which always emits offset (0, 0)) are returned
+    # zero-copy, byte-identical to the pre-offset-aware behavior.
+    if scale == (1.0, 1.0) and offset == (0.0, 0.0):
         return np.asarray(m.data, dtype=bool)
-    h, w = m.image_extent
-    return np.asarray(m.resampled(int(h), int(w)).data, dtype=bool)
+
+    # Honor scale: decode up to the mask's image extent.
+    if scale == (1.0, 1.0):
+        arr = np.asarray(m.data, dtype=bool)
+    else:
+        h, w = m.image_extent
+        arr = np.asarray(m.resampled(int(h), int(w)).data, dtype=bool)
+
+    # Honor offset: place the decoded array at its image-space origin by
+    # top-left zero-padding. sio ``offset`` is ``(x, y)`` image pixels
+    # (``image_coord = mask_coord / scale + offset``); ``image_extent``/
+    # ``resampled`` drop it (mask.py), and the eval consumers (``_align_pair`` /
+    # ``_mask_iou``) top-left-align masks on a shared max-canvas. Baking the
+    # offset here is what makes a crop-centered (top-down) mask at offset
+    # ``(x0, y0)`` score at the correct full-frame location instead of colliding
+    # with every other crop at the origin. Negative offsets (a crop spilling off
+    # the top/left edge) are clipped to the in-frame region.
+    ox, oy = int(round(offset[0])), int(round(offset[1]))
+    if ox or oy:
+        sy, sx = max(0, -oy), max(0, -ox)  # drop rows/cols mapped off-frame
+        dy, dx = max(0, oy), max(0, ox)  # pad to the in-frame origin
+        src = arr[sy:, sx:]
+        out = np.zeros((dy + src.shape[0], dx + src.shape[1]), dtype=bool)
+        out[dy:, dx:] = src
+        arr = out
+    return arr
 
 
 def build_predicted_roi(
