@@ -478,6 +478,13 @@ def find_frame_pairs(
     """
     # Use sleap-io's robust video matching API (added in 0.6.2)
     # The match() method returns a MatchResult with video_map: {pred_video: gt_video}
+    #
+    # NOTE: sleap-io's AUTO matcher shape-rejects candidates before its definitive
+    # is_same_file check, so it fails to pair an embedded-subset GT video with its
+    # restored-original prediction counterpart (same file, different frame count) --
+    # e.g. post-training eval on an embedded .pkg.slp logs "Empty Frame Pairs". This
+    # is fixed upstream in talmolab/sleap-io#473; pull it in via the sleap-io pin
+    # rather than working around it here.
     match_result = labels_gt.match(labels_pr)
 
     frame_pairs = []
@@ -1908,6 +1915,15 @@ def run_evaluation(
     # the OKS default of 0.0.
     if match_method == "mask" and match_threshold == 0:
         match_threshold = 0.5
+
+    # Mask eval matches GT vs predicted MASKS (on ``frame.masks``), independent of
+    # whether the frame's keypoint instances are user- or predicted-labeled. The
+    # ``user_labels_only`` frame filter (find_frame_pairs) keeps only frames with
+    # USER keypoint instances, which silently drops EVERY frame when the GT was
+    # built from predicted poses (e.g. pseudo-mask GT from predicted skeletons),
+    # raising "Empty Frame Pairs". Mask mode therefore never applies that filter.
+    if match_method == "mask":
+        user_labels_only = False
 
     logger.info("Matching videos and frames...")
     # Get match stats before creating evaluator
