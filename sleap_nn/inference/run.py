@@ -203,6 +203,15 @@ def predict(
     full_res_masks: bool = False,
     mask_output: str = "mask",
     polygon_epsilon: float = 0.01,
+    # SAM prompted-mask producer (explicit, no default; PLAN L2). When set, masks
+    # are produced from the existing poses in ``source`` (no trained seg model).
+    mask_backend: Optional[str] = None,
+    sam_checkpoint: Optional[str] = None,
+    sam_model_type: str = "vit_h",
+    sam_prompt_mode: str = "pose",
+    sam_anchor_ind: Optional[int] = None,
+    sam_disjointify_masks: bool = False,
+    overlay_path: Optional[str] = None,
     # Prediction-time (can vary per call)
     frames: Optional[List[int]] = None,
     peak_threshold: Optional[float] = None,
@@ -281,6 +290,17 @@ def predict(
             segmentation only).
         polygon_epsilon: Douglas-Peucker tolerance (fraction of perimeter) for
             ``mask_output`` polygon/both (bottom-up segmentation only).
+        mask_backend: **Explicit** SAM mask backend (PLAN L2): ``"sam"`` (SAM1) /
+            ``"sam3"`` (PR-B). When set, ``source`` is treated as a pose ``.slp``
+            and masks are predicted from its existing instances (no trained seg
+            model, so ``model_paths`` / ``export_dir`` are not required). ``None``
+            (the default) leaves the model-driven path untouched.
+        sam_checkpoint: SAM1 checkpoint path (required for ``mask_backend="sam"``).
+        sam_model_type: SAM1 model registry key.
+        sam_prompt_mode: ``"pose"`` / ``"centroid"`` / ``"box"`` (PLAN §2.2).
+        sam_anchor_ind: Centroid anchor node index for ``sam_prompt_mode="centroid"``.
+        sam_disjointify_masks: Make per-frame masks disjoint when >=2 instances.
+        overlay_path: Optional review-overlay PNG path (PLAN L4; SAM path only).
         frames: Frame indices to predict. ``None`` = all.
         peak_threshold: Override peak threshold for all stages.
         centroid_threshold: Override centroid-stage threshold (top-down).
@@ -318,17 +338,46 @@ def predict(
 
     from sleap_nn.inference.predictor import Predictor
 
-    if model_paths and export_dir:
-        raise ValueError("Provide model_paths or export_dir, not both.")
-    if not model_paths and not export_dir:
-        raise ValueError("Either model_paths or export_dir is required.")
-
     if device == "auto":
         device = (
             "cuda"
             if torch.cuda.is_available()
             else "mps" if torch.backends.mps.is_available() else "cpu"
         )
+
+    # SAM prompted-mask producer (PLAN L2/L8): masks come from the existing poses
+    # in ``source`` — there is no trained seg model, so this short-circuits the
+    # model-driven path entirely. ``mask_backend`` is explicit / required to opt
+    # in; ``None`` (the default) leaves everything below unchanged.
+    if mask_backend is not None:
+        if model_paths or export_dir:
+            raise ValueError(
+                "mask_backend produces masks from the poses in `source` and does "
+                "not use a trained seg model; do not also pass model_paths / "
+                "export_dir."
+            )
+        from sleap_nn.inference.sam import run_sam_segmentation
+
+        labels = run_sam_segmentation(
+            source,
+            mask_backend,
+            prompt_mode=sam_prompt_mode,
+            sam_checkpoint=sam_checkpoint,
+            sam_model_type=sam_model_type,
+            device=device,
+            anchor_ind=sam_anchor_ind,
+            disjointify_masks=sam_disjointify_masks,
+            overlay_path=overlay_path,
+            frames=frames,
+        )
+        if output_path is not None:
+            save_predictions(labels, output_path, output_format=output_format)
+        return labels
+
+    if model_paths and export_dir:
+        raise ValueError("Provide model_paths or export_dir, not both.")
+    if not model_paths and not export_dir:
+        raise ValueError("Either model_paths or export_dir is required.")
 
     if tracker_config is not None and emit_centroid != "instance":
         raise ValueError(

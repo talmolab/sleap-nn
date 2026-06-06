@@ -10,7 +10,7 @@ identically.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 import numpy as np
 
@@ -23,6 +23,9 @@ def build_predicted_segmentation_mask(
     score: float,
     scale: Tuple[float, float] = (1.0, 1.0),
     offset: Tuple[float, float] = (0.0, 0.0),
+    instance: "Optional[sio.PredictedInstance]" = None,
+    track: "Optional[sio.Track]" = None,
+    tracking_score: Optional[float] = None,
 ) -> "sio.PredictedSegmentationMask":
     """Build a ``sio.PredictedSegmentationMask`` from a boolean mask array.
 
@@ -36,19 +39,35 @@ def build_predicted_segmentation_mask(
         offset: Origin ``(x, y)`` of the mask in image pixels. The segmentation
             layer keeps this ``(0.0, 0.0)`` because every preprocessing pad is
             bottom-right (valid content top-left aligned).
+        instance: Optional paired ``sio.PredictedInstance`` set on the mask's
+            ``instance`` field (PLAN L8 — populated when the mask was produced
+            from a pose/centroid, making correction referential not positional).
+            Defaults to ``None`` so existing model-driven callers are unchanged.
+        track: Optional ``sio.Track`` set on the mask's ``track`` field (PLAN L8).
+        tracking_score: Optional track-assignment confidence set on the mask's
+            ``tracking_score`` field.
 
     Returns:
         A ``sio.PredictedSegmentationMask`` (RLE-backed) carrying ``score`` and
-        the ``scale``/``offset`` that map it back to image pixels.
+        the ``scale``/``offset`` that map it back to image pixels, plus the
+        optional ``instance``/``track``/``tracking_score`` provenance.
     """
     import sleap_io as sio
 
     mask = np.ascontiguousarray(mask, dtype=bool)
+    kwargs: dict[str, Any] = {}
+    if instance is not None:
+        kwargs["instance"] = instance
+    if track is not None:
+        kwargs["track"] = track
+    if tracking_score is not None:
+        kwargs["tracking_score"] = float(tracking_score)
     return sio.PredictedSegmentationMask.from_numpy(
         mask,
         score=float(score),
         scale=(float(scale[0]), float(scale[1])),
         offset=(float(offset[0]), float(offset[1])),
+        **kwargs,
     )
 
 
