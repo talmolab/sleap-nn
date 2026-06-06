@@ -387,6 +387,7 @@ def predict(
             output_path=output_path,
             overlay_path=overlay_path,
             frames=frames,
+            clean_empty_frames=clean_empty_frames,
         )
         return labels
 

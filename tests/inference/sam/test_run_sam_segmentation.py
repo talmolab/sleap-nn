@@ -152,6 +152,51 @@ def test_run_sam_segmentation_writes_output_slp(minimal_instance, tmp_path):
     assert all(isinstance(m, sio.PredictedSegmentationMask) for m in rmasks)
 
 
+def test_run_sam_segmentation_clean_empty_frames(minimal_instance):
+    """clean_empty_frames drops 0-instance frames but keeps posed (mask-bearing) ones."""
+    src = sio.load_slp(str(minimal_instance))
+    skel = src.skeletons[0]
+    gt = src.labeled_frames[0]
+    preds = [
+        sio.PredictedInstance.from_numpy(
+            points_data=i.numpy()[:, :2],
+            skeleton=skel,
+            point_scores=np.ones(i.numpy().shape[0]),
+            score=1.0,
+        )
+        for i in gt.instances
+    ]
+    posed = sio.LabeledFrame(video=gt.video, frame_idx=gt.frame_idx, instances=preds)
+    # A 0-instance frame (reuse the embedded frame_idx so lf.image still resolves).
+    empty = sio.LabeledFrame(video=gt.video, frame_idx=gt.frame_idx, instances=[])
+    labels = sio.Labels(
+        videos=list(src.videos), skeletons=[skel], labeled_frames=[posed, empty]
+    )
+
+    # Default keeps the empty frame (matches the regular path's default).
+    kept = run_sam_segmentation(
+        labels,
+        "sam",
+        backend=FakeBackend(_prompt_disk()),
+        prompt_mode="pose",
+        clean_empty_frames=False,
+    )
+    assert len(kept.labeled_frames) == 2
+
+    # clean_empty_frames=True drops only the 0-instance frame; the posed (and now
+    # mask-bearing) frame is kept.
+    cleaned = run_sam_segmentation(
+        labels,
+        "sam",
+        backend=FakeBackend(_prompt_disk()),
+        prompt_mode="pose",
+        clean_empty_frames=True,
+    )
+    assert len(cleaned.labeled_frames) == 1
+    assert cleaned.labeled_frames[0].instances
+    assert cleaned.labeled_frames[0].masks
+
+
 def test_run_sam_segmentation_writes_overlay_png(minimal_instance, tmp_path):
     """``overlay_path`` writes a review PNG to disk."""
     labels = _pose_labels(minimal_instance)

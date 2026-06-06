@@ -256,7 +256,8 @@ class TestRetrackBehavior:
         frames, masks, obj_ids, _ = _build_swap_clip(
             skeleton, n_frames=2, swap_window=(0, 0)
         )
-        # Excluding all nodes makes every match fail the >=1 predicate.
+        # Excluding all nodes makes every match fail the default predicate
+        # (0 keypoints inside < the default require_min_keypoints_inside(3)).
         result = retrack(
             frames,
             masks,

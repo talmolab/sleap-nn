@@ -155,6 +155,7 @@ def run_sam_segmentation(
     output_path: Optional[str] = None,
     overlay_path: Optional[str] = None,
     frames: Optional[Sequence[int]] = None,
+    clean_empty_frames: bool = False,
 ):
     """Predict per-instance masks for a pose ``.slp`` with a SAM backend.
 
@@ -189,6 +190,11 @@ def run_sam_segmentation(
         frames: Optional frame indices (matched against ``lf.frame_idx``) to
             restrict masking to; ``None`` masks every labeled frame. SAM encoding
             is the slow step, so subsetting here avoids unrequested compute.
+        clean_empty_frames: If ``True``, drop fully-empty output frames (no
+            instances and no masks) before saving/returning, mirroring the
+            regular prediction path's ``--no_empty_frames``. A frame that has
+            poses but no mask is NOT empty (its instances are retained) and is
+            kept.
 
     Returns:
         A new ``sio.Labels`` with per-frame ``PredictedSegmentationMask`` (and the
@@ -256,6 +262,12 @@ def run_sam_segmentation(
         skeletons=list(labels.skeletons),
         labeled_frames=new_lfs,
     )
+
+    if clean_empty_frames:
+        # Mirror the regular path's --no_empty_frames: drop frames with no
+        # annotations. A posed-but-mask-less frame keeps its instances and is
+        # NOT dropped; only fully-empty source frames are removed.
+        out.clean(frames=True, skeletons=False)
 
     if output_path is not None:
         out_path = Path(output_path).expanduser()

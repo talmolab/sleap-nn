@@ -107,9 +107,9 @@ labels = run_sam_segmentation(
 Two SAM3 specifics are handled automatically and are **never** shared with SAM1:
 
 - **Recalibrated score floor (`0.5`).** SAM3's predicted-IoU is on a lower scale,
-  so its per-model floor is `SAM3_PRED_IOU_MIN = 0.5` (SAM1's `0.88` would reject
-  ~100% of SAM3 masks as a pure calibration artifact). As with SAM1 the raw score
-  is reported, not gated on.
+  so its per-model floor (`Sam3Backend.pred_iou_min`) defaults to `0.5` (SAM1's
+  `0.88` would reject ~100% of SAM3 masks as a pure calibration artifact). As with
+  SAM1 the raw score is reported, not gated on.
 - **Speckle cleanup.** Raw SAM3 masks are fragmented (~14 connected components);
   each chosen mask is passed through a morphological open + close + keep-the-
   keypoint-connected-component cleanup (~1 component, ~97% area retained).
@@ -125,9 +125,12 @@ The same masks are produced from the `sleap-nn predict` command (and its hidden
 `infer` alias) by passing `--mask_backend`. When set, the input `.slp` is treated
 as a pose file and masks are produced from its existing instances — there is **no
 trained segmentation model**, so `--mask_backend` is **mutually exclusive with
-`--model_paths`** (do not pass it). The `.slp` output is saved with images
-**embedded**, so a `.pkg.slp` source can be reviewed/corrected in the GUI without
-the original frames.
+`--model_paths`** (do not pass it). The `.slp` output is saved like the regular
+prediction path — images are **not** re-embedded; the output backreferences the
+input's source media via provenance (small output; a `.pkg.slp` input stays
+matchable to its source videos), and the masks always serialize into the `.slp`.
+Only `--output_format slp` is supported (the SLEAP Analysis HDF5 format stores
+poses/tracks, not segmentation masks).
 
 SAM1 (ungated):
 

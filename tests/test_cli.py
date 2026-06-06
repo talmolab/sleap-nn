@@ -286,6 +286,78 @@ class TestPredictSamBackend:
         assert "not supported with --mask_backend" in result.output
         assert not mock_predict.called
 
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            "--only_labeled_frames",
+            "--only_suggested_frames",
+            "--exclude_user_labeled",
+            "--only_predicted_frames",
+        ],
+    )
+    def test_mask_backend_filter_flags_rejected(self, flag):
+        """Label-status frame filters are rejected (not crashed) with --mask_backend."""
+        runner = CliRunner()
+        with patch("sleap_nn.inference.run.predict") as mock_predict:
+            mock_predict.return_value = MagicMock()
+            result = runner.invoke(
+                cli, ["predict", "-i", "x.slp", "--mask_backend", "sam", flag]
+            )
+        # Clear UsageError before any file load — not a TypeError deep in the SAM path.
+        assert result.exit_code != 0
+        assert "not supported with --mask_backend" in result.output
+        assert not mock_predict.called
+
+    def test_mask_backend_stream_to_file_rejected(self, tmp_path):
+        """--mask_backend + --stream-to-file fails with a SAM-aware message."""
+        runner = CliRunner()
+        with patch("sleap_nn.inference.run.predict") as mock_predict:
+            mock_predict.return_value = MagicMock()
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "-i",
+                    "x.slp",
+                    "--mask_backend",
+                    "sam",
+                    "--stream-to-file",
+                    str(tmp_path / "out.slp"),
+                ],
+            )
+        assert result.exit_code != 0
+        assert "not supported with --stream-to-file" in result.output
+        assert not mock_predict.called
+
+    def test_mask_backend_video_index_passes_labels(self, minimal_instance):
+        """--mask_backend + --video_index passes a scoped sio.Labels (no crash).
+
+        Regression for the LabelsProvider-as-source TypeError: the SAM path takes a
+        sio.Labels directly, so --video_index must hand it the scoped Labels rather
+        than a LabelsProvider.
+        """
+        runner = CliRunner()
+        with patch("sleap_nn.inference.run.predict") as mock_predict:
+            mock_predict.return_value = MagicMock()
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "-i",
+                    str(minimal_instance),
+                    "--mask_backend",
+                    "sam",
+                    "--sam_checkpoint",
+                    "c.pth",
+                    "--video_index",
+                    "0",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_predict.called
+        source = mock_predict.call_args[0][0]
+        assert isinstance(source, sio.Labels)
+
     def test_mask_backend_sam3_forwards_model_id(self):
         """`--mask_backend sam3 --sam3_model_id foo/bar` forwards sam3_model_id."""
         runner = CliRunner()

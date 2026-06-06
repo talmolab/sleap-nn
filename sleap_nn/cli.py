@@ -1094,6 +1094,16 @@ def _run_inference_impl(**kwargs):
     else:
         kwargs["frames"] = None
 
+    # The SAM mask path is in-memory only (it masks an existing .slp); it does not
+    # use the streaming Predictor. Guard here so the combo fails with a SAM-aware
+    # message instead of _run_stream_to_file's misleading "--model_paths is
+    # required" (the SAM path actually forbids --model_paths).
+    if stream_to_file is not None and kwargs.get("mask_backend"):
+        raise click.UsageError(
+            "--mask_backend is not supported with --stream-to-file; the SAM mask "
+            "path runs in-memory on an existing .slp. Run without --stream-to-file."
+        )
+
     # Exported ONNX/TRT model directories run through the in-memory flow only.
     _mps = kwargs["model_paths"]
     if (
@@ -1368,6 +1378,30 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
             "separately."
         )
 
+    # The SAM mask path consumes a pose .slp / sio.Labels directly via
+    # run_sam_segmentation, NOT the Provider/Predictor flow. The label-status
+    # frame filters select inference frames by annotation status, which does not
+    # map onto masking the poses already present; reject them clearly rather than
+    # crash deep in run_sam_segmentation (which would ``Path()`` a LabelsProvider
+    # -> TypeError). ``--video_index`` and ``--frames`` ARE supported (below).
+    if kwargs.get("mask_backend"):
+        _sam_unsupported = [
+            f"--{flag}"
+            for flag in (
+                "only_labeled_frames",
+                "only_suggested_frames",
+                "exclude_user_labeled",
+                "only_predicted_frames",
+            )
+            if kwargs.get(flag)
+        ]
+        if _sam_unsupported:
+            raise click.UsageError(
+                f"{', '.join(_sam_unsupported)} not supported with --mask_backend; "
+                "it masks the poses already in the input .slp. Use --frames to "
+                "subset frames, or pre-filter the .slp."
+            )
+
     # ── Tracking-only retrack: no model_paths, --tracking on a .slp ────
     if not kwargs.get("model_paths") and kwargs.get("tracking"):
         return _run_retrack_only(kwargs, Predictor)
@@ -1404,14 +1438,19 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         scoped, target_video = _scope_labels_to_video(
             sio.load_slp(str(src)), video_index, frames=kwargs.get("frames")
         )
-        source = LabelsProvider(
-            labels=scoped,
-            batch_size=kwargs.get("batch_size", 4),
-            only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
-            only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
-            exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
-            only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
-        )
+        if kwargs.get("mask_backend"):
+            # run_sam_segmentation accepts a sio.Labels directly; pass the scoped
+            # Labels (not a LabelsProvider, which it cannot consume).
+            source = scoped
+        else:
+            source = LabelsProvider(
+                labels=scoped,
+                batch_size=kwargs.get("batch_size", 4),
+                only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
+                only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
+                exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
+                only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
+            )
         _vfn = getattr(target_video, "filename", None)
         scoped_video_name = Path(str(_vfn)).stem if _vfn else f"video_{video_index}"
     elif src.suffix == ".slp" and has_slp_filters:

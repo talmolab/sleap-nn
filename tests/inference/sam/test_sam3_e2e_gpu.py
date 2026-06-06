@@ -127,12 +127,24 @@ def _pred_labels_two_frames():
     )
 
 
-def _n_components(mask):
-    """Number of connected components in a boolean mask (8-connectivity)."""
+def _dominant_component_fraction(mask):
+    """Fraction of mask pixels held by its largest connected component.
+
+    ``_cleanup_speckle`` keeps the *set* of components containing a visible
+    keypoint, so an articulated pose can rarely leave >1 blob; the documented
+    contract is "~97% of the area in one component", not a hard single count.
+    """
     from scipy import ndimage
 
-    _, n = ndimage.label(np.asarray(mask, dtype=bool))
-    return n
+    m = np.asarray(mask, dtype=bool)
+    total = int(m.sum())
+    if total == 0:
+        return 0.0
+    labels_arr, n = ndimage.label(m)
+    if n == 0:
+        return 0.0
+    sizes = ndimage.sum(np.ones_like(labels_arr), labels_arr, range(1, n + 1))
+    return float(np.max(sizes)) / total
 
 
 def test_sam3_backend_masks_real_contract():
@@ -195,11 +207,14 @@ def test_sam3_backend_masks_real_contract():
         assert np.isfinite(s)
         if m.any():
             any_area = True
-            # Mandatory SAM3 speckle cleanup ran: every non-empty returned mask
-            # is a SINGLE connected component (raw SAM3 masks are ~14 components;
-            # ``_cleanup_speckle`` collapses them to ~1). If cleanup were skipped
-            # this would be >1 for the speckly real masks.
-            assert _n_components(m) == 1
+            # Mandatory SAM3 speckle cleanup ran: each non-empty mask is
+            # dominated by a single connected component (raw SAM3 masks are ~14
+            # components; ``_cleanup_speckle`` collapses to ~1 with ~97% of the
+            # area in one blob). Assert the documented dominant-component contract
+            # (>=90% area in the largest component) rather than an exact count of
+            # 1 — cleanup keeps the SET of keypoint-containing components, so an
+            # articulated pose can legitimately leave a small second blob.
+            assert _dominant_component_fraction(m) >= 0.9
     # At least one mask has area (SAM3 found a real silhouette on a GT pose).
     assert any_area
 
@@ -210,13 +225,13 @@ def test_sam3_pose_masks_end_to_end(tmp_path):
     Drives the SAM3 path through the same orchestration the SAM1 e2e test uses,
     asserting the emitted ``PredictedSegmentationMask`` objects carry finite
     scores, real area, are paired to their source predicted instance, and reload
-    from the embedded ``.slp``.
+    from the saved ``.slp`` (saved like the regular path — not re-embedded).
     """
     from sleap_nn.inference.sam import run_sam_segmentation
 
     small = _pred_labels_two_frames()
 
-    out_path = tmp_path / "sam3_pose_e2e.pkg.slp"
+    out_path = tmp_path / "sam3_pose_e2e.slp"
     overlay_path = tmp_path / "sam3_pose_e2e_overlay.png"
     model_id = _SAM3_MODEL_OVERRIDE or "facebook/sam3"
     out = run_sam_segmentation(
@@ -240,10 +255,10 @@ def test_sam3_pose_masks_end_to_end(tmp_path):
             data = np.asarray(m.data, dtype=bool)
             # A real mask has area...
             assert data.any()
-            # ...and the SAM3 speckle cleanup left a single connected component.
-            assert _n_components(data) == 1
+            # ...and the SAM3 speckle cleanup left a dominant single component.
+            assert _dominant_component_fraction(data) >= 0.9
 
-    # The embedded SLP + overlay PNG are written and reload.
+    # The saved .slp + overlay PNG are written and reload.
     assert out_path.exists()
     assert overlay_path.exists()
     sio.load_slp(out_path.as_posix())
