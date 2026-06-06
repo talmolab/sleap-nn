@@ -11,6 +11,21 @@ from sleap_nn.cli import cli, print_version, parse_path_map, show_training_help
 from sleap_nn import __version__
 import sleap_io as sio
 import torch
+import re
+
+
+def _norm_cli_output(s: str) -> str:
+    """Normalize rich-click output for substring checks.
+
+    rich-click renders error messages inside a word-wrapped, bordered panel, so a
+    multi-word phrase gets split across lines (with box-drawing chars + padding)
+    at narrow terminal widths (e.g. CI's 80 cols). Strip ANSI + box-drawing
+    characters and collapse whitespace so a phrase match is wrap-width-independent.
+    """
+    s = re.sub(r"\x1b\[[0-9;]*m", "", s)  # ANSI color codes
+    s = re.sub(r"[│┃▏▕─━┌┐└┘╭╮╰╯┄┅|]", " ", s)  # panel box-drawing chars
+    return re.sub(r"\s+", " ", s)
+
 
 # =============================================================================
 # CliRunner-based tests (in-process, tracked by coverage)
@@ -283,7 +298,7 @@ class TestPredictSamBackend:
         # UsageError -> non-zero exit, a clear message, and predict never runs
         # (otherwise this would silently route into retrack and produce no masks).
         assert result.exit_code != 0
-        assert "not supported with --mask_backend" in result.output
+        assert "not supported with --mask_backend" in _norm_cli_output(result.output)
         assert not mock_predict.called
 
     @pytest.mark.parametrize(
@@ -305,7 +320,7 @@ class TestPredictSamBackend:
             )
         # Clear UsageError before any file load — not a TypeError deep in the SAM path.
         assert result.exit_code != 0
-        assert "not supported with --mask_backend" in result.output
+        assert "not supported with --mask_backend" in _norm_cli_output(result.output)
         assert not mock_predict.called
 
     def test_mask_backend_stream_to_file_rejected(self, tmp_path):
@@ -326,7 +341,7 @@ class TestPredictSamBackend:
                 ],
             )
         assert result.exit_code != 0
-        assert "not supported with --stream-to-file" in result.output
+        assert "not supported with --stream-to-file" in _norm_cli_output(result.output)
         assert not mock_predict.called
 
     def test_mask_backend_video_index_passes_labels(self, minimal_instance):
