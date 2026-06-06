@@ -159,9 +159,16 @@ jobs:
           uv run --frozen --extra torch-cpu pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
 
       - name: Upload coverage
-        if: github.repository == 'talmolab/sleap-nn' 
+        if: github.repository == 'talmolab/sleap-nn'
         uses: codecov/codecov-action@v5
         with:
-          fail_ci_if_error: true
+          # Coverage upload must NOT gate merges. The codecov-action verifies the
+          # uploader binary against a GPG key fetched from a public keyserver, which
+          # fails intermittently (codecov/codecov-action#1876: "Could not verify
+          # signature") independently of codecov's backend; with fail_ci_if_error:true
+          # those transient keyserver/upload hiccups turned every affected PR's CI red
+          # despite all tests passing. Coverage still uploads when the keyserver is
+          # reachable; it just no longer fails the job when it isn't.
+          fail_ci_if_error: false
           verbose: false
           token: ${{ secrets.CODECOV_TOKEN }}
