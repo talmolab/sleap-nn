@@ -197,6 +197,82 @@ def test_run_sam_segmentation_clean_empty_frames(minimal_instance):
     assert cleaned.labeled_frames[0].masks
 
 
+def test_run_sam_segmentation_embed_true_self_contained(minimal_instance, tmp_path):
+    """``embed="true"`` writes a self-contained .slp larger than ``embed="false"``.
+
+    #652: the embedding policy is configurable. With ``embed="true"`` the output
+    carries pixel data and reloads with a video reporting embedded images; it is
+    strictly larger than the default ``embed="false"`` (backreference) output.
+    """
+    from sleap_nn.inference.run import _video_has_embedded_images
+
+    out_false = tmp_path / "embed_false.slp"
+    out_true = tmp_path / "embed_true.slp"
+
+    run_sam_segmentation(
+        str(minimal_instance),
+        "sam",
+        backend=FakeBackend(_prompt_disk()),
+        prompt_mode="pose",
+        output_path=out_false,
+        embed="false",
+    )
+    run_sam_segmentation(
+        str(minimal_instance),
+        "sam",
+        backend=FakeBackend(_prompt_disk()),
+        prompt_mode="pose",
+        output_path=out_true,
+        embed="true",
+    )
+    assert out_false.exists() and out_true.exists()
+    assert out_true.stat().st_size > out_false.stat().st_size
+    reloaded = sio.load_slp(out_true.as_posix())
+    assert any(_video_has_embedded_images(v) for v in reloaded.videos)
+    # Masks still serialize in both cases.
+    assert any(lf.masks for lf in reloaded.labeled_frames)
+
+
+def test_run_sam_segmentation_restore_source_videos_controls_refs(
+    minimal_instance, tmp_path
+):
+    """``restore_source_videos`` toggles the reloaded video filename reference.
+
+    #652: on a non-embedding save, default ``True`` restores the original source
+    video reference (the .mp4); ``False`` keeps the input ``.pkg.slp`` reference.
+    """
+    src = sio.load_slp(str(minimal_instance))
+    source_name = Path(src.videos[0].source_video.filename).name
+    input_name = Path(str(minimal_instance)).name
+
+    out_restore = tmp_path / "restore_true.slp"
+    out_keep = tmp_path / "restore_false.slp"
+
+    run_sam_segmentation(
+        str(minimal_instance),
+        "sam",
+        backend=FakeBackend(_prompt_disk()),
+        prompt_mode="pose",
+        output_path=out_restore,
+        restore_source_videos=True,
+    )
+    run_sam_segmentation(
+        str(minimal_instance),
+        "sam",
+        backend=FakeBackend(_prompt_disk()),
+        prompt_mode="pose",
+        output_path=out_keep,
+        restore_source_videos=False,
+    )
+
+    restored = sio.load_slp(out_restore.as_posix())
+    kept = sio.load_slp(out_keep.as_posix())
+    # Default True -> the original source .mp4 reference.
+    assert Path(restored.videos[0].filename).name == source_name
+    # False -> the input .pkg.slp reference is kept.
+    assert Path(kept.videos[0].filename).name == input_name
+
+
 def test_run_sam_segmentation_writes_overlay_png(minimal_instance, tmp_path):
     """``overlay_path`` writes a review PNG to disk."""
     labels = _pose_labels(minimal_instance)
@@ -473,6 +549,66 @@ def test_predict_sam_forwards_kwargs(minimal_instance, tmp_path, monkeypatch):
     assert captured["disjointify_masks"] is True
     assert captured["overlay_path"] == overlay_path
     assert captured["frames"] == [1]
+
+
+def test_predict_sam_forwards_embed_restore(minimal_instance, tmp_path, monkeypatch):
+    """``predict`` forwards embed / restore_source_videos into run_sam_segmentation."""
+    labels = _pose_labels(minimal_instance)
+    captured = {}
+
+    def fake_run_sam_segmentation(source, mask_backend, **kwargs):
+        captured.update(kwargs)
+        return sio.Labels(
+            videos=list(labels.videos),
+            skeletons=list(labels.skeletons),
+            labeled_frames=[],
+        )
+
+    monkeypatch.setattr(
+        "sleap_nn.inference.sam.run_sam_segmentation", fake_run_sam_segmentation
+    )
+
+    predict(
+        labels,
+        mask_backend="sam",
+        device="cpu",
+        sam_prompt_mode="pose",
+        output_path=tmp_path / "e.slp",
+        embed="auto",
+        restore_source_videos=False,
+    )
+    assert captured["embed"] == "auto"
+    assert captured["restore_source_videos"] is False
+
+
+def test_predict_sam_default_embed_restore_forwarded(
+    minimal_instance, tmp_path, monkeypatch
+):
+    """Default predict() forwards the byte-for-byte defaults to run_sam_segmentation."""
+    labels = _pose_labels(minimal_instance)
+    captured = {}
+
+    def fake_run_sam_segmentation(source, mask_backend, **kwargs):
+        captured.update(kwargs)
+        return sio.Labels(
+            videos=list(labels.videos),
+            skeletons=list(labels.skeletons),
+            labeled_frames=[],
+        )
+
+    monkeypatch.setattr(
+        "sleap_nn.inference.sam.run_sam_segmentation", fake_run_sam_segmentation
+    )
+
+    predict(
+        labels,
+        mask_backend="sam",
+        device="cpu",
+        sam_prompt_mode="pose",
+        output_path=tmp_path / "e.slp",
+    )
+    assert captured["embed"] == "false"
+    assert captured["restore_source_videos"] is True
 
 
 # --------------------------------------------------------------------------- save_mask_overlay

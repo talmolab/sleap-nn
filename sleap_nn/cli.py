@@ -1534,6 +1534,8 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
             )
         ),
         "output_format": kwargs.get("output_format") or "slp",
+        "embed": kwargs.get("embed") or "false",
+        "restore_source_videos": kwargs.get("restore_source_videos", True),
         # Bottom-up PAF grouping knobs (inert for non-bottom-up models). #583.
         "max_edge_length_ratio": kwargs.get("max_edge_length_ratio", 0.25),
         "dist_penalty_weight": kwargs.get("dist_penalty_weight", 1.0),
@@ -1717,7 +1719,11 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
 
     output_path = kwargs.get("output_path") or f"{src}.slp"
     save_predictions(
-        out, output_path, output_format=kwargs.get("output_format") or "slp"
+        out,
+        output_path,
+        output_format=kwargs.get("output_format") or "slp",
+        embed=kwargs.get("embed") or "false",
+        restore_source_videos=kwargs.get("restore_source_videos", True),
     )
     return out
 
@@ -1910,6 +1916,15 @@ def _run_stream_to_file(
             "--stream-to-file only supports --output_format slp. Drop "
             "--stream-to-file to write analysis HDF5 via the in-memory path."
         )
+    if (kwargs.get("embed") or "false") != "false" or (
+        kwargs.get("restore_source_videos", True) is False
+    ):
+        raise click.UsageError(
+            "--embed / --restore_source_videos are not supported with "
+            "--stream-to-file: the incremental writer saves with sleap-io "
+            "defaults (no embedding, original-video refs restored). Drop "
+            "--stream-to-file to control embedding."
+        )
     if not kwargs.get("model_paths"):
         raise click.UsageError("--model_paths is required for --stream-to-file.")
     data_path = kwargs.get("data_path")
@@ -2062,6 +2077,24 @@ def _common_inference_options(f):
             type=click.Choice(["slp", "analysis_h5", "both"], case_sensitive=False),
             default="slp",
             help="Output format: 'slp' (SLEAP labels file, the default), 'analysis_h5' (SLEAP Analysis HDF5, one '.analysis.h5' per video), or 'both'.",
+        ),
+        click.option(
+            "--embed",
+            type=click.Choice(["auto", "true", "false"], case_sensitive=False),
+            default="false",
+            help="Image-embedding policy for a .slp output: 'false' (default; "
+            "never embed, backreference source media), 'true' (embed images "
+            "into a self-contained .pkg.slp-style file), or 'auto' (embed iff "
+            "the input was itself an embedded .pkg.slp). Only applies to .slp output.",
+        ),
+        click.option(
+            "--restore_source_videos/--no-restore_source_videos",
+            "restore_source_videos",
+            default=True,
+            help="On a non-embedding .slp save, restore references to the "
+            "original source video files (default). Use "
+            "--no-restore_source_videos to keep references to the input "
+            ".pkg.slp file(s) instead. Ignored when embedding.",
         ),
         click.option(
             "--device",

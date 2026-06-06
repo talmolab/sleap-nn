@@ -15,6 +15,8 @@ import pytest
 import sleap_io as sio
 
 from sleap_nn.inference.run import (
+    _resolve_embed,
+    _video_has_embedded_images,
     predict,
     save_analysis_h5_files,
     save_predictions,
@@ -288,3 +290,173 @@ def test_predict_forwards_output_format(tmp_path):
             output_format="both",
         )
     assert mock_save.call_args.kwargs["output_format"] == "both"
+
+
+# --- embed / restore_source_videos controls (#652) -------------------------
+
+
+def test_resolve_embed_bool_passthrough():
+    """A bool ``embed`` passes through unchanged (no labels inspection)."""
+    assert _resolve_embed(True, None) is True
+    assert _resolve_embed(False, None) is False
+
+
+def test_resolve_embed_string_true_false_case_insensitive():
+    """``"true"``/``"false"`` resolve regardless of case/whitespace."""
+    assert _resolve_embed("true", None) is True
+    assert _resolve_embed("TRUE", None) is True
+    assert _resolve_embed("  True  ", None) is True
+    assert _resolve_embed("false", None) is False
+    assert _resolve_embed("FALSE", None) is False
+
+
+def test_resolve_embed_invalid_string_raises():
+    """An unrecognized ``embed`` string is a ValueError."""
+    with pytest.raises(ValueError, match="Invalid embed"):
+        _resolve_embed("maybe", None)
+
+
+def test_resolve_embed_auto_true_when_video_has_source():
+    """``"auto"`` -> True when a video carries ``source_video`` provenance."""
+    video = MagicMock()
+    video.source_video = MagicMock(name="source")
+    labels = MagicMock()
+    labels.videos = [video]
+    assert _resolve_embed("auto", labels) is True
+
+
+def test_resolve_embed_auto_false_for_plain_media_video():
+    """``"auto"`` -> False for a plain (non-embedded) MediaVideo labels.
+
+    A ``Video.from_filename`` (no ``.pkg.slp`` provenance) has ``source_video``
+    None and no embedded backend, so ``auto`` does not embed.
+    """
+    video = sio.Video.from_filename(
+        "tests/data/json_format_v1/centered_pair_low_quality.mp4",
+        open_backend=False,
+    )
+    assert video.source_video is None
+    labels = sio.Labels(videos=[video], skeletons=[], labeled_frames=[])
+    assert _resolve_embed("auto", labels) is False
+
+
+def test_video_has_embedded_images_source_video_signal():
+    """``source_video`` provenance is the primary embedded-images signal."""
+    video = MagicMock()
+    video.source_video = MagicMock(name="source")
+    assert _video_has_embedded_images(video) is True
+
+
+def test_video_has_embedded_images_backend_fallback():
+    """Falls back to ``backend.has_embedded_images`` when no source provenance."""
+    video = MagicMock()
+    video.source_video = None
+    video.backend.has_embedded_images = True
+    assert _video_has_embedded_images(video) is True
+
+
+def test_video_has_embedded_images_backend_access_guarded():
+    """A backend that raises on access never propagates; returns False."""
+
+    class _Raises:
+        source_video = None
+
+        @property
+        def backend(self):
+            raise RuntimeError("missing media")
+
+    assert _video_has_embedded_images(_Raises()) is False
+
+
+def test_video_has_embedded_images_plain_video_false():
+    """No source, backend without the flag -> False."""
+    video = MagicMock()
+    video.source_video = None
+    video.backend = MagicMock(spec=[])  # no has_embedded_images attribute
+    assert _video_has_embedded_images(video) is False
+
+
+def test_save_predictions_forwards_embed_and_restore_to_labels_save():
+    """save_predictions forwards resolved embed + restore_original_videos."""
+    labels = MagicMock()
+    labels.videos = []
+    save_predictions(
+        labels,
+        "out.slp",
+        output_format="slp",
+        embed="true",
+        restore_source_videos=False,
+    )
+    assert labels.save.call_args.kwargs["embed"] is True
+    assert labels.save.call_args.kwargs["restore_original_videos"] is False
+
+
+def test_save_predictions_default_embed_false_restore_true():
+    """Defaults preserve today's behavior: embed=False, restore=True."""
+    labels = MagicMock()
+    labels.videos = []
+    save_predictions(labels, "out.slp", output_format="slp")
+    assert labels.save.call_args.kwargs["embed"] is False
+    assert labels.save.call_args.kwargs["restore_original_videos"] is True
+
+
+def test_save_predictions_embed_true_writes_self_contained_slp(
+    minimal_instance, tmp_path
+):
+    """A real round-trip: embed='true' writes a larger self-contained .slp."""
+    labels = sio.load_slp(minimal_instance.as_posix())
+    out_false = tmp_path / "preds_false.slp"
+    out_true = tmp_path / "preds_true.slp"
+    save_predictions(labels, out_false, output_format="slp", embed="false")
+    save_predictions(labels, out_true, output_format="slp", embed="true")
+    assert out_false.exists()
+    assert out_true.exists()
+    # The embedded output carries pixel data and is strictly larger; it also
+    # round-trips to Labels whose video reports embedded images.
+    assert out_true.stat().st_size > out_false.stat().st_size
+    reloaded = sio.load_slp(out_true.as_posix())
+    assert any(_video_has_embedded_images(v) for v in reloaded.videos)
+
+
+def test_predict_forwards_embed_and_restore_to_save_predictions(tmp_path):
+    """predict() threads embed/restore_source_videos into save_predictions."""
+    pred = _mock_predictor()
+    out = tmp_path / "out.slp"
+    with (
+        patch(
+            "sleap_nn.inference.predictor.Predictor.from_model_paths",
+            return_value=pred,
+        ),
+        patch("sleap_nn.inference.run.save_predictions") as mock_save,
+    ):
+        predict(
+            "video.mp4",
+            model_paths=["/m"],
+            device="cpu",
+            output_path=str(out),
+            embed="auto",
+            restore_source_videos=False,
+        )
+    assert mock_save.call_args.kwargs["embed"] == "auto"
+    assert mock_save.call_args.kwargs["restore_source_videos"] is False
+
+
+def test_predict_default_embed_restore_forwarded(tmp_path):
+    """Without overrides, predict() forwards the byte-for-byte defaults."""
+    pred = _mock_predictor()
+    out = tmp_path / "out.slp"
+    with (
+        patch(
+            "sleap_nn.inference.predictor.Predictor.from_model_paths",
+            return_value=pred,
+        ),
+        patch("sleap_nn.inference.run.save_predictions") as mock_save,
+    ):
+        predict(
+            "video.mp4",
+            model_paths=["/m"],
+            device="cpu",
+            output_path=str(out),
+        )
+    assert mock_save.call_args.kwargs["embed"] == "false"
+    assert mock_save.call_args.kwargs["restore_source_videos"] is True
