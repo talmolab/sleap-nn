@@ -1123,6 +1123,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sam3-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SAM3 backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#prompt-modes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6594,6 +6605,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sam3-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SAM3 backend
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#prompt-modes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6671,38 +6693,77 @@ the default install never needs it:</p>
 <p>Download a SAM checkpoint (e.g.
 <a href="https://github.com/facebookresearch/segment-anything#model-checkpoints"><code>sam_vit_h_4b8939.pth</code></a>)
 and pass its path via <code>sam_checkpoint=</code>.</p>
+<p>SAM3 (<code>mask_backend="sam3"</code>) is a second, <strong>gated</strong> backend behind its own extra:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;sleap-nn[sam3]&quot;</span>
+</span></code></pre></div>
+<p>SAM3 lives in the gated <a href="https://huggingface.co/facebook/sam3"><code>facebook/sam3</code></a>
+Hugging Face repo and ships in <code>transformers&gt;=5</code>. You must request access, then
+authenticate (<code>huggingface-cli login</code> or set <code>HF_TOKEN</code>) with an approved
+account. SAM3 also typically wants torch <code>cu130</code>, which <strong>may not co-install</strong>
+with the rest of sleap-nn: keep it in its own environment, or run the SAM3 image
+path out-of-process (write the raw masks + bookkeeping to an <code>.npz</code>) and assemble
+the <code>.slp</code> back in the sleap-nn venv. Selecting <code>mask_backend="sam3"</code> without
+<code>transformers</code> raises a clear, actionable <code>ImportError</code> pointing at this install
++ auth.</p>
 <h2 id="the-backend-is-explicit-there-is-no-default">The backend is explicit — there is no default<a class="headerlink" href="#the-backend-is-explicit-there-is-no-default" title="Permanent link">&para;</a></h2>
 <p><code>mask_backend</code> is <strong>required</strong> when you ask for SAM masks; nothing is selected
-silently. <code>"sam"</code> is SAM1 (this PR); <code>"sam3"</code> (the gated SAM3 image path) lands
-in a follow-up behind the <code>sleap_nn[sam3]</code> extra. Each backend stores its own
-<strong>raw</strong> per-model score in <code>PredictedSegmentationMask.score</code>.</p>
+silently. <code>"sam"</code> is SAM1 (ungated, the <code>sleap_nn[sam]</code> extra); <code>"sam3"</code> is the
+gated SAM3 image path (<code>facebook/sam3</code> via <code>transformers</code>, the <code>sleap_nn[sam3]</code>
+extra). Each backend stores its own <strong>raw</strong> per-model score in
+<code>PredictedSegmentationMask.score</code> — and SAM3's score is on a lower scale than
+SAM1's, so its recalibrated floor (<code>0.5</code>) is <strong>never</strong> SAM1's <code>0.88</code>.</p>
 <h2 id="predict-masks-for-a-pose-slp">Predict masks for a pose <code>.slp</code><a class="headerlink" href="#predict-masks-for-a-pose-slp" title="Permanent link">&para;</a></h2>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference.run</span><span class="w"> </span><span class="kn">import</span> <span class="n">predict</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predict</span><span class="p">(</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="s2">&quot;poses.pkg.slp&quot;</span><span class="p">,</span>            <span class="c1"># a .slp with predicted poses + image data</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">mask_backend</span><span class="o">=</span><span class="s2">&quot;sam&quot;</span><span class="p">,</span>         <span class="c1"># explicit, required</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">sam_checkpoint</span><span class="o">=</span><span class="s2">&quot;/path/to/sam_vit_h_4b8939.pth&quot;</span><span class="p">,</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">sam_prompt_mode</span><span class="o">=</span><span class="s2">&quot;pose&quot;</span><span class="p">,</span>     <span class="c1"># &quot;pose&quot; | &quot;centroid&quot; | &quot;box&quot;</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="n">output_path</span><span class="o">=</span><span class="s2">&quot;poses_with_masks.pkg.slp&quot;</span><span class="p">,</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    <span class="n">overlay_path</span><span class="o">=</span><span class="s2">&quot;review_frame0.png&quot;</span><span class="p">,</span>   <span class="c1"># optional review overlay (PLAN L4)</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference.run</span><span class="w"> </span><span class="kn">import</span> <span class="n">predict</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predict</span><span class="p">(</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="s2">&quot;poses.pkg.slp&quot;</span><span class="p">,</span>            <span class="c1"># a .slp with predicted poses + image data</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">mask_backend</span><span class="o">=</span><span class="s2">&quot;sam&quot;</span><span class="p">,</span>         <span class="c1"># explicit, required</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">sam_checkpoint</span><span class="o">=</span><span class="s2">&quot;/path/to/sam_vit_h_4b8939.pth&quot;</span><span class="p">,</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">sam_prompt_mode</span><span class="o">=</span><span class="s2">&quot;pose&quot;</span><span class="p">,</span>     <span class="c1"># &quot;pose&quot; | &quot;centroid&quot; | &quot;box&quot;</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>    <span class="n">output_path</span><span class="o">=</span><span class="s2">&quot;poses_with_masks.pkg.slp&quot;</span><span class="p">,</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="n">overlay_path</span><span class="o">=</span><span class="s2">&quot;review_frame0.png&quot;</span><span class="p">,</span>   <span class="c1"># optional review overlay (PLAN L4)</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="p">)</span>
 </span></code></pre></div>
 <p>When <code>mask_backend</code> is set, <code>source</code> is treated as a pose <code>.slp</code> and masks are
 produced from its existing instances — <strong>no trained seg model</strong>, so you must not
 also pass <code>model_paths</code> / <code>export_dir</code>.</p>
 <p>Or call the producer directly:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference.sam</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_sam_segmentation</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">run_sam_segmentation</span><span class="p">(</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="s2">&quot;poses.pkg.slp&quot;</span><span class="p">,</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">mask_backend</span><span class="o">=</span><span class="s2">&quot;sam&quot;</span><span class="p">,</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">prompt_mode</span><span class="o">=</span><span class="s2">&quot;pose&quot;</span><span class="p">,</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">sam_checkpoint</span><span class="o">=</span><span class="s2">&quot;/path/to/sam_vit_h_4b8939.pth&quot;</span><span class="p">,</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference.sam</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_sam_segmentation</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">run_sam_segmentation</span><span class="p">(</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="s2">&quot;poses.pkg.slp&quot;</span><span class="p">,</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    <span class="n">mask_backend</span><span class="o">=</span><span class="s2">&quot;sam&quot;</span><span class="p">,</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="n">prompt_mode</span><span class="o">=</span><span class="s2">&quot;pose&quot;</span><span class="p">,</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">sam_checkpoint</span><span class="o">=</span><span class="s2">&quot;/path/to/sam_vit_h_4b8939.pth&quot;</span><span class="p">,</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="p">)</span>
 </span></code></pre></div>
+<h2 id="sam3-backend">SAM3 backend<a class="headerlink" href="#sam3-backend" title="Permanent link">&para;</a></h2>
+<p><code>mask_backend="sam3"</code> swaps SAM1 for Meta SAM 3's image visual-prompt path
+(<code>Sam3TrackerModel</code>) behind the same interface and the same prompt modes:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">run_sam_segmentation</span><span class="p">(</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="s2">&quot;poses.pkg.slp&quot;</span><span class="p">,</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">mask_backend</span><span class="o">=</span><span class="s2">&quot;sam3&quot;</span><span class="p">,</span>        <span class="c1"># gated facebook/sam3, needs the [sam3] extra</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>    <span class="n">prompt_mode</span><span class="o">=</span><span class="s2">&quot;pose&quot;</span><span class="p">,</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">device</span><span class="o">=</span><span class="s2">&quot;cuda&quot;</span><span class="p">,</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="c1"># sam3_model_id=&quot;facebook/sam3&quot;,  # the default</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>Two SAM3 specifics are handled automatically and are <strong>never</strong> shared with SAM1:</p>
+<ul>
+<li><strong>Recalibrated score floor (<code>0.5</code>).</strong> SAM3's predicted-IoU is on a lower scale,
+  so its per-model floor is <code>SAM3_PRED_IOU_MIN = 0.5</code> (SAM1's <code>0.88</code> would reject
+  ~100% of SAM3 masks as a pure calibration artifact). As with SAM1 the raw score
+  is reported, not gated on.</li>
+<li><strong>Speckle cleanup.</strong> Raw SAM3 masks are fragmented (~14 connected components);
+  each chosen mask is passed through a morphological open + close + keep-the-
+  keypoint-connected-component cleanup (~1 component, ~97% area retained).</li>
+</ul>
+<p>SAM3 also runs <strong>all instances of a frame in a single batched forward pass</strong>
+(SAM1 loops per instance). End-to-end SAM3 is GPU-only and needs the gated
+weights, so it is exercised manually / nightly; the recipe (floor, cleanup,
+batched call) is unit-tested against a mocked SAM3.</p>
 <h2 id="prompt-modes">Prompt modes<a class="headerlink" href="#prompt-modes" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
