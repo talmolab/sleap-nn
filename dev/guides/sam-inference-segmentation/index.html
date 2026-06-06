@@ -1134,6 +1134,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#prompt-modes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6672,6 +6683,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#prompt-modes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -6809,9 +6831,9 @@ also pass <code>model_paths</code> / <code>export_dir</code>.</p>
 <p>Two SAM3 specifics are handled automatically and are <strong>never</strong> shared with SAM1:</p>
 <ul>
 <li><strong>Recalibrated score floor (<code>0.5</code>).</strong> SAM3's predicted-IoU is on a lower scale,
-  so its per-model floor is <code>SAM3_PRED_IOU_MIN = 0.5</code> (SAM1's <code>0.88</code> would reject
-  ~100% of SAM3 masks as a pure calibration artifact). As with SAM1 the raw score
-  is reported, not gated on.</li>
+  so its per-model floor (<code>Sam3Backend.pred_iou_min</code>) defaults to <code>0.5</code> (SAM1's
+  <code>0.88</code> would reject ~100% of SAM3 masks as a pure calibration artifact). As with
+  SAM1 the raw score is reported, not gated on.</li>
 <li><strong>Speckle cleanup.</strong> Raw SAM3 masks are fragmented (~14 connected components);
   each chosen mask is passed through a morphological open + close + keep-the-
   keypoint-connected-component cleanup (~1 component, ~97% area retained).</li>
@@ -6820,6 +6842,37 @@ also pass <code>model_paths</code> / <code>export_dir</code>.</p>
 (SAM1 loops per instance). End-to-end SAM3 is GPU-only and needs the gated
 weights, so it is exercised manually / nightly; the recipe (floor, cleanup,
 batched call) is unit-tested against a mocked SAM3.</p>
+<h2 id="cli">CLI<a class="headerlink" href="#cli" title="Permanent link">&para;</a></h2>
+<p>The same masks are produced from the <code>sleap-nn predict</code> command (and its hidden
+<code>infer</code> alias) by passing <code>--mask_backend</code>. When set, the input <code>.slp</code> is treated
+as a pose file and masks are produced from its existing instances — there is <strong>no
+trained segmentation model</strong>, so <code>--mask_backend</code> is <strong>mutually exclusive with
+<code>--model_paths</code></strong> (do not pass it). The <code>.slp</code> output is saved like the regular
+prediction path — images are <strong>not</strong> re-embedded; the output backreferences the
+input's source media via provenance (small output; a <code>.pkg.slp</code> input stays
+matchable to its source videos), and the masks always serialize into the <code>.slp</code>.
+Only <code>--output_format slp</code> is supported (the SLEAP Analysis HDF5 format stores
+poses/tracks, not segmentation masks).</p>
+<p>SAM1 (ungated):</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span>-i<span class="w"> </span>poses.pkg.slp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span>--mask_backend<span class="w"> </span>sam<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span>--sam_checkpoint<span class="w"> </span>/path/to/sam_vit_h_4b8939.pth<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span>--sam_prompt_mode<span class="w"> </span>pose<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span>--overlay_path<span class="w"> </span>review_frame0.png<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">    </span>-o<span class="w"> </span>poses_with_masks.pkg.slp
+</span></code></pre></div>
+<p>SAM3 (gated <code>facebook/sam3</code>, needs the <code>[sam3]</code> extra):</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span>-i<span class="w"> </span>poses.pkg.slp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span>--mask_backend<span class="w"> </span>sam3<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span>--sam3_model_id<span class="w"> </span>facebook/sam3<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span>--sam_prompt_mode<span class="w"> </span>pose<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span>-o<span class="w"> </span>poses_with_masks.pkg.slp
+</span></code></pre></div>
+<p>Every flag also has a dash-spelled alias (<code>--mask-backend</code>, <code>--sam-checkpoint</code>,
+<code>--sam-model-type</code>, <code>--sam-prompt-mode</code>, <code>--sam-anchor-ind</code>,
+<code>--sam-disjointify-masks</code>, <code>--sam3-model-id</code>, <code>--overlay-path</code>).</p>
 <h2 id="prompt-modes">Prompt modes<a class="headerlink" href="#prompt-modes" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
