@@ -211,11 +211,24 @@ def test_get_mask_backend_unknown_name():
         get_mask_backend("not-a-backend")
 
 
-def test_get_mask_backend_sam3_not_yet():
+def test_get_mask_backend_sam3_clean_import_error(monkeypatch):
+    # PR-B implements mask_backend="sam3"; with transformers absent it raises a
+    # clean, actionable ImportError (not NotImplementedError, not a bare
+    # ModuleNotFoundError). The full SAM3 backend is covered in test_sam3_backend.
+    import builtins
+
     from sleap_nn.inference.sam import get_mask_backend
 
-    with pytest.raises(NotImplementedError):
-        get_mask_backend("sam3")
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "transformers":
+            raise ImportError("no module named transformers")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    with pytest.raises(ImportError, match=r"sleap-nn\[sam3\]"):
+        get_mask_backend("sam3", device="cpu")
 
 
 def test_run_predict_mask_backend_rejects_model_paths():
