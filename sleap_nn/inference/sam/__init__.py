@@ -1,10 +1,11 @@
-"""SAM-powered prompted instance segmentation for INFERENCE (PR-A).
+"""SAM-powered prompted instance segmentation for INFERENCE.
 
 The pivot (PLAN / README): SAM is used to *predict* per-instance masks for an
 existing pose/centroid ``.slp`` so a human can review/correct them in the GUI,
 then train — **not** to auto-generate training GT. This package is the SAM1 +
-SAM3 prompted producers + their backend interface; reconciliation and the
-mask-native tracker land in later PRs behind the same surfaces.
+SAM3 prompted producers + their backend interface, plus the torch-less
+reconciliation / re-tracking path (:func:`retrack`); the SAM3 mask-native video
+tracker lands in a later PR behind the same surfaces.
 
 Public surface
 --------------
@@ -17,6 +18,10 @@ Public surface
   ``sio.PredictedSegmentationMask`` (raw score + ``instance=``/``track=``
   populated, PLAN L8) onto each frame, and optionally save an embedded ``.slp``
   + a review overlay PNG.
+* :func:`retrack` (+ :mod:`~sleap_nn.inference.sam.reconciliation` primitives) —
+  the torch-less "refine existing tracks" path: correct an existing
+  pose/centroid tracker's identities from identity-consistent per-frame masks.
+  No SAM / torch / transformers dependency (numpy + scipy only).
 
 Everything heavy (``segment-anything``) is imported lazily inside the backend,
 so importing this package on a default install is cheap and dependency-free.
@@ -30,8 +35,25 @@ from typing import Optional, Sequence
 from sleap_nn.inference.sam.backends import MaskBackend, Sam3Backend, SamBackend
 from sleap_nn.inference.sam.mask_layer import SamSegmentationLayer
 from sleap_nn.inference.sam.prompts import PROMPT_MODES, SamPrompt
+from sleap_nn.inference.sam.reconciliation import (
+    IDReconciler,
+    MaskAssignment,
+    MaskReconciler,
+    MatchContext,
+    MatchPredicate,
+    SwapEvent,
+    TrackAssignment,
+    TrackNameResolver,
+    default_match_predicate,
+    require_centroid_proximity,
+    require_min_fraction_inside,
+    require_min_keypoints_inside,
+    require_reasonable_mask_area,
+)
+from sleap_nn.inference.sam.retrack import RetrackResult, retrack
 
 __all__ = [
+    # SAM mask producers + backend interface.
     "MaskBackend",
     "SamBackend",
     "Sam3Backend",
@@ -41,6 +63,22 @@ __all__ = [
     "MASK_BACKENDS",
     "get_mask_backend",
     "run_sam_segmentation",
+    # Torch-less reconciliation / re-tracking.
+    "IDReconciler",
+    "MaskAssignment",
+    "MaskReconciler",
+    "MatchContext",
+    "MatchPredicate",
+    "SwapEvent",
+    "TrackAssignment",
+    "TrackNameResolver",
+    "default_match_predicate",
+    "require_centroid_proximity",
+    "require_min_fraction_inside",
+    "require_min_keypoints_inside",
+    "require_reasonable_mask_area",
+    "RetrackResult",
+    "retrack",
 ]
 
 #: Registered explicit ``mask_backend`` names (PLAN L2 — no default).
