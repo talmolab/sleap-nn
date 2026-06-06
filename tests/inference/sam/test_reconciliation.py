@@ -249,6 +249,98 @@ class TestIDReconciler:
         # Only tail (90, 90) should be counted, which is in mask 0 (covers 5:95, 5:95)
         assert cost[0, 0] == -1  # 1 keypoint inside
 
+    def test_compute_cost_matrix_vectorized_parity(self, simple_skeleton):
+        """Test the vectorized cost matrix gives exact negative-counts.
+
+        Hand-built case covering: keypoints inside multiple masks, an
+        out-of-bounds keypoint, and a NaN (invisible) keypoint that must be
+        excluded by the both-axes finite check.
+        """
+        reconciler = IDReconciler(skeleton=simple_skeleton)
+
+        # 5x5 masks.
+        # Mask 0: left half columns 0-2 set.
+        mask0 = np.zeros((5, 5), dtype=bool)
+        mask0[:, 0:3] = True
+        # Mask 1: a single pixel at (y=1, x=4).
+        mask1 = np.zeros((5, 5), dtype=bool)
+        mask1[1, 4] = True
+        masks = np.stack([mask0, mask1])
+
+        # Pose A: head (1, 1) -> in mask0 only; body (4, 1) -> in mask1 only;
+        #         tail (10, 10) -> out of bounds (counted in neither).
+        coords_a = np.array([[1, 1], [4, 1], [10, 10]], dtype=np.float64)
+        pose_a = sio.Instance.from_numpy(coords_a, skeleton=simple_skeleton)
+
+        # Pose B: head (0, 0) -> in mask0; body (2, 4) -> in mask0;
+        #         tail (nan, nan) -> invisible, excluded by both-axes check.
+        coords_b = np.array([[0, 0], [2, 4], [np.nan, np.nan]], dtype=np.float64)
+        pose_b = sio.Instance.from_numpy(coords_b, skeleton=simple_skeleton)
+
+        cost = reconciler.compute_cost_matrix([pose_a, pose_b], masks)
+
+        # Pose A: 1 kpt in mask0, 1 kpt in mask1.
+        # Pose B: 2 kpts in mask0, 0 in mask1.
+        expected = np.array([[-1, -1], [-2, 0]], dtype=float)
+        np.testing.assert_array_equal(cost, expected)
+
+    def test_match_frame_length_mismatch_raises(
+        self, reconciler, sample_poses, sample_masks
+    ):
+        """Test per-frame length mismatch raises a ValueError naming the frame."""
+        # 2 masks but only 1 object_id (not caused by negative-id padding).
+        object_ids = np.array([0])
+
+        with pytest.raises(ValueError, match="frame 7"):
+            reconciler.match_frame(
+                frame_idx=7,
+                poses=sample_poses,
+                masks=sample_masks,
+                object_ids=object_ids,
+            )
+
+    def test_stricter_default_rejects_two_keypoints_inside(self, simple_skeleton):
+        """Test the stricter default rejects a 2-keypoints-inside match.
+
+        The old >= 1 default predicate (``default_match_predicate``) would have
+        accepted this match; the new ``require_min_keypoints_inside(3)`` default
+        rejects it.
+        """
+        # Mask covering (5:95, 5:95).
+        mask = np.zeros((400, 400), dtype=bool)
+        mask[5:95, 5:95] = True
+        masks = np.stack([mask])
+
+        # Pose with only 2 keypoints inside the mask; tail is far outside.
+        coords = np.array([[10, 10], [50, 50], [300, 300]], dtype=np.float64)
+        pose = sio.Instance.from_numpy(coords, skeleton=simple_skeleton)
+
+        # Stricter default: 2 inside < 3 -> rejected.
+        strict = IDReconciler(skeleton=simple_skeleton)
+        assert (
+            strict.match_frame(
+                frame_idx=0,
+                poses=[pose],
+                masks=masks,
+                object_ids=np.array([0]),
+            )
+            == []
+        )
+
+        # Old behavior (explicit >= 1 predicate): 2 inside >= 1 -> accepted.
+        lenient = IDReconciler(
+            skeleton=simple_skeleton,
+            match_predicates=[default_match_predicate],
+        )
+        assignments = lenient.match_frame(
+            frame_idx=0,
+            poses=[pose],
+            masks=masks,
+            object_ids=np.array([0]),
+        )
+        assert len(assignments) == 1
+        assert assignments[0].sam3_obj_id == 0
+
 
 class TestMatchPredicates:
     """Tests for match predicate functions."""

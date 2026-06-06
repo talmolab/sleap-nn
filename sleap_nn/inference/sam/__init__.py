@@ -229,10 +229,15 @@ def run_sam_segmentation(
     new_lfs = []
     for lf in source_lfs:
         frame_masks = layer.masks_for_frame(lf.image, lf.instances)
-        if not frame_masks:
-            continue
-        # Reuse the standard packaging path (build_predicted_segmentation_mask).
-        masks = Outputs(pred_masks=[frame_masks]).to_masks(0)
+        # Always emit the frame for review continuity (§3.5b): when SAM yields no
+        # mask, keep the frame (video/frame_idx/instances unchanged) with an empty
+        # ``masks=[]`` rather than dropping it — the poses must survive for
+        # correction, and a missing frame would silently disappear from review.
+        if frame_masks:
+            # Reuse the standard packaging path (build_predicted_segmentation_mask).
+            masks = Outputs(pred_masks=[frame_masks]).to_masks(0)
+        else:
+            masks = []
         new_lfs.append(
             sio.LabeledFrame(
                 video=lf.video,
@@ -253,6 +258,9 @@ def run_sam_segmentation(
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out.save(out_path.as_posix(), embed=True)
     if overlay_path is not None:
-        save_mask_overlay(out, overlay_path)
+        # Flag masks below the backend's per-model nominal predicted-IoU floor
+        # (SAM1 0.88 / SAM3 0.5) so the review overlay surfaces low-confidence
+        # masks a human should scrutinize (§3.3 — consume pred_iou_min).
+        save_mask_overlay(out, overlay_path, low_score_threshold=backend.pred_iou_min)
 
     return out

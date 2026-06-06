@@ -236,6 +236,144 @@ class TestTrackCommand:
             assert "--kf_node_indices" in result.output
 
 
+class TestPredictSamBackend:
+    """`predict --mask_backend` forwards SAM args to run.predict (§1.4).
+
+    The SAM path is offline here: ``sleap_nn.inference.run.predict`` is patched
+    to a capturing stub, so no SAM/torch weights are loaded.
+    """
+
+    def test_mask_backend_sam_forwards_args(self):
+        """`--mask_backend sam` forwards mask_backend/sam_checkpoint/overlay_path."""
+        runner = CliRunner()
+        with patch("sleap_nn.inference.run.predict") as mock_predict:
+            mock_predict.return_value = MagicMock()
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "-i",
+                    "x.slp",
+                    "--mask_backend",
+                    "sam",
+                    "--sam_checkpoint",
+                    "c.pth",
+                    "--overlay_path",
+                    "o.png",
+                ],
+            )
+            assert result.exit_code == 0, result.output
+            assert mock_predict.called
+            call_kwargs = mock_predict.call_args[1]
+            assert call_kwargs["mask_backend"] == "sam"
+            assert call_kwargs["sam_checkpoint"] == "c.pth"
+            assert call_kwargs["overlay_path"] == "o.png"
+            # The SAM path uses no trained seg model.
+            assert call_kwargs["model_paths"] is None
+
+    def test_mask_backend_with_tracking_errors(self):
+        """`--mask_backend ... --tracking` fails loudly (not a silent no-op)."""
+        runner = CliRunner()
+        with patch("sleap_nn.inference.run.predict") as mock_predict:
+            mock_predict.return_value = MagicMock()
+            result = runner.invoke(
+                cli,
+                ["predict", "-i", "x.slp", "--mask_backend", "sam", "--tracking"],
+            )
+        # UsageError -> non-zero exit, a clear message, and predict never runs
+        # (otherwise this would silently route into retrack and produce no masks).
+        assert result.exit_code != 0
+        assert "not supported with --mask_backend" in result.output
+        assert not mock_predict.called
+
+    def test_mask_backend_sam3_forwards_model_id(self):
+        """`--mask_backend sam3 --sam3_model_id foo/bar` forwards sam3_model_id."""
+        runner = CliRunner()
+        with patch("sleap_nn.inference.run.predict") as mock_predict:
+            mock_predict.return_value = MagicMock()
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "-i",
+                    "x.slp",
+                    "--mask_backend",
+                    "sam3",
+                    "--sam3_model_id",
+                    "foo/bar",
+                ],
+            )
+            assert result.exit_code == 0, result.output
+            assert mock_predict.called
+            call_kwargs = mock_predict.call_args[1]
+            assert call_kwargs["mask_backend"] == "sam3"
+            assert call_kwargs["sam3_model_id"] == "foo/bar"
+
+    def test_mask_backend_dash_aliases_parse(self):
+        """Dash-spelled SAM aliases parse and forward to run.predict."""
+        runner = CliRunner()
+        with patch("sleap_nn.inference.run.predict") as mock_predict:
+            mock_predict.return_value = MagicMock()
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "-i",
+                    "x.slp",
+                    "--mask-backend",
+                    "sam",
+                    "--sam-checkpoint",
+                    "c.pth",
+                    "--sam-prompt-mode",
+                    "centroid",
+                    "--sam-anchor-ind",
+                    "2",
+                    "--sam-disjointify-masks",
+                    "--overlay-path",
+                    "o.png",
+                ],
+            )
+            assert result.exit_code == 0, result.output
+            assert mock_predict.called
+            call_kwargs = mock_predict.call_args[1]
+            assert call_kwargs["mask_backend"] == "sam"
+            assert call_kwargs["sam_checkpoint"] == "c.pth"
+            assert call_kwargs["sam_prompt_mode"] == "centroid"
+            assert call_kwargs["sam_anchor_ind"] == 2
+            assert call_kwargs["sam_disjointify_masks"] is True
+            assert call_kwargs["overlay_path"] == "o.png"
+
+    def test_no_mask_backend_omits_sam_args(self):
+        """Without --mask_backend, no SAM args are forwarded (existing path)."""
+        runner = CliRunner()
+        with patch("sleap_nn.inference.run.predict") as mock_predict:
+            mock_predict.return_value = MagicMock()
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "-i",
+                    "x.slp",
+                    "--model_paths",
+                    "/fake/model",
+                ],
+            )
+            assert result.exit_code == 0, result.output
+            assert mock_predict.called
+            call_kwargs = mock_predict.call_args[1]
+            assert "mask_backend" not in call_kwargs
+
+    def test_predict_help_lists_sam_flags(self):
+        """`predict --help` documents the SAM flags (§1.4)."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["predict", "--help"])
+        assert result.exit_code == 0
+        assert "--mask_backend" in result.output
+        assert "--sam_checkpoint" in result.output
+        assert "--sam3_model_id" in result.output
+        assert "--overlay_path" in result.output
+
+
 class TestEvalCommand:
     """Tests for eval command using CliRunner."""
 

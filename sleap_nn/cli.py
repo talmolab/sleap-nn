@@ -1029,6 +1029,16 @@ def track(**kwargs):
     kwargs.pop("centroid_peak_threshold", None)
     kwargs.pop("centroid_output", None)
     kwargs.pop("filter_min_centroid_distance", None)
+    # SAM prompted-mask flags are new-flow-only (legacy run_inference rejects
+    # them); inert here.
+    kwargs.pop("mask_backend", None)
+    kwargs.pop("sam_checkpoint", None)
+    kwargs.pop("sam_model_type", None)
+    kwargs.pop("sam_prompt_mode", None)
+    kwargs.pop("sam_anchor_ind", None)
+    kwargs.pop("sam_disjointify_masks", None)
+    kwargs.pop("sam3_model_id", None)
+    kwargs.pop("overlay_path", None)
 
     return run_inference(**kwargs)
 
@@ -1347,6 +1357,17 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
 
     from sleap_nn.inference.predictor import Predictor
 
+    # The SAM mask path produces masks from existing poses; it never tracks.
+    # Without this guard, `--mask_backend ... --tracking` (no --model_paths)
+    # would fall into the retrack short-circuit below, which ignores
+    # mask_backend and silently produces no masks. Fail loudly instead.
+    if kwargs.get("mask_backend") and kwargs.get("tracking"):
+        raise click.UsageError(
+            "--tracking is not supported with --mask_backend; the SAM mask path "
+            "operates on the existing poses in the input .slp only. Run them "
+            "separately."
+        )
+
     # ── Tracking-only retrack: no model_paths, --tracking on a .slp ────
     if not kwargs.get("model_paths") and kwargs.get("tracking"):
         return _run_retrack_only(kwargs, Predictor)
@@ -1466,6 +1487,24 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         "mask_output": kwargs.get("mask_output", "mask"),
         "polygon_epsilon": kwargs.get("polygon_epsilon", 0.01),
     }
+    # SAM prompted-mask producer (§1.4): when --mask_backend is set, masks are
+    # produced from the poses already in the input .slp (no trained seg model).
+    # run.predict() short-circuits on mask_backend and ignores the inert model
+    # knobs carried in predict_kwargs. No --tracking, so this path is not caught
+    # by the retrack short-circuit above. model_paths stays empty (the SAM path
+    # rejects model_paths), so do not pass --model_paths alongside --mask_backend.
+    if kwargs.get("mask_backend"):
+        predict_kwargs["mask_backend"] = kwargs["mask_backend"]
+        predict_kwargs["sam_checkpoint"] = kwargs.get("sam_checkpoint")
+        predict_kwargs["sam_model_type"] = kwargs.get("sam_model_type", "vit_h")
+        predict_kwargs["sam_prompt_mode"] = kwargs.get("sam_prompt_mode", "pose")
+        predict_kwargs["sam_anchor_ind"] = kwargs.get("sam_anchor_ind")
+        predict_kwargs["sam_disjointify_masks"] = bool(
+            kwargs.get("sam_disjointify_masks")
+        )
+        predict_kwargs["sam3_model_id"] = kwargs.get("sam3_model_id", "facebook/sam3")
+        predict_kwargs["overlay_path"] = kwargs.get("overlay_path")
+
     preprocess_config = _build_preprocess_config(kwargs)
     if preprocess_config is not None:
         predict_kwargs["preprocess_config"] = preprocess_config
@@ -2148,6 +2187,81 @@ def _common_inference_options(f):
             "polygon/both, as a fraction of each contour's perimeter. Larger = "
             "coarser polygons. 0 disables simplification (bottom-up segmentation "
             "models only).",
+        ),
+        # SAM prompted-mask producer ───────────────────────────────────
+        # These produce masks from the poses already in the input .slp; no
+        # trained seg model is involved, so they are mutually exclusive with
+        # --model_paths (do not pass it). Inert unless --mask_backend is set.
+        click.option(
+            "--mask_backend",
+            "--mask-backend",
+            "mask_backend",
+            type=click.Choice(["sam", "sam3"], case_sensitive=False),
+            default=None,
+            help="Produce instance masks from the poses in the input .slp using "
+            "a SAM backend: 'sam' (SAM1, needs --sam_checkpoint) or 'sam3' "
+            "(needs --sam3_model_id). No trained segmentation model is used, so "
+            "do not pass --model_paths. Off by default.",
+        ),
+        click.option(
+            "--sam_checkpoint",
+            "--sam-checkpoint",
+            "sam_checkpoint",
+            type=str,
+            default=None,
+            help="Path to the SAM1 checkpoint (required for --mask_backend sam).",
+        ),
+        click.option(
+            "--sam_model_type",
+            "--sam-model-type",
+            "sam_model_type",
+            type=str,
+            default="vit_h",
+            help="SAM1 model registry key (e.g. 'vit_h', 'vit_l', 'vit_b').",
+        ),
+        click.option(
+            "--sam_prompt_mode",
+            "--sam-prompt-mode",
+            "sam_prompt_mode",
+            type=click.Choice(["pose", "centroid", "box"]),
+            default="pose",
+            help="How poses are turned into SAM prompts: 'pose' (all keypoints "
+            "as point prompts), 'centroid' (single anchor point), or 'box' "
+            "(instance bounding box).",
+        ),
+        click.option(
+            "--sam_anchor_ind",
+            "--sam-anchor-ind",
+            "sam_anchor_ind",
+            type=int,
+            default=None,
+            help="Centroid anchor node index for --sam_prompt_mode centroid.",
+        ),
+        click.option(
+            "--sam_disjointify_masks",
+            "--sam-disjointify-masks",
+            "sam_disjointify_masks",
+            is_flag=True,
+            default=False,
+            help="Make per-frame masks disjoint when a frame has >=2 instances.",
+        ),
+        click.option(
+            "--sam3_model_id",
+            "--sam3-model-id",
+            "sam3_model_id",
+            type=str,
+            default="facebook/sam3",
+            help="Hugging Face model id for the gated SAM3 backend "
+            "(--mask_backend sam3).",
+        ),
+        click.option(
+            "--overlay_path",
+            "--overlay-path",
+            "overlay_path",
+            type=str,
+            default=None,
+            help="Optional review-overlay PNG path written by the SAM mask "
+            "path (--mask_backend).",
         ),
         click.option(
             "--queue_maxsize",

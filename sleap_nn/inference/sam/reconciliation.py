@@ -1,11 +1,25 @@
 """ID reconciliation for matching SAM3 masks to poses or input masks.
 
-Lifted **verbatim** from ``talmolab/sam-track`` (BSD-3-Clause) at commit
+Lifted from ``talmolab/sam-track`` (BSD-3-Clause) at commit
 ``7b2531d92b5035f5f83016b12350f7c394b92522``:
 
     https://github.com/talmolab/sam-track/blob/7b2531d92b5035f5f83016b12350f7c394b92522/src/sam_track/reconciliation.py
 
-Only this attribution header was added; the implementation below is unchanged.
+This attribution header was added, and the implementation was subsequently
+modified in sleap-nn. The changes relative to the upstream source are:
+
+- ``IDReconciler.compute_cost_matrix`` was vectorized across masks (numerically
+  identical to the original triple-loop).
+- Keypoint visibility now requires BOTH x and y to be finite (both-axes NaN
+  check), replacing the inherited x-only test, in both ``compute_cost_matrix``
+  and ``match_frame``.
+- The implicit default ``match_predicate`` is now
+  ``require_min_keypoints_inside(3)`` instead of the weaker
+  ``default_match_predicate`` (>= 1 keypoint inside).
+- ``match_frame`` now validates per-frame lengths (masks vs. object_ids vs.
+  scores) and raises a descriptive ``ValueError`` naming the frame.
+- The previously-undocumented ``ignore_gt_tracks`` attribute is documented in
+  the ``IDReconciler`` class docstring (doc-only; no behavior change).
 
 BSD 3-Clause License
 
@@ -168,6 +182,8 @@ class IDReconciler:
         skeleton: The SLEAP skeleton for node name lookups.
         exclude_nodes: Set of node names to exclude from matching.
         match_predicates: List of predicates that must all pass for a valid match.
+        ignore_gt_tracks: If True, do not propagate GT track names onto
+            assignments (track_name is set to None).
 
     Example:
         >>> reconciler = IDReconciler(
@@ -192,9 +208,16 @@ class IDReconciler:
     _assignments: list[TrackAssignment] = field(default_factory=list, repr=False)
 
     def __post_init__(self):
-        """Add default predicate if none provided."""
+        """Add default predicate if none provided.
+
+        The implicit default requires at least 3 keypoints inside the mask. The
+        weaker ``default_match_predicate`` (>= 1) is kept defined for direct use
+        but is no longer the implicit default. ``require_min_keypoints_inside``
+        is defined later in this module; it resolves at call time, so referencing
+        it here is fine.
+        """
         if not self.match_predicates:
-            self.match_predicates = [default_match_predicate]
+            self.match_predicates = [require_min_keypoints_inside(3)]
 
     def compute_cost_matrix(
         self,
@@ -223,10 +246,12 @@ class IDReconciler:
 
         # Get node names for filtering
         node_names = [n.name for n in self.skeleton.nodes]
+        height, width = masks.shape[1], masks.shape[2]
 
         for i, pose in enumerate(poses):
             coords = pose.numpy()
-            visible_mask = ~np.isnan(coords[:, 0])
+            # Keypoint is visible only if BOTH x and y are finite.
+            visible_mask = ~np.isnan(coords).any(axis=1)
 
             # Apply node exclusion filter
             if self.exclude_nodes:
@@ -236,15 +261,26 @@ class IDReconciler:
 
             visible_coords = coords[visible_mask].astype(int)
 
-            for j, mask in enumerate(masks):
-                inside_count = 0
-                for x, y in visible_coords:
-                    if 0 <= y < mask.shape[0] and 0 <= x < mask.shape[1]:
-                        if mask[y, x]:
-                            inside_count += 1
+            if len(visible_coords) == 0:
+                continue
 
-                # Negative because Hungarian minimizes cost
-                cost[i, j] = -inside_count
+            xs = visible_coords[:, 0]
+            ys = visible_coords[:, 1]
+
+            # Bounds check: keypoints outside the mask are not counted.
+            in_bounds = (xs >= 0) & (xs < width) & (ys >= 0) & (ys < height)
+            if not in_bounds.any():
+                continue
+
+            xs_in = xs[in_bounds]
+            ys_in = ys[in_bounds]
+
+            # Vectorize across masks: masks[:, ys, xs] is (n_masks, n_kpts);
+            # summing over keypoints gives per-mask inside counts.
+            inside_counts = masks[:, ys_in, xs_in].astype(bool).sum(axis=1)
+
+            # Negative because Hungarian minimizes cost.
+            cost[i, :] = -inside_counts
 
         return cost
 
@@ -282,6 +318,14 @@ class IDReconciler:
         if masks.ndim == 4 and masks.shape[1] == 1:
             masks = masks.squeeze(axis=1)
 
+        # Validate per-frame lengths so a mismatch surfaces clearly here rather
+        # than as a bare IndexError deeper in the loop.
+        if len(object_ids) != len(masks) or len(scores) != len(masks):
+            raise ValueError(
+                f"match_frame: frame {frame_idx} has {len(masks)} masks but "
+                f"{len(object_ids)} object_ids / {len(scores)} scores"
+            )
+
         # Compute cost matrix and solve assignment
         cost = self.compute_cost_matrix(poses, masks)
         row_ind, col_ind = linear_sum_assignment(cost)
@@ -294,9 +338,10 @@ class IDReconciler:
             pose = poses[pose_idx]
             mask = masks[mask_idx]
 
-            # Calculate visibility (excluding filtered nodes)
+            # Calculate visibility (excluding filtered nodes). A keypoint is
+            # visible only if BOTH x and y are finite.
             coords = pose.numpy()
-            visible_mask = ~np.isnan(coords[:, 0])
+            visible_mask = ~np.isnan(coords).any(axis=1)
             if self.exclude_nodes:
                 for j, name in enumerate(node_names):
                     if name in self.exclude_nodes:

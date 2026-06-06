@@ -18,7 +18,10 @@ with its GT ``sio.Instance`` poses rebuilt as ``sio.PredictedInstance`` so the
 PLAN-L8 ``mask.instance`` pairing is exercised.
 """
 
+from pathlib import Path
+
 import numpy as np
+import pytest
 
 import sleap_io as sio
 
@@ -198,9 +201,14 @@ def test_run_sam_segmentation_frames_subset_nonexistent(minimal_instance):
     assert out.labeled_frames == []
 
 
-def test_run_sam_segmentation_skips_frames_without_prompt(minimal_instance):
-    """A frame whose instances yield no prompt (all-NaN kpts) is skipped."""
-    # A frame whose only instance has all-NaN keypoints yields no prompt -> skip.
+def test_run_sam_segmentation_emits_frame_without_prompt(minimal_instance):
+    """A frame whose instances yield no prompt (all-NaN kpts) is emitted, masks=[].
+
+    §3.5b: for review continuity the frame is retained (poses preserved) with an
+    empty ``masks=[]`` rather than dropped when SAM yields no mask.
+    """
+    # A frame whose only instance has all-NaN keypoints yields no prompt -> no
+    # mask, but the frame (and its pose) must survive.
     src = sio.load_slp(str(minimal_instance))
     skel = src.skeletons[0]
     gt_lf = src.labeled_frames[0]
@@ -219,7 +227,11 @@ def test_run_sam_segmentation_skips_frames_without_prompt(minimal_instance):
     out = run_sam_segmentation(
         labels, "sam", backend=FakeBackend(_prompt_disk()), prompt_mode="pose"
     )
-    assert out.labeled_frames == []
+    assert len(out.labeled_frames) == 1
+    out_lf = out.labeled_frames[0]
+    assert int(out_lf.frame_idx) == int(gt_lf.frame_idx)
+    assert list(out_lf.masks) == []  # no mask emitted...
+    assert len(out_lf.instances) == 1  # ...but the pose is retained
 
 
 def test_run_sam_segmentation_disjointify_multi_instance(minimal_instance):
@@ -268,6 +280,118 @@ def test_predict_sam_short_circuit_success(minimal_instance, tmp_path):
     assert out_path.exists()
     reloaded = sio.load_slp(out_path.as_posix())
     assert any(lf.masks for lf in reloaded.labeled_frames)
+
+
+def test_predict_sam_slp_output_embeds_images(minimal_instance, tmp_path):
+    """§3.5a: the predict() SAM ``.slp`` output embeds images for review.
+
+    A ``.pkg.slp`` source must round-trip with image data so a reviewer can open
+    the output without the original media. With ``output_format="slp"`` (default)
+    predict() routes ``output_path`` into ``run_sam_segmentation``, which saves
+    embedded (``labels.save(embed=True)``).
+    """
+    out_path = tmp_path / "embedded.slp"
+    fb = FakeBackend(_prompt_disk())
+
+    orig = sam_pkg.get_mask_backend
+    sam_pkg.get_mask_backend = lambda *a, **k: fb
+    try:
+        # Pass the .pkg.slp path directly so the embed has real source frames.
+        predict(
+            str(minimal_instance),
+            mask_backend="sam",
+            device="cpu",
+            sam_prompt_mode="pose",
+            output_path=out_path,
+        )
+    finally:
+        sam_pkg.get_mask_backend = orig
+
+    assert out_path.exists()
+    reloaded = sio.load_slp(out_path.as_posix())
+    # Embedded: the video now points at the output .slp itself (HDF5-embedded),
+    # not back at the original source media, and the pixels reload.
+    rv = reloaded.videos[0]
+    assert Path(rv.filename).resolve() == out_path.resolve()
+    img = reloaded.labeled_frames[0].image
+    assert img is not None and img.size > 0
+
+
+def test_predict_sam_forwards_sam3_model_id(minimal_instance, tmp_path):
+    """``sam3_model_id`` flows predict() -> run_sam_segmentation -> get_mask_backend.
+
+    §3.2: capture the ``sam3_model_id`` reaching ``get_mask_backend`` (the real
+    backend builder) to prove the value is threaded end-to-end. No real SAM3 is
+    loaded — ``get_mask_backend`` is monkeypatched to a fake.
+    """
+    labels = _pose_labels(minimal_instance)
+    captured = {}
+
+    orig = sam_pkg.get_mask_backend
+
+    def fake_get_mask_backend(mask_backend, **kwargs):
+        captured["mask_backend"] = mask_backend
+        captured["sam3_model_id"] = kwargs.get("sam3_model_id")
+        return FakeBackend(_prompt_disk())
+
+    sam_pkg.get_mask_backend = fake_get_mask_backend
+    try:
+        predict(
+            labels,
+            mask_backend="sam3",
+            device="cpu",
+            sam_prompt_mode="pose",
+            sam3_model_id="acme/custom-sam3",
+            output_path=tmp_path / "s3.slp",
+        )
+    finally:
+        sam_pkg.get_mask_backend = orig
+
+    assert captured["mask_backend"] == "sam3"
+    assert captured["sam3_model_id"] == "acme/custom-sam3"
+
+
+@pytest.mark.parametrize("output_format", ["analysis_h5", "both"])
+def test_predict_sam_output_format_h5(minimal_instance, tmp_path, output_format):
+    """§3.5a: ``analysis_h5``/``both`` write the .h5 (+ embedded .slp for ``both``).
+
+    Guards the no-double-save + no-embed-regression invariants of the SAM
+    output-format branch (run.py): ``analysis_h5`` writes ONLY the analysis HDF5
+    (no .slp); ``both`` writes the analysis HDF5 *and* a single embedded .slp
+    (the SAM branch hands ``run_sam_segmentation`` the embed save and passes only
+    ``output_format="analysis_h5"`` to ``save_predictions``, so the .slp is never
+    written twice / non-embedded).
+    """
+    out_path = tmp_path / "p.slp"
+    fb = FakeBackend(_prompt_disk())
+
+    orig = sam_pkg.get_mask_backend
+    sam_pkg.get_mask_backend = lambda *a, **k: fb
+    try:
+        # Pass the .pkg.slp path directly so a "both" embed has real frames.
+        predict(
+            str(minimal_instance),
+            mask_backend="sam",
+            device="cpu",
+            sam_prompt_mode="pose",
+            output_path=out_path,
+            output_format=output_format,
+        )
+    finally:
+        sam_pkg.get_mask_backend = orig
+
+    # The analysis HDF5 is written for both formats.
+    assert list(tmp_path.glob("*.analysis.h5")), "analysis HDF5 was not written"
+    if output_format == "both":
+        # "both" also writes an embedded .slp (video points at the output itself).
+        assert out_path.exists()
+        reloaded = sio.load_slp(out_path.as_posix())
+        assert Path(reloaded.videos[0].filename).resolve() == out_path.resolve()
+        img = reloaded.labeled_frames[0].image
+        assert img is not None and img.size > 0
+    else:
+        # "analysis_h5" writes ONLY the .h5 — no .slp (matches the legacy path).
+        assert not out_path.exists()
 
 
 def test_predict_sam_forwards_kwargs(minimal_instance, tmp_path, monkeypatch):

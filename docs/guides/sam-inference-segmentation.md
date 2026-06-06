@@ -119,6 +119,43 @@ SAM3 also runs **all instances of a frame in a single batched forward pass**
 weights, so it is exercised manually / nightly; the recipe (floor, cleanup,
 batched call) is unit-tested against a mocked SAM3.
 
+## CLI
+
+The same masks are produced from the `sleap-nn predict` command (and its hidden
+`infer` alias) by passing `--mask_backend`. When set, the input `.slp` is treated
+as a pose file and masks are produced from its existing instances — there is **no
+trained segmentation model**, so `--mask_backend` is **mutually exclusive with
+`--model_paths`** (do not pass it). The `.slp` output is saved with images
+**embedded**, so a `.pkg.slp` source can be reviewed/corrected in the GUI without
+the original frames.
+
+SAM1 (ungated):
+
+```bash
+sleap-nn predict \
+    -i poses.pkg.slp \
+    --mask_backend sam \
+    --sam_checkpoint /path/to/sam_vit_h_4b8939.pth \
+    --sam_prompt_mode pose \
+    --overlay_path review_frame0.png \
+    -o poses_with_masks.pkg.slp
+```
+
+SAM3 (gated `facebook/sam3`, needs the `[sam3]` extra):
+
+```bash
+sleap-nn predict \
+    -i poses.pkg.slp \
+    --mask_backend sam3 \
+    --sam3_model_id facebook/sam3 \
+    --sam_prompt_mode pose \
+    -o poses_with_masks.pkg.slp
+```
+
+Every flag also has a dash-spelled alias (`--mask-backend`, `--sam-checkpoint`,
+`--sam-model-type`, `--sam-prompt-mode`, `--sam-anchor-ind`,
+`--sam-disjointify-masks`, `--sam3-model-id`, `--overlay-path`).
+
 ## Prompt modes
 
 | Mode | Prompt | Needs | Notes |

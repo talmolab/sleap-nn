@@ -7,15 +7,14 @@ pair. They lock the SAM3-specific recipe (recalibrated 0.5 floor — NEVER SAM1'
 the clean, actionable error raised when `transformers`/SAM3 is unavailable.
 """
 
+import inspect
+
 import numpy as np
 import pytest
 
 from sleap_nn.inference.sam import MASK_BACKENDS, get_mask_backend
 from sleap_nn.inference.sam.backends import (
-    SAM3_CLEANUP_RADIUS,
-    SAM3_MODEL_ID,
-    SAM3_PRED_IOU_MIN,
-    SAM_PRED_IOU_MIN,
+    SamBackend,
     Sam3Backend,
     _cleanup_speckle,
     _cleanup_seed,
@@ -142,19 +141,25 @@ def test_get_mask_backend_none_raises():
 # Recipe constants — the SAM3 floor must NOT be SAM1's (regression guard).
 # ---------------------------------------------------------------------------
 def test_sam3_floor_is_recalibrated_not_sam1():
-    assert SAM3_PRED_IOU_MIN == 0.5
-    assert SAM3_PRED_IOU_MIN != SAM_PRED_IOU_MIN  # never share SAM1's 0.88
-    assert SAM3_MODEL_ID == "facebook/sam3"
-    assert SAM3_CLEANUP_RADIUS == 3
+    assert Sam3Backend.pred_iou_min == 0.5
+    # Never share SAM1's 0.88.
+    assert Sam3Backend.pred_iou_min != SamBackend.pred_iou_min
+    assert SamBackend.pred_iou_min == 0.88
+    # Look defaults up by name (robust to future parameter reordering).
+    assert (
+        inspect.signature(Sam3Backend.from_pretrained).parameters["model_id"].default
+        == "facebook/sam3"
+    )
+    assert inspect.signature(_cleanup_speckle).parameters["radius"].default == 3
 
 
 def test_sam3_backend_pred_iou_min_attribute():
     backend, _, _ = _backend(
         np.zeros((1, 1, 8, 8), bool), np.zeros((1, 1), np.float32), (8, 8)
     )
-    assert backend.pred_iou_min == SAM3_PRED_IOU_MIN
+    assert backend.pred_iou_min == 0.5
     # Class-level default, too (so a future caller reading the type sees 0.5).
-    assert Sam3Backend.pred_iou_min == SAM3_PRED_IOU_MIN
+    assert Sam3Backend.pred_iou_min == 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +172,7 @@ def test_cleanup_speckle_keeps_keypoint_blob_drops_speckle():
     speck = _disk(h, w, 5, 5, 1)
     mask = blob | speck
     kpts = np.array([[30.0, 30.0]])
-    cleaned = _cleanup_speckle(mask, kpts, radius=SAM3_CLEANUP_RADIUS)
+    cleaned = _cleanup_speckle(mask, kpts, radius=3)
     # The keypoint blob survives; the isolated speck is gone.
     assert cleaned[30, 30]
     assert not cleaned[5, 5]
@@ -190,7 +195,7 @@ def test_cleanup_speckle_falls_back_to_largest_when_no_keypoint_inside():
     small = _disk(h, w, 50, 50, 4)
     mask = big | small
     # Keypoint lands in neither component (all-background) -> largest is kept.
-    out = _cleanup_speckle(mask, np.array([[0.0, 0.0]]), radius=SAM3_CLEANUP_RADIUS)
+    out = _cleanup_speckle(mask, np.array([[0.0, 0.0]]), radius=3)
     assert out[30, 30]
     assert not out[50, 50]
 

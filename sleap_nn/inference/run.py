@@ -208,6 +208,7 @@ def predict(
     mask_backend: Optional[str] = None,
     sam_checkpoint: Optional[str] = None,
     sam_model_type: str = "vit_h",
+    sam3_model_id: str = "facebook/sam3",
     sam_prompt_mode: str = "pose",
     sam_anchor_ind: Optional[int] = None,
     sam_disjointify_masks: bool = False,
@@ -297,6 +298,8 @@ def predict(
             (the default) leaves the model-driven path untouched.
         sam_checkpoint: SAM1 checkpoint path (required for ``mask_backend="sam"``).
         sam_model_type: SAM1 model registry key.
+        sam3_model_id: Hugging Face model id for the gated SAM3 path
+            (``mask_backend="sam3"``); defaults to ``"facebook/sam3"``.
         sam_prompt_mode: ``"pose"`` / ``"centroid"`` / ``"box"`` (PLAN §2.2).
         sam_anchor_ind: Centroid anchor node index for ``sam_prompt_mode="centroid"``.
         sam_disjointify_masks: Make per-frame masks disjoint when >=2 instances.
@@ -358,20 +361,41 @@ def predict(
             )
         from sleap_nn.inference.sam import run_sam_segmentation
 
+        # Embed asymmetry fix (§3.5a): the SAM ``.slp`` output must embed images
+        # so a ``.pkg.slp`` source can be reviewed/corrected in the GUI without
+        # the original frames. ``run_sam_segmentation`` saves embedded
+        # (``labels.save(embed=True)``) when handed ``output_path``, while a plain
+        # ``save_predictions`` would not — so for the ``slp``/``both`` formats we
+        # pass ``output_path`` into ``run_sam_segmentation`` and let it embed.
+        # The analysis HDF5 (``analysis_h5``/``both``) is still produced via
+        # ``save_predictions`` so no output format regresses.
+        sam_output_format = str(output_format).lower()
+        if output_path is not None and sam_output_format not in (
+            "slp",
+            "analysis_h5",
+            "both",
+        ):
+            raise ValueError(
+                f"Invalid output_format: {output_format!r}. Must be one of "
+                "('slp', 'analysis_h5', 'both')."
+            )
+        sam_save_slp = output_path if sam_output_format in ("slp", "both") else None
         labels = run_sam_segmentation(
             source,
             mask_backend,
             prompt_mode=sam_prompt_mode,
             sam_checkpoint=sam_checkpoint,
             sam_model_type=sam_model_type,
+            sam3_model_id=sam3_model_id,
             device=device,
             anchor_ind=sam_anchor_ind,
             disjointify_masks=sam_disjointify_masks,
+            output_path=sam_save_slp,
             overlay_path=overlay_path,
             frames=frames,
         )
-        if output_path is not None:
-            save_predictions(labels, output_path, output_format=output_format)
+        if output_path is not None and sam_output_format in ("analysis_h5", "both"):
+            save_predictions(labels, output_path, output_format="analysis_h5")
         return labels
 
     if model_paths and export_dir:

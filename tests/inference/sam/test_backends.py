@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 from sleap_nn.inference.sam.backends import (
-    SAM_PRED_IOU_MIN,
     SamBackend,
     _pick,
     _to_3ch_clahe,
@@ -146,7 +145,8 @@ def test_sam_backend_empty_prompts():
 def test_sam_backend_pred_iou_min_attribute():
     backend = SamBackend(FakeSamPredictor(candidates=[(np.zeros((8, 8), bool), 0.5)]))
     # SAM1's nominal floor; reported (not gated) — carried for SAM3 parity.
-    assert backend.pred_iou_min == SAM_PRED_IOU_MIN
+    assert backend.pred_iou_min == 0.88
+    assert backend.pred_iou_min == SamBackend.pred_iou_min
 
 
 def test_sam_backend_raw_score_is_not_gated():
