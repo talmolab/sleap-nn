@@ -1,6 +1,7 @@
 """Inference utilities for bottom-up instance segmentation."""
 
-from typing import Dict, List, Optional, Tuple
+import math
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -70,6 +71,8 @@ def group_instances_from_offsets(
     center_nms_kernel: int = 3,
     mask_cleanup: bool = False,
     mask_cleanup_radius: int = 0,
+    distance_gate_alpha: Optional[float] = None,
+    distance_gate_iters: int = 3,
 ) -> List[Dict]:
     """Group foreground pixels into instances using center-offset predictions.
 
@@ -94,6 +97,21 @@ def group_instances_from_offsets(
             additionally apply a morphological open->close with an elliptical
             kernel of this radius (output-stride pixels) before keep-largest-CC.
             ``0`` (default) keeps the keep-largest-CC + fill-holes behavior.
+        distance_gate_alpha: Adaptive distance-gate strength. When ``None``
+            (default) every foreground pixel is assigned to its nearest center
+            by ``argmin`` (the original, byte-for-byte behavior). When set, a
+            pixel is dropped from its assigned instance if its offset-predicted
+            center is farther than ``R_k = alpha * sqrt(area_k / pi)`` from that
+            center, where ``area_k`` is the current pixel count of instance
+            ``k``. The radius is re-estimated for ``distance_gate_iters``
+            iterations (areas shrink as strays are gated out). This deletes
+            stray foreground pixels and off-instance phantom peaks (a scale-free
+            ``min_mask_area``) without affecting well-grouped pixels (their
+            offset residual is small). Radii are expressed in original-pixel
+            units (the same space as the ``dists`` below).
+        distance_gate_iters: Number of adaptive re-estimation iterations for the
+            distance gate (only used when ``distance_gate_alpha`` is not
+            ``None``). Default ``3``.
 
     Returns:
         List of dicts, each with:
@@ -101,6 +119,17 @@ def group_instances_from_offsets(
             - "center": (x, y) tuple in original pixel coordinates
             - "score": float confidence score (peak value)
     """
+    # Run grouping device-consistently on CPU. find_center_peaks() routes through
+    # scipy connected-components and returns CPU peak tensors, and the per-instance
+    # masks below are built as CPU tensors (-> numpy), so a GPU input would mix
+    # cuda/cpu devices inside this function. This is a no-op for the inference path
+    # (already-CPU tensors) but is required for the GPU callers added in #649 —
+    # epoch-end mask eval and training viz both pass cuda head tensors. The cost is
+    # negligible (a few frames per epoch, not the training loop).
+    foreground = foreground.detach().cpu()
+    center_heatmap = center_heatmap.detach().cpu()
+    offsets = offsets.detach().cpu()
+
     h, w = foreground.shape[-2:]
 
     # 1. Threshold foreground
@@ -157,11 +186,34 @@ def group_instances_from_offsets(
     dists = dist_x**2 + dist_y**2
 
     assignments = dists.argmin(dim=1)  # (M,) index into centers
+    # Squared distance from each fg pixel to its assigned center (original px^2).
+    dmin = dists.gather(1, assignments.unsqueeze(1)).squeeze(1)  # (M,)
+
+    # Optional adaptive distance gate: drop a pixel whose offset-predicted center
+    # is farther than R_k = alpha*sqrt(area_k/pi) from its assigned center. The
+    # radius is re-estimated for ``distance_gate_iters`` passes so that areas (and
+    # thus radii) shrink as stray pixels are gated out. ``distance_gate_alpha is
+    # None`` keeps the original argmin behavior byte-for-byte (every pixel kept).
+    keep = torch.ones_like(assignments, dtype=torch.bool)
+    if distance_gate_alpha is not None:
+        n_centers = len(centers)
+        for _ in range(max(1, int(distance_gate_iters))):
+            # area_k = current kept-pixel count assigned to center k (grid cells).
+            counts = torch.zeros(n_centers, dtype=torch.long)
+            counts.scatter_add_(
+                0,
+                assignments[keep],
+                torch.ones(int(keep.sum().item()), dtype=torch.long),
+            )
+            # R_k in grid cells -> original px (* output_stride), then squared.
+            r_grid = float(distance_gate_alpha) * torch.sqrt(counts.float() / math.pi)
+            r_px2 = (r_grid * float(output_stride)) ** 2  # (N,)
+            keep = dmin <= r_px2[assignments]
 
     # 5. Build per-instance masks
     instances = []
     for i in range(len(centers)):
-        member_mask = assignments == i
+        member_mask = (assignments == i) & keep
         if member_mask.sum() == 0:
             continue
 
@@ -262,6 +314,381 @@ class CenteredInstanceMaskInferenceModel(L.LightningModule):
         self.polygon_epsilon = float(polygon_epsilon)
 
 
+# --------------------------------------------------------------------------- #
+# Fragment-merge: RAG over candidate masks + greedy/multicut agglomeration.
+#
+# Failure mode: one animal is split into >=2 adjacent masks because two surviving
+# center peaks (typically ~20 px apart along the body) each win a half. Neither
+# ``min_mask_area`` (both halves are large) nor the distance gate (the winning
+# peak is real and close) can fix this. ``merge_instances`` re-fuses the within-
+# animal pieces while keeping two genuinely-touching distinct animals apart, by
+# scoring each touching pair with a center-valley/ridge + offset-agreement
+# affinity. The center-valley signal is load-bearing: a deep heatmap valley
+# between two centers means "two animals" (do not merge); a high ridge means "one
+# body" (merge). All of this is inert unless ``merge_fragments`` is enabled in
+# the layer; ``group_instances_from_offsets`` itself is never changed by it.
+# --------------------------------------------------------------------------- #
+def _mask_pred_centers(
+    mask: np.ndarray, offsets: np.ndarray, output_stride: int
+) -> np.ndarray:
+    """Offset-predicted center (x, y) px for each foreground pixel of ``mask``.
+
+    Mirrors the grouping convention: ``pixel_px = grid * stride + stride/2`` then
+    add the offset. Returns ``(M, 2)`` in original-pixel coordinates.
+    """
+    ys, xs = np.nonzero(mask)
+    if len(ys) == 0:
+        return np.zeros((0, 2), np.float64)
+    dx = offsets[0, ys, xs]
+    dy = offsets[1, ys, xs]
+    px = xs.astype(np.float64) * output_stride + output_stride / 2.0
+    py = ys.astype(np.float64) * output_stride + output_stride / 2.0
+    return np.stack([px + dx, py + dy], axis=1)
+
+
+def _contact_fraction(a: np.ndarray, b: np.ndarray, dilate_iters: int = 1) -> float:
+    """Symmetric touch fraction of two masks: 0 if their dilations do not touch.
+
+    ``(|dilate(A) & B| + |A & dilate(B)|) / min(area_a, area_b)``.
+
+    ``dilate_iters`` is clamped to at least ``1``: the candidate masks coming out
+    of :func:`group_instances_from_offsets` are MUTUALLY EXCLUSIVE (every fg pixel
+    is argmin-assigned to exactly one center), so two abutting fragments of one
+    animal never overlap. A raw-overlap contact test (no dilation) would therefore
+    always report zero contact and silently disable the entire fragment-merge for
+    exactly the split-animal case it targets. At least one dilation is required
+    for the touch test to be meaningful.
+    """
+    from scipy.ndimage import binary_dilation
+
+    iters = max(1, int(dilate_iters))
+    da = binary_dilation(a, iterations=iters)
+    db = binary_dilation(b, iterations=iters)
+    overlap = int((da & b).sum() + (a & db).sum())
+    if overlap == 0:
+        return 0.0
+    denom = max(1, min(int(a.sum()), int(b.sum())))
+    return overlap / denom
+
+
+def _center_valley_ridge(
+    heatmap: np.ndarray,
+    ca: Tuple[float, float],
+    cb: Tuple[float, float],
+    peak_a: float,
+    peak_b: float,
+    n_samples: int = 48,
+) -> float:
+    """Ridge score along the center-line between two centers (grid coords).
+
+    Returns ``min_along_path / min(peak_a, peak_b)`` clipped to ``[0, 1]``: ~1
+    means the heatmap stays high between the two centers (one body / ridge =>
+    MERGE); ~0 means it dips to background (a valley => two animals => DON'T
+    merge). The interior 70% of the segment is sampled so the peaks themselves
+    are excluded.
+    """
+    h, w = heatmap.shape
+    t = np.linspace(0.0, 1.0, n_samples)
+    xs = ca[0] + (cb[0] - ca[0]) * t
+    ys = ca[1] + (cb[1] - ca[1]) * t
+    lo, hi = int(0.15 * n_samples), int(0.85 * n_samples)
+    xs, ys = xs[lo:hi], ys[lo:hi]
+    if len(xs) == 0:
+        return 1.0
+    xi = np.clip(np.round(xs).astype(int), 0, w - 1)
+    yi = np.clip(np.round(ys).astype(int), 0, h - 1)
+    path_vals = heatmap[yi, xi]
+    denom = max(1e-6, min(peak_a, peak_b))
+    return float(np.clip(path_vals.min() / denom, 0.0, 1.0))
+
+
+def _offset_agreement(pa: np.ndarray, pb: np.ndarray, output_stride: int) -> float:
+    """Do two masks' pixels predict a SHARED center?
+
+    ``pa``/``pb`` are the offset-predicted centers (px) of each mask's pixels. For
+    a real fragment-split the two clouds cluster on the single true centroid
+    (small separation relative to their spread => ~1); two distinct animals
+    predict centers a body apart (=> ~0).
+    """
+    if len(pa) == 0 or len(pb) == 0:
+        return 0.0
+    sep = float(np.hypot(*(pa.mean(0) - pb.mean(0))))
+    spread = float(0.5 * (pa.std(0).mean() + pb.std(0).mean()))
+    scale = max(spread, float(output_stride))
+    return float(np.exp(-(sep**2) / (2.0 * (2.0 * scale) ** 2)))
+
+
+def _build_merge_rag(
+    instances: List[Dict],
+    center_heatmap: np.ndarray,
+    offsets: np.ndarray,
+    output_stride: int,
+    *,
+    dilate_iters: int = 1,
+    w_valley: float = 1.0,
+    w_offset: float = 0.25,
+    contact_floor: float = 1e-3,
+) -> Dict[Tuple[int, int], float]:
+    """Region-adjacency graph over candidate masks: edge ``(i<j) -> affinity``.
+
+    Edges exist only between masks whose dilations touch (non-touching pairs get
+    no direct edge; transitive merges via touching chains are still possible).
+    Affinity in ``[0, 1]``::
+
+        affinity = contact_gate * (w_valley*ridge + w_offset*offset) / (w_valley+w_offset)
+
+    where ``contact_gate = min(1, contact / 0.05)`` saturates so a firm touch does
+    not over-weight, and the ridge/offset terms decide WHETHER to merge given
+    contact. With ``w_valley == w_offset == 0`` the affinity collapses to the raw
+    contact gate (a contact-only ablation that over-merges touching distinct
+    animals — used by tests to show the valley signal is load-bearing).
+    """
+    n = len(instances)
+    pred_centers = [
+        _mask_pred_centers(inst["mask"], offsets, output_stride) for inst in instances
+    ]
+    edges: Dict[Tuple[int, int], float] = {}
+    wsum = w_valley + w_offset
+    for i in range(n):
+        for j in range(i + 1, n):
+            contact = _contact_fraction(
+                instances[i]["mask"], instances[j]["mask"], dilate_iters
+            )
+            if contact <= contact_floor:
+                continue
+            contact_gate = min(1.0, contact / 0.05)
+            if wsum <= 0:
+                edges[(i, j)] = contact_gate
+                continue
+            # Invert the grid->pixel convention exactly (``px = grid*stride +
+            # stride/2``; see line ~160 and ``_mask_pred_centers``) to recover the
+            # grid coordinate the heatmap is indexed in. A bare ``center / stride``
+            # would leave a half-cell (+0.5) offset on the sampled center-line.
+            half = output_stride / 2.0
+            ca = (
+                (instances[i]["center"][0] - half) / output_stride,
+                (instances[i]["center"][1] - half) / output_stride,
+            )
+            cb = (
+                (instances[j]["center"][0] - half) / output_stride,
+                (instances[j]["center"][1] - half) / output_stride,
+            )
+            ridge = _center_valley_ridge(
+                center_heatmap,
+                ca,
+                cb,
+                instances[i]["score"],
+                instances[j]["score"],
+            )
+            offset = _offset_agreement(pred_centers[i], pred_centers[j], output_stride)
+            blend = (w_valley * ridge + w_offset * offset) / wsum
+            edges[(i, j)] = float(contact_gate * blend)
+    return edges
+
+
+def _union_groups(groups: List[set], instances: List[Dict]) -> List[Dict]:
+    """Materialize merged masks from a partition (list of node-index sets).
+
+    The merged mask is the OR of its members; the highest-scoring member's center
+    and score are kept as the representative.
+    """
+    out = []
+    for g in groups:
+        members = sorted(g)
+        best = max(members, key=lambda k: instances[k]["score"])
+        mask = np.zeros_like(instances[members[0]]["mask"])
+        for k in members:
+            mask |= instances[k]["mask"]
+        out.append(
+            {
+                "mask": mask,
+                "center": instances[best]["center"],
+                "score": instances[best]["score"],
+            }
+        )
+    return out
+
+
+def _merge_greedy_affinity(
+    instances: List[Dict],
+    edges: Dict[Tuple[int, int], float],
+    *,
+    thresholds: Sequence[float] = (0.85, 0.6, 0.4),
+) -> List[Dict]:
+    """Greedy decreasing-threshold agglomeration (Liu et al. ECCV'18 graph merge).
+
+    In each phase, repeatedly contract the max-affinity live edge >= the phase
+    threshold; the merged super-node's affinity to each neighbor is the MEAN over
+    the contracted members' affinities. Union-find over node ids.
+    """
+    n = len(instances)
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def key(a, b):
+        return (a, b) if a < b else (b, a)
+
+    # Live affinities keyed by (root_a, root_b) -> list of member affinities.
+    aff: Dict[Tuple[int, int], List[float]] = {k: [v] for k, v in edges.items()}
+
+    for thr in thresholds:
+        while True:
+            best_e = None
+            best_v = -1.0
+            for (a, b), vals in aff.items():
+                ra, rb = find(a), find(b)
+                if ra == rb:
+                    continue
+                v = float(np.mean(vals))
+                if v > best_v:
+                    best_v = v
+                    best_e = (ra, rb)
+            if best_e is None or best_v < thr:
+                break
+            ra, rb = best_e
+            parent[rb] = ra
+            new_aff: Dict[Tuple[int, int], List[float]] = {}
+            for (a, b), vals in aff.items():
+                ca, cb = find(a), find(b)
+                if ca == cb:
+                    continue
+                new_aff.setdefault(key(ca, cb), []).extend(vals)
+            aff = new_aff
+
+    groups: Dict[int, set] = {}
+    for i in range(n):
+        groups.setdefault(find(i), set()).add(i)
+    return _union_groups(list(groups.values()), instances)
+
+
+def _merge_multicut_greedy(
+    instances: List[Dict],
+    edges: Dict[Tuple[int, int], float],
+    *,
+    join_bias: float = 0.5,
+) -> List[Dict]:
+    """Greedy min-cost multicut / correlation clustering (GAEC-style).
+
+    Edge cost = ``logit(affinity) - logit(join_bias)``: positive => attractive
+    (want joined), negative => repulsive (want cut). Repeatedly contract the
+    most-attractive edge while any positive-cost edge remains, summing parallel
+    edge costs (correlation-clustering objective). No fixed instance count.
+    """
+    n = len(instances)
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def key(a, b):
+        return (a, b) if a < b else (b, a)
+
+    def logit(p):
+        p = min(max(p, 1e-4), 1 - 1e-4)
+        return math.log(p / (1 - p))
+
+    cost: Dict[Tuple[int, int], float] = {
+        k: logit(v) - logit(join_bias) for k, v in edges.items()
+    }
+
+    while True:
+        best_e = None
+        best_c = 0.0  # strictly > 0 to contract
+        for (a, b), c in cost.items():
+            ra, rb = find(a), find(b)
+            if ra == rb:
+                continue
+            if c > best_c:
+                best_c = c
+                best_e = (ra, rb)
+        if best_e is None:
+            break
+        ra, rb = best_e
+        parent[rb] = ra
+        new_cost: Dict[Tuple[int, int], float] = {}
+        for (a, b), c in cost.items():
+            ca, cb = find(a), find(b)
+            if ca == cb:
+                continue
+            k = key(ca, cb)
+            new_cost[k] = new_cost.get(k, 0.0) + c
+        cost = new_cost
+
+    groups: Dict[int, set] = {}
+    for i in range(n):
+        groups.setdefault(find(i), set()).add(i)
+    return _union_groups(list(groups.values()), instances)
+
+
+def merge_instances(
+    instances: List[Dict],
+    center_heatmap: np.ndarray,
+    offsets: np.ndarray,
+    output_stride: int,
+    *,
+    method: str = "greedy",
+    dilate_iters: int = 1,
+    w_valley: float = 1.0,
+    w_offset: float = 0.25,
+    thresholds: Sequence[float] = (0.85, 0.6, 0.4),
+    join_bias: float = 0.5,
+) -> List[Dict]:
+    """Fuse over-segmented fragments of one animal via a RAG over candidate masks.
+
+    Builds a region-adjacency graph over the candidate masks (edge affinity =
+    contact-gate * a center-valley-ridge / offset-agreement blend), then runs the
+    chosen agglomeration. Two genuinely-touching distinct animals are kept apart
+    by the valley term (a deep heatmap valley between their centers vetoes the
+    merge). Operates at output-stride (grid) resolution, BEFORE upsample and
+    ``min_mask_area``, on the dicts returned by
+    :func:`group_instances_from_offsets`.
+
+    Args:
+        instances: ``{"mask", "center", "score"}`` dicts (grid-resolution masks,
+            centers in original-pixel coords).
+        center_heatmap: ``(h, w)`` center heatmap at grid resolution.
+        offsets: ``(2, h, w)`` offset field ``(dx, dy)`` in original-pixel units.
+        output_stride: Stride of the head maps relative to the model input.
+        method: ``"greedy"`` (default, recommended) decreasing-threshold
+            agglomeration, or ``"multicut"`` greedy correlation clustering.
+        dilate_iters: Dilation iterations for the contact test (default ``1``).
+        w_valley: Weight on the center-valley ridge term (default ``1.0``).
+        w_offset: Weight on the offset-agreement term (default ``0.25``).
+        thresholds: Decreasing affinity thresholds per greedy phase.
+        join_bias: Multicut decision boundary (affinity > this => attractive).
+
+    Returns:
+        A NEW list of merged ``{"mask", "center", "score"}`` dicts (each merged
+        mask is the OR of its members; the highest-scoring member is the
+        representative). Returns ``instances`` unchanged when ``method == "none"``
+        or fewer than two instances are present.
+    """
+    if method == "none" or len(instances) <= 1:
+        return instances
+    edges = _build_merge_rag(
+        instances,
+        center_heatmap,
+        offsets,
+        output_stride,
+        dilate_iters=dilate_iters,
+        w_valley=w_valley,
+        w_offset=w_offset,
+    )
+    if method == "greedy":
+        return _merge_greedy_affinity(instances, edges, thresholds=thresholds)
+    if method == "multicut":
+        return _merge_multicut_greedy(instances, edges, join_bias=join_bias)
+    raise ValueError(f"unknown merge method {method!r}")
+
+
 class BottomUpSegmentationInferenceModel(L.LightningModule):
     """Inference model for bottom-up instance segmentation.
 
@@ -297,6 +724,13 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         center_nms_kernel: int = 3,
         mask_cleanup: bool = False,
         mask_cleanup_radius: int = 0,
+        distance_gate_alpha: Optional[float] = None,
+        merge_fragments: bool = False,
+        merge_method: str = "greedy",
+        merge_thresholds: tuple = (0.85, 0.6, 0.4),
+        merge_w_valley: float = 1.0,
+        merge_w_offset: float = 0.25,
+        merge_dilate: int = 1,
         full_res_masks: bool = False,
         mask_output: str = "mask",
         polygon_epsilon: float = 0.01,
@@ -313,6 +747,20 @@ class BottomUpSegmentationInferenceModel(L.LightningModule):
         self.center_nms_kernel = int(center_nms_kernel)
         self.mask_cleanup = bool(mask_cleanup)
         self.mask_cleanup_radius = int(mask_cleanup_radius)
+        # Increment-A fragment-merge / distance-gate knobs. Carried for
+        # ``_build_bottomup_segmentation_layer`` (read via getattr) and applied in
+        # ``SegmentationLayer.postprocess`` (NOT in this model's ``forward``, which
+        # emits raw output-stride masks for training viz). All default to today's
+        # behavior: ``distance_gate_alpha=None`` and ``merge_fragments=False``.
+        self.distance_gate_alpha = (
+            None if distance_gate_alpha is None else float(distance_gate_alpha)
+        )
+        self.merge_fragments = bool(merge_fragments)
+        self.merge_method = str(merge_method)
+        self.merge_thresholds = tuple(merge_thresholds)
+        self.merge_w_valley = float(merge_w_valley)
+        self.merge_w_offset = float(merge_w_offset)
+        self.merge_dilate = int(merge_dilate)
         # Output-packaging knobs carried for ``_build_bottomup_segmentation_layer``
         # (read off this model via getattr). ``forward`` itself only emits
         # output-stride masks for training viz, so it consumes ``mask_cleanup_radius``

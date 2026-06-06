@@ -62,6 +62,30 @@ def _parse_int_list(ctx, param, value):
         )
 
 
+class _CommaFloatTuple(click.ParamType):
+    """Click type parsing a comma-separated float list into a tuple.
+
+    Used for ``--merge_thresholds`` (e.g. ``0.85,0.6,0.4``). Accepts an already
+    parsed tuple/list (the option default) unchanged.
+    """
+
+    name = "comma_floats"
+
+    def convert(self, value, param, ctx):
+        if value is None or isinstance(value, (tuple, list)):
+            return tuple(value) if value is not None else None
+        try:
+            return tuple(
+                float(x) for x in str(value).split(",") if str(x).strip() != ""
+            )
+        except ValueError:
+            self.fail(
+                "must be a comma-separated list of floats, e.g. '0.85,0.6,0.4'",
+                param,
+                ctx,
+            )
+
+
 def is_config_path(arg: str) -> bool:
     """Check if an argument looks like a config file path.
 
@@ -1462,6 +1486,13 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
         "mask_cleanup_radius": kwargs.get("mask_cleanup_radius", 0),
+        "distance_gate_alpha": kwargs.get("distance_gate_alpha"),
+        "merge_fragments": kwargs.get("merge_fragments", False),
+        "merge_method": kwargs.get("merge_method", "greedy"),
+        "merge_thresholds": kwargs.get("merge_thresholds", (0.85, 0.6, 0.4)),
+        "merge_w_valley": kwargs.get("merge_w_valley", 1.0),
+        "merge_w_offset": kwargs.get("merge_w_offset", 0.25),
+        "merge_dilate": kwargs.get("merge_dilate", 1),
         "full_res_masks": kwargs.get("full_res_masks", False),
         "mask_output": kwargs.get("mask_output", "mask"),
         "polygon_epsilon": kwargs.get("polygon_epsilon", 0.01),
@@ -1834,6 +1865,13 @@ def _run_stream_to_file(
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
         "mask_cleanup_radius": kwargs.get("mask_cleanup_radius", 0),
+        "distance_gate_alpha": kwargs.get("distance_gate_alpha"),
+        "merge_fragments": kwargs.get("merge_fragments", False),
+        "merge_method": kwargs.get("merge_method", "greedy"),
+        "merge_thresholds": kwargs.get("merge_thresholds", (0.85, 0.6, 0.4)),
+        "merge_w_valley": kwargs.get("merge_w_valley", 1.0),
+        "merge_w_offset": kwargs.get("merge_w_offset", 0.25),
+        "merge_dilate": kwargs.get("merge_dilate", 1),
         "full_res_masks": kwargs.get("full_res_masks", False),
         "mask_output": kwargs.get("mask_output", "mask"),
         "polygon_epsilon": kwargs.get("polygon_epsilon", 0.01),
@@ -2112,6 +2150,85 @@ def _common_inference_options(f):
             "pixels) before keep-largest-CC/fill-holes; despeckles and closes "
             "pinholes. 0 keeps the keep-largest+fill behavior (bottom-up "
             "segmentation models only).",
+        ),
+        click.option(
+            "--distance_gate_alpha",
+            "--distance-gate-alpha",
+            "distance_gate_alpha",
+            type=float,
+            default=None,
+            help="Adaptive distance-gate strength: drop foreground pixels whose "
+            "offset-predicted center exceeds alpha*sqrt(area/pi) from their "
+            "assigned center (a scale-free stray-pixel/phantom filter). Unset "
+            "(default) keeps the byte-for-byte argmin grouping. Recommended "
+            "dense-mice value ~0.5; opt-in, validate before relying on it "
+            "(bottom-up segmentation models only).",
+        ),
+        click.option(
+            "--merge_fragments/--no-merge_fragments",
+            "--merge-fragments/--no-merge-fragments",
+            "merge_fragments",
+            default=False,
+            help="Re-fuse over-segmented animal halves via a region-adjacency "
+            "graph (center-valley + offset-agreement affinity) before "
+            "--min_mask_area, while keeping genuinely-touching distinct animals "
+            "apart. Default off (byte-for-byte today). Pairs well with "
+            "--distance_gate_alpha and --min_mask_area (bottom-up segmentation "
+            "models only).",
+        ),
+        click.option(
+            "--merge_method",
+            "--merge-method",
+            "merge_method",
+            type=click.Choice(["greedy", "multicut"]),
+            default="greedy",
+            help="Fragment-merge agglomeration: 'greedy' (default, recommended "
+            "decreasing-threshold) or 'multicut' (greedy correlation "
+            "clustering). Inert unless --merge_fragments (bottom-up segmentation "
+            "models only).",
+        ),
+        click.option(
+            "--merge_thresholds",
+            "--merge-thresholds",
+            "merge_thresholds",
+            type=_CommaFloatTuple(),
+            default=(0.85, 0.6, 0.4),
+            help="Comma-separated decreasing affinity thresholds for the greedy "
+            "fragment-merge phases (default '0.85,0.6,0.4'). Keep the floor >=0.4 "
+            "to avoid bridging distinct animals. Inert unless --merge_fragments "
+            "(bottom-up segmentation models only).",
+        ),
+        click.option(
+            "--merge_w_valley",
+            "--merge-w-valley",
+            "merge_w_valley",
+            type=float,
+            default=1.0,
+            help="Weight on the center-valley ridge term of the fragment-merge "
+            "affinity (load-bearing: protects touching animals). Default 1.0. "
+            "Inert unless --merge_fragments (bottom-up segmentation models only).",
+        ),
+        click.option(
+            "--merge_w_offset",
+            "--merge-w-offset",
+            "merge_w_offset",
+            type=float,
+            default=0.25,
+            help="Weight on the offset-agreement term of the fragment-merge "
+            "affinity. Default 0.25. Inert unless --merge_fragments (bottom-up "
+            "segmentation models only).",
+        ),
+        click.option(
+            "--merge_dilate",
+            "--merge-dilate",
+            "merge_dilate",
+            type=int,
+            default=1,
+            help="Dilation iterations for the fragment-merge contact test "
+            "(output-stride pixels). Default 1; clamped to a minimum of 1 "
+            "(the grouped masks are mutually exclusive, so a zero-dilation "
+            "contact test would disable the merge). Inert unless "
+            "--merge_fragments (bottom-up segmentation models only).",
         ),
         click.option(
             "--full_res_masks/--no-full_res_masks",
