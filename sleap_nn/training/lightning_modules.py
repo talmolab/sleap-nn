@@ -2774,6 +2774,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
         include_center_heatmap: bool = False,
         include_offsets: bool = False,
         include_gt_mask: bool = False,
+        include_instance_masks: bool = False,
     ) -> VisualizationData:
         """Extract visualization data from a sample.
 
@@ -2789,6 +2790,9 @@ class BottomUpSegmentationLightningModule(LightningModel):
                 separate offset-magnitude visualization.
             include_gt_mask: If True, include the ground-truth foreground mask
                 for a GT-vs-prediction overlay.
+            include_instance_masks: If True, keep the grouped per-instance masks
+                (already computed by the offset-grouping below) for a colored
+                instance-mask overlay. No extra forward/grouping pass is run.
 
         Returns:
             VisualizationData with foreground map and center locations.
@@ -2845,6 +2849,13 @@ class BottomUpSegmentationLightningModule(LightningModel):
             cx, cy = inst["center"]
             pred_centers.append([cx / output_stride, cy / output_stride])
 
+        # Keep the grouped per-instance masks (already produced above; no second
+        # grouping pass) for a colored instance-mask overlay. Each is a (H, W)
+        # bool at output-stride resolution — the same grid as ``fg_prob``.
+        instance_masks = None
+        if include_instance_masks:
+            instance_masks = [inst["mask"] for inst in instances]
+
         # Format as (N, 1, 2) arrays for plot_peaks (instances, nodes, 2)
         if len(gt_centers) > 0:
             gt_pts = np.array(gt_centers).reshape(-1, 1, 2)
@@ -2885,6 +2896,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
             pred_center_heatmap=center_hmap,
             pred_offsets=offsets,
             gt_mask=gt_mask,
+            instance_masks=instance_masks,
         )
 
     def visualize_example(self, sample):

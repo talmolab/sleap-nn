@@ -562,6 +562,9 @@ class UnifiedVizCallback(Callback):
         self.viz_class_maps = model_type == "multi_class_bottomup"
         self.viz_center_heatmap = model_type == "bottomup_segmentation"
         self.viz_offsets = model_type == "bottomup_segmentation"
+        # Colored grouped per-instance mask overlay (bottom-up seg only; the
+        # grouped masks come from the offset-grouping in get_visualization_data).
+        self.viz_instance_masks = model_type == "bottomup_segmentation"
         # GT-vs-prediction mask overlay for both segmentation model types.
         self.viz_gt_mask = model_type in (
             "bottomup_segmentation",
@@ -613,6 +616,8 @@ class UnifiedVizCallback(Callback):
             kwargs["include_offsets"] = True
         if self.viz_gt_mask:
             kwargs["include_gt_mask"] = True
+        if self.viz_instance_masks:
+            kwargs["include_instance_masks"] = True
 
         # Access lightning_model lazily from model_trainer
         return self.model_trainer.lightning_model.get_visualization_data(
@@ -668,6 +673,13 @@ class UnifiedVizCallback(Callback):
         if self.viz_gt_mask and data.gt_mask is not None:
             fig = self._mpl_renderer.render_gt_mask(data)
             fig_path = self.local_save_dir / f"{prefix}.gt_mask.{epoch:04d}.png"
+            fig.savefig(fig_path, format="png")
+            plt.close(fig)
+
+        # Colored grouped per-instance mask overlay (bottom-up segmentation)
+        if self.viz_instance_masks and data.instance_masks is not None:
+            fig = self._mpl_renderer.render_instance_masks(data)
+            fig_path = self.local_save_dir / f"{prefix}.instance_masks.{epoch:04d}.png"
             fig.savefig(fig_path, format="png")
             plt.close(fig)
 
@@ -807,6 +819,19 @@ class UnifiedVizCallback(Callback):
                 caption=f"{prefix.title()} GT vs Pred Mask Epoch {epoch}",
             )
 
+        # Colored grouped per-instance mask overlay (bottom-up segmentation)
+        if self.viz_instance_masks and data.instance_masks is not None:
+            inst_fig = self._mpl_renderer.render_instance_masks(data)
+            buf = BytesIO()
+            inst_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+            buf.seek(0)
+            plt.close(inst_fig)
+            inst_pil = PILImage.open(buf)
+            log_dict[f"viz/{prefix}/instance_masks"] = wandb.Image(
+                inst_pil,
+                caption=f"{prefix.title()} Instance Masks Epoch {epoch}",
+            )
+
         if log_dict:
             log_dict["epoch"] = epoch
             wandb_logger.experiment.log(log_dict, commit=False)
@@ -838,6 +863,10 @@ class UnifiedVizCallback(Callback):
             if self.viz_gt_mask and data.gt_mask is not None:
                 columns.append(f"{prefix.title()} GT Mask")
                 table_data[0].append(log_dict.get(f"viz/{prefix}/gt_mask"))
+
+            if self.viz_instance_masks and data.instance_masks is not None:
+                columns.append(f"{prefix.title()} Instance Masks")
+                table_data[0].append(log_dict.get(f"viz/{prefix}/instance_masks"))
 
             table = wandb.Table(columns=columns, data=table_data)
             wandb_logger.experiment.log(
