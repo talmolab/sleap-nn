@@ -1142,6 +1142,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="CLI">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#controlling-image-embedding-embed-restore_source_videos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Controlling image embedding (--embed / --restore_source_videos)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -6691,6 +6708,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="CLI">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#controlling-image-embedding-embed-restore_source_videos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Controlling image embedding (--embed / --restore_source_videos)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -6848,27 +6882,47 @@ batched call) is unit-tested against a mocked SAM3.</p>
 as a pose file and masks are produced from its existing instances — there is <strong>no
 trained segmentation model</strong>, so <code>--mask_backend</code> is <strong>mutually exclusive with
 <code>--model_paths</code></strong> (do not pass it). The <code>.slp</code> output is saved like the regular
-prediction path — images are <strong>not</strong> re-embedded; the output backreferences the
-input's source media via provenance (small output; a <code>.pkg.slp</code> input stays
-matchable to its source videos), and the masks always serialize into the <code>.slp</code>.
-Only <code>--output_format slp</code> is supported (the SLEAP Analysis HDF5 format stores
-poses/tracks, not segmentation masks).</p>
-<p>SAM1 (ungated):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span>-i<span class="w"> </span>poses.pkg.slp<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span>--mask_backend<span class="w"> </span>sam<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span>--sam_checkpoint<span class="w"> </span>/path/to/sam_vit_h_4b8939.pth<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span>--sam_prompt_mode<span class="w"> </span>pose<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span>--overlay_path<span class="w"> </span>review_frame0.png<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">    </span>-o<span class="w"> </span>poses_with_masks.pkg.slp
+prediction path — by default images are <strong>not</strong> re-embedded; the output
+backreferences the input's source media via provenance (small output; a
+<code>.pkg.slp</code> input stays matchable to its source videos), and the masks always
+serialize into the <code>.slp</code>. Only <code>--output_format slp</code> is supported (the SLEAP
+Analysis HDF5 format stores poses/tracks, not segmentation masks).</p>
+<h3 id="controlling-image-embedding-embed-restore_source_videos">Controlling image embedding (<code>--embed</code> / <code>--restore_source_videos</code>)<a class="headerlink" href="#controlling-image-embedding-embed-restore_source_videos" title="Permanent link">&para;</a></h3>
+<p>Two independent flags (also <code>embed</code> / <code>restore_source_videos</code> API kwargs on
+<code>predict</code> and <code>run_sam_segmentation</code>) control how the output <code>.slp</code> references
+image data. The defaults preserve today's behavior exactly.</p>
+<ul>
+<li><code>--embed</code> (<code>auto</code> | <code>true</code> | <code>false</code>, default <code>false</code>): the embedding policy.
+  <code>false</code> never embeds and backreferences the source media (today's behavior);
+  <code>true</code> embeds images into a self-contained <code>.pkg.slp</code>-style output; <code>auto</code>
+  embeds only when the input was itself an embedded <code>.pkg.slp</code>.</li>
+<li><code>--restore_source_videos</code> / <code>--no-restore_source_videos</code> (default
+  <code>--restore_source_videos</code>): on a non-embedding save, restore references to the
+  original source video files (provenance), or use <code>--no-restore_source_videos</code>
+  to keep references to the input <code>.pkg.slp</code> file(s) instead. Ignored when
+  embedding. Maps to sleap-io's <code>restore_original_videos</code>.</li>
+</ul>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Embed images into a self-contained output .pkg.slp:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>poses.pkg.slp<span class="w"> </span>--mask_backend<span class="w"> </span>sam<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span>--sam_checkpoint<span class="w"> </span>/path/to/sam_vit_h_4b8939.pth<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span>--embed<span class="w"> </span><span class="nb">true</span><span class="w"> </span>-o<span class="w"> </span>poses_with_masks.pkg.slp
 </span></code></pre></div>
-<p>SAM3 (gated <code>facebook/sam3</code>, needs the <code>[sam3]</code> extra):</p>
+<p>SAM1 (ungated):</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span>-i<span class="w"> </span>poses.pkg.slp<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span>--mask_backend<span class="w"> </span>sam3<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span>--sam3_model_id<span class="w"> </span>facebook/sam3<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span>--mask_backend<span class="w"> </span>sam<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span>--sam_checkpoint<span class="w"> </span>/path/to/sam_vit_h_4b8939.pth<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span>--sam_prompt_mode<span class="w"> </span>pose<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span>-o<span class="w"> </span>poses_with_masks.pkg.slp
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span>--overlay_path<span class="w"> </span>review_frame0.png<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span>-o<span class="w"> </span>poses_with_masks.pkg.slp
+</span></code></pre></div>
+<p>SAM3 (gated <code>facebook/sam3</code>, needs the <code>[sam3]</code> extra):</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span>-i<span class="w"> </span>poses.pkg.slp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span>--mask_backend<span class="w"> </span>sam3<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span>--sam3_model_id<span class="w"> </span>facebook/sam3<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span>--sam_prompt_mode<span class="w"> </span>pose<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span>-o<span class="w"> </span>poses_with_masks.pkg.slp
 </span></code></pre></div>
 <p>Every flag also has a dash-spelled alias (<code>--mask-backend</code>, <code>--sam-checkpoint</code>,
 <code>--sam-model-type</code>, <code>--sam-prompt-mode</code>, <code>--sam-anchor-ind</code>,
