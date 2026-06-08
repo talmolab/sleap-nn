@@ -472,6 +472,42 @@ def test_predict_retrack_only_dispatches_to_predictor_retrack(tmp_path):
         tracked.save.assert_called_once()
 
 
+def test_predict_retrack_only_forwards_embed_and_restore(tmp_path):
+    """Retrack-only save forwards ``--embed`` / ``--restore_source_videos`` (#652)."""
+    runner = CliRunner()
+    fake_labels = MagicMock()
+    fake_labels.videos = []
+    fake_labels.skeletons = []
+    fake_labels.labeled_frames = []
+    tracked = MagicMock()
+    with (
+        patch("sleap_io.load_slp", return_value=fake_labels),
+        patch("sleap_nn.inference.predictor.Predictor.retrack", return_value=tracked),
+        patch("sleap_nn.predict.run_inference") as mock_legacy,
+        patch("sleap_nn.inference.run.save_predictions") as mock_save,
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "predict",
+                "--data_path",
+                "/fake/path.slp",
+                "--tracking",
+                "--output_path",
+                str(tmp_path / "out.slp"),
+                "--embed",
+                "true",
+                "--no-restore_source_videos",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert not mock_legacy.called
+        assert mock_save.called
+        call_kwargs = mock_save.call_args[1]
+        assert call_kwargs["embed"] == "true"
+        assert call_kwargs["restore_source_videos"] is False
+
+
 def test_predict_paf_workers_zero_no_warning(tmp_path):
     """``--paf-workers 0`` is the default, must not emit a warning."""
     runner = CliRunner()
@@ -844,3 +880,129 @@ def test_predict_stream_to_file_rejects_non_slp_format(tmp_path):
     )
     assert isinstance(result.exception, click.UsageError)
     assert "only supports --output_format slp" in result.exception.message
+
+
+def test_predict_forwards_embed_and_restore(tmp_path):
+    """``--embed`` / ``--no-restore_source_videos`` propagate to ``predict()`` (#652)."""
+    out = tmp_path / "out.slp"
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
+        result = runner.invoke(
+            cli,
+            [
+                "predict",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--output_path",
+                str(out),
+                "--embed",
+                "true",
+                "--no-restore_source_videos",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert mock_predict.called
+    call_kwargs = mock_predict.call_args[1]
+    assert call_kwargs["embed"] == "true"
+    assert call_kwargs["restore_source_videos"] is False
+
+
+def test_predict_embed_restore_defaults(tmp_path):
+    """Without the new flags, predict() gets the byte-for-byte defaults (#652)."""
+    out = tmp_path / "out.slp"
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
+        result = runner.invoke(
+            cli,
+            [
+                "predict",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--output_path",
+                str(out),
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert mock_predict.called
+    call_kwargs = mock_predict.call_args[1]
+    assert call_kwargs["embed"] == "false"
+    assert call_kwargs["restore_source_videos"] is True
+
+
+def test_predict_embed_restore_explicit_defaults_accepted(tmp_path):
+    """Explicit default values for the new flags parse and forward (#652).
+
+    Unlike the bare-default test above (which would still pass if the options
+    were deleted, because the kwargs fall back to the same defaults), this
+    passes ``--embed false`` / ``--restore_source_videos`` explicitly, so it
+    fails if the options are removed entirely (Click would reject them).
+    """
+    out = tmp_path / "out.slp"
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
+        result = runner.invoke(
+            cli,
+            [
+                "predict",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--output_path",
+                str(out),
+                "--embed",
+                "false",
+                "--restore_source_videos",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert mock_predict.called
+    call_kwargs = mock_predict.call_args[1]
+    assert call_kwargs["embed"] == "false"
+    assert call_kwargs["restore_source_videos"] is True
+
+
+def test_predict_forwards_embed_auto(tmp_path):
+    """``--embed auto`` reaches predict() verbatim for input-driven resolution (#652).
+
+    ``auto`` is resolved to a concrete bool deep in the save path (against the
+    loaded labels), so the CLI must forward the literal ``"auto"`` string rather
+    than pre-resolving it. This guards that headline value end-to-end at the CLI
+    layer (the other CLI tests only cover ``true``/``false``).
+    """
+    out = tmp_path / "out.slp"
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
+        result = runner.invoke(
+            cli,
+            [
+                "predict",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--output_path",
+                str(out),
+                "--embed",
+                "auto",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert mock_predict.called
+    assert mock_predict.call_args[1]["embed"] == "auto"

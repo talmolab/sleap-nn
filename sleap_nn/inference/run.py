@@ -131,11 +131,53 @@ def save_analysis_h5_files(
     return written_paths
 
 
+def _video_has_embedded_images(video) -> bool:
+    """Best-effort: does this loaded video carry embedded image frames?
+
+    A video loaded from a ``.pkg.slp`` preserves its original media as
+    ``source_video`` provenance — the same signal sleap-io's
+    ``restore_original_videos`` keys off. Falls back to the backend's
+    ``has_embedded_images`` flag for embedded videos saved without source
+    provenance; backend access is guarded defensively (an unopened video
+    currently just returns ``backend=None``, but a future/custom ``Video`` could
+    make ``.backend`` a lazy property) so detection never raises.
+    """
+    if getattr(video, "source_video", None) is not None:
+        return True
+    try:
+        backend = video.backend
+    except Exception:
+        return False
+    return bool(getattr(backend, "has_embedded_images", False))
+
+
+def _resolve_embed(embed, labels) -> bool:
+    """Resolve the ``embed`` control (``"auto"``/``"true"``/``"false"`` or bool) to bool.
+
+    ``"auto"`` -> ``True`` iff any video in ``labels`` carries embedded images.
+    """
+    if isinstance(embed, bool):
+        return embed
+    value = str(embed).strip().lower()
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    if value == "auto":
+        return any(
+            _video_has_embedded_images(v)
+            for v in (getattr(labels, "videos", None) or [])
+        )
+    raise ValueError(f"Invalid embed={embed!r}; expected 'auto', 'true', or 'false'.")
+
+
 def save_predictions(
     labels: sio.Labels,
     output_path: Union[str, Path],
     output_format: str = "slp",
     video_index: Optional[int] = None,
+    embed: Union[str, bool] = "false",
+    restore_source_videos: bool = True,
 ) -> List[Path]:
     """Save predicted ``Labels`` to disk in the requested format(s).
 
@@ -147,6 +189,17 @@ def save_predictions(
             ``"both"``.
         video_index: Restrict the analysis HDF5 export to a single video index;
             ``None`` exports every video with predicted frames.
+        embed: Image-embedding policy for the ``.slp`` output, one of
+            ``"false"`` (the default; never embed, backreference source media —
+            today's behavior), ``"true"`` (embed images into a self-contained
+            ``.pkg.slp``-style file), or ``"auto"`` (embed iff the input was
+            itself an embedded ``.pkg.slp``). A bool passes through unchanged.
+            Only applies to ``.slp`` output.
+        restore_source_videos: On a non-embedding ``.slp`` save, ``True`` (the
+            default) restores references to the original source video files;
+            ``False`` keeps references to the input ``.pkg.slp`` file(s). Maps
+            to sleap-io's ``restore_original_videos`` and is ignored when
+            embedding.
 
     Returns:
         The list of analysis HDF5 paths written (empty when
@@ -164,7 +217,11 @@ def save_predictions(
         )
 
     if output_format in ("slp", "both"):
-        labels.save(Path(output_path).as_posix())
+        labels.save(
+            Path(output_path).as_posix(),
+            embed=_resolve_embed(embed, labels),
+            restore_original_videos=restore_source_videos,
+        )
 
     h5_paths: List[Path] = []
     if output_format in ("analysis_h5", "both"):
@@ -241,6 +298,8 @@ def predict(
     # Output
     output_path: Optional[str] = None,
     output_format: str = "slp",
+    embed: Union[str, bool] = "false",
+    restore_source_videos: bool = True,
     clean_empty_frames: bool = False,
     progress_callback: Optional[Callable[[int, int], None]] = None,
     tracking_progress_callback: Optional[Callable[[int, int], None]] = None,
@@ -349,6 +408,15 @@ def predict(
             One of ``"slp"`` (the default), ``"analysis_h5"`` (a SLEAP Analysis
             HDF5 file, one ``.analysis.h5`` per video), or ``"both"``. Analysis
             HDF5 paths are derived from ``output_path``.
+        embed: Image-embedding policy for a ``.slp`` output, one of ``"false"``
+            (the default; never embed, backreference source media — today's
+            behavior), ``"true"`` (embed images into a self-contained
+            ``.pkg.slp``-style file), or ``"auto"`` (embed iff the input was
+            itself an embedded ``.pkg.slp``). Only applies to ``.slp`` output.
+        restore_source_videos: On a non-embedding ``.slp`` save, ``True`` (the
+            default) restores references to the original source video files;
+            ``False`` keeps references to the input ``.pkg.slp`` file(s).
+            Ignored when embedding.
         clean_empty_frames: Drop frames with no instances.
         progress_callback: ``(processed_frames, total_frames)`` callback
             invoked after each batch (counts are in frames).
@@ -397,8 +465,9 @@ def predict(
                 "poses/tracks, not segmentation masks."
             )
         # Save handling lives in ``run_sam_segmentation``, which mirrors the
-        # regular prediction path: it backreferences the source media via
-        # provenance and never re-embeds images (small output; see its docs).
+        # regular prediction path: by default it backreferences the source media
+        # via provenance and does not re-embed images (small output; see its
+        # docs). The ``embed`` / ``restore_source_videos`` controls are forwarded.
         labels = run_sam_segmentation(
             source,
             mask_backend,
@@ -413,6 +482,8 @@ def predict(
             overlay_path=overlay_path,
             frames=frames,
             clean_empty_frames=clean_empty_frames,
+            embed=embed,
+            restore_source_videos=restore_source_videos,
         )
         return labels
 
@@ -512,6 +583,12 @@ def predict(
     )
 
     if output_path is not None:
-        save_predictions(labels, output_path, output_format=output_format)
+        save_predictions(
+            labels,
+            output_path,
+            output_format=output_format,
+            embed=embed,
+            restore_source_videos=restore_source_videos,
+        )
 
     return labels

@@ -30,7 +30,7 @@ so importing this package on a default install is cheap and dependency-free.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
 
 from sleap_nn.inference.sam.backends import MaskBackend, Sam3Backend, SamBackend
 from sleap_nn.inference.sam.mask_layer import SamSegmentationLayer
@@ -156,6 +156,8 @@ def run_sam_segmentation(
     overlay_path: Optional[str] = None,
     frames: Optional[Sequence[int]] = None,
     clean_empty_frames: bool = False,
+    embed: Union[str, bool] = "false",
+    restore_source_videos: bool = True,
 ):
     """Predict per-instance masks for a pose ``.slp`` with a SAM backend.
 
@@ -181,10 +183,11 @@ def run_sam_segmentation(
             (skips loading); when given, ``mask_backend`` is still validated for
             the name but the checkpoint/device args are ignored.
         output_path: Optional ``.slp`` path to save the result to. Saved like the
-            regular prediction path (``labels.save``): images are **never**
-            re-embedded — the output backreferences the source media via
-            provenance, so a ``.pkg.slp`` input stays matchable to its source
-            videos without bloating the output.
+            regular prediction path (``labels.save``): the embedding policy is
+            **configurable** via ``embed`` and defaults to ``"false"`` — images
+            are not re-embedded and the output backreferences the source media
+            via provenance, so a ``.pkg.slp`` input stays matchable to its
+            source videos without bloating the output.
         overlay_path: Optional path to write a review overlay PNG of the first
             frame.
         frames: Optional frame indices (matched against ``lf.frame_idx``) to
@@ -195,6 +198,15 @@ def run_sam_segmentation(
             regular prediction path's ``--no_empty_frames``. A frame that has
             poses but no mask is NOT empty (its instances are retained) and is
             kept.
+        embed: Image-embedding policy for the ``.slp`` output, one of
+            ``"false"`` (the default; never embed, backreference source media),
+            ``"true"`` (embed images into a self-contained ``.pkg.slp``-style
+            file), or ``"auto"`` (embed iff the input was itself an embedded
+            ``.pkg.slp``). A bool passes through unchanged.
+        restore_source_videos: On a non-embedding save, ``True`` (the default)
+            restores references to the original source video files; ``False``
+            keeps references to the input ``.pkg.slp`` file(s). Maps to
+            sleap-io's ``restore_original_videos`` and is ignored when embedding.
 
     Returns:
         A new ``sio.Labels`` with per-frame ``PredictedSegmentationMask`` (and the
@@ -272,15 +284,23 @@ def run_sam_segmentation(
     if output_path is not None:
         out_path = Path(output_path).expanduser()
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        # Save exactly like the regular prediction path (``labels.save(path)``):
-        # NEVER re-embed images — that is large and wasteful. The output
+        # Save like the regular prediction path (``labels.save(path)``). The
+        # embedding policy is configurable and defaults to ``embed="false"``: do
+        # NOT re-embed images — that is large and wasteful. By default the output
         # backreferences the source media via provenance (sleap-io's default
         # ``embed=False``). A ``.pkg.slp`` input is typically aggregated training
         # data; its frames stay matchable to the source videos (by comparing
         # source-video provenance) without copying pixels into the output, even
         # if those videos are no longer on disk. The masks always serialize into
-        # the ``.slp`` regardless.
-        out.save(out_path.as_posix())
+        # the ``.slp`` regardless. ``out.videos`` are the input videos, so
+        # ``source_video`` provenance is intact for ``embed="auto"`` detection.
+        from sleap_nn.inference.run import _resolve_embed
+
+        out.save(
+            out_path.as_posix(),
+            embed=_resolve_embed(embed, out),
+            restore_original_videos=restore_source_videos,
+        )
     if overlay_path is not None:
         # Flag masks below the backend's per-model nominal predicted-IoU floor
         # (SAM1 0.88 / SAM3 0.5) so the review overlay surfaces low-confidence

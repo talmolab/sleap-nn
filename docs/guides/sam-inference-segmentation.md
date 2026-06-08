@@ -126,11 +126,34 @@ The same masks are produced from the `sleap-nn predict` command (and its hidden
 as a pose file and masks are produced from its existing instances — there is **no
 trained segmentation model**, so `--mask_backend` is **mutually exclusive with
 `--model_paths`** (do not pass it). The `.slp` output is saved like the regular
-prediction path — images are **not** re-embedded; the output backreferences the
-input's source media via provenance (small output; a `.pkg.slp` input stays
-matchable to its source videos), and the masks always serialize into the `.slp`.
-Only `--output_format slp` is supported (the SLEAP Analysis HDF5 format stores
-poses/tracks, not segmentation masks).
+prediction path — by default images are **not** re-embedded; the output
+backreferences the input's source media via provenance (small output; a
+`.pkg.slp` input stays matchable to its source videos), and the masks always
+serialize into the `.slp`. Only `--output_format slp` is supported (the SLEAP
+Analysis HDF5 format stores poses/tracks, not segmentation masks).
+
+### Controlling image embedding (`--embed` / `--restore_source_videos`)
+
+Two independent flags (also `embed` / `restore_source_videos` API kwargs on
+`predict` and `run_sam_segmentation`) control how the output `.slp` references
+image data. The defaults preserve today's behavior exactly.
+
+- `--embed` (`auto` | `true` | `false`, default `false`): the embedding policy.
+  `false` never embeds and backreferences the source media (today's behavior);
+  `true` embeds images into a self-contained `.pkg.slp`-style output; `auto`
+  embeds only when the input was itself an embedded `.pkg.slp`.
+- `--restore_source_videos` / `--no-restore_source_videos` (default
+  `--restore_source_videos`): on a non-embedding save, restore references to the
+  original source video files (provenance), or use `--no-restore_source_videos`
+  to keep references to the input `.pkg.slp` file(s) instead. Ignored when
+  embedding. Maps to sleap-io's `restore_original_videos`.
+
+```bash
+# Embed images into a self-contained output .pkg.slp:
+sleap-nn predict -i poses.pkg.slp --mask_backend sam \
+    --sam_checkpoint /path/to/sam_vit_h_4b8939.pth \
+    --embed true -o poses_with_masks.pkg.slp
+```
 
 SAM1 (ungated):
 

@@ -67,6 +67,53 @@ def test_stream_to_file_with_no_empty_frames_raises_usage_error():
     assert "no_empty_frames" in result.output.lower()
 
 
+def test_stream_to_file_with_embed_raises_usage_error():
+    """``--stream-to-file`` + ``--embed true`` is rejected (#652).
+
+    The incremental writer saves with sleap-io defaults, so an embedding
+    request would be silently dropped; fail loudly instead.
+    """
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "predict",
+            "--data_path",
+            "/fake/path.mp4",
+            "--model_paths",
+            "/fake/model",
+            "--stream-to-file",
+            "/tmp/out.slp",
+            "--embed",
+            "true",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "embed" in result.output.lower()
+    assert "stream-to-file" in result.output
+
+
+def test_stream_to_file_with_no_restore_source_videos_raises_usage_error():
+    """``--stream-to-file`` + ``--no-restore_source_videos`` is rejected (#652)."""
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "predict",
+            "--data_path",
+            "/fake/path.mp4",
+            "--model_paths",
+            "/fake/model",
+            "--stream-to-file",
+            "/tmp/out.slp",
+            "--no-restore_source_videos",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "restore_source_videos" in result.output.lower()
+    assert "stream-to-file" in result.output
+
+
 def test_write_interval_without_stream_to_file_errors():
     """``--write-interval`` alone is meaningless and rejected."""
     runner = CliRunner()
@@ -180,6 +227,50 @@ def test_stream_to_file_invokes_new_predictor_flow(tmp_path):
     assert result.exit_code == 0, result.output
     assert mock_factory.called
     assert stub_predictor.predict_to_file.called
+
+
+def test_embed_invalid_choice_rejected():
+    """``--embed`` only accepts auto/true/false; an unknown value is rejected (#652)."""
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "predict",
+            "--data_path",
+            "/fake/path.mp4",
+            "--model_paths",
+            "/fake/model",
+            "--embed",
+            "maybe",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "embed" in result.output.lower()
+
+
+def test_embed_choice_case_insensitive(tmp_path):
+    """``--embed TRUE`` is normalized to lowercase and forwarded (#652)."""
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.inference.run.predict",
+        return_value=MagicMock(),
+    ) as mock_predict:
+        result = runner.invoke(
+            cli,
+            [
+                "predict",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--output_path",
+                str(tmp_path / "out.slp"),
+                "--embed",
+                "TRUE",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert mock_predict.call_args[1]["embed"] == "true"
 
 
 def test_unknown_flag_rejected_cleanly():
