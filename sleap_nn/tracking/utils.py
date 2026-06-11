@@ -52,7 +52,14 @@ def get_keypoints(pred_instance: Union[sio.PredictedInstance, np.ndarray]):
 
 
 def get_centroid(pred_instance: Union[sio.PredictedInstance, np.ndarray]):
-    """Return the centroid of the `PredictedInstance` object."""
+    """Return the centroid of the `PredictedInstance` (or segmentation mask) object.
+
+    For a keypoint instance this is the NaN-ignoring median of the points; for a
+    segmentation mask (no keypoints) it is the foreground centroid of the mask, so
+    ``features="centroids"`` works on mask-only detections too.
+    """
+    if is_segmentation_mask(pred_instance):
+        return get_mask_centroid(pred_instance)
     pts = pred_instance
     if not isinstance(pred_instance, np.ndarray):
         pts = pred_instance.numpy()
@@ -107,6 +114,45 @@ class MaskFeature:
         self.y0 = int(y0)
         self.x0 = int(x0)
         self.area = int(area)
+
+
+def _mask_feature_centroid(feat: "MaskFeature") -> np.ndarray:
+    """Foreground centroid of a :class:`MaskFeature` in image coords, shape (2,).
+
+    Returns ``[cx, cy]`` (x, y) — the mean of the foreground pixel coordinates of
+    the bbox crop, offset by the crop's absolute top-left ``(x0, y0)``. Empty mask
+    -> ``[nan, nan]`` (treated as a missing observation by the motion model and as a
+    no-overlap miss by the distance fallback).
+    """
+    if feat.area == 0 or feat.crop.size == 0:
+        return np.array([np.nan, np.nan])
+    ys, xs = np.nonzero(feat.crop)
+    return np.array([feat.x0 + xs.mean(), feat.y0 + ys.mean()])
+
+
+def get_mask_centroid(
+    pred_mask: Union["sio.PredictedSegmentationMask", np.ndarray, "MaskFeature"],
+) -> np.ndarray:
+    """Foreground centroid (image coords, ``[cx, cy]``) of a segmentation mask."""
+    return _mask_feature_centroid(get_mask(pred_mask))
+
+
+def translate_mask_feature(feat: "MaskFeature", dvec: np.ndarray) -> "MaskFeature":
+    """Rigidly translate a :class:`MaskFeature` by ``dvec=(dx, dy)`` image px.
+
+    Shifts only the absolute top-left ``(x0, y0)`` by the rounded displacement; the
+    boolean ``crop`` and ``area`` are unchanged (a rigid translation preserves
+    shape and foreground count). This is the mask analogue of translating a pose by
+    a predicted centroid displacement in :class:`KalmanShiftTracker` — it moves the
+    candidate mask toward the motion-predicted location so the mask-IoU stays
+    meaningful across fast motion / gaps. A NaN/empty displacement holds in place.
+    """
+    dx, dy = (float(dvec[0]), float(dvec[1]))
+    if not np.isfinite(dx) or not np.isfinite(dy):
+        return feat
+    return MaskFeature(
+        feat.crop, feat.y0 + int(round(dy)), feat.x0 + int(round(dx)), feat.area
+    )
 
 
 def _mask_feature_from_dense(data: np.ndarray) -> MaskFeature:
@@ -227,6 +273,45 @@ def compute_mask_iou(a, b) -> float:
     # union == 0 only when both masks are empty -> identical -> 1.0 (matches the
     # _mask_iou degenerate contract).
     return 1.0 if union == 0 else float(inter / union)
+
+
+def compute_mask_iou_dist(a, b) -> float:
+    """Mask-IoU with a centroid-distance fallback for non-overlapping masks.
+
+    The ``"mask_iou_dist"`` scoring method (the mask-tracking default). When the two
+    masks' foregrounds overlap, this is exactly :func:`compute_mask_iou` (a value in
+    ``(0, 1]``). When they do NOT overlap, plain mask-IoU is ``0`` for *every*
+    candidate, so the assignment is arbitrary — the failure mode of mask-only
+    tracking under fast motion / dropped frames / occlusion gaps. In that case we
+    fall back to a soft, monotonically-decreasing function of the centroid distance,
+
+        score = -dist / (dist + scale),  scale = sqrt(area_a) + sqrt(area_b)
+
+    which lies strictly in ``(-1, 0]`` and so is always below any real (positive)
+    IoU: an overlapping candidate always wins over a non-overlapping one, and among
+    non-overlapping candidates the spatially-closest mask wins. ``scale`` is a
+    size-relative characteristic length (sum of the masks' equivalent radii), so the
+    fallback is scale-free across animal sizes. Like the other scorers this is a
+    similarity (higher = better); the ``cost = -score`` negation happens in
+    :meth:`Tracker.scores_to_cost_matrix`, so it must NOT be negated here.
+    """
+    fa = a if isinstance(a, MaskFeature) else get_mask(a)
+    fb = b if isinstance(b, MaskFeature) else get_mask(b)
+    inter = _mask_feature_intersection(fa, fb)
+    union = fa.area + fb.area - inter
+    if union == 0:
+        return 1.0  # both empty -> identical (matches _mask_iou degenerate contract)
+    if inter > 0:
+        return float(inter / union)
+    # No foreground overlap: fall back to centroid proximity.
+    ca, cb = _mask_feature_centroid(fa), _mask_feature_centroid(fb)
+    if np.isnan(ca).any() or np.isnan(cb).any():
+        return 0.0
+    dist = float(np.linalg.norm(ca - cb))
+    scale = float(np.sqrt(fa.area) + np.sqrt(fb.area))
+    if scale == 0:
+        return 0.0
+    return -dist / (dist + scale)
 
 
 def _mask_feature_intersection(fa: MaskFeature, fb: MaskFeature) -> int:

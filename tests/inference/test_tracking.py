@@ -588,11 +588,21 @@ def test_apply_tracking_masks_disjoint_extra_new_track(video):
 
 
 def test_apply_tracking_masks_auto_default(video, caplog):
-    """Mask-only labels auto-resolve features='masks'/scoring='mask_iou'."""
+    """Mask-only labels auto-resolve features='masks'/scoring='mask_iou_dist'."""
     labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
     out = apply_tracking(labels, _mask_cfg(window_size=5))
     tracked = [m for lf in out.labeled_frames for m in lf.masks]
     assert tracked and all(m.track is not None for m in tracked)
+
+
+def test_apply_tracking_masks_default_scoring_is_iou_dist(video, monkeypatch):
+    """Mask mode defaults scoring_method to the blended mask_iou_dist (not mask_iou)
+    when the user leaves --scoring_method unset; features stay 'masks'."""
+    captured = _capture_from_config_kwargs(monkeypatch)
+    labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
+    apply_tracking(labels, _mask_cfg(window_size=5))
+    assert captured["scoring_method"] == "mask_iou_dist"
+    assert captured["features"] == "masks"
 
 
 def test_apply_tracking_masks_bumps_default_window(video, monkeypatch):
@@ -695,8 +705,15 @@ def test_apply_tracking_masks_explicit_incompatible_raises(video):
 @pytest.mark.parametrize(
     "kw, match",
     [
-        ({"use_flow": True}, "motion models"),
-        ({"use_kalman": True, "tracking_target_instance_count": 2}, "motion models"),
+        ({"use_flow": True}, "optical-flow"),
+        (
+            {
+                "use_kalman": True,
+                "kf_track_features": "keypoints",
+                "tracking_target_instance_count": 2,
+            },
+            "centroid Kalman",
+        ),
         ({"tracking_clean_instance_count": 2}, "cull/clean"),
         (
             {"tracking_pre_cull_to_target": 1, "tracking_target_instance_count": 2},
@@ -705,10 +722,36 @@ def test_apply_tracking_masks_explicit_incompatible_raises(video):
     ],
 )
 def test_apply_tracking_masks_forbidden_combos_raise(video, kw, match):
-    """Motion models and pose-shaped cull/clean ops are rejected in mask mode."""
+    """Optical flow, the per-keypoint Kalman variant, and pose-shaped cull/clean
+    ops are rejected in mask mode (the centroid Kalman model is allowed)."""
     labels = _make_mask_labels(video, [[(20, 20)], [(22, 22)]])
     with pytest.raises(ValueError, match=match):
         apply_tracking(labels, _mask_cfg(window_size=5, **kw))
+
+
+def test_apply_tracking_masks_kalman_centroid_allowed(video):
+    """The opt-in centroid Kalman motion model IS supported for mask tracking and
+    keeps a moving pair's identities stable end-to-end through apply_tracking."""
+    # Smooth constant-velocity motion past the warm-up window; two drifting lanes.
+    frames = [[(20, 10 + 3 * i), (60, 10 + 3 * i)] for i in range(14)]
+    labels = _make_mask_labels(video, frames, w=80)
+    out = apply_tracking(
+        labels,
+        _mask_cfg(
+            window_size=10,
+            use_kalman=True,  # kf_track_features defaults to 'centroid'
+            kf_init_frame_count=5,
+            tracking_target_instance_count=2,
+        ),
+    )
+    lanes: dict = {}
+    for lf in out.labeled_frames:
+        assert len(lf.masks) == 2
+        for m in lf.masks:
+            assert m.track is not None
+            lanes.setdefault("A" if m.bbox[1] < 40 else "B", set()).add(m.track.name)
+    assert all(len(names) == 1 for names in lanes.values())  # each lane = 1 identity
+    assert lanes["A"] != lanes["B"]
 
 
 def test_apply_tracking_masks_empty_frame_passthrough(video):

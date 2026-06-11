@@ -35,11 +35,15 @@ from sleap_nn.tracking.utils import (
     get_centroid,
     get_keypoints,
     get_mask,
+    get_mask_centroid,
+    translate_mask_feature,
+    MaskFeature,
     count_valid_points,
     is_segmentation_mask,
     compute_euclidean_distance,
     compute_iou,
     compute_mask_iou,
+    compute_mask_iou_dist,
     compute_cosine_sim,
     cull_instances,
     cull_frame_instances,
@@ -101,6 +105,7 @@ class Tracker:
         "oks": compute_oks,
         "iou": compute_iou,
         "mask_iou": compute_mask_iou,
+        "mask_iou_dist": compute_mask_iou_dist,
         "cosine_sim": compute_cosine_sim,
         "euclidean_dist": compute_euclidean_distance,
     }
@@ -512,7 +517,7 @@ class Tracker:
             scores: Score matrix of shape (num_new_instances, num_existing_tracks)
         """
         if self.scoring_method not in self._scoring_functions:
-            message = "Invalid `scoring_method` argument. Please provide one of `oks`, `cosine_sim`, `iou`, `mask_iou`, and `euclidean_dist`."
+            message = "Invalid `scoring_method` argument. Please provide one of `oks`, `cosine_sim`, `iou`, `mask_iou`, `mask_iou_dist`, and `euclidean_dist`."
             logger.error(message)
             raise ValueError(message)
 
@@ -1029,17 +1034,36 @@ class KalmanShiftTracker(Tracker):
             history = self._obs_history.setdefault(track_id, [])
             if history and history[-1]["frame_idx"] >= frame_idx:
                 continue  # already recorded this (or a newer) observation
-            keypoints = newest.src_predicted_instance.numpy()
+            src = newest.src_predicted_instance
+            if is_segmentation_mask(src):
+                # Mask track: there are no keypoints, so the motion model runs on the
+                # mask's foreground centroid stored as a single 1x2 "keypoints" row
+                # (centroid mode only -- enforced in apply_tracking). Every Kalman
+                # internal (_centroid / _obs_vector / _tracked_points / median-step)
+                # then works unchanged; the only mask-specific seam is candidate
+                # construction in _predict_candidates, which translates `mask`.
+                mask_feat = (
+                    newest.feature
+                    if isinstance(newest.feature, MaskFeature)
+                    else get_mask(src)
+                )
+                keypoints = get_mask_centroid(mask_feat).reshape(1, 2)
+                mask = mask_feat
+                self._n_nodes = 1
+            else:
+                keypoints = src.numpy()
+                mask = None
+                if self._n_nodes is None:
+                    self._n_nodes = keypoints.shape[0]
             history.append(
                 {
                     "frame_idx": frame_idx,
                     "keypoints": keypoints,
-                    "src": newest.src_predicted_instance,
+                    "mask": mask,
+                    "src": src,
                     "score": newest.tracking_score,
                 }
             )
-            if self._n_nodes is None:
-                self._n_nodes = keypoints.shape[0]
 
     def _resolve_node_indices(self) -> List[int]:
         """Resolve `kf_node_indices` to a concrete list of node-row indices.
@@ -1488,9 +1512,22 @@ class KalmanShiftTracker(Tracker):
                 displacement = blend * (pred_centroid - last_centroid)
                 candidate_keypoints = last_keypoints + displacement
 
+            ref_mask = ref.get("mask")
+            if ref_mask is not None:
+                # Mask track (centroid mode): translate the last observed mask by the
+                # centroid displacement actually applied above (0 in the NaN-hold
+                # branch -> mask held in place). `candidate_keypoints` is the (1, 2)
+                # translated centroid, so its delta from the last centroid is the
+                # rigid shift to apply to the mask.
+                dvec = np.asarray(candidate_keypoints[0], dtype=float) - np.asarray(
+                    last_keypoints[0], dtype=float
+                )
+                candidate_feature = translate_mask_feature(ref_mask, dvec)
+            else:
+                candidate_feature = feature_method(candidate_keypoints)
             predicted[track_id].append(
                 TrackedInstanceFeature(
-                    feature=feature_method(candidate_keypoints),
+                    feature=candidate_feature,
                     src_predicted_instance=ref["src"],
                     frame_idx=ref["frame_idx"],
                     tracking_score=ref["score"] if ref["score"] is not None else 1.0,

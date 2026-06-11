@@ -936,7 +936,7 @@ def train(
     "--use_kalman",
     is_flag=True,
     default=False,
-    help="If True, `KalmanShiftTracker` is used: poses are predicted with a per-track constant-velocity Kalman filter. Requires --tracking_target_instance_count (or --max_tracks/--max_instances) and is mutually exclusive with --use_flow.",
+    help="If True, `KalmanShiftTracker` is used: poses (or, for segmentation masks, mask centroids) are predicted with a per-track constant-velocity Kalman filter. For mask tracking only the 'centroid' variant is supported (it translates the candidate mask to the predicted location, lifting mask-IoU across fast motion / gaps). Requires --tracking_target_instance_count (or --max_tracks/--max_instances) and is mutually exclusive with --use_flow.",
 )
 @click.option(
     "--kf_track_features",
@@ -2528,9 +2528,10 @@ def _common_inference_options(f):
             type=str,
             default=None,
             help="Track association scoring method: one of oks, cosine_sim, "
-            "iou, mask_iou, euclidean_dist. Left unset, single-node/centroid "
-            "models resolve to 'euclidean_dist' and segmentation (mask) models "
-            "to 'mask_iou'.",
+            "iou, mask_iou, mask_iou_dist, euclidean_dist. Left unset, "
+            "single-node/centroid models resolve to 'euclidean_dist' and "
+            "segmentation (mask) models to 'mask_iou_dist' (mask-IoU with a "
+            "centroid-distance fallback for non-overlapping masks).",
         ),
         click.option("--scoring_reduction", type=str, default="mean"),
         click.option("--robust_best_instance", type=float, default=1.0),

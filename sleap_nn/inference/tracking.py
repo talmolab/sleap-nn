@@ -198,24 +198,40 @@ def apply_tracking(
     ) and not any(lf.has_predicted_instances for lf in labels.labeled_frames)
     if is_mask_mode:
         if not config.scoring_method_explicit:
-            effective_scoring_method = "mask_iou"
+            # mask_iou_dist = mask-IoU with a centroid-distance fallback when masks
+            # do not overlap (plain mask_iou is 0 for every candidate there, so the
+            # assignment is arbitrary). Falls back gracefully under fast motion /
+            # dropped frames; identical to mask_iou whenever masks overlap.
+            effective_scoring_method = "mask_iou_dist"
         if not config.features_explicit:
             effective_features = "masks"
-        if effective_features != "masks" or effective_scoring_method != "mask_iou":
+        if effective_features != "masks" or effective_scoring_method not in (
+            "mask_iou",
+            "mask_iou_dist",
+        ):
             raise ValueError(
                 "Tracking a bottom-up segmentation (mask-only) model requires "
-                "features='masks' and scoring_method='mask_iou' (got features="
+                "features='masks' and scoring_method in {'mask_iou', "
+                "'mask_iou_dist'} (got features="
                 f"{effective_features!r}, scoring_method={effective_scoring_method!r}). "
                 "Leave --features/--scoring_method unset to auto-select them."
             )
-        # Motion models and pose-shaped cull/clean ops are out of MVP scope for
-        # masks (they call .numpy()/same_pose_as on keypoint instances). Fail
-        # fast with a clear message rather than crash mid-stream.
-        if config.use_flow or config.use_kalman:
+        # Optical flow shifts keypoint tracks, which masks lack -> still unsupported.
+        # The Kalman motion model, by contrast, runs on the mask CENTROID and IS
+        # supported (opt-in via --use_kalman): it predicts where each mask should
+        # move and translates the candidate mask there, lifting mask-IoU across fast
+        # motion / gaps. The per-keypoint Kalman variant remains pose-only.
+        if config.use_flow:
             raise ValueError(
-                "Mask tracking does not support motion models "
-                "(--use_flow/--use_kalman); they are out of scope for the "
-                "segmentation tracker MVP."
+                "Mask tracking does not support optical-flow motion (--use_flow); "
+                "it shifts keypoint tracks, which masks lack. Use --use_kalman for "
+                "centroid-based mask motion prediction."
+            )
+        if config.use_kalman and config.kf_track_features != "centroid":
+            raise ValueError(
+                "Mask tracking supports only the centroid Kalman motion model (got "
+                f"kf_track_features={config.kf_track_features!r}); the per-keypoint "
+                "variant requires poses. Use kf_track_features='centroid'."
             )
         if (
             config.tracking_pre_cull_to_target
@@ -246,12 +262,17 @@ def apply_tracking(
             effective_max_tracks = config.tracking_target_instance_count
         logger.info(
             "Segmentation model detected; applying mask tracking defaults: "
-            "features='masks', scoring_method='mask_iou', window_size=%d, "
-            "candidates_method=%r, max_tracks=%s. For best identity, pass the "
-            "known animal count via --max_tracks/--tracking_target_instance_count.",
+            "features=%r, scoring_method=%r, window_size=%d, "
+            "candidates_method=%r, max_tracks=%s, use_kalman=%s. For best identity, "
+            "pass the known animal count via "
+            "--max_tracks/--tracking_target_instance_count; for fast motion, add "
+            "--use_kalman (centroid motion model).",
+            effective_features,
+            effective_scoring_method,
             effective_window_size,
             effective_candidates_method,
             effective_max_tracks,
+            config.use_kalman,
         )
 
     tracker = Tracker.from_config(

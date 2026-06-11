@@ -176,6 +176,52 @@ sleap-nn track -i labels.slp -t --frames 0-100 --video_index 0
 
 ---
 
+## Tracking Segmentation Masks
+
+When the detections are segmentation masks rather than poses (a
+`bottomup_segmentation` / `centered_instance_segmentation` model, or any `.slp`
+whose frames carry `masks` and no predicted keypoint instances), tracking runs
+on the masks directly — no skeleton required. It is auto-detected, so the same
+`--tracking` flag works:
+
+```bash
+sleap-nn track -i video.mp4 -m models/bottomup_segmentation/ --tracking \
+    --max_instances 5
+```
+
+Mask mode auto-selects mask-appropriate defaults (each can be overridden):
+
+| Setting | Mask default | Why |
+|---------|--------------|-----|
+| `--features` | `masks` | Track by mask geometry, not keypoints. |
+| `--scoring_method` | `mask_iou_dist` | Mask-IoU with a **centroid-distance fallback**: when two masks do not overlap (fast motion, dropped frames, occlusion gaps), plain IoU is `0` for every candidate and the match is arbitrary — the fallback binds each detection to its spatially-closest predecessor instead, while staying identical to `mask_iou` whenever masks overlap. |
+| `--candidates_method` | `local_queues` | Keeps identities across transient over-splits far better than `fixed_window` on over-segmented masks. |
+| `--window_size` | `25` | A larger candidate window so a momentarily missed/over-split instance keeps its id. |
+| `--max_tracks` | target count | Capped at the known animal count when provided. |
+
+!!! tip "Pass the animal count"
+    The single biggest lever on mask-tracking identity is the known animal
+    count: pass `--max_instances N` (or `--tracking_target_instance_count N`).
+
+### Mask motion model (fast motion)
+
+For animals that move far between frames, add `--use_kalman` to enable a
+per-track **centroid** Kalman motion model. It predicts where each mask should
+move and translates the candidate mask to that location before scoring, so the
+mask-IoU stays meaningful across fast motion and short gaps:
+
+```bash
+sleap-nn track -i video.mp4 -m models/bottomup_segmentation/ --tracking \
+    --max_instances 5 --use_kalman
+```
+
+Only the centroid variant is supported for masks (the per-keypoint Kalman
+variant and `--use_flow` require poses). `--use_kalman` requires a target count
+(`--max_instances` / `--tracking_target_instance_count`). The pose-only
+cull/clean/connect post-processing options are not available in mask mode.
+
+---
+
 ## Limit Instances
 
 ```bash
