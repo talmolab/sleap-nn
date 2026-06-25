@@ -99,6 +99,10 @@ class VideoProvider:
             ``sio.load_video``).
         input_format: For HDF5-backed videos, ``"channels_last"`` or
             ``"channels_first"`` (forwarded to ``sio.load_video``).
+        remote_kwargs: Optional mapping of remote-loading options forwarded to
+            ``sio.load_video`` when ``video`` is a URL (e.g.
+            ``{"headers": {...}, "stream_mode": "..."}``). Ignored for local
+            paths and pre-loaded ``sio.Video`` instances.
 
     Notes:
         Yields raw ``(B, H, W, C)`` frames as ``np.uint8``. The
@@ -111,6 +115,7 @@ class VideoProvider:
     frames: Optional[list[int]] = None
     dataset: Optional[str] = None
     input_format: Optional[str] = None
+    remote_kwargs: Optional[dict] = None
 
     _sio_video: "Optional[sio.Video]" = attrs.field(
         default=None, init=False, repr=False
@@ -129,6 +134,8 @@ class VideoProvider:
                 kwargs["dataset"] = self.dataset
             if self.input_format is not None:
                 kwargs["input_format"] = self.input_format
+            if self.remote_kwargs:
+                kwargs.update(self.remote_kwargs)
             self._sio_video = sio.load_video(str(self.video), **kwargs)
 
         n_frames = len(self._sio_video)
@@ -182,6 +189,10 @@ class LabelsProvider:
             Mutually exclusive with ``only_labeled_frames``.
         only_predicted_frames: Yield only frames that already have at
             least one predicted instance.
+        remote_kwargs: Optional mapping of remote-loading options forwarded to
+            ``sio.load_slp`` when ``labels`` is a URL (e.g.
+            ``{"headers": {...}, "stream_mode": "..."}``). Ignored for local
+            paths and pre-loaded ``sio.Labels`` instances.
     """
 
     labels: "Union[str, sio.Labels]"
@@ -190,6 +201,7 @@ class LabelsProvider:
     only_suggested_frames: bool = False
     exclude_user_labeled: bool = False
     only_predicted_frames: bool = False
+    remote_kwargs: Optional[dict] = None
 
     _sio_labels: "Optional[sio.Labels]" = attrs.field(
         default=None, init=False, repr=False
@@ -203,7 +215,9 @@ class LabelsProvider:
         if isinstance(self.labels, sio.Labels):
             self._sio_labels = self.labels
         else:
-            self._sio_labels = sio.load_slp(str(self.labels))
+            self._sio_labels = sio.load_slp(
+                str(self.labels), **(self.remote_kwargs or {})
+            )
 
         if self.only_labeled_frames and self.exclude_user_labeled:
             raise ValueError(
