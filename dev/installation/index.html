@@ -7027,50 +7027,42 @@
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>curl<span class="w"> </span>-LsSf<span class="w"> </span>https://astral.sh/uv/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
 </span></code></pre></div>
 <p><strong>Step 3: Install in development mode</strong></p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>gpu
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>uv<span class="w"> </span>sync
 </span></code></pre></div>
-<p>This installs with CUDA 13.0 support. Other backends:</p>
+<p><code>gpu</code> is a <strong>default dependency group</strong>, so a plain <code>uv sync</code> installs the
+CUDA 13.0 build on Windows/Linux x86-64 (and the Apple-MPS build on macOS)
+automatically, and <code>uv run</code> keeps it. A GPU is not required — the CUDA wheel
+also runs on CPU.</p>
+<details class="note">
+<summary>Escape hatch: CPU-only wheel or a specific CUDA version</summary>
+<p>Drop the default group with <code>--no-group gpu</code> and add an extra:</p>
 <table>
 <thead>
 <tr>
-<th>Extra</th>
+<th>Command</th>
 <th>Backend</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>--extra gpu</code></td>
-<td>CUDA 13.0 (same as <code>--extra torch-cuda130</code>)</td>
+<td><code>uv sync --no-group gpu --extra cpu</code></td>
+<td>smaller CPU-only wheel (also Linux aarch64)</td>
 </tr>
 <tr>
-<td><code>--extra cpu</code></td>
-<td>CPU-only / macOS Apple MPS (same as <code>--extra torch-cpu</code>)</td>
-</tr>
-<tr>
-<td><code>--extra torch-cuda128</code></td>
+<td><code>uv sync --no-group gpu --extra torch-cuda128</code></td>
 <td>CUDA 12.8</td>
 </tr>
 <tr>
-<td><code>--extra torch-cuda118</code></td>
+<td><code>uv sync --no-group gpu --extra torch-cuda118</code></td>
 <td>CUDA 11.8</td>
 </tr>
 </tbody>
 </table>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>On macOS, use <code>--extra cpu</code> — the MPS backend is automatically available.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p><code>--extra gpu</code> (CUDA) is for x86-64 / Windows-AMD64 only; NVIDIA CUDA wheels
-are not published for Linux aarch64. On Linux aarch64 use <code>--extra cpu</code>.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>On Windows the CUDA runtime (including cuDNN) ships <em>inside</em> the PyTorch
-wheel, so you will not see a separate <code>nvidia-cudnn-cu13</code> package — that is
-expected. On Linux it is a separate dependency that <code>--extra gpu</code> pulls in.</p>
-</div>
+<p>The <code>gpu</code> / <code>torch-cuda130</code> extras (<code>uv sync --extra gpu</code>) resolve to the same
+cu130 wheel as the default group, so they don't need <code>--no-group gpu</code>. On
+Windows the CUDA runtime (incl. cuDNN) ships <em>inside</em> the torch wheel; on Linux
+<code>nvidia-cudnn-cu13</code> is a separate dependency.</p>
+</details>
 <p><strong>Step 4: Run commands</strong></p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>uv<span class="w"> </span>run<span class="w"> </span>sleap-nn<span class="w"> </span>--help
 </span></code></pre></div>
