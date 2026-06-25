@@ -331,7 +331,15 @@ def run_training(
                     )
                     continue
 
-                if model_type == "bottomup_segmentation":
+                if model_type in (
+                    "bottomup_segmentation",
+                    "centered_instance_segmentation",
+                ):
+                    # Both predict per-instance masks and evaluate with
+                    # match_method="mask". The top-down (crop-centered) model is
+                    # given only its own run dir; the inference flow auto-detects
+                    # it and crops GT instances (GT-centroid fallback) so eval
+                    # needs no separate centroid model.
                     _run_segmentation_split_eval(
                         config=trainer.config,
                         d_name=d_name,

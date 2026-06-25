@@ -530,6 +530,96 @@ class TestUnifiedVizCallbackSegmentation:
 
         plt.close(fig)
 
+    def test_segmentation_enables_instance_mask_viz(self):
+        """A bottom-up seg model enables the colored instance-mask overlay (#627)."""
+        cb = self._callback()
+        assert cb.viz_instance_masks is True
+
+    def test_centered_instance_seg_disables_instance_mask_viz(self):
+        """Centered-instance seg has no grouped instances -> no instance-mask viz."""
+        cb = UnifiedVizCallback(
+            model_trainer=MagicMock(),
+            train_dataset=[{}],
+            val_dataset=[{}],
+            model_type="centered_instance_segmentation",
+            save_local=False,
+        )
+        assert cb.viz_instance_masks is False
+
+    def test_get_viz_data_requests_instance_masks(self):
+        """``_get_viz_data`` asks the module for the grouped instance masks."""
+        mt = MagicMock()
+        cb = self._callback(model_trainer=mt)
+        cb._get_viz_data({"image": np.zeros((1, 8, 8))})
+        _, kwargs = mt.lightning_model.get_visualization_data.call_args
+        assert kwargs.get("include_instance_masks") is True
+
+    def test_render_instance_masks_produces_figure(self):
+        """``render_instance_masks`` renders a colored overlay from a mask list."""
+        from sleap_nn.training.utils import MatplotlibRenderer, VisualizationData
+
+        m0 = np.zeros((32, 32), dtype=bool)
+        m0[4:12, 4:12] = True
+        m1 = np.zeros((32, 32), dtype=bool)
+        m1[18:28, 18:28] = True
+        data = VisualizationData(
+            image=np.random.rand(64, 64, 3).astype(np.float32),
+            pred_confmaps=np.random.rand(64, 64, 1).astype(np.float32),
+            pred_peaks=np.zeros((0, 1, 2)),
+            pred_peak_values=np.zeros((0,)),
+            gt_instances=np.zeros((0, 1, 2)),
+            instance_masks=[m0, m1],
+            gt_mask=(np.random.rand(64, 64) > 0.5),
+        )
+        fig = MatplotlibRenderer().render_instance_masks(data)
+        assert fig is not None
+        import matplotlib.pyplot as plt
+
+        plt.close(fig)
+
+    def test_render_instance_masks_empty_list(self):
+        """An empty instance list renders the plain image without error."""
+        from sleap_nn.training.utils import MatplotlibRenderer, VisualizationData
+
+        data = VisualizationData(
+            image=np.random.rand(64, 64, 3).astype(np.float32),
+            pred_confmaps=np.random.rand(64, 64, 1).astype(np.float32),
+            pred_peaks=np.zeros((0, 1, 2)),
+            pred_peak_values=np.zeros((0,)),
+            gt_instances=np.zeros((0, 1, 2)),
+            instance_masks=[],
+        )
+        fig = MatplotlibRenderer().render_instance_masks(data)
+        assert fig is not None
+        import matplotlib.pyplot as plt
+
+        plt.close(fig)
+
+    def test_save_local_writes_instance_masks_png(self, tmp_path):
+        """The new ``_save_local_viz`` branch writes an instance-mask PNG (#627)."""
+        from sleap_nn.training.utils import VisualizationData
+
+        cb = UnifiedVizCallback(
+            model_trainer=MagicMock(),
+            train_dataset=[{}],
+            val_dataset=[{}],
+            model_type="bottomup_segmentation",
+            save_local=True,
+            local_save_dir=tmp_path,
+        )
+        m = np.zeros((32, 32), dtype=bool)
+        m[4:12, 4:12] = True
+        data = VisualizationData(
+            image=np.random.rand(64, 64, 3).astype(np.float32),
+            pred_confmaps=np.random.rand(64, 64, 1).astype(np.float32),
+            pred_peaks=np.zeros((0, 1, 2)),
+            pred_peak_values=np.zeros((0,)),
+            gt_instances=np.zeros((0, 1, 2)),
+            instance_masks=[m],
+        )
+        cb._save_local_viz(data, prefix="train", epoch=3)
+        assert (tmp_path / "train.instance_masks.0003.png").exists()
+
 
 class TestMatplotlibSaver:
     """Tests for MatplotlibSaver callback."""

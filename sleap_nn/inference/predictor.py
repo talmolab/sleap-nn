@@ -53,6 +53,10 @@ from sleap_nn.inference.layers.topdown_multiclass import (
     CenteredInstanceMultiClassLayer,
     TopDownMultiClassLayer,
 )
+from sleap_nn.inference.layers.topdown_segmentation import (
+    CenteredInstanceMaskLayer,
+    TopDownSegmentationLayer,
+)
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.providers import Provider
 from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
@@ -257,6 +261,13 @@ def _build_bottomup_segmentation_layer(
         center_nms_kernel=getattr(inf, "center_nms_kernel", 3),
         mask_cleanup=getattr(inf, "mask_cleanup", False),
         mask_cleanup_radius=getattr(inf, "mask_cleanup_radius", 0),
+        distance_gate_alpha=getattr(inf, "distance_gate_alpha", None),
+        merge_fragments=getattr(inf, "merge_fragments", False),
+        merge_method=getattr(inf, "merge_method", "greedy"),
+        merge_thresholds=getattr(inf, "merge_thresholds", (0.85, 0.6, 0.4)),
+        merge_w_valley=getattr(inf, "merge_w_valley", 1.0),
+        merge_w_offset=getattr(inf, "merge_w_offset", 0.25),
+        merge_dilate=getattr(inf, "merge_dilate", 1),
         full_res_masks=getattr(inf, "full_res_masks", False),
         mask_output=getattr(inf, "mask_output", "mask"),
         polygon_epsilon=getattr(inf, "polygon_epsilon", 0.01),
@@ -399,6 +410,46 @@ def _build_topdown_multiclass_layer(
     )
 
 
+def _build_centered_instance_mask_layer(
+    mask_model: Any, device: str
+) -> CenteredInstanceMaskLayer:
+    """Wrap a ``CenteredInstanceMaskInferenceModel`` in a mask layer (stage 2)."""
+    return CenteredInstanceMaskLayer(
+        backend=TorchBackend(model=mask_model.torch_model, device=device),
+        output_stride=mask_model.output_stride,
+        max_stride=mask_model.max_stride,
+        fg_threshold=getattr(mask_model, "fg_threshold", 0.5),
+        preprocess_config=PreprocessConfig(scale=mask_model.input_scale),
+        postprocess_config=PostprocessConfig(),
+    )
+
+
+def _build_topdown_segmentation_layer(
+    predictor: Any, device: str
+) -> TopDownSegmentationLayer:
+    """Compose centroid + per-crop-mask stages into a ``TopDownSegmentationLayer``."""
+    inf = predictor.inference_model
+    centroid_model = inf.centroid_crop
+    mask_model = inf.instance_peaks
+    # GT-centroid fallback (seg dir only, no centroid model): the CentroidCrop was
+    # built with ``use_gt_centroids=True`` and carries no torch_model, so build a
+    # GT-only centroid layer (mirrors the centered-instance-only branch below).
+    if getattr(centroid_model, "use_gt_centroids", False):
+        mask_layer = _build_centered_instance_mask_layer(mask_model, device)
+        centroid_layer = _build_centroid_layer_gt_only(predictor, mask_layer.backend)
+    else:
+        centroid_layer = _build_centroid_layer(centroid_model, device, assets=predictor)
+        mask_layer = _build_centered_instance_mask_layer(mask_model, device)
+    crop_h, crop_w = centroid_model.crop_hw
+    return TopDownSegmentationLayer(
+        centroid_layer=centroid_layer,
+        centered_instance_layer=mask_layer,
+        crop_size=(crop_h, crop_w),
+        mask_output=getattr(mask_model, "mask_output", "mask"),
+        polygon_epsilon=getattr(mask_model, "polygon_epsilon", 0.01),
+    )
+
+
 def _select_layer(assets: Any, model_types: List[str], device: str):
     """Dispatch on detected model types and build the appropriate layer composition."""
     if "single_instance" in model_types:
@@ -409,6 +460,11 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
         return _build_bottomup_multiclass_layer(assets, device)
     if "bottomup_segmentation" in model_types:
         return _build_bottomup_segmentation_layer(assets, device)
+    # Top-down (crop-centered) segmentation: a centroid + centered_instance_segmentation
+    # pair, OR a seg dir alone (GT-centroid fallback). Checked BEFORE the bare
+    # ``has_centroid`` branch so a centroid+seg pair isn't routed to centroid-only.
+    if "centered_instance_segmentation" in model_types:
+        return _build_topdown_segmentation_layer(assets, device)
     has_centroid = "centroid" in model_types
     has_centered = "centered_instance" in model_types
     has_multi_centered = "multi_class_topdown" in model_types
@@ -688,6 +744,13 @@ class Predictor:
         center_nms_kernel: int = 3,
         mask_cleanup: bool = False,
         mask_cleanup_radius: int = 0,
+        distance_gate_alpha: Optional[float] = None,
+        merge_fragments: bool = False,
+        merge_method: str = "greedy",
+        merge_thresholds: tuple = (0.85, 0.6, 0.4),
+        merge_w_valley: float = 1.0,
+        merge_w_offset: float = 0.25,
+        merge_dilate: int = 1,
         full_res_masks: bool = False,
         mask_output: str = "mask",
         polygon_epsilon: float = 0.01,
@@ -741,6 +804,22 @@ class Predictor:
             mask_cleanup_radius: Morphological open->close radius (output-stride
                 pixels) applied during ``mask_cleanup``; ``0`` keeps keep-largest
                 + fill only (bottom-up segmentation only).
+            distance_gate_alpha: Adaptive distance-gate strength; ``None``
+                (default) keeps the byte-for-byte argmin grouping (bottom-up
+                segmentation only).
+            merge_fragments: Enable the RAG fragment-merge to re-fuse
+                over-segmented animal halves; ``False`` (default) is byte-for-byte
+                today (bottom-up segmentation only).
+            merge_method: ``"greedy"`` (default) or ``"multicut"`` agglomeration;
+                inert when ``merge_fragments=False`` (bottom-up segmentation only).
+            merge_thresholds: Greedy-merge decreasing affinity thresholds; inert
+                when ``merge_fragments=False`` (bottom-up segmentation only).
+            merge_w_valley: Center-valley merge-term weight; inert when off
+                (bottom-up segmentation only).
+            merge_w_offset: Offset-agreement merge-term weight; inert when off
+                (bottom-up segmentation only).
+            merge_dilate: Merge contact-test dilation iterations; inert when off
+                (bottom-up segmentation only).
             full_res_masks: Encode masks at full original resolution instead of
                 the model output-stride grid (default ``False``: stride encoding
                 is ~stride^2 smaller and lossless at model resolution; bottom-up
@@ -775,6 +854,13 @@ class Predictor:
             center_nms_kernel=center_nms_kernel,
             mask_cleanup=mask_cleanup,
             mask_cleanup_radius=mask_cleanup_radius,
+            distance_gate_alpha=distance_gate_alpha,
+            merge_fragments=merge_fragments,
+            merge_method=merge_method,
+            merge_thresholds=merge_thresholds,
+            merge_w_valley=merge_w_valley,
+            merge_w_offset=merge_w_offset,
+            merge_dilate=merge_dilate,
             full_res_masks=full_res_masks,
             mask_output=mask_output,
             polygon_epsilon=polygon_epsilon,
@@ -826,7 +912,12 @@ class Predictor:
         if "bottomup_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")
+            spec.append(f"distance_gate_alpha={distance_gate_alpha}")
+            spec.append(f"merge_fragments={merge_fragments}")
             spec.append(f"full_res_masks={full_res_masks}")
+            spec.append(f"mask_output={mask_output}")
+        if "centered_instance_segmentation" in model_types:
+            spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"mask_output={mask_output}")
         logger.info("Loaded inference model | " + " | ".join(spec))
 
@@ -1741,8 +1832,13 @@ class Predictor:
         return isinstance(self.layer, (CentroidLayer, ExportedCentroidLayer))
 
     def _is_segmentation_layer(self) -> bool:
-        """``True`` iff ``layer`` is a bottom-up instance-segmentation layer."""
-        return isinstance(self.layer, SegmentationLayer)
+        """``True`` iff ``layer`` is a mask-producing instance-segmentation layer.
+
+        Covers both bottom-up (:class:`SegmentationLayer`) and top-down
+        (:class:`TopDownSegmentationLayer`). Gates tracking/no-skeleton/mask-count
+        behavior — a top-down seg layer emits ``pred_masks`` just like bottom-up.
+        """
+        return isinstance(self.layer, (SegmentationLayer, TopDownSegmentationLayer))
 
     def _resolve_centroid_packaging(self) -> _CentroidPackaging:
         """Resolve the single-source centroid output-packaging decision.

@@ -562,6 +562,14 @@ class UnifiedVizCallback(Callback):
         self.viz_class_maps = model_type == "multi_class_bottomup"
         self.viz_center_heatmap = model_type == "bottomup_segmentation"
         self.viz_offsets = model_type == "bottomup_segmentation"
+        # Colored grouped per-instance mask overlay (bottom-up seg only; the
+        # grouped masks come from the offset-grouping in get_visualization_data).
+        self.viz_instance_masks = model_type == "bottomup_segmentation"
+        # GT-vs-prediction mask overlay for both segmentation model types.
+        self.viz_gt_mask = model_type in (
+            "bottomup_segmentation",
+            "centered_instance_segmentation",
+        )
 
         # Initialize renderers
         from sleap_nn.training.utils import MatplotlibRenderer, WandBRenderer
@@ -606,6 +614,10 @@ class UnifiedVizCallback(Callback):
             kwargs["include_center_heatmap"] = True
         if self.viz_offsets:
             kwargs["include_offsets"] = True
+        if self.viz_gt_mask:
+            kwargs["include_gt_mask"] = True
+        if self.viz_instance_masks:
+            kwargs["include_instance_masks"] = True
 
         # Access lightning_model lazily from model_trainer
         return self.model_trainer.lightning_model.get_visualization_data(
@@ -654,6 +666,20 @@ class UnifiedVizCallback(Callback):
         if self.viz_offsets and data.pred_offsets is not None:
             fig = self._mpl_renderer.render_offsets(data)
             fig_path = self.local_save_dir / f"{prefix}.offsets.{epoch:04d}.png"
+            fig.savefig(fig_path, format="png")
+            plt.close(fig)
+
+        # GT-vs-prediction foreground mask overlay (for segmentation models)
+        if self.viz_gt_mask and data.gt_mask is not None:
+            fig = self._mpl_renderer.render_gt_mask(data)
+            fig_path = self.local_save_dir / f"{prefix}.gt_mask.{epoch:04d}.png"
+            fig.savefig(fig_path, format="png")
+            plt.close(fig)
+
+        # Colored grouped per-instance mask overlay (bottom-up segmentation)
+        if self.viz_instance_masks and data.instance_masks is not None:
+            fig = self._mpl_renderer.render_instance_masks(data)
+            fig_path = self.local_save_dir / f"{prefix}.instance_masks.{epoch:04d}.png"
             fig.savefig(fig_path, format="png")
             plt.close(fig)
 
@@ -780,6 +806,32 @@ class UnifiedVizCallback(Callback):
                 caption=f"{prefix.title()} Offset Magnitude Epoch {epoch}",
             )
 
+        # GT-vs-prediction foreground mask overlay (for segmentation models)
+        if self.viz_gt_mask and data.gt_mask is not None:
+            gt_mask_fig = self._mpl_renderer.render_gt_mask(data)
+            buf = BytesIO()
+            gt_mask_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+            buf.seek(0)
+            plt.close(gt_mask_fig)
+            gt_mask_pil = PILImage.open(buf)
+            log_dict[f"viz/{prefix}/gt_mask"] = wandb.Image(
+                gt_mask_pil,
+                caption=f"{prefix.title()} GT vs Pred Mask Epoch {epoch}",
+            )
+
+        # Colored grouped per-instance mask overlay (bottom-up segmentation)
+        if self.viz_instance_masks and data.instance_masks is not None:
+            inst_fig = self._mpl_renderer.render_instance_masks(data)
+            buf = BytesIO()
+            inst_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+            buf.seek(0)
+            plt.close(inst_fig)
+            inst_pil = PILImage.open(buf)
+            log_dict[f"viz/{prefix}/instance_masks"] = wandb.Image(
+                inst_pil,
+                caption=f"{prefix.title()} Instance Masks Epoch {epoch}",
+            )
+
         if log_dict:
             log_dict["epoch"] = epoch
             wandb_logger.experiment.log(log_dict, commit=False)
@@ -807,6 +859,14 @@ class UnifiedVizCallback(Callback):
             if self.viz_offsets and data.pred_offsets is not None:
                 columns.append(f"{prefix.title()} Offsets")
                 table_data[0].append(log_dict.get(f"viz/{prefix}/offsets"))
+
+            if self.viz_gt_mask and data.gt_mask is not None:
+                columns.append(f"{prefix.title()} GT Mask")
+                table_data[0].append(log_dict.get(f"viz/{prefix}/gt_mask"))
+
+            if self.viz_instance_masks and data.instance_masks is not None:
+                columns.append(f"{prefix.title()} Instance Masks")
+                table_data[0].append(log_dict.get(f"viz/{prefix}/instance_masks"))
 
             table = wandb.Table(columns=columns, data=table_data)
             wandb_logger.experiment.log(
@@ -1382,6 +1442,172 @@ class EpochEndEvaluationCallback(Callback):
 # evaluation subsystem). Re-exported here so existing callback imports/tests
 # keep working.
 from sleap_nn.evaluation import match_centroids  # noqa: E402
+
+
+class SegmentationEvaluationCallback(Callback):
+    """Per-epoch instance-level mask-IoU evaluation for segmentation models.
+
+    Mirrors :class:`CentroidEvaluationCallback`: it flips
+    ``pl_module._collect_val_predictions`` on at validation start so the
+    segmentation ``validation_step`` collects per-instance predicted and
+    ground-truth masks on a shared preprocessed grid (recovered by grouping the
+    predicted/GT heads for bottom-up, or the single centered-crop mask for
+    top-down), then matches them with the SAME IoU matcher used by the
+    post-training mask evaluator (:func:`sleap_nn.evaluation.match_masks`) and logs
+    instance-level mask-IoU + detection metrics to wandb. This complements the
+    coarse ``val/fg_iou`` with a metric that is sensitive to instance grouping
+    (over-/under-segmentation surfaces as false positives/negatives).
+
+    The callback is a no-op unless ``trainer_config.eval.enabled`` is set (it is
+    only attached then), so default runs are unaffected.
+
+    Attributes:
+        eval_frequency: Run evaluation every N epochs (default: 1).
+        match_threshold: IoU threshold in (0, 1] for a matched mask pair to count
+            as a true positive (default: 0.5).
+    """
+
+    def __init__(self, eval_frequency: int = 1, match_threshold: float = 0.5):
+        """Initialize the callback.
+
+        Args:
+            eval_frequency: Run evaluation every N epochs (default: 1).
+            match_threshold: IoU threshold in (0, 1] for a matched mask pair to
+                count as a true positive. The shared
+                ``trainer_config.eval.match_threshold`` defaults to 50.0 (a
+                centroid pixel distance), which is never a valid IoU, so any value
+                outside (0, 1] falls back to 0.5.
+        """
+        super().__init__()
+        self.eval_frequency = eval_frequency
+        if match_threshold is None or not (0.0 < float(match_threshold) <= 1.0):
+            match_threshold = 0.5
+        self.match_threshold = float(match_threshold)
+
+    def on_validation_epoch_start(self, trainer, pl_module):
+        """Enable prediction collection at the start of validation.
+
+        Skip during sanity check to avoid inference issues.
+        """
+        if trainer.sanity_checking:
+            return
+        pl_module._collect_val_predictions = True
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """Run mask-IoU evaluation and log metrics at end of validation epoch."""
+        should_evaluate = (
+            trainer.current_epoch + 1
+        ) % self.eval_frequency == 0 and trainer.is_global_zero
+
+        if should_evaluate:
+            if not pl_module.val_predictions or not pl_module.val_ground_truth:
+                logger.warning(
+                    "No predictions collected for segmentation epoch-end evaluation"
+                )
+            else:
+                try:
+                    metrics = self._compute_metrics(
+                        pl_module.val_predictions, pl_module.val_ground_truth
+                    )
+                    self._log_metrics(trainer, metrics, trainer.current_epoch)
+                    logger.info(
+                        f"Epoch {trainer.current_epoch} segmentation evaluation: "
+                        f"mask_mean_iou={metrics['mask_mean_iou']:.4f}, "
+                        f"precision={metrics['precision']:.4f}, "
+                        f"recall={metrics['recall']:.4f}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Segmentation epoch-end evaluation failed: {e}")
+
+        # Cleanup
+        pl_module._collect_val_predictions = False
+        if trainer.is_global_zero:
+            pl_module.val_predictions = []
+            pl_module.val_ground_truth = []
+
+        trainer.strategy.barrier()
+
+    def _compute_metrics(self, predictions: list, ground_truth: list) -> dict:
+        """Match collected per-instance masks by IoU and aggregate metrics.
+
+        ``predictions`` and ``ground_truth`` are appended in lockstep by the
+        seg ``validation_step``; each entry is ``{"masks": [bool (H, W), ...]}``
+        for one image/crop, with predicted and GT masks on the SAME grid.
+        """
+        import numpy as np
+        from sleap_nn.evaluation import match_masks
+
+        ious: list = []
+        tp = fp = fn = 0
+        n_gt = 0
+        for pred, gt in zip(predictions, ground_truth):
+            pred_masks = pred.get("masks", [])
+            gt_masks = gt.get("masks", [])
+            n_gt += len(gt_masks)
+            _, _, unmatched_pred, unmatched_gt, pair_ious = match_masks(
+                pred_masks, gt_masks, min_iou=self.match_threshold
+            )
+            ious.extend(float(x) for x in pair_ious)
+            tp += len(pair_ious)
+            fp += len(unmatched_pred)
+            fn += len(unmatched_gt)
+
+        mask_mean_iou = float(np.mean(ious)) if ious else float("nan")
+        # Misses (unmatched GT) contribute IoU 0 -> a recall-sensitive mean.
+        mask_mean_iou_all_gt = (float(np.sum(ious)) / n_gt) if n_gt else float("nan")
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = (
+            2 * precision * recall / (precision + recall)
+            if (precision + recall) > 0
+            else 0.0
+        )
+        return {
+            "mask_mean_iou": mask_mean_iou,
+            "mask_mean_iou_all_gt": mask_mean_iou_all_gt,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "n_tp": tp,
+            "n_fp": fp,
+            "n_fn": fn,
+        }
+
+    def _log_metrics(self, trainer, metrics: dict, epoch: int):
+        """Log mask evaluation metrics to WandB."""
+        import numpy as np
+        from lightning.pytorch.loggers import WandbLogger
+
+        wandb_logger = None
+        for log in trainer.loggers:
+            if isinstance(log, WandbLogger):
+                wandb_logger = log
+                break
+        if wandb_logger is None:
+            return
+
+        log_dict = {"epoch": epoch}
+        if not np.isnan(metrics["mask_mean_iou"]):
+            log_dict["eval/val/mask_mean_iou"] = metrics["mask_mean_iou"]
+        if not np.isnan(metrics["mask_mean_iou_all_gt"]):
+            log_dict["eval/val/mask_mean_iou_all_gt"] = metrics["mask_mean_iou_all_gt"]
+        log_dict["eval/val/mask_precision"] = metrics["precision"]
+        log_dict["eval/val/mask_recall"] = metrics["recall"]
+        log_dict["eval/val/mask_f1"] = metrics["f1"]
+        log_dict["eval/val/mask_n_tp"] = metrics["n_tp"]
+        log_dict["eval/val/mask_n_fp"] = metrics["n_fp"]
+        log_dict["eval/val/mask_n_fn"] = metrics["n_fn"]
+
+        wandb_logger.experiment.log(log_dict, commit=False)
+
+        # Update best metrics in summary (higher is better for IoU/precision/etc.).
+        for key, value in log_dict.items():
+            if key == "epoch" or key.endswith(("n_tp", "n_fp", "n_fn")):
+                continue
+            summary_key = f"best/{key}"
+            current_best = wandb_logger.experiment.summary.get(summary_key)
+            if current_best is None or value > current_best:
+                wandb_logger.experiment.summary[summary_key] = value
 
 
 class CentroidEvaluationCallback(Callback):

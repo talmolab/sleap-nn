@@ -23,26 +23,13 @@ Thank you for your interest in contributing to sleap-nn! This guide will help yo
 
 2. **Install sleap-nn dependencies based on your platform**\
 
-   - Sync all dependencies based on your correct wheel using `uv sync`. `uv sync` creates a `.venv` (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use all installed packages, you must run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
-     - **Windows/Linux with NVIDIA GPU:**
+   - Install everything with a single command. `uv sync` creates a `.venv` (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use installed packages, run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
 
       ```bash
-      uv sync --extra gpu
+      uv sync
       ```
 
-      Or specify a CUDA version explicitly:
-
-      ```bash
-      uv sync --extra torch-cuda130  # CUDA 13.0
-      uv sync --extra torch-cuda128  # CUDA 12.8
-      uv sync --extra torch-cuda118  # CUDA 11.8
-      ```
-
-     - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):**
-     Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
-      ```bash
-      uv sync --extra cpu
-      ```
+      This installs the CUDA 13.0 GPU build on Windows/Linux (x86-64) and the Apple-MPS build on macOS automatically; `uv run` keeps it. A GPU is not required — the CUDA wheel also runs on CPU. (For the smaller CPU-only wheel or a specific CUDA version, see the [installation guide](https://nn.sleap.ai/installation/).)
 > **Upgrading All Dependencies**
 > To ensure you have the latest versions of all dependencies, use the `--upgrade` flag with `uv sync`:
 > ```bash
@@ -126,7 +113,7 @@ cd sleap-nn
 
 2. Install `sleap-nn` with docs dependencies:
    ```bash
-   uv sync --group docs --extra cpu
+   uv sync --group docs
    ```
 
 3. Build and tag a new documentation version:

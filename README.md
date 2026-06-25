@@ -52,26 +52,15 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 > ```
 > Replace `...` with the rest of your install command as needed.
 
-- Sync all dependencies based on your correct wheel using `uv sync`. `uv sync` creates a `.venv` (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use all installed packages, you must run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
-   - **Windows/Linux with NVIDIA GPU:**
+- Install everything with a single command. `uv sync` creates a `.venv` (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use installed packages, run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
 
    ```bash
-   uv sync --extra gpu
+   uv sync
    ```
 
-   Or specify a CUDA version explicitly:
+   This installs the CUDA 13.0 GPU build on Windows/Linux (x86-64) and the Apple-MPS build on macOS automatically, and `uv run` keeps it. A GPU is not required — the CUDA wheel also runs on CPU.
 
-   ```bash
-   uv sync --extra torch-cuda130  # CUDA 13.0
-   uv sync --extra torch-cuda128  # CUDA 12.8
-   uv sync --extra torch-cuda118  # CUDA 11.8
-   ```
-
-   - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):**
-   Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
-   ```bash
-   uv sync --extra cpu
-   ```
+   > <sub>Want the smaller CPU-only wheel (CPU-only machines/CI, Linux aarch64) or a specific CUDA version? Add `--no-group gpu`, e.g. `uv sync --no-group gpu --extra cpu` or `uv sync --no-group gpu --extra torch-cuda128`.</sub>
 
 4. **Run tests**
    ```bash

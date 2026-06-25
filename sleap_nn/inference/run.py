@@ -131,11 +131,53 @@ def save_analysis_h5_files(
     return written_paths
 
 
+def _video_has_embedded_images(video) -> bool:
+    """Best-effort: does this loaded video carry embedded image frames?
+
+    A video loaded from a ``.pkg.slp`` preserves its original media as
+    ``source_video`` provenance — the same signal sleap-io's
+    ``restore_original_videos`` keys off. Falls back to the backend's
+    ``has_embedded_images`` flag for embedded videos saved without source
+    provenance; backend access is guarded defensively (an unopened video
+    currently just returns ``backend=None``, but a future/custom ``Video`` could
+    make ``.backend`` a lazy property) so detection never raises.
+    """
+    if getattr(video, "source_video", None) is not None:
+        return True
+    try:
+        backend = video.backend
+    except Exception:
+        return False
+    return bool(getattr(backend, "has_embedded_images", False))
+
+
+def _resolve_embed(embed, labels) -> bool:
+    """Resolve the ``embed`` control (``"auto"``/``"true"``/``"false"`` or bool) to bool.
+
+    ``"auto"`` -> ``True`` iff any video in ``labels`` carries embedded images.
+    """
+    if isinstance(embed, bool):
+        return embed
+    value = str(embed).strip().lower()
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    if value == "auto":
+        return any(
+            _video_has_embedded_images(v)
+            for v in (getattr(labels, "videos", None) or [])
+        )
+    raise ValueError(f"Invalid embed={embed!r}; expected 'auto', 'true', or 'false'.")
+
+
 def save_predictions(
     labels: sio.Labels,
     output_path: Union[str, Path],
     output_format: str = "slp",
     video_index: Optional[int] = None,
+    embed: Union[str, bool] = "false",
+    restore_source_videos: bool = True,
 ) -> List[Path]:
     """Save predicted ``Labels`` to disk in the requested format(s).
 
@@ -147,6 +189,17 @@ def save_predictions(
             ``"both"``.
         video_index: Restrict the analysis HDF5 export to a single video index;
             ``None`` exports every video with predicted frames.
+        embed: Image-embedding policy for the ``.slp`` output, one of
+            ``"false"`` (the default; never embed, backreference source media —
+            today's behavior), ``"true"`` (embed images into a self-contained
+            ``.pkg.slp``-style file), or ``"auto"`` (embed iff the input was
+            itself an embedded ``.pkg.slp``). A bool passes through unchanged.
+            Only applies to ``.slp`` output.
+        restore_source_videos: On a non-embedding ``.slp`` save, ``True`` (the
+            default) restores references to the original source video files;
+            ``False`` keeps references to the input ``.pkg.slp`` file(s). Maps
+            to sleap-io's ``restore_original_videos`` and is ignored when
+            embedding.
 
     Returns:
         The list of analysis HDF5 paths written (empty when
@@ -164,7 +217,11 @@ def save_predictions(
         )
 
     if output_format in ("slp", "both"):
-        labels.save(Path(output_path).as_posix())
+        labels.save(
+            Path(output_path).as_posix(),
+            embed=_resolve_embed(embed, labels),
+            restore_original_videos=restore_source_videos,
+        )
 
     h5_paths: List[Path] = []
     if output_format in ("analysis_h5", "both"):
@@ -200,9 +257,26 @@ def predict(
     center_nms_kernel: int = 3,
     mask_cleanup: bool = False,
     mask_cleanup_radius: int = 0,
+    distance_gate_alpha: Optional[float] = None,
+    merge_fragments: bool = False,
+    merge_method: str = "greedy",
+    merge_thresholds: tuple = (0.85, 0.6, 0.4),
+    merge_w_valley: float = 1.0,
+    merge_w_offset: float = 0.25,
+    merge_dilate: int = 1,
     full_res_masks: bool = False,
     mask_output: str = "mask",
     polygon_epsilon: float = 0.01,
+    # SAM prompted-mask producer (explicit, no default; PLAN L2). When set, masks
+    # are produced from the existing poses in ``source`` (no trained seg model).
+    mask_backend: Optional[str] = None,
+    sam_checkpoint: Optional[str] = None,
+    sam_model_type: str = "vit_h",
+    sam3_model_id: str = "facebook/sam3",
+    sam_prompt_mode: str = "pose",
+    sam_anchor_ind: Optional[int] = None,
+    sam_disjointify_masks: bool = False,
+    overlay_path: Optional[str] = None,
     # Prediction-time (can vary per call)
     frames: Optional[List[int]] = None,
     peak_threshold: Optional[float] = None,
@@ -224,6 +298,8 @@ def predict(
     # Output
     output_path: Optional[str] = None,
     output_format: str = "slp",
+    embed: Union[str, bool] = "false",
+    restore_source_videos: bool = True,
     clean_empty_frames: bool = False,
     progress_callback: Optional[Callable[[int, int], None]] = None,
     tracking_progress_callback: Optional[Callable[[int, int], None]] = None,
@@ -273,6 +349,24 @@ def predict(
         mask_cleanup_radius: Morphological open->close radius (output-stride
             pixels) applied during ``mask_cleanup``; ``0`` keeps keep-largest +
             fill only (bottom-up segmentation only).
+        distance_gate_alpha: Adaptive distance-gate strength; ``None`` (default)
+            keeps the byte-for-byte argmin grouping. When set, foreground pixels
+            whose offset-predicted center exceeds ``alpha*sqrt(area/pi)`` from
+            their assigned center are dropped (bottom-up segmentation only).
+        merge_fragments: Enable the RAG fragment-merge that re-fuses
+            over-segmented animal halves while keeping touching distinct animals
+            apart; ``False`` (default) is byte-for-byte today (bottom-up
+            segmentation only).
+        merge_method: ``"greedy"`` (default) or ``"multicut"`` agglomeration;
+            inert when ``merge_fragments=False`` (bottom-up segmentation only).
+        merge_thresholds: Greedy-merge decreasing affinity thresholds (default
+            ``(0.85, 0.6, 0.4)``); inert when off (bottom-up segmentation only).
+        merge_w_valley: Center-valley merge-term weight (default ``1.0``); inert
+            when off (bottom-up segmentation only).
+        merge_w_offset: Offset-agreement merge-term weight (default ``0.25``);
+            inert when off (bottom-up segmentation only).
+        merge_dilate: Merge contact-test dilation iterations (default ``1``);
+            inert when off (bottom-up segmentation only).
         full_res_masks: Encode masks at full original resolution instead of the
             output-stride grid (default ``False``: stride encoding is ~stride^2
             smaller and lossless at model resolution; bottom-up segmentation only).
@@ -281,6 +375,19 @@ def predict(
             segmentation only).
         polygon_epsilon: Douglas-Peucker tolerance (fraction of perimeter) for
             ``mask_output`` polygon/both (bottom-up segmentation only).
+        mask_backend: **Explicit** SAM mask backend (PLAN L2): ``"sam"`` (SAM1) /
+            ``"sam3"`` (PR-B). When set, ``source`` is treated as a pose ``.slp``
+            and masks are predicted from its existing instances (no trained seg
+            model, so ``model_paths`` / ``export_dir`` are not required). ``None``
+            (the default) leaves the model-driven path untouched.
+        sam_checkpoint: SAM1 checkpoint path (required for ``mask_backend="sam"``).
+        sam_model_type: SAM1 model registry key.
+        sam3_model_id: Hugging Face model id for the gated SAM3 path
+            (``mask_backend="sam3"``); defaults to ``"facebook/sam3"``.
+        sam_prompt_mode: ``"pose"`` / ``"centroid"`` / ``"box"`` (PLAN §2.2).
+        sam_anchor_ind: Centroid anchor node index for ``sam_prompt_mode="centroid"``.
+        sam_disjointify_masks: Make per-frame masks disjoint when >=2 instances.
+        overlay_path: Optional review-overlay PNG path (PLAN L4; SAM path only).
         frames: Frame indices to predict. ``None`` = all.
         peak_threshold: Override peak threshold for all stages.
         centroid_threshold: Override centroid-stage threshold (top-down).
@@ -301,6 +408,15 @@ def predict(
             One of ``"slp"`` (the default), ``"analysis_h5"`` (a SLEAP Analysis
             HDF5 file, one ``.analysis.h5`` per video), or ``"both"``. Analysis
             HDF5 paths are derived from ``output_path``.
+        embed: Image-embedding policy for a ``.slp`` output, one of ``"false"``
+            (the default; never embed, backreference source media — today's
+            behavior), ``"true"`` (embed images into a self-contained
+            ``.pkg.slp``-style file), or ``"auto"`` (embed iff the input was
+            itself an embedded ``.pkg.slp``). Only applies to ``.slp`` output.
+        restore_source_videos: On a non-embedding ``.slp`` save, ``True`` (the
+            default) restores references to the original source video files;
+            ``False`` keeps references to the input ``.pkg.slp`` file(s).
+            Ignored when embedding.
         clean_empty_frames: Drop frames with no instances.
         progress_callback: ``(processed_frames, total_frames)`` callback
             invoked after each batch (counts are in frames).
@@ -318,17 +434,63 @@ def predict(
 
     from sleap_nn.inference.predictor import Predictor
 
-    if model_paths and export_dir:
-        raise ValueError("Provide model_paths or export_dir, not both.")
-    if not model_paths and not export_dir:
-        raise ValueError("Either model_paths or export_dir is required.")
-
     if device == "auto":
         device = (
             "cuda"
             if torch.cuda.is_available()
             else "mps" if torch.backends.mps.is_available() else "cpu"
         )
+
+    # SAM prompted-mask producer (PLAN L2/L8): masks come from the existing poses
+    # in ``source`` — there is no trained seg model, so this short-circuits the
+    # model-driven path entirely. ``mask_backend`` is explicit / required to opt
+    # in; ``None`` (the default) leaves everything below unchanged.
+    if mask_backend is not None:
+        if model_paths or export_dir:
+            raise ValueError(
+                "mask_backend produces masks from the poses in `source` and does "
+                "not use a trained seg model; do not also pass model_paths / "
+                "export_dir."
+            )
+        from sleap_nn.inference.sam import run_sam_segmentation
+
+        # Segmentation masks only serialize to ``.slp``: the SLEAP Analysis HDF5
+        # format stores poses/tracks, not ``PredictedSegmentationMask``, so it
+        # would silently drop the masks (the actual output). Reject it up front
+        # rather than write a mask-less ``.h5``.
+        if output_path is not None and str(output_format).lower() != "slp":
+            raise ValueError(
+                f"mask_backend output only supports output_format='slp' (got "
+                f"{output_format!r}); the SLEAP Analysis HDF5 format stores "
+                "poses/tracks, not segmentation masks."
+            )
+        # Save handling lives in ``run_sam_segmentation``, which mirrors the
+        # regular prediction path: by default it backreferences the source media
+        # via provenance and does not re-embed images (small output; see its
+        # docs). The ``embed`` / ``restore_source_videos`` controls are forwarded.
+        labels = run_sam_segmentation(
+            source,
+            mask_backend,
+            prompt_mode=sam_prompt_mode,
+            sam_checkpoint=sam_checkpoint,
+            sam_model_type=sam_model_type,
+            sam3_model_id=sam3_model_id,
+            device=device,
+            anchor_ind=sam_anchor_ind,
+            disjointify_masks=sam_disjointify_masks,
+            output_path=output_path,
+            overlay_path=overlay_path,
+            frames=frames,
+            clean_empty_frames=clean_empty_frames,
+            embed=embed,
+            restore_source_videos=restore_source_videos,
+        )
+        return labels
+
+    if model_paths and export_dir:
+        raise ValueError("Provide model_paths or export_dir, not both.")
+    if not model_paths and not export_dir:
+        raise ValueError("Either model_paths or export_dir is required.")
 
     if tracker_config is not None and emit_centroid != "instance":
         raise ValueError(
@@ -376,6 +538,13 @@ def predict(
         build_kwargs["center_nms_kernel"] = center_nms_kernel
         build_kwargs["mask_cleanup"] = mask_cleanup
         build_kwargs["mask_cleanup_radius"] = mask_cleanup_radius
+        build_kwargs["distance_gate_alpha"] = distance_gate_alpha
+        build_kwargs["merge_fragments"] = merge_fragments
+        build_kwargs["merge_method"] = merge_method
+        build_kwargs["merge_thresholds"] = merge_thresholds
+        build_kwargs["merge_w_valley"] = merge_w_valley
+        build_kwargs["merge_w_offset"] = merge_w_offset
+        build_kwargs["merge_dilate"] = merge_dilate
         build_kwargs["full_res_masks"] = full_res_masks
         build_kwargs["mask_output"] = mask_output
         build_kwargs["polygon_epsilon"] = polygon_epsilon
@@ -414,6 +583,12 @@ def predict(
     )
 
     if output_path is not None:
-        save_predictions(labels, output_path, output_format=output_format)
+        save_predictions(
+            labels,
+            output_path,
+            output_format=output_format,
+            embed=embed,
+            restore_source_videos=restore_source_videos,
+        )
 
     return labels

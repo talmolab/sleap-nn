@@ -365,6 +365,54 @@ def test_train_routes_segmentation_eval(minimal_instance_seg, tmp_path):
             assert isinstance(mask, sio.PredictedSegmentationMask)
 
 
+def test_train_routes_topdown_segmentation_eval(minimal_instance_seg, tmp_path):
+    """``train()`` on a top-down seg model runs post-training mask eval.
+
+    Exercises ``run_training`` -> ``model_type == 'centered_instance_segmentation'``
+    -> ``_run_segmentation_split_eval`` -> the new predict flow (which crops the
+    GT instances via the GT-centroid fallback, since only the seg dir is given)
+    + ``run_evaluation(match_method="mask")``. The tiny 1-epoch model may predict
+    no masks (eval skips gracefully); the point is the branch is wired (it neither
+    crashes nor falls through to keypoint OKS evaluation).
+    """
+    from sleap_nn.train import train
+
+    train(
+        train_labels_path=[minimal_instance_seg.as_posix()],
+        use_same_data_for_val=True,
+        head_configs="centered_instance_segmentation",
+        backbone_config={
+            "unet": {
+                "in_channels": 1,
+                "filters": 8,
+                "filters_rate": 1.5,
+                "max_stride": 16,
+                "output_stride": 2,
+            }
+        },
+        ensure_grayscale=True,
+        scale=1.0,
+        crop_size=160,
+        batch_size=1,
+        max_epochs=1,
+        min_train_steps_per_epoch=1,
+        num_workers=0,
+        save_ckpt=True,
+        ckpt_dir=tmp_path.as_posix(),
+        run_name="topdown_seg_eval_route",
+        trainer_accelerator="cpu",
+        visualize_preds_during_training=False,
+        seed=42,
+    )
+    run_dir = tmp_path / "topdown_seg_eval_route"
+    assert run_dir.exists()
+    pred_files = list(run_dir.glob("labels_pr.*.slp"))
+    assert pred_files, "top-down segmentation eval did not write predicted splits"
+    for pf in pred_files:
+        for mask in sio.load_slp(pf.as_posix()).masks:
+            assert isinstance(mask, sio.PredictedSegmentationMask)
+
+
 # ---------------------------------------------------------------------------
 # COCO mask-AP helper units (_size_mask / _ap_from_pr / _boundary_iou /
 # _mask_pair_stats)

@@ -896,16 +896,29 @@ class SegmentationHeadConfig:
 class InstanceCenterConfig:
     """Configuration for the instance center heatmap head.
 
+    This config is used exclusively by the ``bottomup_segmentation`` head; it does
+    not affect centroid (``CentroidConfMapsConfig.sigma``) or bottom-up pose
+    (``BottomUpConfMapsConfig``) models.
+
     Attributes:
         sigma: (float) Standard deviation of the Gaussian distribution used to generate
-            center heatmaps, in pixels at original image resolution. Default: 10.0.
+            center heatmaps, in pixels at original image resolution. Default: 4.0.
+
+            Caveat: 4.0 was validated empirically on mice only (compact bodies; it cut
+            learned center over-detection from 60.75 to 14.2 peaks/frame relative to the
+            old default of 10.0, which over-fires badly on elongated bodies). It is the
+            better general default than 10.0, but the optimal value is dataset-dependent:
+            elongated/large animals may want a larger sigma, tiny animals smaller. The
+            target Gaussian is always isotropic (anisotropic targets were tested and
+            performed worse). Because this is a per-head config field, users can tune it
+            per dataset without affecting any other model type.
         output_stride: (int) The stride of the output center heatmaps relative to the
             input image. Default: 2.
         loss_weight: (float) Scalar float used to weigh the loss term for this head
             during training. Default: 1.0.
     """
 
-    sigma: float = 10.0
+    sigma: float = 4.0
     output_stride: int = 2
     loss_weight: float = 1.0
 
@@ -979,6 +992,43 @@ class BottomUpSegmentationConfig:
     offsets: Optional[CenterOffsetConfig] = None
 
 
+@define
+class CenteredInstanceSegmentationHeadConfig:
+    """Foreground-mask head config for top-down crop-centered segmentation.
+
+    The bottom-up ``SegmentationHeadConfig`` fields plus ``anchor_part``. Keeping
+    ``anchor_part`` INSIDE the head leaf (rather than as a sibling of
+    ``segmentation``) matches ``centered_instance``'s ``confmaps.anchor_part`` and
+    the codebase invariant that every per-type head config is a dict of head-leaf
+    configs each carrying ``output_stride`` — so model/config code that iterates
+    head leaves (loss weights, output strides, etc.) never trips over it.
+
+    Attributes:
+        output_stride: (int) Stride of the output mask relative to the input
+            crop. Default: 2.
+        loss_weight: (float) Scalar weight for the bce-dice loss term. Default: 1.0.
+        anchor_part: (str) Optional node name used to center crops during
+            training. ``None`` (default) centers on the mean of each instance's
+            visible nodes.
+    """
+
+    output_stride: int = 2
+    loss_weight: float = 1.0
+    anchor_part: Optional[str] = None
+
+
+@define
+class CenteredInstanceSegmentationConfig:
+    """Head config for top-down crop-centered instance segmentation models.
+
+    A single foreground-mask head predicting the *centered* instance's mask on a
+    centroid crop (the segmentation analog of ``centered_instance``; composed
+    with a ``centroid`` model for full top-down inference).
+    """
+
+    segmentation: Optional[CenteredInstanceSegmentationHeadConfig] = None
+
+
 @oneof
 @define
 class HeadConfig:
@@ -994,6 +1044,8 @@ class HeadConfig:
         multi_class_bottomup: An instance of `BottomUpMultiClassConfig`.
         multi_class_topdown: An instance of `TopDownCenteredInstanceMultiClassConfig`.
         bottomup_segmentation: An instance of `BottomUpSegmentationConfig`.
+        centered_instance_segmentation: An instance of
+            `CenteredInstanceSegmentationConfig`.
     """
 
     single_instance: Optional[SingleInstanceConfig] = None
@@ -1003,6 +1055,7 @@ class HeadConfig:
     multi_class_bottomup: Optional[BottomUpMultiClassConfig] = None
     multi_class_topdown: Optional[TopDownCenteredInstanceMultiClassConfig] = None
     bottomup_segmentation: Optional[BottomUpSegmentationConfig] = None
+    centered_instance_segmentation: Optional[CenteredInstanceSegmentationConfig] = None
 
 
 @oneof

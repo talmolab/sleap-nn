@@ -547,9 +547,13 @@ class Outputs:
         offset``). By default ``mask`` is at output-stride resolution; with
         ``full_res_masks`` it is at original-image resolution with identity
         ``scale``/``offset``. ``scale``/``offset`` are read with identity
-        defaults for back-compat callers that build this dict directly. Each
-        entry becomes a ``sio.PredictedSegmentationMask`` (stored in
-        ``LabeledFrame.masks``). Returns ``[]`` when there are no masks.
+        defaults for back-compat callers that build this dict directly. An entry
+        may also carry optional ``"instance"``/``"track"``/``"tracking_score"``
+        provenance (set by the SAM mask layer per PLAN L8 when the mask was
+        produced from a paired pose/centroid/track); these default to absent so
+        the model-driven seg layers are unchanged. Each entry becomes a
+        ``sio.PredictedSegmentationMask`` (stored in ``LabeledFrame.masks``).
+        Returns ``[]`` when there are no masks.
 
         Args:
             batch_index: Which sample in the batch to convert.
@@ -571,6 +575,9 @@ class Outputs:
                     float(inst.get("score", 0.0)),
                     scale=inst.get("scale", (1.0, 1.0)),
                     offset=inst.get("offset", (0.0, 0.0)),
+                    instance=inst.get("instance"),
+                    track=inst.get("track"),
+                    tracking_score=inst.get("tracking_score"),
                 )
             )
         return out

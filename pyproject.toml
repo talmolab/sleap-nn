@@ -29,10 +29,10 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    # Instance segmentation (SegmentationMask / Labels.get_masks) tracks sleap-io
-    # main (0.8.0), which is not yet on PyPI. Pinned to a main commit for
-    # reproducibility; switch to a PyPI version constraint once 0.8.0 releases.
-    "sleap-io>=0.8.0",
+    # Instance segmentation (SegmentationMask / Labels.get_masks) requires the
+    # sleap-io 0.8.0 annotation architecture. Fenced below 0.9.0 so a future
+    # major bump (with its own breaking changes) is an explicit, audited upgrade.
+    "sleap-io>=0.8.0,<0.9.0",
     "numpy",
     "torch",
     "torchvision>=0.20.0",
@@ -89,6 +89,25 @@ tensorrt = [
     "tensorrt>=10.13.0; sys_platform == 'linux' or sys_platform == 'win32'",
     "torch-tensorrt>=2.5.0; sys_platform == 'linux' or sys_platform == 'win32'",
 ]
+# SAM1 prompted-mask inference (`mask_backend="sam"`). Lazy: imported only inside
+# the SAM backend, so the default install never needs it. ViT-H is Apache-2.0 and
+# ungated; download a checkpoint (e.g. sam_vit_h_4b8939.pth) separately and pass
+# it via `sam_checkpoint=`. cv2 (CLAHE / overlay) comes from the base
+# `opencv-python` dependency, so no OpenCV is pinned here.
+sam = [
+    "segment-anything>=1.0",
+]
+# SAM3 prompted-mask inference (`mask_backend="sam3"`). Lazy: imported only inside
+# the SAM3 backend, so the default install never needs it. SAM3 lives in the gated
+# `facebook/sam3` HF repo (request access + `huggingface-cli login` / set HF_TOKEN)
+# and ships in `transformers>=5`. It typically wants torch cu130, which may NOT
+# co-install with the rest of sleap-nn — install it on its own or run the SAM3
+# image path out-of-process and assemble the `.slp` in the sleap-nn venv (the
+# two-venv handoff, PLAN §2.3 / DQ6). See docs/guides/sam-inference-segmentation.md.
+# cv2 (CLAHE / speckle cleanup) comes from the base `opencv-python` dependency.
+sam3 = [
+    "transformers>=5.0",
+]
 
 [dependency-groups]
 # PEP 735: Dev-only dependencies (`dev` is installed automatically by `uv sync`)
@@ -114,6 +133,13 @@ docs = [
     "mkdocs-section-index",
     "mkdocs-redirects",
 ]
+# GPU torch/torchvision routed through the cu130 index (see [tool.uv.sources]).
+# Listed in `default-groups` below so a bare `uv run` / `uv sync` installs the
+# CUDA build automatically on Linux/Windows x86-64 (macOS falls back to the
+# default MPS wheel). uv has `default-groups` but no `default-extras`, so a GROUP
+# — not the `gpu` extra — is what makes GPU the default. Opt out with
+# `--no-group gpu` (e.g. `uv sync --no-group gpu --extra torch-cpu`).
+gpu = ["torch", "torchvision>=0.20.0"]
 
 [project.scripts]
 sleap-nn = "sleap_nn.cli:cli"
@@ -123,6 +149,11 @@ Homepage = "https://sleap.ai"
 Repository = "https://github.com/talmolab/sleap-nn"
 
 [tool.uv]
+# `uv run` / `uv sync` install these groups by default. `gpu` (defined above)
+# routes torch to the cu130 index, so the default dev workflow gets a CUDA build
+# without passing `--extra` — and `uv run` no longer resyncs back to a CPU wheel.
+# For CPU / a different CUDA, drop the group: `uv sync --no-group gpu --extra cpu`.
+default-groups = ["dev", "gpu"]
 # Only resolve for platforms we actually support (excludes win_arm64 which has incomplete pytorch wheels)
 environments = [
     "sys_platform == 'darwin'",
@@ -143,15 +174,20 @@ conflicts = [
         { extra = "torch-cuda128" },
         { extra = "torch-cuda130" },
     ],
+    # The default `gpu` group pins torch to cu130, so it is mutually exclusive with
+    # the CPU and non-cu130 CUDA extras (same package, different index). The `gpu`
+    # and `torch-cuda130` extras share the cu130 index, so they may coexist with the
+    # group and are intentionally left out of this set.
+    [
+        { group = "gpu" },
+        { extra = "cpu" },
+        { extra = "torch-cpu" },
+        { extra = "torch-cuda118" },
+        { extra = "torch-cuda128" },
+    ],
 ]
 
 [tool.uv.sources]
-# sleap-io 0.8.0 is not yet released on PyPI; track main for the segmentation
-# (SegmentationMask / Labels.get_masks) APIs. Pinned to a commit for
-# reproducibility — update or drop once sleap-io 0.8.0 is published.
-# Bumped to include render: auto-draw SegmentationMask overlays (#461) + roi_wkb
-# gzip (#465).
-sleap-io = { git = "https://github.com/talmolab/sleap-io.git", rev = "4ee1fb388aefcd3f87691f741e0b6b34db482e8e" }
 torch = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
     # `cpu`/`gpu` are first-class extras (see [project.optional-dependencies]).
@@ -160,6 +196,9 @@ torch = [
     # it regressed Windows to CPU-only torch in #479).
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "pytorch-cu130", extra = "gpu", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
+    # Default `gpu` GROUP (see [dependency-groups] / default-groups) — mirrors the
+    # `gpu` extra so a bare `uv run`/`uv sync` gets cu130 on Linux/Windows x86-64.
+    { index = "pytorch-cu130", group = "gpu", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu118", extra = "torch-cuda118", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu128", extra = "torch-cuda128", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu130", extra = "torch-cuda130", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
@@ -168,6 +207,7 @@ torchvision = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "pytorch-cu130", extra = "gpu", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
+    { index = "pytorch-cu130", group = "gpu", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu118", extra = "torch-cuda118", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu128", extra = "torch-cuda128", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu130", extra = "torch-cuda130", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },

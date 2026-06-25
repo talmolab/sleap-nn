@@ -74,6 +74,8 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
             - 'bottomup'
             - 'multi_class_bottomup'
             - 'multi_class_topdown'
+            - 'bottomup_segmentation'
+            - 'centered_instance_segmentation'
         head_config (DictConfig): A config for the head.
 
     Returns:
@@ -106,8 +108,19 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
         heads.append(InstanceCenterHead(**head_config.center))
         heads.append(CenterOffsetHead(**head_config.offsets))
 
+    elif model_type == "centered_instance_segmentation":
+        # Top-down crop-centered segmentation: a lone foreground-mask head on a
+        # centroid crop (the centered instance). `anchor_part` lives in the head
+        # leaf but is a data-pipeline concern, not a SegmentationHead argument.
+        seg = head_config.segmentation
+        heads.append(
+            SegmentationHead(
+                output_stride=seg.output_stride, loss_weight=seg.loss_weight
+            )
+        )
+
     else:
-        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`."
+        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`."
         logger.error(message)
         raise Exception(message)
 

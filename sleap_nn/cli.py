@@ -62,6 +62,30 @@ def _parse_int_list(ctx, param, value):
         )
 
 
+class _CommaFloatTuple(click.ParamType):
+    """Click type parsing a comma-separated float list into a tuple.
+
+    Used for ``--merge_thresholds`` (e.g. ``0.85,0.6,0.4``). Accepts an already
+    parsed tuple/list (the option default) unchanged.
+    """
+
+    name = "comma_floats"
+
+    def convert(self, value, param, ctx):
+        if value is None or isinstance(value, (tuple, list)):
+            return tuple(value) if value is not None else None
+        try:
+            return tuple(
+                float(x) for x in str(value).split(",") if str(x).strip() != ""
+            )
+        except ValueError:
+            self.fail(
+                "must be a comma-separated list of floats, e.g. '0.85,0.6,0.4'",
+                param,
+                ctx,
+            )
+
+
 def is_config_path(arg: str) -> bool:
     """Check if an argument looks like a config file path.
 
@@ -1029,6 +1053,16 @@ def track(**kwargs):
     kwargs.pop("centroid_peak_threshold", None)
     kwargs.pop("centroid_output", None)
     kwargs.pop("filter_min_centroid_distance", None)
+    # SAM prompted-mask flags are new-flow-only (legacy run_inference rejects
+    # them); inert here.
+    kwargs.pop("mask_backend", None)
+    kwargs.pop("sam_checkpoint", None)
+    kwargs.pop("sam_model_type", None)
+    kwargs.pop("sam_prompt_mode", None)
+    kwargs.pop("sam_anchor_ind", None)
+    kwargs.pop("sam_disjointify_masks", None)
+    kwargs.pop("sam3_model_id", None)
+    kwargs.pop("overlay_path", None)
 
     return run_inference(**kwargs)
 
@@ -1083,6 +1117,16 @@ def _run_inference_impl(**kwargs):
         kwargs["frames"] = frame_list(kwargs["frames"])
     else:
         kwargs["frames"] = None
+
+    # The SAM mask path is in-memory only (it masks an existing .slp); it does not
+    # use the streaming Predictor. Guard here so the combo fails with a SAM-aware
+    # message instead of _run_stream_to_file's misleading "--model_paths is
+    # required" (the SAM path actually forbids --model_paths).
+    if stream_to_file is not None and kwargs.get("mask_backend"):
+        raise click.UsageError(
+            "--mask_backend is not supported with --stream-to-file; the SAM mask "
+            "path runs in-memory on an existing .slp. Run without --stream-to-file."
+        )
 
     # Exported ONNX/TRT model directories run through the in-memory flow only.
     _mps = kwargs["model_paths"]
@@ -1334,6 +1378,90 @@ def _is_export_dir(path: str) -> bool:
     return p.is_dir() and ((p / "model.onnx").exists() or (p / "model.trt").exists())
 
 
+# Remote URL schemes sleap-io 0.8.0 can load directly (fsspec for ``.slp``, PyAV
+# for video). Mirrors ``sleap_io.io._remote._URL_SCHEMES``; kept local to avoid
+# importing a private symbol (pinned by the ``sleap-io>=0.8.0,<0.9.0`` fence).
+# Single-letter schemes (e.g. a Windows ``C:`` drive) are intentionally absent,
+# so absolute Windows paths are treated as local.
+_REMOTE_URL_SCHEMES = frozenset({"http", "https", "s3", "gs", "gcs", "az", "abfs"})
+
+
+def _is_remote_url(data_path: object) -> bool:
+    """Return ``True`` if ``data_path`` is a remote URL sleap-io can load."""
+    from urllib.parse import urlparse
+
+    s = str(data_path)
+    return bool(s) and urlparse(s).scheme.lower() in _REMOTE_URL_SCHEMES
+
+
+def _resolve_data_path(data_path: object) -> "tuple[str, str, bool]":
+    """Resolve a ``--data_path`` to ``(source_str, suffix, is_url)``.
+
+    Local paths are normalized through :class:`pathlib.Path` (unchanged
+    behavior). Remote URLs are passed through verbatim — ``Path()`` collapses
+    ``scheme://`` (and flips separators to backslashes on Windows), corrupting
+    the URL before it reaches sleap-io's URL-aware loaders. A URL's suffix is
+    taken from its path component so ``.slp`` vs. video routing still works and
+    any query string / fragment is ignored.
+    """
+    from pathlib import Path
+    from urllib.parse import urlparse
+
+    if _is_remote_url(data_path):
+        s = str(data_path)
+        return s, Path(urlparse(s).path).suffix, True
+    p = Path(data_path)
+    return str(p), p.suffix, False
+
+
+def _default_predictions_path(
+    source_str: str, is_url: bool, scoped_video_name: "Optional[str]" = None
+) -> str:
+    """Derive the default ``.slp`` output path from the input source.
+
+    Local inputs write alongside the input (``<data_path>.slp``), matching legacy
+    behavior. Remote inputs cannot be written next to the source, so the output
+    lands in the current working directory under the URL's basename.
+    """
+    from pathlib import Path
+    from urllib.parse import urlparse
+
+    base = (
+        Path(urlparse(source_str).path).name or "predictions" if is_url else source_str
+    )
+    if scoped_video_name is not None:
+        return f"{Path(base).with_suffix('')}.{scoped_video_name}.predictions.slp"
+    return f"{base}.slp"
+
+
+def _build_remote_kwargs(kwargs: dict) -> dict:
+    """Collect remote-loading options (``--headers`` / ``--stream-mode``).
+
+    Returns a (possibly empty) mapping suitable for ``**``-forwarding to
+    ``sio.load_slp`` / ``sio.load_video`` (and the providers' ``remote_kwargs``).
+    """
+    import json
+
+    remote: dict = {}
+    headers = kwargs.get("headers")
+    if headers:
+        try:
+            parsed = json.loads(headers)
+        except (TypeError, ValueError) as e:
+            raise click.UsageError(
+                "--headers must be a JSON object string, e.g. "
+                '\'{"Authorization": "Bearer ..."}\' '
+                f"(got {headers!r}): {e}"
+            )
+        if not isinstance(parsed, dict):
+            raise click.UsageError("--headers JSON must be an object (key/value map).")
+        remote["headers"] = parsed
+    stream_mode = kwargs.get("stream_mode")
+    if stream_mode:
+        remote["stream_mode"] = stream_mode
+    return remote
+
+
 def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     """Run the new ``predict()`` flow synchronously and save the resulting Labels.
 
@@ -1347,6 +1475,41 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
 
     from sleap_nn.inference.predictor import Predictor
 
+    # The SAM mask path produces masks from existing poses; it never tracks.
+    # Without this guard, `--mask_backend ... --tracking` (no --model_paths)
+    # would fall into the retrack short-circuit below, which ignores
+    # mask_backend and silently produces no masks. Fail loudly instead.
+    if kwargs.get("mask_backend") and kwargs.get("tracking"):
+        raise click.UsageError(
+            "--tracking is not supported with --mask_backend; the SAM mask path "
+            "operates on the existing poses in the input .slp only. Run them "
+            "separately."
+        )
+
+    # The SAM mask path consumes a pose .slp / sio.Labels directly via
+    # run_sam_segmentation, NOT the Provider/Predictor flow. The label-status
+    # frame filters select inference frames by annotation status, which does not
+    # map onto masking the poses already present; reject them clearly rather than
+    # crash deep in run_sam_segmentation (which would ``Path()`` a LabelsProvider
+    # -> TypeError). ``--video_index`` and ``--frames`` ARE supported (below).
+    if kwargs.get("mask_backend"):
+        _sam_unsupported = [
+            f"--{flag}"
+            for flag in (
+                "only_labeled_frames",
+                "only_suggested_frames",
+                "exclude_user_labeled",
+                "only_predicted_frames",
+            )
+            if kwargs.get(flag)
+        ]
+        if _sam_unsupported:
+            raise click.UsageError(
+                f"{', '.join(_sam_unsupported)} not supported with --mask_backend; "
+                "it masks the poses already in the input .slp. Use --frames to "
+                "subset frames, or pre-filter the .slp."
+            )
+
     # ── Tracking-only retrack: no model_paths, --tracking on a .slp ────
     if not kwargs.get("model_paths") and kwargs.get("tracking"):
         return _run_retrack_only(kwargs, Predictor)
@@ -1354,7 +1517,11 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     from sleap_nn.inference.providers import LabelsProvider, VideoProvider
     from sleap_nn.inference.run import predict
 
-    src = Path(kwargs["data_path"])
+    # Resolve the input: local paths normalize through Path(); remote URLs pass
+    # through verbatim (Path() would corrupt scheme://). Remote auth/stream
+    # options (--headers/--stream-mode) are forwarded to the URL-aware loaders.
+    source_str, src_suffix, src_is_url = _resolve_data_path(kwargs["data_path"])
+    remote_kwargs = _build_remote_kwargs(kwargs)
 
     # Build source: use a provider when CLI-specific filtering or
     # video kwargs are needed, otherwise pass the raw path.
@@ -1372,7 +1539,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     # collide on one output path). Stays None for the non-video_index case. #583.
     scoped_video_name = None
     video_index = kwargs.get("video_index")
-    if src.suffix == ".slp" and video_index is not None:
+    if src_suffix == ".slp" and video_index is not None:
         import sleap_io as sio
 
         # Scope to the requested video (re-indexed to slot 0 so its frames map to
@@ -1381,40 +1548,58 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         # re-attached on output (same as the has_slp_filters path); the output is
         # video-name-suffixed instead. Carries suggestions + the --frames filter.
         scoped, target_video = _scope_labels_to_video(
-            sio.load_slp(str(src)), video_index, frames=kwargs.get("frames")
+            sio.load_slp(source_str, **remote_kwargs),
+            video_index,
+            frames=kwargs.get("frames"),
         )
-        source = LabelsProvider(
-            labels=scoped,
-            batch_size=kwargs.get("batch_size", 4),
-            only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
-            only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
-            exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
-            only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
-        )
+        if kwargs.get("mask_backend"):
+            # run_sam_segmentation accepts a sio.Labels directly; pass the scoped
+            # Labels (not a LabelsProvider, which it cannot consume).
+            source = scoped
+        else:
+            source = LabelsProvider(
+                labels=scoped,
+                batch_size=kwargs.get("batch_size", 4),
+                only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
+                only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
+                exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
+                only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
+            )
         _vfn = getattr(target_video, "filename", None)
         scoped_video_name = Path(str(_vfn)).stem if _vfn else f"video_{video_index}"
-    elif src.suffix == ".slp" and has_slp_filters:
+    elif src_suffix == ".slp" and has_slp_filters:
         source = LabelsProvider(
-            labels=str(src),
+            labels=source_str,
             batch_size=kwargs.get("batch_size", 4),
             only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
             only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
             exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
             only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
+            remote_kwargs=remote_kwargs or None,
         )
-    elif src.suffix != ".slp" and (
+    elif src_suffix != ".slp" and (
         kwargs.get("video_dataset")
         or kwargs.get("video_input_format", "channels_last") != "channels_last"
+        or remote_kwargs
     ):
         source = VideoProvider(
-            video=str(src),
+            video=source_str,
             batch_size=kwargs.get("batch_size", 4),
             frames=kwargs.get("frames"),
             dataset=kwargs.get("video_dataset"),
             input_format=kwargs.get("video_input_format"),
+            remote_kwargs=remote_kwargs or None,
         )
+    elif src_is_url and src_suffix == ".slp" and remote_kwargs:
+        # A bare remote .slp would otherwise be loaded by predict() without the
+        # remote kwargs; load it here with them and pass the Labels object so
+        # predict()'s frame selection (which keys on a Labels source the same way
+        # it does on a .slp path) is preserved.
+        import sleap_io as sio
+
+        source = sio.load_slp(source_str, **remote_kwargs)
     else:
-        source = str(src)
+        source = source_str
 
     peak_thresh = kwargs.get("peak_threshold", 0.2)
     centroid_thresh = kwargs.get("centroid_peak_threshold") or peak_thresh
@@ -1443,13 +1628,11 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         "clean_empty_frames": bool(kwargs.get("no_empty_frames")),
         "output_path": (
             kwargs.get("output_path")
-            or (
-                f"{src.with_suffix('')}.{scoped_video_name}.predictions.slp"
-                if scoped_video_name is not None
-                else f"{src}.slp"
-            )
+            or _default_predictions_path(source_str, src_is_url, scoped_video_name)
         ),
         "output_format": kwargs.get("output_format") or "slp",
+        "embed": kwargs.get("embed") or "false",
+        "restore_source_videos": kwargs.get("restore_source_videos", True),
         # Bottom-up PAF grouping knobs (inert for non-bottom-up models). #583.
         "max_edge_length_ratio": kwargs.get("max_edge_length_ratio", 0.25),
         "dist_penalty_weight": kwargs.get("dist_penalty_weight", 1.0),
@@ -1462,10 +1645,35 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
         "mask_cleanup_radius": kwargs.get("mask_cleanup_radius", 0),
+        "distance_gate_alpha": kwargs.get("distance_gate_alpha"),
+        "merge_fragments": kwargs.get("merge_fragments", False),
+        "merge_method": kwargs.get("merge_method", "greedy"),
+        "merge_thresholds": kwargs.get("merge_thresholds", (0.85, 0.6, 0.4)),
+        "merge_w_valley": kwargs.get("merge_w_valley", 1.0),
+        "merge_w_offset": kwargs.get("merge_w_offset", 0.25),
+        "merge_dilate": kwargs.get("merge_dilate", 1),
         "full_res_masks": kwargs.get("full_res_masks", False),
         "mask_output": kwargs.get("mask_output", "mask"),
         "polygon_epsilon": kwargs.get("polygon_epsilon", 0.01),
     }
+    # SAM prompted-mask producer (§1.4): when --mask_backend is set, masks are
+    # produced from the poses already in the input .slp (no trained seg model).
+    # run.predict() short-circuits on mask_backend and ignores the inert model
+    # knobs carried in predict_kwargs. No --tracking, so this path is not caught
+    # by the retrack short-circuit above. model_paths stays empty (the SAM path
+    # rejects model_paths), so do not pass --model_paths alongside --mask_backend.
+    if kwargs.get("mask_backend"):
+        predict_kwargs["mask_backend"] = kwargs["mask_backend"]
+        predict_kwargs["sam_checkpoint"] = kwargs.get("sam_checkpoint")
+        predict_kwargs["sam_model_type"] = kwargs.get("sam_model_type", "vit_h")
+        predict_kwargs["sam_prompt_mode"] = kwargs.get("sam_prompt_mode", "pose")
+        predict_kwargs["sam_anchor_ind"] = kwargs.get("sam_anchor_ind")
+        predict_kwargs["sam_disjointify_masks"] = bool(
+            kwargs.get("sam_disjointify_masks")
+        )
+        predict_kwargs["sam3_model_id"] = kwargs.get("sam3_model_id", "facebook/sam3")
+        predict_kwargs["overlay_path"] = kwargs.get("overlay_path")
+
     preprocess_config = _build_preprocess_config(kwargs)
     if preprocess_config is not None:
         predict_kwargs["preprocess_config"] = preprocess_config
@@ -1543,14 +1751,15 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
 
     import sleap_io as sio
 
-    src = Path(kwargs["data_path"])
-    if src.suffix != ".slp":
+    source_str, src_suffix, src_is_url = _resolve_data_path(kwargs["data_path"])
+    remote_kwargs = _build_remote_kwargs(kwargs)
+    if src_suffix != ".slp":
         raise click.UsageError(
             "Tracking-only mode requires --data_path to be a .slp file. "
             "Pass --model_paths to run inference + tracking."
         )
 
-    labels = sio.load_slp(str(src))
+    labels = sio.load_slp(source_str, **remote_kwargs)
 
     # Scope by --video_index (raises on out-of-range, like the inference paths)
     # and/or --frames, carrying suggestions + the source provenance. #583.
@@ -1598,7 +1807,7 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
     # set it; the new retrack flow previously saved with empty provenance). #583.
     out.provenance = build_tracking_only_provenance(
         input_labels=labels,
-        input_path=str(src),
+        input_path=source_str,
         start_time=_start,
         end_time=datetime.now(),
         tracking_params=_attrs.asdict(tracker_config),
@@ -1606,9 +1815,15 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
     )
     from sleap_nn.inference.run import save_predictions
 
-    output_path = kwargs.get("output_path") or f"{src}.slp"
+    output_path = kwargs.get("output_path") or _default_predictions_path(
+        source_str, src_is_url
+    )
     save_predictions(
-        out, output_path, output_format=kwargs.get("output_format") or "slp"
+        out,
+        output_path,
+        output_format=kwargs.get("output_format") or "slp",
+        embed=kwargs.get("embed") or "false",
+        restore_source_videos=kwargs.get("restore_source_videos", True),
     )
     return out
 
@@ -1801,6 +2016,15 @@ def _run_stream_to_file(
             "--stream-to-file only supports --output_format slp. Drop "
             "--stream-to-file to write analysis HDF5 via the in-memory path."
         )
+    if (kwargs.get("embed") or "false") != "false" or (
+        kwargs.get("restore_source_videos", True) is False
+    ):
+        raise click.UsageError(
+            "--embed / --restore_source_videos are not supported with "
+            "--stream-to-file: the incremental writer saves with sleap-io "
+            "defaults (no embedding, original-video refs restored). Drop "
+            "--stream-to-file to control embedding."
+        )
     if not kwargs.get("model_paths"):
         raise click.UsageError("--model_paths is required for --stream-to-file.")
     data_path = kwargs.get("data_path")
@@ -1834,6 +2058,13 @@ def _run_stream_to_file(
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
         "mask_cleanup_radius": kwargs.get("mask_cleanup_radius", 0),
+        "distance_gate_alpha": kwargs.get("distance_gate_alpha"),
+        "merge_fragments": kwargs.get("merge_fragments", False),
+        "merge_method": kwargs.get("merge_method", "greedy"),
+        "merge_thresholds": kwargs.get("merge_thresholds", (0.85, 0.6, 0.4)),
+        "merge_w_valley": kwargs.get("merge_w_valley", 1.0),
+        "merge_w_offset": kwargs.get("merge_w_offset", 0.25),
+        "merge_dilate": kwargs.get("merge_dilate", 1),
         "full_res_masks": kwargs.get("full_res_masks", False),
         "mask_output": kwargs.get("mask_output", "mask"),
         "polygon_epsilon": kwargs.get("polygon_epsilon", 0.01),
@@ -1855,16 +2086,19 @@ def _run_stream_to_file(
 
     predictor = Predictor.from_model_paths(kwargs["model_paths"], **factory_kwargs)
 
-    src = Path(data_path)
+    source_str, src_suffix, _src_is_url = _resolve_data_path(data_path)
+    remote_kwargs = _build_remote_kwargs(kwargs)
     video_index = kwargs.get("video_index")
-    if src.suffix == ".slp" and video_index is not None:
+    if src_suffix == ".slp" and video_index is not None:
         # Scope streaming inference to the requested video of a multi-video .slp
         # (re-indexed to videos[0] so frames map correctly). Carries suggestions
         # + the --frames filter. #583.
         import sleap_io as sio
 
         scoped, _target_video = _scope_labels_to_video(
-            sio.load_slp(str(src)), video_index, frames=kwargs.get("frames")
+            sio.load_slp(source_str, **remote_kwargs),
+            video_index,
+            frames=kwargs.get("frames"),
         )
         provider = LabelsProvider(
             labels=scoped,
@@ -1874,22 +2108,24 @@ def _run_stream_to_file(
             exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
             only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
         )
-    elif src.suffix == ".slp":
+    elif src_suffix == ".slp":
         provider = LabelsProvider(
-            labels=str(src),
+            labels=source_str,
             batch_size=kwargs.get("batch_size", 4),
             only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
             only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
             exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
             only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
+            remote_kwargs=remote_kwargs or None,
         )
     else:
         provider = VideoProvider(
-            video=str(src),
+            video=source_str,
             batch_size=kwargs.get("batch_size", 4),
             frames=kwargs.get("frames"),
             dataset=kwargs.get("video_dataset"),
             input_format=kwargs.get("video_input_format"),
+            remote_kwargs=remote_kwargs or None,
         )
 
     if kwargs.get("gui"):
@@ -1926,7 +2162,27 @@ def _common_inference_options(f):
             "-i",
             type=str,
             required=True,
-            help="Path to data to predict on. Labels (.slp) file or any supported video format.",
+            help="Path to data to predict on. A local Labels (.slp) file or video, "
+            "or a remote URL (http(s)://, s3://, gs://, gcs://, az://, abfs://) to "
+            "a .slp or video that sleap-io can load.",
+        ),
+        click.option(
+            "--headers",
+            type=str,
+            default=None,
+            help="JSON object of HTTP headers for a remote --data_path URL, e.g. "
+            '\'{"Authorization": "Bearer <token>"}\'. Forwarded to the remote '
+            "loader; ignored for local inputs.",
+        ),
+        click.option(
+            "--stream-mode",
+            "--stream_mode",
+            "stream_mode",
+            type=str,
+            default=None,
+            help="Remote read strategy for a --data_path URL (forwarded to "
+            "sleap-io's loader, e.g. 'auto'/'stream'/'download'). Ignored for "
+            "local inputs.",
         ),
         click.option(
             "--model_paths",
@@ -1946,6 +2202,24 @@ def _common_inference_options(f):
             type=click.Choice(["slp", "analysis_h5", "both"], case_sensitive=False),
             default="slp",
             help="Output format: 'slp' (SLEAP labels file, the default), 'analysis_h5' (SLEAP Analysis HDF5, one '.analysis.h5' per video), or 'both'.",
+        ),
+        click.option(
+            "--embed",
+            type=click.Choice(["auto", "true", "false"], case_sensitive=False),
+            default="false",
+            help="Image-embedding policy for a .slp output: 'false' (default; "
+            "never embed, backreference source media), 'true' (embed images "
+            "into a self-contained .pkg.slp-style file), or 'auto' (embed iff "
+            "the input was itself an embedded .pkg.slp). Only applies to .slp output.",
+        ),
+        click.option(
+            "--restore_source_videos/--no-restore_source_videos",
+            "restore_source_videos",
+            default=True,
+            help="On a non-embedding .slp save, restore references to the "
+            "original source video files (default). Use "
+            "--no-restore_source_videos to keep references to the input "
+            ".pkg.slp file(s) instead. Ignored when embedding.",
         ),
         click.option(
             "--device",
@@ -2114,6 +2388,85 @@ def _common_inference_options(f):
             "segmentation models only).",
         ),
         click.option(
+            "--distance_gate_alpha",
+            "--distance-gate-alpha",
+            "distance_gate_alpha",
+            type=float,
+            default=None,
+            help="Adaptive distance-gate strength: drop foreground pixels whose "
+            "offset-predicted center exceeds alpha*sqrt(area/pi) from their "
+            "assigned center (a scale-free stray-pixel/phantom filter). Unset "
+            "(default) keeps the byte-for-byte argmin grouping. Recommended "
+            "dense-mice value ~0.5; opt-in, validate before relying on it "
+            "(bottom-up segmentation models only).",
+        ),
+        click.option(
+            "--merge_fragments/--no-merge_fragments",
+            "--merge-fragments/--no-merge-fragments",
+            "merge_fragments",
+            default=False,
+            help="Re-fuse over-segmented animal halves via a region-adjacency "
+            "graph (center-valley + offset-agreement affinity) before "
+            "--min_mask_area, while keeping genuinely-touching distinct animals "
+            "apart. Default off (byte-for-byte today). Pairs well with "
+            "--distance_gate_alpha and --min_mask_area (bottom-up segmentation "
+            "models only).",
+        ),
+        click.option(
+            "--merge_method",
+            "--merge-method",
+            "merge_method",
+            type=click.Choice(["greedy", "multicut"]),
+            default="greedy",
+            help="Fragment-merge agglomeration: 'greedy' (default, recommended "
+            "decreasing-threshold) or 'multicut' (greedy correlation "
+            "clustering). Inert unless --merge_fragments (bottom-up segmentation "
+            "models only).",
+        ),
+        click.option(
+            "--merge_thresholds",
+            "--merge-thresholds",
+            "merge_thresholds",
+            type=_CommaFloatTuple(),
+            default=(0.85, 0.6, 0.4),
+            help="Comma-separated decreasing affinity thresholds for the greedy "
+            "fragment-merge phases (default '0.85,0.6,0.4'). Keep the floor >=0.4 "
+            "to avoid bridging distinct animals. Inert unless --merge_fragments "
+            "(bottom-up segmentation models only).",
+        ),
+        click.option(
+            "--merge_w_valley",
+            "--merge-w-valley",
+            "merge_w_valley",
+            type=float,
+            default=1.0,
+            help="Weight on the center-valley ridge term of the fragment-merge "
+            "affinity (load-bearing: protects touching animals). Default 1.0. "
+            "Inert unless --merge_fragments (bottom-up segmentation models only).",
+        ),
+        click.option(
+            "--merge_w_offset",
+            "--merge-w-offset",
+            "merge_w_offset",
+            type=float,
+            default=0.25,
+            help="Weight on the offset-agreement term of the fragment-merge "
+            "affinity. Default 0.25. Inert unless --merge_fragments (bottom-up "
+            "segmentation models only).",
+        ),
+        click.option(
+            "--merge_dilate",
+            "--merge-dilate",
+            "merge_dilate",
+            type=int,
+            default=1,
+            help="Dilation iterations for the fragment-merge contact test "
+            "(output-stride pixels). Default 1; clamped to a minimum of 1 "
+            "(the grouped masks are mutually exclusive, so a zero-dilation "
+            "contact test would disable the merge). Inert unless "
+            "--merge_fragments (bottom-up segmentation models only).",
+        ),
+        click.option(
             "--full_res_masks/--no-full_res_masks",
             "--full-res-masks/--no-full-res-masks",
             "full_res_masks",
@@ -2148,6 +2501,81 @@ def _common_inference_options(f):
             "polygon/both, as a fraction of each contour's perimeter. Larger = "
             "coarser polygons. 0 disables simplification (bottom-up segmentation "
             "models only).",
+        ),
+        # SAM prompted-mask producer ───────────────────────────────────
+        # These produce masks from the poses already in the input .slp; no
+        # trained seg model is involved, so they are mutually exclusive with
+        # --model_paths (do not pass it). Inert unless --mask_backend is set.
+        click.option(
+            "--mask_backend",
+            "--mask-backend",
+            "mask_backend",
+            type=click.Choice(["sam", "sam3"], case_sensitive=False),
+            default=None,
+            help="Produce instance masks from the poses in the input .slp using "
+            "a SAM backend: 'sam' (SAM1, needs --sam_checkpoint) or 'sam3' "
+            "(needs --sam3_model_id). No trained segmentation model is used, so "
+            "do not pass --model_paths. Off by default.",
+        ),
+        click.option(
+            "--sam_checkpoint",
+            "--sam-checkpoint",
+            "sam_checkpoint",
+            type=str,
+            default=None,
+            help="Path to the SAM1 checkpoint (required for --mask_backend sam).",
+        ),
+        click.option(
+            "--sam_model_type",
+            "--sam-model-type",
+            "sam_model_type",
+            type=str,
+            default="vit_h",
+            help="SAM1 model registry key (e.g. 'vit_h', 'vit_l', 'vit_b').",
+        ),
+        click.option(
+            "--sam_prompt_mode",
+            "--sam-prompt-mode",
+            "sam_prompt_mode",
+            type=click.Choice(["pose", "centroid", "box"]),
+            default="pose",
+            help="How poses are turned into SAM prompts: 'pose' (all keypoints "
+            "as point prompts), 'centroid' (single anchor point), or 'box' "
+            "(instance bounding box).",
+        ),
+        click.option(
+            "--sam_anchor_ind",
+            "--sam-anchor-ind",
+            "sam_anchor_ind",
+            type=int,
+            default=None,
+            help="Centroid anchor node index for --sam_prompt_mode centroid.",
+        ),
+        click.option(
+            "--sam_disjointify_masks",
+            "--sam-disjointify-masks",
+            "sam_disjointify_masks",
+            is_flag=True,
+            default=False,
+            help="Make per-frame masks disjoint when a frame has >=2 instances.",
+        ),
+        click.option(
+            "--sam3_model_id",
+            "--sam3-model-id",
+            "sam3_model_id",
+            type=str,
+            default="facebook/sam3",
+            help="Hugging Face model id for the gated SAM3 backend "
+            "(--mask_backend sam3).",
+        ),
+        click.option(
+            "--overlay_path",
+            "--overlay-path",
+            "overlay_path",
+            type=str,
+            default=None,
+            help="Optional review-overlay PNG path written by the SAM mask "
+            "path (--mask_backend).",
         ),
         click.option(
             "--queue_maxsize",
@@ -2360,12 +2788,12 @@ def infer(**kwargs):
 )
 @click.option(
     "--match_method",
-    type=click.Choice(["oks", "centroid", "auto"]),
+    type=click.Choice(["oks", "centroid", "mask", "auto"]),
     default="auto",
     help=(
         "Matching method: 'oks' (full-skeleton), 'centroid' (single-point "
-        "pixel-distance), or 'auto' (centroid when the prediction skeleton is "
-        "single-node). Default: auto."
+        "pixel-distance), 'mask' (instance-segmentation mask IoU), or 'auto' "
+        "(centroid when the prediction skeleton is single-node). Default: auto."
     ),
 )
 @click.option(

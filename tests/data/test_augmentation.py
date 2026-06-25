@@ -20,6 +20,71 @@ from sleap_nn.data.normalization import apply_normalization
 from sleap_nn.data.providers import process_lf
 
 
+def _synthetic_img_and_mask(h=128, w=128):
+    """A float image whose foreground IS the mask (so co-transform alignment is exact)."""
+    yy, xx = np.mgrid[0:h, 0:w]
+    mask = (((xx - 54) / 30.0) ** 2 + ((yy - 64) / 14.0) ** 2) <= 1.0
+    img = np.zeros((1, 1, h, w), dtype=np.float32)
+    img[0, 0][mask] = 1.0
+    masks = torch.from_numpy(mask[None, None].astype(np.float32))  # (1, 1, H, W)
+    return torch.from_numpy(img), masks, mask
+
+
+def _iou(a, b):
+    inter = np.logical_and(a, b).sum()
+    union = np.logical_or(a, b).sum()
+    return float(inter) / float(union) if union else 1.0
+
+
+def test_geometric_augmentation_cotransforms_mask_under_rotation():
+    """A mask passed via `masks=` is warped by the SAME affine as the image."""
+    np.random.seed(0)
+    img, masks, _ = _synthetic_img_and_mask()
+    kp = torch.zeros((1, 1, 2))
+    out = apply_geometric_augmentation(
+        img, kp, rotation_min=90, rotation_max=90, rotation_p=1.0, masks=masks
+    )
+    assert len(out) == 3, "passing masks must return a 3-tuple"
+    img_r, _, masks_r = out
+    # Mask stays crisply binary and aligned with the rotated image foreground.
+    assert set(np.unique(masks_r.numpy())).issubset({0.0, 1.0})
+    img_fg = img_r[0, 0].numpy() > 0.5
+    mask_fg = masks_r[0, 0].numpy() > 0.5
+    assert _iou(img_fg, mask_fg) > 0.95
+
+
+def test_geometric_augmentation_without_mask_is_backcompat():
+    """Omitting `masks` returns the original 2-tuple (pose path unchanged)."""
+    img, _, _ = _synthetic_img_and_mask()
+    kp = torch.zeros((1, 1, 2))
+    out = apply_geometric_augmentation(
+        img, kp, rotation_p=1.0, rotation_min=10, rotation_max=10
+    )
+    assert len(out) == 2
+
+
+def test_flip_augmentation_mirrors_mask_exactly():
+    """`apply_flip_augmentation(masks=...)` mirrors the mask losslessly (np.fliplr)."""
+    img, masks, mask = _synthetic_img_and_mask()
+    kp = torch.zeros((1, 1, 2))
+    out = apply_flip_augmentation(img, kp, flip_p=1.0, masks=masks)
+    assert len(out) == 3
+    _, _, masks_f = out
+    assert np.array_equal(masks_f[0, 0].numpy() > 0.5, np.fliplr(mask))
+
+
+def test_geometric_augmentation_mask_excluded_from_erase():
+    """Random erase is image-only; the co-transformed mask is untouched by it."""
+    np.random.seed(0)
+    img, masks, mask = _synthetic_img_and_mask()
+    kp = torch.zeros((1, 1, 2))
+    # No affine (all p=0), erase always -> mask must equal the input mask exactly.
+    _, _, masks_out = apply_geometric_augmentation(
+        img, kp, erase_p=1.0, erase_scale_min=0.05, erase_scale_max=0.1, masks=masks
+    )
+    assert np.array_equal(masks_out[0, 0].numpy() > 0.5, mask)
+
+
 def test_apply_intensity_augmentation(minimal_instance):
     """Test `apply_intensity_augmentation` function."""
     labels = sio.load_slp(minimal_instance)

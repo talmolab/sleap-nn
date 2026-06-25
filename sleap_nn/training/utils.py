@@ -265,6 +265,15 @@ class VisualizationData:
         pred_center_heatmap: Center heatmap for segmentation models, optional.
         pred_offsets: Center-offset field (H, W, 2) for segmentation models,
             optional. Rendered as a per-pixel offset-magnitude map.
+        gt_mask: Ground-truth foreground mask (H, W) or (H, W, 1) for segmentation
+            models, optional. Rendered as a translucent overlay so the predicted
+            foreground probability can be compared against truth each epoch.
+        instance_masks: Grouped predicted per-instance masks for bottom-up
+            segmentation, as a list of ``(H, W)`` boolean arrays at output-stride
+            resolution (one per detected instance), optional. Rendered as a
+            colored overlay (one color per instance) so instance separation — the
+            model's actual output — is visible each epoch. These are the masks the
+            offset-grouping in ``get_visualization_data`` already computes.
     """
 
     image: np.ndarray
@@ -279,6 +288,8 @@ class VisualizationData:
     pred_class_maps: Optional[np.ndarray] = None
     pred_center_heatmap: Optional[np.ndarray] = None
     pred_offsets: Optional[np.ndarray] = None
+    gt_mask: Optional[np.ndarray] = None
+    instance_masks: Optional[List[np.ndarray]] = None
 
 
 class MatplotlibRenderer:
@@ -303,6 +314,58 @@ class MatplotlibRenderer:
         fig = plot_img(img, dpi=72 * scale, scale=scale)
         plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
         plot_peaks(data.gt_instances, data.pred_peaks, paired=data.is_paired)
+        return fig
+
+    def render_gt_mask(self, data: VisualizationData) -> matplotlib.figure.Figure:
+        """Render the predicted foreground vs the ground-truth mask overlay.
+
+        Draws the image, overlays the predicted foreground probability (as for the
+        standard confmap render), then outlines the ground-truth foreground mask so
+        the prediction can be compared against truth each epoch (the segmentation
+        analog of pose's GT-keypoint overlay).
+
+        Args:
+            data: VisualizationData with ``gt_mask`` populated.
+
+        Returns:
+            A matplotlib Figure object.
+        """
+        if data.gt_mask is None:
+            raise ValueError("gt_mask is None, cannot render GT mask overlay")
+
+        img = data.image
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+
+        gt = np.asarray(data.gt_mask)
+        if gt.ndim == 3:
+            gt = gt[..., 0]
+        gt = gt.astype(np.float32)
+
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        # Predicted foreground probability as a translucent heatmap (same overlay
+        # the confmap render uses), so pred and GT are visible together.
+        plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
+        ax = plt.gca()
+        gt_output_scale = gt.shape[0] / img.shape[0]
+        extent = [
+            -0.5,
+            gt.shape[1] / gt_output_scale - 0.5,
+            gt.shape[0] / gt_output_scale - 0.5,
+            -0.5,
+        ]
+        # GT foreground outline (single contour at the 0.5 level).
+        ax.contour(
+            np.linspace(extent[0], extent[1], gt.shape[1]),
+            np.linspace(extent[3], extent[2], gt.shape[0]),
+            gt,
+            levels=[0.5],
+            colors="lime",
+            linewidths=1.5,
+        )
         return fig
 
     def render_pafs(self, data: VisualizationData) -> matplotlib.figure.Figure:
@@ -390,6 +453,100 @@ class MatplotlibRenderer:
                 -0.5,
             ],
         )
+        return fig
+
+    #: Distinct per-instance overlay colors (RGB, 0-1), cycled by instance index.
+    _INSTANCE_COLORS = [
+        (1.0, 0.31, 0.31),
+        (0.31, 1.0, 0.31),
+        (0.31, 0.31, 1.0),
+        (1.0, 1.0, 0.31),
+        (1.0, 0.31, 1.0),
+        (0.31, 1.0, 1.0),
+        (1.0, 0.63, 0.31),
+        (0.63, 0.31, 1.0),
+    ]
+
+    def render_instance_masks(
+        self, data: VisualizationData
+    ) -> matplotlib.figure.Figure:
+        """Render grouped predicted per-instance masks as a colored overlay.
+
+        Each predicted instance's mask (from the offset-grouping that already runs
+        in ``get_visualization_data``) is drawn in a distinct color on the input
+        image, so instance separation — the model's actual output, and the single
+        most informative seg diagnostic — is visible each epoch. When a GT
+        foreground mask is present (``gt_mask``), its silhouette is outlined for
+        reference. Empty instance lists render the plain image (no instances
+        detected this epoch).
+
+        Args:
+            data: VisualizationData with ``instance_masks`` populated (a list of
+                ``(H, W)`` boolean masks at output-stride resolution).
+
+        Returns:
+            A matplotlib Figure object.
+        """
+        if data.instance_masks is None:
+            raise ValueError(
+                "instance_masks is None, cannot render instance-mask overlay"
+            )
+
+        img = data.image
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        ax = plt.gca()
+
+        masks = [np.asarray(m, dtype=bool) for m in data.instance_masks]
+        masks = [m[..., 0] if m.ndim == 3 else m for m in masks]
+        if masks:
+            h, w = masks[0].shape[:2]
+            mask_output_scale = h / img.shape[0]
+            extent = [
+                -0.5,
+                w / mask_output_scale - 0.5,
+                h / mask_output_scale - 0.5,
+                -0.5,
+            ]
+            # Build a translucent RGBA overlay: one color per instance, alpha only
+            # where that instance's mask is set (background stays transparent).
+            overlay = np.zeros((h, w, 4), dtype=np.float32)
+            for i, m in enumerate(masks):
+                if m.shape[:2] != (h, w):
+                    continue
+                r, g, b = self._INSTANCE_COLORS[i % len(self._INSTANCE_COLORS)]
+                overlay[m, 0] = r
+                overlay[m, 1] = g
+                overlay[m, 2] = b
+                overlay[m, 3] = 0.5
+            ax.imshow(overlay, origin="upper", extent=extent, interpolation="nearest")
+
+        # Optional GT foreground silhouette outline for reference.
+        if data.gt_mask is not None:
+            gt = np.asarray(data.gt_mask)
+            if gt.ndim == 3:
+                gt = gt[..., 0]
+            gt = gt.astype(np.float32)
+            gt_output_scale = gt.shape[0] / img.shape[0]
+            gextent = [
+                -0.5,
+                gt.shape[1] / gt_output_scale - 0.5,
+                gt.shape[0] / gt_output_scale - 0.5,
+                -0.5,
+            ]
+            ax.contour(
+                np.linspace(gextent[0], gextent[1], gt.shape[1]),
+                np.linspace(gextent[3], gextent[2], gt.shape[0]),
+                gt,
+                levels=[0.5],
+                colors="white",
+                linewidths=1.0,
+            )
         return fig
 
 
