@@ -16,6 +16,12 @@ Run predictions on videos and label files.
       uv run sleap-nn predict ...
       ```
 
+!!! abstract "In this section"
+    - **Running Inference** (this page) — run predictions from the CLI
+    - [Python API](inference-api.md) — embed inference in Python (`Predictor` / `predict` / `Outputs`)
+    - [Centroid-Only](centroid-only-inference.md) — run a centroid model standalone
+    - [Performance](inference-performance.md) — tune throughput (FP16, `torch.compile`, workers)
+
 ---
 
 ## Quick Start

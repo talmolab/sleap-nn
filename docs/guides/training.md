@@ -12,6 +12,13 @@ Train pose estimation models with SLEAP-NN.
       uv run sleap-nn train ...
       ```
 
+!!! abstract "In this section"
+    - **Training Models** (this page) — configure and run training
+    - [Config Generator](config-generator.md) — generate configs via TUI or auto mode
+    - [Negative Frames](negative-frames.md) — reduce false positives with background frames
+    - [Monitoring](monitoring.md) — WandB, visualizations, epoch-end evaluation
+    - [Multi-GPU](multi-gpu.md) — scale training across multiple GPUs
+
 ---
 
 ## Basic Training
