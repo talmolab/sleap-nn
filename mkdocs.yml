@@ -137,6 +137,7 @@ nav:
     - Inference:
       - Overview: guides/inference/overview.md
       - Running Inference: guides/inference-guide.md
+      - Post-Processing Filters: guides/post-processing-filters.md
       - Python API: guides/inference-api.md
       - Centroid-Only: guides/centroid-only-inference.md
       - Top-Down Segmentation: guides/topdown-segmentation.md
