@@ -2,11 +2,12 @@
 # requires-python = ">=3.11,<3.14"
 # dependencies = [
 #     "marimo",
-#     "sleap-nn @ git+https://github.com/talmolab/sleap-nn.git",
+#     "sleap-nn>=0.2.0",
+#     # For the latest unreleased changes instead, comment the line above and use:
+#     # "sleap-nn @ git+https://github.com/talmolab/sleap-nn.git",
 #     "torch",
 #     "torchvision",
 #     "imageio-ffmpeg",
-#     "matplotlib",
 # ]
 #
 # # GPU on molab: turn it on with the notebook-specs button in the app header, then
@@ -63,7 +64,6 @@ def _():
     import urllib.request
     from pathlib import Path
 
-    import matplotlib.pyplot as plt
     import torch
     from omegaconf import OmegaConf
 
@@ -90,7 +90,6 @@ def _():
         get_model_config,
         get_trainer_config,
         mo,
-        plt,
         predict,
         run_training,
         shutil,
@@ -174,31 +173,19 @@ def _(mo, sio, test_slp, train_slp, val_slp):
         | Instances / frame | **{max(len(lf.instances) for lf in train_labels)}** (multi-animal → tracking) |
         | Skeleton | **{len(skeleton.nodes)}** nodes — {", ".join(n.name for n in skeleton.nodes)} |
         """)
-    return skeleton, test_labels, train_labels
+    return test_labels, train_labels
 
 
 @app.cell(hide_code=True)
-def _(plt, skeleton, train_labels):
-    _fig, _axes = plt.subplots(1, 3, figsize=(12, 4))
-    for _ax, _lf in zip(_axes, train_labels[:3]):
-        _ax.imshow(_lf.image, cmap="gray")
-        for _k, _inst in enumerate(_lf.instances):
-            _pts = _inst.numpy()
-            _col = ["lime", "red"][_k % 2]
-            for _s, _d in skeleton.edge_inds:
-                _ax.plot(
-                    [_pts[_s, 0], _pts[_d, 0]],
-                    [_pts[_s, 1], _pts[_d, 1]],
-                    "-",
-                    color=_col,
-                    linewidth=1,
-                    alpha=0.8,
-                )
-            _ax.scatter(_pts[:, 0], _pts[:, 1], c=_col, s=8, zorder=3)
-        _ax.set_title(f"frame {_lf.frame_idx}", fontsize=9)
-        _ax.axis("off")
-    _fig.tight_layout()
-    _fig
+def _(mo, sio, train_labels):
+    # Render a few labeled training frames with sleap-io (per-fly skeleton overlay).
+    _imgs = []
+    for _i in range(3):
+        sio.render_image(
+            train_labels, f"sample_{_i}.png", lf_ind=_i, color_by="instance"
+        )
+        _imgs.append(mo.image(f"sample_{_i}.png", width=320))
+    mo.hstack(_imgs)
     return
 
 
