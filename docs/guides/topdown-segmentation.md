@@ -132,5 +132,5 @@ COCO-style mask AP/AR. `match_threshold` is the minimum IoU in `(0, 1]`.
 
 ## See also
 
-- [Bottom-up segmentation](inference.md) — single-pass, detector-free masks.
+- [Bottom-up segmentation](inference-guide.md) — single-pass, detector-free masks.
 - [Centroid-only inference](centroid-only-inference.md) — the centroid stage standalone.

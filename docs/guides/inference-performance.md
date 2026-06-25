@@ -16,7 +16,7 @@ and can be re-run to validate your own setup.
 
 !!! success "Recommended defaults"
     ```bash
-    sleap-nn track -i video.mp4 -m models/my_model/ \
+    sleap-nn predict -i video.mp4 -m models/my_model/ \
         --device cuda \
         --batch_size 4
     ```
@@ -198,7 +198,7 @@ Expected speedup vs eager-CPU: 20–50× on CUDA for a 5-minute video.
 ### "I want a quick sanity check on a 10-frame clip"
 
 ```bash
-sleap-nn track -i clip.mp4 -m models/my_model/ --device cuda --batch_size 4
+sleap-nn predict -i clip.mp4 -m models/my_model/ --device cuda --batch_size 4
 ```
 
 Skip FP16 + compile — both add overhead that dominates short runs.
@@ -206,7 +206,7 @@ Skip FP16 + compile — both add overhead that dominates short runs.
 ### "I'm on a Mac, MPS"
 
 ```bash
-sleap-nn track -i video.mp4 -m models/my_model/ --device mps --batch_size 4
+sleap-nn predict -i video.mp4 -m models/my_model/ --device mps --batch_size 4
 ```
 
 FP16 silently has no effect on MPS (warning logged). `torch.compile`

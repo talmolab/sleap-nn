@@ -17,8 +17,8 @@ Complete command-line interface documentation.
 | Command | Description |
 |---------|-------------|
 | [`sleap-nn train`](#sleap-nn-train) | Train models |
-| [`sleap-nn track`](#sleap-nn-track) | Run inference/tracking |
-| [`sleap-nn predict`](#sleap-nn-predict) | Run inference on videos/labels (checkpoints or exported models) |
+| [`sleap-nn predict`](#sleap-nn-predict) | Run inference on videos/labels (checkpoints or exported models) — **recommended** |
+| [`sleap-nn track`](#sleap-nn-track) | Run inference/tracking (legacy pipeline) |
 | [`sleap-nn eval`](#sleap-nn-eval) | Evaluate predictions |
 | [`sleap-nn export`](#sleap-nn-export) | Export to ONNX/TensorRT |
 | [`sleap-nn config`](#sleap-nn-config) | Generate training configs (experimental) |
@@ -67,6 +67,12 @@ sleap-nn train --config config.yaml --prefix-map /old/data /new/data
 ## `sleap-nn track`
 
 Run inference and/or tracking.
+
+!!! warning "Legacy pipeline"
+    `sleap-nn track` runs the older legacy inference pipeline. It is still
+    supported, but [`sleap-nn predict`](#sleap-nn-predict) is the recommended
+    command — it accepts the same options and additionally runs exported
+    ONNX/TensorRT models. The options documented below also apply to `predict`.
 
 ```bash
 sleap-nn track --data_path INPUT --model_paths MODEL [OPTIONS]
@@ -161,6 +167,10 @@ sleap-nn predict --data_path INPUT --model_paths MODEL [OPTIONS]
 ```
 
 `sleap-nn predict` accepts the same options as [`sleap-nn track`](#sleap-nn-track) (data selection, filtering, device, batch size, etc.). Add `--tracking` to enable tracking.
+
+!!! note "`sleap-nn infer` is deprecated"
+    `sleap-nn infer` still works as a hidden alias for `predict` but emits a
+    `DeprecationWarning`. Use `sleap-nn predict` instead.
 
 ### Running exported models
 

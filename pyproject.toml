@@ -131,6 +131,7 @@ docs = [
     "mkdocs-gen-files",
     "mkdocs-literate-nav",
     "mkdocs-section-index",
+    "mkdocs-redirects",
 ]
 # GPU torch/torchvision routed through the cu130 index (see [tool.uv.sources]).
 # Listed in `default-groups` below so a bare `uv run` / `uv sync` installs the

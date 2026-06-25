@@ -19,7 +19,7 @@ Install [uv](https://github.com/astral-sh/uv):
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Windows
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
 ---

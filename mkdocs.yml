@@ -50,6 +50,13 @@ plugins:
   - literate-nav:
       nav_file: SUMMARY.md
   - section-index
+  - redirects:
+      redirect_maps:
+        tutorials/index.md: tutorials/overview.md
+        guides/index.md: guides/overview.md
+        reference/index.md: reference/overview.md
+        guides/training.md: guides/training/overview.md
+        guides/inference.md: guides/inference/overview.md
   - mkdocstrings:
       default_handler: python
       handlers:
@@ -113,20 +120,24 @@ nav:
   - Overview: index.md
   - Installation: installation.md
   - Tutorials:
-    - tutorials/index.md
+    - Overview: tutorials/overview.md
     - Quick Start: getting-started/quickstart.md
     - Your First Model: getting-started/first-model.md
     - Example Notebooks: tutorials/notebooks.md
   - Guides:
-    - guides/index.md
+    - Overview: guides/overview.md
     - Training:
-      - guides/training.md
+      - Overview: guides/training/overview.md
+      - Training Guide: guides/training-guide.md
       - Config Generator: guides/config-generator.md
       - Negative Frames: guides/negative-frames.md
       - Monitoring: guides/monitoring.md
       - Multi-GPU: guides/multi-gpu.md
+      - Resume & Fine-Tune: guides/resume-finetune.md
     - Inference:
-      - guides/inference.md
+      - Overview: guides/inference/overview.md
+      - Running Inference: guides/inference-guide.md
+      - Post-Processing Filters: guides/post-processing-filters.md
       - Python API: guides/inference-api.md
       - Centroid-Only: guides/centroid-only-inference.md
       - Top-Down Segmentation: guides/topdown-segmentation.md
@@ -136,7 +147,7 @@ nav:
     - Tracking: guides/tracking.md
     - Export: guides/export.md
   - Reference:
-    - reference/index.md
+    - Overview: reference/overview.md
     - Configuration:
       - configuration/index.md
       - Config Picker: configuration/config-picker/index.md

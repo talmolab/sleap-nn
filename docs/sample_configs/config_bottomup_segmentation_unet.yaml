@@ -175,7 +175,7 @@ trainer_config:
     # in (0, 1]. Out-of-range values fall back to 0.5.
     match_threshold: 0.5
 # fg_threshold and min_mask_area are INFERENCE-time post-processing args
-# (sleap-nn infer --fg_threshold / --min_mask_area), not training config. A
+# (sleap-nn predict --fg_threshold / --min_mask_area), not training config. A
 # min_mask_area around 3000 (original-image px) is a good starting point for
 # suppressing over-segmentation; tune per dataset/scale.
 name: ''

@@ -14,7 +14,7 @@ from sleap_nn.inference import Predictor, predict
   as many times as you like with per-call overrides.
 
 !!! tip "Just want a `.slp` from the command line?"
-    Use the CLI instead — see [Running Inference](inference.md). This guide
+    Use the CLI instead — see [Running Inference](inference-guide.md). This guide
     is for embedding inference in Python code.
 
 ---
@@ -49,6 +49,7 @@ The most common:
 | `source` | Video path, `sio.Video`, `sio.Labels`, or a Provider | required |
 | `model_paths` | List of model dirs — or a model's `best.ckpt` / `training_config.yaml` path, which resolves to its dir (1 for single/bottom-up, 2 for top-down) | `None` |
 | `export_dir` | Exported ONNX/TRT dir (alternative to `model_paths`) | `None` |
+| `runtime` | Exported-model runtime: `"auto"` (prefer TRT), `"onnx"`, `"tensorrt"` (ignored for checkpoints) | `"auto"` |
 | `device` | `"auto"`, `"cpu"`, `"cuda"`, `"cuda:0"`, `"mps"` | `"auto"` |
 | `batch_size` | Frames per batch | `4` |
 | `frames` | Frame indices to predict (`None` = all) | `None` |
@@ -401,7 +402,7 @@ yourself if needed.
 
 ## See also
 
-- [Running Inference (CLI)](inference.md) — command-line usage
+- [Running Inference (CLI)](inference-guide.md) — command-line usage
 - [Centroid-only inference](centroid-only-inference.md) — centroid models standalone
 - [Inference Performance](inference-performance.md) — FP16, `torch.compile`, `paf_workers`
 - [Tracking](tracking.md) — tracking concepts and parameters

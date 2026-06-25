@@ -45,7 +45,7 @@
 
     Quick start, first model tutorial, and example notebooks.
 
-    [:octicons-arrow-right-24: Learn](tutorials/index.md)
+    [:octicons-arrow-right-24: Learn](tutorials/overview.md)
 
 -   📚 **Guides**
 
@@ -53,7 +53,7 @@
 
     Training, inference, and tracking workflows.
 
-    [:octicons-arrow-right-24: Explore](guides/index.md)
+    [:octicons-arrow-right-24: Explore](guides/overview.md)
 
 -   ⚙️ **Configuration**
 
@@ -85,7 +85,7 @@
 
 ## 🔄 Coming from SLEAP < v1.5?
 
-[:octicons-arrow-right-24: Load legacy models for inference](guides/inference.md#legacy-sleap-model-support)
+[:octicons-arrow-right-24: Load legacy models for inference](guides/inference-guide.md#legacy-sleap-model-support)
 
 [:octicons-arrow-right-24: Convert legacy config](configuration/index.md#converting-from-legacy-sleap)
 

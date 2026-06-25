@@ -215,7 +215,7 @@ head_configs:
 Notes:
 
 - `fg_threshold` and `min_mask_area` are **inference-time** post-processing args
-  (`sleap-nn infer --fg_threshold` / `--min_mask_area`), not training config.
+  (`sleap-nn predict --fg_threshold` / `--min_mask_area`), not training config.
 - Train at `scale: 1.0` with input dims divisible by `max_stride` (mask resize is
   not pad-aware in v1). Geometric augmentation (rotation/scale/translate/flip)
   co-transforms the per-instance masks with the image (nearest-neighbor,
