@@ -5,12 +5,15 @@ Task-oriented guides for common workflows.
 | Guide | Description |
 |-------|-------------|
 | [Training](training/overview.md) | Configure and run model training |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Training Guide](training-guide.md) | Configure and run model training |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Config Generator](config-generator.md) | Generate training configs via TUI or auto mode |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Negative Frames](negative-frames.md) | Reduce false positives with background frames |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Monitoring](monitoring.md) | WandB, visualizations, epoch-end evaluation |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Multi-GPU](multi-gpu.md) | Scale training across multiple GPUs |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Resume & Fine-Tune](resume-finetune.md) | Continue from existing weights |
 | [Inference](inference/overview.md) | Run predictions on videos and label files |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Running Inference](inference-guide.md) | Run predictions from the CLI |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Post-Processing Filters](post-processing-filters.md) | Node-count, confidence, and overlap-NMS filters |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Python API](inference-api.md) | `Predictor` / `predict` / `Outputs` for embedding inference in code |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Centroid-Only](centroid-only-inference.md) | Run a centroid model standalone |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Top-Down Segmentation](topdown-segmentation.md) | Per-instance masks via centroid + crop-mask |
