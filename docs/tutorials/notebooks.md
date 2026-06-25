@@ -30,7 +30,9 @@ Download notebooks from [here](https://github.com/talmolab/sleap-nn/tree/main/ex
 
 ### Training Demo
 
-End-to-end demo on creating config files and running training, inference, and evaluation.
+[![Open in molab](https://marimo.io/molab-shield.svg)](https://molab.marimo.io/github/talmolab/sleap-nn/blob/main/example_notebooks/training_demo.py)
+
+End-to-end **top-down** demo: build the centroid + centered-instance configs (saved to YAML), train on the **flies13** dataset, evaluate on the test split, then run **tracked** inference on a clip and render it with `sio.render_video`. Open it on [molab](https://molab.marimo.io) (enable the GPU from the notebook-specs button) or run locally:
 
 ```bash
 uvx marimo edit --sandbox training_demo.py

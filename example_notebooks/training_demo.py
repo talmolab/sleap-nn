@@ -1,144 +1,364 @@
 # /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.11,<3.14"
 # dependencies = [
-#     "imageio==2.37.0",
-#     "ipython==9.4.0",
-#     "kornia==0.8.1",
 #     "marimo",
-#     "matplotlib==3.10.6",
-#     "numpy==2.3.3",
-#     "omegaconf==2.3.0",
-#     "opencv-python==4.11.0.86",
-#     "pillow==11.3.0",
-#     "seaborn==0.13.2",
-#     "sleap-io>=0.5.3",
-#     "sleap-nn>=0.0.1",
-#     "torch==2.7.1",
-#     "torchvision==0.22.1",
-#     "zmq==0.0.0",
+#     "sleap-nn>=0.2.0",
+#     # For the latest unreleased changes instead, comment the line above and use:
+#     # "sleap-nn @ git+https://github.com/talmolab/sleap-nn.git",
+#     "torch",
+#     "torchvision",
+#     "imageio-ffmpeg",
 # ]
+#
+# # GPU on molab: turn it on with the notebook-specs button in the app header, then
+# # run this notebook — it picks up the GPU automatically (no code changes).
+# #
+# # Why pin a CUDA build of PyTorch? molab's GPU is an NVIDIA RTX Pro 6000
+# # (Blackwell), and the default PyPI torch wheel ships no Blackwell kernels. We
+# # therefore install torch/torchvision from PyTorch's CUDA 13.0 index on
+# # Linux/Windows; macOS falls back to the default wheel (CPU/MPS). On a machine
+# # with no NVIDIA GPU the cu130 wheel still runs fine on CPU. Older GPU drivers
+# # that predate CUDA 13 can switch these URLs to `.../whl/cu128`.
+# [[tool.uv.index]]
+# name = "pytorch-cu130"
+# url = "https://download.pytorch.org/whl/cu130"
+# explicit = true
+#
+# [tool.uv.sources]
+# torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }]
+# torchvision = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }]
 # ///
+#
+# Tip: pin sleap-nn to a tag/commit for reproducibility, e.g.
+#   "sleap-nn @ git+https://github.com/talmolab/sleap-nn.git@v0.2.0"
 
 import marimo
 
-__generated_with = "0.19.7"
+__generated_with = "0.20.4"
 app = marimo.App(width="medium")
 
 
 @app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+        # 🪰 SLEAP-NN — top-down training, evaluation & tracking (end-to-end)
+
+        Trains a **top-down** pose model on the **flies13** (`wt_gold.13pt`) dataset —
+        two flies per frame, a 13-node skeleton — and runs it on a fresh video **with
+        tracking**. A top-down model is two networks: a **centroid** model that locates
+        each fly (anchored on the `thorax`), and a **centered-instance** model that
+        predicts the 13-node skeleton inside the crop around each centroid.
+
+        This notebook runs **straight through** — download → build configs (saved to
+        YAML) → train → evaluate on the test split → tracked inference on a clip →
+        render. A GPU is strongly recommended (this is full-resolution 1024×1024 data);
+        on molab, enable the GPU from the notebook-specs button.
+        """)
+    return
+
+
+@app.cell(hide_code=True)
 def _():
-    # import all necessary modules
-
     import marimo as mo
-    import cv2
-    import torch
-    import pprint
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    from torchvision import transforms
+    import shutil
+    import urllib.request
     from pathlib import Path
-    import imageio.v3 as iio
 
-    import matplotlib.animation as animation
-    import imageio
-
+    import torch
     from omegaconf import OmegaConf
 
     import sleap_io as sio
-    import random
-
-    from sleap_nn.architectures.model import Model
-    from sleap_nn.training.model_trainer import ModelTrainer
 
     from sleap_nn.config.get_config import (
         get_data_config,
-        get_head_configs,
         get_model_config,
         get_trainer_config,
     )
     from sleap_nn.config.training_job_config import TrainingJobConfig
-
-    from sleap_nn.data.custom_datasets import (
-        get_train_val_dataloaders,
-        get_train_val_datasets,
-    )
-
-    from sleap_nn.training.lightning_modules import LightningModel
-
-    from sleap_nn.predict import run_inference
+    from sleap_nn.train import run_training
+    from sleap_nn.inference import predict
+    from sleap_nn.inference.tracking import TrackerConfig
     from sleap_nn.evaluation import Evaluator
 
-    torch.set_default_dtype(torch.float32)
     return (
         Evaluator,
-        LightningModel,
-        ModelTrainer,
         OmegaConf,
         Path,
+        TrackerConfig,
         TrainingJobConfig,
-        cv2,
         get_data_config,
         get_model_config,
-        get_train_val_dataloaders,
-        get_train_val_datasets,
         get_trainer_config,
         mo,
-        np,
-        plt,
-        random,
-        run_inference,
+        predict,
+        run_training,
+        shutil,
         sio,
         torch,
+        urllib,
     )
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    This tutorial notebook walks through creating a config file, run training, inference, and evaluation worlflows in sleap-nn using higher-level APIs. (See docs for details on how to use our CLI).
-
-    **_Note_**: This tutorial runs on CPU by default (or MPS on macOS). CUDA libraries are intentionally not included in the notebook’s dependencies.
-    """)
-    return
+def _(mo, torch):
+    if torch.cuda.is_available():
+        device, device_name = "cuda", torch.cuda.get_device_name(0)
+    elif (
+        getattr(torch.backends, "mps", None) is not None
+        and torch.backends.mps.is_available()
+    ):
+        device, device_name = "mps", "Apple MPS"
+    else:
+        device, device_name = "cpu", "CPU"
+    mo.md(f"**Using `{device}`** — {device_name}")
+    return (device,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    **_Tips on using marimo:
-    _**
+        ## 1. Download the dataset
 
-    Marimo notebooks are designed for a seamless, automated workflow. After you select the model type, all cells will execute automatically—no need to run them one by one. However, training and inference will start only when you click the **Run Training**/ **Run Inference** button, giving you full control over when to begin model training or run inference.
-
-    (If the run button in the bottom right corner is highlighted in yellow, click on the run button to start)
-
-    If you want to tweak values in a specific cell, edit the cell and click its yellow highlighted Run button on the right of the cell block; that cell will execute, and Marimo will automatically re-run only the downstream cells that depend on it, leaving unrelated cells unchanged. If you need a full refresh, use highlighted `Run all` button in the bottom right corner!
-    """)
+        **flies13** (`wt_gold.13pt`, `tracking_split2`) — `1024×1024` grayscale frames
+        with two flies each, as `.pkg.slp` files (labels with embedded images) — plus a
+        clip for inference.
+        """)
     return
 
 
 @app.cell
-def _():
-    # until we have sleap-nn pip pkg:
-    # In the manage packages tab to the left, add `git+https://github.com/talmolab/sleap-nn.git` dependency!
+def _(Path, urllib):
+    if not Path("train.pkg.slp").exists():
+        urllib.request.urlretrieve(
+            "https://storage.googleapis.com/sleap-data/datasets/wt_gold.13pt/tracking_split2/train.pkg.slp",
+            "train.pkg.slp",
+        )
+    if not Path("val.pkg.slp").exists():
+        urllib.request.urlretrieve(
+            "https://storage.googleapis.com/sleap-data/datasets/wt_gold.13pt/tracking_split2/val.pkg.slp",
+            "val.pkg.slp",
+        )
+    if not Path("test.pkg.slp").exists():
+        urllib.request.urlretrieve(
+            "https://storage.googleapis.com/sleap-data/datasets/wt_gold.13pt/tracking_split2/test.pkg.slp",
+            "test.pkg.slp",
+        )
+    if not Path("fly_clip.mp4").exists():
+        urllib.request.urlretrieve(
+            "https://storage.googleapis.com/sleap-data/datasets/wt_gold.13pt/clips/talk_title_slide%4013150-14500.mp4",
+            "fly_clip.mp4",
+        )
+    train_slp, val_slp, test_slp, clip_mp4 = (
+        "train.pkg.slp",
+        "val.pkg.slp",
+        "test.pkg.slp",
+        "fly_clip.mp4",
+    )
+    return clip_mp4, test_slp, train_slp, val_slp
+
+
+@app.cell(hide_code=True)
+def _(mo, sio, test_slp, train_slp, val_slp):
+    train_labels = sio.load_slp(train_slp)
+    val_labels = sio.load_slp(val_slp)
+    test_labels = sio.load_slp(test_slp)
+    skeleton = train_labels.skeletons[0]
+    _img = train_labels[0].image
+
+    mo.md(f"""
+        | | |
+        |---|---|
+        | Train / val / test frames | **{len(train_labels)} / {len(val_labels)} / {len(test_labels)}** |
+        | Frame size | **{_img.shape[1]}×{_img.shape[0]}**, {_img.shape[2]} channel(s) |
+        | Instances / frame | **{max(len(lf.instances) for lf in train_labels)}** (multi-animal → tracking) |
+        | Skeleton | **{len(skeleton.nodes)}** nodes — {", ".join(n.name for n in skeleton.nodes)} |
+        """)
+    return test_labels, train_labels
+
+
+@app.cell(hide_code=True)
+def _(mo, sio, train_labels):
+    # Render a few labeled training frames with sleap-io (per-fly skeleton overlay).
+    _imgs = []
+    for _i in range(3):
+        sio.render_image(
+            train_labels, f"sample_{_i}.png", lf_ind=_i, color_by="instance"
+        )
+        _imgs.append(mo.image(f"sample_{_i}.png", width=320))
+    mo.hstack(_imgs)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
+    mo.md(r"""
+        ## 2. Build the model configs (→ YAML)
+
+        Each model's config is composed with the `sleap_nn.config` builders and saved
+        to a YAML file. Training then reads those YAMLs — the same path as
+        `sleap-nn train configs/centroid.yaml`. Shared settings: **±180° rotation**
+        augmentation, **`thorax`** anchor, **25 epochs**, initial LR **1e-4**, eval
+        metrics logged each epoch.
+        """)
+    return
+
+
+@app.cell
+def _(
+    OmegaConf,
+    Path,
+    TrainingJobConfig,
+    get_data_config,
+    get_model_config,
+    get_trainer_config,
+):
+    # ── Centroid: locate each fly (input scale 0.5, stride 16→2, 16 filters ×2, σ3.5).
+    centroid_cfg = TrainingJobConfig(
+        data_config=get_data_config(
+            train_labels_path=["train.pkg.slp"],
+            val_labels_path=["val.pkg.slp"],
+            data_pipeline_fw="torch_dataset_cache_img_memory",
+            scale=0.5,
+            use_augmentations_train=True,
+            geometry_aug="rotation",
+        ),
+        model_config=get_model_config(backbone_config="unet", head_configs="centroid"),
+        trainer_config=get_trainer_config(
+            batch_size=4,
+            num_workers=0,
+            max_epochs=25,
+            learning_rate=1e-4,
+            lr_scheduler="reduce_lr_on_plateau",
+            save_ckpt=True,
+            ckpt_dir="models",
+            run_name="centroid",
+            visualize_preds_during_training=True,
+            trainer_num_devices=1,
+        ),
+    ).to_sleap_nn_cfg()
+    centroid_cfg.model_config.backbone_config.unet.filters = 16
+    centroid_cfg.model_config.backbone_config.unet.filters_rate = 2.0
+    centroid_cfg.model_config.backbone_config.unet.max_stride = 16
+    centroid_cfg.model_config.backbone_config.unet.output_stride = 2
+    centroid_cfg.model_config.head_configs.centroid.confmaps.sigma = 3.5
+    centroid_cfg.model_config.head_configs.centroid.confmaps.anchor_part = "thorax"
+    centroid_cfg.model_config.head_configs.centroid.confmaps.output_stride = 2
+    centroid_cfg.data_config.augmentation_config.geometric.rotation_min = -180.0
+    centroid_cfg.data_config.augmentation_config.geometric.rotation_max = 180.0
+    centroid_cfg.data_config.augmentation_config.geometric.affine_p = 1.0
+    centroid_cfg.trainer_config.eval.enabled = True
+
+    # ── Centered-instance: 13-node skeleton per crop (crop 160, stride 32→4, 24 filters ×1.5, σ2.5).
+    centered_cfg = TrainingJobConfig(
+        data_config=get_data_config(
+            train_labels_path=["train.pkg.slp"],
+            val_labels_path=["val.pkg.slp"],
+            data_pipeline_fw="torch_dataset_cache_img_memory",
+            scale=1.0,
+            crop_size=160,
+            use_augmentations_train=True,
+            geometry_aug="rotation",
+        ),
+        model_config=get_model_config(
+            backbone_config="unet", head_configs="centered_instance"
+        ),
+        trainer_config=get_trainer_config(
+            batch_size=8,
+            num_workers=0,
+            max_epochs=25,
+            learning_rate=1e-4,
+            lr_scheduler="reduce_lr_on_plateau",
+            save_ckpt=True,
+            ckpt_dir="models",
+            run_name="centered_instance",
+            visualize_preds_during_training=True,
+            trainer_num_devices=1,
+        ),
+    ).to_sleap_nn_cfg()
+    centered_cfg.model_config.backbone_config.unet.filters = 24
+    centered_cfg.model_config.backbone_config.unet.filters_rate = 1.5
+    centered_cfg.model_config.backbone_config.unet.max_stride = 32
+    centered_cfg.model_config.backbone_config.unet.output_stride = 4
+    centered_cfg.model_config.head_configs.centered_instance.confmaps.sigma = 2.5
+    centered_cfg.model_config.head_configs.centered_instance.confmaps.anchor_part = (
+        "thorax"
+    )
+    centered_cfg.model_config.head_configs.centered_instance.confmaps.output_stride = 4
+    centered_cfg.data_config.augmentation_config.geometric.rotation_min = -180.0
+    centered_cfg.data_config.augmentation_config.geometric.rotation_max = 180.0
+    centered_cfg.data_config.augmentation_config.geometric.affine_p = 1.0
+    centered_cfg.trainer_config.eval.enabled = True
+
+    # To log to Weights & Biases (needs an API key), uncomment and fill in:
+    # for _cfg in (centroid_cfg, centered_cfg):
+    #     _cfg.trainer_config.use_wandb = True
+    #     _cfg.trainer_config.wandb.entity = "<entity>"
+    #     _cfg.trainer_config.wandb.project = "<project>"
+    #     _cfg.trainer_config.wandb.api_key = "<key>"
+
+    Path("configs").mkdir(exist_ok=True)
+    OmegaConf.save(centroid_cfg, "configs/centroid.yaml")
+    OmegaConf.save(centered_cfg, "configs/centered_instance.yaml")
+    return centered_cfg, centroid_cfg
+
+
+@app.cell(hide_code=True)
+def _(OmegaConf, centered_cfg, centroid_cfg, mo):
+    mo.accordion(
+        {
+            "📄 configs/centroid.yaml": mo.md(
+                f"```yaml\n{OmegaConf.to_yaml(centroid_cfg, resolve=True)}\n```"
+            ),
+            "📄 configs/centered_instance.yaml": mo.md(
+                f"```yaml\n{OmegaConf.to_yaml(centered_cfg, resolve=True)}\n```"
+            ),
+        }
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+        ## 3. Train
+
+        Trains both stages from their YAMLs via `run_training` (the function behind
+        `sleap-nn train`). This is the slow step — minutes per model on a GPU.
+        """)
+    return
+
+
+@app.cell
+def _(OmegaConf, centered_cfg, centroid_cfg, run_training, shutil):
+    # Reuse the canonical model dirs on re-run (sleap-nn would otherwise append `-2`).
+    shutil.rmtree("models/centroid", ignore_errors=True)
+    shutil.rmtree("models/centered_instance", ignore_errors=True)
+
+    run_training(OmegaConf.load("configs/centroid.yaml"))
+    run_training(OmegaConf.load("configs/centered_instance.yaml"))
+
+    centroid_dir, centered_instance_dir = "models/centroid", "models/centered_instance"
+    _ = (centroid_cfg, centered_cfg)  # depend on the config cell
+    return centered_instance_dir, centroid_dir
+
+
+@app.cell(hide_code=True)
+def _(Path, centered_instance_dir, centroid_dir, mo, shutil):
+    _ = (centroid_dir, centered_instance_dir)  # wait for training
+    _zip = shutil.make_archive("trained_models", "zip", root_dir="models")
     mo.vstack(
         [
-            mo.md("Download sample data and move them to your current working dir..."),
-            mo.download(
-                "https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp",
-                label="Train slp file",
-                filename="./train.pkg.slp",
+            mo.md(
+                "### Download the trained models\n"
+                "Each dir has `best.ckpt` + `training_config.yaml`. Run locally with "
+                "`sleap-nn predict -i video.mp4 -m models/centroid/ "
+                "-m models/centered_instance/ --tracking --max_instances 2 "
+                "--candidates_method local_queues -o preds.slp`."
             ),
             mo.download(
-                "https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp",
-                label="Val slp file",
-                filename="./val.pkg.slp",
+                data=Path(_zip).read_bytes(),
+                filename="trained_models.zip",
+                label="⬇️ Download trained models (.zip)",
             ),
         ]
     )
@@ -148,823 +368,104 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    If you already have `.slp` files to work with, modify
-    the paths below.
-    """)
+        ## 4. Evaluate on the test split
+
+        Run the trained top-down model on the held-out **test** labels and compute pose
+        metrics (OKS mAP, PCK, keypoint distance) against ground truth.
+        """)
     return
 
 
 @app.cell
-def _():
-    path_to_train_slp_file = "train.pkg.slp"
-    path_to_val_slp_file = "val.pkg.slp"
-    return path_to_train_slp_file, path_to_val_slp_file
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    #### Choose the model type you want to train! (To start simple, you could choose single-instance)
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    model_type = mo.ui.radio(
-        options=["single_instance", "centroid", "centered_instance", "bottomup"],
-        value="single_instance",
+def _(Evaluator, centered_instance_dir, centroid_dir, device, mo, predict, test_labels):
+    test_preds = predict(
+        test_labels, model_paths=[centroid_dir, centered_instance_dir], device=device
     )
-    model_type
-    return (model_type,)
+    metrics = Evaluator(
+        ground_truth_instances=test_labels, predicted_instances=test_preds
+    ).evaluate()
 
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### Set-up config
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    The first step in training is setting up the configuration. You can either start from one of the sample YAMLs in the repo and edit it, or build the config programmatically. In this tutorial, we’ll take the functional route: compose each section (`data_config`, `model_config`, `trainer_config`) using handy functions and then create an Omegaconf config.
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    First, we set-up the data config using `get_data_config()` function which has a set of defaults, and could be modified if required.
-    """)
-    return
-
-
-@app.cell
-def _(get_data_config, path_to_train_slp_file, path_to_val_slp_file):
-    data_config = get_data_config(
-        train_labels_path=[path_to_train_slp_file],
-        val_labels_path=[path_to_val_slp_file],
-        data_pipeline_fw="torch_dataset_cache_img_memory",
-        use_augmentations_train=True,
-        intensity_aug=["brightness"],
-        geometry_aug=["rotation", "scale"],
-    )
-    return (data_config,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Let's see how the `data_config` section looks like:
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(OmegaConf, data_config):
-    print("Data Config: ")
-    print("===========================")
-    print(OmegaConf.to_yaml(data_config, resolve=True, sort_keys=False))
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    If required, we could also modify the default values as given below:
-    """)
-    return
-
-
-@app.cell
-def _(data_config):
-    data_config.augmentation_config.intensity.brightness_min = 0.9
-    data_config.augmentation_config.intensity.brightness_max = 1.1
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Next, we set-up the model config using `get_model_config()` function which sets up the parameters for building the model. We will be using the `unet` model as the backbone here and head config would be updated based on the model type you chose before!
-    """)
-    return
-
-
-@app.cell
-def _(get_model_config, model_type):
-    model_config = get_model_config(
-        init_weight="xavier", backbone_config="unet", head_configs=f"{model_type.value}"
-    )
-    return (model_config,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Let's print and see how the `model_config` looks like:
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(OmegaConf, model_config):
-    print("Model Config: ")
-    print("===========================")
-    print(OmegaConf.to_yaml(model_config, resolve=True, sort_keys=False))
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    If required, we could modify the default values as given below:
-    """)
-    return
-
-
-@app.cell
-def _(model_config):
-    model_config.backbone_config.unet.filters = 16
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Next, we set-up the trainer config using `get_trainer_config()` function which has a set of defaults for setting up the hyperparameters for training, which could be modified if needed.
-    """)
-    return
-
-
-@app.cell
-def _(get_trainer_config, model_type):
-    trainer_config = get_trainer_config(
-        batch_size=4,
-        num_workers=2,
-        trainer_num_devices=1,
-        shuffle_train=True,
-        learning_rate=1e-4,
-        save_ckpt=True,
-        max_epochs=10,
-        ckpt_dir=".",
-        run_name=f"{model_type.value}_training",
-        lr_scheduler="reduce_lr_on_plateau",
-    )
-    return (trainer_config,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    **_Note_**: If you want to visualize the model training in [WandB](https://wandb.ai), set the following parameters:
-    """)
-    return
-
-
-@app.cell
-def _():
-    # trainer_config.use_wandb = True
-    # trainer_config.wandb.entity = "<wandb entity name>"
-    # trainer_config.wandb.project = "<wandb project name>"
-    # trainer_config.wandb.name =  "<wandb run name>"
-    # trainer_config.wandb.save_viz_imgs_wandb = False
-    # trainer_config.wandb.api_key = "<wandb API key>" # this is required to login to your account
-    # trainer_config.wandb.group = "<wandb run group name>"
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    **_Note_**: If you’re not using caching (memory/disk; see `data_config.data_pipeline_fw`) and your dataset/transforms aren’t picklable, set num_workers=0 on Windows/macOS (they use `spawn`). On Linux (default `fork`), multiple workers are typically safe.
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Let's look into the generated `trainer_config`:
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(OmegaConf, trainer_config):
-    print("Trainer Config: ")
-    print("===========================")
-    print(OmegaConf.to_yaml(trainer_config, resolve=True, sort_keys=False))
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Using the above initialized config classes, create a `TrainingJobConfig` instance, which could then be converted to a `OmegaConf` object.
-    """)
-    return
-
-
-@app.cell
-def _(TrainingJobConfig, data_config, model_config, trainer_config):
-    # Create TrainingJobConfig
-
-    training_job_config = TrainingJobConfig(
-        data_config=data_config,
-        model_config=model_config,
-        trainer_config=trainer_config,
-    )
-
-    # Convert to omegaconf objects
-    sleap_nn_cfg = training_job_config.to_sleap_nn_cfg()  # validates config structure
-    return (sleap_nn_cfg,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    The entire configuration that would be given as input to the training modules:
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(OmegaConf, sleap_nn_cfg):
-    print("Config: ")
-    print("===========================")
-    print(OmegaConf.to_yaml(sleap_nn_cfg, resolve=True, sort_keys=False))
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### Run training
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Create an instance of the `ModelTrainer` class by passing the config to the `get_model_trainer_from_config` method.
-    """)
-    return
-
-
-@app.cell
-def _(ModelTrainer, sleap_nn_cfg):
-    model_trainer = ModelTrainer.get_model_trainer_from_config(sleap_nn_cfg)
-    return (model_trainer,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    The `get_model_trainer_from_config` method does the training setup by calling dataset preparation methods to establish training and validation labels (automatically splitting training data for validation if needed) and then invoking `setup_config()` to process the loaded labels and automatically populate all configuration fields that were initially `None`. This includes computing `max_height` and `max_width` from actual image dimensions in the `sio.Labels` files, extracting skeletons from the labels data structure, and calculating other derived parameters based on the actual data characteristics. The method essentially transforms a minimal configuration into a complete configuration and ensures all required fields are populated and consistent before training begins, allowing users to start with basic parameters while the system automatically handles the complex configuration details.
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Let's take a look at the config now, which now has all fields set (esp. `data_config.preprocessing.max_width`, `data_config.preprocessing.max_width` and `data_config.skeletons`)
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(OmegaConf, model_trainer):
-    print("Config after `_setup_config()`: ")
-    print("===========================")
-    print(OmegaConf.to_yaml(model_trainer.config, resolve=True, sort_keys=False))
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Let's create the training and validation dataloaders using `model_trainer.train_labels`, `model_trainer.val_labels`, and `model_trainer.config`. These attributes are initialized when you call `get_model_trainer_from_config()`.
-    """)
-    return
-
-
-@app.cell
-def _(get_train_val_dataloaders, get_train_val_datasets, model_trainer):
-    # get dataloaders
-
-    train_dataset, val_dataset = get_train_val_datasets(
-        train_labels=model_trainer.train_labels,
-        val_labels=model_trainer.val_labels,
-        config=model_trainer.config,
-    )
-    train_dataloader, val_dataloader = get_train_val_dataloaders(
-        train_dataset=train_dataset,
-        val_dataset=val_dataset,
-        config=model_trainer.config,
-        trainer_devices=model_trainer.config.trainer_config.trainer_devices,
-    )
-    return (train_dataloader,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Let's visualize some of the sample images from the training labels!
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(model_type, plt, torch, train_dataloader):
-    # visualize samples in dataloader
-
-    # Get sample data
-    sample = next(iter(train_dataloader))
-    img_key = "image" if model_type.value != "centered_instance" else "instance_image"
-    instance_key = (
-        "instances"
-        if model_type.value == "single_instance" or model_type.value == "bottomup"
-        else None
-    )
-    if instance_key is None:
-        instance_key = "centroids" if model_type.value == "centroid" else "instance"
-
-    # Print sample info
-    print("Sample keys and shapes:")
-    print("=" * 50)
-    for key in sample:
-        print(f"`{key}` shape: {sample[key].shape} dtype: {sample[key].dtype}")
-
-    batch_size = sample[img_key].shape[0]
-    print(f"\n Batch Visualization - {model_type.value} model")
-
-    n_cols = min(4, batch_size)  # Max 4 columns for readability
-    n_rows = (batch_size + n_cols - 1) // n_cols  # Ceiling division
-
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 4 * n_rows))
-    if batch_size == 1:
-        axes = [axes]
-    elif n_rows == 1:
-        axes = axes
-    else:
-        axes = axes.flatten()
-
-    # Plot each image in the batch
-    for batch_idx in range(batch_size):
-        ax = axes[batch_idx]
-
-        img = sample[img_key][batch_idx, 0].numpy().transpose(1, 2, 0)
-        cmap = "gray"
-
-        ax.imshow(img, cmap=cmap)
-        ax.set_title(f"Batch {batch_idx}")
-        ax.axis("off")
-
-        # Add keypoints/centroids
-        if instance_key in sample:
-            pts = sample[instance_key][batch_idx, 0]
-
-            if instance_key == "instances":
-                for inst_idx, pt in enumerate(pts):
-                    if not torch.isnan(pt).all():  # Check if instance is valid
-                        ax.plot(
-                            pt[:, 0],
-                            pt[:, 1],
-                            "go",
-                            markersize=4,
-                            alpha=0.8,
-                            label=f"GT Instances" if inst_idx == 0 else "",
-                        )
-            elif instance_key == "centroids":
-                # Plot centroids
-                if not torch.isnan(pts).all():
-                    ax.plot(
-                        pts[:, 0],
-                        pts[:, 1],
-                        "go",
-                        markersize=6,
-                        alpha=0.8,
-                        label="Centroids",
-                    )
-            else:
-                if not torch.isnan(pts).all():
-                    ax.plot(
-                        pts[:, 0],
-                        pts[:, 1],
-                        "go",
-                        markersize=5,
-                        alpha=0.8,
-                        label="Instances",
-                    )
-
-        if batch_idx == 0:
-            ax.legend(loc="upper right", fontsize=8)
-
-    for _idx in range(batch_size, len(axes)):
-        fig.delaxes(axes[_idx])
-
-    plt.tight_layout()
-    plt.show()
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    We can instantiate the `LightningModule` from the config by calling `get_lightning_model_from_config`.
-    """)
-    return
-
-
-@app.cell
-def _(LightningModel, model_trainer):
-    # create lightning model from config
-
-    lightning_model = LightningModel.get_lightning_model_from_config(
-        model_trainer.config
-    )
-    return (lightning_model,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Let's take a look at the model created from our config:
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(lightning_model):
-    lightning_model.model
-    return
-
-
-@app.cell(hide_code=True)
-def _(lightning_model, mo):
     mo.md(f"""
-    #### Total number of parameters: {sum(p.numel() for p in lightning_model.parameters())}
-    """)
+        | metric | value |
+        |---|---|
+        | OKS mAP | **{metrics['voc_metrics']['oks_voc.mAP']:.3f}** |
+        | mPCK | **{metrics['pck_metrics']['mPCK']:.3f}** |
+        | distance p50 | **{metrics['distance_metrics']['p50']:.2f}** px |
+        | distance p90 | **{metrics['distance_metrics']['p90']:.2f}** px |
+        """)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    Next to start the training process, we call the `train()` method of the `ModelTrainer` class. The `train()` method internally handles the complete training pipeline by automatically creating and configuring all necessary components, including dataloaders and Lightning modules. After creating a ModelTrainer instance using the `get_model_trainer_from_config` function, directly call this `train` method to initiate the entire training process without needing to manually set up individual components.
-    """)
+        ## 5. Tracked inference on a clip
+
+        Run the model on a fresh clip **with tracking** so each fly keeps a consistent
+        identity — capped at **2 instances** using the **local-queues** candidate method
+        (CLI equivalent: `--tracking --max_instances 2 --candidates_method local_queues`).
+        """)
     return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    run_train = mo.ui.run_button(label="Run training!")
-    run_train
-    return (run_train,)
-
-
-@app.cell
-def _(mo, model_trainer, run_train):
-    if not run_train.value:
-        mo.stop("Click `Run training!` to start.")
-
-    # Call the `train` method to start training the model!
-    model_trainer.train()
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ### Run inference / Get evaluation metrics
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    Once we have the checkpoints, we can run inference on either a `.slp` file or a `.mp4` with the trained model.
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    run_inf = mo.ui.run_button(label="Run Inference!")
-    run_inf
-    return (run_inf,)
 
 
 @app.cell
 def _(
-    Path,
-    mo,
-    model_type,
-    path_to_val_slp_file,
-    run_inf,
-    run_inference,
-    sleap_nn_cfg,
+    TrackerConfig, centered_instance_dir, centroid_dir, clip_mp4, device, mo, predict
 ):
-    # Running inference on val dataset
-
-    if not run_inf.value:
-        mo.stop("Click `Run Inference!` to start.")
-
-    pred_labels = run_inference(
-        data_path=path_to_val_slp_file,
-        model_paths=[
-            (
-                Path(sleap_nn_cfg.trainer_config.ckpt_dir)
-                / sleap_nn_cfg.trainer_config.run_name
-            ).as_posix()
-        ],
-        output_path=f"predictions_{model_type.value}.slp",
+    clip_preds = predict(
+        clip_mp4,
+        model_paths=[centroid_dir, centered_instance_dir],
+        device=device,
+        frames=list(range(300)),  # first 300 frames; set to None for the whole clip
+        max_instances=2,
+        tracker_config=TrackerConfig(
+            candidates_method="local_queues", max_tracks=2, window_size=5
+        ),
+        output_path="fly_clip.tracked.slp",
     )
-    return (pred_labels,)
+    _n_tracks = len(
+        {inst.track.name for lf in clip_preds for inst in lf.instances if inst.track}
+    )
+    mo.md(
+        f"Tracked **{len(clip_preds)}** frames · "
+        f"**{sum(len(lf.instances) for lf in clip_preds)}** instances · "
+        f"**{_n_tracks}** track(s) → `fly_clip.tracked.slp`"
+    )
+    return (clip_preds,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""
-    Evaluate the model against ground truth and compute metrics. (Make sure gt_labels contains ground-truth annotations.)
-    """)
+    mo.md(r"""### Render the tracked predictions (`sio.render_video`)""")
     return
 
 
 @app.cell
-def _(Evaluator, path_to_val_slp_file, pred_labels, sio):
-    # get eval metrics
-    gt_labels = sio.load_slp(path_to_val_slp_file)
-
-    evaluator = Evaluator(
-        ground_truth_instances=gt_labels,
-        predicted_instances=pred_labels,
+def _(clip_preds, mo, sio):
+    sio.render_video(
+        clip_preds,
+        "fly_clip.tracked.viz.mp4",
+        fps=30,
+        color_by="track",
+        show_progress=False,
     )
-
-    metrics = evaluator.evaluate()
-
-    print(f"Evaluation metrics:")
-    print(f"OKS mAP: {metrics['voc_metrics']['oks_voc.mAP']}")
-    print(f"Dist p90: {metrics['distance_metrics']['p90']}")
-    return (gt_labels,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    **_Note (for centroid-only inference)_**: The centroid model is essentially the first stage of TopDown model workflow, which only predicts centers, not keypoints. In centroid-only inference, each predicted centroid is matched (by Euclidean distance) to the nearest ground-truth instance, and the ground-truth keypoints are copied for display. Therefore, an OKS mAP of 1.0 just means all instances were detected—it does not reflect pose/keypoint accuracy. To evaluate keypoints, run the second stage (the pose model) rather than centroid-only inference.
-    """)
+    mo.video("fly_clip.tracked.viz.mp4", controls=True, loop=True, muted=True)
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    Sample predictions:
-    """)
-    return
+        ## Next steps
 
-
-@app.cell(hide_code=True)
-def _(cv2, mo, np, plt, random):
-    def plot_preds_video(
-        gt_labels,
-        pred_labels,
-        num_frames=20,
-        frame_duration=500,  # ms per frame
-        random_seed=42,
-        output_path=None,
-    ):
-        """Create an MP4 comparing ground truth vs predictions over random frames."""
-        assert len(pred_labels) == len(
-            gt_labels
-        ), "GT and predictions must be the same length."
-
-        # Don't sample more frames than available
-        num_frames = min(num_frames, len(pred_labels))
-        if num_frames == 0:
-            raise ValueError("No frames available to plot.")
-
-        random.seed(random_seed)
-        selected_frames = random.sample(range(len(pred_labels)), num_frames)
-
-        frames_bgr = []
-
-        for i in range(num_frames):
-            fig, ax = plt.subplots(1, 1, figsize=(8, 8), dpi=100)  # dpi sets pixel size
-
-            lf_idx = selected_frames[i]
-            gt_lf = gt_labels[lf_idx]
-            pred_lf = pred_labels[lf_idx]
-
-            # Sanity check: same underlying frame
-            assert (
-                gt_lf.frame_idx == pred_lf.frame_idx
-            ), f"Frame mismatch at {lf_idx}: GT={gt_lf.frame_idx}, Pred={pred_lf.frame_idx}"
-
-            # Background image
-            ax.imshow(
-                getattr(gt_lf, "image", None), cmap="gray", interpolation="nearest"
-            )
-
-            # Ground-truth keypoints
-            for k, inst in enumerate(getattr(gt_lf, "instances", [])):
-                if not inst.is_empty:
-                    pts = inst.numpy()
-                    ax.plot(
-                        pts[:, 0],
-                        pts[:, 1],
-                        "go",
-                        markersize=8,
-                        alpha=0.8,
-                        label="Ground Truth" if k == 0 else None,
-                    )
-
-            # Predicted keypoints
-            for k, inst in enumerate(getattr(pred_lf, "instances", [])):
-                if not inst.is_empty:
-                    pts = inst.numpy()
-                    ax.plot(
-                        pts[:, 0],
-                        pts[:, 1],
-                        "rx",
-                        markersize=8,
-                        alpha=0.8,
-                        label="Predictions" if k == 0 else None,
-                    )
-
-            handles, labels = ax.get_legend_handles_labels()
-            if handles:
-                ax.legend(loc="upper right", fontsize=10)
-
-            ax.axis("off")
-            fig.suptitle(
-                f"Ground Truth vs Predictions ({num_frames} frames, {frame_duration} ms/frame)",
-                fontsize=10,
-                fontweight="bold",
-            )
-            fig.tight_layout()
-
-            # --- Safe pixel grab on Agg: use buffer_rgba(), then drop alpha
-            fig.canvas.draw()
-            w, h = fig.canvas.get_width_height()
-            buf = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)  # RGBA bytes
-            rgba = buf.reshape(h, w, 4)
-            img_rgb = rgba[..., :3]  # drop alpha
-
-            # OpenCV expects BGR
-            frame_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
-            frames_bgr.append(frame_bgr)
-
-            plt.close(fig)
-
-        # Output path
-        if output_path is None:
-            output_path = f"gt_vs_pred_animation_{random_seed}.mp4"
-
-        # Write MP4 (OpenCV wants (width, height))
-        height, width = frames_bgr[0].shape[:2]
-        fps = 1000.0 / frame_duration
-        fourcc = cv2.VideoWriter_fourcc(*"avc1")
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-
-        for f in frames_bgr:
-            if f.dtype != np.uint8:
-                f = f.astype(np.uint8)
-            if f.ndim != 3 or f.shape[2] != 3:
-                raise ValueError(f"Unexpected frame shape {f.shape}")
-            out.write(f)
-        out.release()
-
-        total_secs = (num_frames * frame_duration) / 1000.0
-        return mo.md(f"""
-    ## 🎬 Video Created!
-
-    **Frames:** {num_frames} randomly selected  
-    **Duration:** {frame_duration} ms per frame  
-    **Random Seed:** {random_seed}  
-    **Total Time:** {total_secs:.1f} s
-
-    **Saved as:** `{output_path}`
-    """)
-
-    return (plot_preds_video,)
-
-
-@app.cell(hide_code=True)
-def _(gt_labels, mo, plot_preds_video, pred_labels):
-    random_seed = 42
-
-    # Create the animation
-    plot_preds_video(
-        gt_labels,
-        pred_labels,
-        num_frames=20,
-        frame_duration=200,
-        random_seed=random_seed,
-    )
-
-    # mo.video(f"./gt_vs_pred_animation_{random_seed}.mp4",
-    #         autoplay=True,
-    #     loop=True,
-    #     controls=True,
-    #     muted=True,
-    #     width=800,
-    #         height=800)
-
-    mo.video(
-        f"gt_vs_pred_animation_{random_seed}.mp4",
-        autoplay=True,
-        loop=True,
-        controls=True,
-        muted=True,
-    )
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo, pred_labels):
-    lf_index = mo.ui.number(start=0, stop=len(pred_labels) - 1, label="LF index")
-    return (lf_index,)
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    To view predictions of a certain frame:
-    """)
-    return
-
-
-@app.cell(hide_code=True)
-def _(lf_index, mo):
-    mo.hstack([lf_index, mo.md(f"Has value: {lf_index.value}")])
-    return
-
-
-@app.cell(hide_code=True)
-def _(gt_labels, lf_index, plt, pred_labels):
-    _fig, _ax = plt.subplots(1, 1, figsize=(5 * 1, 5 * 1))
-
-    # Plot each frame
-    gt_lf = gt_labels[lf_index.value]
-    pred_lf = pred_labels[lf_index.value]
-
-    # Ensure we're plotting keypoints for the same frame
-    assert (
-        gt_lf.frame_idx == pred_lf.frame_idx
-    ), f"Frame mismatch at {lf_index.value}: GT={gt_lf.frame_idx}, Pred={pred_lf.frame_idx}"
-
-    _ax.imshow(gt_lf.image, cmap="gray")
-    _ax.set_title(
-        f"Frame {gt_lf.frame_idx} (lf idx: {lf_index.value})",
-        fontsize=12,
-        fontweight="bold",
-    )
-
-    # Plot ground truth instances
-    for idx, instance in enumerate(gt_lf.instances):
-        if not instance.is_empty:
-            gt_pts = instance.numpy()
-            _ax.plot(
-                gt_pts[:, 0],
-                gt_pts[:, 1],
-                "go",
-                markersize=6,
-                alpha=0.8,
-                label="GT" if idx == 0 else "",
-            )
-
-    # Plot predicted instances
-    for idx, instance in enumerate(pred_lf.instances):
-        if not instance.is_empty:
-            pred_pts = instance.numpy()
-            _ax.plot(
-                pred_pts[:, 0],
-                pred_pts[:, 1],
-                "rx",
-                markersize=6,
-                alpha=0.8,
-                label="Pred" if idx == 0 else "",
-            )
-
-    # Add legend
-    _ax.legend(loc="upper right", fontsize=8)
-
-    _ax.axis("off")
-
-    plt.suptitle(f"Ground Truth vs Predictions", fontsize=16, fontweight="bold", y=0.98)
-
-    plt.tight_layout()
-    plt.show()
+        - **Run on a cluster**: the saved `configs/*.yaml` train with
+          `sleap-nn train configs/centroid.yaml` (then the centered-instance one).
+        - **Tracking knobs**: tune `window_size` / `scoring_method`, or add a motion
+          model (`--use_flow` / `--use_kalman`) — see the
+          [tracking guide](https://nn.sleap.ai/guides/tracking/).
+        - **Render options**: `sio.render_video(..., show_trails=True, trail_length=10)`
+          for motion trails — see [io.sleap.ai](https://io.sleap.ai).
+        """)
     return
 
 

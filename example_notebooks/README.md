@@ -29,7 +29,10 @@ Download the notebooks from [here](https://github.com/talmolab/sleap-nn/tree/mai
 
 (i) Training Demo Notebook
 
-- **Description**: End-to-end demo on creating config files and running training, inference, and evaluation using sleap-nn APIs.
+[![Open in molab](https://marimo.io/molab-shield.svg)](https://molab.marimo.io/github/talmolab/sleap-nn/blob/main/example_notebooks/training_demo.py)
+
+- **Description**: End-to-end **top-down** demo — downloads a sample dataset, trains a centroid + centered-instance model, shows how to download the trained model artifacts for local inference, and runs the new inference API (`sleap_nn.inference.predict`) on a fresh video.
+- **Runs on [molab](https://molab.marimo.io)** with a GPU: open the badge above and enable the GPU from the notebook-specs button in the app header. Or run locally:
 
 ```bash
    uvx marimo edit --sandbox training_demo.py
