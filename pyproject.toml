@@ -29,10 +29,10 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    # Instance segmentation (SegmentationMask / Labels.get_masks) tracks sleap-io
-    # main (0.8.0), which is not yet on PyPI. Pinned to a main commit for
-    # reproducibility; switch to a PyPI version constraint once 0.8.0 releases.
-    "sleap-io>=0.8.0",
+    # Instance segmentation (SegmentationMask / Labels.get_masks) requires the
+    # sleap-io 0.8.0 annotation architecture. Fenced below 0.9.0 so a future
+    # major bump (with its own breaking changes) is an explicit, audited upgrade.
+    "sleap-io>=0.8.0,<0.9.0",
     "numpy",
     "torch",
     "torchvision>=0.20.0",
@@ -164,16 +164,6 @@ conflicts = [
 ]
 
 [tool.uv.sources]
-# sleap-io 0.8.0 is not yet released on PyPI; track main for the segmentation
-# (SegmentationMask / Labels.get_masks) APIs. Pinned to a commit for
-# reproducibility — update or drop once sleap-io 0.8.0 is published.
-# Bumped to include the eval video-matching fix (sleap-io#473/#476): the AUTO
-# video matcher now resolves effective shape through the source_video chain, so an
-# embedded-subset GT video matches its restored-original prediction counterpart
-# (fixes "Empty Frame Pairs" in the post-training segmentation/centroid eval on
-# embedded .pkg.slp). Also carries the top-down-seg viz render fixes (#470/#468/
-# #466 on top of #461 + #465).
-sleap-io = { git = "https://github.com/talmolab/sleap-io.git", rev = "04d0b65e9c61aedfab055c7baf950c0814ff6d86" }
 torch = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
     # `cpu`/`gpu` are first-class extras (see [project.optional-dependencies]).
