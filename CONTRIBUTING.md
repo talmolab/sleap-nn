@@ -23,31 +23,13 @@ Thank you for your interest in contributing to sleap-nn! This guide will help yo
 
 2. **Install sleap-nn dependencies based on your platform**\
 
-   - Sync all dependencies based on your correct wheel using `uv sync`. `uv sync` creates a `.venv` (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use all installed packages, you must run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
-     - **Windows/Linux with NVIDIA GPU (default):** a plain `uv sync` installs the CUDA 13.0 build automatically. `gpu` is a default dependency group, so `uv run` uses the GPU build with no extra flags and won't resync back to CPU.
+   - Install everything with a single command. `uv sync` creates a `.venv` (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use installed packages, run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
 
       ```bash
       uv sync
       ```
 
-      Or pin a specific CUDA version (drop the default `gpu` group with `--no-group gpu`):
-
-      ```bash
-      uv sync --no-group gpu --extra torch-cuda128  # CUDA 12.8
-      uv sync --no-group gpu --extra torch-cuda118  # CUDA 11.8
-      ```
-
-     - **macOS with Apple Silicon (M1, M2, M3, M4):** a plain `uv sync` installs the MPS-capable build automatically.
-
-      ```bash
-      uv sync
-      ```
-
-     - **CPU-only (no GPU or unsupported GPU, incl. Linux aarch64):**
-
-      ```bash
-      uv sync --no-group gpu --extra cpu
-      ```
+      This installs the CUDA 13.0 GPU build on Windows/Linux (x86-64) and the Apple-MPS build on macOS automatically; `uv run` keeps it. A GPU is not required — the CUDA wheel also runs on CPU. (For the smaller CPU-only wheel or a specific CUDA version, see the [installation guide](https://nn.sleap.ai/installation/).)
 > **Upgrading All Dependencies**
 > To ensure you have the latest versions of all dependencies, use the `--upgrade` flag with `uv sync`:
 > ```bash
@@ -131,7 +113,7 @@ cd sleap-nn
 
 2. Install `sleap-nn` with docs dependencies:
    ```bash
-   uv sync --no-group gpu --group docs --extra cpu
+   uv sync --group docs
    ```
 
 3. Build and tag a new documentation version:

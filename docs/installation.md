@@ -279,32 +279,23 @@ uv sync
 ```
 
 `gpu` is a **default dependency group**, so a plain `uv sync` installs the
-CUDA 13.0 build on Windows/Linux x86-64 (and the MPS build on macOS) — and
-`uv run` keeps it instead of resyncing back to a CPU wheel. To pick a different
-backend, drop the default group with `--no-group gpu` and add an extra:
+CUDA 13.0 build on Windows/Linux x86-64 (and the Apple-MPS build on macOS)
+automatically, and `uv run` keeps it. A GPU is not required — the CUDA wheel
+also runs on CPU.
 
-| Command | Backend |
-|---------|---------|
-| `uv sync` | CUDA 13.0 (Windows/Linux x86-64) · Apple MPS (macOS) — **default** |
-| `uv sync --no-group gpu --extra cpu` | CPU-only (also Linux aarch64) |
-| `uv sync --no-group gpu --extra torch-cuda128` | CUDA 12.8 |
-| `uv sync --no-group gpu --extra torch-cuda118` | CUDA 11.8 |
+??? note "Escape hatch: CPU-only wheel or a specific CUDA version"
+    Drop the default group with `--no-group gpu` and add an extra:
 
-!!! note
-    The `gpu`/`torch-cuda130` *extras* still exist (`uv sync --extra gpu`) and
-    resolve to the same CUDA 13.0 wheel as the default group; you only need
-    `--no-group gpu` when switching to a **different** backend (CPU or another
-    CUDA version), since those conflict with the default GPU group.
+    | Command | Backend |
+    |---------|---------|
+    | `uv sync --no-group gpu --extra cpu` | smaller CPU-only wheel (also Linux aarch64) |
+    | `uv sync --no-group gpu --extra torch-cuda128` | CUDA 12.8 |
+    | `uv sync --no-group gpu --extra torch-cuda118` | CUDA 11.8 |
 
-!!! note
-    CUDA wheels are for x86-64 / Windows-AMD64 only; they are not published for
-    Linux aarch64 or macOS. On those platforms a plain `uv sync` (macOS → MPS)
-    or `uv sync --no-group gpu --extra cpu` (Linux aarch64) is correct.
-
-!!! note
-    On Windows the CUDA runtime (including cuDNN) ships *inside* the PyTorch
-    wheel, so you will not see a separate `nvidia-cudnn-cu13` package — that is
-    expected. On Linux it is a separate dependency that `--extra gpu` pulls in.
+    The `gpu` / `torch-cuda130` extras (`uv sync --extra gpu`) resolve to the same
+    cu130 wheel as the default group, so they don't need `--no-group gpu`. On
+    Windows the CUDA runtime (incl. cuDNN) ships *inside* the torch wheel; on Linux
+    `nvidia-cudnn-cu13` is a separate dependency.
 
 **Step 4: Run commands**
 
