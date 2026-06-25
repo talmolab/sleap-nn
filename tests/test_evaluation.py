@@ -517,6 +517,8 @@ def test_evaluator_main(
         "uv",
         "run",
         "--frozen",
+        "--no-group",
+        "gpu",
         "--extra",
         "torch-cpu",
         "sleap-nn",

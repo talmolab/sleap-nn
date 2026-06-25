@@ -48,13 +48,13 @@ jobs:
             || { echo "::error::uv.lock: '--extra gpu' no longer attaches nvidia-cudnn-cu13 on linux/x86_64 (regression of #632)"; exit 1; }
 
       - name: Install dev dependencies and torch
-        run: uv sync --extra torch-cpu
+        run: uv sync --no-group gpu --extra torch-cpu
 
       - name: Run Black
-        run: uv run --frozen --extra torch-cpu black --check sleap_nn tests
+        run: uv run --frozen --no-group gpu --extra torch-cpu black --check sleap_nn tests
 
       - name: Run Ruff
-        run: uv run --frozen --extra torch-cpu ruff check sleap_nn/
+        run: uv run --frozen --no-group gpu --extra torch-cpu ruff check sleap_nn/
 
   tests:
     # Windows runs ~29 min on this matrix (slow VMs + torch-on-Windows).
@@ -99,11 +99,11 @@ jobs:
 
       - name: Install dev dependencies and torch (self-hosted GPU)
         if: matrix.os == 'self-hosted-gpu'
-        run: uv sync --python 3.13 --extra torch-cuda128
+        run: uv sync --python 3.13 --no-group gpu --extra torch-cuda128
 
       - name: Install dev dependencies and torch (non-self-hosted GPU)
         if: matrix.os != 'self-hosted-gpu'
-        run: uv sync --extra torch-cpu
+        run: uv sync --no-group gpu --extra torch-cpu
 
       - name: Install graphics dependencies (Ubuntu)
         if: matrix.os == 'ubuntu'
@@ -113,12 +113,12 @@ jobs:
       - name: Print environment info
         run: |
           echo "=== UV Environment ==="
-          uv run --frozen --extra torch-cpu python --version
-          uv run --frozen --extra torch-cpu python -c "import sys; print('Python executable:', sys.executable)"
+          uv run --frozen --no-group gpu --extra torch-cpu python --version
+          uv run --frozen --no-group gpu --extra torch-cpu python -c "import sys; print('Python executable:', sys.executable)"
           echo "=== UV Environment NumPy Check ==="
-          uv run --frozen --extra torch-cpu python -c "import numpy; print('NumPy version:', numpy.__version__); print('NumPy location:', numpy.__file__)" || echo "NumPy import failed in uv environment"
+          uv run --frozen --no-group gpu --extra torch-cpu python -c "import numpy; print('NumPy version:', numpy.__version__); print('NumPy location:', numpy.__file__)" || echo "NumPy import failed in uv environment"
           echo "=== CUDA Availability Check ==="
-          uv run --frozen --extra torch-cpu python -c "
+          uv run --frozen --no-group gpu --extra torch-cpu python -c "
           import torch
           print(f'PyTorch version: {torch.__version__}')
           print(f'CUDA available: {torch.cuda.is_available()}')
@@ -131,13 +131,13 @@ jobs:
               print('CUDA is not available')
           " || echo "CUDA check failed"
           echo "=== Import Test ==="
-          uv run --frozen --extra torch-cpu python -c "import torch; import lightning; import skia; print('All imports successful')" || echo "Import test failed"
+          uv run --frozen --no-group gpu --extra torch-cpu python -c "import torch; import lightning; import skia; print('All imports successful')" || echo "Import test failed"
 
       - name: Check MPS backend (macOS only)
         if: runner.os == 'macOS'
         run: |
           echo "=== macOS MPS Backend Check ==="
-          uv run --frozen --extra torch-cpu python -c "
+          uv run --frozen --no-group gpu --extra torch-cpu python -c "
           import torch
           print(f'PyTorch version: {torch.__version__}')
           print(f'MPS available: {torch.backends.mps.is_available()}')
@@ -154,9 +154,9 @@ jobs:
       - name: Run pytest
         run: |
           echo "=== Final environment check before tests ==="
-          uv run --frozen --extra torch-cpu python -c "import numpy, torch, lightning, skia; print(f'All packages available: numpy={numpy.__version__}, torch={torch.__version__}')"
+          uv run --frozen --no-group gpu --extra torch-cpu python -c "import numpy, torch, lightning, skia; print(f'All packages available: numpy={numpy.__version__}, torch={torch.__version__}')"
           echo "=== Running pytest ==="
-          uv run --frozen --extra torch-cpu pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
+          uv run --frozen --no-group gpu --extra torch-cpu pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
 
       - name: Upload coverage
         if: github.repository == 'talmolab/sleap-nn'

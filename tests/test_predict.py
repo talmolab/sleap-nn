@@ -1321,6 +1321,8 @@ def test_predict_main(
         "uv",
         "run",
         "--frozen",
+        "--no-group",
+        "gpu",
         "--extra",
         "torch-cpu",
         "sleap-nn",

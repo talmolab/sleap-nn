@@ -275,29 +275,27 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 **Step 3: Install in development mode**
 
 ```bash
-uv sync --extra gpu
+uv sync
 ```
 
-This installs with CUDA 13.0 support. Other backends:
+`gpu` is a **default dependency group**, so a plain `uv sync` installs the
+CUDA 13.0 build on Windows/Linux x86-64 (and the Apple-MPS build on macOS)
+automatically, and `uv run` keeps it. A GPU is not required — the CUDA wheel
+also runs on CPU.
 
-| Extra | Backend |
-|-------|---------|
-| `--extra gpu` | CUDA 13.0 (same as `--extra torch-cuda130`) |
-| `--extra cpu` | CPU-only / macOS Apple MPS (same as `--extra torch-cpu`) |
-| `--extra torch-cuda128` | CUDA 12.8 |
-| `--extra torch-cuda118` | CUDA 11.8 |
+??? note "Escape hatch: CPU-only wheel or a specific CUDA version"
+    Drop the default group with `--no-group gpu` and add an extra:
 
-!!! note
-    On macOS, use `--extra cpu` — the MPS backend is automatically available.
+    | Command | Backend |
+    |---------|---------|
+    | `uv sync --no-group gpu --extra cpu` | smaller CPU-only wheel (also Linux aarch64) |
+    | `uv sync --no-group gpu --extra torch-cuda128` | CUDA 12.8 |
+    | `uv sync --no-group gpu --extra torch-cuda118` | CUDA 11.8 |
 
-!!! note
-    `--extra gpu` (CUDA) is for x86-64 / Windows-AMD64 only; NVIDIA CUDA wheels
-    are not published for Linux aarch64. On Linux aarch64 use `--extra cpu`.
-
-!!! note
-    On Windows the CUDA runtime (including cuDNN) ships *inside* the PyTorch
-    wheel, so you will not see a separate `nvidia-cudnn-cu13` package — that is
-    expected. On Linux it is a separate dependency that `--extra gpu` pulls in.
+    The `gpu` / `torch-cuda130` extras (`uv sync --extra gpu`) resolve to the same
+    cu130 wheel as the default group, so they don't need `--no-group gpu`. On
+    Windows the CUDA runtime (incl. cuDNN) ships *inside* the torch wheel; on Linux
+    `nvidia-cudnn-cu13` is a separate dependency.
 
 **Step 4: Run commands**
 
