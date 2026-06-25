@@ -18,6 +18,7 @@ Train pose estimation models with SLEAP-NN.
     - [Negative Frames](negative-frames.md) — reduce false positives with background frames
     - [Monitoring](monitoring.md) — WandB, visualizations, epoch-end evaluation
     - [Multi-GPU](multi-gpu.md) — scale training across multiple GPUs
+    - [Resume & Fine-Tune](resume-finetune.md) — continue from existing weights
 
 ---
 
@@ -210,37 +211,12 @@ Each training run creates a checkpoint directory with:
 
 ---
 
-## Fine-tuning / Transfer Learning
+## Resuming & Fine-Tuning
 
-Initialize with pre-trained weights:
+To resume an interrupted run or fine-tune from pre-trained weights, see the
+dedicated guide:
 
-```yaml
-model_config:
-  pretrained_backbone_weights: /path/to/best.ckpt
-  pretrained_head_weights: /path/to/best.ckpt
-```
-
-Works with:
-
-- Previous SLEAP-NN checkpoints
-
-- Legacy SLEAP `.h5` files (UNet only)
-
----
-
-## Resume Training
-
-Resume from a previous checkpoint:
-
-```bash
-sleap-nn train --config config.yaml \
-    trainer_config.resume_ckpt_path=/path/to/checkpoint.ckpt
-```
-
-This restores both model weights and optimizer state.
-
-!!! warning "Ensure the same seed when resuming"
-    The train/val split is regenerated on resume — it is **not** saved in the checkpoint. If you change `trainer_config.seed` between runs (default: `42`), you will get a different split, which can leak training data into validation. Always use the same seed as the original run. `sleap-nn` will warn you if it detects a mismatch.
+[:octicons-arrow-right-24: Resuming & Fine-Tuning Guide](resume-finetune.md)
 
 ---
 

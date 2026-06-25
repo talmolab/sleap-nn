@@ -130,6 +130,7 @@ nav:
       - Negative Frames: guides/negative-frames.md
       - Monitoring: guides/monitoring.md
       - Multi-GPU: guides/multi-gpu.md
+      - Resume & Fine-Tune: guides/resume-finetune.md
     - Inference:
       - guides/inference.md
       - Python API: guides/inference-api.md
