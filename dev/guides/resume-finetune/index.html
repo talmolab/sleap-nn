@@ -8,27 +8,31 @@
       
       
       
-        <link rel="canonical" href="https://nn.sleap.ai/dev/getting-started/">
+        <link rel="canonical" href="https://nn.sleap.ai/dev/guides/resume-finetune/">
       
       
+        <link rel="prev" href="../multi-gpu/">
+      
+      
+        <link rel="next" href="../inference/overview/">
       
       
         
       
       
-      <link rel="icon" href="../assets/favicon.ico">
+      <link rel="icon" href="../../assets/favicon.ico">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
     
     
       
-        <title>Getting Started - sleap-nn documentation</title>
+        <title>Resume & Fine-Tune - sleap-nn documentation</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -47,11 +51,11 @@
       
     
     
-      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="../stylesheets/extra.css">
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -76,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#getting-started" class="md-skip">
+        <a href="#resuming-fine-tuning" class="md-skip">
           Skip to content
         </a>
       
@@ -96,9 +100,9 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+    <a href="../.." title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
       
-  <img src="../assets/sleap-logo.png" alt="logo">
+  <img src="../../assets/sleap-logo.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -115,7 +119,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Getting Started
+              Resume & Fine-Tune
             
           </span>
         </div>
@@ -222,7 +226,7 @@
   
   
     <li class="md-tabs__item">
-      <a href=".." class="md-tabs__link">
+      <a href="../.." class="md-tabs__link">
         
   
   
@@ -241,7 +245,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../installation/" class="md-tabs__link">
+      <a href="../../installation/" class="md-tabs__link">
         
   
   
@@ -259,17 +263,18 @@
   
   
   
-    <li class="md-tabs__item">
-      <a href="../tutorials/" class="md-tabs__link">
-        
-  
-  
     
+    
+      <li class="md-tabs__item">
+        <a href="../../tutorials/overview/" class="md-tabs__link">
+          
+  
   
   Tutorials
 
-      </a>
-    </li>
+        </a>
+      </li>
+    
   
 
       
@@ -277,37 +282,21 @@
   
   
   
-  
-    <li class="md-tabs__item">
-      <a href="../guides/" class="md-tabs__link">
-        
+    
   
   
     
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../overview/" class="md-tabs__link">
+          
+  
   
   Guides
 
-      </a>
-    </li>
-  
-
-      
-        
-  
-  
-  
-  
-    <li class="md-tabs__item">
-      <a href="../reference/" class="md-tabs__link">
-        
-  
-  
+        </a>
+      </li>
     
-  
-  Reference
-
-      </a>
-    </li>
   
 
       
@@ -319,7 +308,27 @@
     
     
       <li class="md-tabs__item">
-        <a href="../api/" class="md-tabs__link">
+        <a href="../../reference/overview/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/" class="md-tabs__link">
           
   
   
@@ -337,7 +346,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../changelog/" class="md-tabs__link">
+      <a href="../../changelog/" class="md-tabs__link">
         
   
   
@@ -397,9 +406,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+    <a href="../.." title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
       
-  <img src="../assets/sleap-logo.png" alt="logo">
+  <img src="../../assets/sleap-logo.png" alt="logo">
 
     </a>
     sleap-nn documentation
@@ -426,7 +435,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -453,7 +462,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../installation/" class="md-nav__link">
+      <a href="../../installation/" class="md-nav__link">
         
   
   
@@ -496,9 +505,8 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
         
           
-          <div class="md-nav__link md-nav__container">
-            <a href="../tutorials/" class="md-nav__link ">
-              
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
   
   
   <span class="md-ellipsis">
@@ -512,14 +520,8 @@
   
   
 
-            </a>
-            
-              
-              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
+            <span class="md-nav__icon md-icon"></span>
+          </label>
         
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3">
@@ -539,7 +541,35 @@
   
   
     <li class="md-nav__item">
-      <a href="quickstart/" class="md-nav__link">
+      <a href="../../tutorials/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
         
   
   
@@ -567,7 +597,7 @@
   
   
     <li class="md-nav__item">
-      <a href="first-model/" class="md-nav__link">
+      <a href="../../getting-started/first-model/" class="md-nav__link">
         
   
   
@@ -595,7 +625,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tutorials/notebooks/" class="md-nav__link">
+      <a href="../../tutorials/notebooks/" class="md-nav__link">
         
   
   
@@ -627,28 +657,32 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-          <div class="md-nav__link md-nav__container">
-            <a href="../guides/" class="md-nav__link ">
-              
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
   
   
   <span class="md-ellipsis">
@@ -662,16 +696,10 @@
   
   
 
-            </a>
-            
-              
-              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
+            <span class="md-nav__icon md-icon"></span>
+          </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -688,26 +716,58 @@
   
   
   
-    
-    
-    
-    
-      
-      
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
         
-      
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    
+    
       
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_1" >
+      
         
           
-          <div class="md-nav__link md-nav__container">
-            <a href="../guides/training/" class="md-nav__link ">
-              
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="">
+            
   
   
   <span class="md-ellipsis">
@@ -721,17 +781,11 @@
   
   
 
-            </a>
-            
-              
-              <label class="md-nav__link " for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
+            <span class="md-nav__icon md-icon"></span>
+          </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4_1">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_2">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -748,7 +802,63 @@
   
   
     <li class="md-nav__item">
-      <a href="../guides/config-generator/" class="md-nav__link">
+      <a href="../training/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../training-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config-generator/" class="md-nav__link">
         
   
   
@@ -776,7 +886,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../guides/negative-frames/" class="md-nav__link">
+      <a href="../negative-frames/" class="md-nav__link">
         
   
   
@@ -804,7 +914,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../guides/monitoring/" class="md-nav__link">
+      <a href="../monitoring/" class="md-nav__link">
         
   
   
@@ -832,7 +942,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../guides/multi-gpu/" class="md-nav__link">
+      <a href="../multi-gpu/" class="md-nav__link">
         
   
   
@@ -848,6 +958,103 @@
   
 
       </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume & Fine-Tune
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume & Fine-Tune
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#fine-tuning-transfer-learning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fine-tuning / Transfer Learning
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resume-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resume Training
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -874,19 +1081,21 @@
       
       
         
+          
+          
+        
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
         
           
-          <div class="md-nav__link md-nav__container">
-            <a href="../guides/inference/" class="md-nav__link ">
-              
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="">
+            
   
   
   <span class="md-ellipsis">
@@ -900,17 +1109,11 @@
   
   
 
-            </a>
-            
-              
-              <label class="md-nav__link " for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
+            <span class="md-nav__icon md-icon"></span>
+          </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4_2">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -927,7 +1130,91 @@
   
   
     <li class="md-nav__item">
-      <a href="../guides/inference-api/" class="md-nav__link">
+      <a href="../inference/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../inference-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running Inference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../post-processing-filters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-Processing Filters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../inference-api/" class="md-nav__link">
         
   
   
@@ -955,7 +1242,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../guides/centroid-only-inference/" class="md-nav__link">
+      <a href="../centroid-only-inference/" class="md-nav__link">
         
   
   
@@ -983,7 +1270,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../guides/topdown-segmentation/" class="md-nav__link">
+      <a href="../topdown-segmentation/" class="md-nav__link">
         
   
   
@@ -1011,7 +1298,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../guides/sam-inference-segmentation/" class="md-nav__link">
+      <a href="../sam-inference-segmentation/" class="md-nav__link">
         
   
   
@@ -1039,7 +1326,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../guides/inference-performance/" class="md-nav__link">
+      <a href="../inference-performance/" class="md-nav__link">
         
   
   
@@ -1075,7 +1362,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../guides/evaluation/" class="md-nav__link">
+      <a href="../evaluation/" class="md-nav__link">
         
   
   
@@ -1103,7 +1390,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../guides/tracking/" class="md-nav__link">
+      <a href="../tracking/" class="md-nav__link">
         
   
   
@@ -1131,7 +1418,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../guides/export/" class="md-nav__link">
+      <a href="../export/" class="md-nav__link">
         
   
   
@@ -1182,9 +1469,8 @@
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
         
           
-          <div class="md-nav__link md-nav__container">
-            <a href="../reference/" class="md-nav__link ">
-              
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
   
   
   <span class="md-ellipsis">
@@ -1198,14 +1484,8 @@
   
   
 
-            </a>
-            
-              
-              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
+            <span class="md-nav__icon md-icon"></span>
+          </label>
         
         <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
@@ -1217,6 +1497,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -1238,11 +1546,11 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_1" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_2" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../configuration/" class="md-nav__link ">
+            <a href="../../configuration/" class="md-nav__link ">
               
   
   
@@ -1260,14 +1568,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_5_1" id="__nav_5_1_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_5_2" id="__nav_5_2_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5_1">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_2">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1284,7 +1592,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/config-picker/" class="md-nav__link">
+      <a href="../../configuration/config-picker/" class="md-nav__link">
         
   
   
@@ -1312,7 +1620,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/data/" class="md-nav__link">
+      <a href="../../configuration/data/" class="md-nav__link">
         
   
   
@@ -1340,7 +1648,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/model/" class="md-nav__link">
+      <a href="../../configuration/model/" class="md-nav__link">
         
   
   
@@ -1368,7 +1676,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/trainer/" class="md-nav__link">
+      <a href="../../configuration/trainer/" class="md-nav__link">
         
   
   
@@ -1396,7 +1704,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/samples/" class="md-nav__link">
+      <a href="../../configuration/samples/" class="md-nav__link">
         
   
   
@@ -1432,7 +1740,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/cli/" class="md-nav__link">
+      <a href="../../reference/cli/" class="md-nav__link">
         
   
   
@@ -1460,7 +1768,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/models/" class="md-nav__link">
+      <a href="../../reference/models/" class="md-nav__link">
         
   
   
@@ -1488,7 +1796,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/evaluation_metrics/" class="md-nav__link">
+      <a href="../../reference/evaluation_metrics/" class="md-nav__link">
         
   
   
@@ -1516,7 +1824,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../help/faq/" class="md-nav__link">
+      <a href="../../help/faq/" class="md-nav__link">
         
   
   
@@ -1620,7 +1928,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/" class="md-nav__link ">
+            <a href="../../api/" class="md-nav__link ">
               
   
   
@@ -1679,7 +1987,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/architectures/" class="md-nav__link ">
+            <a href="../../api/architectures/" class="md-nav__link ">
               
   
   
@@ -1721,7 +2029,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/architectures/common/" class="md-nav__link">
+      <a href="../../api/architectures/common/" class="md-nav__link">
         
   
   
@@ -1749,7 +2057,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/architectures/convnext/" class="md-nav__link">
+      <a href="../../api/architectures/convnext/" class="md-nav__link">
         
   
   
@@ -1777,7 +2085,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/architectures/encoder_decoder/" class="md-nav__link">
+      <a href="../../api/architectures/encoder_decoder/" class="md-nav__link">
         
   
   
@@ -1805,7 +2113,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/architectures/heads/" class="md-nav__link">
+      <a href="../../api/architectures/heads/" class="md-nav__link">
         
   
   
@@ -1833,7 +2141,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/architectures/model/" class="md-nav__link">
+      <a href="../../api/architectures/model/" class="md-nav__link">
         
   
   
@@ -1861,7 +2169,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/architectures/swint/" class="md-nav__link">
+      <a href="../../api/architectures/swint/" class="md-nav__link">
         
   
   
@@ -1889,7 +2197,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/architectures/unet/" class="md-nav__link">
+      <a href="../../api/architectures/unet/" class="md-nav__link">
         
   
   
@@ -1917,7 +2225,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/architectures/utils/" class="md-nav__link">
+      <a href="../../api/architectures/utils/" class="md-nav__link">
         
   
   
@@ -1953,7 +2261,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/cli/" class="md-nav__link">
+      <a href="../../api/cli/" class="md-nav__link">
         
   
   
@@ -1998,7 +2306,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/config/" class="md-nav__link ">
+            <a href="../../api/config/" class="md-nav__link ">
               
   
   
@@ -2040,7 +2348,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config/data_config/" class="md-nav__link">
+      <a href="../../api/config/data_config/" class="md-nav__link">
         
   
   
@@ -2068,7 +2376,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config/get_config/" class="md-nav__link">
+      <a href="../../api/config/get_config/" class="md-nav__link">
         
   
   
@@ -2096,7 +2404,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config/model_config/" class="md-nav__link">
+      <a href="../../api/config/model_config/" class="md-nav__link">
         
   
   
@@ -2124,7 +2432,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config/trainer_config/" class="md-nav__link">
+      <a href="../../api/config/trainer_config/" class="md-nav__link">
         
   
   
@@ -2152,7 +2460,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config/training_job_config/" class="md-nav__link">
+      <a href="../../api/config/training_job_config/" class="md-nav__link">
         
   
   
@@ -2180,7 +2488,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config/utils/" class="md-nav__link">
+      <a href="../../api/config/utils/" class="md-nav__link">
         
   
   
@@ -2233,7 +2541,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/config_generator/" class="md-nav__link ">
+            <a href="../../api/config_generator/" class="md-nav__link ">
               
   
   
@@ -2275,7 +2583,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/analyzer/" class="md-nav__link">
+      <a href="../../api/config_generator/analyzer/" class="md-nav__link">
         
   
   
@@ -2303,7 +2611,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/architecture_estimates/" class="md-nav__link">
+      <a href="../../api/config_generator/architecture_estimates/" class="md-nav__link">
         
   
   
@@ -2331,7 +2639,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/generator/" class="md-nav__link">
+      <a href="../../api/config_generator/generator/" class="md-nav__link">
         
   
   
@@ -2359,7 +2667,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/memory/" class="md-nav__link">
+      <a href="../../api/config_generator/memory/" class="md-nav__link">
         
   
   
@@ -2387,7 +2695,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/recommender/" class="md-nav__link">
+      <a href="../../api/config_generator/recommender/" class="md-nav__link">
         
   
   
@@ -2432,7 +2740,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/config_generator/tui/" class="md-nav__link ">
+            <a href="../../api/config_generator/tui/" class="md-nav__link ">
               
   
   
@@ -2474,7 +2782,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/tui/app/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/app/" class="md-nav__link">
         
   
   
@@ -2519,7 +2827,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/config_generator/tui/screens/" class="md-nav__link ">
+            <a href="../../api/config_generator/tui/screens/" class="md-nav__link ">
               
   
   
@@ -2561,7 +2869,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/tui/screens/configure_screen/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/screens/configure_screen/" class="md-nav__link">
         
   
   
@@ -2589,7 +2897,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/tui/screens/export_screen/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/screens/export_screen/" class="md-nav__link">
         
   
   
@@ -2617,7 +2925,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/tui/screens/load_screen/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/screens/load_screen/" class="md-nav__link">
         
   
   
@@ -2645,7 +2953,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/tui/screens/model_select_screen/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/screens/model_select_screen/" class="md-nav__link">
         
   
   
@@ -2681,7 +2989,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/tui/state/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/state/" class="md-nav__link">
         
   
   
@@ -2726,7 +3034,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/config_generator/tui/widgets/" class="md-nav__link ">
+            <a href="../../api/config_generator/tui/widgets/" class="md-nav__link ">
               
   
   
@@ -2768,7 +3076,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/tui/widgets/collapsible/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/widgets/collapsible/" class="md-nav__link">
         
   
   
@@ -2796,7 +3104,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/tui/widgets/info_box/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/widgets/info_box/" class="md-nav__link">
         
   
   
@@ -2824,7 +3132,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/tui/widgets/memory_gauge/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/widgets/memory_gauge/" class="md-nav__link">
         
   
   
@@ -2852,7 +3160,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/tui/widgets/recommendation/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/widgets/recommendation/" class="md-nav__link">
         
   
   
@@ -2880,7 +3188,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/tui/widgets/size_display/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/widgets/size_display/" class="md-nav__link">
         
   
   
@@ -2908,7 +3216,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/config_generator/tui/widgets/slider/" class="md-nav__link">
+      <a href="../../api/config_generator/tui/widgets/slider/" class="md-nav__link">
         
   
   
@@ -2977,7 +3285,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/data/" class="md-nav__link ">
+            <a href="../../api/data/" class="md-nav__link ">
               
   
   
@@ -3019,7 +3327,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/data/augmentation/" class="md-nav__link">
+      <a href="../../api/data/augmentation/" class="md-nav__link">
         
   
   
@@ -3047,7 +3355,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/data/confidence_maps/" class="md-nav__link">
+      <a href="../../api/data/confidence_maps/" class="md-nav__link">
         
   
   
@@ -3075,7 +3383,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/data/custom_datasets/" class="md-nav__link">
+      <a href="../../api/data/custom_datasets/" class="md-nav__link">
         
   
   
@@ -3103,7 +3411,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/data/edge_maps/" class="md-nav__link">
+      <a href="../../api/data/edge_maps/" class="md-nav__link">
         
   
   
@@ -3131,7 +3439,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/data/identity/" class="md-nav__link">
+      <a href="../../api/data/identity/" class="md-nav__link">
         
   
   
@@ -3159,7 +3467,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/data/instance_centroids/" class="md-nav__link">
+      <a href="../../api/data/instance_centroids/" class="md-nav__link">
         
   
   
@@ -3187,7 +3495,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/data/instance_cropping/" class="md-nav__link">
+      <a href="../../api/data/instance_cropping/" class="md-nav__link">
         
   
   
@@ -3215,7 +3523,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/data/normalization/" class="md-nav__link">
+      <a href="../../api/data/normalization/" class="md-nav__link">
         
   
   
@@ -3243,7 +3551,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/data/providers/" class="md-nav__link">
+      <a href="../../api/data/providers/" class="md-nav__link">
         
   
   
@@ -3271,7 +3579,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/data/resizing/" class="md-nav__link">
+      <a href="../../api/data/resizing/" class="md-nav__link">
         
   
   
@@ -3299,7 +3607,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/data/segmentation_maps/" class="md-nav__link">
+      <a href="../../api/data/segmentation_maps/" class="md-nav__link">
         
   
   
@@ -3327,7 +3635,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/data/skia_augmentation/" class="md-nav__link">
+      <a href="../../api/data/skia_augmentation/" class="md-nav__link">
         
   
   
@@ -3355,7 +3663,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/data/utils/" class="md-nav__link">
+      <a href="../../api/data/utils/" class="md-nav__link">
         
   
   
@@ -3391,7 +3699,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/evaluation/" class="md-nav__link">
+      <a href="../../api/evaluation/" class="md-nav__link">
         
   
   
@@ -3436,7 +3744,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/export/" class="md-nav__link ">
+            <a href="../../api/export/" class="md-nav__link ">
               
   
   
@@ -3478,7 +3786,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/export/cli/" class="md-nav__link">
+      <a href="../../api/export/cli/" class="md-nav__link">
         
   
   
@@ -3523,7 +3831,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/export/exporters/" class="md-nav__link ">
+            <a href="../../api/export/exporters/" class="md-nav__link ">
               
   
   
@@ -3565,7 +3873,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/export/exporters/onnx_exporter/" class="md-nav__link">
+      <a href="../../api/export/exporters/onnx_exporter/" class="md-nav__link">
         
   
   
@@ -3593,7 +3901,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/export/exporters/tensorrt_exporter/" class="md-nav__link">
+      <a href="../../api/export/exporters/tensorrt_exporter/" class="md-nav__link">
         
   
   
@@ -3629,7 +3937,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/export/metadata/" class="md-nav__link">
+      <a href="../../api/export/metadata/" class="md-nav__link">
         
   
   
@@ -3657,7 +3965,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/export/utils/" class="md-nav__link">
+      <a href="../../api/export/utils/" class="md-nav__link">
         
   
   
@@ -3702,7 +4010,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/export/wrappers/" class="md-nav__link ">
+            <a href="../../api/export/wrappers/" class="md-nav__link ">
               
   
   
@@ -3744,7 +4052,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/export/wrappers/base/" class="md-nav__link">
+      <a href="../../api/export/wrappers/base/" class="md-nav__link">
         
   
   
@@ -3772,7 +4080,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/export/wrappers/bottomup/" class="md-nav__link">
+      <a href="../../api/export/wrappers/bottomup/" class="md-nav__link">
         
   
   
@@ -3800,7 +4108,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/export/wrappers/bottomup_multiclass/" class="md-nav__link">
+      <a href="../../api/export/wrappers/bottomup_multiclass/" class="md-nav__link">
         
   
   
@@ -3828,7 +4136,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/export/wrappers/centered_instance/" class="md-nav__link">
+      <a href="../../api/export/wrappers/centered_instance/" class="md-nav__link">
         
   
   
@@ -3856,7 +4164,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/export/wrappers/centroid/" class="md-nav__link">
+      <a href="../../api/export/wrappers/centroid/" class="md-nav__link">
         
   
   
@@ -3884,7 +4192,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/export/wrappers/single_instance/" class="md-nav__link">
+      <a href="../../api/export/wrappers/single_instance/" class="md-nav__link">
         
   
   
@@ -3912,7 +4220,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/export/wrappers/topdown/" class="md-nav__link">
+      <a href="../../api/export/wrappers/topdown/" class="md-nav__link">
         
   
   
@@ -3940,7 +4248,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/export/wrappers/topdown_multiclass/" class="md-nav__link">
+      <a href="../../api/export/wrappers/topdown_multiclass/" class="md-nav__link">
         
   
   
@@ -4001,7 +4309,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/inference/" class="md-nav__link ">
+            <a href="../../api/inference/" class="md-nav__link ">
               
   
   
@@ -4043,7 +4351,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/bottomup/" class="md-nav__link">
+      <a href="../../api/inference/bottomup/" class="md-nav__link">
         
   
   
@@ -4071,7 +4379,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/centroid_convert/" class="md-nav__link">
+      <a href="../../api/inference/centroid_convert/" class="md-nav__link">
         
   
   
@@ -4099,7 +4407,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/filters/" class="md-nav__link">
+      <a href="../../api/inference/filters/" class="md-nav__link">
         
   
   
@@ -4127,7 +4435,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/identity/" class="md-nav__link">
+      <a href="../../api/inference/identity/" class="md-nav__link">
         
   
   
@@ -4172,7 +4480,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/inference/layers/" class="md-nav__link ">
+            <a href="../../api/inference/layers/" class="md-nav__link ">
               
   
   
@@ -4231,7 +4539,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/inference/layers/backends/" class="md-nav__link ">
+            <a href="../../api/inference/layers/backends/" class="md-nav__link ">
               
   
   
@@ -4273,7 +4581,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/backends/base/" class="md-nav__link">
+      <a href="../../api/inference/layers/backends/base/" class="md-nav__link">
         
   
   
@@ -4301,7 +4609,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/backends/onnx_backend/" class="md-nav__link">
+      <a href="../../api/inference/layers/backends/onnx_backend/" class="md-nav__link">
         
   
   
@@ -4329,7 +4637,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/backends/tensorrt_backend/" class="md-nav__link">
+      <a href="../../api/inference/layers/backends/tensorrt_backend/" class="md-nav__link">
         
   
   
@@ -4357,7 +4665,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/backends/torch_backend/" class="md-nav__link">
+      <a href="../../api/inference/layers/backends/torch_backend/" class="md-nav__link">
         
   
   
@@ -4393,7 +4701,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/base/" class="md-nav__link">
+      <a href="../../api/inference/layers/base/" class="md-nav__link">
         
   
   
@@ -4421,7 +4729,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/bottomup/" class="md-nav__link">
+      <a href="../../api/inference/layers/bottomup/" class="md-nav__link">
         
   
   
@@ -4449,7 +4757,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/bottomup_multiclass/" class="md-nav__link">
+      <a href="../../api/inference/layers/bottomup_multiclass/" class="md-nav__link">
         
   
   
@@ -4477,7 +4785,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/centered_instance/" class="md-nav__link">
+      <a href="../../api/inference/layers/centered_instance/" class="md-nav__link">
         
   
   
@@ -4505,7 +4813,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/centroid/" class="md-nav__link">
+      <a href="../../api/inference/layers/centroid/" class="md-nav__link">
         
   
   
@@ -4533,7 +4841,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/configs/" class="md-nav__link">
+      <a href="../../api/inference/layers/configs/" class="md-nav__link">
         
   
   
@@ -4561,7 +4869,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/exported/" class="md-nav__link">
+      <a href="../../api/inference/layers/exported/" class="md-nav__link">
         
   
   
@@ -4589,7 +4897,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/segmentation/" class="md-nav__link">
+      <a href="../../api/inference/layers/segmentation/" class="md-nav__link">
         
   
   
@@ -4617,7 +4925,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/single_instance/" class="md-nav__link">
+      <a href="../../api/inference/layers/single_instance/" class="md-nav__link">
         
   
   
@@ -4645,7 +4953,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/topdown/" class="md-nav__link">
+      <a href="../../api/inference/layers/topdown/" class="md-nav__link">
         
   
   
@@ -4673,7 +4981,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/topdown_multiclass/" class="md-nav__link">
+      <a href="../../api/inference/layers/topdown_multiclass/" class="md-nav__link">
         
   
   
@@ -4701,7 +5009,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/layers/topdown_segmentation/" class="md-nav__link">
+      <a href="../../api/inference/layers/topdown_segmentation/" class="md-nav__link">
         
   
   
@@ -4737,7 +5045,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/loaders/" class="md-nav__link">
+      <a href="../../api/inference/loaders/" class="md-nav__link">
         
   
   
@@ -4782,7 +5090,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/inference/ops/" class="md-nav__link ">
+            <a href="../../api/inference/ops/" class="md-nav__link ">
               
   
   
@@ -4824,7 +5132,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/ops/coord/" class="md-nav__link">
+      <a href="../../api/inference/ops/coord/" class="md-nav__link">
         
   
   
@@ -4852,7 +5160,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/ops/crops/" class="md-nav__link">
+      <a href="../../api/inference/ops/crops/" class="md-nav__link">
         
   
   
@@ -4880,7 +5188,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/ops/filters/" class="md-nav__link">
+      <a href="../../api/inference/ops/filters/" class="md-nav__link">
         
   
   
@@ -4908,7 +5216,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/ops/identity/" class="md-nav__link">
+      <a href="../../api/inference/ops/identity/" class="md-nav__link">
         
   
   
@@ -4936,7 +5244,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/ops/paf/" class="md-nav__link">
+      <a href="../../api/inference/ops/paf/" class="md-nav__link">
         
   
   
@@ -4964,7 +5272,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/ops/peaks/" class="md-nav__link">
+      <a href="../../api/inference/ops/peaks/" class="md-nav__link">
         
   
   
@@ -5000,7 +5308,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/outputs/" class="md-nav__link">
+      <a href="../../api/inference/outputs/" class="md-nav__link">
         
   
   
@@ -5028,7 +5336,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/paf_grouping/" class="md-nav__link">
+      <a href="../../api/inference/paf_grouping/" class="md-nav__link">
         
   
   
@@ -5056,7 +5364,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/peak_finding/" class="md-nav__link">
+      <a href="../../api/inference/peak_finding/" class="md-nav__link">
         
   
   
@@ -5084,7 +5392,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/postprocessing/" class="md-nav__link">
+      <a href="../../api/inference/postprocessing/" class="md-nav__link">
         
   
   
@@ -5112,7 +5420,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/predictor/" class="md-nav__link">
+      <a href="../../api/inference/predictor/" class="md-nav__link">
         
   
   
@@ -5140,7 +5448,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/predictors/" class="md-nav__link">
+      <a href="../../api/inference/predictors/" class="md-nav__link">
         
   
   
@@ -5168,7 +5476,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/preprocess_info/" class="md-nav__link">
+      <a href="../../api/inference/preprocess_info/" class="md-nav__link">
         
   
   
@@ -5196,7 +5504,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/provenance/" class="md-nav__link">
+      <a href="../../api/inference/provenance/" class="md-nav__link">
         
   
   
@@ -5224,7 +5532,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/providers/" class="md-nav__link">
+      <a href="../../api/inference/providers/" class="md-nav__link">
         
   
   
@@ -5252,7 +5560,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/run/" class="md-nav__link">
+      <a href="../../api/inference/run/" class="md-nav__link">
         
   
   
@@ -5297,7 +5605,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/inference/sam/" class="md-nav__link ">
+            <a href="../../api/inference/sam/" class="md-nav__link ">
               
   
   
@@ -5339,7 +5647,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/sam/backends/" class="md-nav__link">
+      <a href="../../api/inference/sam/backends/" class="md-nav__link">
         
   
   
@@ -5367,7 +5675,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/sam/mask_layer/" class="md-nav__link">
+      <a href="../../api/inference/sam/mask_layer/" class="md-nav__link">
         
   
   
@@ -5395,7 +5703,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/sam/overlay/" class="md-nav__link">
+      <a href="../../api/inference/sam/overlay/" class="md-nav__link">
         
   
   
@@ -5423,7 +5731,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/sam/prompts/" class="md-nav__link">
+      <a href="../../api/inference/sam/prompts/" class="md-nav__link">
         
   
   
@@ -5451,7 +5759,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/sam/reconciliation/" class="md-nav__link">
+      <a href="../../api/inference/sam/reconciliation/" class="md-nav__link">
         
   
   
@@ -5479,7 +5787,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/sam/retrack/" class="md-nav__link">
+      <a href="../../api/inference/sam/retrack/" class="md-nav__link">
         
   
   
@@ -5515,7 +5823,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/segmentation/" class="md-nav__link">
+      <a href="../../api/inference/segmentation/" class="md-nav__link">
         
   
   
@@ -5543,7 +5851,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/segmentation_convert/" class="md-nav__link">
+      <a href="../../api/inference/segmentation_convert/" class="md-nav__link">
         
   
   
@@ -5571,7 +5879,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/single_instance/" class="md-nav__link">
+      <a href="../../api/inference/single_instance/" class="md-nav__link">
         
   
   
@@ -5599,7 +5907,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/streaming/" class="md-nav__link">
+      <a href="../../api/inference/streaming/" class="md-nav__link">
         
   
   
@@ -5627,7 +5935,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/topdown/" class="md-nav__link">
+      <a href="../../api/inference/topdown/" class="md-nav__link">
         
   
   
@@ -5655,7 +5963,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/tracking/" class="md-nav__link">
+      <a href="../../api/inference/tracking/" class="md-nav__link">
         
   
   
@@ -5683,7 +5991,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/utils/" class="md-nav__link">
+      <a href="../../api/inference/utils/" class="md-nav__link">
         
   
   
@@ -5711,7 +6019,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/inference/writer/" class="md-nav__link">
+      <a href="../../api/inference/writer/" class="md-nav__link">
         
   
   
@@ -5747,7 +6055,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/legacy_models/" class="md-nav__link">
+      <a href="../../api/legacy_models/" class="md-nav__link">
         
   
   
@@ -5775,7 +6083,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/model_info/" class="md-nav__link">
+      <a href="../../api/model_info/" class="md-nav__link">
         
   
   
@@ -5803,7 +6111,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/predict/" class="md-nav__link">
+      <a href="../../api/predict/" class="md-nav__link">
         
   
   
@@ -5831,7 +6139,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/system_info/" class="md-nav__link">
+      <a href="../../api/system_info/" class="md-nav__link">
         
   
   
@@ -5876,7 +6184,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/tracking/" class="md-nav__link ">
+            <a href="../../api/tracking/" class="md-nav__link ">
               
   
   
@@ -5935,7 +6243,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/tracking/candidates/" class="md-nav__link ">
+            <a href="../../api/tracking/candidates/" class="md-nav__link ">
               
   
   
@@ -5977,7 +6285,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/tracking/candidates/fixed_window/" class="md-nav__link">
+      <a href="../../api/tracking/candidates/fixed_window/" class="md-nav__link">
         
   
   
@@ -6005,7 +6313,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/tracking/candidates/local_queues/" class="md-nav__link">
+      <a href="../../api/tracking/candidates/local_queues/" class="md-nav__link">
         
   
   
@@ -6041,7 +6349,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/tracking/track_instance/" class="md-nav__link">
+      <a href="../../api/tracking/track_instance/" class="md-nav__link">
         
   
   
@@ -6069,7 +6377,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/tracking/tracker/" class="md-nav__link">
+      <a href="../../api/tracking/tracker/" class="md-nav__link">
         
   
   
@@ -6097,7 +6405,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/tracking/utils/" class="md-nav__link">
+      <a href="../../api/tracking/utils/" class="md-nav__link">
         
   
   
@@ -6133,7 +6441,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/train/" class="md-nav__link">
+      <a href="../../api/train/" class="md-nav__link">
         
   
   
@@ -6178,7 +6486,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../api/training/" class="md-nav__link ">
+            <a href="../../api/training/" class="md-nav__link ">
               
   
   
@@ -6220,7 +6528,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/training/callbacks/" class="md-nav__link">
+      <a href="../../api/training/callbacks/" class="md-nav__link">
         
   
   
@@ -6248,7 +6556,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/training/lightning_modules/" class="md-nav__link">
+      <a href="../../api/training/lightning_modules/" class="md-nav__link">
         
   
   
@@ -6276,7 +6584,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/training/losses/" class="md-nav__link">
+      <a href="../../api/training/losses/" class="md-nav__link">
         
   
   
@@ -6304,7 +6612,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/training/model_trainer/" class="md-nav__link">
+      <a href="../../api/training/model_trainer/" class="md-nav__link">
         
   
   
@@ -6332,7 +6640,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/training/schedulers/" class="md-nav__link">
+      <a href="../../api/training/schedulers/" class="md-nav__link">
         
   
   
@@ -6360,7 +6668,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api/training/utils/" class="md-nav__link">
+      <a href="../../api/training/utils/" class="md-nav__link">
         
   
   
@@ -6411,7 +6719,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../changelog/" class="md-nav__link">
+      <a href="../../changelog/" class="md-nav__link">
         
   
   
@@ -6485,10 +6793,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#fine-tuning-transfer-learning" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Prerequisites
+        Fine-tuning / Transfer Learning
       
     </span>
   </a>
@@ -6496,52 +6804,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#choose-your-path" class="md-nav__link">
+  <a href="#resume-training" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Choose Your Path
+        Resume Training
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Choose Your Path">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#i-want-to-try-it-quickly" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        I want to try it quickly
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#im-setting-up-for-a-project" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        I'm setting up for a project
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#i-have-data-and-want-to-train" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        I have data and want to train
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -6565,45 +6834,36 @@
   
 
 
-<h1 id="getting-started">Getting Started<a class="headerlink" href="#getting-started" title="Permanent link">&para;</a></h1>
-<p>New to SLEAP-NN? Start here.</p>
-<div class="grid cards">
+<h1 id="resuming-fine-tuning">Resuming &amp; Fine-Tuning<a class="headerlink" href="#resuming-fine-tuning" title="Permanent link">&para;</a></h1>
+<p>Continue training from existing weights — either resuming an interrupted run or
+fine-tuning a pre-trained model on new data.</p>
+<hr />
+<h2 id="fine-tuning-transfer-learning">Fine-tuning / Transfer Learning<a class="headerlink" href="#fine-tuning-transfer-learning" title="Permanent link">&para;</a></h2>
+<p>Initialize with pre-trained weights:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">model_config</span><span class="p">:</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">pretrained_backbone_weights</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/path/to/best.ckpt</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">pretrained_head_weights</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/path/to/best.ckpt</span>
+</span></code></pre></div>
+<p>Works with:</p>
 <ul>
 <li>
-<p><span class="twemoji lg middle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M5 20h14v-2H5m14-9h-4V3H9v6H5l7 7z"/></svg></span> <strong>Installation</strong></p>
-<hr />
-<p>Set up SLEAP-NN on your system with GPU or CPU support.</p>
-<p><a href="../installation/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Install now</a></p>
+<p>Previous SLEAP-NN checkpoints</p>
 </li>
 <li>
-<p><span class="twemoji lg middle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 16.5v-9l6 4.5M12 2A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2"/></svg></span> <strong>Quick Start</strong></p>
-<hr />
-<p>Train and run inference in under 5 minutes.</p>
-<p><a href="quickstart/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Let's go</a></p>
-</li>
-<li>
-<p><span class="twemoji lg middle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3 1 9l11 6 9-4.91V17h2V9M5 13.18v4L12 21l7-3.82v-4L12 17z"/></svg></span> <strong>Your First Model</strong></p>
-<hr />
-<p>A complete walkthrough from data to predictions.</p>
-<p><a href="first-model/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Tutorial</a></p>
+<p>Legacy SLEAP <code>.h5</code> files (UNet only)</p>
 </li>
 </ul>
+<hr />
+<h2 id="resume-training">Resume Training<a class="headerlink" href="#resume-training" title="Permanent link">&para;</a></h2>
+<p>Resume from a previous checkpoint:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span>trainer_config.resume_ckpt_path<span class="o">=</span>/path/to/checkpoint.ckpt
+</span></code></pre></div>
+<p>This restores both model weights and optimizer state.</p>
+<div class="admonition warning">
+<p class="admonition-title">Ensure the same seed when resuming</p>
+<p>The train/val split is regenerated on resume — it is <strong>not</strong> saved in the checkpoint. If you change <code>trainer_config.seed</code> between runs (default: <code>42</code>), you will get a different split, which can leak training data into validation. Always use the same seed as the original run. <code>sleap-nn</code> will warn you if it detects a mismatch.</p>
 </div>
-<hr />
-<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
-<ul>
-<li><strong>Python 3.11, 3.12, or 3.13</strong> (3.14 not yet supported)</li>
-<li><strong>SLEAP labels file</strong> (<code>.slp</code> or <code>.pkg.slp</code>) with annotated data</li>
-<li><strong>GPU recommended</strong> for training (NVIDIA with CUDA, or Apple Silicon with MPS)</li>
-</ul>
-<hr />
-<h2 id="choose-your-path">Choose Your Path<a class="headerlink" href="#choose-your-path" title="Permanent link">&para;</a></h2>
-<h3 id="i-want-to-try-it-quickly">I want to try it quickly<a class="headerlink" href="#i-want-to-try-it-quickly" title="Permanent link">&para;</a></h3>
-<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg></span> Go to <a href="quickstart/">Quick Start</a></p>
-<h3 id="im-setting-up-for-a-project">I'm setting up for a project<a class="headerlink" href="#im-setting-up-for-a-project" title="Permanent link">&para;</a></h3>
-<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg></span> Go to <a href="../installation/">Installation</a> for full setup options</p>
-<h3 id="i-have-data-and-want-to-train">I have data and want to train<a class="headerlink" href="#i-have-data-and-want-to-train" title="Permanent link">&para;</a></h3>
-<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg></span> Go to <a href="first-model/">Your First Model</a> for a complete tutorial</p>
 
 
 
@@ -6686,10 +6946,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

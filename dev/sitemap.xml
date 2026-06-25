@@ -621,19 +621,11 @@
          <lastmod>2026-06-25</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/getting-started/</loc>
-         <lastmod>2026-06-25</lastmod>
-    </url>
-    <url>
          <loc>https://nn.sleap.ai/dev/getting-started/first-model/</loc>
          <lastmod>2026-06-25</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/getting-started/quickstart/</loc>
-         <lastmod>2026-06-25</lastmod>
-    </url>
-    <url>
-         <loc>https://nn.sleap.ai/dev/guides/</loc>
          <lastmod>2026-06-25</lastmod>
     </url>
     <url>
@@ -657,11 +649,11 @@
          <lastmod>2026-06-25</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/guides/inference-performance/</loc>
+         <loc>https://nn.sleap.ai/dev/guides/inference-guide/</loc>
          <lastmod>2026-06-25</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/guides/inference/</loc>
+         <loc>https://nn.sleap.ai/dev/guides/inference-performance/</loc>
          <lastmod>2026-06-25</lastmod>
     </url>
     <url>
@@ -677,6 +669,18 @@
          <lastmod>2026-06-25</lastmod>
     </url>
     <url>
+         <loc>https://nn.sleap.ai/dev/guides/overview/</loc>
+         <lastmod>2026-06-25</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/guides/post-processing-filters/</loc>
+         <lastmod>2026-06-25</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/guides/resume-finetune/</loc>
+         <lastmod>2026-06-25</lastmod>
+    </url>
+    <url>
          <loc>https://nn.sleap.ai/dev/guides/sam-inference-segmentation/</loc>
          <lastmod>2026-06-25</lastmod>
     </url>
@@ -689,15 +693,19 @@
          <lastmod>2026-06-25</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/guides/training/</loc>
+         <loc>https://nn.sleap.ai/dev/guides/training-guide/</loc>
+         <lastmod>2026-06-25</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/guides/inference/overview/</loc>
+         <lastmod>2026-06-25</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/guides/training/overview/</loc>
          <lastmod>2026-06-25</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/help/faq/</loc>
-         <lastmod>2026-06-25</lastmod>
-    </url>
-    <url>
-         <loc>https://nn.sleap.ai/dev/reference/</loc>
          <lastmod>2026-06-25</lastmod>
     </url>
     <url>
@@ -717,11 +725,15 @@
          <lastmod>2026-06-25</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/tutorials/</loc>
+         <loc>https://nn.sleap.ai/dev/reference/overview/</loc>
          <lastmod>2026-06-25</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/tutorials/notebooks/</loc>
+         <lastmod>2026-06-25</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/tutorials/overview/</loc>
          <lastmod>2026-06-25</lastmod>
     </url>
 </urlset>
