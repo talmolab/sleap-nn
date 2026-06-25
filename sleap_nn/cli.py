@@ -1378,6 +1378,90 @@ def _is_export_dir(path: str) -> bool:
     return p.is_dir() and ((p / "model.onnx").exists() or (p / "model.trt").exists())
 
 
+# Remote URL schemes sleap-io 0.8.0 can load directly (fsspec for ``.slp``, PyAV
+# for video). Mirrors ``sleap_io.io._remote._URL_SCHEMES``; kept local to avoid
+# importing a private symbol (pinned by the ``sleap-io>=0.8.0,<0.9.0`` fence).
+# Single-letter schemes (e.g. a Windows ``C:`` drive) are intentionally absent,
+# so absolute Windows paths are treated as local.
+_REMOTE_URL_SCHEMES = frozenset({"http", "https", "s3", "gs", "gcs", "az", "abfs"})
+
+
+def _is_remote_url(data_path: object) -> bool:
+    """Return ``True`` if ``data_path`` is a remote URL sleap-io can load."""
+    from urllib.parse import urlparse
+
+    s = str(data_path)
+    return bool(s) and urlparse(s).scheme.lower() in _REMOTE_URL_SCHEMES
+
+
+def _resolve_data_path(data_path: object) -> "tuple[str, str, bool]":
+    """Resolve a ``--data_path`` to ``(source_str, suffix, is_url)``.
+
+    Local paths are normalized through :class:`pathlib.Path` (unchanged
+    behavior). Remote URLs are passed through verbatim — ``Path()`` collapses
+    ``scheme://`` (and flips separators to backslashes on Windows), corrupting
+    the URL before it reaches sleap-io's URL-aware loaders. A URL's suffix is
+    taken from its path component so ``.slp`` vs. video routing still works and
+    any query string / fragment is ignored.
+    """
+    from pathlib import Path
+    from urllib.parse import urlparse
+
+    if _is_remote_url(data_path):
+        s = str(data_path)
+        return s, Path(urlparse(s).path).suffix, True
+    p = Path(data_path)
+    return str(p), p.suffix, False
+
+
+def _default_predictions_path(
+    source_str: str, is_url: bool, scoped_video_name: "Optional[str]" = None
+) -> str:
+    """Derive the default ``.slp`` output path from the input source.
+
+    Local inputs write alongside the input (``<data_path>.slp``), matching legacy
+    behavior. Remote inputs cannot be written next to the source, so the output
+    lands in the current working directory under the URL's basename.
+    """
+    from pathlib import Path
+    from urllib.parse import urlparse
+
+    base = (
+        Path(urlparse(source_str).path).name or "predictions" if is_url else source_str
+    )
+    if scoped_video_name is not None:
+        return f"{Path(base).with_suffix('')}.{scoped_video_name}.predictions.slp"
+    return f"{base}.slp"
+
+
+def _build_remote_kwargs(kwargs: dict) -> dict:
+    """Collect remote-loading options (``--headers`` / ``--stream-mode``).
+
+    Returns a (possibly empty) mapping suitable for ``**``-forwarding to
+    ``sio.load_slp`` / ``sio.load_video`` (and the providers' ``remote_kwargs``).
+    """
+    import json
+
+    remote: dict = {}
+    headers = kwargs.get("headers")
+    if headers:
+        try:
+            parsed = json.loads(headers)
+        except (TypeError, ValueError) as e:
+            raise click.UsageError(
+                "--headers must be a JSON object string, e.g. "
+                '\'{"Authorization": "Bearer ..."}\' '
+                f"(got {headers!r}): {e}"
+            )
+        if not isinstance(parsed, dict):
+            raise click.UsageError("--headers JSON must be an object (key/value map).")
+        remote["headers"] = parsed
+    stream_mode = kwargs.get("stream_mode")
+    if stream_mode:
+        remote["stream_mode"] = stream_mode
+    return remote
+
+
 def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     """Run the new ``predict()`` flow synchronously and save the resulting Labels.
 
@@ -1433,7 +1517,11 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     from sleap_nn.inference.providers import LabelsProvider, VideoProvider
     from sleap_nn.inference.run import predict
 
-    src = Path(kwargs["data_path"])
+    # Resolve the input: local paths normalize through Path(); remote URLs pass
+    # through verbatim (Path() would corrupt scheme://). Remote auth/stream
+    # options (--headers/--stream-mode) are forwarded to the URL-aware loaders.
+    source_str, src_suffix, src_is_url = _resolve_data_path(kwargs["data_path"])
+    remote_kwargs = _build_remote_kwargs(kwargs)
 
     # Build source: use a provider when CLI-specific filtering or
     # video kwargs are needed, otherwise pass the raw path.
@@ -1451,7 +1539,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     # collide on one output path). Stays None for the non-video_index case. #583.
     scoped_video_name = None
     video_index = kwargs.get("video_index")
-    if src.suffix == ".slp" and video_index is not None:
+    if src_suffix == ".slp" and video_index is not None:
         import sleap_io as sio
 
         # Scope to the requested video (re-indexed to slot 0 so its frames map to
@@ -1460,7 +1548,9 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         # re-attached on output (same as the has_slp_filters path); the output is
         # video-name-suffixed instead. Carries suggestions + the --frames filter.
         scoped, target_video = _scope_labels_to_video(
-            sio.load_slp(str(src)), video_index, frames=kwargs.get("frames")
+            sio.load_slp(source_str, **remote_kwargs),
+            video_index,
+            frames=kwargs.get("frames"),
         )
         if kwargs.get("mask_backend"):
             # run_sam_segmentation accepts a sio.Labels directly; pass the scoped
@@ -1477,28 +1567,39 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
             )
         _vfn = getattr(target_video, "filename", None)
         scoped_video_name = Path(str(_vfn)).stem if _vfn else f"video_{video_index}"
-    elif src.suffix == ".slp" and has_slp_filters:
+    elif src_suffix == ".slp" and has_slp_filters:
         source = LabelsProvider(
-            labels=str(src),
+            labels=source_str,
             batch_size=kwargs.get("batch_size", 4),
             only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
             only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
             exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
             only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
+            remote_kwargs=remote_kwargs or None,
         )
-    elif src.suffix != ".slp" and (
+    elif src_suffix != ".slp" and (
         kwargs.get("video_dataset")
         or kwargs.get("video_input_format", "channels_last") != "channels_last"
+        or remote_kwargs
     ):
         source = VideoProvider(
-            video=str(src),
+            video=source_str,
             batch_size=kwargs.get("batch_size", 4),
             frames=kwargs.get("frames"),
             dataset=kwargs.get("video_dataset"),
             input_format=kwargs.get("video_input_format"),
+            remote_kwargs=remote_kwargs or None,
         )
+    elif src_is_url and src_suffix == ".slp" and remote_kwargs:
+        # A bare remote .slp would otherwise be loaded by predict() without the
+        # remote kwargs; load it here with them and pass the Labels object so
+        # predict()'s frame selection (which keys on a Labels source the same way
+        # it does on a .slp path) is preserved.
+        import sleap_io as sio
+
+        source = sio.load_slp(source_str, **remote_kwargs)
     else:
-        source = str(src)
+        source = source_str
 
     peak_thresh = kwargs.get("peak_threshold", 0.2)
     centroid_thresh = kwargs.get("centroid_peak_threshold") or peak_thresh
@@ -1527,11 +1628,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         "clean_empty_frames": bool(kwargs.get("no_empty_frames")),
         "output_path": (
             kwargs.get("output_path")
-            or (
-                f"{src.with_suffix('')}.{scoped_video_name}.predictions.slp"
-                if scoped_video_name is not None
-                else f"{src}.slp"
-            )
+            or _default_predictions_path(source_str, src_is_url, scoped_video_name)
         ),
         "output_format": kwargs.get("output_format") or "slp",
         "embed": kwargs.get("embed") or "false",
@@ -1654,14 +1751,15 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
 
     import sleap_io as sio
 
-    src = Path(kwargs["data_path"])
-    if src.suffix != ".slp":
+    source_str, src_suffix, src_is_url = _resolve_data_path(kwargs["data_path"])
+    remote_kwargs = _build_remote_kwargs(kwargs)
+    if src_suffix != ".slp":
         raise click.UsageError(
             "Tracking-only mode requires --data_path to be a .slp file. "
             "Pass --model_paths to run inference + tracking."
         )
 
-    labels = sio.load_slp(str(src))
+    labels = sio.load_slp(source_str, **remote_kwargs)
 
     # Scope by --video_index (raises on out-of-range, like the inference paths)
     # and/or --frames, carrying suggestions + the source provenance. #583.
@@ -1709,7 +1807,7 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
     # set it; the new retrack flow previously saved with empty provenance). #583.
     out.provenance = build_tracking_only_provenance(
         input_labels=labels,
-        input_path=str(src),
+        input_path=source_str,
         start_time=_start,
         end_time=datetime.now(),
         tracking_params=_attrs.asdict(tracker_config),
@@ -1717,7 +1815,9 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
     )
     from sleap_nn.inference.run import save_predictions
 
-    output_path = kwargs.get("output_path") or f"{src}.slp"
+    output_path = kwargs.get("output_path") or _default_predictions_path(
+        source_str, src_is_url
+    )
     save_predictions(
         out,
         output_path,
@@ -1986,16 +2086,19 @@ def _run_stream_to_file(
 
     predictor = Predictor.from_model_paths(kwargs["model_paths"], **factory_kwargs)
 
-    src = Path(data_path)
+    source_str, src_suffix, _src_is_url = _resolve_data_path(data_path)
+    remote_kwargs = _build_remote_kwargs(kwargs)
     video_index = kwargs.get("video_index")
-    if src.suffix == ".slp" and video_index is not None:
+    if src_suffix == ".slp" and video_index is not None:
         # Scope streaming inference to the requested video of a multi-video .slp
         # (re-indexed to videos[0] so frames map correctly). Carries suggestions
         # + the --frames filter. #583.
         import sleap_io as sio
 
         scoped, _target_video = _scope_labels_to_video(
-            sio.load_slp(str(src)), video_index, frames=kwargs.get("frames")
+            sio.load_slp(source_str, **remote_kwargs),
+            video_index,
+            frames=kwargs.get("frames"),
         )
         provider = LabelsProvider(
             labels=scoped,
@@ -2005,22 +2108,24 @@ def _run_stream_to_file(
             exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
             only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
         )
-    elif src.suffix == ".slp":
+    elif src_suffix == ".slp":
         provider = LabelsProvider(
-            labels=str(src),
+            labels=source_str,
             batch_size=kwargs.get("batch_size", 4),
             only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
             only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
             exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
             only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
+            remote_kwargs=remote_kwargs or None,
         )
     else:
         provider = VideoProvider(
-            video=str(src),
+            video=source_str,
             batch_size=kwargs.get("batch_size", 4),
             frames=kwargs.get("frames"),
             dataset=kwargs.get("video_dataset"),
             input_format=kwargs.get("video_input_format"),
+            remote_kwargs=remote_kwargs or None,
         )
 
     if kwargs.get("gui"):
@@ -2057,7 +2162,27 @@ def _common_inference_options(f):
             "-i",
             type=str,
             required=True,
-            help="Path to data to predict on. Labels (.slp) file or any supported video format.",
+            help="Path to data to predict on. A local Labels (.slp) file or video, "
+            "or a remote URL (http(s)://, s3://, gs://, gcs://, az://, abfs://) to "
+            "a .slp or video that sleap-io can load.",
+        ),
+        click.option(
+            "--headers",
+            type=str,
+            default=None,
+            help="JSON object of HTTP headers for a remote --data_path URL, e.g. "
+            '\'{"Authorization": "Bearer <token>"}\'. Forwarded to the remote '
+            "loader; ignored for local inputs.",
+        ),
+        click.option(
+            "--stream-mode",
+            "--stream_mode",
+            "stream_mode",
+            type=str,
+            default=None,
+            help="Remote read strategy for a --data_path URL (forwarded to "
+            "sleap-io's loader, e.g. 'auto'/'stream'/'download'). Ignored for "
+            "local inputs.",
         ),
         click.option(
             "--model_paths",
