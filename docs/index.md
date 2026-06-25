@@ -45,7 +45,7 @@
 
     Quick start, first model tutorial, and example notebooks.
 
-    [:octicons-arrow-right-24: Learn](tutorials/index.md)
+    [:octicons-arrow-right-24: Learn](tutorials/overview.md)
 
 -   📚 **Guides**
 
@@ -53,7 +53,7 @@
 
     Training, inference, and tracking workflows.
 
-    [:octicons-arrow-right-24: Explore](guides/index.md)
+    [:octicons-arrow-right-24: Explore](guides/overview.md)
 
 -   ⚙️ **Configuration**
 

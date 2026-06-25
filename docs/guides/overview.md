@@ -19,4 +19,4 @@ Task-oriented guides for common workflows.
 
 ---
 
-Looking for step-by-step learning? Check out the [Tutorials](../tutorials/index.md).
+Looking for step-by-step learning? Check out the [Tutorials](../tutorials/overview.md).
