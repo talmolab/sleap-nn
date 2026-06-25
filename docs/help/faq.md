@@ -68,7 +68,7 @@ SLEAP-NN uses PyTorch, so it runs on any system where PyTorch is supported. This
 
     Tips for limited VRAM:
 
-    - Reduce batch size: `trainer_config.train_batch_size: 2`
+    - Reduce batch size: `trainer_config.train_data_loader.batch_size: 2`
     - Scale down images: `data_config.preprocessing.scale: 0.5`
     - Use smaller backbones: `model_config.backbone_config.unet.filters: 16`
 
@@ -166,10 +166,10 @@ SLEAP-NN uses PyTorch, so it runs on any system where PyTorch is supported. This
 ??? question "Out of GPU memory (CUDA OOM)"
     Common solutions:
 
-    1. **Reduce batch size**: `trainer_config.train_batch_size: 2`
+    1. **Reduce batch size**: `trainer_config.train_data_loader.batch_size: 2`
     2. **Scale down images**: `data_config.preprocessing.scale: 0.5`
     3. **Limit instances during inference**: `--max_instances 5`
-    4. **Use disk caching**: `data_config.data_pipeline_fw: torch_dataset`
+    4. **Use disk caching**: `data_config.data_pipeline_fw: torch_dataset_cache_img_disk`
     5. **Close other GPU applications**
 
     Check current GPU memory usage:

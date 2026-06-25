@@ -209,9 +209,12 @@ sleap-nn eval --ground_truth_path GT --predicted_path PRED [OPTIONS]
 | `--ground_truth_path` | `-g` | Ground truth labels | `PATH` | Required |
 | `--predicted_path` | `-p` | Predicted labels | `PATH` | Required |
 | `--save_metrics` | `-s` | Save metrics to .npz | `PATH` | None |
-| `--oks_stddev` | | OKS standard deviation | `FLOAT` | `0.05` |
+| `--oks_stddev` | | OKS standard deviation | `FLOAT` | `0.025` |
+| `--oks_scale` | | Scale factor for OKS calculation | `FLOAT` | None |
 | `--match_threshold` | | Instance matching threshold | `FLOAT` | `0.0` |
-| `--user_labels_only` | | Only evaluate user-labeled | Flag | `false` |
+| `--match_method` | | Matcher: `oks`, `centroid`, `mask`, `auto` | `CHOICE` | `auto` |
+| `--anchor_part` | | GT node for centroid-mode GT centroids | `STR` | None |
+| `--user_labels_only` / `--no-user_labels_only` | | Only evaluate user-labeled | Flag | `True` |
 
 ### Example
 
