@@ -42,7 +42,7 @@ head_configs:
 ### Inference
 
 ```bash
-sleap-nn track -i video.mp4 -m models/single_instance/
+sleap-nn predict -i video.mp4 -m models/single_instance/
 ```
 
 ---
@@ -114,7 +114,7 @@ sleap-nn train --config instance_config.yaml
 ### Inference
 
 ```bash
-sleap-nn track -i video.mp4 \
+sleap-nn predict -i video.mp4 \
     -m models/centroid/ \
     -m models/centered_instance/
 ```
@@ -165,7 +165,7 @@ head_configs:
 ### Inference
 
 ```bash
-sleap-nn track -i video.mp4 -m models/bottomup/
+sleap-nn predict -i video.mp4 -m models/bottomup/
 ```
 
 ---

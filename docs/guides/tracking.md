@@ -9,7 +9,7 @@ Assign consistent IDs to instances across frames.
 Add `--tracking` to your inference command:
 
 ```bash
-sleap-nn track -i video.mp4 -m models/bottomup/ --tracking
+sleap-nn predict -i video.mp4 -m models/bottomup/ --tracking
 ```
 
 ---
@@ -43,7 +43,7 @@ sleap-nn track -i video.mp4 -m models/bottomup/ --tracking
 Uses instances from the last N frames as matching candidates:
 
 ```bash
-sleap-nn track -i video.mp4 -m models/ \
+sleap-nn predict -i video.mp4 -m models/ \
     -t \
     --candidates_method fixed_window \
     --tracking_window_size 10
@@ -56,7 +56,7 @@ sleap-nn track -i video.mp4 -m models/ \
 Maintains separate history for each track ID:
 
 ```bash
-sleap-nn track -i video.mp4 -m models/ \
+sleap-nn predict -i video.mp4 -m models/ \
     -t \
     --candidates_method local_queues \
     --tracking_window_size 5
@@ -69,7 +69,7 @@ sleap-nn track -i video.mp4 -m models/ \
 Uses optical flow to predict instance positions:
 
 ```bash
-sleap-nn track -i video.mp4 -m models/ \
+sleap-nn predict -i video.mp4 -m models/ \
     -t \
     --use_flow
 ```
@@ -163,7 +163,7 @@ tracker via `Tracker.from_config(...)`.
 Assign tracks to existing predictions (no inference):
 
 ```bash
-sleap-nn track -i labels.slp --tracking
+sleap-nn predict -i labels.slp --tracking
 ```
 
 Note: Omit `--model_paths` for track-only mode.
@@ -171,7 +171,7 @@ Note: Omit `--model_paths` for track-only mode.
 With specific frames:
 
 ```bash
-sleap-nn track -i labels.slp -t --frames 0-100 --video_index 0
+sleap-nn predict -i labels.slp -t --frames 0-100 --video_index 0
 ```
 
 ---
@@ -180,7 +180,7 @@ sleap-nn track -i labels.slp -t --frames 0-100 --video_index 0
 
 ```bash
 # Maximum 5 instances per frame
-sleap-nn track -i video.mp4 -m models/ --max_instances 5
+sleap-nn predict -i video.mp4 -m models/ --max_instances 5
 ```
 
 ---
@@ -190,7 +190,7 @@ sleap-nn track -i video.mp4 -m models/ --max_instances 5
 ### Fast Animals
 
 ```bash
-sleap-nn track -i video.mp4 -m models/ \
+sleap-nn predict -i video.mp4 -m models/ \
     -t \
     --use_flow \
     --of_img_scale 0.5
@@ -199,7 +199,7 @@ sleap-nn track -i video.mp4 -m models/ \
 ### Crowded Scenes
 
 ```bash
-sleap-nn track -i video.mp4 -m models/ \
+sleap-nn predict -i video.mp4 -m models/ \
     -t \
     --candidates_method local_queues \
     --tracking_window_size 10 \
@@ -209,7 +209,7 @@ sleap-nn track -i video.mp4 -m models/ \
 ### High Accuracy
 
 ```bash
-sleap-nn track -i video.mp4 -m models/ \
+sleap-nn predict -i video.mp4 -m models/ \
     -t \
     --scoring_method oks \
     --scoring_reduction mean \

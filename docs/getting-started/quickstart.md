@@ -76,7 +76,7 @@ That's it! Training will:
 ## Step 3: Run Inference
 
 ```bash
-sleap-nn track --data_path val.pkg.slp --model_paths models/my_first_model/ -o val.predictions.slp
+sleap-nn predict --data_path val.pkg.slp --model_paths models/my_first_model/ -o val.predictions.slp
 ```
 
 This creates `val.predictions.slp` with your predictions.

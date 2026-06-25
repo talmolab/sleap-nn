@@ -17,7 +17,7 @@ class DataLoaderConfig:
     """Train DataLoaderConfig.
 
     Attributes:
-        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `4`.
+        batch_size: (int) Number of samples per batch or batch size for training/validation data. This is the per-GPU batch size; with multi-GPU (DDP) training the effective (global) batch size is `batch_size × num_GPUs`. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `False`.
         num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: `0`.
     """
@@ -32,7 +32,7 @@ class TrainDataLoaderConfig(DataLoaderConfig):
     """Train DataLoaderConfig.
 
     Attributes:
-        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `4`.
+        batch_size: (int) Number of samples per batch or batch size for training/validation data. This is the per-GPU batch size; with multi-GPU (DDP) training the effective (global) batch size is `batch_size × num_GPUs`. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `True`.
         num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: `0`.
     """
@@ -45,7 +45,7 @@ class ValDataLoaderConfig(DataLoaderConfig):
     """Validation DataLoaderConfig.
 
     Attributes:
-        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `4`.
+        batch_size: (int) Number of samples per batch or batch size for training/validation data. This is the per-GPU batch size; with multi-GPU (DDP) training the effective (global) batch size is `batch_size × num_GPUs`. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `False`.
         num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: `0`.
     """

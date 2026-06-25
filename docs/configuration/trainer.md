@@ -282,7 +282,7 @@ trainer_config:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `batch_size` | int | `4` | Samples per batch |
+| `batch_size` | int | `4` | Samples per batch (per-GPU; global batch = `batch_size × num_GPUs` with multi-GPU) |
 | `shuffle` | bool | `true` (train) / `false` (val) | Shuffle data each epoch |
 | `num_workers` | int | `0` | Parallel data loading workers (use with caching only) |
 

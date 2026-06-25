@@ -23,7 +23,7 @@ Frequently asked questions about SLEAP-NN.
 ??? question "Can I use my SLEAP <=v1.4 trained models?"
     Yes, but only **UNet backbone** models. Load them like any other model:
     ```bash
-    sleap-nn track -i video.mp4 -m /path/to/sleap_model/
+    sleap-nn predict -i video.mp4 -m /path/to/sleap_model/
     ```
     The directory should contain `best_model.h5` and `training_config.json`.
 
@@ -135,7 +135,7 @@ SLEAP-NN uses PyTorch, so it runs on any system where PyTorch is supported. This
 
     To use MPS:
     ```bash
-    sleap-nn track -i video.mp4 -m models/ --device mps
+    sleap-nn predict -i video.mp4 -m models/ --device mps
     ```
 
 ??? question "Why is training slow on my Mac?"
@@ -251,12 +251,12 @@ SLEAP-NN uses PyTorch, so it runs on any system where PyTorch is supported. This
 
 ??? question "How do I run on specific frames?"
     ```bash
-    sleap-nn track -i video.mp4 -m models/ --frames 0-100,500-600
+    sleap-nn predict -i video.mp4 -m models/ --frames 0-100,500-600
     ```
 
 ??? question "How do I limit detected instances?"
     ```bash
-    sleap-nn track -i video.mp4 -m models/ --max_instances 5
+    sleap-nn predict -i video.mp4 -m models/ --max_instances 5
     ```
 
 ---

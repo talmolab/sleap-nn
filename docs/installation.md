@@ -38,7 +38,7 @@ SLEAP-NN uses [**uv**](https://docs.astral.sh/uv/) for installation and environm
 
     === "Windows (PowerShell)"
         ```powershell
-        powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+        powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
         ```
 
     **Step 2: Install sleap-nn**
@@ -189,7 +189,7 @@ Run sleap-nn without permanent installation. Each command creates a temporary en
 uvx --from sleap-nn --torch-backend auto sleap-nn train --config config.yaml
 
 # Inference
-uvx --from sleap-nn --torch-backend auto sleap-nn track -i video.mp4 -m models/
+uvx --from sleap-nn --torch-backend auto sleap-nn predict -i video.mp4 -m models/
 ```
 
 !!! tip "Always latest"

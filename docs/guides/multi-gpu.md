@@ -64,19 +64,25 @@ Without a seed, the split is seeded with 42 by default to ensure all GPU workers
 
 ### Batch Size
 
-Scale batch size with GPU count:
+The configured `batch_size` is **per-GPU**, not global. With DDP, each GPU runs its own
+data loader with the full `batch_size`, so the effective (global) batch size is
+`batch_size × num_GPUs`:
 
 ```yaml
-# Single GPU
+# Single GPU -> global batch size = 4
 trainer_config:
   train_data_loader:
     batch_size: 4
 
-# 4 GPUs - increase batch size
+# 4 GPUs -> global batch size = 4 × 4 = 16
 trainer_config:
   train_data_loader:
-    batch_size: 16  # 4 per GPU
+    batch_size: 4  # still 4 per GPU
 ```
+
+Keep `batch_size` at the largest value that fits in a single GPU's memory; the effective
+batch already scales with GPU count. If you want to match a single-GPU global batch size,
+divide `batch_size` by the number of GPUs.
 
 ### Caching
 

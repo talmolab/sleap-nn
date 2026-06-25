@@ -2,11 +2,18 @@
 
 Run predictions on videos and label files.
 
+!!! info "`predict` is the unified inference command"
+    `sleap-nn predict` is the canonical command for inference — it runs **both**
+    trained checkpoints and exported ONNX/TensorRT models (auto-detected), and
+    supports tracking. `sleap-nn track` is the older **legacy pipeline** (still
+    supported), and `sleap-nn infer` is a deprecated alias for `predict` that
+    emits a `DeprecationWarning`. Prefer `predict` for all new workflows.
+
 !!! info "Using uv workflow"
     - If using `uvx`, no installation needed
     - If using `uv sync`, prefix commands with `uv run`:
       ```bash
-      uv run sleap-nn track ...
+      uv run sleap-nn predict ...
       ```
 
 ---
@@ -16,10 +23,10 @@ Run predictions on videos and label files.
 !!! success "TL;DR - Just want predictions?"
     ```bash
     # Single model (single-instance or bottom-up)
-    sleap-nn track -i video.mp4 -m models/my_model/
+    sleap-nn predict -i video.mp4 -m models/my_model/
 
     # Top-down (two models required)
-    sleap-nn track -i video.mp4 -m models/centroid/ -m models/centered_instance/
+    sleap-nn predict -i video.mp4 -m models/centroid/ -m models/centered_instance/
     ```
 
     **Output:** `video.mp4.predictions.slp`
@@ -37,12 +44,38 @@ Run predictions on videos and label files.
 ## Basic Inference
 
 ```bash
-sleap-nn track --data_path video.mp4 --model_paths models/my_model/
+sleap-nn predict --data_path video.mp4 --model_paths models/my_model/
 ```
 
 Output: `video.mp4.predictions.slp`
 
 See the [CLI Reference](../reference/cli.md) for all available parameters.
+
+### Running Exported Models (ONNX/TensorRT)
+
+`sleap-nn predict` runs **both** trained checkpoints and exported ONNX/TensorRT
+models through the same command. If `--model_paths`/`-m` points to an export
+directory (one containing `model.onnx` or `model.trt`, written by
+[`sleap-nn export`](export.md)), `predict` auto-detects it and routes to the
+exported-model runtime instead of loading a checkpoint:
+
+```bash
+# Auto-detected export directory
+sleap-nn predict -i video.mp4 -m exports/my_model/ -o predictions.slp
+
+# Pick the runtime explicitly
+sleap-nn predict -i video.mp4 -m exports/my_model/ --runtime tensorrt
+```
+
+| Runtime | Behavior |
+|---------|----------|
+| `auto` (default) | Prefer TensorRT, fall back to ONNX |
+| `onnx` | Force the ONNX runtime |
+| `tensorrt` | Force the TensorRT runtime |
+
+`--runtime` is ignored for trained checkpoints. Most other options (device,
+batch size, filters, tracking) apply to exported models too. For exporting
+models and runtime details, see the [Export guide](export.md).
 
 ### Viewing Results
 
@@ -124,7 +157,7 @@ For all parameters including image pre-processing and data selection options, se
 For videos with exactly one animal:
 
 ```bash
-sleap-nn track -i video.mp4 -m models/single_instance/
+sleap-nn predict -i video.mp4 -m models/single_instance/
 ```
 
 **How parameters apply:**
@@ -138,7 +171,7 @@ sleap-nn track -i video.mp4 -m models/single_instance/
 For multi-animal videos using part affinity fields:
 
 ```bash
-sleap-nn track -i video.mp4 -m models/bottomup/
+sleap-nn predict -i video.mp4 -m models/bottomup/
 ```
 
 **How parameters apply:**
@@ -157,7 +190,7 @@ sleap-nn track -i video.mp4 -m models/bottomup/
 For multi-animal videos using centroid + centered instance approach:
 
 ```bash
-sleap-nn track -i video.mp4 \
+sleap-nn predict -i video.mp4 \
     -m models/centroid/ \
     -m models/centered_instance/
 ```
@@ -185,7 +218,7 @@ sleap-nn track -i video.mp4 \
 
     ```bash
     # Instead of raising peak_threshold (which creates NaN keypoints)
-    sleap-nn track -i video.mp4 -m models/centroid/ -m models/ci/ \
+    sleap-nn predict -i video.mp4 -m models/centroid/ -m models/ci/ \
         --peak_threshold 0.1 \
         --filter_min_instance_score 0.3
     ```
@@ -241,7 +274,7 @@ when indexing an image.
 
 ```bash
 # Smaller .slp via stride encoding (default) + despeckle + a polygon ROI for interop
-sleap-nn track -i video.mp4 -m models/bottomup_segmentation/ \
+sleap-nn predict -i video.mp4 -m models/bottomup_segmentation/ \
     --mask_cleanup --mask_cleanup_radius 2 \
     --mask_output both --polygon_epsilon 0.02
 ```
@@ -258,10 +291,10 @@ Remove instances with too few detected keypoints:
 
 ```bash
 # Require at least 3 visible nodes
-sleap-nn track -i video.mp4 -m models/ --filter_min_visible_nodes 3
+sleap-nn predict -i video.mp4 -m models/ --filter_min_visible_nodes 3
 
 # Require at least 50% of skeleton nodes to be visible
-sleap-nn track -i video.mp4 -m models/ --filter_min_visible_node_fraction 0.5
+sleap-nn predict -i video.mp4 -m models/ --filter_min_visible_node_fraction 0.5
 ```
 
 | Parameter | Description | Default |
@@ -275,10 +308,10 @@ Remove instances with low confidence scores:
 
 ```bash
 # Require mean node confidence >= 0.4
-sleap-nn track -i video.mp4 -m models/ --filter_min_mean_node_score 0.4
+sleap-nn predict -i video.mp4 -m models/ --filter_min_mean_node_score 0.4
 
 # Require instance score >= 0.3
-sleap-nn track -i video.mp4 -m models/ --filter_min_instance_score 0.3
+sleap-nn predict -i video.mp4 -m models/ --filter_min_instance_score 0.3
 ```
 
 | Parameter | Description | Default |
@@ -298,10 +331,10 @@ Remove duplicate detections with greedy NMS:
 
 ```bash
 # Enable with default IOU
-sleap-nn track -i video.mp4 -m models/ --filter_overlapping
+sleap-nn predict -i video.mp4 -m models/ --filter_overlapping
 
 # Use OKS with custom threshold
-sleap-nn track -i video.mp4 -m models/ \
+sleap-nn predict -i video.mp4 -m models/ \
     --filter_overlapping \
     --filter_overlapping_method oks \
     --filter_overlapping_threshold 0.5
@@ -325,7 +358,7 @@ All filters can be combined. They are applied in order: node count → confidenc
 **Example: Strict filtering for clean output**
 
 ```bash
-sleap-nn track -i video.mp4 -m models/ \
+sleap-nn predict -i video.mp4 -m models/ \
     --filter_min_visible_nodes 2 \
     --filter_min_visible_node_fraction 0.25 \
     --filter_min_mean_node_score 0.3 \
@@ -340,7 +373,7 @@ sleap-nn track -i video.mp4 -m models/ \
 You know there are exactly 3 mice in the video:
 
 ```bash
-sleap-nn track -i video.mp4 \
+sleap-nn predict -i video.mp4 \
     -m models/centroid/ \
     -m models/centered_instance/ \
     --max_instances 3
@@ -351,7 +384,7 @@ sleap-nn track -i video.mp4 \
 Your bottom-up model produces spurious partial detections:
 
 ```bash
-sleap-nn track -i video.mp4 -m models/bottomup/ \
+sleap-nn predict -i video.mp4 -m models/bottomup/ \
     --filter_min_visible_node_fraction 0.5 \
     --filter_min_instance_score 0.3
 ```
@@ -361,7 +394,7 @@ sleap-nn track -i video.mp4 -m models/bottomup/ \
 Animals frequently overlap, causing duplicate detections:
 
 ```bash
-sleap-nn track -i video.mp4 -m models/ \
+sleap-nn predict -i video.mp4 -m models/ \
     --filter_overlapping \
     --filter_overlapping_method oks \
     --filter_overlapping_threshold 0.4
@@ -372,7 +405,7 @@ sleap-nn track -i video.mp4 -m models/ \
 Keep all keypoints but remove low-confidence instances:
 
 ```bash
-sleap-nn track -i video.mp4 \
+sleap-nn predict -i video.mp4 \
     -m models/centroid/ \
     -m models/centered_instance/ \
     --peak_threshold 0.1 \
@@ -453,29 +486,30 @@ In **track-only mode** (no model paths), filtering is still applied before track
 
 ## Python API
 
-### Basic Usage
+The unified entry point is `sleap_nn.inference.predict` — one call handles
+checkpoints and exported models and returns a `sio.Labels`:
 
 ```python
-from sleap_nn.predict import run_inference
+from sleap_nn.inference import predict
 
-labels = run_inference(
-    data_path="video.mp4",
+# Trained checkpoint(s)
+labels = predict(
+    "video.mp4",
     model_paths=["models/my_model/"],
-    output_path="predictions.slp",
-    make_labels=True,
+    output_path="predictions.slp",   # also writes the .slp
 )
+
+# Exported ONNX/TensorRT directory
+labels = predict("video.mp4", export_dir="exports/my_model/", runtime="auto")
 ```
 
-### Get Raw Outputs
+For the reusable `Predictor` class, streaming, raw `Outputs`, filtering, and
+tracking from Python, see the [Inference API guide](inference-api.md).
 
-```python
-results = run_inference(
-    data_path="video.mp4",
-    model_paths=["models/my_model/"],
-    make_labels=False,
-    return_confmaps=True,
-)
-```
+!!! note "Legacy `run_inference`"
+    `from sleap_nn.predict import run_inference` is the older legacy-pipeline
+    entry point (it backs `sleap-nn track`). Prefer `sleap_nn.inference.predict`
+    for new code.
 
 ---
 
@@ -512,7 +546,7 @@ print(f"Runtime: {provenance.get('runtime_sec')}s")
 Run inference with SLEAP <=v1.4 models (UNet only):
 
 ```bash
-sleap-nn track -i video.mp4 -m /path/to/sleap_model/
+sleap-nn predict -i video.mp4 -m /path/to/sleap_model/
 ```
 
 The directory should contain:
@@ -533,7 +567,7 @@ The directory should contain:
 
     1. **Peak threshold too high** - The model is detecting peaks but they're being filtered out
        ```bash
-       sleap-nn track -i video.mp4 -m models/ --peak_threshold 0.05
+       sleap-nn predict -i video.mp4 -m models/ --peak_threshold 0.05
        ```
 
     2. **Wrong model type** - Using a single-instance model on multi-animal video (or vice versa)
@@ -550,7 +584,7 @@ The directory should contain:
 
     To get predictions on more frames:
     ```bash
-    sleap-nn track -i video.mp4 -m models/ --peak_threshold 0.1
+    sleap-nn predict -i video.mp4 -m models/ --peak_threshold 0.1
     ```
 
     To keep empty frames in output (useful for analysis):
@@ -563,32 +597,32 @@ The directory should contain:
 ??? question "Getting many false positive detections"
     **Solution 1:** Filter by instance confidence score
     ```bash
-    sleap-nn track -i video.mp4 -m models/ --filter_min_instance_score 0.3
+    sleap-nn predict -i video.mp4 -m models/ --filter_min_instance_score 0.3
     ```
 
     **Solution 2:** Filter by number of visible keypoints
     ```bash
-    sleap-nn track -i video.mp4 -m models/ --filter_min_visible_node_fraction 0.5
+    sleap-nn predict -i video.mp4 -m models/ --filter_min_visible_node_fraction 0.5
     ```
 
     **Solution 3:** If you know the exact number of animals
     ```bash
-    sleap-nn track -i video.mp4 -m models/ --max_instances 3
+    sleap-nn predict -i video.mp4 -m models/ --max_instances 3
     ```
 
 ??? question "Getting duplicate detections on the same animal"
     Enable overlap filtering with NMS:
     ```bash
     # Basic overlap filter
-    sleap-nn track -i video.mp4 -m models/ --filter_overlapping
+    sleap-nn predict -i video.mp4 -m models/ --filter_overlapping
 
     # More aggressive filtering
-    sleap-nn track -i video.mp4 -m models/ \
+    sleap-nn predict -i video.mp4 -m models/ \
         --filter_overlapping \
         --filter_overlapping_threshold 0.5
 
     # Pose-aware filtering (better for overlapping animals)
-    sleap-nn track -i video.mp4 -m models/ \
+    sleap-nn predict -i video.mp4 -m models/ \
         --filter_overlapping \
         --filter_overlapping_method oks
     ```
@@ -598,7 +632,7 @@ The directory should contain:
 ??? question "Missing animals that are clearly visible"
     **Solution 1:** Lower the peak threshold
     ```bash
-    sleap-nn track -i video.mp4 -m models/ --peak_threshold 0.1
+    sleap-nn predict -i video.mp4 -m models/ --peak_threshold 0.1
     ```
 
     **Solution 2:** For top-down models, check if centroids are being detected
@@ -610,7 +644,7 @@ The directory should contain:
 
     **Solution:** Lower peak threshold and filter by instance score instead
     ```bash
-    sleap-nn track -i video.mp4 -m models/ \
+    sleap-nn predict -i video.mp4 -m models/ \
         --peak_threshold 0.1 \
         --filter_min_instance_score 0.3
     ```
@@ -625,13 +659,13 @@ The directory should contain:
     1. **Input scaling mismatch** - Training used different scale than inference
        ```bash
        # Check training config for scale value, then match it
-       sleap-nn track -i video.mp4 -m models/ --input_scale 0.5
+       sleap-nn predict -i video.mp4 -m models/ --input_scale 0.5
        ```
 
     2. **Crop size mismatch** (top-down only)
        ```bash
        # Check training config for crop_hw value
-       sleap-nn track -i video.mp4 -m models/ --crop_size 256
+       sleap-nn predict -i video.mp4 -m models/ --crop_size 256
        ```
 
 ??? question "Skeletons are jumbled / keypoints assigned to wrong body parts"
@@ -646,29 +680,29 @@ The directory should contain:
 ??? question "Out of GPU memory (CUDA OOM)"
     **Solution 1:** Reduce batch size
     ```bash
-    sleap-nn track -i video.mp4 -m models/ --batch_size 2
+    sleap-nn predict -i video.mp4 -m models/ --batch_size 2
     ```
 
     **Solution 2:** Use CPU (slower but no memory limit)
     ```bash
-    sleap-nn track -i video.mp4 -m models/ --device cpu
+    sleap-nn predict -i video.mp4 -m models/ --device cpu
     ```
 
     **Solution 3:** Process fewer frames at once
     ```bash
-    sleap-nn track -i video.mp4 -m models/ --frames 0-1000
+    sleap-nn predict -i video.mp4 -m models/ --frames 0-1000
     ```
 
 ??? question "Inference is very slow"
     **Check GPU is being used:**
     ```bash
     sleap-nn system  # Verify CUDA is available
-    sleap-nn track -i video.mp4 -m models/ --device cuda
+    sleap-nn predict -i video.mp4 -m models/ --device cuda
     ```
 
     **Increase batch size** (if memory allows):
     ```bash
-    sleap-nn track -i video.mp4 -m models/ --batch_size 16
+    sleap-nn predict -i video.mp4 -m models/ --batch_size 16
     ```
 
     **Tune opt-in flags** — see the [Inference Performance](inference-performance.md)

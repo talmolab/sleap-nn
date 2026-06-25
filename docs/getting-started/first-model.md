@@ -103,7 +103,7 @@ trainer_config:
 
   # Data loading
   train_data_loader:
-    batch_size: 4         # Increase if you have more GPU memory
+    batch_size: 4         # Per-GPU; increase if you have more GPU memory
 
   # Optimization
   optimizer:
@@ -169,7 +169,7 @@ models/fly_single_instance/
 Once training completes, run on `val.pkg.slp` (or a video):
 
 ```bash
-sleap-nn track \
+sleap-nn predict \
     --data_path val.pkg.slp \
     --model_paths models/fly_single_instance/ \
     -o predictions.slp
@@ -179,13 +179,13 @@ sleap-nn track \
 
 ```bash
 # Faster inference with larger batches
-sleap-nn track -i val.pkg.slp -m models/fly_single_instance/ --batch_size 8
+sleap-nn predict -i val.pkg.slp -m models/fly_single_instance/ --batch_size 8
 
 # Process specific frames
-sleap-nn track -i val.pkg.slp -m models/fly_single_instance/ --frames 0-1000
+sleap-nn predict -i val.pkg.slp -m models/fly_single_instance/ --frames 0-1000
 
 # Save to custom path
-sleap-nn track -i val.pkg.slp -m models/fly_single_instance/ -o predictions.slp
+sleap-nn predict -i val.pkg.slp -m models/fly_single_instance/ -o predictions.slp
 ```
 
 ---
