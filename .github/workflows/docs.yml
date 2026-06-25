@@ -32,7 +32,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --extra torch-cpu --group docs
+          uv sync --no-group gpu --extra torch-cpu --group docs
 
       - name: Print environment info
         run: |

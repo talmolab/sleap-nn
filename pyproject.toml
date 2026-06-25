@@ -132,6 +132,13 @@ docs = [
     "mkdocs-literate-nav",
     "mkdocs-section-index",
 ]
+# GPU torch/torchvision routed through the cu130 index (see [tool.uv.sources]).
+# Listed in `default-groups` below so a bare `uv run` / `uv sync` installs the
+# CUDA build automatically on Linux/Windows x86-64 (macOS falls back to the
+# default MPS wheel). uv has `default-groups` but no `default-extras`, so a GROUP
+# — not the `gpu` extra — is what makes GPU the default. Opt out with
+# `--no-group gpu` (e.g. `uv sync --no-group gpu --extra torch-cpu`).
+gpu = ["torch", "torchvision>=0.20.0"]
 
 [project.scripts]
 sleap-nn = "sleap_nn.cli:cli"
@@ -141,6 +148,11 @@ Homepage = "https://sleap.ai"
 Repository = "https://github.com/talmolab/sleap-nn"
 
 [tool.uv]
+# `uv run` / `uv sync` install these groups by default. `gpu` (defined above)
+# routes torch to the cu130 index, so the default dev workflow gets a CUDA build
+# without passing `--extra` — and `uv run` no longer resyncs back to a CPU wheel.
+# For CPU / a different CUDA, drop the group: `uv sync --no-group gpu --extra cpu`.
+default-groups = ["dev", "gpu"]
 # Only resolve for platforms we actually support (excludes win_arm64 which has incomplete pytorch wheels)
 environments = [
     "sys_platform == 'darwin'",
@@ -161,6 +173,17 @@ conflicts = [
         { extra = "torch-cuda128" },
         { extra = "torch-cuda130" },
     ],
+    # The default `gpu` group pins torch to cu130, so it is mutually exclusive with
+    # the CPU and non-cu130 CUDA extras (same package, different index). The `gpu`
+    # and `torch-cuda130` extras share the cu130 index, so they may coexist with the
+    # group and are intentionally left out of this set.
+    [
+        { group = "gpu" },
+        { extra = "cpu" },
+        { extra = "torch-cpu" },
+        { extra = "torch-cuda118" },
+        { extra = "torch-cuda128" },
+    ],
 ]
 
 [tool.uv.sources]
@@ -172,6 +195,9 @@ torch = [
     # it regressed Windows to CPU-only torch in #479).
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "pytorch-cu130", extra = "gpu", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
+    # Default `gpu` GROUP (see [dependency-groups] / default-groups) — mirrors the
+    # `gpu` extra so a bare `uv run`/`uv sync` gets cu130 on Linux/Windows x86-64.
+    { index = "pytorch-cu130", group = "gpu", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu118", extra = "torch-cuda118", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu128", extra = "torch-cuda128", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu130", extra = "torch-cuda130", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
@@ -180,6 +206,7 @@ torchvision = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "pytorch-cu130", extra = "gpu", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
+    { index = "pytorch-cu130", group = "gpu", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu118", extra = "torch-cuda118", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu128", extra = "torch-cuda128", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },
     { index = "pytorch-cu130", extra = "torch-cuda130", marker = "(platform_machine == 'x86_64' or platform_machine == 'AMD64') and sys_platform != 'darwin'" },

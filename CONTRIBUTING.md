@@ -24,24 +24,29 @@ Thank you for your interest in contributing to sleap-nn! This guide will help yo
 2. **Install sleap-nn dependencies based on your platform**\
 
    - Sync all dependencies based on your correct wheel using `uv sync`. `uv sync` creates a `.venv` (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use all installed packages, you must run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
-     - **Windows/Linux with NVIDIA GPU:**
+     - **Windows/Linux with NVIDIA GPU (default):** a plain `uv sync` installs the CUDA 13.0 build automatically. `gpu` is a default dependency group, so `uv run` uses the GPU build with no extra flags and won't resync back to CPU.
 
       ```bash
-      uv sync --extra gpu
+      uv sync
       ```
 
-      Or specify a CUDA version explicitly:
+      Or pin a specific CUDA version (drop the default `gpu` group with `--no-group gpu`):
 
       ```bash
-      uv sync --extra torch-cuda130  # CUDA 13.0
-      uv sync --extra torch-cuda128  # CUDA 12.8
-      uv sync --extra torch-cuda118  # CUDA 11.8
+      uv sync --no-group gpu --extra torch-cuda128  # CUDA 12.8
+      uv sync --no-group gpu --extra torch-cuda118  # CUDA 11.8
       ```
 
-     - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):**
-     Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
+     - **macOS with Apple Silicon (M1, M2, M3, M4):** a plain `uv sync` installs the MPS-capable build automatically.
+
       ```bash
-      uv sync --extra cpu
+      uv sync
+      ```
+
+     - **CPU-only (no GPU or unsupported GPU, incl. Linux aarch64):**
+
+      ```bash
+      uv sync --no-group gpu --extra cpu
       ```
 > **Upgrading All Dependencies**
 > To ensure you have the latest versions of all dependencies, use the `--upgrade` flag with `uv sync`:
@@ -126,7 +131,7 @@ cd sleap-nn
 
 2. Install `sleap-nn` with docs dependencies:
    ```bash
-   uv sync --group docs --extra cpu
+   uv sync --no-group gpu --group docs --extra cpu
    ```
 
 3. Build and tag a new documentation version:
