@@ -12,14 +12,6 @@ Train pose estimation models with SLEAP-NN.
       uv run sleap-nn train ...
       ```
 
-!!! abstract "In this section"
-    - **Training Models** (this page) — configure and run training
-    - [Config Generator](config-generator.md) — generate configs via TUI or auto mode
-    - [Negative Frames](negative-frames.md) — reduce false positives with background frames
-    - [Monitoring](monitoring.md) — WandB, visualizations, epoch-end evaluation
-    - [Multi-GPU](multi-gpu.md) — scale training across multiple GPUs
-    - [Resume & Fine-Tune](resume-finetune.md) — continue from existing weights
-
 ---
 
 ## Basic Training
@@ -327,6 +319,6 @@ data_config:
 
 ## Next Steps
 
-- [:octicons-arrow-right-24: Running Inference](inference.md)
+- [:octicons-arrow-right-24: Running Inference](inference-guide.md)
 - [:octicons-arrow-right-24: Configuration Reference](../configuration/index.md)
 - [:octicons-arrow-right-24: Model Architectures](../reference/models.md)

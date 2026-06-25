@@ -55,6 +55,8 @@ plugins:
         tutorials/index.md: tutorials/overview.md
         guides/index.md: guides/overview.md
         reference/index.md: reference/overview.md
+        guides/training.md: guides/training/overview.md
+        guides/inference.md: guides/inference/overview.md
   - mkdocstrings:
       default_handler: python
       handlers:
@@ -125,14 +127,16 @@ nav:
   - Guides:
     - Overview: guides/overview.md
     - Training:
-      - guides/training.md
+      - Overview: guides/training/overview.md
+      - Training Guide: guides/training-guide.md
       - Config Generator: guides/config-generator.md
       - Negative Frames: guides/negative-frames.md
       - Monitoring: guides/monitoring.md
       - Multi-GPU: guides/multi-gpu.md
       - Resume & Fine-Tune: guides/resume-finetune.md
     - Inference:
-      - guides/inference.md
+      - Overview: guides/inference/overview.md
+      - Running Inference: guides/inference-guide.md
       - Python API: guides/inference-api.md
       - Centroid-Only: guides/centroid-only-inference.md
       - Top-Down Segmentation: guides/topdown-segmentation.md

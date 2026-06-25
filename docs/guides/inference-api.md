@@ -14,7 +14,7 @@ from sleap_nn.inference import Predictor, predict
   as many times as you like with per-call overrides.
 
 !!! tip "Just want a `.slp` from the command line?"
-    Use the CLI instead — see [Running Inference](inference.md). This guide
+    Use the CLI instead — see [Running Inference](inference-guide.md). This guide
     is for embedding inference in Python code.
 
 ---
@@ -402,7 +402,7 @@ yourself if needed.
 
 ## See also
 
-- [Running Inference (CLI)](inference.md) — command-line usage
+- [Running Inference (CLI)](inference-guide.md) — command-line usage
 - [Centroid-only inference](centroid-only-inference.md) — centroid models standalone
 - [Inference Performance](inference-performance.md) — FP16, `torch.compile`, `paf_workers`
 - [Tracking](tracking.md) — tracking concepts and parameters

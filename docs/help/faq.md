@@ -295,4 +295,4 @@ SLEAP-NN uses PyTorch, so it runs on any system where PyTorch is supported. This
     - Check training loss - did it converge?
     - Verify preprocessing matches training
     - Add more training data
-    - See [Inference guide](../guides/inference.md#filtering-instances) for post-processing filters
+    - See [Inference guide](../guides/inference-guide.md#filtering-instances) for post-processing filters

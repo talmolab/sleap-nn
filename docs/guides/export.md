@@ -169,7 +169,7 @@ The default `--runtime auto` prefers TensorRT and falls back to ONNX.
 !!! tip "One command for checkpoints and exported models"
     `sleap-nn predict` handles **both** trained checkpoint directories and
     exported ONNX/TensorRT model directories — it auto-detects which one you
-    passed via `-m`. See the [Inference guide](inference.md) for the full set of
+    passed via `-m`. See the [Inference guide](inference-guide.md) for the full set of
     `predict` options (data selection, filtering, device, tracking, etc.).
 
 ### Examples
