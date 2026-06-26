@@ -147,6 +147,52 @@ def test_metadata_propagates_from_provider():
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# 5b. A bare np.ndarray / torch.Tensor source auto-wraps a NumpyProvider
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_predict_accepts_numpy_array_source():
+    """A bare ``np.ndarray`` source is wrapped in a ``NumpyProvider``.
+
+    Regression: it previously routed to ``VideoProvider(video=ndarray)`` and
+    raised ``ValueError: Unknown video file type``. ``predict(ndarray)`` must
+    match ``predict(NumpyProvider(images=ndarray))``.
+    """
+    images = np.zeros((6, 1, 8, 8), dtype=np.float32)
+    predictor = Predictor(layer=_StubLayer())
+    out_arr = predictor.predict(images, make_labels=False)
+    out_provider = predictor.predict(
+        NumpyProvider(images=images, batch_size=predictor.batch_size),
+        make_labels=False,
+    )
+    n_arr = sum(o.pred_keypoints.shape[0] for o in out_arr)
+    assert n_arr == 6
+    assert n_arr == sum(o.pred_keypoints.shape[0] for o in out_provider)
+
+
+def test_predict_accepts_torch_tensor_source():
+    """A bare ``torch.Tensor`` source is wrapped too.
+
+    Regression: a raw tensor previously fell through to the ``__iter__``
+    branch and was mistaken for a ``Provider`` (iterating yields rows, not
+    ``Batch`` objects), failing downstream.
+    """
+    images = torch.zeros((4, 1, 8, 8))
+    predictor = Predictor(layer=_StubLayer())
+    out = predictor.predict(images, make_labels=False)
+    assert sum(o.pred_keypoints.shape[0] for o in out) == 4
+
+
+def test_predict_numpy_array_source_frame_indices():
+    """``frames`` labels the per-frame indices for an in-memory source."""
+    images = np.zeros((3, 1, 8, 8), dtype=np.float32)
+    predictor = Predictor(layer=_StubLayer())
+    outs = predictor.predict(images, frames=[10, 11, 12], make_labels=False)
+    fi = torch.cat([o.frame_indices for o in outs]).tolist()
+    assert sorted(fi) == [10, 11, 12]
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # 6. make_labels requires skeleton
 # ─────────────────────────────────────────────────────────────────────────
 
