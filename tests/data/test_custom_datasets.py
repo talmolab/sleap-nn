@@ -671,6 +671,43 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
     assert sample["confidence_maps"].shape == (1, 2, 104, 104)
 
 
+def test_single_instance_dataset_filters_out_of_frame(minimal_instance):
+    """Nodes pushed off-frame by augmentation get an empty confmap."""
+    labels = sio.load_slp(minimal_instance)
+    for lf in labels:
+        lf.instances = lf.instances[:1]
+
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+
+    # Deterministic 4x zoom about the image center pushes the off-center node
+    # outside the 384x384 frame; all other augmentations are disabled.
+    geometric_aug = {
+        "scale_min": 4.0,
+        "scale_max": 4.0,
+        "scale_p": 1.0,
+    }
+    dataset = SingleInstanceDataset(
+        max_stride=8,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        labels=[labels],
+        apply_aug=True,
+        geometric_aug=geometric_aug,
+        cache_img="memory",
+    )
+    dataset._fill_cache([labels])
+    sample = next(iter(dataset))
+
+    instances = sample["instances"][0]  # (n_instances, n_nodes, 2)
+    cms = sample["confidence_maps"][0]  # (n_nodes, h, w)
+
+    oob = torch.isnan(instances[0]).any(dim=-1)  # single instance
+    assert oob.any()  # at least one node was pushed off-frame and masked
+    for n in range(oob.shape[0]):
+        if oob[n]:
+            assert cms[n].sum() == 0  # empty target for off-frame node
+
+
 def test_centered_instance_dataset_filters_out_of_crop(minimal_instance):
     """Nodes outside the crop get an empty confmap; in-crop nodes are preserved."""
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})

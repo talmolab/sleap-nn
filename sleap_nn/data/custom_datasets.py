@@ -2414,6 +2414,12 @@ class SingleInstanceDataset(BaseDataset):
 
         img_hw = sample["image"].shape[-2:]
 
+        # Drop keypoints pushed outside the image by augmentation so their target
+        # confidence map is empty rather than a partial blob at the image edge.
+        sample["instances"] = filter_oob_points(
+            sample["instances"], img_hw[0], img_hw[1]
+        )
+
         # Generate confidence maps
         confidence_maps = generate_confmaps(
             sample["instances"],
