@@ -544,6 +544,11 @@ class UnifiedVizCallback(Callback):
         self.model_trainer = model_trainer
         self.train_pipeline = cycle(train_dataset)
         self.val_pipeline = cycle(val_dataset)
+        # Raw (un-cycled) dataset refs — the embedding scatter samples them by index
+        # to spread points across the whole set (the per-sample image viz uses the
+        # cycles above).
+        self.train_dataset = train_dataset
+        self.val_dataset = val_dataset
         self.model_type = model_type
 
         # Local disk config
@@ -570,6 +575,13 @@ class UnifiedVizCallback(Callback):
             "bottomup_segmentation",
             "centered_instance_segmentation",
         )
+        # The `embedding` model is skeleton-less (crop -> vector): the per-sample
+        # keypoint/confmap viz makes no sense (and would crash on the missing
+        # `get_visualization_data`). Instead render a 2D embedding-scatter panel
+        # (SPEC §9), handled by a dedicated branch in `on_train_epoch_end`.
+        self.viz_embedding = model_type == "embedding"
+        # Max crops sampled per split for the scatter (spread across the dataset).
+        self.embedding_scatter_n = 256
 
         # Initialize renderers
         from sleap_nn.training.utils import MatplotlibRenderer, WandBRenderer
@@ -884,22 +896,195 @@ class UnifiedVizCallback(Callback):
             epoch = trainer.current_epoch
             wandb_logger = self._get_wandb_logger(trainer) if self.log_wandb else None
 
-            # Get ONE sample for train visualization
-            train_sample = next(self.train_pipeline)
-            # Run inference ONCE with all needed data
-            train_data = self._get_viz_data(train_sample)
-            # Output to all destinations
-            self._save_local_viz(train_data, "train", epoch)
-            self._log_wandb_viz(train_data, "train", epoch, wandb_logger)
+            if self.viz_embedding:
+                # Skeleton-less embedder: render a 2D embedding-scatter panel instead
+                # of the per-sample keypoint viz (which has no meaning here and would
+                # crash on the missing `get_visualization_data`).
+                self._embedding_viz_epoch(epoch, wandb_logger)
+            else:
+                # Get ONE sample for train visualization
+                train_sample = next(self.train_pipeline)
+                # Run inference ONCE with all needed data
+                train_data = self._get_viz_data(train_sample)
+                # Output to all destinations
+                self._save_local_viz(train_data, "train", epoch)
+                self._log_wandb_viz(train_data, "train", epoch, wandb_logger)
 
-            # Same for validation
-            val_sample = next(self.val_pipeline)
-            val_data = self._get_viz_data(val_sample)
-            self._save_local_viz(val_data, "validation", epoch)
-            self._log_wandb_viz(val_data, "val", epoch, wandb_logger)
+                # Same for validation
+                val_sample = next(self.val_pipeline)
+                val_data = self._get_viz_data(val_sample)
+                self._save_local_viz(val_data, "validation", epoch)
+                self._log_wandb_viz(val_data, "val", epoch, wandb_logger)
 
         # Sync all processes - barrier must be reached by ALL ranks
         trainer.strategy.barrier()
+
+    # ── embedding-scatter viz (SPEC §9) ─────────────────────────────────────
+    def _embed_dataset_sample(self, module, dataset, n: int):
+        """Embed up to ``n`` crops spread evenly across ``dataset``.
+
+        Returns ``(embeddings (M, D) float32, group_ids (M,) int)`` or ``(None,
+        None)`` if no crops could be sampled. Mirrors the eval embedding path
+        (mask burn-in + standardize -> EmbeddingHead, pre-projection) so the scatter
+        matches the retrieval metrics.
+        """
+        import numpy as np
+        import torch
+
+        if dataset is None or not hasattr(dataset, "__len__") or len(dataset) == 0:
+            return None, None
+        total = len(dataset)
+        n = min(int(n), total)
+        # Evenly-spaced unique indices so the sample spans the whole set (the index
+        # order may cluster by identity).
+        idxs = sorted(set(np.linspace(0, total - 1, n).astype(int).tolist()))
+
+        grays, masks, groups = [], [], []
+        for i in idxs:
+            try:
+                s = dataset[i]
+            except Exception:  # noqa: BLE001 — skip an unreadable crop, keep going
+                continue
+            grays.append(s["instance_image"])
+            masks.append(s["instance_mask"])
+            groups.append(int(s["group_id"]))
+        if not grays:
+            return None, None
+
+        device = module.device
+        gray = torch.stack(grays, 0).squeeze(1).to(device=device, dtype=torch.float32)
+        mask = torch.stack(masks, 0).squeeze(1).to(device=device, dtype=torch.float32)
+        was_training = module.training
+        module.eval()
+        try:
+            with torch.no_grad():
+                x = module._build_input(gray, mask)
+                emb = module.model(x)["EmbeddingHead"]
+        finally:
+            if was_training:
+                module.train()
+        return emb.detach().cpu().float().numpy(), np.asarray(groups)
+
+    @staticmethod
+    def _reduce_to_2d(x):
+        """Reduce ``(N, D)`` embeddings to ``(N, 2)`` (UMAP if available, else PCA)."""
+        import numpy as np
+
+        if x.shape[1] <= 2:
+            out = np.zeros((x.shape[0], 2), dtype=np.float32)
+            out[:, : x.shape[1]] = x
+            return out, "raw"
+        if x.shape[0] >= 10:
+            try:
+                import umap  # optional dependency
+
+                reducer = umap.UMAP(
+                    n_components=2,
+                    n_neighbors=min(15, x.shape[0] - 1),
+                    random_state=0,
+                )
+                return reducer.fit_transform(x).astype(np.float32), "umap"
+            except Exception:  # noqa: BLE001 — fall back to dependency-free PCA
+                pass
+        import torch
+
+        t = torch.from_numpy(x.astype("float32"))
+        t = t - t.mean(0, keepdim=True)
+        q = min(2, t.shape[0], t.shape[1])
+        _, _, v = torch.pca_lowrank(t, q=q)
+        proj = (t @ v[:, :2]).numpy()
+        if proj.shape[1] < 2:  # degenerate (1 sample / 1 dim)
+            proj = np.pad(proj, ((0, 0), (0, 2 - proj.shape[1])))
+        return proj.astype(np.float32), "pca"
+
+    def _embedding_viz_epoch(self, epoch: int, wandb_logger):
+        """Render + save/log the 2D embedding scatter for this epoch."""
+        import numpy as np
+
+        module = self.model_trainer.lightning_model
+        tr_emb, tr_grp = self._embed_dataset_sample(
+            module, self.train_dataset, self.embedding_scatter_n
+        )
+        va_emb, va_grp = self._embed_dataset_sample(
+            module, self.val_dataset, self.embedding_scatter_n
+        )
+        parts = [
+            (e, g) for e, g in ((tr_emb, tr_grp), (va_emb, va_grp)) if e is not None
+        ]
+        if not parts:
+            logger.warning("Embedding viz: no crops to embed; skipping scatter.")
+            return
+
+        all_emb = np.concatenate([e for e, _ in parts], axis=0)
+        all_grp = np.concatenate([g for _, g in parts], axis=0)
+        n_train = tr_emb.shape[0] if tr_emb is not None else 0
+        emb2d, method = self._reduce_to_2d(all_emb)
+
+        fig = self._render_embedding_scatter(emb2d, all_grp, n_train, epoch, method)
+
+        if self.save_local and self.local_save_dir is not None:
+            fig_path = self.local_save_dir / f"embedding_scatter.{epoch:04d}.png"
+            fig.savefig(fig_path, format="png", bbox_inches="tight")
+
+        if self.log_wandb and wandb_logger is not None:
+            from io import BytesIO
+            from PIL import Image as PILImage
+
+            buf = BytesIO()
+            fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0.1)
+            buf.seek(0)
+            wandb_logger.experiment.log(
+                {
+                    "viz/embedding_scatter": wandb.Image(
+                        PILImage.open(buf),
+                        caption=f"Embedding ({method}) — epoch {epoch}",
+                    )
+                },
+                commit=False,
+            )
+        plt.close(fig)
+
+    @staticmethod
+    def _render_embedding_scatter(emb2d, groups, n_train: int, epoch: int, method: str):
+        """Scatter of 2D embeddings colored by identity (train faint, val bold)."""
+        import numpy as np
+
+        fig, ax = plt.subplots(figsize=(6, 6), dpi=100)
+        uniq = sorted(set(int(g) for g in groups.tolist()))
+        cmap = plt.get_cmap("tab20")
+        color_of = {g: cmap(i % 20) for i, g in enumerate(uniq)}
+        colors = np.array([color_of[int(g)] for g in groups])
+
+        tr = slice(0, n_train)
+        va = slice(n_train, None)
+        if n_train > 0:
+            ax.scatter(
+                emb2d[tr, 0],
+                emb2d[tr, 1],
+                c=colors[tr],
+                s=12,
+                alpha=0.35,
+                linewidths=0,
+            )
+        if n_train < len(groups):
+            ax.scatter(
+                emb2d[va, 0],
+                emb2d[va, 1],
+                c=colors[va],
+                s=44,
+                alpha=0.95,
+                edgecolors="black",
+                linewidths=0.5,
+            )
+        n_val = len(groups) - n_train
+        ax.set_title(
+            f"Embedding ({method}) — epoch {epoch}\n"
+            f"{len(uniq)} ids · train○ {n_train} · val● {n_val}"
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+        fig.tight_layout()
+        return fig
 
 
 class MatplotlibSaver(Callback):
