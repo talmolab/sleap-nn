@@ -6011,14 +6011,14 @@
   
   
     <li class="md-nav__item">
-      <a href="model_info/" class="md-nav__link">
+      <a href="legacy_predict/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    model_info
+    legacy_predict
   
 
     
@@ -6039,14 +6039,14 @@
   
   
     <li class="md-nav__item">
-      <a href="predict/" class="md-nav__link">
+      <a href="model_info/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    predict
+    model_info
   
 
     
@@ -6731,10 +6731,43 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#sleap_nn.__dir__" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        __dir__
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sleap_nn.__getattr__" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        __getattr__
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#sleap_nn.load_metrics" class="md-nav__link">
     <span class="md-ellipsis">
       
         load_metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sleap_nn.load_models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_models
       
     </span>
   </a>
@@ -6869,18 +6902,18 @@
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;sleap_nn.model_info&lt;/code&gt;" href="model_info/#sleap_nn.model_info">model_info</a></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;sleap_nn.legacy_predict&lt;/code&gt;" href="legacy_predict/#sleap_nn.legacy_predict">legacy_predict</a></code></td>
             <td>
               <div class="doc-md-description">
-                <p>Model information display for trained models and configs.</p>
+                <p>Entry point for running inference.</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;sleap_nn.predict&lt;/code&gt;" href="predict/#sleap_nn.predict">predict</a></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;sleap_nn.model_info&lt;/code&gt;" href="model_info/#sleap_nn.model_info">model_info</a></code></td>
             <td>
               <div class="doc-md-description">
-                <p>Entry point for running inference.</p>
+                <p>Model information display for trained models and configs.</p>
               </div>
             </td>
           </tr>
@@ -6943,6 +6976,14 @@
                 </div>
               </td>
             </tr>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;load_models&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;model_paths&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;**&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;kwargs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.load_models&lt;/code&gt;)" href="#sleap_nn.load_models">load_models</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Load trained model(s) into a ready-to-run :class:<code>Predictor</code>.</p>
+                </div>
+              </td>
+            </tr>
       </tbody>
     </table>
 
@@ -6960,6 +7001,68 @@
 
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="sleap_nn.__dir__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__dir__</span><span class="p">()</span></code>
+
+<a href="#sleap_nn.__dir__" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Include the lazily-exposed names in <code>dir(sleap_nn)</code> for discoverability.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>sleap_nn/__init__.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-101">101</a></span>
+<span class="normal"><a href="#__codelineno-0-102">102</a></span>
+<span class="normal"><a href="#__codelineno-0-103">103</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-101"><a id="__codelineno-0-101" name="__codelineno-0-101"></a><span class="k">def</span><span class="w"> </span><span class="fm">__dir__</span><span class="p">():</span>
+</span><span id="__span-0-102"><a id="__codelineno-0-102" name="__codelineno-0-102"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Include the lazily-exposed names in ``dir(sleap_nn)`` for discoverability.&quot;&quot;&quot;</span>
+</span><span id="__span-0-103"><a id="__codelineno-0-103" name="__codelineno-0-103"></a>    <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="nb">globals</span><span class="p">())</span> <span class="o">|</span> <span class="nb">set</span><span class="p">(</span><span class="n">_LAZY_ATTRS</span><span class="p">))</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="sleap_nn.__getattr__" class="doc doc-heading">
+            <code class="highlight language-python"><span class="fm">__getattr__</span><span class="p">(</span><span class="n">name</span><span class="p">)</span></code>
+
+<a href="#sleap_nn.__getattr__" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Resolve lazily-exposed inference entry points (<code>predict</code>, <code>Predictor</code>).</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>sleap_nn/__init__.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-92">92</a></span>
+<span class="normal"><a href="#__codelineno-0-93">93</a></span>
+<span class="normal"><a href="#__codelineno-0-94">94</a></span>
+<span class="normal"><a href="#__codelineno-0-95">95</a></span>
+<span class="normal"><a href="#__codelineno-0-96">96</a></span>
+<span class="normal"><a href="#__codelineno-0-97">97</a></span>
+<span class="normal"><a href="#__codelineno-0-98">98</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-92"><a id="__codelineno-0-92" name="__codelineno-0-92"></a><span class="k">def</span><span class="w"> </span><span class="fm">__getattr__</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
+</span><span id="__span-0-93"><a id="__codelineno-0-93" name="__codelineno-0-93"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve lazily-exposed inference entry points (``predict``, ``Predictor``).&quot;&quot;&quot;</span>
+</span><span id="__span-0-94"><a id="__codelineno-0-94" name="__codelineno-0-94"></a>    <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">_LAZY_ATTRS</span><span class="p">:</span>
+</span><span id="__span-0-95"><a id="__codelineno-0-95" name="__codelineno-0-95"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn</span><span class="w"> </span><span class="kn">import</span> <span class="n">inference</span>
+</span><span id="__span-0-96"><a id="__codelineno-0-96" name="__codelineno-0-96"></a>
+</span><span id="__span-0-97"><a id="__codelineno-0-97" name="__codelineno-0-97"></a>        <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">inference</span><span class="p">,</span> <span class="n">_LAZY_ATTRS</span><span class="p">[</span><span class="n">name</span><span class="p">])</span>
+</span><span id="__span-0-98"><a id="__codelineno-0-98" name="__codelineno-0-98"></a>    <span class="k">raise</span> <span class="ne">AttributeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;module </span><span class="si">{</span><span class="vm">__name__</span><span class="si">!r}</span><span class="s2"> has no attribute </span><span class="si">{</span><span class="n">name</span><span class="si">!r}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
 
 <div class="doc doc-object doc-function">
 
@@ -7201,6 +7304,99 @@ distance_metrics, pck_metrics, visibility_metrics.</p>
 </span><span id="__span-0-1803"><a id="__codelineno-0-1803" name="__codelineno-0-1803"></a>        <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Metrics file not found at </span><span class="si">{</span><span class="n">metrics_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </span><span id="__span-0-1804"><a id="__codelineno-0-1804" name="__codelineno-0-1804"></a>
 </span><span id="__span-0-1805"><a id="__codelineno-0-1805" name="__codelineno-0-1805"></a>    <span class="k">return</span> <span class="n">_load_npz_metrics</span><span class="p">(</span><span class="n">metrics_path</span><span class="p">)</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="sleap_nn.load_models" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">load_models</span><span class="p">(</span><span class="n">model_paths</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></code>
+
+<a href="#sleap_nn.load_models" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Load trained model(s) into a ready-to-run :class:<code>Predictor</code>.</p>
+<p>A discoverable, top-level convenience wrapper around
+:meth:<code>sleap_nn.inference.Predictor.from_model_paths</code>. Pass one model
+directory (single-instance / bottom-up / centroid) or a centroid +
+centered-instance pair (top-down); a lone centroid directory is
+auto-detected. Accepts every keyword argument of <code>from_model_paths</code>
+(e.g. <code>device</code>, <code>batch_size</code>, <code>peak_threshold</code>, <code>tracker_config</code>)
+and returns a reusable <code>Predictor</code> you can call <code>.predict(...)</code> on
+repeatedly.</p>
+
+
+<details class="example" open>
+  <summary>Example</summary>
+  <blockquote>
+<blockquote>
+<blockquote>
+<p>import sleap_nn
+predictor = sleap_nn.load_models(
+...     ["models/centroid/", "models/centered_instance/"], device="cuda"
+... )
+labels = predictor.predict("video.mp4")</p>
+</blockquote>
+</blockquote>
+</blockquote>
+</details>        <p>For a one-shot call, use :func:<code>sleap_nn.predict</code> instead.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>sleap_nn/__init__.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-59">59</a></span>
+<span class="normal"><a href="#__codelineno-0-60">60</a></span>
+<span class="normal"><a href="#__codelineno-0-61">61</a></span>
+<span class="normal"><a href="#__codelineno-0-62">62</a></span>
+<span class="normal"><a href="#__codelineno-0-63">63</a></span>
+<span class="normal"><a href="#__codelineno-0-64">64</a></span>
+<span class="normal"><a href="#__codelineno-0-65">65</a></span>
+<span class="normal"><a href="#__codelineno-0-66">66</a></span>
+<span class="normal"><a href="#__codelineno-0-67">67</a></span>
+<span class="normal"><a href="#__codelineno-0-68">68</a></span>
+<span class="normal"><a href="#__codelineno-0-69">69</a></span>
+<span class="normal"><a href="#__codelineno-0-70">70</a></span>
+<span class="normal"><a href="#__codelineno-0-71">71</a></span>
+<span class="normal"><a href="#__codelineno-0-72">72</a></span>
+<span class="normal"><a href="#__codelineno-0-73">73</a></span>
+<span class="normal"><a href="#__codelineno-0-74">74</a></span>
+<span class="normal"><a href="#__codelineno-0-75">75</a></span>
+<span class="normal"><a href="#__codelineno-0-76">76</a></span>
+<span class="normal"><a href="#__codelineno-0-77">77</a></span>
+<span class="normal"><a href="#__codelineno-0-78">78</a></span>
+<span class="normal"><a href="#__codelineno-0-79">79</a></span>
+<span class="normal"><a href="#__codelineno-0-80">80</a></span>
+<span class="normal"><a href="#__codelineno-0-81">81</a></span>
+<span class="normal"><a href="#__codelineno-0-82">82</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="k">def</span><span class="w"> </span><span class="nf">load_models</span><span class="p">(</span><span class="n">model_paths</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+</span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Load trained model(s) into a ready-to-run :class:`Predictor`.</span>
+</span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61"></a>
+</span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">    A discoverable, top-level convenience wrapper around</span>
+</span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">    :meth:`sleap_nn.inference.Predictor.from_model_paths`. Pass one model</span>
+</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">    directory (single-instance / bottom-up / centroid) or a centroid +</span>
+</span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65"></a><span class="sd">    centered-instance pair (top-down); a lone centroid directory is</span>
+</span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66"></a><span class="sd">    auto-detected. Accepts every keyword argument of ``from_model_paths``</span>
+</span><span id="__span-0-67"><a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">    (e.g. ``device``, ``batch_size``, ``peak_threshold``, ``tracker_config``)</span>
+</span><span id="__span-0-68"><a id="__codelineno-0-68" name="__codelineno-0-68"></a><span class="sd">    and returns a reusable ``Predictor`` you can call ``.predict(...)`` on</span>
+</span><span id="__span-0-69"><a id="__codelineno-0-69" name="__codelineno-0-69"></a><span class="sd">    repeatedly.</span>
+</span><span id="__span-0-70"><a id="__codelineno-0-70" name="__codelineno-0-70"></a>
+</span><span id="__span-0-71"><a id="__codelineno-0-71" name="__codelineno-0-71"></a><span class="sd">    Example:</span>
+</span><span id="__span-0-72"><a id="__codelineno-0-72" name="__codelineno-0-72"></a><span class="sd">        &gt;&gt;&gt; import sleap_nn</span>
+</span><span id="__span-0-73"><a id="__codelineno-0-73" name="__codelineno-0-73"></a><span class="sd">        &gt;&gt;&gt; predictor = sleap_nn.load_models(</span>
+</span><span id="__span-0-74"><a id="__codelineno-0-74" name="__codelineno-0-74"></a><span class="sd">        ...     [&quot;models/centroid/&quot;, &quot;models/centered_instance/&quot;], device=&quot;cuda&quot;</span>
+</span><span id="__span-0-75"><a id="__codelineno-0-75" name="__codelineno-0-75"></a><span class="sd">        ... )</span>
+</span><span id="__span-0-76"><a id="__codelineno-0-76" name="__codelineno-0-76"></a><span class="sd">        &gt;&gt;&gt; labels = predictor.predict(&quot;video.mp4&quot;)</span>
+</span><span id="__span-0-77"><a id="__codelineno-0-77" name="__codelineno-0-77"></a>
+</span><span id="__span-0-78"><a id="__codelineno-0-78" name="__codelineno-0-78"></a><span class="sd">    For a one-shot call, use :func:`sleap_nn.predict` instead.</span>
+</span><span id="__span-0-79"><a id="__codelineno-0-79" name="__codelineno-0-79"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-80"><a id="__codelineno-0-80" name="__codelineno-0-80"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference</span><span class="w"> </span><span class="kn">import</span> <span class="n">Predictor</span>
+</span><span id="__span-0-81"><a id="__codelineno-0-81" name="__codelineno-0-81"></a>
+</span><span id="__span-0-82"><a id="__codelineno-0-82" name="__codelineno-0-82"></a>    <span class="k">return</span> <span class="n">Predictor</span><span class="o">.</span><span class="n">from_model_paths</span><span class="p">(</span><span class="n">model_paths</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
