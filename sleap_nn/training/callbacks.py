@@ -2100,49 +2100,18 @@ class EmbeddingEvaluationCallback(Callback):
         pl_module._collect_val_predictions = True
 
     def _compute_metrics(self, predictions: list, ground_truth: list) -> dict:
-        """Leave-self-out retrieval/verification/kNN over the collected val embeddings."""
+        """Leave-self-out retrieval/verification/kNN over the collected val embeddings.
+
+        Delegates to :func:`sleap_nn.evaluation.embedding_leave_self_out_eval` so the
+        per-epoch selection metric and the post-training headline (train.py) use the
+        exact same protocol.
+        """
         import numpy as np
-        from sleap_nn.evaluation import verification_metrics
+        from sleap_nn.evaluation import embedding_leave_self_out_eval
 
         emb = np.stack([p["embedding"].numpy() for p in predictions]).astype(np.float64)
         y = np.asarray([g["label"] for g in ground_truth])
-        emb = emb / np.maximum(np.linalg.norm(emb, axis=1, keepdims=True), 1e-8)
-        n = len(emb)
-        sim = emb @ emb.T
-        np.fill_diagonal(sim, -np.inf)  # leave-self-out (self sorts to the very end)
-        order = np.argsort(-sim, axis=1)[:, : n - 1]  # drop the self slot
-        ranked = y[order]
-
-        rank1 = float(np.mean(ranked[:, 0] == y))
-        aps = []
-        for i in range(n):
-            rel = (ranked[i] == y[i]).astype(float)
-            if rel.sum() == 0:
-                continue
-            csum = np.cumsum(rel)
-            prec = csum / np.arange(1, len(rel) + 1)
-            aps.append((prec * rel).sum() / rel.sum())
-        mAP = float(np.mean(aps)) if aps else 0.0
-
-        # kNN accuracy (leave-self-out): top-k excluding self.
-        k = min(self.knn_k, n - 1)
-        idx = order[:, :k]
-        nn_y = y[idx]
-        nn_s = np.take_along_axis(sim, idx, 1)
-        nclass = int(y.max()) + 1
-        votes = np.zeros((n, nclass))
-        for c in range(nclass):
-            votes[:, c] = (nn_s * (nn_y == c)).sum(1)
-        knn_acc = float(np.mean(votes.argmax(1) == y))
-
-        ver = verification_metrics(emb, y, emb, y)
-        return {
-            "rank1": round(rank1, 4),
-            "mAP": round(mAP, 4),
-            "auc": ver["auc"],
-            "eer": ver["eer"],
-            "knn_acc": round(knn_acc, 4),
-        }
+        return embedding_leave_self_out_eval(emb, y, k=self.knn_k)
 
     def on_validation_epoch_end(self, trainer, pl_module):
         """Compute retrieval metrics; log to callback_metrics (selection) + wandb."""

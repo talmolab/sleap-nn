@@ -1019,3 +1019,50 @@ def test_run_evaluation_auto_detects_centroid(minimal_instance, tmp_path):
     assert det["n_tp"] == 2
     assert det["n_fp"] == 1
     assert det["n_fn"] == 1
+
+
+class TestEmbeddingRetrievalMetrics:
+    """Retrieval / verification / leave-self-out metrics for the embedding model."""
+
+    @staticmethod
+    def _separable():
+        """Two well-separated identity clusters in 8-D (rank1 == 1)."""
+        rng = np.random.RandomState(0)
+        a = np.array([1.0, 0, 0, 0, 0, 0, 0, 0]) + 0.01 * rng.randn(10, 8)
+        b = np.array([0, 1.0, 0, 0, 0, 0, 0, 0]) + 0.01 * rng.randn(10, 8)
+        emb = np.concatenate([a, b], axis=0)
+        y = np.array([0] * 10 + [1] * 10)
+        return emb, y
+
+    def test_leave_self_out_separable_is_perfect(self):
+        """Cleanly separated clusters -> rank1 == mAP == 1, kNN == 1."""
+        from sleap_nn.evaluation import embedding_leave_self_out_eval
+
+        emb, y = self._separable()
+        m = embedding_leave_self_out_eval(emb, y)
+        assert m["rank1"] == 1.0
+        assert m["mAP"] == 1.0
+        assert m["knn_acc"] == 1.0
+        assert m["auc"] == 1.0
+
+    def test_leave_self_out_excludes_self(self):
+        """rank1 must reflect the NEAREST OTHER item, not the (trivial) self-match.
+
+        With one item per identity, leave-self-out retrieval can never match (every
+        other item is a different id) -> rank1 == 0, proving self is excluded.
+        """
+        from sleap_nn.evaluation import embedding_leave_self_out_eval
+
+        rng = np.random.RandomState(1)
+        emb = rng.randn(6, 8)
+        y = np.arange(6)  # all distinct -> no true positive exists besides self
+        m = embedding_leave_self_out_eval(emb, y)
+        assert m["rank1"] == 0.0
+
+    def test_leave_self_out_keys(self):
+        """The metrics dict has the full retrieval/verification/kNN key set."""
+        from sleap_nn.evaluation import embedding_leave_self_out_eval
+
+        emb, y = self._separable()
+        m = embedding_leave_self_out_eval(emb, y)
+        assert set(m.keys()) == {"rank1", "mAP", "auc", "eer", "knn_acc"}

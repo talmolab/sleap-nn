@@ -2141,3 +2141,61 @@ def embedding_full_eval(gallery_emb, gallery_y, query_emb, query_y, k: int = 7):
     pred, _ = knn_classify(gallery_emb, gallery_y, query_emb, k=k)
     out["knn_acc"] = round(float(np.mean(pred == np.asarray(query_y))), 4)
     return out
+
+
+def embedding_leave_self_out_eval(emb, y, k: int = 7):
+    """Leave-self-out retrieval/verification/kNN over one labeled embedding set.
+
+    Gallery == query == the same set, with each item's self-match excluded (the
+    similarity diagonal is masked to -inf so an item is never retrieved by itself).
+    This is exactly the protocol the per-epoch
+    :class:`~sleap_nn.training.callbacks.EmbeddingEvaluationCallback` uses for
+    checkpoint selection, so the post-training headline matches the selected metric.
+
+    Args:
+        emb: ``(N, D)`` embeddings.
+        y: ``(N,)`` integer identity labels.
+        k: ``k`` for the cosine-kNN accuracy (clamped to ``N - 1``).
+
+    Returns:
+        dict with ``rank1``, ``mAP``, ``auc``, ``eer``, ``knn_acc``.
+    """
+    emb = np.asarray(emb, dtype=np.float64)
+    y = np.asarray(y)
+    emb = emb / np.maximum(np.linalg.norm(emb, axis=1, keepdims=True), 1e-8)
+    n = len(emb)
+    sim = emb @ emb.T
+    np.fill_diagonal(sim, -np.inf)  # leave-self-out (self sorts to the very end)
+    order = np.argsort(-sim, axis=1)[:, : n - 1]  # drop the self slot
+    ranked = y[order]
+
+    rank1 = float(np.mean(ranked[:, 0] == y))
+    aps = []
+    for i in range(n):
+        rel = (ranked[i] == y[i]).astype(float)
+        if rel.sum() == 0:
+            continue
+        csum = np.cumsum(rel)
+        prec = csum / np.arange(1, len(rel) + 1)
+        aps.append((prec * rel).sum() / rel.sum())
+    mAP = float(np.mean(aps)) if aps else 0.0
+
+    # kNN accuracy (leave-self-out): top-k excluding self.
+    kk = min(k, n - 1)
+    idx = order[:, :kk]
+    nn_y = y[idx]
+    nn_s = np.take_along_axis(sim, idx, 1)
+    nclass = int(y.max()) + 1
+    votes = np.zeros((n, nclass))
+    for c in range(nclass):
+        votes[:, c] = (nn_s * (nn_y == c)).sum(1)
+    knn_acc = float(np.mean(votes.argmax(1) == y))
+
+    ver = verification_metrics(emb, y, emb, y)
+    return {
+        "rank1": round(rank1, 4),
+        "mAP": round(mAP, 4),
+        "auc": ver["auc"],
+        "eer": ver["eer"],
+        "knn_acc": round(knn_acc, 4),
+    }
