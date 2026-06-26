@@ -542,6 +542,142 @@ def _build_embedding(
     )
 
 
+def _build_topdown_embedding(
+    centroid_ckpt_path: Optional[str],
+    embedding_ckpt_path: str,
+    *,
+    device: str,
+    backbone_ckpt_path: Optional[str],
+    head_ckpt_path: Optional[str],
+    peak_threshold: Union[float, List[float]],
+    integral_refinement: str,
+    integral_patch_size: int,
+    max_instances: Optional[int],
+    return_confmaps: bool,
+    preprocess_config: Any,
+    anchor_part: Optional[str],
+) -> LoadedAssets:
+    """Load a centroid + ``embedding`` pair for the composed re-ID path.
+
+    Mirrors :func:`_build_topdown_segmentation`, but the second stage is the
+    appearance embedder (no keypoint peak finding / no mask): the centroid stage
+    supplies crop centers on the raw video and the embedder maps each crop to an
+    L2-normalized vector. When ``centroid_ckpt_path`` is ``None`` the centroid
+    stage falls back to GT user-instance centroids
+    (``CentroidCrop(use_gt_centroids=True)``).
+
+    The crop size comes from the embedding config (a crop-level property), and the
+    composed inference model carries the ``CentroidCrop`` (stage 1) +
+    :class:`EmbeddingInferenceModel` (stage 2) the same way the seg path carries the
+    mask model.
+    """
+    centroid_peak_threshold = (
+        peak_threshold[0] if isinstance(peak_threshold, list) else peak_threshold
+    )
+
+    centroid_config = None
+    centroid_model = None
+    centroid_backbone_type = None
+    if centroid_ckpt_path is not None:
+        centroid_model, centroid_config, centroid_backbone_type = (
+            _load_lightning_module(
+                CentroidLightningModule,
+                centroid_ckpt_path,
+                model_type="centroid",
+                device=device,
+                backbone_ckpt_path=backbone_ckpt_path,
+                head_ckpt_path=head_ckpt_path,
+            )
+        )
+
+    emb_module, emb_config, emb_backbone_type = _load_lightning_module(
+        EmbeddingLightningModule,
+        embedding_ckpt_path,
+        model_type="embedding",
+        device=device,
+        backbone_ckpt_path=backbone_ckpt_path,
+        head_ckpt_path=head_ckpt_path,
+    )
+    # Embedding labels carry no skeleton; tolerate an empty/missing one.
+    try:
+        skeletons = get_skeleton_from_config(emb_config.data_config.skeletons)
+    except Exception:  # noqa: BLE001 — skeleton is optional for embeddings
+        skeletons = []
+
+    # Resolve preprocess_config: centroid first (sizematcher), then embedding (which
+    # carries the crop_size), without clobbering an explicit user crop_size.
+    user_crop_size = preprocess_config.crop_size
+    if centroid_config is not None:
+        preprocess_config = _resolve_preprocess_config(
+            preprocess_config, centroid_config
+        )
+    preprocess_config = _resolve_preprocess_config(preprocess_config, emb_config)
+    emb_crop = emb_config.data_config.preprocessing.crop_size
+    if user_crop_size is None and emb_crop is not None:
+        preprocess_config.crop_size = emb_crop
+
+    # anchor_ind is only used by the GT-centroid crop path; the embedding model has
+    # no skeleton anchor, so this only fires when a real anchor_part + skeleton exist.
+    anchor_ind = None
+    if anchor_part is not None and skeletons:
+        anchor_ind = skeletons[0].node_names.index(anchor_part)
+
+    emb_head = emb_config.model_config.head_configs.embedding.embedding
+    max_stride_emb = emb_config.model_config.backbone_config[emb_backbone_type][
+        "max_stride"
+    ]
+
+    # Build CentroidCrop (real model OR GT-centroid fallback).
+    if centroid_config is None:
+        centroid_crop = CentroidCrop(
+            use_gt_centroids=True,
+            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            anchor_ind=anchor_ind,
+            return_crops=True,
+        )
+    else:
+        max_stride_centroid = centroid_config.model_config.backbone_config[
+            centroid_backbone_type
+        ]["max_stride"]
+        centroid_crop = CentroidCrop(
+            torch_model=centroid_model,
+            peak_threshold=centroid_peak_threshold,
+            output_stride=centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
+            refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            return_confmaps=return_confmaps,
+            return_crops=True,
+            max_instances=max_instances,
+            max_stride=max_stride_centroid,
+            input_scale=centroid_config.data_config.preprocessing.scale,
+            crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
+            use_gt_centroids=False,
+            anchor_ind=anchor_ind,
+        )
+
+    emb_model = EmbeddingInferenceModel(
+        torch_model=emb_module,
+        embedding_dim=int(emb_head.embedding_dim),
+        output_stride=int(emb_head.output_stride),
+        max_stride=int(max_stride_emb),
+        input_scale=emb_config.data_config.preprocessing.scale,
+        crop_size=int(preprocess_config.crop_size),
+        ensure_grayscale=True,
+    )
+
+    inference_model = TopDownInferenceModel(
+        centroid_crop=centroid_crop, instance_peaks=emb_model
+    )
+    return LoadedAssets(
+        inference_model=inference_model,
+        preprocess_config=preprocess_config,
+        skeletons=skeletons,
+        centroid_config=centroid_config,
+        confmap_config=emb_config,
+        backbone_type=emb_backbone_type or centroid_backbone_type,
+    )
+
+
 def _build_topdown(
     centroid_ckpt_path: Optional[str],
     confmap_ckpt_path: Optional[str],
@@ -1137,10 +1273,26 @@ def load_model_assets(
     elif "embedding" in model_types:
         # Appearance-embedding (re-ID). Checked BEFORE the topdown family block:
         # a centroid + embedding pair has "centroid" in model_types, so it would
-        # otherwise enter that block and silently drop the embedding dir. The
-        # single embedding dir is the common (mask-driven) case.
-        path = model_paths[model_types.index("embedding")]
-        assets = _build_embedding(path, **common_kwargs)
+        # otherwise enter that block and silently drop the embedding dir.
+        #   - centroid + embedding -> compose centroid -> crop -> embed on raw
+        #     video (TopDownEmbeddingLayer).
+        #   - embedding alone -> single-stage, mask-driven case (EmbeddingLayer).
+        emb_path = model_paths[model_types.index("embedding")]
+        centroid_path = (
+            model_paths[model_types.index("centroid")]
+            if "centroid" in model_types
+            else None
+        )
+        if centroid_path is not None:
+            assets = _build_topdown_embedding(
+                centroid_path,
+                emb_path,
+                max_instances=max_instances,
+                anchor_part=anchor_part,
+                **common_kwargs,
+            )
+        else:
+            assets = _build_embedding(emb_path, **common_kwargs)
 
     elif "centered_instance_segmentation" in model_types:
         # Top-down (crop-centered) instance segmentation. MUST be checked BEFORE

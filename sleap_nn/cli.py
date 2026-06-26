@@ -1417,6 +1417,7 @@ def _run_embeddings(kwargs: dict, embeddings_path: str) -> "object":
         output_path=embeddings_path,
         device=_resolve_device(kwargs.get("device")),
         batch_size=kwargs.get("batch_size", 4) or 4,
+        peak_threshold=kwargs.get("peak_threshold"),
     )
     click.echo(f"Wrote embeddings to {out}")
     return out

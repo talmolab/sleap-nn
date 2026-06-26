@@ -451,18 +451,48 @@ def _build_topdown_segmentation_layer(
     )
 
 
-def _build_embedding_layer(predictor: Any, device: str) -> EmbeddingLayer:
-    """Wrap an ``EmbeddingInferenceModel`` in an ``EmbeddingLayer``."""
-    inf = predictor.inference_model
-    module = inf.torch_model
+def _build_embedding_layer_from_model(emb_model: Any, device: str) -> EmbeddingLayer:
+    """Wrap an ``EmbeddingInferenceModel`` holder in an ``EmbeddingLayer``."""
+    module = emb_model.torch_model
     return EmbeddingLayer(
         backend=TorchBackend(model=module.model, device=device),
         embedding_module=module,
-        embedding_dim=inf.embedding_dim,
-        output_stride=inf.output_stride,
-        max_stride=inf.max_stride,
-        preprocess_config=PreprocessConfig(scale=inf.input_scale),
+        embedding_dim=emb_model.embedding_dim,
+        output_stride=emb_model.output_stride,
+        max_stride=emb_model.max_stride,
+        preprocess_config=PreprocessConfig(scale=emb_model.input_scale),
         postprocess_config=PostprocessConfig(),
+    )
+
+
+def _build_embedding_layer(predictor: Any, device: str) -> EmbeddingLayer:
+    """Wrap the single-stage ``EmbeddingInferenceModel`` in an ``EmbeddingLayer``."""
+    return _build_embedding_layer_from_model(predictor.inference_model, device)
+
+
+def _build_topdown_embedding_layer(
+    predictor: Any, device: str
+) -> TopDownEmbeddingLayer:
+    """Compose centroid + per-crop-embedding stages into a ``TopDownEmbeddingLayer``.
+
+    Mirrors :func:`_build_topdown_segmentation_layer`: stage 2 is the appearance
+    embedder built from the ``EmbeddingInferenceModel`` carried on
+    ``inference_model.instance_peaks``; stage 1 is either a real centroid model or
+    the GT-centroid fallback (reusing the stage-2 backend, no separate model).
+    """
+    inf = predictor.inference_model
+    centroid_model = inf.centroid_crop
+    emb_model = inf.instance_peaks
+    emb_layer = _build_embedding_layer_from_model(emb_model, device)
+    if getattr(centroid_model, "use_gt_centroids", False):
+        centroid_layer = _build_centroid_layer_gt_only(predictor, emb_layer.backend)
+    else:
+        centroid_layer = _build_centroid_layer(centroid_model, device, assets=predictor)
+    crop_h, crop_w = centroid_model.crop_hw
+    return TopDownEmbeddingLayer(
+        centroid_layer=centroid_layer,
+        centered_instance_layer=emb_layer,
+        crop_size=(crop_h, crop_w),
     )
 
 
@@ -478,8 +508,13 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
         return _build_bottomup_segmentation_layer(assets, device)
     # Appearance-embedding (re-ID). Checked BEFORE the centroid / centered_instance
     # / topdown family so a centroid + embedding pair isn't swallowed by the
-    # centroid-only branch. The single embedding dir is the common mask-driven case.
+    # centroid-only branch.
+    #   - centroid + embedding -> composed centroid -> crop -> embed (the inference
+    #     model is a TopDownInferenceModel carrying .centroid_crop + .instance_peaks).
+    #   - embedding alone -> single-stage mask-driven EmbeddingLayer.
     if "embedding" in model_types:
+        if getattr(assets.inference_model, "centroid_crop", None) is not None:
+            return _build_topdown_embedding_layer(assets, device)
         return _build_embedding_layer(assets, device)
     # Top-down (crop-centered) segmentation: a centroid + centered_instance_segmentation
     # pair, OR a seg dir alone (GT-centroid fallback). Checked BEFORE the bare
