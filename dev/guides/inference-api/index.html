@@ -7721,6 +7721,13 @@ runs after <code>to_labels</code>, so <code>make_labels=True</code> is required)
 </span><span id="__span-12-16"><a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="p">)</span>
 </span><span id="__span-12-17"><a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="s2">&quot;video.mp4&quot;</span><span class="p">)</span>   <span class="c1"># tracked</span>
 </span></code></pre></div>
+<div class="admonition note">
+<p class="admonition-title"><code>max_tracks</code> auto-selects <code>local_queues</code></p>
+<p><code>max_tracks</code> is honored only by the <code>local_queues</code> candidate maker;
+<code>fixed_window</code> ignores it. Setting <code>max_tracks</code> (here or anywhere a
+<code>TrackerConfig</code>/<code>Tracker.from_config</code> is built) auto-switches the method to
+<code>local_queues</code> (logged at INFO), overriding <code>candidates_method="fixed_window"</code>.</p>
+</div>
 <h3 id="tracking-existing-labels-with-apply_tracking">Tracking existing labels with <code>apply_tracking</code><a class="headerlink" href="#tracking-existing-labels-with-apply_tracking" title="Permanent link">&para;</a></h3>
 <p><code>apply_tracking</code> is the labels-in / labels-out tracking function. It builds a
 fresh <code>Tracker</code> per call (no shared state) and tracks frames in temporal order.</p>

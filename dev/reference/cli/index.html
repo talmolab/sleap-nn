@@ -7900,6 +7900,12 @@ ONNX/TensorRT models. The options documented below also apply to <code>predict</
 <td><code>fixed_window</code></td>
 </tr>
 <tr>
+<td><code>--max_tracks</code></td>
+<td>Maximum track count (auto-selects <code>local_queues</code>)</td>
+<td><code>INT</code></td>
+<td><code>None</code></td>
+</tr>
+<tr>
 <td><code>--features</code></td>
 <td>Features for matching</td>
 <td><code>keypoints</code>, <code>centroids</code>, <code>bboxes</code>, <code>image</code></td>
@@ -7919,6 +7925,12 @@ ONNX/TensorRT models. The options documented below also apply to <code>predict</
 </tr>
 </tbody>
 </table>
+<div class="admonition note">
+<p class="admonition-title"><code>--max_tracks</code> requires <code>local_queues</code></p>
+<p><code>--max_tracks</code> is honored only by <code>local_queues</code>; <code>fixed_window</code> ignores it.
+Setting it auto-selects <code>candidates_method local_queues</code> (logged at INFO),
+so you do not need to set <code>--candidates_method</code> yourself.</p>
+</div>
 <h3 id="examples_1">Examples<a class="headerlink" href="#examples_1" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Basic inference</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/bottomup/

@@ -7195,7 +7195,7 @@
 </tr>
 <tr>
 <td><code>--max_tracks</code></td>
-<td>Maximum track count</td>
+<td>Maximum track count (auto-selects <code>local_queues</code>)</td>
 <td><code>INT</code></td>
 <td><code>None</code></td>
 </tr>
@@ -7249,6 +7249,14 @@
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">5</span>
 </span></code></pre></div>
 <p><strong>Best for</strong>: Robust to track breaks, handles occlusions better.</p>
+<div class="admonition note">
+<p class="admonition-title"><code>--max_tracks</code> requires <code>local_queues</code></p>
+<p><code>--max_tracks</code> (the cap on how many track IDs may be created) is honored
+<strong>only</strong> by <code>local_queues</code>; <code>fixed_window</code> ignores it. Setting <code>--max_tracks</code>
+therefore auto-selects <code>candidates_method local_queues</code> (logged at INFO),
+overriding <code>fixed_window</code> even if you pass it explicitly. You do <strong>not</strong> need
+to set <code>--candidates_method</code> yourself when capping the track count.</p>
+</div>
 <h3 id="optical-flow">Optical Flow<a class="headerlink" href="#optical-flow" title="Permanent link">&para;</a></h3>
 <p>Uses optical flow to predict instance positions:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
