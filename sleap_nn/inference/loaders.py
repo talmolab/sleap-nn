@@ -39,11 +39,13 @@ from sleap_nn.inference.segmentation import (
     BottomUpSegmentationInferenceModel,
     CenteredInstanceMaskInferenceModel,
 )
+from sleap_nn.inference.embedding import EmbeddingInferenceModel
 from sleap_nn.training.lightning_modules import (
     BottomUpLightningModule,
     BottomUpMultiClassLightningModule,
     BottomUpSegmentationLightningModule,
     CentroidLightningModule,
+    EmbeddingLightningModule,
     SingleInstanceLightningModule,
     TopDownCenteredInstanceLightningModule,
     TopDownCenteredInstanceMultiClassLightningModule,
@@ -482,6 +484,61 @@ def _build_bottomup_segmentation(
         bottomup_config=config,
         backbone_type=backbone_type,
         max_stride=max_stride,
+    )
+
+
+def _build_embedding(
+    ckpt_path: str,
+    *,
+    device: str,
+    backbone_ckpt_path: Optional[str],
+    head_ckpt_path: Optional[str],
+    peak_threshold: float,
+    integral_refinement: str,
+    integral_patch_size: int,
+    return_confmaps: bool,
+    preprocess_config: Any,
+) -> LoadedAssets:
+    """Load an ``EmbeddingLightningModule`` and wrap it for inference.
+
+    The single-stage (precropped / mask-driven) embedder. ``integral_*`` /
+    ``return_confmaps`` are accepted for the uniform ``common_kwargs`` signature
+    but unused (embeddings have no peak finding / confmaps).
+    """
+    module, config, backbone_type = _load_lightning_module(
+        EmbeddingLightningModule,
+        ckpt_path,
+        model_type="embedding",
+        device=device,
+        backbone_ckpt_path=backbone_ckpt_path,
+        head_ckpt_path=head_ckpt_path,
+    )
+    # Mask-only labels carry no skeleton; tolerate an empty/missing one.
+    try:
+        skeletons = get_skeleton_from_config(config.data_config.skeletons)
+    except Exception:  # noqa: BLE001 — skeleton is optional for embeddings
+        skeletons = []
+
+    max_stride = config.model_config.backbone_config[backbone_type]["max_stride"]
+    preprocess_config = _resolve_preprocess_config(preprocess_config, config)
+
+    emb_head = config.model_config.head_configs.embedding.embedding
+    inference_model = EmbeddingInferenceModel(
+        torch_model=module,
+        embedding_dim=int(emb_head.embedding_dim),
+        output_stride=int(emb_head.output_stride),
+        max_stride=int(max_stride),
+        input_scale=config.data_config.preprocessing.scale,
+        crop_size=int(config.data_config.preprocessing.crop_size),
+        ensure_grayscale=True,
+    )
+    return LoadedAssets(
+        inference_model=inference_model,
+        preprocess_config=preprocess_config,
+        skeletons=skeletons,
+        backbone_type=backbone_type,
+        max_stride=max_stride,
+        confmap_config=config,
     )
 
 
@@ -1076,6 +1133,14 @@ def load_model_assets(
             polygon_epsilon=polygon_epsilon,
             **common_kwargs,
         )
+
+    elif "embedding" in model_types:
+        # Appearance-embedding (re-ID). Checked BEFORE the topdown family block:
+        # a centroid + embedding pair has "centroid" in model_types, so it would
+        # otherwise enter that block and silently drop the embedding dir. The
+        # single embedding dir is the common (mask-driven) case.
+        path = model_paths[model_types.index("embedding")]
+        assets = _build_embedding(path, **common_kwargs)
 
     elif "centered_instance_segmentation" in model_types:
         # Top-down (crop-centered) instance segmentation. MUST be checked BEFORE

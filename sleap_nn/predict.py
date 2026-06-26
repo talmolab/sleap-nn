@@ -618,6 +618,22 @@ def run_inference(
                     "  from sleap_nn.inference.run import predict\n"
                     "  predict(src, model_paths=[centroid_dir], centroid_only=True)"
                 )
+            if "embedding" in _types:
+                # `embedding` (re-ID) models emit appearance vectors, not poses,
+                # so the legacy pose pipeline cannot consume them. Redirect to the
+                # new flow's dedicated embeddings stream.
+                raise ValueError(
+                    "Embedding (re-ID) models are not supported by the legacy "
+                    "`track` / `run_inference` pipeline (they emit appearance "
+                    "vectors, not poses). Use the new flow:\n"
+                    "  sleap-nn predict --data_path <.slp> --model_paths "
+                    "<embedding_dir> --embeddings_path <out.h5>\n"
+                    "or, from Python:\n"
+                    "  from sleap_nn.inference.embedding import "
+                    "predict_embeddings_to_h5\n"
+                    "  predict_embeddings_to_h5(model_paths=[embedding_dir], "
+                    "data_path=src, output_path='out.h5')"
+                )
             if "centered_instance_segmentation" in _types:
                 # The legacy Predictor.from_model_paths has no segmentation
                 # branch: a centroid+seg pair silently drops the seg model (emits

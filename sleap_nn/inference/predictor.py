@@ -46,6 +46,7 @@ from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLaye
 from sleap_nn.inference.layers.centered_instance import CenteredInstanceLayer
 from sleap_nn.inference.layers.centroid import CentroidLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
+from sleap_nn.inference.layers.embedding import EmbeddingLayer, TopDownEmbeddingLayer
 from sleap_nn.inference.layers.segmentation import SegmentationLayer
 from sleap_nn.inference.layers.single_instance import SingleInstanceLayer
 from sleap_nn.inference.layers.topdown import TopDownLayer
@@ -450,6 +451,21 @@ def _build_topdown_segmentation_layer(
     )
 
 
+def _build_embedding_layer(predictor: Any, device: str) -> EmbeddingLayer:
+    """Wrap an ``EmbeddingInferenceModel`` in an ``EmbeddingLayer``."""
+    inf = predictor.inference_model
+    module = inf.torch_model
+    return EmbeddingLayer(
+        backend=TorchBackend(model=module.model, device=device),
+        embedding_module=module,
+        embedding_dim=inf.embedding_dim,
+        output_stride=inf.output_stride,
+        max_stride=inf.max_stride,
+        preprocess_config=PreprocessConfig(scale=inf.input_scale),
+        postprocess_config=PostprocessConfig(),
+    )
+
+
 def _select_layer(assets: Any, model_types: List[str], device: str):
     """Dispatch on detected model types and build the appropriate layer composition."""
     if "single_instance" in model_types:
@@ -460,6 +476,11 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
         return _build_bottomup_multiclass_layer(assets, device)
     if "bottomup_segmentation" in model_types:
         return _build_bottomup_segmentation_layer(assets, device)
+    # Appearance-embedding (re-ID). Checked BEFORE the centroid / centered_instance
+    # / topdown family so a centroid + embedding pair isn't swallowed by the
+    # centroid-only branch. The single embedding dir is the common mask-driven case.
+    if "embedding" in model_types:
+        return _build_embedding_layer(assets, device)
     # Top-down (crop-centered) segmentation: a centroid + centered_instance_segmentation
     # pair, OR a seg dir alone (GT-centroid fallback). Checked BEFORE the bare
     # ``has_centroid`` branch so a centroid+seg pair isn't routed to centroid-only.
@@ -1405,7 +1426,11 @@ class Predictor:
             return outputs_list
         if skeleton is not None:
             self.skeleton = skeleton
-        if self.skeleton is None and not self._is_segmentation_layer():
+        if (
+            self.skeleton is None
+            and not self._is_segmentation_layer()
+            and not self._is_embedding_layer()
+        ):
             raise ValueError(
                 "make_labels=True requires a skeleton. Either pass "
                 "`skeleton=...` or build the Predictor via Predictor.from_model_paths() "
@@ -1572,7 +1597,11 @@ class Predictor:
         """
         if skeleton is not None:
             self.skeleton = skeleton
-        if self.skeleton is None and not self._is_segmentation_layer():
+        if (
+            self.skeleton is None
+            and not self._is_segmentation_layer()
+            and not self._is_embedding_layer()
+        ):
             raise ValueError(
                 "predict_to_file requires a skeleton. Either pass "
                 "`skeleton=...` or build the Predictor via Predictor.from_model_paths() "
@@ -1839,6 +1868,17 @@ class Predictor:
         behavior — a top-down seg layer emits ``pred_masks`` just like bottom-up.
         """
         return isinstance(self.layer, (SegmentationLayer, TopDownSegmentationLayer))
+
+    def _is_embedding_layer(self) -> bool:
+        """``True`` iff ``layer`` is an appearance-embedding (re-ID) layer.
+
+        Embedding models are skeleton-less (like segmentation): they emit
+        ``Outputs.pred_embeddings`` rather than keypoints/masks. Gates the
+        no-skeleton path so a bare ``predict()`` on an embedding model does not
+        raise the "requires a skeleton" error (the offline re-ID stream goes
+        through :func:`sleap_nn.inference.embedding.predict_embeddings_to_h5`).
+        """
+        return isinstance(self.layer, (EmbeddingLayer, TopDownEmbeddingLayer))
 
     def _resolve_centroid_packaging(self) -> _CentroidPackaging:
         """Resolve the single-source centroid output-packaging decision.
