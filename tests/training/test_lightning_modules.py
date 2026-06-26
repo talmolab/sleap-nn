@@ -852,3 +852,80 @@ def test_set_embedding_burn_in_from_config():
     m.burn_in = None
     set_embedding_burn_in_from_config(m, OmegaConf.create({"data_config": {}}))
     assert m.burn_in is True
+
+
+def test_embedding_configure_optimizers_with_lr_scheduler():
+    """Embedding + lr_scheduler binds the scheduler to the RETURNED optimizer (#bug).
+
+    Regression: the embedding override previously built the scheduler against a
+    different optimizer than the one it returned, which Lightning rejects with
+    MisconfigurationException when an lr_scheduler is configured.
+    """
+    from sleap_nn.training.lightning_modules import EmbeddingLightningModule
+
+    backbone = OmegaConf.create(
+        {
+            "unet": {
+                "in_channels": 1,
+                "kernel_size": 3,
+                "filters": 8,
+                "filters_rate": 1.5,
+                "max_stride": 16,
+                "stem_stride": None,
+                "middle_block": True,
+                "up_interpolate": True,
+                "stacks": 1,
+                "convs_per_block": 2,
+                "output_stride": 2,
+            }
+        }
+    )
+    heads = OmegaConf.create(
+        {
+            "embedding": {
+                "embedding": {
+                    "embedding_dim": 16,
+                    "num_fc_layers": 1,
+                    "num_fc_units": 32,
+                    "pool": "gem",
+                    "normalize": True,
+                    "output_stride": 16,
+                    "loss_weight": 1.0,
+                    "freeze_backbone": False,
+                    "objective": {
+                        "positives": {"scope": "global_id", "aug_views": 2},
+                        "negatives": {"sources": ["in_batch"]},
+                        "loss": {"name": "supcon", "temperature": 0.1},
+                        "use_projection": True,
+                        "projection_dim": 16,
+                    },
+                }
+            }
+        }
+    )
+    lr_sched = OmegaConf.create(
+        {
+            "step_lr": None,
+            "reduce_lr_on_plateau": {
+                "threshold": 1.0e-6,
+                "threshold_mode": "abs",
+                "cooldown": 3,
+                "patience": 5,
+                "factor": 0.5,
+                "min_lr": 1.0e-8,
+            },
+        }
+    )
+    mod = EmbeddingLightningModule(
+        model_type="embedding",
+        backbone_type="unet",
+        backbone_config=backbone,
+        head_configs=heads,
+        init_weights="xavier",
+        lr_scheduler=lr_sched,
+        optimizer="AdamW",
+    )
+    out = mod.configure_optimizers()
+    assert "lr_scheduler" in out
+    # The scheduler must be bound to the optimizer that is returned.
+    assert out["lr_scheduler"]["scheduler"].optimizer is out["optimizer"]

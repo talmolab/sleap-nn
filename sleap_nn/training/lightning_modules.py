@@ -625,18 +625,27 @@ class LightningModel(L.LightningModule):
         """Validation step."""
         pass
 
-    def configure_optimizers(self):
-        """Configure optimiser and learning rate scheduler."""
-        if self.optimizer == "Adam":
-            optim = torch.optim.Adam
-        elif self.optimizer == "AdamW":
-            optim = torch.optim.AdamW
+    def configure_optimizers(self, optimizer=None):
+        """Configure optimiser and learning rate scheduler.
 
-        optimizer = optim(
-            self.parameters(),
-            lr=self.lr,
-            amsgrad=self.amsgrad,
-        )
+        Args:
+            optimizer: Optional pre-built optimizer. Subclasses that need a custom
+                parameter set (e.g. the embedding model's frozen-backbone filter) build
+                their own optimizer and pass it here so the scheduler is bound to the
+                SAME optimizer that is returned (Lightning rejects a scheduler attached
+                to an optimizer that is not returned from ``configure_optimizers``).
+        """
+        if optimizer is None:
+            if self.optimizer == "Adam":
+                optim = torch.optim.Adam
+            elif self.optimizer == "AdamW":
+                optim = torch.optim.AdamW
+
+            optimizer = optim(
+                self.parameters(),
+                lr=self.lr,
+                amsgrad=self.amsgrad,
+            )
 
         lr_scheduler_cfg = LRSchedulerConfig()
         if self.lr_scheduler is None:
@@ -3050,24 +3059,17 @@ class EmbeddingLightningModule(LightningModel):
                 self.val_ground_truth.append({"label": int(labels[i])})
 
     def configure_optimizers(self):
-        """Optimizer over trainable params only (frozen backbone -> adapter only)."""
-        if self.optimizer == "Adam":
-            optim = torch.optim.Adam
-        elif self.optimizer == "AdamW":
-            optim = torch.optim.AdamW
-        else:
-            optim = torch.optim.Adam
+        """Optimizer over trainable params only (frozen backbone -> adapter only).
+
+        Builds the optimizer over ``requires_grad`` params, then delegates to the base
+        scheduler construction with THAT optimizer so the scheduler is bound to the
+        optimizer that is returned (val/loss monitor; checkpoint SELECTION still moves
+        to the retrieval metric via ModelCheckpoint in the trainer).
+        """
+        optim = torch.optim.AdamW if self.optimizer == "AdamW" else torch.optim.Adam
         params = [p for p in self.parameters() if p.requires_grad]
         optimizer = optim(params, lr=self.lr, amsgrad=self.amsgrad)
-        if self.lr_scheduler is None:
-            return {"optimizer": optimizer}
-        # Reuse the base scheduler construction (val/loss monitor is fine; ckpt
-        # SELECTION moves to the retrieval metric via ModelCheckpoint in the trainer).
-        base = LightningModel.configure_optimizers(self)
-        if isinstance(base, dict) and "lr_scheduler" in base:
-            base["optimizer"] = optimizer
-            return base
-        return {"optimizer": optimizer}
+        return LightningModel.configure_optimizers(self, optimizer=optimizer)
 
 
 class BottomUpSegmentationLightningModule(LightningModel):
