@@ -133,9 +133,15 @@ Each `--model_paths` entry may be a model **directory**, or a path to that model
 | `--tracking` | Enable tracking | Flag | `false` |
 | `--tracking_window_size` | Frames to look back | `INT` | `5` |
 | `--candidates_method` | Candidate selection method | `fixed_window`, `local_queues` | `fixed_window` |
+| `--max_tracks` | Maximum track count (auto-selects `local_queues`) | `INT` | `None` |
 | `--features` | Features for matching | `keypoints`, `centroids`, `bboxes`, `image` | `keypoints` |
 | `--scoring_method` | Similarity scoring method | `oks`, `cosine_sim`, `iou`, `euclidean_dist` | `oks` |
 | `--use_flow` | Enable optical flow | Flag | `false` |
+
+!!! note "`--max_tracks` requires `local_queues`"
+    `--max_tracks` is honored only by `local_queues`; `fixed_window` ignores it.
+    Setting it auto-selects `candidates_method local_queues` (logged at INFO),
+    so you do not need to set `--candidates_method` yourself.
 
 ### Examples
 
