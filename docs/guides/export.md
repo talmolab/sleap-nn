@@ -79,11 +79,11 @@ sleap-nn export MODEL_PATH [options]
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
-| `-o`, `--output-dir` | Output directory | `PATH` | Required |
+| `-o`, `--output` | Output directory | `PATH` | Required |
 | `-f`, `--format` | Export format | `onnx`, `tensorrt`, `both` | `onnx` |
-| `--precision` | TensorRT precision | `fp32`, `fp16` | `fp16` |
-| `-n`, `--max-instances` | Max instances per frame | `INT` | `20` |
-| `-b`, `--max-batch-size` | Max batch size | `INT` | `8` |
+| `--precision` | TensorRT precision | `fp32`, `fp16`, `tf32` | `fp16` |
+| `--max-instances` | Max instances per frame | `INT` | `20` |
+| `--max-batch-size` | Max batch size | `INT` | `8` |
 
 ---
 
@@ -209,14 +209,17 @@ export_to_tensorrt(model, "model.trt", input_shape=(1, 1, 192, 192))
 
 ### Inference
 
-```python
-from sleap_nn.export.predictors import ONNXPredictor
-import numpy as np
+Run an exported model through the unified pipeline by pointing a `Predictor` at
+the export directory written by `sleap-nn export` (it contains `export_metadata.json`):
 
-predictor = ONNXPredictor("model.onnx")
-frames = np.random.randint(0, 256, (4, 1, 192, 192), dtype=np.uint8)
-outputs = predictor.predict(frames)
+```python
+from sleap_nn.inference import Predictor
+
+predictor = Predictor.from_export_dir("exports/my_model", runtime="onnx")
+labels = predictor.predict("video.mp4")
 ```
+
+The CLI equivalent is `sleap-nn predict -m exports/my_model --runtime onnx -i video.mp4`.
 
 ---
 
@@ -225,7 +228,7 @@ outputs = predictor.predict(frames)
 ```
 exports/my_model/
 ├── model.onnx
-├── model.onnx.metadata.json
+├── export_metadata.json
 ├── model.trt                   # If TensorRT
 └── model.trt.metadata.json     # If TensorRT
 ```

@@ -98,14 +98,14 @@ from sleap_nn.inference.run import predict
 
 # Auto-detect a lone centroid directory.
 labels = predict(
-    data_path="video.mp4",
+    source="video.mp4",
     model_paths=["models/centroid/"],
     output_path="centroids.slp",
 )
 
 # Explicit override on a two-model setup, emitting PredictedCentroid objects.
 labels = predict(
-    data_path="video.mp4",
+    source="video.mp4",
     model_paths=["models/centroid/", "models/centered_instance/"],
     centroid_only=True,
     emit_centroid="centroid",

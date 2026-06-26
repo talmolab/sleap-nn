@@ -75,7 +75,7 @@ Top-down seg needs **two model dirs** — a `centroid` model and the
 `centered_instance_segmentation` model — composed via repeated `--model_paths`:
 
 ```bash
-sleap-nn predict video.mp4 \
+sleap-nn predict -i video.mp4 \
   --model_paths centroid_model_dir \
   --model_paths centered_instance_segmentation_model_dir \
   --fg_threshold 0.5 -o predictions.slp
@@ -107,7 +107,7 @@ GT instance. This is what post-training evaluation uses, and is handy for scorin
 the segmentation model in isolation:
 
 ```bash
-sleap-nn predict labeled.pkg.slp --model_paths centered_instance_segmentation_model_dir
+sleap-nn predict -i labeled.pkg.slp --model_paths centered_instance_segmentation_model_dir
 ```
 
 ## Evaluation

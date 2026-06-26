@@ -129,7 +129,7 @@ metrics = evaluator.evaluate()
 
 # Access results
 print(f"OKS mAP: {metrics['voc_metrics']['oks_voc.mAP']:.3f}")
-print(f"Mean OKS: {metrics['mOKS']:.3f}")
+print(f"Mean OKS: {metrics['mOKS']['mOKS']:.3f}")
 print(f"Distance 90th %ile: {metrics['distance_metrics']['p90']:.2f} px")
 ```
 
@@ -140,13 +140,16 @@ print(f"Distance 90th %ile: {metrics['distance_metrics']['p90']:.2f} px")
 ### To ONNX
 
 ```python
+import torch
 from sleap_nn.export import export_to_onnx
 
+# ``model`` is a trained ``torch.nn.Module``. Most users export via the CLI
+# (``sleap-nn export``) instead — see "Inference with Exported Model" below.
 export_to_onnx(
     model,
-    output_path="model.onnx",
+    save_path="model.onnx",
     input_shape=(1, 1, 192, 192),
-    input_dtype="uint8",
+    input_dtype=torch.uint8,
 )
 ```
 
@@ -157,7 +160,7 @@ from sleap_nn.export import export_to_tensorrt
 
 export_to_tensorrt(
     model,
-    output_path="model.trt",
+    save_path="model.trt",
     input_shape=(1, 1, 192, 192),
     precision="fp16",
 )
@@ -165,20 +168,25 @@ export_to_tensorrt(
 
 ### Inference with Exported Model
 
-```python
-from sleap_nn.export.predictors import ONNXPredictor
-import numpy as np
+Exported ONNX/TensorRT models run through the same unified pipeline as
+checkpoints. From the CLI, point `sleap-nn predict` at the export directory and
+choose the runtime:
 
-predictor = ONNXPredictor("model.onnx")
-
-# Prepare frames (uint8, NCHW format)
-frames = np.random.randint(0, 256, (4, 1, 192, 192), dtype=np.uint8)
-
-# Predict
-outputs = predictor.predict(frames)
-peaks = outputs["peaks"]      # (B, N_nodes, 2)
-peak_vals = outputs["peak_vals"]  # (B, N_nodes)
+```bash
+sleap-nn predict -m exported_model/ -i video.mp4 -o predictions.slp --runtime onnx
 ```
+
+From Python, build a `Predictor` from the export directory:
+
+```python
+from sleap_nn.inference import Predictor
+
+predictor = Predictor.from_export_dir("exported_model/", runtime="onnx")
+labels = predictor.predict("video.mp4")
+```
+
+`exported_model/` is the directory written by `sleap-nn export` (it contains the
+`model.onnx`/`model.trt` plus an `export_metadata.json`).
 
 ---
 
