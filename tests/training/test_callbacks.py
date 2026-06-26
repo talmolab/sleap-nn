@@ -2524,3 +2524,69 @@ class TestCentroidEvaluationCallback:
         # Non-NaN values should be present
         assert log_dict["eval/val/centroid_precision"] == 0.0
         assert log_dict["eval/val/centroid_recall"] == 0.0
+
+
+class TestUnifiedVizImgFormat:
+    """Local viz image format (`viz_img_format` / `_resolve_viz_img_format`, #644)."""
+
+    @pytest.mark.parametrize(
+        "value,exp_ext,exp_fmt",
+        [
+            ("png", "png", "png"),
+            ("jpg", "jpg", "jpg"),
+            ("jpeg", "jpg", "jpg"),
+            ("JPG", "jpg", "jpg"),
+            ("tiff", "png", "png"),
+            (None, "png", "png"),
+        ],
+    )
+    def test_resolve_viz_img_format(self, value, exp_ext, exp_fmt):
+        """`jpg`/`jpeg` (any case) -> jpg@q90; anything else -> png."""
+        from sleap_nn.training.callbacks import _resolve_viz_img_format
+
+        ext, fmt, kwargs = _resolve_viz_img_format(value)
+        assert (ext, fmt) == (exp_ext, exp_fmt)
+        assert kwargs == ({"pil_kwargs": {"quality": 90}} if exp_ext == "jpg" else {})
+
+    def test_callback_stores_requested_format(self):
+        """`img_format` flows into the callback's resolved ext/fmt."""
+        cb = UnifiedVizCallback(
+            model_trainer=MagicMock(),
+            train_dataset=[{}],
+            val_dataset=[{}],
+            model_type="single_instance",
+            save_local=False,
+            img_format="jpg",
+        )
+        assert (cb._viz_ext, cb._viz_fmt) == ("jpg", "jpg")
+
+    def test_callback_defaults_to_png(self):
+        """Omitting `img_format` keeps the png default."""
+        cb = UnifiedVizCallback(
+            model_trainer=MagicMock(),
+            train_dataset=[{}],
+            val_dataset=[{}],
+            model_type="single_instance",
+            save_local=False,
+        )
+        assert cb._viz_ext == "png"
+
+    def test_save_local_viz_writes_jpg(self, tmp_path):
+        """End-to-end: `_save_local_viz` writes a real `.jpg` (not `.png`)."""
+        import matplotlib.pyplot as plt
+
+        cb = UnifiedVizCallback(
+            model_trainer=MagicMock(),
+            train_dataset=[{}],
+            val_dataset=[{}],
+            model_type="single_instance",
+            save_local=True,
+            local_save_dir=tmp_path,
+            img_format="jpg",
+        )
+        # Stub the renderer so we exercise the real savefig path with a tiny fig.
+        cb._mpl_renderer = MagicMock()
+        cb._mpl_renderer.render.return_value = plt.figure()
+        cb._save_local_viz(MagicMock(), "train", 3)
+        assert (tmp_path / "train.0003.jpg").exists()
+        assert not (tmp_path / "train.0003.png").exists()
