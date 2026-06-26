@@ -4,7 +4,7 @@ from typing import Text
 import numpy as np
 import pytest
 from omegaconf import OmegaConf
-from sleap_nn.predict import run_inference
+from sleap_nn.legacy_predict import run_inference
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
 import torch

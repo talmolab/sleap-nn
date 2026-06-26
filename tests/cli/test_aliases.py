@@ -19,7 +19,7 @@ from sleap_nn.cli import cli
 def test_track_routes_to_legacy_run_inference():
     """``sleap-nn track`` routes to the legacy ``run_inference`` pipeline."""
     runner = CliRunner()
-    with patch("sleap_nn.predict.run_inference", return_value=None) as mock_run:
+    with patch("sleap_nn.legacy_predict.run_inference", return_value=None) as mock_run:
         result = runner.invoke(
             cli,
             [

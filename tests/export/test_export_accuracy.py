@@ -108,7 +108,7 @@ def exported_bottomup_onnx_dir(bottomup_ckpt_path, tmp_path_factory):
 @pytest.fixture(scope="session")
 def pytorch_bottomup_labels(bottomup_ckpt_path, video_path):
     """Run PyTorch inference on the test video and return Labels."""
-    from sleap_nn.predict import run_inference
+    from sleap_nn.legacy_predict import run_inference
 
     labels = run_inference(
         data_path=str(video_path),

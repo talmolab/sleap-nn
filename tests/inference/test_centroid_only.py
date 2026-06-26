@@ -450,7 +450,7 @@ def test_centroid_only_predict_to_file_collapses(tmp_path):
     reason="centroid ckpt / slp fixture absent",
 )
 def test_legacy_run_inference_lone_centroid_raises():
-    from sleap_nn.predict import run_inference
+    from sleap_nn.legacy_predict import run_inference
 
     with pytest.raises(ValueError, match="predict"):
         run_inference(

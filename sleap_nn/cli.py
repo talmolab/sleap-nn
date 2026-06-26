@@ -1023,7 +1023,7 @@ def track(**kwargs):
     This command uses the legacy ``run_inference`` pipeline. For the new
     inference pipeline, use ``sleap-nn predict``.
     """
-    from sleap_nn.predict import frame_list, run_inference
+    from sleap_nn.legacy_predict import frame_list, run_inference
 
     if "model_paths" in kwargs and kwargs["model_paths"]:
         kwargs["model_paths"] = list(kwargs["model_paths"])
@@ -1087,7 +1087,7 @@ def _run_inference_impl(**kwargs):
     ``--frames`` string into a list of int frame indices, and routes to
     the new :class:`Predictor`-based pipeline.
     """
-    from sleap_nn.predict import frame_list
+    from sleap_nn.legacy_predict import frame_list
 
     paf_workers = kwargs.pop("paf_workers", 0) or 0
     cpu_workers = kwargs.pop("cpu_workers", None)
@@ -1156,7 +1156,7 @@ def _run_inference_impl(**kwargs):
 def _resolve_device(value: object) -> str:
     """Resolve a CLI ``--device`` value to a concrete torch device string.
 
-    The legacy :func:`sleap_nn.predict.run_inference` resolves ``"auto"``
+    The legacy :func:`sleap_nn.legacy_predict.run_inference` resolves ``"auto"``
     before any checkpoint loading; the new flow needs the same so
     ``torch.load(map_location="auto")`` doesn't blow up on the legacy
     factory loader.
@@ -1235,7 +1235,7 @@ def _build_tracker_config(kwargs: dict) -> "object":
     """Build a :class:`TrackerConfig` from the CLI ``--tracking_*`` flags.
 
     Replicates the legacy ``run_inference`` edge-layer defaulting (see
-    ``sleap_nn/predict.py`` pre-#530) so the new ``predict`` flow behaves
+    ``sleap_nn/legacy_predict.py`` pre-#530) so the new ``predict`` flow behaves
     identically (#582):
 
     * ``--max_tracks`` with no ``--candidates_method`` defaults the method to
@@ -1630,7 +1630,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
             kwargs.get("output_path")
             or _default_predictions_path(source_str, src_is_url, scoped_video_name)
         ),
-        "output_format": kwargs.get("output_format") or "slp",
+        "output_format": kwargs.get("output_format") or ("slp",),
         "embed": kwargs.get("embed") or "false",
         "restore_source_videos": kwargs.get("restore_source_videos", True),
         # Bottom-up PAF grouping knobs (inert for non-bottom-up models). #583.
@@ -1821,7 +1821,7 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
     save_predictions(
         out,
         output_path,
-        output_format=kwargs.get("output_format") or "slp",
+        output_format=kwargs.get("output_format") or ("slp",),
         embed=kwargs.get("embed") or "false",
         restore_source_videos=kwargs.get("restore_source_videos", True),
     )
@@ -2011,7 +2011,7 @@ def _run_stream_to_file(
             "streaming writes each batch to disk and cannot drop empty "
             "frames after the fact. Drop --stream-to-file to use it."
         )
-    if (kwargs.get("output_format") or "slp").lower() != "slp":
+    if any(str(f).lower() != "slp" for f in (kwargs.get("output_format") or ("slp",))):
         raise click.UsageError(
             "--stream-to-file only supports --output_format slp. Drop "
             "--stream-to-file to write analysis HDF5 via the in-memory path."
@@ -2199,9 +2199,13 @@ def _common_inference_options(f):
         ),
         click.option(
             "--output_format",
-            type=click.Choice(["slp", "analysis_h5", "both"], case_sensitive=False),
-            default="slp",
-            help="Output format: 'slp' (SLEAP labels file, the default), 'analysis_h5' (SLEAP Analysis HDF5, one '.analysis.h5' per video), or 'both'.",
+            type=click.Choice(["slp", "analysis_h5"], case_sensitive=False),
+            multiple=True,
+            default=("slp",),
+            help="Output format(s); repeat the flag to write several. 'slp' "
+            "(SLEAP labels file, the default) and/or 'analysis_h5' (SLEAP "
+            "Analysis HDF5, one '.analysis.h5' per video). E.g. "
+            "'--output_format slp --output_format analysis_h5'.",
         ),
         click.option(
             "--embed",

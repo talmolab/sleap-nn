@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 import sleap_io as sio
-from sleap_nn.predict import run_inference
+from sleap_nn.legacy_predict import run_inference
 from sleap_nn.tracking.tracker import (
     Tracker,
     FlowShiftTracker,

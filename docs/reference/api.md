@@ -71,7 +71,7 @@ train(
 ### Basic Inference
 
 ```python
-from sleap_nn.predict import run_inference
+from sleap_nn.legacy_predict import run_inference
 
 labels = run_inference(
     data_path="video.mp4",

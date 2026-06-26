@@ -205,10 +205,10 @@ def test_save_predictions_invalid_format_raises():
 
 
 def test_save_predictions_both_writes_slp_and_h5(minimal_instance, tmp_path):
-    """output_format='both' writes both a .slp and an analysis .h5 that round-trip."""
+    """A multi-format request writes both a .slp and an analysis .h5 that round-trip."""
     labels = sio.load_slp(minimal_instance.as_posix())
     out = tmp_path / "preds.slp"
-    h5_written = save_predictions(labels, out, output_format="both")
+    h5_written = save_predictions(labels, out, output_format=["slp", "analysis_h5"])
     assert out.exists()
     assert h5_written == [tmp_path / "preds.analysis.h5"]
     assert h5_written[0].exists()
@@ -287,9 +287,9 @@ def test_predict_forwards_output_format(tmp_path):
             model_paths=["/m"],
             device="cpu",
             output_path=str(out),
-            output_format="both",
+            output_format=["slp", "analysis_h5"],
         )
-    assert mock_save.call_args.kwargs["output_format"] == "both"
+    assert mock_save.call_args.kwargs["output_format"] == ["slp", "analysis_h5"]
 
 
 # --- embed / restore_source_videos controls (#652) -------------------------

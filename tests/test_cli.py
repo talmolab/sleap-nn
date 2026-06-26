@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 from omegaconf import OmegaConf
 import subprocess
 from click.testing import CliRunner
-from sleap_nn.predict import run_inference
+from sleap_nn.legacy_predict import run_inference
 from sleap_nn.cli import (
     cli,
     print_version,
@@ -231,7 +231,7 @@ class TestTrackCommand:
         """Test track command with empty frames string."""
         runner = CliRunner()
         # Mock run_inference to avoid actual inference
-        with patch("sleap_nn.predict.run_inference") as mock_inference:
+        with patch("sleap_nn.legacy_predict.run_inference") as mock_inference:
             mock_inference.return_value = None
             result = runner.invoke(
                 cli,
@@ -251,7 +251,7 @@ class TestTrackCommand:
     def test_track_forwards_kalman_flags(self):
         """track forwards Kalman flags (and parses --kf_node_indices) to run_inference (#572)."""
         runner = CliRunner()
-        with patch("sleap_nn.predict.run_inference") as mock_inference:
+        with patch("sleap_nn.legacy_predict.run_inference") as mock_inference:
             mock_inference.return_value = None
             result = runner.invoke(
                 cli,
