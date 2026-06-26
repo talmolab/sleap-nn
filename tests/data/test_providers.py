@@ -3,6 +3,7 @@ import torch
 from sleap_nn.data.providers import (
     LabelsReader,
     VideoReader,
+    filter_oob_points,
     process_lf,
 )
 from queue import Queue
@@ -262,6 +263,107 @@ def test_process_lf(minimal_instance):
     assert ex["instances"].shape == torch.Size([1, 4, 2, 2])
     assert torch.isnan(ex["instances"][:, 2:, :, :]).all()
     assert not torch.is_floating_point(ex["image"])
+
+
+def test_filter_oob_points():
+    """`filter_oob_points` sets OOB keypoints to NaN without mutating the input."""
+    pts = np.array(
+        [
+            [10.0, 20.0],  # in bounds
+            [-1.0, 5.0],  # negative x
+            [5.0, -2.0],  # negative y
+            [100.0, 5.0],  # x >= width
+            [5.0, 100.0],  # y >= height
+            [np.nan, np.nan],  # already missing
+        ]
+    )
+    out = filter_oob_points(pts, img_height=100, img_width=100)
+
+    # Input is not mutated.
+    assert pts[1, 0] == -1.0
+
+    # In-bounds point is preserved; OOB and missing points are NaN.
+    assert np.array_equal(out[0], [10.0, 20.0])
+    for i in range(1, 6):
+        assert np.isnan(out[i]).all()
+
+
+def test_filter_oob_points_boundary():
+    """Upper bound is exclusive: a coord equal to the size is OOB."""
+    pts = np.array([[99.0, 99.0], [100.0, 50.0], [50.0, 100.0]])
+    out = filter_oob_points(pts, img_height=100, img_width=100)
+    assert np.array_equal(out[0], [99.0, 99.0])  # width-1 / height-1 in bounds
+    assert np.isnan(out[1]).all()  # x == width
+    assert np.isnan(out[2]).all()  # y == height
+
+
+def test_process_lf_filters_oob(minimal_instance):
+    """`process_lf` sets off-frame keypoints to NaN while keeping in-bounds nodes."""
+    labels = sio.load_slp(minimal_instance)
+    skeleton = labels.skeletons[0]
+    img = labels[0].image
+    h, w = img.shape[:2]
+
+    partial = sio.Instance.from_numpy(
+        np.array([[10.0, 20.0], [w + 50.0, 30.0]]), skeleton=skeleton
+    )
+    ex = process_lf(
+        instances_list=[partial],
+        img=img,
+        frame_idx=0,
+        video_idx=0,
+        max_instances=1,
+    )
+    inst = ex["instances"][0, 0]  # (num_nodes, 2)
+    assert torch.allclose(inst[0], torch.tensor([10.0, 20.0]))
+    assert torch.isnan(inst[1]).all()
+
+
+def test_process_lf_drops_fully_oob_instance(minimal_instance):
+    """An instance entirely out-of-bounds is dropped; valid instances remain."""
+    labels = sio.load_slp(minimal_instance)
+    skeleton = labels.skeletons[0]
+    img = labels[0].image
+    h, w = img.shape[:2]
+
+    in_bounds = sio.Instance.from_numpy(
+        np.array([[10.0, 20.0], [30.0, 40.0]]), skeleton=skeleton
+    )
+    fully_oob = sio.Instance.from_numpy(
+        np.array([[-5.0, -5.0], [w + 10.0, h + 10.0]]), skeleton=skeleton
+    )
+    ex = process_lf(
+        instances_list=[in_bounds, fully_oob],
+        img=img,
+        frame_idx=0,
+        video_idx=0,
+        max_instances=4,
+    )
+    assert ex["num_instances"] == 1
+    assert torch.allclose(
+        ex["instances"][0, 0], torch.tensor([[10.0, 20.0], [30.0, 40.0]])
+    )
+    assert torch.isnan(ex["instances"][0, 1:]).all()
+
+
+def test_process_lf_all_oob_returns_none(minimal_instance):
+    """If every instance is fully out-of-bounds, `process_lf` returns None."""
+    labels = sio.load_slp(minimal_instance)
+    skeleton = labels.skeletons[0]
+    img = labels[0].image
+    h, w = img.shape[:2]
+
+    fully_oob = sio.Instance.from_numpy(
+        np.array([[-5.0, -5.0], [w + 10.0, h + 10.0]]), skeleton=skeleton
+    )
+    ex = process_lf(
+        instances_list=[fully_oob],
+        img=img,
+        frame_idx=0,
+        video_idx=0,
+        max_instances=1,
+    )
+    assert ex is None
 
 
 def test_exclude_user_labeled(minimal_instance):

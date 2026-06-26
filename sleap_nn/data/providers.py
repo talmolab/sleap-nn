@@ -35,6 +35,35 @@ def get_max_height_width(labels: sio.Labels) -> Tuple[int, int]:
     )
 
 
+def filter_oob_points(
+    points: np.ndarray, img_height: int, img_width: int
+) -> np.ndarray:
+    """Set out-of-bounds (OOB) keypoints to NaN.
+
+    A keypoint is OOB if it has a negative coordinate or falls outside the original
+    image frame (``x >= img_width`` or ``y >= img_height``). Such points are typically
+    annotation errors that cannot be supervised correctly during training (they would
+    bleed a partial confidence-map blob onto the image edge), so they are set to NaN —
+    the missing-point representation used throughout the data pipeline.
+
+    Args:
+        points: Keypoints array of shape ``(num_nodes, 2)`` with ``(x, y)`` pixel
+            coordinates in the original image frame. May already contain NaNs for
+            missing points.
+        img_height: Height of the original image frame.
+        img_width: Width of the original image frame.
+
+    Returns:
+        A copy of ``points`` with OOB keypoints set to NaN.
+    """
+    points = points.copy()
+    x = points[:, 0]
+    y = points[:, 1]
+    oob = (x < 0) | (x >= img_width) | (y < 0) | (y >= img_height)
+    points[oob] = np.nan
+    return points
+
+
 def process_lf(
     instances_list: List[sio.Instance],
     img: np.ndarray,
@@ -66,11 +95,18 @@ def process_lf(
             instances_list = user_instances
 
     image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+    img_height, img_width = image.shape[-2:]
 
     instances = []
     for inst in instances_list:
-        if not inst.is_empty:
-            instances.append(inst.numpy())
+        if inst.is_empty:
+            continue
+        # Sanity check: set out-of-bounds keypoints (annotation errors) to NaN and
+        # drop instances that fall entirely outside the original image frame.
+        pts = filter_oob_points(inst.numpy(), img_height, img_width)
+        if np.isnan(pts).all():
+            continue
+        instances.append(pts)
     if len(instances) == 0:
         return None
     instances = np.stack(instances, axis=0)
@@ -84,7 +120,6 @@ def process_lf(
     instances = torch.from_numpy(instances.astype("float32"))
 
     num_instances, nodes = instances.shape[1:3]
-    img_height, img_width = image.shape[-2:]
 
     # append with nans for broadcasting
     if max_instances != 1:
