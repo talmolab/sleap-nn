@@ -1,6 +1,6 @@
 """This module implements pipeline blocks for reading input data such as labels."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import sleap_io as sio
@@ -36,31 +36,36 @@ def get_max_height_width(labels: sio.Labels) -> Tuple[int, int]:
 
 
 def filter_oob_points(
-    points: np.ndarray, img_height: int, img_width: int
-) -> np.ndarray:
+    points: Union[np.ndarray, torch.Tensor], img_height: int, img_width: int
+) -> Union[np.ndarray, torch.Tensor]:
     """Set out-of-bounds (OOB) keypoints to NaN.
 
-    A keypoint is OOB if it has a negative coordinate or falls outside the original
-    image frame (``x >= img_width`` or ``y >= img_height``). Such points are typically
-    annotation errors that cannot be supervised correctly during training (they would
-    bleed a partial confidence-map blob onto the image edge), so they are set to NaN —
-    the missing-point representation used throughout the data pipeline.
+    A keypoint is OOB if it has a negative coordinate or falls outside the frame /
+    crop of size ``img_height`` x ``img_width`` (``x >= img_width`` or
+    ``y >= img_height``; upper bound exclusive). Such points cannot be supervised
+    correctly during training — they would bleed a partial confidence-map blob onto
+    the edge — so they are set to NaN, the missing-point representation used
+    throughout the data pipeline. This is used both to drop annotation errors against
+    the original image frame (in `process_lf`) and to drop keypoints pushed outside a
+    crop by augmentation (before confidence-map generation).
+
+    Works on both NumPy arrays and torch tensors, and on any leading batch/instance
+    dimensions; the last axis must be ``(x, y)``.
 
     Args:
-        points: Keypoints array of shape ``(num_nodes, 2)`` with ``(x, y)`` pixel
-            coordinates in the original image frame. May already contain NaNs for
-            missing points.
-        img_height: Height of the original image frame.
-        img_width: Width of the original image frame.
+        points: Keypoints of shape ``(..., num_nodes, 2)`` with ``(x, y)`` pixel
+            coordinates. May already contain NaNs for missing points.
+        img_height: Height of the frame / crop.
+        img_width: Width of the frame / crop.
 
     Returns:
-        A copy of ``points`` with OOB keypoints set to NaN.
+        A copy of ``points`` (same type as the input) with OOB keypoints set to NaN.
     """
-    points = points.copy()
-    x = points[:, 0]
-    y = points[:, 1]
+    points = points.clone() if isinstance(points, torch.Tensor) else points.copy()
+    x = points[..., 0]
+    y = points[..., 1]
     oob = (x < 0) | (x >= img_width) | (y < 0) | (y >= img_height)
-    points[oob] = np.nan
+    points[oob] = float("nan")
     return points
 
 

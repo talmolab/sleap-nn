@@ -288,6 +288,21 @@ def test_filter_oob_points():
         assert np.isnan(out[i]).all()
 
 
+def test_filter_oob_points_torch_batched():
+    """`filter_oob_points` works on batched torch tensors without mutating the input."""
+    pts = torch.tensor(
+        [[[10.0, 20.0], [200.0, 5.0], [-1.0, 3.0], [5.0, 5.0]]]  # (1, 4, 2)
+    )
+    out = filter_oob_points(pts, img_height=100, img_width=100)
+
+    assert isinstance(out, torch.Tensor)
+    assert not torch.isnan(pts).any()  # input untouched
+    assert torch.allclose(out[0, 0], torch.tensor([10.0, 20.0]))  # in bounds
+    assert torch.isnan(out[0, 1]).all()  # x >= width
+    assert torch.isnan(out[0, 2]).all()  # negative x
+    assert torch.allclose(out[0, 3], torch.tensor([5.0, 5.0]))  # in bounds
+
+
 def test_filter_oob_points_boundary():
     """Upper bound is exclusive: a coord equal to the size is OOB."""
     pts = np.array([[99.0, 99.0], [100.0, 50.0], [50.0, 100.0]])
