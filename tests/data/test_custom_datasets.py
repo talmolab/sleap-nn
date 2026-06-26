@@ -671,6 +671,80 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
     assert sample["confidence_maps"].shape == (1, 2, 104, 104)
 
 
+def test_single_instance_dataset_filters_out_of_frame(minimal_instance):
+    """Nodes pushed off-frame by augmentation get an empty confmap."""
+    labels = sio.load_slp(minimal_instance)
+    for lf in labels:
+        lf.instances = lf.instances[:1]
+
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+
+    # Deterministic 4x zoom about the image center pushes the off-center node
+    # outside the 384x384 frame; all other augmentations are disabled.
+    geometric_aug = {
+        "scale_min": 4.0,
+        "scale_max": 4.0,
+        "scale_p": 1.0,
+    }
+    dataset = SingleInstanceDataset(
+        max_stride=8,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        labels=[labels],
+        apply_aug=True,
+        geometric_aug=geometric_aug,
+        cache_img="memory",
+    )
+    dataset._fill_cache([labels])
+    sample = next(iter(dataset))
+
+    instances = sample["instances"][0]  # (n_instances, n_nodes, 2)
+    cms = sample["confidence_maps"][0]  # (n_nodes, h, w)
+
+    oob = torch.isnan(instances[0]).any(dim=-1)  # single instance
+    assert oob.any()  # at least one node was pushed off-frame and masked
+    for n in range(oob.shape[0]):
+        if oob[n]:
+            assert cms[n].sum() == 0  # empty target for off-frame node
+
+
+def test_centered_instance_dataset_filters_out_of_crop(minimal_instance):
+    """Nodes outside the crop get an empty confmap; in-crop nodes are preserved."""
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})
+
+    def build(crop_size):
+        dataset = CenteredInstanceDataset(
+            max_stride=2,
+            scale=1.0,
+            confmap_head_config=confmap_head,
+            crop_size=crop_size,
+            labels=[sio.load_slp(minimal_instance)],
+            apply_aug=False,
+            cache_img="memory",
+        )
+        dataset._fill_cache([sio.load_slp(minimal_instance)])
+        return next(iter(dataset))
+
+    # Tiny crop: both nodes (~30px from the centroid) fall outside the crop, so they
+    # are masked to NaN and their confidence maps are empty (all-zero).
+    small = build(20)
+    inst_s = small["instance"][0]  # (n_nodes, 2)
+    cms_s = small["confidence_maps"][0]  # (n_nodes, h, w)
+    oob = torch.isnan(inst_s).any(dim=-1)
+    assert oob.any()
+    for n in range(inst_s.shape[0]):
+        if oob[n]:
+            assert cms_s[n].sum() == 0
+
+    # Large crop: both nodes stay inside, so nothing is masked and every node has a
+    # non-empty confidence map.
+    large = build(160)
+    inst_l = large["instance"][0]
+    cms_l = large["confidence_maps"][0]
+    assert not torch.isnan(inst_l).any()
+    assert (cms_l.sum(dim=(-1, -2)) > 0).all()
+
+
 def test_centered_multiclass_dataset(minimal_instance, tmp_path):
     """Test the TopDownCenteredInstanceMultiClassDataset."""
     tracked_labels = sio.load_slp(minimal_instance)
