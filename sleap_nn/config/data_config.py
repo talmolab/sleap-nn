@@ -215,6 +215,34 @@ class IdentityConfig:
 
 
 @define
+class SplitConfig:
+    """Group-aware train/val split, decided BEFORE training (SPEC §5.3).
+
+    For the `embedding` model type the train/val partition *is* the generalization axis:
+    the model must only ever see the training partition, with val/test held out by a group
+    key so there is no leakage. When set on `DataConfig.split` (and no explicit
+    `val_labels_path` is provided), the trainer partitions the training labels by
+    `split_by` instead of the default frame-level random `validation_fraction` split.
+
+    Attributes:
+        split_by: (str) Group key for the partition. One of:
+            `frame` (stratified-random over `LabeledFrame`s, identity-balanced; both train
+            and val contain all identities), `video` (hold out whole videos by sio video
+            index), or `identity` (hold out whole track names; disjoint identity sets).
+            *Default*: `frame`.
+        n_folds: (int) Number of CV folds; the val partition is `1 / n_folds` of the data.
+            *Default*: `5`.
+        fold: (int) Which fold (0-based) to hold out as validation. *Default*: `0`.
+        seed: (int) Random seed for the (shuffled) splitter. *Default*: `0`.
+    """
+
+    split_by: str = "frame"
+    n_folds: int = 5
+    fold: int = 0
+    seed: int = 0
+
+
+@define
 class DataConfig:
     """Data configuration.
 
@@ -244,6 +272,11 @@ class DataConfig:
             Values < 1 down-weight negatives; values > 1 up-weight them. Only has effect when
             ``use_negative_frames`` is ``True``. *Default*: `1.0`.
         skeletons: skeleton configuration for the `.slp` file. This will be pulled from the train dataset and saved to the `training_config.yaml`
+        split: (Optional[SplitConfig]) Group-aware train/val split decided before training
+            (SPEC §5.3). When set and `val_labels_path` is not provided, the trainer
+            partitions the training labels by the configured group key (`frame`/`video`/
+            `identity`) instead of the default frame-level random `validation_fraction`
+            split. *Default*: `None` (unchanged default behavior).
     """
 
     train_labels_path: Optional[List[str]] = None
@@ -270,6 +303,7 @@ class DataConfig:
     negative_loss_weight: float = field(default=1.0, validator=validators.gt(0))
     skeletons: Optional[list] = None
     identity: Optional[IdentityConfig] = None
+    split: Optional[SplitConfig] = None
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:

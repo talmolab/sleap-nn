@@ -2715,6 +2715,85 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                 )
 
 
+def validate_embedding_identity(objective, identity):
+    """Enforce the identity-equality gates for the embedding objective (SPEC §4.4).
+
+    Each positive/negative source silently asserts "same / different animal"; a wrong
+    assertion trains the appearance model on label noise (pulling two *different*
+    animals together, or pushing the *same* animal apart). The ``data_config.identity``
+    block DECLARES the data's semantics so the objective can be validated against it:
+
+    - pos ``aug_view``: two views = same id (same crop) -> no assumption.
+    - pos ``tracklet``: same ``(video, track)`` = same animal -> **warn** if
+      ``identity.tracks_are_proofread`` is False (tracker swaps poison training).
+    - pos ``global_id``: same track name across videos = same animal -> **error** if
+      ``identity.track_names_are_global`` is False (names must be globally consistent).
+    - neg ``same_frame``: two detections / frame = different animals -> **warn** if
+      ``identity.detections_deduplicated`` is False (a double / over-segmented
+      detection becomes a hard negative against itself).
+
+    The defaults assumed for absent fields match :class:`EmbeddingLightningModule`'s
+    resolution and the conservative :class:`IdentityConfig` defaults.
+
+    Args:
+        objective: The ``head_configs.embedding.embedding.objective`` node (``DictConfig``
+            or ``None`` — defaults assumed when absent). Only ``positives.scope`` and
+            ``negatives.sources`` are read.
+        identity: The ``data_config.identity`` node (``DictConfig`` or ``None`` —
+            defaults assumed when absent).
+
+    Raises:
+        ValueError: if ``positives.scope='global_id'`` but the data does not declare
+            ``identity.track_names_are_global=True``.
+    """
+    # Resolve objective semantics with the same defaults the LightningModule uses.
+    if objective is not None:
+        scope = OmegaConf.select(objective, "positives.scope", default="global_id")
+        neg_sources = OmegaConf.select(
+            objective, "negatives.sources", default=["same_frame", "in_batch"]
+        )
+    else:
+        scope = "global_id"
+        neg_sources = ["same_frame", "in_batch"]
+    neg_sources = list(neg_sources) if neg_sources else []
+
+    # Declared data semantics (default to the conservative IdentityConfig defaults).
+    if identity is not None:
+        tracks_are_proofread = bool(
+            OmegaConf.select(identity, "tracks_are_proofread", default=False)
+        )
+        track_names_are_global = bool(
+            OmegaConf.select(identity, "track_names_are_global", default=False)
+        )
+        detections_deduplicated = bool(
+            OmegaConf.select(identity, "detections_deduplicated", default=True)
+        )
+    else:
+        tracks_are_proofread = False
+        track_names_are_global = False
+        detections_deduplicated = True
+
+    if scope == "global_id" and not track_names_are_global:
+        raise ValueError(
+            "head_configs.embedding.embedding.objective.positives.scope='global_id' "
+            "requires data_config.identity.track_names_are_global=True (the same track "
+            "name must mean the same animal across videos). Set it only if your labels "
+            "are globally consistent, or use scope='tracklet' (video-local) instead."
+        )
+    if scope == "tracklet" and not tracks_are_proofread:
+        logger.warning(
+            "embedding objective positives.scope='tracklet' but "
+            "data_config.identity.tracks_are_proofread=False: tracker swaps will pull "
+            "DIFFERENT animals together (training on label noise)."
+        )
+    if "same_frame" in neg_sources and not detections_deduplicated:
+        logger.warning(
+            "embedding objective negatives include 'same_frame' but "
+            "data_config.identity.detections_deduplicated=False: a double / "
+            "over-segmented detection will be treated as a hard negative against itself."
+        )
+
+
 class EmbeddingLightningModule(LightningModel):
     """Lightning Module for the ``embedding`` (crop -> vector, re-ID) model type.
 

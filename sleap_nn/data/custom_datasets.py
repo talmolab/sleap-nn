@@ -3144,6 +3144,19 @@ def get_train_val_datasets(
     model_type = get_model_type_from_cfg(config=config)
     backbone_type = get_backbone_type_from_cfg(config=config)
 
+    # Gate the lossy disk cache for the embedding (appearance / re-ID) model (SPEC §5.1):
+    # `torch_dataset_cache_img_disk` writes source frames as JPEG, which silently
+    # degrades an appearance model. The disk cache has no lossless format, so refuse it
+    # for embedding and require the in-memory cache (or an uncached fw) instead.
+    if model_type == "embedding" and cache_imgs == "disk":
+        raise ValueError(
+            "data_pipeline_fw='torch_dataset_cache_img_disk' is not supported for the "
+            "`embedding` model type: the disk cache stores frames as JPEG, which "
+            "silently degrades an appearance / re-ID model. Use "
+            "data_pipeline_fw='torch_dataset_cache_img_memory' (lossless, recommended) "
+            "or 'torch_dataset' (uncached)."
+        )
+
     if use_negative_frames and model_type in (
         "centered_instance",
         "multi_class_topdown",

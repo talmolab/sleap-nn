@@ -19,6 +19,7 @@ from sleap_nn.training.lightning_modules import (
     BottomUpLightningModule,
     BottomUpMultiClassLightningModule,
     LightningModel,
+    validate_embedding_identity,
 )
 from torch.nn.functional import mse_loss
 import torch
@@ -728,3 +729,97 @@ def test_single_instance_forward_handles_4d_and_5d_inputs(config, tmp_path: str)
 
     # Both should produce consistent output shapes
     assert output_5d.shape == output_4d.shape
+
+
+# ── Embedding objective: identity-equality gates (SPEC §4.4) ─────────────────
+
+
+def _emb_objective(scope="global_id", sources=("same_frame", "in_batch")):
+    """Minimal objective node for the identity-gate tests."""
+    return OmegaConf.create(
+        {
+            "positives": {"scope": scope, "aug_views": 2},
+            "negatives": {"sources": list(sources), "exclude_same_track": True},
+        }
+    )
+
+
+def _emb_identity(
+    tracks_are_proofread=False,
+    track_names_are_global=False,
+    detections_deduplicated=True,
+):
+    return OmegaConf.create(
+        {
+            "tracks_are_proofread": tracks_are_proofread,
+            "track_names_are_global": track_names_are_global,
+            "detections_deduplicated": detections_deduplicated,
+        }
+    )
+
+
+def test_validate_embedding_identity_global_id_ok():
+    """`global_id` positives with globally-consistent names pass the gate."""
+    validate_embedding_identity(
+        _emb_objective(scope="global_id"),
+        _emb_identity(track_names_are_global=True),
+    )  # no raise
+
+
+def test_validate_embedding_identity_global_id_errors_without_global_names():
+    """`global_id` positives without `track_names_are_global` is a hard error."""
+    with pytest.raises(ValueError, match="track_names_are_global"):
+        validate_embedding_identity(
+            _emb_objective(scope="global_id"),
+            _emb_identity(track_names_are_global=False),
+        )
+
+
+def test_validate_embedding_identity_defaults_error():
+    """Absent objective + identity -> default scope `global_id` -> hard error.
+
+    The default objective scope is `global_id` and the default identity is not
+    globally consistent, so a bare embedding config must fail fast.
+    """
+    with pytest.raises(ValueError, match="track_names_are_global"):
+        validate_embedding_identity(None, None)
+
+
+def test_validate_embedding_identity_tracklet_warns_unproofread(caplog):
+    """`tracklet` positives on unproofread tracks warn (but do not error)."""
+    with caplog.at_level("WARNING"):
+        validate_embedding_identity(
+            _emb_objective(scope="tracklet"),
+            _emb_identity(tracks_are_proofread=False),
+        )
+    assert "tracks_are_proofread" in caplog.text
+
+
+def test_validate_embedding_identity_tracklet_proofread_silent(caplog):
+    """`tracklet` positives on proofread tracks are silent."""
+    with caplog.at_level("WARNING"):
+        validate_embedding_identity(
+            _emb_objective(scope="tracklet"),
+            _emb_identity(tracks_are_proofread=True),
+        )
+    assert "tracks_are_proofread" not in caplog.text
+
+
+def test_validate_embedding_identity_same_frame_warns_not_deduplicated(caplog):
+    """`same_frame` negatives without dedup warn (but do not error)."""
+    with caplog.at_level("WARNING"):
+        validate_embedding_identity(
+            _emb_objective(scope="tracklet", sources=("same_frame", "in_batch")),
+            _emb_identity(tracks_are_proofread=True, detections_deduplicated=False),
+        )
+    assert "detections_deduplicated" in caplog.text
+
+
+def test_validate_embedding_identity_aug_view_no_gates(caplog):
+    """`aug_view` positives + `in_batch`-only negatives assert nothing -> silent."""
+    with caplog.at_level("WARNING"):
+        validate_embedding_identity(
+            _emb_objective(scope="aug_view", sources=("in_batch",)),
+            _emb_identity(),  # all conservative defaults
+        )  # no raise
+    assert caplog.text == ""

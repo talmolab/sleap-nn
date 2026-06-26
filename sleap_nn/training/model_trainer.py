@@ -47,7 +47,10 @@ from sleap_nn.config.utils import (
     get_backbone_type_from_cfg,
     get_model_type_from_cfg,
 )
-from sleap_nn.training.lightning_modules import LightningModel
+from sleap_nn.training.lightning_modules import (
+    LightningModel,
+    validate_embedding_identity,
+)
 from sleap_nn.config.utils import check_output_strides
 from sleap_nn.training.utils import get_gpu_memory
 from sleap_nn.config.training_job_config import verify_training_cfg
@@ -299,6 +302,16 @@ class ModelTrainer:
             self.config, "data_config.use_same_data_for_val", default=False
         )
 
+        # Group-aware split (SPEC §5.3): when `data_config.split` is configured and no
+        # explicit val labels are provided, partition the training labels by a group key
+        # (frame/video/identity) instead of the frame-level random validation split.
+        split_cfg = OmegaConf.select(self.config, "data_config.split", default=None)
+        use_group_split = (
+            split_cfg is not None
+            and not use_same
+            and (val_labels is None or not len(val_labels))
+        )
+
         if use_same:
             # Same mode: use identical data for train and val (for overfitting)
             logger.info("Using same data for train and val (overfit mode)")
@@ -306,6 +319,22 @@ class ModelTrainer:
             self.val_labels = labels
             total_train_lfs = self._count_labeled_frames(labels, user_instances_only)
             total_val_lfs = total_train_lfs
+        elif use_group_split:
+            from sleap_nn.data.splitting import split_labels_list_train_val
+
+            logger.info(
+                "Using group-aware train/val split "
+                f"(split_by={OmegaConf.select(self.config, 'data_config.split.split_by', default='frame')})"
+            )
+            self.train_labels, self.val_labels = split_labels_list_train_val(
+                labels, split_cfg
+            )
+            total_train_lfs = self._count_labeled_frames(
+                self.train_labels, user_instances_only
+            )
+            total_val_lfs = self._count_labeled_frames(
+                self.val_labels, user_instances_only
+            )
         elif val_labels is None or not len(val_labels):
             # if val labels are not provided, split from train
             val_fraction = OmegaConf.select(
@@ -757,6 +786,22 @@ class ModelTrainer:
 
         # setup head config - partnames, edges and class names
         self._setup_head_config()
+
+        # Identity-equality gates (SPEC §4.4): the embedding objective's pos/neg
+        # sources silently assert "same / different animal"; validate them against the
+        # declared `data_config.identity` semantics (error for global_id without global
+        # names; warn for unproofread tracklets / non-deduplicated same-frame negatives).
+        if self.model_type == "embedding":
+            validate_embedding_identity(
+                objective=OmegaConf.select(
+                    self.config,
+                    "model_config.head_configs.embedding.embedding.objective",
+                    default=None,
+                ),
+                identity=OmegaConf.select(
+                    self.config, "data_config.identity", default=None
+                ),
+            )
 
         # set max stride for the backbone: convnext and swint
         if self.backbone_type == "convnext":
