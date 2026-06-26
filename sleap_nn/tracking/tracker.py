@@ -185,8 +185,10 @@ class Tracker:
                 For selecting a robust score, 0.95 is a good value.
             track_matching_method: Track matching algorithm. One of `hungarian`, `greedy.
                 Default: `hungarian`.
-            max_tracks: Meaximum number of new tracks to be created to avoid redundant tracks.
-                (only for local queues candidate) Default: None.
+            max_tracks: Maximum number of new tracks to be created to avoid redundant
+                tracks. Honored only by the `local_queues` candidate maker; setting it
+                with `candidates_method="fixed_window"` auto-switches the method to
+                `local_queues` (logged at INFO) so the cap is enforced. Default: None.
             use_flow: If True, `FlowShiftTracker` is used, where the poses are matched using
             optical flow shifts. Default: `False`.
             of_img_scale: Factor to scale the images by when computing optical flow. Decrease
@@ -233,6 +235,23 @@ class Tracker:
             tracking_pre_cull_iou_threshold: If non-zero and pre_cull_to_target also set, then use IOU threshold to remove overlapping instances over count *before* tracking. (default: 0)
 
         """
+        # `max_tracks` is enforced only by the `local_queues` candidate maker
+        # (`LocalQueueCandidates.get_new_track_id` returns `None` past the cap);
+        # `fixed_window` silently ignores it and mints unbounded track IDs. When a
+        # caller asks for a track cap under `fixed_window`, switch to `local_queues`
+        # -- the candidate method designed for a fixed identity count -- so the cap
+        # is actually honored. This is the universal safety net: every tracking
+        # entry point (CLI, `run_inference`/`run_tracker`, `apply_tracking`, direct
+        # API use) flows through `from_config` (sleap#2720, #582).
+        if max_tracks is not None and candidates_method == "fixed_window":
+            logger.info(
+                "max_tracks=%s was set with candidates_method='fixed_window', which "
+                "ignores it; switching to candidates_method='local_queues' to honor "
+                "the track cap.",
+                max_tracks,
+            )
+            candidates_method = "local_queues"
+
         if candidates_method == "fixed_window":
             candidate = FixedWindowCandidates(
                 window_size=window_size,
