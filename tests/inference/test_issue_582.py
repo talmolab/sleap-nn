@@ -529,11 +529,23 @@ def test_build_tracker_config_max_tracks_defaults_local_queues():
     assert cfg.max_tracks == 3
 
 
-def test_build_tracker_config_explicit_fixed_window_respected():
-    """An explicit candidates_method is not overridden by max_tracks (gap)."""
+def test_build_tracker_config_explicit_fixed_window_switched_for_max_tracks():
+    """max_tracks forces local_queues even over an explicit fixed_window (sleap#2720).
+
+    fixed_window silently ignores max_tracks, so the pairing is non-functional;
+    requesting a track cap always wins and switches the method to local_queues.
+    """
     from sleap_nn.cli import _build_tracker_config
 
     cfg = _build_tracker_config({"max_tracks": 3, "candidates_method": "fixed_window"})
+    assert cfg.candidates_method == "local_queues"
+
+
+def test_build_tracker_config_explicit_fixed_window_kept_without_max_tracks():
+    """An explicit fixed_window is kept when no track cap is requested."""
+    from sleap_nn.cli import _build_tracker_config
+
+    cfg = _build_tracker_config({"candidates_method": "fixed_window"})
     assert cfg.candidates_method == "fixed_window"
 
 

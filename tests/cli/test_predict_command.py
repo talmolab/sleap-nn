@@ -563,8 +563,13 @@ def test_predict_max_tracks_auto_switches_to_local_queues():
         assert cfg.max_tracks == 3
 
 
-def test_predict_explicit_fixed_window_with_max_tracks_respected():
-    """An explicit `--candidates_method fixed_window` is not overridden (#582)."""
+def test_predict_explicit_fixed_window_with_max_tracks_switches_to_local_queues():
+    """`--max_tracks` overrides an explicit `--candidates_method fixed_window`.
+
+    sleap#2720: fixed_window silently ignores max_tracks, so requesting a track
+    cap always wins and switches the method to local_queues (the only maker that
+    honors the cap). This supersedes the earlier #582 escape-hatch behavior.
+    """
     runner = CliRunner()
     with patch(
         "sleap_nn.inference.run.predict", return_value=MagicMock()
@@ -586,7 +591,7 @@ def test_predict_explicit_fixed_window_with_max_tracks_respected():
         )
         assert result.exit_code == 0, result.output
         assert mock_predict.call_args[1]["tracker_config"].candidates_method == (
-            "fixed_window"
+            "local_queues"
         )
 
 

@@ -152,15 +152,10 @@ def apply_tracking(
         )
 
     # max_tracks is only honored by the local_queues candidate maker; the
-    # fixed_window default silently ignores it. The CLI auto-switches to
-    # local_queues, but a library caller can still hit this — warn rather than
-    # silently drop the cap (#582).
-    if config.max_tracks is not None and config.candidates_method == "fixed_window":
-        logger.warning(
-            "max_tracks=%s is set but candidates_method='fixed_window' ignores "
-            "it. Use candidates_method='local_queues' to honor max_tracks.",
-            config.max_tracks,
-        )
+    # fixed_window default silently ignores it. `Tracker.from_config` (the shared
+    # tracker constructor below) auto-switches fixed_window -> local_queues and
+    # logs an INFO when a track cap is requested, so library callers that build a
+    # TrackerConfig directly get the cap honored too (sleap#2720, #582).
 
     # Single-node (centroid) default resolution. A centroid model collapses to
     # a 1-node Skeleton(['centroid']) (#586); OKS/keypoints are degenerate on a

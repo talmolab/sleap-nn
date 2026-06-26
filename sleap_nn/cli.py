@@ -1238,8 +1238,9 @@ def _build_tracker_config(kwargs: dict) -> "object":
     ``sleap_nn/legacy_predict.py`` pre-#530) so the new ``predict`` flow behaves
     identically (#582):
 
-    * ``--max_tracks`` with no ``--candidates_method`` defaults the method to
-      ``local_queues`` (``max_tracks`` is silently ignored by ``fixed_window``).
+    * ``--max_tracks`` forces ``--candidates_method local_queues`` (``max_tracks``
+      is silently ignored by ``fixed_window``), overriding even an explicit
+      ``--candidates_method fixed_window`` since that pairing is non-functional.
     * ``--post_connect_single_breaks`` / ``--tracking_pre_cull_to_target`` with
       only ``--max_instances`` (no explicit ``--tracking_target_instance_count``)
       derive the target count from ``max_instances`` instead of crashing /
@@ -1256,15 +1257,22 @@ def _build_tracker_config(kwargs: dict) -> "object":
     pcsb = kwargs.get("post_connect_single_breaks", False)
     use_kalman = kwargs.get("use_kalman", False)
 
-    # Default candidates_method to local_queues when max_tracks is set but the
-    # user did not explicitly choose a method (the click default is None).
-    # Record explicitness so apply_tracking can default mask-mode tracking to
-    # local_queues (much better identity on over-segmented masks) unless the user
-    # explicitly picked a method.
+    # max_tracks is only honored by the local_queues candidate maker; fixed_window
+    # silently ignores it. Whenever a track cap is requested, use local_queues so
+    # the cap is enforced -- even if the user explicitly passed fixed_window, since
+    # that combination is non-functional (the cap would be dropped). Logged at INFO
+    # (sleap#2720, #582). Record explicitness so apply_tracking can default
+    # mask-mode tracking to local_queues (much better identity on over-segmented
+    # masks) unless the user explicitly picked a method.
     candidates_method_explicit = kwargs.get("candidates_method") is not None
-    candidates_method = kwargs.get("candidates_method")
-    if candidates_method is None:
-        candidates_method = "local_queues" if max_tracks is not None else "fixed_window"
+    candidates_method = kwargs.get("candidates_method") or "fixed_window"
+    if max_tracks is not None and candidates_method == "fixed_window":
+        logger.info(
+            "max_tracks=%s requested; using candidates_method='local_queues' "
+            "(fixed_window ignores max_tracks).",
+            max_tracks,
+        )
+        candidates_method = "local_queues"
 
     # Legacy: post_connect_single_breaks defaults max_tracks from max_instances.
     if pcsb and max_tracks is None:

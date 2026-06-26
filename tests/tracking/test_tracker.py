@@ -411,6 +411,61 @@ def test_tracker(
     assert "Invalid `track_matching_method` argument." in caplog.text
 
 
+def test_from_config_max_tracks_switches_to_local_queues(caplog):
+    """sleap#2720: max_tracks under fixed_window auto-switches to local_queues.
+
+    `max_tracks` is only honored by the `local_queues` candidate maker; the
+    `fixed_window` default silently ignores it. `Tracker.from_config` is the
+    universal chokepoint for every tracking entry point, so the switch (and its
+    INFO log) belongs here. The cap must reach the `local_queues` candidate maker.
+    """
+    from sleap_nn.tracking.candidates.local_queues import LocalQueueCandidates
+    from sleap_nn.tracking.candidates.fixed_window import FixedWindowCandidates
+
+    with caplog.at_level("INFO"):
+        tracker = Tracker.from_config(candidates_method="fixed_window", max_tracks=4)
+
+    assert tracker.is_local_queue
+    assert isinstance(tracker.candidate, LocalQueueCandidates)
+    assert tracker.candidate.max_tracks == 4
+    assert "switching to candidates_method='local_queues'" in caplog.text
+
+    # No max_tracks: fixed_window is left untouched (no switch, no log).
+    caplog.clear()
+    with caplog.at_level("INFO"):
+        tracker = Tracker.from_config(candidates_method="fixed_window")
+    assert not tracker.is_local_queue
+    assert isinstance(tracker.candidate, FixedWindowCandidates)
+    assert "switching to candidates_method='local_queues'" not in caplog.text
+
+
+def test_from_config_max_tracks_caps_new_tracks():
+    """The auto-switched local_queues maker enforces the max_tracks cap.
+
+    End-to-end check for sleap#2720: with the default candidate method and
+    `max_tracks=2`, no more than 2 track IDs are ever spawned even when more
+    detections appear in a frame.
+    """
+    skeleton = sio.Skeleton(["A", "B"])
+    tracker = Tracker.from_config(candidates_method="fixed_window", max_tracks=2)
+
+    # Four well-separated instances in one frame; only 2 should get tracks.
+    insts = []
+    for i in range(4):
+        insts.append(
+            sio.PredictedInstance.from_numpy(
+                points_data=np.array(
+                    [[i * 50.0, 0.0], [i * 50.0 + 10.0, 0.0]], dtype="float32"
+                ),
+                skeleton=skeleton,
+                score=0.9,
+            )
+        )
+    tracked = tracker.track(insts, 0)
+    track_names = {t.track.name for t in tracked if t.track is not None}
+    assert len(track_names) <= 2
+
+
 def test_tracker_track_objects_not_shared():
     """Regression test for #574: independent Trackers must not share `_track_objects`.
 
