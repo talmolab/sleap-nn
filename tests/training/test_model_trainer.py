@@ -1548,3 +1548,58 @@ def test_multi_gpu_no_cache_auto_generates_run_name(config, tmp_path, minimal_in
 
         assert trainer.config.trainer_config.run_name is not None
         assert re.match(r"\d{6}_\d{6}\.", trainer.config.trainer_config.run_name)
+
+
+class TestEmbeddingMemoryFallback:
+    """Low-RAM cache fallback for the embedding model type (P0.2 follow-up)."""
+
+    @staticmethod
+    def _cfg():
+        return OmegaConf.create(
+            {
+                "data_config": {
+                    "data_pipeline_fw": "torch_dataset_cache_img_memory",
+                    "cache_img_path": None,
+                },
+                "trainer_config": {
+                    "train_data_loader": {"num_workers": 0},
+                    "val_data_loader": {"num_workers": 0},
+                    "run_name": "expt",
+                },
+            }
+        )
+
+    def _run(self, model_type):
+        from unittest.mock import MagicMock, patch
+
+        cfg = self._cfg()
+        mt = ModelTrainer(config=cfg)
+        mt._initial_config = cfg.copy()
+        mt.model_type = model_type
+        mt.train_labels = []
+        mt.val_labels = []
+        mt.trainer = MagicMock(num_devices=1, global_rank=0)
+        with (
+            patch(
+                "sleap_nn.training.model_trainer.check_cache_memory", return_value=False
+            ),
+            patch(
+                "sleap_nn.training.model_trainer.get_train_val_datasets",
+                return_value=("TRAIN", "VAL"),
+            ) as gtv,
+        ):
+            out = mt._setup_datasets()
+        return mt, out, gtv
+
+    def test_embedding_low_memory_falls_back_to_uncached(self):
+        """Embedding + insufficient RAM -> uncached `torch_dataset` (NOT lossy disk)."""
+        mt, out, gtv = self._run("embedding")
+        assert mt.config.data_config.data_pipeline_fw == "torch_dataset"
+        assert mt.config.data_config.cache_img_path is None
+        assert out == ("TRAIN", "VAL")
+        gtv.assert_called_once()
+
+    def test_non_embedding_low_memory_still_falls_back_to_disk(self):
+        """Non-embedding + insufficient RAM keeps the existing disk-cache fallback."""
+        mt, _, _ = self._run("centroid")
+        assert mt.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_disk"

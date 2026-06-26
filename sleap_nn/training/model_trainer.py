@@ -948,7 +948,19 @@ class ModelTrainer:
                 memory_buffer=MEMORY_BUFFER,
                 num_workers=max_num_workers,
             )
-            if not mem_available:
+            if not mem_available and self.model_type == "embedding":
+                # The embedding (appearance / re-ID) model must NOT use the lossy JPEG
+                # disk cache (it silently degrades the model — see the disk-cache gate
+                # in get_train_val_datasets). Fall back to an uncached, lossless
+                # pipeline instead of disk.
+                self.config.data_config.data_pipeline_fw = "torch_dataset"
+                base_cache_img_path = None
+                logger.info(
+                    "Insufficient memory for in-memory caching of the `embedding` "
+                    "model; falling back to an uncached pipeline (`torch_dataset`) to "
+                    "avoid the lossy JPEG disk cache."
+                )
+            elif not mem_available:
                 # Validate: multi-GPU + auto-generated run_name + fallback to disk cache
                 original_run_name = self._initial_config.trainer_config.run_name
                 run_name_was_auto = (
