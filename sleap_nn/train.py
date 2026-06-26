@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional, List, Tuple, Union
 import sleap_io as sio
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.training.model_trainer import ModelTrainer
-from sleap_nn.predict import run_inference as predict
+from sleap_nn.legacy_predict import run_inference as predict
 from sleap_nn.evaluation import run_evaluation
 from sleap_nn.config.get_config import (
     get_trainer_config,

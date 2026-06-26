@@ -378,7 +378,7 @@ For the reusable `Predictor` class, streaming, raw `Outputs`, filtering, and
 tracking from Python, see the [Inference API guide](inference-api.md).
 
 !!! note "Legacy `run_inference`"
-    `from sleap_nn.predict import run_inference` is the older legacy-pipeline
+    `from sleap_nn.legacy_predict import run_inference` is the older legacy-pipeline
     entry point (it backs `sleap-nn track`). Prefer `sleap_nn.inference.predict`
     for new code.
 
