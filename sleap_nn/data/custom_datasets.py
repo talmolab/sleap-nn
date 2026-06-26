@@ -4056,28 +4056,29 @@ def get_train_val_dataloaders(
             batches_per_epoch=max(1, round(train_steps_per_epoch / trainer_devices)),
             seed=OmegaConf.select(config, "trainer_config.seed", default=0) or 0,
         )
-        train_data_loader = InfiniteDataLoader(
+        # Use a plain DataLoader (NOT InfiniteDataLoader): the GroupAwareBatchSampler
+        # is already epoch-bounded (yields `batches_per_epoch` batches per __iter__,
+        # re-randomized each epoch via its rng), so the infinite-recycling wrapper is
+        # unnecessary. Critically, InfiniteDataLoader eagerly creates its worker
+        # iterator + wraps the sampler in an infinite _RepeatSampler, which deadlocks
+        # under Lightning with num_workers>0; the plain loader iterates with workers
+        # correctly (so heavy CPU/skia aug can be parallelized).
+        train_nw = config.trainer_config.train_data_loader.num_workers
+        val_nw = config.trainer_config.val_data_loader.num_workers
+        train_data_loader = DataLoader(
             dataset=train_dataset,
             batch_sampler=batch_sampler,
-            len_dataloader=batch_sampler.batches_per_epoch,
-            num_workers=config.trainer_config.train_data_loader.num_workers,
+            num_workers=train_nw,
             pin_memory=pin_memory,
-            persistent_workers=(
-                True
-                if config.trainer_config.train_data_loader.num_workers > 0
-                else None
-            ),
+            persistent_workers=train_nw > 0,
         )
-        val_data_loader = InfiniteDataLoader(
+        val_data_loader = DataLoader(
             dataset=val_dataset,
             shuffle=False,
-            len_dataloader=None,
             batch_size=config.trainer_config.val_data_loader.batch_size,
-            num_workers=config.trainer_config.val_data_loader.num_workers,
+            num_workers=val_nw,
             pin_memory=pin_memory,
-            persistent_workers=(
-                True if config.trainer_config.val_data_loader.num_workers > 0 else None
-            ),
+            persistent_workers=val_nw > 0,
         )
         return train_data_loader, val_data_loader
 
