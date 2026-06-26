@@ -124,6 +124,16 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
         ][
             "max_stride"
         ]
+    if model_type == "embedding":
+        # Pin the pooled head's stride to the backbone max_stride so the decoder is
+        # empty and the head taps `middle_output` (the lone-head tap; SPEC §3.0).
+        max_stride = config.model_config.backbone_config[f"{backbone_type}"][
+            "max_stride"
+        ]
+        config.model_config.head_configs.embedding.embedding.output_stride = max_stride
+        config.model_config.backbone_config[f"{backbone_type}"][
+            "output_stride"
+        ] = max_stride
     return config
 
 

@@ -29,6 +29,11 @@ class PreprocessingConfig:
         crop_padding: (int) Padding in pixels to add around the instance bounding box when computing crop size.
             If `None`, padding is auto-computed based on augmentation settings (rotation/scale).
             Only used when `crop_size` is `None`. *Default*: `None`.
+        burn_in: (bool) For the `embedding` model type: burn the instance mask into the
+            crop (background pixels set to `background_fill`) so the embedder sees only
+            the masked instance. *Default*: `False`.
+        background_fill: (str) Fill value for masked-out background when `burn_in` is
+            True. One of `black` | `grey` | `mean`. *Default*: `black`.
     """
 
     ensure_rgb: bool = False
@@ -41,6 +46,8 @@ class PreprocessingConfig:
     crop_size: Optional[int] = None
     min_crop_size: Optional[int] = 100  # to help app work in case of error
     crop_padding: Optional[int] = None
+    burn_in: bool = False
+    background_fill: str = "black"
 
     def validate_scale(self):
         """Scale Validation.
@@ -185,6 +192,29 @@ def validate_test_file_path(instance, attribute, value):
 
 
 @define
+class IdentityConfig:
+    """Declared identity-equality semantics for the `embedding` model type (SPEC §4.4).
+
+    Each positives/negatives source silently asserts "same/different animal". These
+    fields DECLARE what the track labels mean so the objective can validate them
+    (e.g. `positives.scope=global_id` requires `track_names_are_global=True`).
+
+    Attributes:
+        tracks_are_proofread: (bool) Tracks are swap-free within a video. Gates
+            `positives.scope=tracklet` (warn if False). *Default*: `False`.
+        track_names_are_global: (bool) The same track name means the same animal
+            across videos. Gates `positives.scope=global_id` (error if False).
+            *Default*: `False`.
+        detections_deduplicated: (bool) No duplicate/over-segmented detection per
+            frame. Gates `same_frame` negatives (warn if False). *Default*: `True`.
+    """
+
+    tracks_are_proofread: bool = False
+    track_names_are_global: bool = False
+    detections_deduplicated: bool = True
+
+
+@define
 class DataConfig:
     """Data configuration.
 
@@ -239,6 +269,7 @@ class DataConfig:
     use_negative_frames: bool = False
     negative_loss_weight: float = field(default=1.0, validator=validators.gt(0))
     skeletons: Optional[list] = None
+    identity: Optional[IdentityConfig] = None
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:

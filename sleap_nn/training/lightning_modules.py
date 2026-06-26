@@ -40,6 +40,8 @@ from sleap_nn.training.losses import (
     compute_ohkm_loss,
     compute_bce_dice_loss,
     compute_masked_smooth_l1,
+    build_contrastive_masks,
+    get_contrastive_loss,
 )
 from loguru import logger
 from sleap_nn.training.utils import (
@@ -299,6 +301,7 @@ class LightningModel(L.LightningModule):
             "multi_class_topdown": TopDownCenteredInstanceMultiClassLightningModule,
             "bottomup_segmentation": BottomUpSegmentationLightningModule,
             "centered_instance_segmentation": TopDownCenteredInstanceSegmentationLightningModule,
+            "embedding": EmbeddingLightningModule,
         }
 
         if model_type not in lightning_models:
@@ -2710,6 +2713,294 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                         "num_instances": 1,
                     }
                 )
+
+
+class EmbeddingLightningModule(LightningModel):
+    """Lightning Module for the ``embedding`` (crop -> vector, re-ID) model type.
+
+    The embedder (backbone + EmbeddingHead) maps a grayscale, mask-burned-in crop to an
+    L2-normalized vector. Training is contrastive: the ``training_step`` makes two
+    augmented views of each crop (GPU-side), builds a positive/negative mask from each
+    item's ``(video, frame, group, item_id)``, and applies the configured contrastive
+    loss on a train-only projection head. The objective (positives x negatives x loss)
+    is read from the head config; swapping it requires no code change here.
+    """
+
+    def __init__(
+        self,
+        model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
+        negative_loss_weight: Optional[float] = 1.0,
+    ):
+        """Initialise the configs, model, objective + projection head."""
+        super().__init__(
+            model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
+            negative_loss_weight=negative_loss_weight,
+        )
+        leaf = self.head_configs.embedding.embedding
+        self.embedding_dim = leaf.embedding_dim
+        self.freeze_backbone = bool(
+            OmegaConf.select(leaf, "freeze_backbone", default=False)
+        )
+        # Spec'd pipeline (the user's directive): grayscale input + mask burn-in +
+        # per-crop standardize.
+        self.burn_in = True
+        self.standardize = True
+
+        # Resolve the objective with defaults (nested sub-configs may be None).
+        obj = leaf.objective
+        self.loss_name = OmegaConf.select(obj, "loss.name", default="supcon")
+        self.loss_temperature = OmegaConf.select(obj, "loss.temperature", default=0.1)
+        self.loss_margin = OmegaConf.select(obj, "loss.margin", default=0.2)
+        self.pos_scope = OmegaConf.select(obj, "positives.scope", default="global_id")
+        self.neg_sources = list(
+            OmegaConf.select(
+                obj, "negatives.sources", default=["same_frame", "in_batch"]
+            )
+        )
+        self.neg_exclude_same_track = bool(
+            OmegaConf.select(obj, "negatives.exclude_same_track", default=True)
+        )
+        self.neg_restrict_same_video = bool(
+            OmegaConf.select(obj, "negatives.restrict_same_video", default=False)
+        )
+        self.use_projection = bool(
+            OmegaConf.select(obj, "use_projection", default=True)
+        )
+        projection_dim = int(OmegaConf.select(obj, "projection_dim", default=128))
+
+        self.loss_fn = get_contrastive_loss(self.loss_name)
+        # Train-only projection head (discarded at inference) for supcon/infonce.
+        if self.use_projection and self.loss_name in ("supcon", "infonce"):
+            self.projection = nn.Sequential(
+                nn.Linear(self.embedding_dim, projection_dim),
+                nn.ReLU(inplace=True),
+                nn.Linear(projection_dim, projection_dim),
+            )
+        else:
+            self.projection = None
+
+        if self.freeze_backbone:
+            for p in self.model.backbone.parameters():
+                p.requires_grad_(False)
+
+    # ---- objective helpers ----
+    def _project(self, e: torch.Tensor) -> torch.Tensor:
+        if self.projection is None:
+            return F.normalize(e, dim=1)
+        return F.normalize(self.projection(e), dim=1)
+
+    def _loss_kwargs(self):
+        if self.loss_name in ("supcon", "infonce"):
+            return {"temperature": self.loss_temperature}
+        return {"margin": self.loss_margin}
+
+    def _build_masks(self, item_id, video, frame, group):
+        return build_contrastive_masks(
+            item_id=item_id,
+            video=video,
+            frame=frame,
+            group=group,
+            positives_scope=self.pos_scope,
+            negatives_sources=self.neg_sources,
+            exclude_same_track=self.neg_exclude_same_track,
+            restrict_same_video=self.neg_restrict_same_video,
+        )
+
+    # ---- crop intensity (Stage 5) + two-view aug (Stage 0, GPU) ----
+    def _standardize(self, gray, mask, eps=1e-5):
+        m = mask if self.burn_in else torch.ones_like(mask)
+        cnt = m.sum((1, 2, 3), keepdim=True).clamp(min=1)
+        mu = (gray * m).sum((1, 2, 3), keepdim=True) / cnt
+        var = ((gray - mu) ** 2 * m).sum((1, 2, 3), keepdim=True) / cnt
+        g = (gray - mu) / (var.sqrt() + eps)
+        return g * m if self.burn_in else g
+
+    def _build_input(self, gray, mask):
+        if self.standardize:
+            return self._standardize(gray, mask)
+        g = gray / 255.0
+        return g * mask if self.burn_in else g
+
+    def _augment(
+        self,
+        gray,
+        mask,
+        rot=20.0,
+        scale=(0.85, 1.18),
+        trans=0.08,
+        hflip=True,
+        gamma=0.25,
+        bright=25.0,
+        noise=8.0,
+        erase_p=0.4,
+    ):
+        B, _, H, W = gray.shape
+        dev = gray.device
+        r = (torch.rand(B, device=dev) * 2 - 1) * rot * np.pi / 180.0
+        s = torch.rand(B, device=dev) * (scale[1] - scale[0]) + scale[0]
+        tx = (torch.rand(B, device=dev) * 2 - 1) * trans
+        ty = (torch.rand(B, device=dev) * 2 - 1) * trans
+        fl = (
+            (torch.rand(B, device=dev) < 0.5)
+            if hflip
+            else torch.zeros(B, dtype=torch.bool, device=dev)
+        )
+        cos, sin = torch.cos(r), torch.sin(r)
+        sx = s * torch.where(
+            fl,
+            torch.as_tensor(-1.0, device=dev),
+            torch.as_tensor(1.0, device=dev),
+        )
+        theta = torch.zeros(B, 2, 3, device=dev)
+        theta[:, 0, 0] = cos * sx
+        theta[:, 0, 1] = -sin * s
+        theta[:, 0, 2] = tx
+        theta[:, 1, 0] = sin * sx
+        theta[:, 1, 1] = cos * s
+        theta[:, 1, 2] = ty
+        grid = F.affine_grid(theta, (B, 1, H, W), align_corners=False)
+        g = F.grid_sample(
+            gray, grid, mode="bilinear", padding_mode="zeros", align_corners=False
+        )
+        m = F.grid_sample(
+            mask, grid, mode="nearest", padding_mode="zeros", align_corners=False
+        )
+        gm = torch.exp((torch.rand(B, 1, 1, 1, device=dev) * 2 - 1) * gamma)
+        g = 255.0 * torch.clamp(g / 255.0, 0, 1) ** gm
+        g = g + (torch.rand(B, 1, 1, 1, device=dev) * 2 - 1) * bright
+        g = g + torch.randn_like(g) * noise
+        g = torch.clamp(g, 0, 255)
+        if self.burn_in:
+            g = g * m
+        if erase_p > 0:
+            do = torch.rand(B, device=dev) < erase_p
+            for i in torch.nonzero(do).flatten().tolist():
+                eh = int(np.random.randint(H // 8, H // 3))
+                ew = int(np.random.randint(W // 8, W // 3))
+                y0 = int(np.random.randint(0, H - eh))
+                x0 = int(np.random.randint(0, W - ew))
+                g[i, :, y0 : y0 + eh, x0 : x0 + ew] = 0
+                m[i, :, y0 : y0 + eh, x0 : x0 + ew] = 0
+        return g, m
+
+    def forward(self, img):
+        """Inference forward: image -> L2-normalized embedding (B, D)."""
+        img = torch.squeeze(img, dim=1).to(self.device).to(torch.float32)
+        # No mask available at inference: whole-crop standardize.
+        x = self._standardize(img, torch.ones_like(img[:, :1]))
+        return self.model(x)["EmbeddingHead"]
+
+    def training_step(self, batch, batch_idx):
+        """Two-view contrastive training step."""
+        gray = torch.squeeze(batch["instance_image"], dim=1).to(torch.float32)
+        mask = torch.squeeze(batch["instance_mask"], dim=1).to(torch.float32)
+
+        g1, m1 = self._augment(gray, mask)
+        g2, m2 = self._augment(gray, mask)
+        x = torch.cat([self._build_input(g1, m1), self._build_input(g2, m2)], dim=0)
+        e = self.model(x)["EmbeddingHead"]
+        z = self._project(e)
+
+        item_id = torch.cat([batch["item_id"], batch["item_id"]], dim=0)
+        video = torch.cat([batch["video_idx"], batch["video_idx"]], dim=0)
+        frame = torch.cat([batch["frame_idx"], batch["frame_idx"]], dim=0)
+        group = torch.cat([batch["group_id"], batch["group_id"]], dim=0)
+        pos, neg = self._build_masks(item_id, video, frame, group)
+        loss = self.loss_fn(z, pos, neg, **self._loss_kwargs())
+
+        self.log(
+            "loss", loss, prog_bar=True, on_step=True, on_epoch=False, sync_dist=True
+        )
+        self._accumulate_loss(loss)
+        self.log("train/loss", loss, on_step=False, on_epoch=True, sync_dist=True)
+        with torch.no_grad():
+            self.log(
+                "train/pos_per_anchor",
+                (pos.sum(1).float().mean()),
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Embed the val batch (no aug); compute a val loss + collect for retrieval."""
+        gray = torch.squeeze(batch["instance_image"], dim=1).to(torch.float32)
+        mask = torch.squeeze(batch["instance_mask"], dim=1).to(torch.float32)
+        x = self._build_input(gray, mask)
+        e = self.model(x)["EmbeddingHead"]
+        z = self._project(e)
+
+        item_id = batch["item_id"]
+        pos, neg = self._build_masks(
+            item_id, batch["video_idx"], batch["frame_idx"], batch["group_id"]
+        )
+        val_loss = self.loss_fn(z, pos, neg, **self._loss_kwargs())
+        self.log(
+            "val/loss",
+            val_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+
+        if self._collect_val_predictions:
+            emb = e.detach().cpu()
+            labels = batch["group_id"].detach().cpu()
+            for i in range(emb.shape[0]):
+                self.val_predictions.append({"embedding": emb[i]})
+                self.val_ground_truth.append({"label": int(labels[i])})
+
+    def configure_optimizers(self):
+        """Optimizer over trainable params only (frozen backbone -> adapter only)."""
+        if self.optimizer == "Adam":
+            optim = torch.optim.Adam
+        elif self.optimizer == "AdamW":
+            optim = torch.optim.AdamW
+        else:
+            optim = torch.optim.Adam
+        params = [p for p in self.parameters() if p.requires_grad]
+        optimizer = optim(params, lr=self.lr, amsgrad=self.amsgrad)
+        if self.lr_scheduler is None:
+            return {"optimizer": optimizer}
+        # Reuse the base scheduler construction (val/loss monitor is fine; ckpt
+        # SELECTION moves to the retrieval metric via ModelCheckpoint in the trainer).
+        base = LightningModel.configure_optimizers(self)
+        if isinstance(base, dict) and "lr_scheduler" in base:
+            base["optimizer"] = optimizer
+            return base
+        return {"optimizer": optimizer}
 
 
 class BottomUpSegmentationLightningModule(LightningModel):

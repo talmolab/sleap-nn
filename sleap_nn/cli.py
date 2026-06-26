@@ -581,6 +581,64 @@ def train(
     "-i",
     type=str,
     required=True,
+    help="Path to the .slp file to embed (tracked masks/instances).",
+)
+@click.option(
+    "--model_paths",
+    "-m",
+    type=str,
+    required=True,
+    help="Path to a trained `embedding` model directory (or its best.ckpt / training_config.yaml).",
+)
+@click.option(
+    "--output_path",
+    "-o",
+    type=str,
+    default=None,
+    help="Output .h5 path for the embeddings. Defaults to '[data_path].embeddings.h5'.",
+)
+@click.option(
+    "--device",
+    "-d",
+    type=str,
+    default="auto",
+    help="Torch device ('cpu', 'cuda', 'auto').",
+)
+@click.option(
+    "--batch_size",
+    "-b",
+    type=int,
+    default=64,
+    help="Number of crops to embed at a time.",
+)
+def embed(data_path, model_paths, output_path, device, batch_size):
+    """Embed instance/mask crops to appearance vectors with a trained `embedding` model.
+
+    Writes a simple `.h5` with `embeddings (N, D)` + index arrays
+    (`video` / `frame` / `detection` / `track`) for offline retrieval / re-ID.
+    """
+    from sleap_nn.inference.embedding_predict import embed_labels
+
+    if device == "auto":
+        import torch
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    out = embed_labels(
+        model_path=model_paths,
+        data_path=data_path,
+        output_path=output_path,
+        device=device,
+        batch_size=batch_size,
+    )
+    click.echo(f"Wrote embeddings to {out}")
+
+
+@cli.command(context_settings=CONTEXT_SETTINGS)
+@click.option(
+    "--data_path",
+    "-i",
+    type=str,
+    required=True,
     help="Path to data to predict on. This can be a labels (.slp) file or any supported video format.",
 )
 @click.option(

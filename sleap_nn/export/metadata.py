@@ -57,6 +57,11 @@ class ExportMetadata:
     # Centroid/top-down anchor point
     anchor_part: Optional[str] = None
 
+    # Embedding (re-ID) model
+    embedding_dim: Optional[int] = None
+    normalize: Optional[bool] = None
+    backbone_source: Optional[str] = None
+
     # Training config reference
     training_config_embedded: bool = False
     training_config_hash: str = ""

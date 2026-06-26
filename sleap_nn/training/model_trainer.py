@@ -59,6 +59,7 @@ from sleap_nn.training.callbacks import (
     EpochEndEvaluationCallback,
     CentroidEvaluationCallback,
     SegmentationEvaluationCallback,
+    EmbeddingEvaluationCallback,
     UnifiedVizCallback,
 )
 from sleap_nn import RANK
@@ -958,6 +959,22 @@ class ModelTrainer:
         logger.info("Setting up callbacks and loggers...")
         loggers = []
         callbacks = []
+        # Checkpoint/early-stop SELECTION metric. Contrastive (embedding) objectives
+        # are NOT well-selected by val/loss, so select on a retrieval metric (SPEC §8).
+        if self.model_type == "embedding":
+            select_metric = OmegaConf.select(
+                self.config,
+                "model_config.head_configs.embedding.embedding.objective.sampler.kind",
+                default=None,
+            )  # touch to ensure config present
+            emb_select = OmegaConf.select(
+                self.config, "trainer_config.eval.select_metric", default="rank1"
+            )
+            ckpt_monitor = f"eval/val/{emb_select}"
+            ckpt_mode = "min" if emb_select == "eer" else "max"
+        else:
+            ckpt_monitor, ckpt_mode = "val/loss", "min"
+
         if self.config.trainer_config.save_ckpt:
             # checkpoint callback
             checkpoint_callback = ModelCheckpoint(
@@ -968,8 +985,8 @@ class ModelTrainer:
                     / self.config.trainer_config.run_name
                 ).as_posix(),
                 filename="best",
-                monitor="val/loss",
-                mode="min",
+                monitor=ckpt_monitor,
+                mode=ckpt_mode,
             )
             callbacks.append(checkpoint_callback)
 
@@ -1098,6 +1115,17 @@ class ModelTrainer:
                         "val/fg_iou",
                     ]
                 )
+            if self.model_type == "embedding":
+                csv_log_keys.extend(
+                    [
+                        "train/pos_per_anchor",
+                        "eval/val/rank1",
+                        "eval/val/mAP",
+                        "eval/val/auc",
+                        "eval/val/eer",
+                        "eval/val/knn_acc",
+                    ]
+                )
             csv_logger = CSVLoggerCallback(
                 filepath=Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name
@@ -1110,8 +1138,8 @@ class ModelTrainer:
             # early stopping callback
             callbacks.append(
                 EarlyStopping(
-                    monitor="val/loss",
-                    mode="min",
+                    monitor=ckpt_monitor,
+                    mode=ckpt_mode,
                     verbose=False,
                     min_delta=self.config.trainer_config.early_stopping.min_delta,
                     patience=self.config.trainer_config.early_stopping.patience,
@@ -1228,7 +1256,26 @@ class ModelTrainer:
             callbacks.append(SleapProgressBar())
 
         # Add epoch-end evaluation callback if enabled
-        if self.config.trainer_config.eval.enabled:
+        # Embedding models are selected on a retrieval metric, so the retrieval
+        # callback is REQUIRED (it logs eval/val/<metric> that ModelCheckpoint reads),
+        # not gated on eval.enabled. Embedding models are skeleton-less so they must
+        # never reach the keypoint EpochEndEvaluationCallback below.
+        if self.model_type == "embedding":
+            emb_freq = (
+                OmegaConf.select(
+                    self.config, "trainer_config.eval.frequency", default=1
+                )
+                or 1
+            )
+            emb_select = OmegaConf.select(
+                self.config, "trainer_config.eval.select_metric", default="rank1"
+            )
+            callbacks.append(
+                EmbeddingEvaluationCallback(
+                    eval_frequency=emb_freq, select_metric=emb_select
+                )
+            )
+        elif self.config.trainer_config.eval.enabled:
             if self.model_type == "centroid":
                 # Use centroid-specific evaluation with distance-based metrics
                 callbacks.append(

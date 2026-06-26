@@ -2063,3 +2063,81 @@ def run_evaluation(
         logger.info(f"Metrics saved successfully to {save_path}")
 
     return metrics
+
+
+# ---------------------------------------------------------------------------
+# Retrieval / verification metrics for the `embedding` model type (SPEC §8).
+#
+# Pure numpy (+ sklearn ROC-AUC). Consume embedding matrices + integer group labels;
+# they do NOT touch `.slp` instances (retrieval is appearance-only).
+# ---------------------------------------------------------------------------
+def _l2_normalize(x: np.ndarray) -> np.ndarray:
+    """Row-wise L2-normalize."""
+    return x / np.maximum(np.linalg.norm(x, axis=1, keepdims=True), 1e-8)
+
+
+def retrieval_metrics(gallery_emb, gallery_y, query_emb, query_y):
+    """Rank-1 (CMC@1) + mAP of queries against a gallery (cosine similarity)."""
+    g, q = _l2_normalize(np.asarray(gallery_emb)), _l2_normalize(np.asarray(query_emb))
+    gy, qy = np.asarray(gallery_y), np.asarray(query_y)
+    sim = q @ g.T
+    order = np.argsort(-sim, axis=1)
+    ranked = gy[order]
+    rank1 = float(np.mean(ranked[:, 0] == qy))
+    aps = []
+    for i in range(len(qy)):
+        rel = (ranked[i] == qy[i]).astype(float)
+        if rel.sum() == 0:
+            continue
+        csum = np.cumsum(rel)
+        prec = csum / np.arange(1, len(rel) + 1)
+        aps.append((prec * rel).sum() / rel.sum())
+    mAP = float(np.mean(aps)) if aps else 0.0
+    return {"rank1": round(rank1, 4), "mAP": round(mAP, 4)}
+
+
+def verification_metrics(gallery_emb, gallery_y, query_emb, query_y):
+    """ROC-AUC + EER over all query x gallery pairs (same vs different identity)."""
+    from sklearn.metrics import roc_auc_score
+
+    g, q = _l2_normalize(np.asarray(gallery_emb)), _l2_normalize(np.asarray(query_emb))
+    gy, qy = np.asarray(gallery_y), np.asarray(query_y)
+    sim = (q @ g.T).ravel()
+    same = (qy[:, None] == gy[None, :]).ravel().astype(int)
+    if same.min() == same.max():
+        return {"auc": float("nan"), "eer": float("nan")}
+    auc = float(roc_auc_score(same, sim))
+    order = np.argsort(-sim)
+    lab = same[order]
+    P, N = lab.sum(), len(lab) - lab.sum()
+    fnr = 1 - np.cumsum(lab) / max(P, 1)
+    fpr = np.cumsum(1 - lab) / max(N, 1)
+    j = int(np.argmin(np.abs(fnr - fpr)))
+    eer = float((fnr[j] + fpr[j]) / 2)
+    return {"auc": round(auc, 4), "eer": round(eer, 4)}
+
+
+def knn_classify(gallery_emb, gallery_y, query_emb, k: int = 7):
+    """Cosine k-NN classification (weighted vote). Returns (pred, conf)."""
+    g, q = _l2_normalize(np.asarray(gallery_emb)), _l2_normalize(np.asarray(query_emb))
+    gy = np.asarray(gallery_y)
+    sim = q @ g.T
+    idx = np.argsort(-sim, 1)[:, :k]
+    nn_y, nn_s = gy[idx], np.take_along_axis(sim, idx, 1)
+    nclass = int(gy.max()) + 1
+    votes = np.zeros((len(q), nclass))
+    for c in range(nclass):
+        votes[:, c] = (nn_s * (nn_y == c)).sum(1)
+    pred = votes.argmax(1)
+    conf = votes.max(1) / (np.abs(votes).sum(1) + 1e-8)
+    return pred, conf
+
+
+def embedding_full_eval(gallery_emb, gallery_y, query_emb, query_y, k: int = 7):
+    """Combined retrieval + verification + kNN-accuracy metrics dict."""
+    out = {}
+    out.update(retrieval_metrics(gallery_emb, gallery_y, query_emb, query_y))
+    out.update(verification_metrics(gallery_emb, gallery_y, query_emb, query_y))
+    pred, _ = knn_classify(gallery_emb, gallery_y, query_emb, k=k)
+    out["knn_acc"] = round(float(np.mean(pred == np.asarray(query_y))), 4)
+    return out

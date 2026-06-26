@@ -1869,3 +1869,148 @@ class CentroidEvaluationCallback(Callback):
                 wandb_logger.experiment.summary[summary_key] = value
             elif not is_distance and value > current_best:
                 wandb_logger.experiment.summary[summary_key] = value
+
+
+class EmbeddingEvaluationCallback(Callback):
+    """Per-epoch retrieval evaluation for the ``embedding`` model type (SPEC §8).
+
+    Mirrors :class:`SegmentationEvaluationCallback`'s lifecycle: flips
+    ``pl_module._collect_val_predictions`` on at validation start so the embedding
+    ``validation_step`` collects per-crop ``{"embedding": vec}`` + ``{"label": id}``,
+    then computes retrieval (rank-1 / mAP), verification (ROC-AUC / EER) and cosine-kNN
+    accuracy over the val set (leave-self-out gallery == query).
+
+    Crucially it logs the selected metric BOTH via ``pl_module.log`` (so it lands in
+    ``trainer.callback_metrics`` for ``ModelCheckpoint`` / ``EarlyStopping`` to select
+    on a retrieval metric, NOT ``val/loss``) AND to wandb. The selection scalar is
+    broadcast from rank 0 so every rank logs the same value (no DDP deadlock).
+
+    Attributes:
+        eval_frequency: Run evaluation every N epochs (default: 1).
+        select_metric: Metric to log for checkpoint selection (rank1|mAP|auc|knn_acc).
+        knn_k: k for the cosine-kNN accuracy.
+    """
+
+    def __init__(
+        self, eval_frequency: int = 1, select_metric: str = "rank1", knn_k: int = 7
+    ):
+        """Initialize the callback."""
+        super().__init__()
+        self.eval_frequency = eval_frequency
+        self.select_metric = select_metric
+        self.knn_k = knn_k
+
+    def _get_wandb_logger(self, trainer):
+        from lightning.pytorch.loggers import WandbLogger
+
+        for log in trainer.loggers:
+            if isinstance(log, WandbLogger):
+                return log
+        return None
+
+    def on_validation_epoch_start(self, trainer, pl_module):
+        """Enable per-crop embedding collection (skip sanity check)."""
+        if trainer.sanity_checking:
+            return
+        pl_module._collect_val_predictions = True
+
+    def _compute_metrics(self, predictions: list, ground_truth: list) -> dict:
+        """Leave-self-out retrieval/verification/kNN over the collected val embeddings."""
+        import numpy as np
+        from sleap_nn.evaluation import verification_metrics
+
+        emb = np.stack([p["embedding"].numpy() for p in predictions]).astype(np.float64)
+        y = np.asarray([g["label"] for g in ground_truth])
+        emb = emb / np.maximum(np.linalg.norm(emb, axis=1, keepdims=True), 1e-8)
+        n = len(emb)
+        sim = emb @ emb.T
+        np.fill_diagonal(sim, -np.inf)  # leave-self-out (self sorts to the very end)
+        order = np.argsort(-sim, axis=1)[:, : n - 1]  # drop the self slot
+        ranked = y[order]
+
+        rank1 = float(np.mean(ranked[:, 0] == y))
+        aps = []
+        for i in range(n):
+            rel = (ranked[i] == y[i]).astype(float)
+            if rel.sum() == 0:
+                continue
+            csum = np.cumsum(rel)
+            prec = csum / np.arange(1, len(rel) + 1)
+            aps.append((prec * rel).sum() / rel.sum())
+        mAP = float(np.mean(aps)) if aps else 0.0
+
+        # kNN accuracy (leave-self-out): top-k excluding self.
+        k = min(self.knn_k, n - 1)
+        idx = order[:, :k]
+        nn_y = y[idx]
+        nn_s = np.take_along_axis(sim, idx, 1)
+        nclass = int(y.max()) + 1
+        votes = np.zeros((n, nclass))
+        for c in range(nclass):
+            votes[:, c] = (nn_s * (nn_y == c)).sum(1)
+        knn_acc = float(np.mean(votes.argmax(1) == y))
+
+        ver = verification_metrics(emb, y, emb, y)
+        return {
+            "rank1": round(rank1, 4),
+            "mAP": round(mAP, 4),
+            "auc": ver["auc"],
+            "eer": ver["eer"],
+            "knn_acc": round(knn_acc, 4),
+        }
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """Compute retrieval metrics; log to callback_metrics (selection) + wandb."""
+        should_evaluate = (
+            trainer.current_epoch + 1
+        ) % self.eval_frequency == 0 and trainer.is_global_zero
+
+        metrics = None
+        if should_evaluate:
+            if not pl_module.val_predictions or not pl_module.val_ground_truth:
+                logger.warning("No embeddings collected for embedding evaluation.")
+            else:
+                try:
+                    metrics = self._compute_metrics(
+                        pl_module.val_predictions, pl_module.val_ground_truth
+                    )
+                    logger.info(
+                        f"Epoch {trainer.current_epoch} embedding eval: "
+                        f"rank1={metrics['rank1']:.4f} mAP={metrics['mAP']:.4f} "
+                        f"auc={metrics['auc']} knn_acc={metrics['knn_acc']:.4f}"
+                    )
+                    wandb_logger = self._get_wandb_logger(trainer)
+                    if wandb_logger is not None:
+                        log_dict = {"epoch": trainer.current_epoch}
+                        log_dict.update(
+                            {f"eval/val/{k}": v for k, v in metrics.items()}
+                        )
+                        wandb_logger.experiment.log(log_dict, commit=False)
+                except Exception as e:
+                    logger.warning(f"Embedding epoch-end evaluation failed: {e}")
+
+        # Broadcast the selection scalar so ALL ranks log the SAME value into
+        # callback_metrics (ModelCheckpoint/EarlyStopping monitor reads it). Logging
+        # only on rank0 with sync_dist would deadlock.
+        sel = (
+            float(metrics[self.select_metric])
+            if (metrics is not None and self.select_metric in metrics)
+            else float("nan")
+        )
+        sel = trainer.strategy.broadcast(sel, src=0)
+        for k in ("rank1", "mAP", "auc", "eer", "knn_acc"):
+            v = (
+                float(metrics[k])
+                if (metrics is not None and k in metrics)
+                else float("nan")
+            )
+            v = trainer.strategy.broadcast(v, src=0)
+            pl_module.log(
+                f"eval/val/{k}", v, on_epoch=True, sync_dist=False, rank_zero_only=False
+            )
+
+        pl_module._collect_val_predictions = False
+        if trainer.is_global_zero:
+            pl_module.val_predictions = []
+            pl_module.val_ground_truth = []
+        trainer.strategy.barrier()
