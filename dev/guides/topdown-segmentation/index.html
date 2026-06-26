@@ -7009,7 +7009,7 @@ and attaching it with the link set:</p>
 <h2 id="inference">Inference<a class="headerlink" href="#inference" title="Permanent link">&para;</a></h2>
 <p>Top-down seg needs <strong>two model dirs</strong> — a <code>centroid</code> model and the
 <code>centered_instance_segmentation</code> model — composed via repeated <code>--model_paths</code>:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--model_paths<span class="w"> </span>centroid_model_dir<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--model_paths<span class="w"> </span>centered_instance_segmentation_model_dir<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--fg_threshold<span class="w"> </span><span class="m">0</span>.5<span class="w"> </span>-o<span class="w"> </span>predictions.slp
@@ -7034,7 +7034,7 @@ mask, so they are no-ops for top-down). Rendering needs no extra wiring:</p>
 instances from the source <code>.slp</code> (a GT-centroid fallback) and predicts a mask per
 GT instance. This is what post-training evaluation uses, and is handy for scoring
 the segmentation model in isolation:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>labeled.pkg.slp<span class="w"> </span>--model_paths<span class="w"> </span>centered_instance_segmentation_model_dir
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>labeled.pkg.slp<span class="w"> </span>--model_paths<span class="w"> </span>centered_instance_segmentation_model_dir
 </span></code></pre></div>
 <h2 id="evaluation">Evaluation<a class="headerlink" href="#evaluation" title="Permanent link">&para;</a></h2>
 <p>Post-training evaluation runs automatically (<code>trainer_config.eval.enabled: true</code>)

@@ -8019,7 +8019,14 @@ ONNX/TensorRT models. The options documented below also apply to <code>predict</
 <td></td>
 <td>OKS standard deviation</td>
 <td><code>FLOAT</code></td>
-<td><code>0.05</code></td>
+<td><code>0.025</code></td>
+</tr>
+<tr>
+<td><code>--oks_scale</code></td>
+<td></td>
+<td>Scale factor for OKS calculation</td>
+<td><code>FLOAT</code></td>
+<td>None</td>
 </tr>
 <tr>
 <td><code>--match_threshold</code></td>
@@ -8029,11 +8036,25 @@ ONNX/TensorRT models. The options documented below also apply to <code>predict</
 <td><code>0.0</code></td>
 </tr>
 <tr>
-<td><code>--user_labels_only</code></td>
+<td><code>--match_method</code></td>
+<td></td>
+<td>Matcher: <code>oks</code>, <code>centroid</code>, <code>mask</code>, <code>auto</code></td>
+<td><code>CHOICE</code></td>
+<td><code>auto</code></td>
+</tr>
+<tr>
+<td><code>--anchor_part</code></td>
+<td></td>
+<td>GT node for centroid-mode GT centroids</td>
+<td><code>STR</code></td>
+<td>None</td>
+</tr>
+<tr>
+<td><code>--user_labels_only</code> / <code>--no-user_labels_only</code></td>
 <td></td>
 <td>Only evaluate user-labeled</td>
 <td>Flag</td>
-<td><code>false</code></td>
+<td><code>True</code></td>
 </tr>
 </tbody>
 </table>

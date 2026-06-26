@@ -7364,7 +7364,7 @@ point <code>-m</code> at the export directory and it is auto-detected as an expo
 </thead>
 <tbody>
 <tr>
-<td><code>-o</code>, <code>--output-dir</code></td>
+<td><code>-o</code>, <code>--output</code></td>
 <td>Output directory</td>
 <td><code>PATH</code></td>
 <td>Required</td>
@@ -7378,17 +7378,17 @@ point <code>-m</code> at the export directory and it is auto-detected as an expo
 <tr>
 <td><code>--precision</code></td>
 <td>TensorRT precision</td>
-<td><code>fp32</code>, <code>fp16</code></td>
+<td><code>fp32</code>, <code>fp16</code>, <code>tf32</code></td>
 <td><code>fp16</code></td>
 </tr>
 <tr>
-<td><code>-n</code>, <code>--max-instances</code></td>
+<td><code>--max-instances</code></td>
 <td>Max instances per frame</td>
 <td><code>INT</code></td>
 <td><code>20</code></td>
 </tr>
 <tr>
-<td><code>-b</code>, <code>--max-batch-size</code></td>
+<td><code>--max-batch-size</code></td>
 <td>Max batch size</td>
 <td><code>INT</code></td>
 <td><code>8</code></td>
@@ -7553,18 +7553,19 @@ passed via <code>-m</code>. See the <a href="../inference-guide/">Inference guid
 </span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="n">export_to_tensorrt</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="s2">&quot;model.trt&quot;</span><span class="p">,</span> <span class="n">input_shape</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">192</span><span class="p">,</span> <span class="mi">192</span><span class="p">))</span>
 </span></code></pre></div>
 <h3 id="inference">Inference<a class="headerlink" href="#inference" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.export.predictors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ONNXPredictor</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">ONNXPredictor</span><span class="p">(</span><span class="s2">&quot;model.onnx&quot;</span><span class="p">)</span>
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="n">frames</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randint</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">256</span><span class="p">,</span> <span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">192</span><span class="p">,</span> <span class="mi">192</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
-</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="n">outputs</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">frames</span><span class="p">)</span>
+<p>Run an exported model through the unified pipeline by pointing a <code>Predictor</code> at
+the export directory written by <code>sleap-nn export</code> (it contains <code>export_metadata.json</code>):</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference</span><span class="w"> </span><span class="kn">import</span> <span class="n">Predictor</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="n">predictor</span> <span class="o">=</span> <span class="n">Predictor</span><span class="o">.</span><span class="n">from_export_dir</span><span class="p">(</span><span class="s2">&quot;exports/my_model&quot;</span><span class="p">,</span> <span class="n">runtime</span><span class="o">=</span><span class="s2">&quot;onnx&quot;</span><span class="p">)</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">predictor</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="s2">&quot;video.mp4&quot;</span><span class="p">)</span>
 </span></code></pre></div>
+<p>The CLI equivalent is <code>sleap-nn predict -m exports/my_model --runtime onnx -i video.mp4</code>.</p>
 <hr />
 <h2 id="output-files">Output Files<a class="headerlink" href="#output-files" title="Permanent link">&para;</a></h2>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>exports/my_model/
 </span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>├── model.onnx
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>├── model.onnx.metadata.json
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>├── export_metadata.json
 </span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>├── model.trt                   # If TensorRT
 </span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>└── model.trt.metadata.json     # If TensorRT
 </span></code></pre></div>

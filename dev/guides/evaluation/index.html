@@ -1451,17 +1451,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#per-node-metrics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Per-Node Metrics
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -7008,17 +6997,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#per-node-metrics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Per-Node Metrics
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -7103,12 +7081,27 @@
 <tr>
 <td><code>--oks_stddev</code></td>
 <td>OKS standard deviation</td>
-<td><code>0.05</code></td>
+<td><code>0.025</code></td>
 </tr>
 <tr>
-<td><code>--user_labels_only</code></td>
+<td><code>--oks_scale</code></td>
+<td>Scale factor for OKS calculation</td>
+<td>None</td>
+</tr>
+<tr>
+<td><code>--match_method</code></td>
+<td>Instance matcher: <code>oks</code>, <code>centroid</code>, <code>mask</code>, or <code>auto</code> (centroid when the prediction skeleton is single-node)</td>
+<td><code>auto</code></td>
+</tr>
+<tr>
+<td><code>--anchor_part</code></td>
+<td>GT node for centroid-mode ground-truth centroids (defaults to mean of visible nodes)</td>
+<td>None</td>
+</tr>
+<tr>
+<td><code>--user_labels_only</code> / <code>--no-user_labels_only</code></td>
 <td>Only evaluate user-labeled frames</td>
-<td><code>False</code></td>
+<td><code>True</code></td>
 </tr>
 </tbody>
 </table>
@@ -7127,16 +7120,12 @@
 <h3 id="accessing-metrics">Accessing Metrics<a class="headerlink" href="#accessing-metrics" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Overall metrics</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;OKS mAP: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;voc_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;oks_voc.mAP&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;mOKS: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;mOKS&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;mOKS: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;mOKS&#39;</span><span class="p">][</span><span class="s1">&#39;mOKS&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
 </span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="c1"># Distance errors</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Mean error: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;distance_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;mean&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> px&quot;</span><span class="p">)</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Mean error: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;distance_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;avg&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> px&quot;</span><span class="p">)</span>
 </span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Median error: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;distance_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;p50&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> px&quot;</span><span class="p">)</span>
 </span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;90th %ile error: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;distance_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;p90&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2"> px&quot;</span><span class="p">)</span>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
-</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="c1"># Per-node metrics</span>
-</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="k">for</span> <span class="n">node</span><span class="p">,</span> <span class="n">oks</span> <span class="ow">in</span> <span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;per_node_oks&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">node</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">oks</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </span></code></pre></div>
 <hr />
 <h2 id="metrics-reference">Metrics Reference<a class="headerlink" href="#metrics-reference" title="Permanent link">&para;</a></h2>
@@ -7154,22 +7143,22 @@
 <tbody>
 <tr>
 <td><code>mOKS</code></td>
-<td>Mean OKS across all instances</td>
+<td>Mean OKS across all instances (access via <code>metrics['mOKS']['mOKS']</code>)</td>
 <td>0-1</td>
 </tr>
 <tr>
 <td><code>oks_voc.mAP</code></td>
-<td>COCO-style mean Average Precision</td>
+<td>COCO-style mean Average Precision (mean over OKS thresholds)</td>
 <td>0-1</td>
 </tr>
 <tr>
-<td><code>oks_voc.AP@0.5</code></td>
-<td>AP at OKS threshold 0.5</td>
+<td><code>oks_voc.mAR</code></td>
+<td>COCO-style mean Average Recall</td>
 <td>0-1</td>
 </tr>
 <tr>
-<td><code>oks_voc.AP@0.75</code></td>
-<td>AP at OKS threshold 0.75</td>
+<td><code>oks_voc.AP</code> / <code>oks_voc.AR</code></td>
+<td>Per-OKS-threshold AP / AR arrays</td>
 <td>0-1</td>
 </tr>
 </tbody>
@@ -7186,16 +7175,16 @@
 </thead>
 <tbody>
 <tr>
-<td><code>mean</code></td>
+<td><code>avg</code></td>
 <td>Mean error</td>
-</tr>
-<tr>
-<td><code>std</code></td>
-<td>Standard deviation</td>
 </tr>
 <tr>
 <td><code>p50</code></td>
 <td>Median (50<sup>th</sup> percentile)</td>
+</tr>
+<tr>
+<td><code>p75</code></td>
+<td>75<sup>th</sup> percentile</td>
 </tr>
 <tr>
 <td><code>p90</code></td>
@@ -7211,21 +7200,16 @@
 </tr>
 </tbody>
 </table>
-<p>Lower is better. Values depend on image resolution and animal size.</p>
-<h3 id="per-node-metrics">Per-Node Metrics<a class="headerlink" href="#per-node-metrics" title="Permanent link">&para;</a></h3>
-<p>OKS computed separately for each body part:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">for</span> <span class="n">node</span><span class="p">,</span> <span class="n">oks</span> <span class="ow">in</span> <span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;per_node_oks&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">node</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">oks</span><span class="si">:</span><span class="s2">.3f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span></code></pre></div>
-<p>Useful for identifying which keypoints are harder to predict.</p>
+<p>Lower is better. Values depend on image resolution and animal size. The raw
+per-pair distances are also available under <code>metrics['distance_metrics']['dists']</code>.</p>
 <hr />
 <h2 id="loading-saved-metrics">Loading Saved Metrics<a class="headerlink" href="#loading-saved-metrics" title="Permanent link">&para;</a></h2>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;metrics.npz&quot;</span><span class="p">,</span> <span class="n">allow_pickle</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">metrics</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s1">&#39;metrics&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">metrics</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;metrics.npz&quot;</span><span class="p">,</span> <span class="n">allow_pickle</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">metrics</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s1">&#39;metrics&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">metrics</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
 </span></code></pre></div>
 <hr />
 <h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>

@@ -7170,7 +7170,7 @@ The directory should contain <code>best_model.h5</code> and <code>training_confi
 </table>
 <p>Tips for limited VRAM:</p>
 <ul>
-<li>Reduce batch size: <code>trainer_config.train_batch_size: 2</code></li>
+<li>Reduce batch size: <code>trainer_config.train_data_loader.batch_size: 2</code></li>
 <li>Scale down images: <code>data_config.preprocessing.scale: 0.5</code></li>
 <li>Use smaller backbones: <code>model_config.backbone_config.unet.filters: 16</code></li>
 </ul>
@@ -7326,10 +7326,10 @@ This shows GPU details and runs diagnostic tests. You should see your GPU listed
 <summary>Out of GPU memory (CUDA OOM)</summary>
 <p>Common solutions:</p>
 <ol>
-<li><strong>Reduce batch size</strong>: <code>trainer_config.train_batch_size: 2</code></li>
+<li><strong>Reduce batch size</strong>: <code>trainer_config.train_data_loader.batch_size: 2</code></li>
 <li><strong>Scale down images</strong>: <code>data_config.preprocessing.scale: 0.5</code></li>
 <li><strong>Limit instances during inference</strong>: <code>--max_instances 5</code></li>
-<li><strong>Use disk caching</strong>: <code>data_config.data_pipeline_fw: torch_dataset</code></li>
+<li><strong>Use disk caching</strong>: <code>data_config.data_pipeline_fw: torch_dataset_cache_img_disk</code></li>
 <li><strong>Close other GPU applications</strong></li>
 </ol>
 <p>Check current GPU memory usage:
