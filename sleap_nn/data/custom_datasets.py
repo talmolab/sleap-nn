@@ -1834,18 +1834,31 @@ def resolve_embedding_class_names(labels: List[sio.Labels]) -> List[str]:
 class EmbeddingDataset(BaseDataset):
     """Dataset for the ``embedding`` (crop -> vector, re-ID) model type.
 
-    One sample per (masked) instance crop. Indexes per ``mask`` (the gerbil-style
-    mask-only data carries ``.track`` on ``lf.masks``), centers a fixed-square crop on
-    the mask center-of-mass (Stage-1 ``mask_com`` centering), returns the GRAYSCALE
-    crop plus the binary mask crop and per-crop metadata (``video_idx``, ``frame_idx``,
-    ``group_id``, ``item_id``). Mask burn-in + per-crop standardize + two-view
-    augmentation are performed GPU-side in the LightningModule ``training_step`` (SPEC
-    §4.5), so ``__getitem__`` does NO augmentation and returns one un-augmented crop.
+    One sample per tracked detection. Two detection modes are auto-detected:
+
+    - ``mask``: a tracked ``lf.masks`` entry; the fixed-square crop is centered on the
+      mask center-of-mass and carries the binary mask crop.
+    - ``pose``: a tracked ``lf.instances`` keypoint detection; the crop is centered on
+      the pose centroid (anchor node with a per-instance mean-of-visible-nodes
+      fallback) and carries an all-ones mask.
+
+    Returns the grayscale crop, a mask crop, and per-crop metadata (``video_idx``,
+    ``frame_idx``, ``group_id``, ``global_group_id``, ``item_id``). When ``apply_aug``
+    is set, two independently-augmented views (``instance_image`` / ``_view2``) are
+    produced for the two-view contrastive loss using the standard config-driven
+    augmentation; otherwise a single un-augmented view is returned (val / inference).
+
+    The ``group_id`` keys the training groups: the global track-name index for
+    ``global_id`` scope, or a per-``(labels, video, track)`` tracklet id for
+    ``tracklet`` scope. ``global_group_id`` is always the global track-name index (the
+    grouping used for evaluation).
 
     Attributes:
         crop_size: Side length of the square crop (should be divisible by max_stride).
-        class_names: Ordered list of track names (the ``group_id`` vocabulary).
-        embedding_head_config: The head leaf config (carries ``output_stride``).
+        class_names: Ordered list of track names (the global ``group_id`` vocabulary).
+        embedding_head_config: The head leaf config (carries ``output_stride`` and the
+            optional pose ``anchor_part``).
+        id_scope: Training-group key: ``global_id`` | ``tracklet`` | ``aug_view``.
     """
 
     def __init__(
@@ -1855,6 +1868,7 @@ class EmbeddingDataset(BaseDataset):
         class_names: List[str],
         embedding_head_config: DictConfig,
         max_stride: int,
+        id_scope: str = "global_id",
         user_instances_only: bool = True,
         ensure_rgb: bool = False,
         ensure_grayscale: bool = True,
@@ -1874,6 +1888,10 @@ class EmbeddingDataset(BaseDataset):
         self.crop_size = crop_size
         self.class_names = list(class_names)
         self.embedding_head_config = embedding_head_config
+        # `group_id` keying: global track-name (global_id) vs per-(video, track)
+        # tracklet. `_tracklet_vocab` lazily assigns a dense id per distinct tracklet.
+        self.id_scope = id_scope
+        self._tracklet_vocab: Dict[tuple, int] = {}
         super().__init__(
             labels=labels,
             max_stride=max_stride,
@@ -1895,9 +1913,29 @@ class EmbeddingDataset(BaseDataset):
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
         )
-        self.mask_idx_list = self._get_mask_idx_list(labels)
+        # Anchor node for pose-centroid centering (Stage 1). Resolved against the
+        # skeleton; falls back per-instance to the mean of visible nodes (the topdown
+        # convention via `generate_centroids`).
+        self.anchor_part = OmegaConf.select(
+            embedding_head_config, "anchor_part", default=None
+        )
+        self.anchor_ind = None
+        if self.anchor_part is not None:
+            for label in labels:
+                if label.skeletons:
+                    names = label.skeletons[0].node_names
+                    if self.anchor_part in names:
+                        self.anchor_ind = names.index(self.anchor_part)
+                    break
+
+        # Detection mode: tracked masks (crop on the mask center-of-mass) vs tracked
+        # keypoint instances (crop on the pose centroid, no mask).
+        self.detection_mode = self._detect_mode(labels)
+        if self.detection_mode == "pose":
+            self.mask_idx_list = self._get_instance_idx_list(labels)
+        else:
+            self.mask_idx_list = self._get_mask_idx_list(labels)
         # Per-crop arrays for the group-aware batch sampler.
-        # (mask_idx_list / arrays built below.)
         self.group_ids = np.array([m["group_id"] for m in self.mask_idx_list], np.int64)
         self.video_ids = np.array(
             [m["video_idx"] for m in self.mask_idx_list], np.int64
@@ -1906,12 +1944,87 @@ class EmbeddingDataset(BaseDataset):
             [m["frame_idx"] for m in self.mask_idx_list], np.int64
         )
 
-    def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
-        """Index frames that carry >=1 tracked mask (so the image cache covers them).
+    def _detect_mode(self, labels: List[sio.Labels]) -> str:
+        """``"mask"`` if any frame has a tracked mask, else ``"pose"`` (keypoints)."""
+        for label in labels:
+            for lf in label:
+                for m in getattr(lf, "masks", None) or []:
+                    if getattr(m, "track", None) is not None:
+                        return "mask"
+        return "pose"
 
-        The mask-only data carries no user *instances*, so the base
-        ``_get_lf_idx_list`` (which filters on user instances) would return nothing and
-        leave the image cache empty. Index on ``lf.masks`` instead.
+    def _group_keys(self, labels_idx, video_idx, track_name):
+        """Return ``(group_id, global_group_id)`` for a tracked detection.
+
+        ``global_group_id`` is always the global track-name index (the eval grouping).
+        ``group_id`` is the training group: the global index for ``global_id``/
+        ``aug_view`` scope, or a per-``(labels, video, track)`` tracklet id for
+        ``tracklet`` scope.
+        """
+        gid = self.class_names.index(track_name)
+        if self.id_scope == "tracklet":
+            key = (labels_idx, video_idx, track_name)
+            tid = self._tracklet_vocab.setdefault(key, len(self._tracklet_vocab))
+            return tid, gid
+        return gid, gid
+
+    def _get_instance_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+        """Index per tracked keypoint instance (pose mode).
+
+        Centroid via the topdown :func:`generate_centroids` (anchor node with a
+        per-instance fallback to the mean of visible nodes).
+        """
+        idx_list = []
+        n_missing = 0
+        for labels_idx, label in enumerate(labels):
+            for lf_idx, lf in enumerate(label):
+                for inst_idx, inst in enumerate(lf.instances):
+                    track = getattr(inst, "track", None)
+                    if track is None or track.name not in self.class_names:
+                        n_missing += 1
+                        continue
+                    pts = torch.from_numpy(inst.numpy()).to(
+                        torch.float32
+                    )  # (n_nodes,2)
+                    centroid = generate_centroids(
+                        pts.unsqueeze(0), anchor_ind=self.anchor_ind
+                    )[
+                        0
+                    ]  # (x, y) in original image coords
+                    if torch.isnan(centroid).any():
+                        continue
+                    centroid = centroid.numpy().astype(np.float32)
+                    video_idx = labels[labels_idx].videos.index(lf.video)
+                    group_id, global_group_id = self._group_keys(
+                        labels_idx, video_idx, track.name
+                    )
+                    idx_list.append(
+                        {
+                            "labels_idx": labels_idx,
+                            "lf_idx": lf_idx,
+                            "instance_idx": inst_idx,
+                            "video_idx": video_idx,
+                            "frame_idx": lf.frame_idx,
+                            "centroid": centroid,
+                            "group_id": group_id,
+                            "global_group_id": global_group_id,
+                        }
+                    )
+        if n_missing:
+            logger.warning(
+                f"EmbeddingDataset: skipped {n_missing} instance(s) with no track / "
+                f"unknown track name."
+            )
+        return idx_list
+
+    def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+        """Index frames carrying >=1 tracked mask OR instance (so the image cache covers them).
+
+        Mask-only (gerbil) data carries no user *instances* and pose (fly) data carries
+        no *masks*, so the base ``_get_lf_idx_list`` (which filters on user instances)
+        can leave the image cache empty. Index on either a tracked ``lf.masks`` or a
+        tracked ``lf.instances``. Runs before ``detection_mode`` is set, so it is
+        mode-agnostic.
         """
         lf_idx_list = []
         for labels_idx, label in enumerate(labels):
@@ -1921,6 +2034,10 @@ class EmbeddingDataset(BaseDataset):
                     getattr(m, "track", None) is not None
                     and m.track.name in self.class_names
                     for m in lf_masks
+                ) or any(
+                    getattr(inst, "track", None) is not None
+                    and inst.track.name in self.class_names
+                    for inst in lf.instances
                 )
                 if has_tracked:
                     video_idx = labels[labels_idx].videos.index(lf.video)
@@ -1949,6 +2066,9 @@ class EmbeddingDataset(BaseDataset):
                         n_missing += 1
                         continue
                     video_idx = labels[labels_idx].videos.index(lf.video)
+                    group_id, global_group_id = self._group_keys(
+                        labels_idx, video_idx, track.name
+                    )
                     mask_idx_list.append(
                         {
                             "labels_idx": labels_idx,
@@ -1957,7 +2077,8 @@ class EmbeddingDataset(BaseDataset):
                             "video_idx": video_idx,
                             "frame_idx": lf.frame_idx,
                             "mask_obj": mask_obj,
-                            "group_id": self.class_names.index(track.name),
+                            "group_id": group_id,
+                            "global_group_id": global_group_id,
                         }
                     )
         if n_missing:
@@ -1972,9 +2093,13 @@ class EmbeddingDataset(BaseDataset):
         return len(self.mask_idx_list)
 
     def __getitem__(self, index) -> Dict:
-        """Return one grayscale mask-COM crop + its mask crop + metadata."""
-        from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
+        """Return one grayscale crop + a mask crop + metadata.
 
+        Mask mode: crop centered on the mask COM, carrying the binary mask crop.
+        Pose mode: crop centered on the pose centroid (mean of visible keypoints),
+        carrying an all-ones mask (no segmentation; train maskless via
+        ``preprocessing.burn_in=false``).
+        """
         meta = self.mask_idx_list[index]
         labels_idx, lf_idx = meta["labels_idx"], meta["lf_idx"]
 
@@ -1991,9 +2116,18 @@ class EmbeddingDataset(BaseDataset):
 
         image = np.expand_dims(np.transpose(img, (2, 0, 1)), axis=0)  # (1, C, H, W)
         image = torch.from_numpy(image.copy())
-        orig_h, orig_w = image.shape[-2:]
 
-        # Decode the mask onto the full-frame canvas (clamp to bounds).
+        if "centroid" in meta:  # pose mode
+            instance_image, instance_mask = self._crop_pose(image, meta)
+        else:  # mask mode
+            instance_image, instance_mask = self._crop_mask(image, meta)
+        return self._pack_sample(instance_image, instance_mask, meta, index)
+
+    def _crop_mask(self, image, meta):
+        """Crop centered on the mask COM; return ``(image_crop, mask_crop)``."""
+        from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
+
+        orig_h, orig_w = image.shape[-2:]
         mask_np = decode_mask_to_image_res(meta["mask_obj"])
         if mask_np.shape[:2] != (orig_h, orig_w):
             full = np.zeros((orig_h, orig_w), dtype=bool)
@@ -2010,7 +2144,6 @@ class EmbeddingDataset(BaseDataset):
         elif self.ensure_grayscale:
             image = convert_to_grayscale(image)
 
-        # Same geometry for image + mask.
         image, _ = apply_sizematcher(
             image, max_height=self.max_hw[0], max_width=self.max_hw[1]
         )
@@ -2018,21 +2151,46 @@ class EmbeddingDataset(BaseDataset):
             mask_t, max_height=self.max_hw[0], max_width=self.max_hw[1]
         )
 
-        # Stage 1: center on the mask COM.
         cx, cy = _compute_mask_centroids([mask_t[0, 0].numpy() > 0.5])[0]
         bbox = make_centered_bboxes(
             torch.tensor([cx, cy], dtype=torch.float32),
             self.crop_size,
             self.crop_size,
         ).unsqueeze(0)
-
         instance_image = crop_and_resize(
             image, boxes=bbox, size=(self.crop_size, self.crop_size)
         )
         instance_mask = crop_and_resize(
             mask_t, boxes=bbox, size=(self.crop_size, self.crop_size)
         )
-        return self._pack_sample(instance_image, instance_mask, meta, index)
+        return instance_image, instance_mask
+
+    def _crop_pose(self, image, meta):
+        """Crop centered on the pose centroid; return ``(image_crop, ones_mask)``."""
+        if self.ensure_rgb:
+            image = convert_to_rgb(image)
+        elif self.ensure_grayscale:
+            image = convert_to_grayscale(image)
+
+        image, ratio = apply_sizematcher(
+            image, max_height=self.max_hw[0], max_width=self.max_hw[1]
+        )
+        cx = float(meta["centroid"][0]) * ratio
+        cy = float(meta["centroid"][1]) * ratio
+        bbox = make_centered_bboxes(
+            torch.tensor([cx, cy], dtype=torch.float32),
+            self.crop_size,
+            self.crop_size,
+        ).unsqueeze(0)
+        instance_image = crop_and_resize(
+            image, boxes=bbox, size=(self.crop_size, self.crop_size)
+        )
+        # No segmentation in pose mode: an all-ones mask (burn-in is a no-op; train
+        # maskless via preprocessing.burn_in=false).
+        instance_mask = torch.ones(
+            (1, 1, self.crop_size, self.crop_size), dtype=torch.float32
+        )
+        return instance_image, instance_mask
 
     def _apply_crop_aug(self, image, mask):
         """Apply the standard config-driven skia aug to a crop + its mask.
@@ -3699,6 +3857,10 @@ def get_train_val_datasets(
         emb_cfg = config.model_config.head_configs.embedding.embedding
         # One global track-name vocabulary shared by train + val (the group_id space).
         class_names = resolve_embedding_class_names(train_labels + val_labels)
+        # Training-group key (global track-name vs per-video tracklet).
+        id_scope = OmegaConf.select(
+            emb_cfg, "objective.positives.scope", default="global_id"
+        )
         max_stride = config.model_config.backbone_config[f"{backbone_type}"][
             "max_stride"
         ]
@@ -3716,6 +3878,7 @@ def get_train_val_datasets(
             class_names=class_names,
             embedding_head_config=emb_cfg,
             max_stride=max_stride,
+            id_scope=id_scope,
             user_instances_only=config.data_config.user_instances_only,
             ensure_rgb=False,
             ensure_grayscale=True,
@@ -3746,6 +3909,7 @@ def get_train_val_datasets(
             class_names=class_names,
             embedding_head_config=emb_cfg,
             max_stride=max_stride,
+            id_scope=id_scope,
             user_instances_only=config.data_config.user_instances_only,
             ensure_rgb=False,
             ensure_grayscale=True,

@@ -1167,6 +1167,7 @@ class EmbeddingHeadConfig:
     output_stride: int = 32
     loss_weight: float = 1.0
     freeze_backbone: bool = False
+    anchor_part: Optional[str] = None
     objective: Optional[ObjectiveConfig] = None
 
 

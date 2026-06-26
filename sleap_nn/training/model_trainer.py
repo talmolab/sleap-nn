@@ -445,6 +445,7 @@ class ModelTrainer:
             "centered_instance",
             "multi_class_topdown",
             "centered_instance_segmentation",
+            "embedding",
         ):
             crop_size = self.config.data_config.preprocessing.crop_size
 
@@ -465,6 +466,7 @@ class ModelTrainer:
                 "centered_instance",
                 "multi_class_topdown",
                 "centered_instance_segmentation",
+                "embedding",
             ):
                 # compute crop size if not provided in config
                 if crop_size is None:
@@ -548,6 +550,7 @@ class ModelTrainer:
                 "centered_instance",
                 "multi_class_topdown",
                 "centered_instance_segmentation",
+                "embedding",
             )
             and crop_size is None
         ):
