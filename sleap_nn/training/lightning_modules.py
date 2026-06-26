@@ -331,6 +331,10 @@ class LightningModel(L.LightningModule):
             negative_loss_weight=negative_loss_weight,
         )
 
+        if model_type == "embedding":
+            # Make `data_config.preprocessing.burn_in` live (mask-on vs centroid-crop).
+            set_embedding_burn_in_from_config(lightning_model, config)
+
         return lightning_model
 
     def forward(self, img):
@@ -2794,6 +2798,30 @@ def validate_embedding_identity(objective, identity):
         )
 
 
+def set_embedding_burn_in_from_config(module, config) -> None:
+    """Honor ``data_config.preprocessing.burn_in`` on an ``EmbeddingLightningModule``.
+
+    ``burn_in`` is a pure runtime toggle (read in ``training_step`` / ``forward`` /
+    ``validation_step``), so setting it after construction is safe. The LM ``__init__``
+    defaults it to ``True``; BOTH the training factory
+    (:meth:`LightningModel.get_lightning_model_from_config`) and the inference loader
+    (:func:`sleap_nn.inference.loaders._load_lightning_module`) call this so a model
+    trained maskless (``burn_in=False``, the "centroid-crop" objective) also runs
+    maskless at inference — no train/inference mismatch.
+
+    When ``burn_in`` is ``False`` the crop is NOT multiplied by the mask and
+    ``_standardize`` falls back to whole-crop standardize (the full square crop around
+    the centroid / mask-COM is kept, background included).
+
+    Args:
+        module: The constructed ``EmbeddingLightningModule``.
+        config: The full training config (carries ``data_config.preprocessing``).
+    """
+    module.burn_in = bool(
+        OmegaConf.select(config, "data_config.preprocessing.burn_in", default=True)
+    )
+
+
 class EmbeddingLightningModule(LightningModel):
     """Lightning Module for the ``embedding`` (crop -> vector, re-ID) model type.
 
@@ -2850,8 +2878,11 @@ class EmbeddingLightningModule(LightningModel):
         self.freeze_backbone = bool(
             OmegaConf.select(leaf, "freeze_backbone", default=False)
         )
-        # Spec'd pipeline (the user's directive): grayscale input + mask burn-in +
-        # per-crop standardize.
+        # Grayscale input + mask burn-in + per-crop standardize. `burn_in` is the
+        # DEFAULT here; the factory / inference loader override it from
+        # `data_config.preprocessing.burn_in` (set_burn_in_from_config) so a maskless
+        # "centroid-crop" objective can be trained without burning the mask in. When
+        # burn_in is off, `_standardize` falls back to whole-crop standardize.
         self.burn_in = True
         self.standardize = True
 

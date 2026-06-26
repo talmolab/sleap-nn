@@ -823,3 +823,32 @@ def test_validate_embedding_identity_aug_view_no_gates(caplog):
             _emb_identity(),  # all conservative defaults
         )  # no raise
     assert caplog.text == ""
+
+
+# ── Embedding mask burn-in is config-driven (data_config.preprocessing.burn_in) ──
+
+
+def test_set_embedding_burn_in_from_config():
+    """`set_embedding_burn_in_from_config` honors data_config.preprocessing.burn_in."""
+    from sleap_nn.training.lightning_modules import set_embedding_burn_in_from_config
+
+    class _M:
+        burn_in = True
+
+    m = _M()
+    set_embedding_burn_in_from_config(
+        m, OmegaConf.create({"data_config": {"preprocessing": {"burn_in": False}}})
+    )
+    assert m.burn_in is False
+
+    m = _M()
+    set_embedding_burn_in_from_config(
+        m, OmegaConf.create({"data_config": {"preprocessing": {"burn_in": True}}})
+    )
+    assert m.burn_in is True
+
+    # Absent field -> default True (preserves the historical mask-on behavior).
+    m = _M()
+    m.burn_in = None
+    set_embedding_burn_in_from_config(m, OmegaConf.create({"data_config": {}}))
+    assert m.burn_in is True

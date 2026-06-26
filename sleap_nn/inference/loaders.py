@@ -217,6 +217,14 @@ def _load_lightning_module(
         device=device,
     )
     module.to(device)
+    if model_type == "embedding":
+        # Match the training-time mask-burn-in choice so a maskless ("centroid-crop")
+        # model also runs maskless at inference (no train/inference mismatch).
+        from sleap_nn.training.lightning_modules import (
+            set_embedding_burn_in_from_config,
+        )
+
+        set_embedding_burn_in_from_config(module, config)
     return module, config, backbone_type
 
 
