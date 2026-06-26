@@ -1858,6 +1858,9 @@ class EmbeddingDataset(BaseDataset):
         user_instances_only: bool = True,
         ensure_rgb: bool = False,
         ensure_grayscale: bool = True,
+        intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        geometric_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        apply_aug: bool = False,
         scale: float = 1.0,
         max_hw: Tuple[Optional[int]] = (None, None),
         cache_img: Optional[str] = None,
@@ -1877,10 +1880,13 @@ class EmbeddingDataset(BaseDataset):
             user_instances_only=user_instances_only,
             ensure_rgb=ensure_rgb,
             ensure_grayscale=ensure_grayscale,
-            intensity_aug=None,
-            geometric_aug=None,
+            intensity_aug=intensity_aug,
+            geometric_aug=geometric_aug,
             scale=scale,
-            apply_aug=False,  # two-view aug happens in training_step (GPU)
+            # Two-view contrastive aug now reuses the standard skia augmentation
+            # (config-driven) per-crop in __getitem__ (CPU-side, like every other
+            # dataset) instead of a bespoke GPU reimplementation in the LM.
+            apply_aug=apply_aug,
             max_hw=max_hw,
             cache_img=cache_img,
             cache_img_path=cache_img_path,
@@ -2026,16 +2032,57 @@ class EmbeddingDataset(BaseDataset):
         instance_mask = crop_and_resize(
             mask_t, boxes=bbox, size=(self.crop_size, self.crop_size)
         )
+        return self._pack_sample(instance_image, instance_mask, meta, index)
 
-        return {
-            "instance_image": instance_image.to(torch.float32),
-            "instance_mask": (instance_mask > 0.5).to(torch.float32),
+    def _apply_crop_aug(self, image, mask):
+        """Apply the standard config-driven skia aug to a crop + its mask.
+
+        Reuses sleap-nn's :func:`apply_intensity_augmentation` /
+        :func:`apply_geometric_augmentation` (the same functions every other dataset
+        uses) instead of a bespoke GPU reimplementation: the mask co-transforms under
+        the SAME affine via the ``masks=`` arg, and a placeholder keypoint rides along
+        (the crop has no keypoints) and is discarded. Returns ``(image, mask)``.
+        """
+        # (n_samples=1, n_inst=1, n_nodes=1, 2) center placeholder for the keypoint
+        # co-transform the skia aug expects; its output is ignored.
+        dummy = torch.full((1, 1, 1, 2), float(self.crop_size) / 2.0)
+        if self.intensity_aug is not None:
+            image, _ = apply_intensity_augmentation(image, dummy, **self.intensity_aug)
+        if self.geometric_aug is not None:
+            image, _, mask = apply_geometric_augmentation(
+                image, dummy, masks=mask, symmetric_inds=None, **self.geometric_aug
+            )
+        return image, mask
+
+    def _pack_sample(self, instance_image, instance_mask, meta, index):
+        """Pack one crop into a sample dict.
+
+        Training (``apply_aug=True``): emit TWO independently-augmented views
+        (``instance_image``/``instance_image_view2`` + masks) for the two-view
+        contrastive loss. Val / inference (``apply_aug=False``): emit one un-augmented
+        view (``instance_image``) only.
+        """
+        sample = {
             "group_id": torch.tensor(meta["group_id"], dtype=torch.int64),
+            "global_group_id": torch.tensor(
+                meta.get("global_group_id", meta["group_id"]), dtype=torch.int64
+            ),
             "video_idx": torch.tensor(meta["video_idx"], dtype=torch.int64),
             "frame_idx": torch.tensor(meta["frame_idx"], dtype=torch.int64),
             "item_id": torch.tensor(index, dtype=torch.int64),
-            "labels_idx": labels_idx,
+            "labels_idx": meta["labels_idx"],
         }
+        if self.apply_aug:
+            img1, m1 = self._apply_crop_aug(instance_image, instance_mask)
+            img2, m2 = self._apply_crop_aug(instance_image, instance_mask)
+            sample["instance_image"] = img1.to(torch.float32)
+            sample["instance_mask"] = (m1 > 0.5).to(torch.float32)
+            sample["instance_image_view2"] = img2.to(torch.float32)
+            sample["instance_mask_view2"] = (m2 > 0.5).to(torch.float32)
+        else:
+            sample["instance_image"] = instance_image.to(torch.float32)
+            sample["instance_mask"] = (instance_mask > 0.5).to(torch.float32)
+        return sample
 
 
 class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
@@ -3672,6 +3719,18 @@ def get_train_val_datasets(
             user_instances_only=config.data_config.user_instances_only,
             ensure_rgb=False,
             ensure_grayscale=True,
+            # Two contrastive views via the standard config-driven skia aug (per crop).
+            intensity_aug=(
+                config.data_config.augmentation_config.intensity
+                if config.data_config.augmentation_config is not None
+                else None
+            ),
+            geometric_aug=(
+                config.data_config.augmentation_config.geometric
+                if config.data_config.augmentation_config is not None
+                else None
+            ),
+            apply_aug=config.data_config.use_augmentations_train,
             scale=config.data_config.preprocessing.scale,
             max_hw=max_hw,
             cache_img=cache_imgs,

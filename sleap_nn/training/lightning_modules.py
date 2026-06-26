@@ -2961,67 +2961,24 @@ class EmbeddingLightningModule(LightningModel):
         g = gray / 255.0
         return g * mask if self.burn_in else g
 
-    def _augment(
-        self,
-        gray,
-        mask,
-        rot=20.0,
-        scale=(0.85, 1.18),
-        trans=0.08,
-        hflip=True,
-        gamma=0.25,
-        bright=25.0,
-        noise=8.0,
-        erase_p=0.4,
-    ):
-        B, _, H, W = gray.shape
-        dev = gray.device
-        r = (torch.rand(B, device=dev) * 2 - 1) * rot * np.pi / 180.0
-        s = torch.rand(B, device=dev) * (scale[1] - scale[0]) + scale[0]
-        tx = (torch.rand(B, device=dev) * 2 - 1) * trans
-        ty = (torch.rand(B, device=dev) * 2 - 1) * trans
-        fl = (
-            (torch.rand(B, device=dev) < 0.5)
-            if hflip
-            else torch.zeros(B, dtype=torch.bool, device=dev)
-        )
-        cos, sin = torch.cos(r), torch.sin(r)
-        sx = s * torch.where(
-            fl,
-            torch.as_tensor(-1.0, device=dev),
-            torch.as_tensor(1.0, device=dev),
-        )
-        theta = torch.zeros(B, 2, 3, device=dev)
-        theta[:, 0, 0] = cos * sx
-        theta[:, 0, 1] = -sin * s
-        theta[:, 0, 2] = tx
-        theta[:, 1, 0] = sin * sx
-        theta[:, 1, 1] = cos * s
-        theta[:, 1, 2] = ty
-        grid = F.affine_grid(theta, (B, 1, H, W), align_corners=False)
-        g = F.grid_sample(
-            gray, grid, mode="bilinear", padding_mode="zeros", align_corners=False
-        )
-        m = F.grid_sample(
-            mask, grid, mode="nearest", padding_mode="zeros", align_corners=False
-        )
-        gm = torch.exp((torch.rand(B, 1, 1, 1, device=dev) * 2 - 1) * gamma)
-        g = 255.0 * torch.clamp(g / 255.0, 0, 1) ** gm
-        g = g + (torch.rand(B, 1, 1, 1, device=dev) * 2 - 1) * bright
-        g = g + torch.randn_like(g) * noise
-        g = torch.clamp(g, 0, 255)
-        if self.burn_in:
-            g = g * m
-        if erase_p > 0:
-            do = torch.rand(B, device=dev) < erase_p
-            for i in torch.nonzero(do).flatten().tolist():
-                eh = int(np.random.randint(H // 8, H // 3))
-                ew = int(np.random.randint(W // 8, W // 3))
-                y0 = int(np.random.randint(0, H - eh))
-                x0 = int(np.random.randint(0, W - ew))
-                g[i, :, y0 : y0 + eh, x0 : x0 + ew] = 0
-                m[i, :, y0 : y0 + eh, x0 : x0 + ew] = 0
-        return g, m
+    def _two_views(self, batch):
+        """Return the two augmented (gray, mask) views for the contrastive step.
+
+        The views are produced by the standard config-driven skia augmentation in
+        ``EmbeddingDataset.__getitem__`` (``instance_image`` / ``instance_image_view2``).
+        If a second view is absent (``apply_aug=False``), the first view is reused
+        (degenerate — train with ``use_augmentations_train=True``).
+        """
+        gray1 = torch.squeeze(batch["instance_image"], dim=1).to(torch.float32)
+        mask1 = torch.squeeze(batch["instance_mask"], dim=1).to(torch.float32)
+        if "instance_image_view2" in batch:
+            gray2 = torch.squeeze(batch["instance_image_view2"], dim=1).to(
+                torch.float32
+            )
+            mask2 = torch.squeeze(batch["instance_mask_view2"], dim=1).to(torch.float32)
+        else:
+            gray2, mask2 = gray1, mask1
+        return (gray1, mask1), (gray2, mask2)
 
     def forward(self, img):
         """Inference forward: image -> L2-normalized embedding (B, D)."""
@@ -3031,12 +2988,8 @@ class EmbeddingLightningModule(LightningModel):
         return self.model(x)["EmbeddingHead"]
 
     def training_step(self, batch, batch_idx):
-        """Two-view contrastive training step."""
-        gray = torch.squeeze(batch["instance_image"], dim=1).to(torch.float32)
-        mask = torch.squeeze(batch["instance_mask"], dim=1).to(torch.float32)
-
-        g1, m1 = self._augment(gray, mask)
-        g2, m2 = self._augment(gray, mask)
+        """Two-view contrastive training step (views augmented in the dataset)."""
+        (g1, m1), (g2, m2) = self._two_views(batch)
         x = torch.cat([self._build_input(g1, m1), self._build_input(g2, m2)], dim=0)
         e = self.model(x)["EmbeddingHead"]
         z = self._project(e)
