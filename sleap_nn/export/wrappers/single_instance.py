@@ -61,12 +61,20 @@ class SingleInstanceONNXWrapper(BaseExportWrapper):
         # Normalize uint8 [0, 255] to float32 [0, 1]
         image = self._normalize_uint8(image)
 
-        # Apply input scaling if needed
+        # Apply input scaling if needed. ``antialias=True`` matches the PyTorch inference
+        # path, which resizes via ``torchvision.transforms.functional.resize``
+        # (antialiased by default). Without it a downscaling resize (input_scale < 1)
+        # produces visibly different pixels, which shifts confidence-map peaks and —
+        # once scaled back by ``output_stride / input_scale`` — the exported keypoints.
         if self.input_scale != 1.0:
             height = int(image.shape[-2] * self.input_scale)
             width = int(image.shape[-1] * self.input_scale)
             image = F.interpolate(
-                image, size=(height, width), mode="bilinear", align_corners=False
+                image,
+                size=(height, width),
+                mode="bilinear",
+                align_corners=False,
+                antialias=True,
             )
 
         # Run model to get confidence maps: (batch, n_nodes, height, width)
