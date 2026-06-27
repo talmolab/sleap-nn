@@ -3006,15 +3006,30 @@ class GroupAwareBatchSampler(torch.utils.data.Sampler):
         K: int = 16,
         batches_per_epoch: Optional[int] = None,
         seed: int = 0,
+        rank: int = 0,
+        world_size: int = 1,
     ):
-        """Initialize the sampler from the dataset's per-crop arrays."""
+        """Initialize the sampler from the dataset's per-crop arrays.
+
+        Under multi-GPU (DDP) training, ``rank`` / ``world_size`` make each replica
+        draw a DIFFERENT batch stream (the RNG is seeded per ``(seed, rank)``). With the
+        per-replica ``batches_per_epoch``, the replicas process distinct batches whose
+        gradients are all-reduced — a genuinely larger effective batch instead of every
+        rank recomputing the identical batch. ``rank=0`` / ``world_size=1`` reproduces
+        the single-GPU stream exactly.
+        """
         self.group_ids = np.asarray(group_ids)
         self.video_ids = np.asarray(video_ids)
         self.frame_ids = np.asarray(frame_ids)
         self.kind = kind
         self.P = P
         self.K = K
-        self.rng = np.random.default_rng(seed)
+        self.rank = int(rank)
+        self.world_size = int(world_size)
+        # Per-rank stream: offsetting the seed by the rank gives each replica an
+        # independent batch sequence (SeedSequence decorrelates adjacent seeds), while
+        # rank 0 reproduces the single-GPU stream (seed + 0 == seed) byte-for-byte.
+        self.rng = np.random.default_rng(seed + self.rank)
         n = len(self.group_ids)
         self.all_idx = np.arange(n)
 
@@ -4108,6 +4123,10 @@ def get_train_val_dataloaders(
             K=OmegaConf.select(config, f"{sp}.samples_per_group", default=16),
             batches_per_epoch=max(1, round(train_steps_per_epoch / trainer_devices)),
             seed=OmegaConf.select(config, "trainer_config.seed", default=0) or 0,
+            # DDP: each rank draws a distinct batch stream (no DistributedSampler wraps a
+            # batch_sampler), so the all-reduced gradient covers world_size x P x K crops.
+            rank=rank if rank is not None else 0,
+            world_size=trainer_devices,
         )
         # Use a plain DataLoader (NOT InfiniteDataLoader): the GroupAwareBatchSampler
         # is already epoch-bounded (yields `batches_per_epoch` batches per __iter__,

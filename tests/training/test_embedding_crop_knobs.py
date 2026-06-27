@@ -358,3 +358,48 @@ class TestGeMExponentClamp:
         out = gem(torch.rand(2, 4, 8, 8) * 5.0)
         assert torch.isfinite(out).all()
         assert out.shape == (2, 4)
+
+
+# ----------------------------------------------------------------------------
+# GroupAwareBatchSampler DDP sharding
+# ----------------------------------------------------------------------------
+
+
+class TestSamplerDDPSharding:
+    """Under DDP each rank must draw a distinct batch stream (no wasted recompute)."""
+
+    def _make(self, rank=0, world_size=1, seed=0):
+        from sleap_nn.data.custom_datasets import GroupAwareBatchSampler
+
+        g = np.array([0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3])
+        v = np.array([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1])
+        f = np.arange(12)
+        return GroupAwareBatchSampler(
+            g,
+            v,
+            f,
+            kind="pk",
+            P=2,
+            K=2,
+            batches_per_epoch=6,
+            seed=seed,
+            rank=rank,
+            world_size=world_size,
+        )
+
+    def test_different_ranks_draw_different_batches(self):
+        b0 = list(self._make(rank=0, world_size=2))
+        b1 = list(self._make(rank=1, world_size=2))
+        assert b0 != b1  # disjoint streams -> the all-reduced gradient covers both
+
+    def test_rank0_is_independent_of_world_size(self):
+        # rank 0 reproduces the single-GPU stream regardless of world_size (a no-op
+        # for single-GPU training, where rank=0/world_size=1).
+        assert list(self._make(rank=0, world_size=1)) == list(
+            self._make(rank=0, world_size=4)
+        )
+
+    def test_same_rank_and_seed_is_reproducible(self):
+        assert list(self._make(rank=1, world_size=2, seed=7)) == list(
+            self._make(rank=1, world_size=2, seed=7)
+        )
