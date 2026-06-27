@@ -1066,3 +1066,24 @@ class TestEmbeddingRetrievalMetrics:
         emb, y = self._separable()
         m = embedding_leave_self_out_eval(emb, y)
         assert set(m.keys()) == {"rank1", "mAP", "auc", "eer", "knn_acc"}
+
+    def test_verification_excludes_self_pair_diagonal(self):
+        """Leave-self-out verification must drop the N perfect self-pairs.
+
+        Including the sim=1.0 same-identity diagonal optimistically inflates AUC; the
+        leave-self-out path passes ``exclude_diagonal=True`` so the score reflects only
+        genuine query-vs-other comparisons.
+        """
+        import numpy as np
+
+        from sleap_nn.evaluation import verification_metrics
+
+        rng = np.random.RandomState(0)
+        emb = rng.randn(20, 8)
+        y = np.array([0, 1] * 10)
+        with_diag = verification_metrics(emb, y, emb, y, exclude_diagonal=False)
+        without_diag = verification_metrics(emb, y, emb, y, exclude_diagonal=True)
+        # The self-pairs are perfect same-identity matches, so dropping them lowers the
+        # (optimistic) AUC for non-trivially-separable embeddings.
+        assert without_diag["auc"] <= with_diag["auc"]
+        assert without_diag["auc"] != with_diag["auc"]

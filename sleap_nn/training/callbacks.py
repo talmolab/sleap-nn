@@ -2057,7 +2057,7 @@ class CentroidEvaluationCallback(Callback):
 
 
 class EmbeddingEvaluationCallback(Callback):
-    """Per-epoch retrieval evaluation for the ``embedding`` model type (SPEC §8).
+    """Per-epoch retrieval evaluation for the ``embedding`` model type.
 
     Mirrors :class:`SegmentationEvaluationCallback`'s lifecycle: flips
     ``pl_module._collect_val_predictions`` on at validation start so the embedding
@@ -2143,25 +2143,32 @@ class EmbeddingEvaluationCallback(Callback):
                 except Exception as e:
                     logger.warning(f"Embedding epoch-end evaluation failed: {e}")
 
-        # Broadcast the selection scalar so ALL ranks log the SAME value into
-        # callback_metrics (ModelCheckpoint/EarlyStopping monitor reads it). Logging
-        # only on rank0 with sync_dist would deadlock.
-        sel = (
-            float(metrics[self.select_metric])
-            if (metrics is not None and self.select_metric in metrics)
-            else float("nan")
-        )
-        sel = trainer.strategy.broadcast(sel, src=0)
-        for k in ("rank1", "mAP", "auc", "eer", "knn_acc"):
-            v = (
-                float(metrics[k])
-                if (metrics is not None and k in metrics)
-                else float("nan")
-            )
-            v = trainer.strategy.broadcast(v, src=0)
-            pl_module.log(
-                f"eval/val/{k}", v, on_epoch=True, sync_dist=False, rank_zero_only=False
-            )
+        # Whether metrics were actually computed this epoch is known only on rank 0
+        # (eval cadence + data availability + a possibly-swallowed exception). Broadcast
+        # the flag so EVERY rank takes the SAME logging branch — mismatched ``self.log``
+        # calls across ranks would hang the DDP sync barrier.
+        have_metrics = bool(trainer.strategy.broadcast(metrics is not None, src=0))
+        if have_metrics:
+            # Broadcast each scalar from rank 0 so all ranks log the SAME value into
+            # callback_metrics (the ModelCheckpoint / EarlyStopping monitor reads it).
+            for k in ("rank1", "mAP", "auc", "eer", "knn_acc"):
+                v = (
+                    float(metrics[k])
+                    if (metrics is not None and k in metrics)
+                    else float("nan")
+                )
+                v = trainer.strategy.broadcast(v, src=0)
+                pl_module.log(
+                    f"eval/val/{k}",
+                    v,
+                    on_epoch=True,
+                    sync_dist=False,
+                    rank_zero_only=False,
+                )
+        # On non-eval epochs we log NOTHING for these keys: ``callback_metrics`` retains
+        # the last computed value, so the monitored selection metric stays finite and we
+        # never NaN-poison ``EarlyStopping(check_finite=True)`` into aborting the run at
+        # the first non-eval epoch.
 
         pl_module._collect_val_predictions = False
         if trainer.is_global_zero:

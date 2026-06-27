@@ -2096,14 +2096,28 @@ def retrieval_metrics(gallery_emb, gallery_y, query_emb, query_y):
     return {"rank1": round(rank1, 4), "mAP": round(mAP, 4)}
 
 
-def verification_metrics(gallery_emb, gallery_y, query_emb, query_y):
-    """ROC-AUC + EER over all query x gallery pairs (same vs different identity)."""
+def verification_metrics(
+    gallery_emb, gallery_y, query_emb, query_y, exclude_diagonal: bool = False
+):
+    """ROC-AUC + EER over all query x gallery pairs (same vs different identity).
+
+    When ``exclude_diagonal`` (gallery == query in the same order), the self-pairs on
+    the similarity diagonal are dropped before scoring so a leave-self-out evaluation is
+    not optimistically biased by ``N`` perfect same-identity matches at sim=1.0.
+    """
     from sklearn.metrics import roc_auc_score
 
     g, q = _l2_normalize(np.asarray(gallery_emb)), _l2_normalize(np.asarray(query_emb))
     gy, qy = np.asarray(gallery_y), np.asarray(query_y)
-    sim = (q @ g.T).ravel()
-    same = (qy[:, None] == gy[None, :]).ravel().astype(int)
+    sim2d = q @ g.T
+    same2d = (qy[:, None] == gy[None, :]).astype(int)
+    if exclude_diagonal:
+        keep = ~np.eye(sim2d.shape[0], sim2d.shape[1], dtype=bool)
+        sim = sim2d[keep]
+        same = same2d[keep]
+    else:
+        sim = sim2d.ravel()
+        same = same2d.ravel()
     if same.min() == same.max():
         return {"auc": float("nan"), "eer": float("nan")}
     auc = float(roc_auc_score(same, sim))
@@ -2191,7 +2205,7 @@ def embedding_leave_self_out_eval(emb, y, k: int = 7):
         votes[:, c] = (nn_s * (nn_y == c)).sum(1)
     knn_acc = float(np.mean(votes.argmax(1) == y))
 
-    ver = verification_metrics(emb, y, emb, y)
+    ver = verification_metrics(emb, y, emb, y, exclude_diagonal=True)
     return {
         "rank1": round(rank1, 4),
         "mAP": round(mAP, 4),

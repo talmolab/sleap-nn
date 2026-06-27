@@ -1028,16 +1028,35 @@ class ModelTrainer:
         # Checkpoint/early-stop SELECTION metric. Contrastive (embedding) objectives
         # are NOT well-selected by val/loss, so select on a retrieval metric (SPEC §8).
         if self.model_type == "embedding":
-            select_metric = OmegaConf.select(
+            # Touch the objective/sampler so a missing config fails loud here rather
+            # than deep in the dataloader.
+            OmegaConf.select(
                 self.config,
                 "model_config.head_configs.embedding.embedding.objective.sampler.kind",
                 default=None,
-            )  # touch to ensure config present
+            )
             emb_select = OmegaConf.select(
                 self.config, "trainer_config.eval.select_metric", default="rank1"
             )
+            # Per-metric selection mode: retrieval / verification-AUC / kNN-accuracy are
+            # higher-better; EER is lower-better. Validate the name so a typo cannot
+            # silently monitor a key that is never logged (ModelCheckpoint would then
+            # never save "best" and a strict EarlyStopping would raise).
+            emb_metric_modes = {
+                "rank1": "max",
+                "mAP": "max",
+                "auc": "max",
+                "knn_acc": "max",
+                "eer": "min",
+            }
+            if emb_select not in emb_metric_modes:
+                raise ValueError(
+                    f"trainer_config.eval.select_metric='{emb_select}' is not a valid "
+                    f"embedding selection metric; choose one of "
+                    f"{'|'.join(emb_metric_modes)}."
+                )
             ckpt_monitor = f"eval/val/{emb_select}"
-            ckpt_mode = "min" if emb_select == "eer" else "max"
+            ckpt_mode = emb_metric_modes[emb_select]
         else:
             ckpt_monitor, ckpt_mode = "val/loss", "min"
 
