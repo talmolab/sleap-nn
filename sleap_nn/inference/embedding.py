@@ -10,7 +10,11 @@ This module hosts:
   mask crop in a ``.slp`` and STREAM the vectors + index arrays
   (``video`` / ``frame`` / ``detection`` / ``track``) incrementally to a simple
   ``.h5`` (resizable datasets), so a long video never holds the whole set of
-  vectors in RAM (SPEC M5). The forward routes through the native-framework
+  vectors in RAM. NOTE: ``detection`` is a per-``(video, frame)`` running
+  ordinal over the *emitted* (tracked / valid) crops only — NOT the positional
+  ``lf.instances`` / ``lf.masks`` index. Join an embedding back to its source on the
+  ``(video, frame, track)`` key (or ``(video, frame, detection)`` within this file),
+  not by positional index against the labels. The forward routes through the native-framework
   :class:`~sleap_nn.inference.layers.embedding.EmbeddingLayer`, so the crop
   pipeline (grayscale + mask burn-in + per-crop standardize) is IDENTICAL to
   training and the embeddings are consistent with the validation retrieval
@@ -170,8 +174,11 @@ def predict_embeddings_to_h5(
     out = output_path or f"{data_path}.embeddings.h5"
     str_dt = h5py.string_dtype("utf-8")
     embedding_dim = int(emb_head.embedding_dim)
-    # Per-(video, frame) running detection ordinal, stable across batches.
+    # Per-(video, frame) running detection ordinal, stable across batches. The stream is
+    # frame-ordered (shuffle=False), so a frame's entry is evicted once the key changes
+    # (``prev_key``) -> det_counter stays O(1), matching the documented O(batch) RAM.
     det_counter: dict = {}
+    prev_key = None
     n_written = 0
 
     with h5py.File(out, "w") as h:
@@ -210,8 +217,11 @@ def predict_embeddings_to_h5(
                 f = int(batch["frame_idx"][i])
                 g = int(batch["group_id"][i])
                 key = (v, f)
+                if prev_key is not None and key != prev_key:
+                    det_counter.pop(prev_key, None)  # completed frame (frame-ordered)
                 d = det_counter.get(key, 0)
                 det_counter[key] = d + 1
+                prev_key = key
                 vids.append(v)
                 frames.append(f)
                 dets.append(d)
@@ -288,7 +298,10 @@ def _stream_embeddings_centroid_driven(
     embedding_dim = int(layer.centered_instance_layer.embedding_dim)
 
     out = output_path or f"{data_path}.embeddings.h5"
+    # Frame-ordered stream: evict a frame's ordinal once the key changes (see the
+    # mask-driven counterpart above) so det_counter stays O(1).
     det_counter: dict = {}
+    prev_key = None
     n_written = 0
 
     with h5py.File(out, "w") as h:
@@ -338,8 +351,11 @@ def _stream_embeddings_centroid_driven(
                     if not bool(valid[b, i]):
                         continue
                     key = (v, f)
+                    if prev_key is not None and key != prev_key:
+                        det_counter.pop(prev_key, None)  # completed frame
                     d = det_counter.get(key, 0)
                     det_counter[key] = d + 1
+                    prev_key = key
                     embs.append(emb[b, i])
                     cxys.append(cent[b, i])
                     vids.append(v)

@@ -500,7 +500,14 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
                 )
             )
         elif "embedding" in head_cfg and head_cfg["embedding"] is not None:
-            emb = head_cfg["embedding"]["embedding"]
+            emb = head_cfg["embedding"].get("embedding")
+            if emb is None:
+                raise ValueError(
+                    "head_configs.embedding must contain a non-null 'embedding' leaf "
+                    "(head_configs.embedding.embedding with embedding_dim / pool / "
+                    "objective / ...); see "
+                    "docs/sample_configs/config_embedding_convnext.yaml."
+                )
             obj = emb.get("objective", {}) or {}
             objective = ObjectiveConfig(
                 positives=PositivesConfig(**(obj.get("positives", {}) or {})),

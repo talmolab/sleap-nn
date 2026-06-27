@@ -1918,6 +1918,17 @@ class EmbeddingDataset(BaseDataset):
             logger.error(message)
             raise ValueError(message)
         self.crop_centering = crop_centering
+        # `scale` is NOT applied to embedding crops (the crop path sizes via the
+        # centroid bbox + max_hw, then resizes to crop_size), but inference's
+        # EmbeddingLayer DOES scale its preprocess — so a non-1.0 scale would make the
+        # trained and inference crops disagree. Warn rather than silently diverge.
+        if float(scale) != 1.0:
+            logger.warning(
+                f"data_config.preprocessing.scale={scale} is not applied to embedding "
+                "crops (only crop_size sizing is), but inference scales its crops — "
+                "leave scale=1.0 for the embedding model to keep train/inference crops "
+                "consistent."
+            )
         self._tracklet_vocab: Dict[tuple, int] = {}
         super().__init__(
             labels=labels,
@@ -2971,7 +2982,7 @@ class _RepeatSampler:
 
 
 class GroupAwareBatchSampler(torch.utils.data.Sampler):
-    """Group-aware batch sampler for contrastive embedding training (SPEC §4.5).
+    """Group-aware batch sampler for contrastive embedding training.
 
     Its only job is to make the wanted positives/negatives co-occur in a batch. Modes:
       - ``pk``: P groups x K crops (the contrastive-standard sampler; guarantees K
