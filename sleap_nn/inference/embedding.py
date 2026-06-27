@@ -48,6 +48,7 @@ class EmbeddingInferenceModel:
     input_scale: float = 1.0
     crop_size: Optional[int] = None
     ensure_grayscale: bool = True
+    ensure_rgb: bool = False
 
 
 @torch.inference_mode()
@@ -62,9 +63,11 @@ def predict_embeddings_to_h5(
     """Embed every tracked mask crop in ``data_path`` and STREAM them to ``.h5``.
 
     The forward routes through the native :class:`Predictor` /
-    :class:`~sleap_nn.inference.layers.embedding.EmbeddingLayer`; crops are
-    enumerated per tracked mask (mask-COM centered, grayscale, mask burn-in)
-    exactly as in training. Embeddings + index arrays are appended to resizable
+    :class:`~sleap_nn.inference.layers.embedding.EmbeddingLayer`; crops are enumerated
+    per tracked mask and built by the SAME ``EmbeddingDataset`` as training, so the
+    crop pipeline (centering per ``crop_centering``, grayscale-by-default but
+    RGB-capable via ``ensure_rgb``, mask burn-in + ``background_fill``) matches the
+    trained model's config exactly. Embeddings + index arrays are appended to resizable
     ``.h5`` datasets batch-by-batch (O(batch) RAM, never the whole video).
 
     Args:
@@ -145,13 +148,21 @@ def predict_embeddings_to_h5(
     if not class_names:
         raise ValueError(f"No tracked masks found in {data_path} to embed.")
 
+    from sleap_nn.inference.loaders import _resolve_embedding_channels
+
+    emb_ensure_rgb, emb_ensure_grayscale = _resolve_embedding_channels(config)
+    crop_centering = OmegaConf.select(
+        config, "data_config.preprocessing.crop_centering", default="auto"
+    )
     dataset = EmbeddingDataset(
         labels=[labels],
         crop_size=crop_size,
         class_names=class_names,
         embedding_head_config=emb_head,
         max_stride=max_stride,
-        ensure_grayscale=True,
+        crop_centering=crop_centering,
+        ensure_rgb=emb_ensure_rgb,
+        ensure_grayscale=emb_ensure_grayscale,
         cache_img=None,
     )
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False)

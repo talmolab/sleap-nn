@@ -228,6 +228,27 @@ def _load_lightning_module(
     return module, config, backbone_type
 
 
+def _resolve_embedding_channels(config: Any) -> Tuple[bool, bool]:
+    """Resolve ``(ensure_rgb, ensure_grayscale)`` for an embedding model from config.
+
+    Mirrors the training factory: grayscale is the default; the user opts into RGB via
+    ``data_config.preprocessing.ensure_rgb``. A 3-channel ImageNet backbone repeats the
+    gray channel in ``Model.forward``, so grayscale data still works with convnext/swint.
+    """
+    ensure_rgb = bool(
+        OmegaConf.select(config, "data_config.preprocessing.ensure_rgb", default=False)
+    )
+    ensure_grayscale = (
+        bool(
+            OmegaConf.select(
+                config, "data_config.preprocessing.ensure_grayscale", default=False
+            )
+        )
+        or not ensure_rgb
+    )
+    return ensure_rgb, ensure_grayscale
+
+
 def _resolve_preprocess_config(preprocess_config: Any, training_config: Any) -> Any:
     """Fill ``None`` fields in *preprocess_config* from the training config.
 
@@ -531,6 +552,7 @@ def _build_embedding(
     preprocess_config = _resolve_preprocess_config(preprocess_config, config)
 
     emb_head = config.model_config.head_configs.embedding.embedding
+    emb_ensure_rgb, emb_ensure_grayscale = _resolve_embedding_channels(config)
     inference_model = EmbeddingInferenceModel(
         torch_model=module,
         embedding_dim=int(emb_head.embedding_dim),
@@ -538,7 +560,8 @@ def _build_embedding(
         max_stride=int(max_stride),
         input_scale=config.data_config.preprocessing.scale,
         crop_size=int(config.data_config.preprocessing.crop_size),
-        ensure_grayscale=True,
+        ensure_grayscale=emb_ensure_grayscale,
+        ensure_rgb=emb_ensure_rgb,
     )
     return LoadedAssets(
         inference_model=inference_model,
@@ -663,6 +686,7 @@ def _build_topdown_embedding(
             anchor_ind=anchor_ind,
         )
 
+    emb_ensure_rgb, emb_ensure_grayscale = _resolve_embedding_channels(emb_config)
     emb_model = EmbeddingInferenceModel(
         torch_model=emb_module,
         embedding_dim=int(emb_head.embedding_dim),
@@ -670,7 +694,8 @@ def _build_topdown_embedding(
         max_stride=int(max_stride_emb),
         input_scale=emb_config.data_config.preprocessing.scale,
         crop_size=int(preprocess_config.crop_size),
-        ensure_grayscale=True,
+        ensure_grayscale=emb_ensure_grayscale,
+        ensure_rgb=emb_ensure_rgb,
     )
 
     inference_model = TopDownInferenceModel(

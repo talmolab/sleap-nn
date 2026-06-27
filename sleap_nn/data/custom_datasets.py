@@ -1831,6 +1831,21 @@ def resolve_embedding_class_names(labels: List[sio.Labels]) -> List[str]:
     return sorted(names)
 
 
+def _mask_bbox_midpoint(mask_bool: np.ndarray) -> Tuple[float, float]:
+    """Return the ``(cx, cy)`` midpoint of a boolean mask's bounding box.
+
+    Robust to concave masks whose center-of-mass falls off the instance. Falls back
+    to the image center when the mask is empty.
+    """
+    ys, xs = np.where(mask_bool)
+    if xs.size == 0:
+        h, w = mask_bool.shape[:2]
+        return float(w) / 2.0, float(h) / 2.0
+    cx = (float(xs.min()) + float(xs.max())) / 2.0
+    cy = (float(ys.min()) + float(ys.max())) / 2.0
+    return cx, cy
+
+
 class EmbeddingDataset(BaseDataset):
     """Dataset for the ``embedding`` (crop -> vector, re-ID) model type.
 
@@ -1869,6 +1884,7 @@ class EmbeddingDataset(BaseDataset):
         embedding_head_config: DictConfig,
         max_stride: int,
         id_scope: str = "global_id",
+        crop_centering: str = "auto",
         user_instances_only: bool = True,
         ensure_rgb: bool = False,
         ensure_grayscale: bool = True,
@@ -1891,6 +1907,17 @@ class EmbeddingDataset(BaseDataset):
         # `group_id` keying: global track-name (global_id) vs per-(video, track)
         # tracklet. `_tracklet_vocab` lazily assigns a dense id per distinct tracklet.
         self.id_scope = id_scope
+        # Mask-mode crop center: `auto`/`mask_com` -> mask center-of-mass; `bbox` ->
+        # mask bounding-box midpoint (robust to concave masks). Pose-mode centering is
+        # driven by `anchor_part` regardless of this knob.
+        if crop_centering not in ("auto", "mask_com", "bbox"):
+            message = (
+                f"Unknown crop_centering '{crop_centering}'; choose one of "
+                f"auto|mask_com|bbox."
+            )
+            logger.error(message)
+            raise ValueError(message)
+        self.crop_centering = crop_centering
         self._tracklet_vocab: Dict[tuple, int] = {}
         super().__init__(
             labels=labels,
@@ -2151,7 +2178,11 @@ class EmbeddingDataset(BaseDataset):
             mask_t, max_height=self.max_hw[0], max_width=self.max_hw[1]
         )
 
-        cx, cy = _compute_mask_centroids([mask_t[0, 0].numpy() > 0.5])[0]
+        mask_bool = mask_t[0, 0].numpy() > 0.5
+        if self.crop_centering == "bbox":
+            cx, cy = _mask_bbox_midpoint(mask_bool)
+        else:  # "auto" / "mask_com"
+            cx, cy = _compute_mask_centroids([mask_bool])[0]
         bbox = make_centered_bboxes(
             torch.tensor([cx, cy], dtype=torch.float32),
             self.crop_size,
@@ -3869,9 +3900,18 @@ def get_train_val_datasets(
             config.data_config.preprocessing.max_height,
             config.data_config.preprocessing.max_width,
         )
-        # Force grayscale for the embedding model (helps the cross-video gap); never
-        # ensure_rgb (the 3ch-backbone ImageNet case repeats the gray channel in
-        # Model.forward).
+        # Grayscale is the embedding default (helps the cross-video gap), but the user
+        # can opt into RGB via `preprocessing.ensure_rgb`. A 3ch ImageNet backbone
+        # repeats the gray channel in Model.forward, so grayscale data still works with
+        # convnext/swint. When neither flag is set, default to grayscale.
+        emb_ensure_rgb = bool(config.data_config.preprocessing.ensure_rgb)
+        emb_ensure_grayscale = (
+            bool(config.data_config.preprocessing.ensure_grayscale)
+            or not emb_ensure_rgb
+        )
+        crop_centering = OmegaConf.select(
+            config, "data_config.preprocessing.crop_centering", default="auto"
+        )
         train_dataset = EmbeddingDataset(
             labels=train_labels,
             crop_size=crop_size,
@@ -3879,9 +3919,10 @@ def get_train_val_datasets(
             embedding_head_config=emb_cfg,
             max_stride=max_stride,
             id_scope=id_scope,
+            crop_centering=crop_centering,
             user_instances_only=config.data_config.user_instances_only,
-            ensure_rgb=False,
-            ensure_grayscale=True,
+            ensure_rgb=emb_ensure_rgb,
+            ensure_grayscale=emb_ensure_grayscale,
             # Two contrastive views via the standard config-driven skia aug (per crop).
             intensity_aug=(
                 config.data_config.augmentation_config.intensity
@@ -3910,9 +3951,10 @@ def get_train_val_datasets(
             embedding_head_config=emb_cfg,
             max_stride=max_stride,
             id_scope=id_scope,
+            crop_centering=crop_centering,
             user_instances_only=config.data_config.user_instances_only,
-            ensure_rgb=False,
-            ensure_grayscale=True,
+            ensure_rgb=emb_ensure_rgb,
+            ensure_grayscale=emb_ensure_grayscale,
             scale=config.data_config.preprocessing.scale,
             max_hw=max_hw,
             cache_img=cache_imgs,

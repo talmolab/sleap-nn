@@ -99,6 +99,7 @@ class EmbeddingLayer(InferenceLayer):
         embedding_dim: int,
         output_stride: int = 1,
         max_stride: int = 1,
+        input_channels: int = 1,
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
     ) -> None:
@@ -112,6 +113,9 @@ class EmbeddingLayer(InferenceLayer):
         )
         self.embedding_module = embedding_module
         self.embedding_dim = int(embedding_dim)
+        # Data channels the model was trained on (1 = grayscale default, 3 = RGB). The
+        # crop is coerced to this so inference matches the training input.
+        self.input_channels = int(input_channels)
         # The composed TopDownLayer machinery inspects this on stage-2 layers.
         self.use_gt_peaks = False
 
@@ -139,11 +143,16 @@ class EmbeddingLayer(InferenceLayer):
             each crop enumerates as exactly one detection.
         """
         x = self._to_4d_tensor(crops)
-        # Coerce to single-channel grayscale to match training input.
-        if x.shape[1] != 1:
+        # Coerce to the training data channels (grayscale by default; RGB if the model
+        # was trained with ensure_rgb).
+        if self.input_channels == 1 and x.shape[1] != 1:
             from sleap_nn.data.normalization import convert_to_grayscale
 
             x = convert_to_grayscale(x.float())
+        elif self.input_channels == 3 and x.shape[1] != 3:
+            from sleap_nn.data.normalization import convert_to_rgb
+
+            x = convert_to_rgb(x.float())
         m = None
         if masks is not None:
             m = self._to_4d_tensor(masks).float()

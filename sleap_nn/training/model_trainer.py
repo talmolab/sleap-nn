@@ -694,8 +694,14 @@ class ModelTrainer:
                 self.config.model_config.backbone_config[
                     f"{self.backbone_type}"
                 ].in_channels = 3
-                self.config.data_config.preprocessing.ensure_rgb = True
-                self.config.data_config.preprocessing.ensure_grayscale = False
+                # The ImageNet stem needs a 3-channel input, but the `embedding`
+                # model type keeps its (default grayscale) DATA channels: a 1-channel
+                # crop is repeated to 3 in `Model.forward`. Flipping ensure_rgb here
+                # would silently turn an explicitly-grayscale re-ID model into an RGB
+                # one. For every other model type, sync the data to RGB as before.
+                if self.model_type != "embedding":
+                    self.config.data_config.preprocessing.ensure_rgb = True
+                    self.config.data_config.preprocessing.ensure_grayscale = False
                 logger.info(
                     f"Updating backbone in_channels to 3 based on the pretrained model weights."
                 )

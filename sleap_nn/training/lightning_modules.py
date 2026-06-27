@@ -2807,6 +2807,9 @@ def validate_embedding_identity(objective, identity):
         )
 
 
+_EMBEDDING_BACKGROUND_FILLS = ("black", "grey", "mean", "noise")
+
+
 def set_embedding_burn_in_from_config(module, config) -> None:
     """Honor ``data_config.preprocessing.burn_in`` on an ``EmbeddingLightningModule``.
 
@@ -2822,6 +2825,11 @@ def set_embedding_burn_in_from_config(module, config) -> None:
     ``_standardize`` falls back to whole-crop standardize (the full square crop around
     the centroid / mask-COM is kept, background included).
 
+    Also honors ``data_config.preprocessing.background_fill`` (what the masked-out
+    background is replaced with when ``burn_in`` is on): ``black`` (default, the
+    original mask-multiply), ``grey`` (mid-grey), ``mean`` (foreground mean — neutral,
+    equivalent to ``black`` for standardized inputs), or ``noise`` (per-pixel noise).
+
     Args:
         module: The constructed ``EmbeddingLightningModule``.
         config: The full training config (carries ``data_config.preprocessing``).
@@ -2829,6 +2837,18 @@ def set_embedding_burn_in_from_config(module, config) -> None:
     module.burn_in = bool(
         OmegaConf.select(config, "data_config.preprocessing.burn_in", default=True)
     )
+    background_fill = OmegaConf.select(
+        config, "data_config.preprocessing.background_fill", default="black"
+    )
+    if background_fill not in _EMBEDDING_BACKGROUND_FILLS:
+        message = (
+            f"Unknown data_config.preprocessing.background_fill "
+            f"'{background_fill}'; choose one of "
+            f"{'|'.join(_EMBEDDING_BACKGROUND_FILLS)}."
+        )
+        logger.error(message)
+        raise ValueError(message)
+    module.background_fill = background_fill
 
 
 class EmbeddingLightningModule(LightningModel):
@@ -2894,6 +2914,10 @@ class EmbeddingLightningModule(LightningModel):
         # burn_in is off, `_standardize` falls back to whole-crop standardize.
         self.burn_in = True
         self.standardize = True
+        # What the masked-out background is replaced with when burn_in is on. The
+        # factory / inference loader override this from
+        # ``data_config.preprocessing.background_fill`` (set_embedding_burn_in_from_config).
+        self.background_fill = "black"
 
         # Resolve the objective with defaults (nested sub-configs may be None).
         obj = leaf.objective
@@ -2960,15 +2984,48 @@ class EmbeddingLightningModule(LightningModel):
         m = mask if self.burn_in else torch.ones_like(mask)
         cnt = m.sum((1, 2, 3), keepdim=True).clamp(min=1)
         mu = (gray * m).sum((1, 2, 3), keepdim=True) / cnt
-        var = ((gray - mu) ** 2 * m).sum((1, 2, 3), keepdim=True) / cnt
-        g = (gray - mu) / (var.sqrt() + eps)
-        return g * m if self.burn_in else g
+        std = (((gray - mu) ** 2 * m).sum((1, 2, 3), keepdim=True) / cnt).sqrt() + eps
+        g = (gray - mu) / std
+        if not self.burn_in:
+            return g
+        # Compose the standardized foreground with the configured background fill.
+        return g * m + self._background_fill(g, m, mu, std) * (1 - m)
+
+    def _background_fill(self, g, m, mu, std):
+        """Standardized-space fill for the masked-out background (burn-in only).
+
+        ``black`` (default) and ``mean`` are 0 (the foreground mean in standardized
+        space — the original mask-multiply); ``grey`` is the standardized value of raw
+        mid-grey for the crop; ``noise`` is per-pixel standard-normal noise. ``noise``
+        is applied only during training (it is an augmentation): at eval / inference it
+        falls back to the neutral 0 fill so the retrieval metric — and thus checkpoint
+        selection — stays deterministic.
+        """
+        fill = getattr(self, "background_fill", "black")
+        if fill == "grey":
+            return (127.5 - mu) / std
+        if fill == "noise" and self.training:
+            return torch.randn_like(g)
+        # "black" / "mean" / (noise at eval) -> foreground mean == 0 in standardized space.
+        return torch.zeros_like(g)
 
     def _build_input(self, gray, mask):
         if self.standardize:
             return self._standardize(gray, mask)
         g = gray / 255.0
-        return g * mask if self.burn_in else g
+        if not self.burn_in:
+            return g
+        fill = getattr(self, "background_fill", "black")
+        if fill == "grey":
+            bg = torch.full_like(g, 0.5)
+        elif fill == "mean":
+            cnt = mask.sum((1, 2, 3), keepdim=True).clamp(min=1)
+            bg = (g * mask).sum((1, 2, 3), keepdim=True) / cnt
+        elif fill == "noise" and self.training:  # augmentation; deterministic at eval
+            bg = torch.rand_like(g)
+        else:  # "black" / (noise at eval)
+            bg = torch.zeros_like(g)
+        return g * mask + bg * (1 - mask)
 
     def _two_views(self, batch):
         """Return the two augmented (gray, mask) views for the contrastive step.

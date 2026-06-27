@@ -1550,6 +1550,60 @@ def test_multi_gpu_no_cache_auto_generates_run_name(config, tmp_path, minimal_in
         assert re.match(r"\d{6}_\d{6}\.", trainer.config.trainer_config.run_name)
 
 
+class TestEmbeddingChannelAutoSync:
+    """The convnext/swint+ImageNet channel auto-sync is decoupled for embedding.
+
+    Every other model type flips to RGB when a 3-channel ImageNet stem is requested;
+    the ``embedding`` model type keeps its (default grayscale) data channels — the
+    1-channel crop is repeated to 3 in ``Model.forward`` (P2 #7).
+    """
+
+    @staticmethod
+    def _cfg(model_type):
+        head = (
+            {"embedding": {"embedding": {"embedding_dim": 128}}}
+            if model_type == "embedding"
+            else {"centered_instance": {"confmaps": {}}}
+        )
+        return OmegaConf.create(
+            {
+                "data_config": {
+                    "preprocessing": {"ensure_rgb": False, "ensure_grayscale": True}
+                },
+                "model_config": {
+                    "backbone_config": {
+                        "convnext": {
+                            "in_channels": 1,
+                            "pre_trained_weights": "ConvNeXt_Tiny_Weights",
+                        }
+                    },
+                    "head_configs": head,
+                },
+            }
+        )
+
+    def _verify(self, model_type):
+        mt = ModelTrainer.__new__(ModelTrainer)
+        mt.config = self._cfg(model_type)
+        mt.backbone_type = "convnext"
+        mt.model_type = model_type
+        mt.train_labels = [None]  # skip the image-derived channel block
+        mt._verify_model_input_channels()
+        return mt.config
+
+    def test_embedding_keeps_grayscale_with_imagenet_stem(self):
+        cfg = self._verify("embedding")
+        assert cfg.model_config.backbone_config.convnext.in_channels == 3
+        assert cfg.data_config.preprocessing.ensure_grayscale is True
+        assert cfg.data_config.preprocessing.ensure_rgb is False
+
+    def test_non_embedding_still_flips_to_rgb(self):
+        cfg = self._verify("centered_instance")
+        assert cfg.model_config.backbone_config.convnext.in_channels == 3
+        assert cfg.data_config.preprocessing.ensure_rgb is True
+        assert cfg.data_config.preprocessing.ensure_grayscale is False
+
+
 class TestEmbeddingMemoryFallback:
     """Low-RAM cache fallback for the embedding model type (P0.2 follow-up)."""
 

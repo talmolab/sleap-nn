@@ -21,6 +21,11 @@ data_config:
   user_instances_only: true
   data_pipeline_fw: torch_dataset_cache_img_memory
   preprocessing:
+    # Grayscale is the default (drops the camera-color confound). Set ensure_rgb: true
+    # (and ensure_grayscale: false) to train/infer on color crops where hue is a real
+    # re-ID cue. A 3-channel ImageNet backbone repeats the gray channel internally, so
+    # grayscale works with convnext/swint; the channel choice is honored end-to-end
+    # (training, the `--embeddings_path` inference stream, and ONNX export).
     ensure_rgb: false
     ensure_grayscale: true  # re-ID typically benefits from grayscale (drops camera color)
     max_height: null
@@ -28,10 +33,20 @@ data_config:
     scale: 1.0
     crop_size: null         # auto-detected from instance extents + rotation padding
     min_crop_size: 100
+    # crop_centering (mask data only): how the fixed square crop is centered.
+    #   auto     -> mask center-of-mass (default); pose data uses anchor_part.
+    #   mask_com -> force the mask center-of-mass.
+    #   bbox     -> mask bounding-box midpoint (robust to concave masks whose COM
+    #               lands off the instance).
+    crop_centering: auto
     # burn_in: mask burn-in. true for mask-based data (background zeroed); the all-ones
     # placeholder mask of pose data makes it a no-op, so leaving it true is safe, but
     # set false for pure pose/centroid-crop data to be explicit.
     burn_in: false
+    # background_fill: what the masked-out background becomes when burn_in is on.
+    #   black -> zeroed (the original mask-multiply; neutral in standardized space).
+    #   grey  -> mid-grey.   mean -> foreground mean (== black for standardized input).
+    #   noise -> per-pixel noise (forces invariance to background texture).
     background_fill: black
   use_augmentations_train: true
   augmentation_config:

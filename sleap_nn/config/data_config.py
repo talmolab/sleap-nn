@@ -33,7 +33,17 @@ class PreprocessingConfig:
             crop (background pixels set to `background_fill`) so the embedder sees only
             the masked instance. *Default*: `False`.
         background_fill: (str) Fill value for masked-out background when `burn_in` is
-            True. One of `black` | `grey` | `mean`. *Default*: `black`.
+            True (`embedding` model type). One of `black` (the original mask-multiply;
+            foreground mean / 0 in standardized space), `grey` (mid-grey), `mean`
+            (foreground mean — equivalent to `black` for standardized inputs), or
+            `noise` (per-pixel noise). *Default*: `black`.
+        crop_centering: (str) For the `embedding` model type, what the fixed-square crop
+            is centered on. `auto` (mask mode -> mask center-of-mass; pose mode ->
+            `head_configs.embedding.embedding.anchor_part` with a mean-of-visible-nodes
+            fallback), `mask_com` (force the mask center-of-mass), or `bbox` (the mask
+            bounding-box midpoint, robust to concave masks whose COM lands off the
+            instance). Only `mask`-mode centering is affected; pose-mode centering is
+            driven by `anchor_part`. *Default*: `auto`.
     """
 
     ensure_rgb: bool = False
@@ -48,6 +58,7 @@ class PreprocessingConfig:
     crop_padding: Optional[int] = None
     burn_in: bool = False
     background_fill: str = "black"
+    crop_centering: str = "auto"
 
     def validate_scale(self):
         """Scale Validation.

@@ -454,12 +454,14 @@ def _build_topdown_segmentation_layer(
 def _build_embedding_layer_from_model(emb_model: Any, device: str) -> EmbeddingLayer:
     """Wrap an ``EmbeddingInferenceModel`` holder in an ``EmbeddingLayer``."""
     module = emb_model.torch_model
+    input_channels = 3 if getattr(emb_model, "ensure_rgb", False) else 1
     return EmbeddingLayer(
         backend=TorchBackend(model=module.model, device=device),
         embedding_module=module,
         embedding_dim=emb_model.embedding_dim,
         output_stride=emb_model.output_stride,
         max_stride=emb_model.max_stride,
+        input_channels=input_channels,
         preprocess_config=PreprocessConfig(scale=emb_model.input_scale),
         postprocess_config=PostprocessConfig(),
     )
