@@ -99,17 +99,21 @@ def export(
     from sleap_nn.export.utils import (
         load_training_config,
         resolve_anchor_part,
+        resolve_backbone_source,
         resolve_backbone_type,
         resolve_class_maps_output_stride,
         resolve_class_names,
         resolve_crop_size,
         resolve_edge_inds,
+        resolve_embedding_dim,
+        resolve_embedding_input_channels,
         resolve_input_channels,
         resolve_input_scale,
         resolve_input_shape,
         resolve_model_type,
         resolve_n_classes,
         resolve_node_names,
+        resolve_normalize,
         resolve_output_stride,
         resolve_pafs_output_stride,
     )
@@ -118,6 +122,7 @@ def export(
         BottomUpONNXWrapper,
         CenteredInstanceONNXWrapper,
         CentroidONNXWrapper,
+        EmbeddingONNXWrapper,
         SingleInstanceONNXWrapper,
         TopDownMultiClassCombinedONNXWrapper,
         TopDownMultiClassONNXWrapper,
@@ -165,6 +170,7 @@ def export(
             "single_instance",
             "multi_class_topdown",
             "multi_class_bottomup",
+            "embedding",
         ):
             raise click.ClickException(
                 f"Model type '{model_type}' is not supported for export yet."
@@ -200,6 +206,10 @@ def export(
         metadata_max_peaks = None
         metadata_n_classes = None
         metadata_class_names = None
+        metadata_embedding_dim = None
+        metadata_normalize = None
+        metadata_backbone_source = None
+        metadata_normalization = "0_to_1"
 
         if model_type == "centroid":
             wrapper = CentroidONNXWrapper(
@@ -293,6 +303,21 @@ def export(
             metadata_max_peaks = max_peaks_per_node
             metadata_n_classes = n_classes
             metadata_class_names = class_names
+        elif model_type == "embedding":
+            # Re-ID head: crop -> appearance vector. Simplest wrapper (single output,
+            # no peak finding, no skeleton). Input is the grayscale crop the embedder
+            # standardizes per-crop (the wrapper does not /255).
+            wrapper = EmbeddingONNXWrapper(
+                torch_model, normalize=resolve_normalize(cfg)
+            )
+            output_names = ["embedding"]
+            # No skeleton semantics for an appearance model.
+            node_names = []
+            edge_inds = []
+            metadata_embedding_dim = resolve_embedding_dim(cfg)
+            metadata_normalize = resolve_normalize(cfg)
+            metadata_backbone_source = resolve_backbone_source(cfg)
+            metadata_normalization = "per_crop_standardize"
         else:
             raise click.ClickException(
                 f"Model type '{model_type}' is not supported for export yet."
@@ -304,6 +329,19 @@ def export(
         input_shape = resolve_input_shape(
             cfg, input_height=input_height, input_width=input_width
         )
+        input_channels = resolve_input_channels(cfg)
+        if model_type == "embedding":
+            # The embedder consumes a fixed-size grayscale CROP, not a full frame:
+            # size the export input from the crop size + the (grayscale) data
+            # channels. A 3ch ImageNet backbone repeats gray->3ch internally.
+            if resolved_crop_size is None:
+                raise click.ClickException(
+                    "Embedding export requires a crop size. Provide --crop-size or "
+                    "set data_config.preprocessing.crop_size."
+                )
+            crop_h, crop_w = resolved_crop_size
+            input_channels = resolve_embedding_input_channels(cfg)
+            input_shape = (1, input_channels, crop_h, crop_w)
         model_out_path = export_dir / "model.onnx"
 
         export_to_onnx(
@@ -335,7 +373,7 @@ def export(
             node_names=node_names,
             edge_inds=edge_inds,
             input_scale=resolved_scale,
-            input_channels=resolve_input_channels(cfg),
+            input_channels=input_channels,
             output_stride=output_stride,
             crop_size=resolved_crop_size,
             max_instances=metadata_max_instances,
@@ -345,11 +383,14 @@ def export(
             training_config_hash=training_config_hash,
             training_config_embedded=training_config_text is not None,
             input_dtype="uint8",
-            normalization="0_to_1",
+            normalization=metadata_normalization,
             n_classes=metadata_n_classes,
             class_names=metadata_class_names,
             peak_threshold=peak_threshold,
             anchor_part=resolve_anchor_part(cfg, model_type),
+            embedding_dim=metadata_embedding_dim,
+            normalize=metadata_normalize,
+            backbone_source=metadata_backbone_source,
         )
 
         metadata.save(export_dir / "export_metadata.json")
@@ -365,9 +406,9 @@ def export(
             trt_out_path = export_dir / "model.trt"
             B, C, H, W = input_shape
 
-            # For centered_instance and single_instance models, use crop size
-            # for TensorRT shape profiles since inference uses cropped inputs
-            if model_type in ("centered_instance", "single_instance"):
+            # For centered_instance, single_instance, and embedding models, use the
+            # crop size for TensorRT shape profiles since inference uses cropped inputs
+            if model_type in ("centered_instance", "single_instance", "embedding"):
                 if resolved_crop_size is not None:
                     crop_h, crop_w = resolved_crop_size
                     trt_input_shape = (1, C, crop_h, crop_w)
@@ -410,7 +451,7 @@ def export(
                 node_names=node_names,
                 edge_inds=edge_inds,
                 input_scale=resolved_scale,
-                input_channels=resolve_input_channels(cfg),
+                input_channels=input_channels,
                 output_stride=output_stride,
                 crop_size=resolved_crop_size,
                 max_instances=metadata_max_instances,
@@ -420,11 +461,14 @@ def export(
                 training_config_hash=training_config_hash,
                 training_config_embedded=training_config_text is not None,
                 input_dtype="uint8",
-                normalization="0_to_1",
+                normalization=metadata_normalization,
                 n_classes=metadata_n_classes,
                 class_names=metadata_class_names,
                 peak_threshold=peak_threshold,
                 anchor_part=resolve_anchor_part(cfg, model_type),
+                embedding_dim=metadata_embedding_dim,
+                normalize=metadata_normalize,
+                backbone_source=metadata_backbone_source,
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
         return
@@ -887,6 +931,7 @@ def _load_lightning_model(
         BottomUpLightningModule,
         BottomUpMultiClassLightningModule,
         CentroidLightningModule,
+        EmbeddingLightningModule,
         SingleInstanceLightningModule,
         TopDownCenteredInstanceLightningModule,
         TopDownCenteredInstanceMultiClassLightningModule,
@@ -899,6 +944,7 @@ def _load_lightning_model(
         "bottomup": BottomUpLightningModule,
         "multi_class_topdown": TopDownCenteredInstanceMultiClassLightningModule,
         "multi_class_bottomup": BottomUpMultiClassLightningModule,
+        "embedding": EmbeddingLightningModule,
     }.get(model_type)
 
     if lightning_cls is None:

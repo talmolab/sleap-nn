@@ -205,6 +205,68 @@ class TestExportCommand:
             or "not found" in result.output.lower()
         )
 
+    def test_export_command_embedding_onnx(self, minimal_embedding_model_dir, tmp_path):
+        """Export an embedding (re-ID) model to ONNX (P2 #6)."""
+        from sleap_nn.export.cli import export
+
+        output_dir = tmp_path / "export_embedding"
+        runner = CliRunner()
+        result = runner.invoke(
+            export,
+            [
+                str(minimal_embedding_model_dir),
+                "-o",
+                str(output_dir),
+                "--format",
+                "onnx",
+            ],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, result.output
+        assert (output_dir / "model.onnx").exists()
+
+        metadata = json.loads((output_dir / "export_metadata.json").read_text())
+        assert metadata["model_type"] == "embedding"
+        assert metadata["embedding_dim"] == 16
+        assert metadata["normalize"] is True
+        assert metadata["backbone_source"] == "scratch"
+        assert metadata["normalization"] == "per_crop_standardize"
+        # Grayscale crop input, no skeleton.
+        assert metadata["input_channels"] == 1
+        assert metadata["n_nodes"] == 0
+        assert metadata["node_names"] == []
+
+    @requires_onnxruntime
+    def test_export_command_embedding_onnxruntime_roundtrip(
+        self, minimal_embedding_model_dir, tmp_path
+    ):
+        """The exported embedding ONNX (incl. the GeM head) runs under onnxruntime."""
+        import numpy as np
+        import onnxruntime as ort
+
+        from sleap_nn.export.cli import export
+
+        output_dir = tmp_path / "export_embedding_ort"
+        runner = CliRunner()
+        result = runner.invoke(
+            export,
+            [str(minimal_embedding_model_dir), "-o", str(output_dir), "-f", "onnx"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+        sess = ort.InferenceSession(
+            str(output_dir / "model.onnx"), providers=["CPUExecutionProvider"]
+        )
+        in_name = sess.get_inputs()[0].name
+        crop = np.random.randint(0, 256, (2, 1, 32, 32)).astype(np.uint8)
+        out = sess.run(None, {in_name: crop})[0]
+        assert out.shape == (2, 16)
+        # normalize=True -> unit-norm rows.
+        norms = np.linalg.norm(out, axis=1)
+        assert np.allclose(norms, 1.0, atol=1e-4)
+
 
 class TestTwoCentroidGuard:
     """Two centroid directories is an error (no onnx dependency required).

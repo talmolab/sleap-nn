@@ -29,10 +29,21 @@ class EmbeddingONNXWrapper(BaseExportWrapper):
         self.eps = eps
 
     def forward(self, image: torch.Tensor):
-        """image: (B, 1, H, W) grayscale [0, 255] -> {"embedding": (B, D)}."""
+        """image: (B, C, H, W) [0, 255] -> {"embedding": (B, D)}.
+
+        Replicates ``EmbeddingLightningModule._standardize``'s maskless path exactly:
+        a 1-channel ones "mask" makes the normalization count the spatial size (H*W),
+        summing the numerator over all channels. For grayscale (C=1) this is the plain
+        per-crop standardize; for RGB (C=3) it matches the PyTorch inference path
+        (whose ``cnt`` is also H*W), so exported embeddings agree with inference.
+        Computing the count from a ones tensor (rather than a baked H*W constant) keeps
+        the graph valid under dynamic spatial axes.
+        """
         x = image.float()
-        mu = x.mean((1, 2, 3), keepdim=True)
-        var = ((x - mu) ** 2).mean((1, 2, 3), keepdim=True)
+        ones = torch.ones_like(x[:, :1])
+        cnt = ones.sum((1, 2, 3), keepdim=True).clamp(min=1)
+        mu = (x * ones).sum((1, 2, 3), keepdim=True) / cnt
+        var = ((x - mu) ** 2 * ones).sum((1, 2, 3), keepdim=True) / cnt
         x = (x - mu) / (var.sqrt() + self.eps)
         feat = self._extract_tensor(self.model(x), ["embedding", "vector"])
         if feat.dim() > 2:
