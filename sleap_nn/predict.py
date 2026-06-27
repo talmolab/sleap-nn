@@ -970,7 +970,13 @@ def run_inference(
         elif frames is not None:
             frame_selection_method = "specified"
 
-        # Determine model type from predictor class
+        # Determine model type from predictor class. This map is provenance-only and
+        # keyed by `Predictor` SUBCLASS name. The `embedding` (re-ID) model type never
+        # reaches here: it emits appearance vectors, not poses, and is routed through
+        # the dedicated `--embeddings_path` stream (`cli._run_embeddings` ->
+        # `inference.embedding.predict_embeddings_to_h5`) / `predictor._select_layer`'s
+        # `embedding` branch, never instantiating a `Predictor`. An `embedding` key here
+        # would be unreachable dead code.
         predictor_type_map = {
             "TopDownPredictor": "top_down",
             "SingleInstancePredictor": "single_instance",
