@@ -538,6 +538,16 @@ class GeM(nn.Module):
     """
 
     def __init__(self, p: float = 3.0, eps: float = 1e-6, learnable: bool = True):
+        """Initialize the pooling layer.
+
+        Args:
+            p: Initial generalized-mean exponent (``p=1`` averages, larger ``p``
+                approaches max-pooling).
+            eps: Small floor applied to the activation before the power to avoid a
+                fractional power of a non-positive value.
+            learnable: If ``True``, ``p`` is a trainable parameter; otherwise it is a
+                fixed buffer.
+        """
         super().__init__()
         if learnable:
             self.p = nn.Parameter(torch.tensor(float(p)))
@@ -546,18 +556,30 @@ class GeM(nn.Module):
         self.eps = eps
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        xp = x.clamp(min=self.eps).pow(self.p)
-        return F.adaptive_avg_pool2d(xp, 1).pow(1.0 / self.p).flatten(1)
+        """Pool ``[B, C, H, W]`` to ``[B, C]`` by the generalized mean over ``HxW``."""
+        # Clamp the (learnable) exponent to a sane floor: p -> 0 makes ``1/p`` explode
+        # and a negative p inverts the mean — either can yield inf/NaN embeddings that
+        # corrupt the whole batch's contrastive loss. The activation eps-clamp guards
+        # the base; this guards the exponent.
+        p = self.p.clamp(min=1.0)
+        xp = x.clamp(min=self.eps).pow(p)
+        return F.adaptive_avg_pool2d(xp, 1).pow(1.0 / p).flatten(1)
 
 
 class L2Norm(nn.Module):
     """L2-normalize along ``dim`` (so embeddings live on the unit hypersphere)."""
 
     def __init__(self, dim: int = 1):
+        """Initialize the layer.
+
+        Args:
+            dim: Dimension along which to L2-normalize.
+        """
         super().__init__()
         self.dim = dim
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """L2-normalize ``x`` along ``dim``."""
         return F.normalize(x, dim=self.dim)
 
 
@@ -586,8 +608,6 @@ class EmbeddingHead(Head):
         num_fc_units: int = 256,
         pool: str = "gem",
         normalize: bool = True,
-        gem_p: float = 3.0,
-        gem_eps: float = 1e-6,
         output_stride: int = 1,
         loss_weight: float = 1.0,
     ) -> None:
@@ -598,8 +618,6 @@ class EmbeddingHead(Head):
         self.num_fc_units = num_fc_units
         self.pool = pool
         self.normalize = normalize
-        self.gem_p = gem_p
-        self.gem_eps = gem_eps
 
     @property
     def channels(self) -> int:
@@ -644,7 +662,7 @@ class EmbeddingHead(Head):
         """
         module_dict = OrderedDict()
         if self.pool == "gem":
-            module_dict["pre_embedding_pool"] = GeM(p=self.gem_p, eps=self.gem_eps)
+            module_dict["pre_embedding_pool"] = GeM()
         elif self.pool == "max":
             module_dict["pre_embedding_pool"] = nn.AdaptiveMaxPool2d(1)
         elif self.pool == "avg":

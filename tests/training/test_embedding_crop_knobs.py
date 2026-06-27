@@ -19,7 +19,7 @@ _DIM = 16
 _MAX_STRIDE = 16
 
 
-def _make_embedding_module(in_channels=1):
+def _make_embedding_module(in_channels=1, objective_overrides=None):
     backbone = OmegaConf.create(
         {
             "unet": {
@@ -49,6 +49,8 @@ def _make_embedding_module(in_channels=1):
         "use_projection": True,
         "projection_dim": _DIM,
     }
+    if objective_overrides:
+        objective.update(objective_overrides)
     heads = OmegaConf.create(
         {
             "embedding": {
@@ -311,3 +313,48 @@ class TestEmbeddingChannels:
         crops = torch.rand(2, 3, 32, 32) * 255.0
         out = layer.predict(crops)
         assert out.pred_embeddings.shape == (2, 1, _DIM)
+
+
+# ----------------------------------------------------------------------------
+# Loss-parameter validation
+# ----------------------------------------------------------------------------
+
+
+class TestLossParamValidation:
+    """temperature / margin are validated at construction."""
+
+    def test_nonpositive_temperature_raises(self):
+        with pytest.raises(ValueError, match="temperature"):
+            _make_embedding_module(
+                objective_overrides={"loss": {"name": "supcon", "temperature": 0.0}}
+            )
+
+    def test_negative_margin_raises(self):
+        with pytest.raises(ValueError, match="margin"):
+            _make_embedding_module(
+                objective_overrides={"loss": {"name": "triplet", "margin": -0.1}}
+            )
+
+    def test_valid_params_ok(self):
+        _make_embedding_module(
+            objective_overrides={"loss": {"name": "supcon", "temperature": 0.05}}
+        )  # no raise
+
+
+# ----------------------------------------------------------------------------
+# GeM exponent clamp (no NaN from a degenerate learnable p)
+# ----------------------------------------------------------------------------
+
+
+class TestGeMExponentClamp:
+    """The GeM exponent is floored so a degenerate p cannot yield NaN/inf."""
+
+    def test_negative_p_does_not_nan(self):
+        from sleap_nn.architectures.heads import GeM
+
+        gem = GeM(learnable=True)
+        with torch.no_grad():
+            gem.p.fill_(-2.0)  # degenerate: would invert/explode without the clamp
+        out = gem(torch.rand(2, 4, 8, 8) * 5.0)
+        assert torch.isfinite(out).all()
+        assert out.shape == (2, 4)

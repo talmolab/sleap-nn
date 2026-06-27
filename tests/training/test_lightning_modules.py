@@ -734,12 +734,18 @@ def test_single_instance_forward_handles_4d_and_5d_inputs(config, tmp_path: str)
 # ── Embedding objective: identity-equality gates (SPEC §4.4) ─────────────────
 
 
-def _emb_objective(scope="global_id", sources=("same_frame", "in_batch")):
+def _emb_objective(
+    scope="global_id", sources=("same_frame", "in_batch"), restrict_same_video=False
+):
     """Minimal objective node for the identity-gate tests."""
     return OmegaConf.create(
         {
             "positives": {"scope": scope, "aug_views": 2},
-            "negatives": {"sources": list(sources), "exclude_same_track": True},
+            "negatives": {
+                "sources": list(sources),
+                "exclude_same_track": True,
+                "restrict_same_video": restrict_same_video,
+            },
         }
     )
 
@@ -789,27 +795,62 @@ def test_validate_embedding_identity_tracklet_warns_unproofread(caplog):
     """`tracklet` positives on unproofread tracks warn (but do not error)."""
     with caplog.at_level("WARNING"):
         validate_embedding_identity(
-            _emb_objective(scope="tracklet"),
+            _emb_objective(scope="tracklet", restrict_same_video=True),
             _emb_identity(tracks_are_proofread=False),
         )
     assert "tracks_are_proofread" in caplog.text
 
 
 def test_validate_embedding_identity_tracklet_proofread_silent(caplog):
-    """`tracklet` positives on proofread tracks are silent."""
+    """`tracklet` positives on proofread tracks (cross-video gated) are silent."""
     with caplog.at_level("WARNING"):
         validate_embedding_identity(
-            _emb_objective(scope="tracklet"),
+            _emb_objective(scope="tracklet", restrict_same_video=True),
             _emb_identity(tracks_are_proofread=True),
         )
     assert "tracks_are_proofread" not in caplog.text
+
+
+def test_validate_embedding_identity_tracklet_requires_restrict_same_video():
+    """`tracklet` + `in_batch` negatives without `restrict_same_video` is a hard error.
+
+    Otherwise the same animal in two videos becomes an in-batch hard negative (the
+    model is trained to push it apart across videos — the opposite of re-ID).
+    """
+    with pytest.raises(ValueError, match="restrict_same_video"):
+        validate_embedding_identity(
+            _emb_objective(
+                scope="tracklet",
+                sources=("same_frame", "in_batch"),
+                restrict_same_video=False,
+            ),
+            _emb_identity(tracks_are_proofread=True),
+        )
+
+
+def test_validate_embedding_identity_tracklet_same_frame_only_ok():
+    """`tracklet` with same-frame-only negatives needs no `restrict_same_video`.
+
+    Same-frame pairs are within-video by construction, so no cross-video pair can ever
+    become a negative — the gate must not fire.
+    """
+    validate_embedding_identity(
+        _emb_objective(
+            scope="tracklet", sources=("same_frame",), restrict_same_video=False
+        ),
+        _emb_identity(tracks_are_proofread=True),
+    )  # no raise
 
 
 def test_validate_embedding_identity_same_frame_warns_not_deduplicated(caplog):
     """`same_frame` negatives without dedup warn (but do not error)."""
     with caplog.at_level("WARNING"):
         validate_embedding_identity(
-            _emb_objective(scope="tracklet", sources=("same_frame", "in_batch")),
+            _emb_objective(
+                scope="tracklet",
+                sources=("same_frame", "in_batch"),
+                restrict_same_video=True,
+            ),
             _emb_identity(tracks_are_proofread=True, detections_deduplicated=False),
         )
     assert "detections_deduplicated" in caplog.text
@@ -847,15 +888,16 @@ def test_set_embedding_burn_in_from_config():
     )
     assert m.burn_in is True
 
-    # Absent field -> default True (preserves the historical mask-on behavior).
+    # Absent field -> default False (matches PreprocessingConfig.burn_in and the LM
+    # __init__; mask-based models opt in explicitly).
     m = _M()
     m.burn_in = None
     set_embedding_burn_in_from_config(m, OmegaConf.create({"data_config": {}}))
-    assert m.burn_in is True
+    assert m.burn_in is False
 
 
 def test_embedding_configure_optimizers_with_lr_scheduler():
-    """Embedding + lr_scheduler binds the scheduler to the RETURNED optimizer (#bug).
+    """Embedding + lr_scheduler binds the scheduler to the RETURNED optimizer.
 
     Regression: the embedding override previously built the scheduler against a
     different optimizer than the one it returned, which Lightning rejects with

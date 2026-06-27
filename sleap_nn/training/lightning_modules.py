@@ -2729,7 +2729,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
 
 
 def validate_embedding_identity(objective, identity):
-    """Enforce the identity-equality gates for the embedding objective (SPEC §4.4).
+    """Enforce the identity-equality gates for the embedding objective.
 
     Each positive/negative source silently asserts "same / different animal"; a wrong
     assertion trains the appearance model on label noise (pulling two *different*
@@ -2799,6 +2799,27 @@ def validate_embedding_identity(objective, identity):
             "data_config.identity.tracks_are_proofread=False: tracker swaps will pull "
             "DIFFERENT animals together (training on label noise)."
         )
+    if scope == "tracklet" and "in_batch" in neg_sources:
+        # Under tracklet scope identity is per-(video, track), so the same animal in two
+        # different videos is NOT a positive. With in-batch negatives and
+        # restrict_same_video=False those cross-video same-animal pairs become hard
+        # negatives — training the model to push the same animal apart across videos,
+        # the exact opposite of cross-session re-ID. The invariant is documented on both
+        # NegativesConfig.restrict_same_video and build_contrastive_masks; enforce it.
+        restrict_same_video = bool(
+            OmegaConf.select(objective, "negatives.restrict_same_video", default=False)
+        )
+        if not restrict_same_video:
+            raise ValueError(
+                "embedding objective positives.scope='tracklet' with 'in_batch' "
+                "negatives REQUIRES "
+                "head_configs.embedding.embedding.objective.negatives."
+                "restrict_same_video=True. Without it, two crops of the SAME animal in "
+                "different videos become in-batch hard negatives and the model is "
+                "trained to push that animal apart across videos. Set "
+                "restrict_same_video=True, or use a video-global scope='global_id' with "
+                "globally-consistent track names."
+            )
     if "same_frame" in neg_sources and not detections_deduplicated:
         logger.warning(
             "embedding objective negatives include 'same_frame' but "
@@ -2814,8 +2835,9 @@ def set_embedding_burn_in_from_config(module, config) -> None:
     """Honor ``data_config.preprocessing.burn_in`` on an ``EmbeddingLightningModule``.
 
     ``burn_in`` is a pure runtime toggle (read in ``training_step`` / ``forward`` /
-    ``validation_step``), so setting it after construction is safe. The LM ``__init__``
-    defaults it to ``True``; BOTH the training factory
+    ``validation_step``), so setting it after construction is safe. The canonical
+    default is ``False`` (matching ``PreprocessingConfig.burn_in`` and the LM
+    ``__init__``); BOTH the training factory
     (:meth:`LightningModel.get_lightning_model_from_config`) and the inference loader
     (:func:`sleap_nn.inference.loaders._load_lightning_module`) call this so a model
     trained maskless (``burn_in=False``, the "centroid-crop" objective) also runs
@@ -2835,7 +2857,7 @@ def set_embedding_burn_in_from_config(module, config) -> None:
         config: The full training config (carries ``data_config.preprocessing``).
     """
     module.burn_in = bool(
-        OmegaConf.select(config, "data_config.preprocessing.burn_in", default=True)
+        OmegaConf.select(config, "data_config.preprocessing.burn_in", default=False)
     )
     background_fill = OmegaConf.select(
         config, "data_config.preprocessing.background_fill", default="black"
@@ -2907,12 +2929,13 @@ class EmbeddingLightningModule(LightningModel):
         self.freeze_backbone = bool(
             OmegaConf.select(leaf, "freeze_backbone", default=False)
         )
-        # Grayscale input + mask burn-in + per-crop standardize. `burn_in` is the
-        # DEFAULT here; the factory / inference loader override it from
-        # `data_config.preprocessing.burn_in` (set_burn_in_from_config) so a maskless
-        # "centroid-crop" objective can be trained without burning the mask in. When
+        # Grayscale input + mask burn-in + per-crop standardize. `burn_in` defaults OFF
+        # (matching `PreprocessingConfig.burn_in=False` and the sample config); BOTH the
+        # training factory and the inference loader override it from
+        # `data_config.preprocessing.burn_in` (set_embedding_burn_in_from_config), so a
+        # mask-based model opts in there and train/inference stay in lockstep. When
         # burn_in is off, `_standardize` falls back to whole-crop standardize.
-        self.burn_in = True
+        self.burn_in = False
         self.standardize = True
         # What the masked-out background is replaced with when burn_in is on. The
         # factory / inference loader override this from
@@ -2924,6 +2947,17 @@ class EmbeddingLightningModule(LightningModel):
         self.loss_name = OmegaConf.select(obj, "loss.name", default="supcon")
         self.loss_temperature = OmegaConf.select(obj, "loss.temperature", default=0.1)
         self.loss_margin = OmegaConf.select(obj, "loss.margin", default=0.2)
+        if float(self.loss_temperature) <= 0:
+            raise ValueError(
+                "head_configs.embedding.embedding.objective.loss.temperature must be "
+                f"> 0 (got {self.loss_temperature}); a non-positive temperature makes "
+                "the contrastive logits inf/NaN or inverts the objective."
+            )
+        if float(self.loss_margin) < 0:
+            raise ValueError(
+                "head_configs.embedding.embedding.objective.loss.margin must be >= 0 "
+                f"(got {self.loss_margin})."
+            )
         self.pos_scope = OmegaConf.select(obj, "positives.scope", default="global_id")
         self.neg_sources = list(
             OmegaConf.select(
