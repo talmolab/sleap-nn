@@ -6,7 +6,7 @@ Two pieces, mirroring the keypoint / segmentation top-down stacks:
   Runs a trained ``embedding`` model on per-instance crops and returns one
   L2-normalized appearance vector per crop on ``Outputs.pred_embeddings``
   ``(B, I=1, D)``. It ALSO populates ``instance_scores`` / ``instance_valid``
-  so the detection ENUMERATES correctly (SPEC §6 [AUDIT]: ``pred_embeddings``
+  so the detection enumerates correctly (``pred_embeddings``
   alone is insufficient — ``n_instances`` ignores it and ``to_instances``
   compacts all-NaN slots). The crop pipeline (mask burn-in + per-crop
   standardize) is IDENTICAL to training, via the LightningModule's

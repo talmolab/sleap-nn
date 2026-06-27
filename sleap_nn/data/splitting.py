@@ -1,4 +1,4 @@
-"""Group-aware train/val splitter, decided BEFORE training (SPEC §5.3).
+"""Group-aware train/val splitter, decided before training.
 
 For the `embedding` (crop -> vector re-ID) model type, the train/val partition *is* the
 generalization axis: the model must only ever see the training partition, with val/test

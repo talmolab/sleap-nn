@@ -204,7 +204,7 @@ def validate_test_file_path(instance, attribute, value):
 
 @define
 class IdentityConfig:
-    """Declared identity-equality semantics for the `embedding` model type (SPEC §4.4).
+    """Declared identity-equality semantics for the `embedding` model type.
 
     Each positives/negatives source silently asserts "same/different animal". These
     fields DECLARE what the track labels mean so the objective can validate them
@@ -227,7 +227,7 @@ class IdentityConfig:
 
 @define
 class SplitConfig:
-    """Group-aware train/val split, decided BEFORE training (SPEC §5.3).
+    """Group-aware train/val split, decided before training.
 
     For the `embedding` model type the train/val partition *is* the generalization axis:
     the model must only ever see the training partition, with val/test held out by a group
@@ -283,8 +283,8 @@ class DataConfig:
             Values < 1 down-weight negatives; values > 1 up-weight them. Only has effect when
             ``use_negative_frames`` is ``True``. *Default*: `1.0`.
         skeletons: skeleton configuration for the `.slp` file. This will be pulled from the train dataset and saved to the `training_config.yaml`
-        split: (Optional[SplitConfig]) Group-aware train/val split decided before training
-            (SPEC §5.3). When set and `val_labels_path` is not provided, the trainer
+        split: (Optional[SplitConfig]) Group-aware train/val split decided before training.
+            When set and `val_labels_path` is not provided, the trainer
             partitions the training labels by the configured group key (`frame`/`video`/
             `identity`) instead of the default frame-level random `validation_fraction`
             split. *Default*: `None` (unchanged default behavior).

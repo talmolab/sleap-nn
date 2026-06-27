@@ -1037,7 +1037,7 @@ class CenteredInstanceSegmentationConfig:
 # ---------------------------------------------------------------------------
 @define
 class PositivesConfig:
-    """Positive-pair sampling for the embedding objective (SPEC §4).
+    """Positive-pair sampling for the embedding objective.
 
     Attributes:
         scope: Which crops are positives of an anchor. One of
@@ -1055,7 +1055,7 @@ class PositivesConfig:
 
 @define
 class NegativesConfig:
-    """Negative-pair eligibility for the embedding objective (SPEC §4).
+    """Negative-pair eligibility for the embedding objective.
 
     A negative must be a KNOWN-different pair, never merely "not known-positive".
 
@@ -1079,7 +1079,7 @@ class NegativesConfig:
 
 @define
 class LossConfig:
-    """Contrastive loss for the embedding objective (the LOSS axis, SPEC §4.6).
+    """Contrastive loss for the embedding objective (the loss axis).
 
     Attributes:
         name: One of ``supcon`` | ``infonce`` | ``triplet``.
@@ -1094,7 +1094,7 @@ class LossConfig:
 
 @define
 class SamplerConfig:
-    """Group-aware batch sampler that realizes the objective (SPEC §4.5).
+    """Group-aware batch sampler that realizes the objective.
 
     Attributes:
         kind: ``pk`` (P groups x K crops) | ``within_video`` (one video per batch, so
@@ -1112,7 +1112,7 @@ class SamplerConfig:
 
 @define
 class ObjectiveConfig:
-    """Pluggable training objective = positives x negatives x loss (SPEC §4).
+    """Pluggable training objective = positives x negatives x loss.
 
     The sampler composes the batch, a mask-builder turns each item's
     ``(video, frame, group, item_id)`` into ``(pos_mask, neg_mask)``, and the loss
