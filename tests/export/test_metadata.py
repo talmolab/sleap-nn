@@ -106,6 +106,8 @@ class TestExportMetadata:
             "embedding_dim",
             "normalize",
             "backbone_source",
+            "burn_in",
+            "background_fill",
             "training_config_embedded",
             "training_config_hash",
         }

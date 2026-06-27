@@ -85,6 +85,28 @@ def resolve_normalize(cfg: DictConfig) -> bool:
     return bool(OmegaConf.select(leaf, "normalize", default=True))
 
 
+def resolve_burn_in(cfg: DictConfig) -> bool:
+    """Resolve whether the trained embedder masked the crop (mask burn-in).
+
+    A ``burn_in=True`` model standardizes over the foreground only and replaces the
+    background, which the single-input ONNX wrapper (maskless whole-crop standardize)
+    cannot reproduce — so this drives the export-time divergence warning + metadata.
+    Mirrors the canonical default in ``PreprocessingConfig.burn_in`` (``False``).
+    """
+    return bool(
+        OmegaConf.select(cfg, "data_config.preprocessing.burn_in", default=False)
+    )
+
+
+def resolve_background_fill(cfg: DictConfig) -> str:
+    """Resolve the masked-out background fill the trained embedder used (burn-in)."""
+    return str(
+        OmegaConf.select(
+            cfg, "data_config.preprocessing.background_fill", default="black"
+        )
+    )
+
+
 def resolve_embedding_input_channels(cfg: DictConfig) -> int:
     """Resolve the DATA channels an embedding crop is fed with (not the backbone).
 

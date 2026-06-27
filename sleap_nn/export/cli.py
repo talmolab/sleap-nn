@@ -8,6 +8,7 @@ import json
 import shutil
 
 import click
+from loguru import logger
 
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
@@ -101,6 +102,8 @@ def export(
         resolve_anchor_part,
         resolve_backbone_source,
         resolve_backbone_type,
+        resolve_background_fill,
+        resolve_burn_in,
         resolve_class_maps_output_stride,
         resolve_class_names,
         resolve_crop_size,
@@ -209,6 +212,8 @@ def export(
         metadata_embedding_dim = None
         metadata_normalize = None
         metadata_backbone_source = None
+        metadata_burn_in = None
+        metadata_background_fill = None
         metadata_normalization = "0_to_1"
 
         if model_type == "centroid":
@@ -317,7 +322,23 @@ def export(
             metadata_embedding_dim = resolve_embedding_dim(cfg)
             metadata_normalize = resolve_normalize(cfg)
             metadata_backbone_source = resolve_backbone_source(cfg)
+            metadata_burn_in = resolve_burn_in(cfg)
+            metadata_background_fill = resolve_background_fill(cfg)
             metadata_normalization = "per_crop_standardize"
+            if metadata_burn_in:
+                # The single-input ONNX graph standardizes over the WHOLE crop; a
+                # burn_in model's native inference standardizes over the foreground
+                # (mask) only and fills the background. The exported embeddings will
+                # therefore DIVERGE from native masked inference. Recorded in metadata.
+                logger.warning(
+                    "Exporting a mask-burn-in embedding model "
+                    f"(background_fill='{metadata_background_fill}'): the ONNX graph "
+                    "does a MASKLESS whole-crop standardize and cannot reproduce the "
+                    "masked (foreground-only) standardize used at training/native "
+                    "inference, so exported embeddings will diverge. Use the native "
+                    "`sleap-nn embed` path for exact parity, or train/export a "
+                    "burn_in=False model for a faithful single-input ONNX embedder."
+                )
         else:
             raise click.ClickException(
                 f"Model type '{model_type}' is not supported for export yet."
@@ -391,6 +412,8 @@ def export(
             embedding_dim=metadata_embedding_dim,
             normalize=metadata_normalize,
             backbone_source=metadata_backbone_source,
+            burn_in=metadata_burn_in,
+            background_fill=metadata_background_fill,
         )
 
         metadata.save(export_dir / "export_metadata.json")

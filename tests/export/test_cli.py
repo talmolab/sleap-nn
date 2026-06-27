@@ -267,6 +267,58 @@ class TestExportCommand:
         norms = np.linalg.norm(out, axis=1)
         assert np.allclose(norms, 1.0, atol=1e-4)
 
+    def test_export_command_embedding_onnx_numeric_parity(
+        self, minimal_embedding_model_dir, tmp_path
+    ):
+        """Exported ONNX embeddings match the PyTorch wrapper ELEMENT-WISE.
+
+        Shape + unit-norm checks would miss a subtle GeM ``pow(p)``/``pow(1/p)`` tracing
+        discrepancy; this asserts the exported graph is numerically faithful.
+        """
+        import numpy as np
+        import onnxruntime as ort
+        import torch
+        from omegaconf import OmegaConf
+
+        from sleap_nn.export.cli import export
+        from sleap_nn.export.wrappers import EmbeddingONNXWrapper
+        from sleap_nn.training.lightning_modules import EmbeddingLightningModule
+
+        output_dir = tmp_path / "export_embedding_parity"
+        runner = CliRunner()
+        result = runner.invoke(
+            export,
+            [str(minimal_embedding_model_dir), "-o", str(output_dir), "-f", "onnx"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, result.output
+
+        # Rebuild the exact torch model that was exported (config + saved weights).
+        config = OmegaConf.load(minimal_embedding_model_dir / "training_config.yaml")
+        module = EmbeddingLightningModule(
+            model_type="embedding",
+            backbone_type="unet",
+            backbone_config=config.model_config.backbone_config,
+            head_configs=config.model_config.head_configs,
+            init_weights="xavier",
+        ).eval()
+        ckpt = torch.load(minimal_embedding_model_dir / "best.ckpt", map_location="cpu")
+        module.load_state_dict(ckpt["state_dict"])
+        wrapper = EmbeddingONNXWrapper(module.model, normalize=True).eval()
+
+        crop = np.random.randint(0, 256, (2, 1, 32, 32)).astype(np.uint8)
+        with torch.no_grad():
+            torch_out = wrapper(torch.from_numpy(crop))["embedding"].numpy()
+
+        sess = ort.InferenceSession(
+            str(output_dir / "model.onnx"), providers=["CPUExecutionProvider"]
+        )
+        in_name = sess.get_inputs()[0].name
+        ort_out = sess.run(None, {in_name: crop})[0]
+        assert np.allclose(torch_out, ort_out, atol=1e-4), float(
+            np.abs(torch_out - ort_out).max()
+        )
+
 
 class TestTwoCentroidGuard:
     """Two centroid directories is an error (no onnx dependency required).
