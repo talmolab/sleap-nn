@@ -821,6 +821,12 @@ class ClassMapConfig:
 
     Attributes:
         classes: (List[str]) List of class (track) names. Default is `None`. When `None`, these are inferred from the track names in the labels file.
+        class_uuids: (List[str]) Per-class canonical identity UUIDs (32-hex), one
+            per entry in `classes` and in the same order. Frozen at train time so
+            re-running inference re-emits the same `sio.Identity` for each class
+            (the train→inference uuid bridge). Default is `None`; when `None`, these
+            are minted at train time (reusing matching `sio.Identity` UUIDs from the
+            training labels when present, else fresh `uuid4`).
         sigma: (float) Spread of the Gaussian distribution of the confidence maps as
             a scalar float. Smaller values are more precise but may be difficult to
             learn as they have a lower density within the image space. Larger values
@@ -839,6 +845,7 @@ class ClassMapConfig:
     """
 
     classes: Optional[List[str]] = None
+    class_uuids: Optional[List[str]] = None
     sigma: float = 5.0
     output_stride: int = 1
     loss_weight: Optional[float] = None
@@ -853,6 +860,12 @@ class ClassVectorsConfig:
 
     Attributes:
         classes: List of string names of the classes that this head will predict.
+        class_uuids: Per-class canonical identity UUIDs (32-hex), one per entry in
+            ``classes`` and in the same order. Frozen at train time so re-running
+            inference re-emits the same ``sio.Identity`` for each class (the
+            train→inference uuid bridge). Default is ``None``; when ``None``, these
+            are minted at train time (reusing matching ``sio.Identity`` UUIDs from
+            the training labels when present, else fresh ``uuid4``).
         num_fc_layers: Number of fully-connected layers before the classification output
             layer. These can help in transforming general image features into
             classification-specific features.
@@ -870,6 +883,7 @@ class ClassVectorsConfig:
     """
 
     classes: Optional[List[str]] = None
+    class_uuids: Optional[List[str]] = None
     num_fc_layers: int = 1
     num_fc_units: int = 64
     global_pool: bool = True

@@ -42,6 +42,11 @@ class BottomUpMultiClassLayer(InferenceLayer):
             ``multi_class_bottomup.class_maps.classes``. Used by the predictor
             to build the ``sio.Track`` registry for identity packaging. The
             grouped instance slot ``i`` corresponds to ``class_names[i]``.
+        class_uuids: Ordered per-class canonical identity UUIDs from
+            ``multi_class_bottomup.class_maps.class_uuids`` (parallel to
+            ``class_names``). Used by the predictor to build the canonical
+            ``sio.Identity`` registry (the train→inference uuid bridge).
+            ``None`` for legacy checkpoints (the predictor then mints UUIDs).
     """
 
     def __init__(
@@ -54,6 +59,7 @@ class BottomUpMultiClassLayer(InferenceLayer):
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
         class_names: Optional[List[str]] = None,
+        class_uuids: Optional[List[str]] = None,
     ) -> None:
         """Compose the layer with the two output strides."""
         super().__init__(
@@ -67,6 +73,7 @@ class BottomUpMultiClassLayer(InferenceLayer):
         self.class_maps_output_stride = class_maps_output_stride
         self.max_instances = max_instances
         self.class_names = list(class_names) if class_names is not None else None
+        self.class_uuids = list(class_uuids) if class_uuids is not None else None
 
     # ──────────────────────────────────────────────────────────────────
     # Postprocess (class-maps based grouping)

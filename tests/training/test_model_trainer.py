@@ -1,5 +1,6 @@
 """Test ModelTrainer classes."""
 
+import re
 import torch
 import numpy as np
 from PIL import Image
@@ -1657,3 +1658,158 @@ class TestEmbeddingMemoryFallback:
         """Non-embedding + insufficient RAM keeps the existing disk-cache fallback."""
         mt, _, _ = self._run("centroid")
         assert mt.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_disk"
+
+
+class TestClassUuidMinting:
+    """Train-time minting of per-class canonical identity UUIDs (the A2 bridge).
+
+    ``ModelTrainer._setup_head_config`` populates ``class_uuids`` parallel to
+    ``classes`` so the frozen per-class uuid persists into
+    ``training_config.yaml`` and is re-emitted at inference. These tests exercise
+    the minting logic in isolation (no full training run) by merging the raw head
+    config with the structured schema (mirroring ``verify_training_cfg``, which is
+    what surfaces the ``class_uuids`` key in production) and calling
+    ``_setup_head_config`` directly.
+    """
+
+    _HEX32 = re.compile(r"^[0-9a-f]{32}$")
+
+    @staticmethod
+    def _tracked_labels(minimal_instance, track_names=("female", "male")):
+        labels = sio.load_slp(minimal_instance)
+        tracks = [sio.Track(name=n) for n in track_names]
+        for lf in labels:
+            for i, instance in enumerate(lf.instances):
+                instance.track = tracks[i % len(tracks)]
+        labels.tracks = tracks
+        labels.update()
+        return labels, tracks
+
+    @staticmethod
+    def _build_trainer(model_type, sub_key, sub_cfg, train_labels):
+        """Merge with the schema (to surface ``class_uuids``), build a trainer.
+
+        Includes a ``confmaps`` head (with explicit ``part_names`` so no skeleton
+        lookup is needed) alongside the class head, mirroring the real
+        multi-class head shape.
+        """
+        confmaps = {
+            "part_names": ["A", "B"],
+            "sigma": 1.5,
+            "output_stride": 2,
+            "loss_weight": 1.0,
+        }
+        if model_type == "multi_class_topdown":
+            confmaps["anchor_part"] = "A"
+        head = {"confmaps": confmaps, sub_key: sub_cfg}
+        raw = OmegaConf.create({"model_config": {"head_configs": {model_type: head}}})
+        schema = OmegaConf.structured(TrainingJobConfig())
+        merged = OmegaConf.merge(schema, raw)
+        trainer = ModelTrainer(config=merged)
+        trainer.model_type = model_type
+        trainer.train_labels = train_labels
+        trainer.skeletons = train_labels[0].skeletons
+        return trainer
+
+    def test_topdown_class_uuids_minted(self, minimal_instance):
+        """class_vectors: classes + class_uuids populated, equal len, 32-hex."""
+        labels, _ = self._tracked_labels(minimal_instance)
+        trainer = self._build_trainer(
+            "multi_class_topdown",
+            "class_vectors",
+            {"classes": None},
+            [labels],
+        )
+        trainer._setup_head_config()
+        cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
+        assert cv.classes is not None and len(cv.classes) == 2
+        assert cv.class_uuids is not None
+        assert len(cv.class_uuids) == len(cv.classes)
+        assert all(self._HEX32.match(u) for u in cv.class_uuids)
+        # UUIDs are unique per class.
+        assert len(set(cv.class_uuids)) == len(cv.class_uuids)
+
+    def test_bottomup_class_uuids_minted(self, minimal_instance):
+        """class_maps: classes + class_uuids populated, equal len, 32-hex."""
+        labels, _ = self._tracked_labels(minimal_instance)
+        trainer = self._build_trainer(
+            "multi_class_bottomup",
+            "class_maps",
+            {"classes": None},
+            [labels],
+        )
+        trainer._setup_head_config()
+        cm = trainer.config.model_config.head_configs.multi_class_bottomup.class_maps
+        assert cm.classes is not None and len(cm.classes) == 2
+        assert cm.class_uuids is not None
+        assert len(cm.class_uuids) == len(cm.classes)
+        assert all(self._HEX32.match(u) for u in cm.class_uuids)
+
+    def test_class_uuids_stable_across_yaml_reload(self, minimal_instance, tmp_path):
+        """Minted uuids survive a write+reload of training_config.yaml unchanged."""
+        labels, _ = self._tracked_labels(minimal_instance)
+        trainer = self._build_trainer(
+            "multi_class_topdown",
+            "class_vectors",
+            {"classes": None},
+            [labels],
+        )
+        trainer._setup_head_config()
+        cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
+        classes_before = list(cv.classes)
+        uuids_before = list(cv.class_uuids)
+
+        cfg_path = tmp_path / "training_config.yaml"
+        OmegaConf.save(trainer.config, cfg_path)
+        reloaded = OmegaConf.load(cfg_path)
+        cv2 = reloaded.model_config.head_configs.multi_class_topdown.class_vectors
+        assert list(cv2.classes) == classes_before
+        assert list(cv2.class_uuids) == uuids_before
+
+        # Re-running setup on the reloaded config must NOT re-mint (idempotent).
+        trainer2 = ModelTrainer(config=reloaded)
+        trainer2.model_type = "multi_class_topdown"
+        trainer2.train_labels = [labels]
+        trainer2.skeletons = labels.skeletons
+        trainer2._setup_head_config()
+        cv3 = (
+            trainer2.config.model_config.head_configs.multi_class_topdown.class_vectors
+        )
+        assert list(cv3.class_uuids) == uuids_before
+
+    def test_class_uuids_reused_from_gt_identities(self, minimal_instance):
+        """When labels carry sio.Identity matching a class name, reuse its uuid."""
+        labels, tracks = self._tracked_labels(minimal_instance)
+        # Attach GT identities (name-matched to the track/class names).
+        gt_identities = [sio.Identity(name=t.name) for t in tracks]
+        labels.identities = gt_identities
+        gt_uuid_by_name = {i.name: i.uuid for i in gt_identities}
+
+        trainer = self._build_trainer(
+            "multi_class_topdown",
+            "class_vectors",
+            {"classes": None},
+            [labels],
+        )
+        trainer._setup_head_config()
+        cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
+        for name, uuid in zip(cv.classes, cv.class_uuids):
+            assert (
+                uuid == gt_uuid_by_name[name]
+            ), f"class {name!r} uuid {uuid} != GT uuid {gt_uuid_by_name[name]}"
+
+    def test_class_uuids_minted_when_classes_user_provided(self, minimal_instance):
+        """User-provided classes with class_uuids None still get minted uuids."""
+        labels, _ = self._tracked_labels(minimal_instance)
+        trainer = self._build_trainer(
+            "multi_class_topdown",
+            "class_vectors",
+            {"classes": ["female", "male"], "class_uuids": None},
+            [labels],
+        )
+        trainer._setup_head_config()
+        cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
+        assert list(cv.classes) == ["female", "male"]
+        assert cv.class_uuids is not None
+        assert len(cv.class_uuids) == 2
+        assert all(self._HEX32.match(u) for u in cv.class_uuids)

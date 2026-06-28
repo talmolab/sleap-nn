@@ -44,6 +44,11 @@ class CenteredInstanceMultiClassLayer(InferenceLayer):
             predictor to build the ``sio.Track`` registry for identity
             packaging; an instance's class index (from ``ClassVectorsHead``)
             indexes into this list.
+        class_uuids: Ordered per-class canonical identity UUIDs from
+            ``multi_class_topdown.class_vectors.class_uuids`` (parallel to
+            ``class_names``). Used by the predictor to build the canonical
+            ``sio.Identity`` registry (the train→inference uuid bridge).
+            ``None`` for legacy checkpoints (the predictor then mints UUIDs).
 
     Notes:
         Class-level ``use_gt_peaks = False``: the multi-class variant does
@@ -64,6 +69,7 @@ class CenteredInstanceMultiClassLayer(InferenceLayer):
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
         class_names: Optional[list[str]] = None,
+        class_uuids: Optional[list[str]] = None,
     ) -> None:
         """Compose the layer with the standard centered-instance config."""
         super().__init__(
@@ -74,6 +80,7 @@ class CenteredInstanceMultiClassLayer(InferenceLayer):
             max_stride=max_stride,
         )
         self.class_names = list(class_names) if class_names is not None else None
+        self.class_uuids = list(class_uuids) if class_uuids is not None else None
 
     def postprocess(self, raw_out: dict, info: PreprocInfo) -> Outputs:
         """Decode confmaps to keypoints; classify via ``ClassVectorsHead``."""
@@ -176,3 +183,8 @@ class TopDownMultiClassLayer(TopDownLayer):
     def class_names(self) -> Optional[list[str]]:
         """Class names from the inner multi-class centered-instance layer."""
         return self.centered_instance_layer.class_names
+
+    @property
+    def class_uuids(self) -> Optional[list[str]]:
+        """Class UUIDs from the inner multi-class centered-instance layer."""
+        return self.centered_instance_layer.class_uuids

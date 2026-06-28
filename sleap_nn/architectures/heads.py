@@ -367,6 +367,11 @@ class ClassMapsHead(Head):
 
     Attributes:
         classes: List of string names of the classes.
+        class_uuids: Optional list of per-class canonical identity UUIDs, parallel
+            to ``classes``. Carried through verbatim from the head config (frozen
+            at train time for the inference identity bridge); unused by the
+            architecture/loss. Accepted so the config can be splatted into the
+            constructor.
         sigma: Spread of the class maps around each node.
         output_stride: Stride of the output head tensor. The input tensor is expected to
             be at the same stride.
@@ -376,6 +381,7 @@ class ClassMapsHead(Head):
     def __init__(
         self,
         classes: List[Text],
+        class_uuids: Optional[List[Text]] = None,
         sigma: float = 5.0,
         output_stride: int = 1,
         loss_weight: float = 1.0,
@@ -383,6 +389,7 @@ class ClassMapsHead(Head):
         """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.classes = classes
+        self.class_uuids = class_uuids
         self.sigma = sigma
 
     @property
@@ -427,6 +434,11 @@ class ClassVectorsHead(Head):
 
     Attributes:
         classes: List of string names of the classes.
+        class_uuids: Optional list of per-class canonical identity UUIDs, parallel
+            to ``classes``. Carried through verbatim from the head config (frozen
+            at train time for the inference identity bridge); unused by the
+            architecture/loss. Accepted so the config can be splatted into the
+            constructor.
         num_fc_layers: Number of fully connected layers after flattening input features.
         num_fc_units: Number of units (dimensions) in fully connected layers prior to
             classification output.
@@ -438,6 +450,7 @@ class ClassVectorsHead(Head):
     def __init__(
         self,
         classes: List[Text],
+        class_uuids: Optional[List[Text]] = None,
         num_fc_layers: int = 1,
         num_fc_units: int = 64,
         global_pool: bool = True,
@@ -447,6 +460,7 @@ class ClassVectorsHead(Head):
         """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.classes = classes
+        self.class_uuids = class_uuids
         self.num_fc_layers = num_fc_layers
         self.num_fc_units = num_fc_units
         self.global_pool = global_pool
