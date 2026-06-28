@@ -276,6 +276,34 @@ class ModelTrainer:
         logger.info(f"Creating train-val split...")
         total_train_lfs = 0
         total_val_lfs = 0
+
+        # Derive single-node `centroid` poses from segmentation masks so a centroid model
+        # can train directly on mask-only data (no keypoint skeleton). Runs before the
+        # skeleton is read so the synthesized `centroid` skeleton flows through head-config
+        # setup, the dataset, eval and inference unchanged.
+        if OmegaConf.select(
+            self.config, "data_config.centroids_from_masks", default=False
+        ):
+            from sleap_nn.data.custom_datasets import derive_centroids_from_masks
+
+            centering = OmegaConf.select(
+                self.config, "data_config.centroids_from_masks_centering", default="com"
+            )
+            labels = [derive_centroids_from_masks(lb, centering) for lb in labels]
+            if val_labels:
+                val_labels = [
+                    derive_centroids_from_masks(lb, centering) for lb in val_labels
+                ]
+            # labels[0] may be maskless (e.g. an empty/negative-only first file), so it
+            # would carry no synthesized skeleton. Share the `centroid` skeleton from the
+            # first file that has one onto every (train + val) object so downstream
+            # `labels[0].skeletons` and head-config setup are consistent.
+            centroid_skel = next((lb.skeletons for lb in labels if lb.skeletons), None)
+            if centroid_skel is not None:
+                for lb in [*labels, *(val_labels or [])]:
+                    if not lb.skeletons:
+                        lb.skeletons = list(centroid_skel)
+
         self.skeletons = labels[0].skeletons
 
         # Check if we should count only user-labeled frames

@@ -288,6 +288,15 @@ class DataConfig:
             partitions the training labels by the configured group key (`frame`/`video`/
             `identity`) instead of the default frame-level random `validation_fraction`
             split. *Default*: `None` (unchanged default behavior).
+        centroids_from_masks: (bool) Derive a single-node `centroid` pose from each
+            segmentation mask (`LabeledFrame.masks`) at load time, so a `centroid` model
+            can train directly on mask-only data (no keypoint skeleton). Each mask becomes
+            one `centroid` instance at its center-of-mass (or bbox midpoint), preserving
+            tracks. *Default*: `False`.
+        centroids_from_masks_centering: (str) How the mask-derived centroid is placed:
+            `com` (mask center-of-mass) or `bbox` (mask bounding-box midpoint, robust to
+            concave masks whose COM lands off the instance). Only used when
+            `centroids_from_masks` is `True`. *Default*: `com`.
     """
 
     train_labels_path: Optional[List[str]] = None
@@ -315,6 +324,8 @@ class DataConfig:
     skeletons: Optional[list] = None
     identity: Optional[IdentityConfig] = None
     split: Optional[SplitConfig] = None
+    centroids_from_masks: bool = False
+    centroids_from_masks_centering: str = "com"
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:
