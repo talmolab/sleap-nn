@@ -1851,6 +1851,95 @@ def _mask_bbox_midpoint(mask_bool: np.ndarray) -> Tuple[float, float]:
     return cx, cy
 
 
+def derive_centroids_from_masks(
+    labels: "sio.Labels", centering: str = "com"
+) -> "sio.Labels":
+    """Attach a single-node ``centroid`` pose derived from each segmentation mask.
+
+    Mask-only data (e.g. instance segmentation) carries no keypoint skeleton, so the
+    standard ``centroid`` training path (which reads ``lf.instances`` and reduces them
+    via :func:`generate_centroids`) has nothing to train on. This synthesizes that input
+    natively — without an offline preprocessing step — by adding, for every
+    ``LabeledFrame.masks`` entry, a one-node ``"centroid"`` :class:`sio.Instance` at the
+    mask's center-of-mass (``centering="com"``) or bounding-box midpoint
+    (``centering="bbox"``), in full-image coordinates. The instance carries the mask's
+    track and is back-linked via ``mask.instance``, so the rest of the pipeline (head
+    config, dataset, eval, inference) sees a normal single-node centroid pose model.
+
+    Mutates ``labels`` in place (sets ``lf.instances`` and ``labels.skeletons``) and
+    returns it. A no-op (returns ``labels`` unchanged) when no frame has masks.
+
+    Args:
+        labels: The labels to transform (typically mask-only).
+        centering: ``"com"`` (mask center-of-mass) or ``"bbox"`` (mask bounding-box
+            midpoint, robust to concave masks whose COM lands off the instance).
+
+    Returns:
+        The same ``labels`` object, with synthesized centroid instances + skeleton.
+    """
+    from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
+    from sleap_nn.data.segmentation_maps import _compute_mask_centroids
+
+    if centering not in ("com", "bbox"):
+        message = f"Unknown centering '{centering}'; choose 'com' or 'bbox'."
+        logger.error(message)
+        raise ValueError(message)
+
+    # Guard the footgun: this path overwrites `lf.instances` with the synthesized
+    # single-node centroids, which would silently destroy real keypoint poses. It is
+    # for mask-only data, so refuse (atomically, before any mutation) if any frame
+    # carries BOTH masks and pre-existing instances rather than clobbering them.
+    for lf in labels:
+        if (getattr(lf, "masks", None)) and (getattr(lf, "instances", None)):
+            message = (
+                "derive_centroids_from_masks (data_config.centroids_from_masks) is for "
+                "mask-only data, but a LabeledFrame carries BOTH masks and existing "
+                "instances; synthesizing centroids from masks would overwrite the real "
+                "pose instances. Disable centroids_from_masks for data that already has "
+                "keypoint poses (the standard centroid path handles it directly)."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+    skeleton = sio.Skeleton(nodes=["centroid"], name="centroid")
+    n_inst = 0
+    saw_mask = False
+    for lf in labels:
+        masks = getattr(lf, "masks", None) or []
+        if not masks:
+            continue
+        saw_mask = True
+        instances = []
+        for mask in masks:
+            mask_bool = np.asarray(decode_mask_to_image_res(mask)) > 0.5
+            if not mask_bool.any():
+                # An empty/degenerate mask (filtered or thresholding artifact) has no
+                # location; skip it rather than planting a spurious center-of-frame
+                # centroid as a training target.
+                continue
+            if centering == "bbox":
+                cx, cy = _mask_bbox_midpoint(mask_bool)
+            else:
+                cx, cy = _compute_mask_centroids([mask_bool])[0]
+            inst = sio.Instance.from_numpy(
+                np.array([[cx, cy]], dtype="float64"),
+                skeleton=skeleton,
+                track=getattr(mask, "track", None),
+            )
+            instances.append(inst)
+            mask.instance = inst
+            n_inst += 1
+        lf.instances = instances
+
+    if saw_mask:
+        labels.skeletons = [skeleton]
+        logger.info(
+            f"Derived {n_inst} '{centering}' centroid instance(s) from masks "
+            f"(single-node 'centroid' skeleton)."
+        )
+    return labels
+
+
 class EmbeddingDataset(BaseDataset):
     """Dataset for the ``embedding`` (crop -> vector, re-ID) model type.
 
