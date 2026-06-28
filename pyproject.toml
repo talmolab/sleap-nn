@@ -302,4 +302,5 @@ convention = "google"
 skip = '.git*,*.css'
 check-hidden = true
 # ignore-regex = ''
-# ignore-words-list = ''
+# `fpr` = false positive rate (ROC term in the embedding verification eval).
+ignore-words-list = 'fpr'
