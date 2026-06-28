@@ -17,8 +17,17 @@ from tests.fixtures.datasets import make_seg_labels_from_slp
 
 @pytest.fixture
 def seg_labels(minimal_instance):
-    """Mask-bearing labels (circular blobs around each instance)."""
-    return make_seg_labels_from_slp(str(minimal_instance))
+    """Mask-only labels (circular blobs around each instance).
+
+    ``make_seg_labels_from_slp`` retains the source keypoint instances alongside the
+    masks; this path is for mask-only data, so strip them (matching the real use case —
+    and the fail-fast guard against clobbering real poses).
+    """
+    labels = make_seg_labels_from_slp(str(minimal_instance))
+    for lf in labels:
+        lf.instances = []
+    labels.skeletons = []
+    return labels
 
 
 class TestDeriveCentroidsFromMasks:
@@ -113,6 +122,22 @@ class TestDeriveCentroidsFromMasks:
     def test_invalid_centering_raises(self, seg_labels):
         with pytest.raises(ValueError, match="centering"):
             derive_centroids_from_masks(seg_labels, centering="diagonal")
+
+    def test_mixed_pose_and_mask_frame_raises(self, seg_labels):
+        # A frame carrying BOTH masks and real keypoint instances must fail fast — the
+        # synthesized centroids would otherwise silently clobber the real poses. This
+        # path is mask-only; mixed data should use the standard centroid path.
+        pose_skel = sio.Skeleton(nodes=["a", "b"], name="pose")
+        seg_labels[0].instances = [
+            sio.Instance.from_numpy(
+                np.array([[1.0, 2.0], [3.0, 4.0]]), skeleton=pose_skel
+            )
+        ]
+        original = seg_labels[0].instances
+        with pytest.raises(ValueError, match="mask-only"):
+            derive_centroids_from_masks(seg_labels, centering="com")
+        # Atomic: the real instances are untouched (guard runs before any mutation).
+        assert seg_labels[0].instances is original
 
 
 class TestTrainerWiring:
