@@ -16,11 +16,11 @@ These tests assert, on a tiny (random-weights) embedding model:
    frame, track)`` integrity preserved, and it survives ``save_slp`` ->
    ``load_slp``,
 3. ``"slp"`` (pose) -> only the ``.slp`` is written (no ``.h5``),
-4. the source detection's GT track is promoted to a canonical ``sio.Identity``
-   (``identity_score=None``) registered on ``labels.identities``,
+4. the pathway stores vectors ONLY — it does not fabricate ``sio.Identity`` from
+   GT track names (existing identities pass through; tracks are preserved),
 5. mask path: a mask-only ``.slp`` round-trips its ``SegmentationMask`` embeddings
-   + GT identities into the ``.slp`` (mask-modality persistence, ``owner_type=3``,
-   landed in sleap-io#527); the ``.h5`` is still written.
+   into the ``.slp`` (mask-modality persistence, ``owner_type=3``, landed in
+   sleap-io#527); the ``.h5`` is still written.
 """
 
 from __future__ import annotations
@@ -294,38 +294,38 @@ def test_slp_only_writes_no_h5(embedding_model_dir, pose_slp, tmp_path):
     assert n == 6
 
 
-# ── (4) GT track -> canonical identity (pose-only) ────────────────────────────
+# ── (4) embeddings only: no identity fabricated from tracks ───────────────────
 
 
-def test_identity_from_gt_track_pose(embedding_model_dir, pose_slp, tmp_path):
-    """GT track -> canonical sio.Identity (score None), registered + round-tripped."""
+def test_no_identity_minted_from_track_pose(embedding_model_dir, pose_slp, tmp_path):
+    """The embedding pathway stores vectors only — it does NOT mint identities.
+
+    A track/class name is not a global animal identity, so the embedding writer
+    must never fabricate ``sio.Identity`` objects from GT track names (that's the
+    re-ID resolve loop's job, deferred). The source tracks are preserved; the
+    identity slots stay empty and the identity catalog is not populated.
+    """
     _, _, slp_out = _run(embedding_model_dir, pose_slp, tmp_path, "both")
     reloaded = sio.load_slp(slp_out)
 
-    assert {i.name for i in reloaded.identities} == {"animal0", "animal1"}
-    by_name = {i.name: i for i in reloaded.identities}
+    assert not (getattr(reloaded, "identities", None) or [])  # no catalog minted
     for lf in reloaded.labeled_frames:
         for inst in lf.instances:
-            assert inst.identity is not None
-            assert isinstance(inst.identity, sio.Identity)
-            assert inst.identity.name == inst.track.name
-            # GT identity: no score.
+            assert inst.embedding is not None  # vector attached
+            assert inst.identity is None  # no fabricated identity
             assert inst.identity_score is None
-            # Same canonical object per name (deduped + registered).
-            assert inst.identity.uuid == by_name[inst.identity.name].uuid
+            assert inst.track is not None  # GT track preserved
 
 
-# ── (5) mask path: SegmentationMask embeddings + identities persist (#527) ────
+# ── (5) mask path: SegmentationMask embeddings persist (#527) ─────────────────
 
 
-def test_mask_path_persists_embeddings_and_identity(
-    embedding_model_dir, mask_slp, tmp_path
-):
-    """Mask path: SegmentationMask embeddings + GT-promoted identities persist.
+def test_mask_path_persists_embeddings(embedding_model_dir, mask_slp, tmp_path):
+    """Mask path: SegmentationMask embeddings persist (no fabricated identity).
 
-    Mask-modality persistence (``owner_type=3`` + ``SegmentationMask.identity``)
-    landed in sleap-io#527, so mask detections now round-trip their re-ID vector
-    and a canonical GT ``sio.Identity`` (mirroring the pose path).
+    Mask-modality embedding persistence (``owner_type=3``) landed in sleap-io#527,
+    so mask detections now round-trip their re-ID vector into the ``.slp`` — but,
+    like the pose path, no ``sio.Identity`` is minted from the GT track.
     """
     res, out_h5, slp_out = _run(embedding_model_dir, mask_slp, tmp_path, "both")
     assert res == out_h5
@@ -335,7 +335,7 @@ def test_mask_path_persists_embeddings_and_identity(
 
     with h5py.File(out_h5, "r") as h:
         assert h["embeddings"].shape == (6, _DIM)
-    # The .slp now PERSISTS the mask embeddings + GT identities.
+    # The .slp now PERSISTS the mask embeddings.
     assert os.path.exists(slp_out)
     reloaded = sio.load_slp(slp_out)
     masks = [m for lf in reloaded.labeled_frames for m in lf.masks]
@@ -344,14 +344,9 @@ def test_mask_path_persists_embeddings_and_identity(
     assert all(m.embedding is not None for m in masks)
     assert {m.embedding.dim for m in masks} == {_DIM}
     assert all(m.embedding.normalized for m in masks)
-    # GT track promoted to a canonical Identity (identity_score None == GT).
-    assert all(m.identity is not None for m in masks)
-    assert all(m.identity_score is None for m in masks)
-    assert {m.identity.name for m in masks} == {"animal0", "animal1"}
-    # Catalog registered with exactly the two canonical (uuid-stable) identities.
-    ids = reloaded.identities
-    assert {i.name for i in ids} == {"animal0", "animal1"}
-    assert all(len(i.uuid) == 32 for i in ids)
+    # No identity fabricated from the GT track.
+    assert all(m.identity is None for m in masks)
+    assert not (getattr(reloaded, "identities", None) or [])
 
 
 # ── CLI routing: --save_embeddings threads through / guards correctly ─────────

@@ -187,6 +187,32 @@ def _multiclass_class_uuids(assets: Any, head_type: str) -> Optional[List[str]]:
     return [str(u) for u in class_uuids]
 
 
+def _multiclass_class_output(assets: Any, head_type: str) -> str:
+    """How a multi-class head's classes map to ``sleap_io`` objects.
+
+    Reads the ``class_output`` field off the head config (``"track"`` /
+    ``"identity"`` / ``"category"``). Defaults to ``"track"`` when unavailable
+    (e.g. a legacy checkpoint trained before this field existed), which restores
+    the track-only packaging — no global ``sio.Identity`` is fabricated unless the
+    model explicitly declares its classes are unique individuals.
+    """
+    if head_type == "multi_class_topdown":
+        cfg = getattr(assets, "confmap_config", None)
+        sub_key = "class_vectors"
+    elif head_type == "multi_class_bottomup":
+        cfg = getattr(assets, "bottomup_config", None)
+        sub_key = "class_maps"
+    else:
+        return "track"
+    if cfg is None:
+        return "track"
+    try:
+        value = cfg.model_config.head_configs[head_type][sub_key]["class_output"]
+    except (KeyError, AttributeError, TypeError):
+        return "track"
+    return str(value) if value is not None else "track"
+
+
 def _build_single_instance_layer(predictor: Any, device: str) -> SingleInstanceLayer:
     """Wrap a ``SingleInstanceInferenceModel`` in an ``InferenceLayer``."""
     inf = predictor.inference_model
@@ -262,6 +288,7 @@ def _build_bottomup_multiclass_layer(
         max_instances=getattr(predictor, "max_instances", None),
         class_names=_multiclass_class_names(predictor, "multi_class_bottomup"),
         class_uuids=_multiclass_class_uuids(predictor, "multi_class_bottomup"),
+        class_output=_multiclass_class_output(predictor, "multi_class_bottomup"),
         preprocess_config=PreprocessConfig(
             scale=inf.input_scale,
             max_height=_pp_field(predictor, "max_height"),
@@ -397,6 +424,7 @@ def _build_centered_instance_multiclass_layer(
     device: str,
     class_names: Optional[List[str]] = None,
     class_uuids: Optional[List[str]] = None,
+    class_output: str = "track",
 ) -> CenteredInstanceMultiClassLayer:
     """Wrap a ``TopDownMultiClassFindInstancePeaks`` model in a layer."""
     return CenteredInstanceMultiClassLayer(
@@ -405,6 +433,7 @@ def _build_centered_instance_multiclass_layer(
         max_stride=instance_model.max_stride,
         class_names=class_names,
         class_uuids=class_uuids,
+        class_output=class_output,
         preprocess_config=PreprocessConfig(scale=instance_model.input_scale),
         postprocess_config=PostprocessConfig(
             peak_threshold=instance_model.peak_threshold,
@@ -439,6 +468,7 @@ def _build_topdown_multiclass_layer(
         device,
         class_names=_multiclass_class_names(predictor, "multi_class_topdown"),
         class_uuids=_multiclass_class_uuids(predictor, "multi_class_topdown"),
+        class_output=_multiclass_class_output(predictor, "multi_class_topdown"),
     )
     crop_h, crop_w = inf.centroid_crop.crop_hw
     return TopDownMultiClassLayer(
@@ -1978,6 +2008,19 @@ class Predictor:
 
         class_names = getattr(self.layer, "class_names", None)
         if not class_names:
+            return None
+        # The classes map to a global Identity only when the model declares them
+        # as unique individuals (``class_output == "identity"``). A ``"track"``
+        # model (the default) emits only the per-video Track — no Identity is
+        # fabricated. ``"category"`` (shared types/roles) is not yet implemented.
+        class_output = getattr(self.layer, "class_output", "track")
+        if class_output == "category":
+            raise NotImplementedError(
+                "class_output='category' is not yet implemented; predicted classes "
+                "can currently be emitted as 'track' (default) or 'identity'. Set "
+                "the multi-class head's class_output to 'track' or 'identity'."
+            )
+        if class_output != "identity":
             return None
         class_uuids = getattr(self.layer, "class_uuids", None)
         if not class_uuids or len(class_uuids) != len(class_names):

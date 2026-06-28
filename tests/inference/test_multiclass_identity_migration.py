@@ -100,15 +100,39 @@ def _tracked_instances(labels: sio.Labels):
     ]
 
 
+def _prep_models(tmp_path, fx, *, class_output="identity", class_uuids=None):
+    """Copy fixture model dirs to tmp, set the class head's ``class_output`` (+ uuids).
+
+    The shipped fixtures have no ``class_output`` (so default to ``"track"`` =
+    no Identity). Identity-emission tests opt in by writing ``class_output`` (and
+    optionally frozen ``class_uuids``) into the class head's ``training_config.yaml``.
+    """
+    new_models = []
+    for src_dir in fx["models"]:
+        dst = tmp_path / src_dir.name
+        shutil.copytree(src_dir, dst)
+        new_models.append(dst)
+        if src_dir.name == fx["class_head_dir"]:
+            cfg_path = dst / "training_config.yaml"
+            cfg = yaml.safe_load(cfg_path.read_text())
+            sub = cfg["model_config"]["head_configs"][fx["head_type"]][fx["sub_key"]]
+            sub["class_output"] = class_output
+            if class_uuids is not None:
+                classes = list(sub["classes"])
+                sub["class_uuids"] = [class_uuids[c] for c in classes]
+            cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False))
+    return new_models
+
+
 @pytest.mark.parametrize("fixture", list(FIXTURES))
-def test_identity_assigned_additively(fixture: str):
-    """Identity + identity_score assigned alongside the existing track."""
+def test_identity_assigned_additively(fixture: str, tmp_path):
+    """With class_output='identity': Identity + score assigned alongside the track."""
     fx = FIXTURES[fixture]
     if not _have(*fx["models"], fx["source"]):
         pytest.skip(f"{fixture} checkpoints/data not present")
 
     labels = _run_new(
-        fx["models"],
+        _prep_models(tmp_path, fx, class_output="identity"),
         fx["source"],
         fx["n_frames"],
         fx["peak_threshold"],
@@ -149,21 +173,10 @@ def test_frozen_uuid_reemitted(tmp_path):
     if not _have(*fx["models"], fx["source"]):
         pytest.skip("multiclass_topdown checkpoints/data not present")
 
-    # Copy both model dirs into tmp and inject class_uuids into the class head's
-    # training_config.yaml (mirrors what train-time minting freezes).
+    # Copy both model dirs into tmp, set class_output='identity' + inject class_uuids
+    # into the class head's training_config.yaml (mirrors what train-time freezes).
     frozen = {"female": "a" * 32, "male": "b" * 32}
-    new_models = []
-    for src_dir in fx["models"]:
-        dst = tmp_path / src_dir.name
-        shutil.copytree(src_dir, dst)
-        new_models.append(dst)
-        if src_dir.name == fx["class_head_dir"]:
-            cfg_path = dst / "training_config.yaml"
-            cfg = yaml.safe_load(cfg_path.read_text())
-            sub = cfg["model_config"]["head_configs"][fx["head_type"]][fx["sub_key"]]
-            classes = list(sub["classes"])
-            sub["class_uuids"] = [frozen[c] for c in classes]
-            cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False))
+    new_models = _prep_models(tmp_path, fx, class_output="identity", class_uuids=frozen)
 
     labels = _run_new(
         new_models,
@@ -199,8 +212,10 @@ def test_legacy_checkpoint_without_class_uuids(tmp_path):
     sub = cfg["model_config"]["head_configs"][fx["head_type"]][fx["sub_key"]]
     assert sub.get("class_uuids") is None
 
+    # Opt into identity output but leave class_uuids unset (the legacy case):
+    # _multiclass_identities must mint a fallback uuid without crashing.
     labels = _run_new(
-        fx["models"],
+        _prep_models(tmp_path, fx, class_output="identity", class_uuids=None),
         fx["source"],
         fx["n_frames"],
         fx["peak_threshold"],
@@ -216,6 +231,37 @@ def test_legacy_checkpoint_without_class_uuids(tmp_path):
 
 
 @pytest.mark.parametrize("fixture", list(FIXTURES))
+def test_default_track_emits_no_identity(fixture: str):
+    """Default class_output='track': only the Track is emitted, NO Identity.
+
+    A multi_class model whose classes are types/roles (e.g. male/female) must not
+    fabricate a global Identity with a shared frozen uuid. The shipped fixtures
+    carry no ``class_output`` -> default ``"track"`` -> no identities.
+    """
+    fx = FIXTURES[fixture]
+    if not _have(*fx["models"], fx["source"]):
+        pytest.skip(f"{fixture} checkpoints/data not present")
+
+    labels = _run_new(
+        fx["models"],
+        fx["source"],
+        fx["n_frames"],
+        fx["peak_threshold"],
+        fx["max_instances"],
+    )
+    tracked = _tracked_instances(labels)
+    if not tracked:
+        pytest.skip(f"{fixture}: model detected 0 tracked instances on this platform")
+
+    # No identities anywhere; tracks (the classification-tracker output) preserved.
+    assert not (getattr(labels, "identities", None) or [])
+    for inst in tracked:
+        assert inst.identity is None
+        assert inst.identity_score is None
+        assert inst.track is not None
+
+
+@pytest.mark.parametrize("fixture", list(FIXTURES))
 def test_identity_round_trip(fixture: str, tmp_path):
     """save_slp -> load_slp preserves identity (by uuid) + identity_score."""
     fx = FIXTURES[fixture]
@@ -223,7 +269,7 @@ def test_identity_round_trip(fixture: str, tmp_path):
         pytest.skip(f"{fixture} checkpoints/data not present")
 
     labels = _run_new(
-        fx["models"],
+        _prep_models(tmp_path, fx, class_output="identity"),
         fx["source"],
         fx["n_frames"],
         fx["peak_threshold"],

@@ -628,9 +628,14 @@ class ModelTrainer:
             # One uuid per class, in the SAME order as ``classes``. Reuse a
             # matching ``sio.Identity.uuid`` from the training labels when present
             # (so predictions can join a GT file by uuid), else mint ``uuid4``.
-            # Only when ``class_uuids`` is missing/None, even if ``classes`` was
-            # user-provided. Frozen verbatim into ``training_config.yaml``.
-            if "class_uuids" in head_config[key].keys():
+            # ONLY when ``class_output == "identity"`` (the classes enumerate unique
+            # individuals) and ``class_uuids`` is missing/None — a ``"track"``
+            # (default) or ``"category"`` model needs no per-class identity uuid.
+            # Frozen verbatim into ``training_config.yaml``.
+            if (
+                "class_uuids" in head_config[key].keys()
+                and head_config[key].get("class_output") == "identity"
+            ):
                 if head_config[key]["class_uuids"] is None:
                     classes = head_config[key]["classes"]
                     if classes is not None and len(classes):

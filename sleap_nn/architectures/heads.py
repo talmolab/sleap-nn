@@ -381,6 +381,7 @@ class ClassMapsHead(Head):
     def __init__(
         self,
         classes: List[Text],
+        class_output: str = "track",
         class_uuids: Optional[List[Text]] = None,
         sigma: float = 5.0,
         output_stride: int = 1,
@@ -389,6 +390,7 @@ class ClassMapsHead(Head):
         """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.classes = classes
+        self.class_output = class_output
         self.class_uuids = class_uuids
         self.sigma = sigma
 
@@ -450,6 +452,7 @@ class ClassVectorsHead(Head):
     def __init__(
         self,
         classes: List[Text],
+        class_output: str = "track",
         class_uuids: Optional[List[Text]] = None,
         num_fc_layers: int = 1,
         num_fc_units: int = 64,
@@ -460,6 +463,7 @@ class ClassVectorsHead(Head):
         """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.classes = classes
+        self.class_output = class_output
         self.class_uuids = class_uuids
         self.num_fc_layers = num_fc_layers
         self.num_fc_units = num_fc_units

@@ -1701,6 +1701,9 @@ class TestClassUuidMinting:
         }
         if model_type == "multi_class_topdown":
             confmaps["anchor_part"] = "A"
+        # UUID minting only runs for class_output == "identity"; default it on for
+        # these minting tests unless a case overrides it.
+        sub_cfg = {"class_output": "identity", **sub_cfg}
         head = {"confmaps": confmaps, sub_key: sub_cfg}
         raw = OmegaConf.create({"model_config": {"head_configs": {model_type: head}}})
         schema = OmegaConf.structured(TrainingJobConfig())
@@ -1813,3 +1816,21 @@ class TestClassUuidMinting:
         assert cv.class_uuids is not None
         assert len(cv.class_uuids) == 2
         assert all(self._HEX32.match(u) for u in cv.class_uuids)
+
+    def test_no_uuids_minted_for_track_output(self, minimal_instance):
+        """Default class_output='track': classes resolved but NO uuids minted.
+
+        A track/category model's classes are not unique individuals, so no
+        per-class identity uuid should be frozen.
+        """
+        labels, _ = self._tracked_labels(minimal_instance)
+        trainer = self._build_trainer(
+            "multi_class_topdown",
+            "class_vectors",
+            {"classes": None, "class_output": "track"},
+            [labels],
+        )
+        trainer._setup_head_config()
+        cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
+        assert cv.classes is not None and len(cv.classes) == 2  # classes still resolved
+        assert cv.class_uuids is None  # but no identity uuids frozen

@@ -221,16 +221,6 @@ def predict_embeddings_to_h5(
     attach_slp = save_embeddings in ("slp", "both")
     # The model dir name tags every vector's ``Embedding.source`` (provenance).
     model_id = Path(str(model_dir)).name
-    # Canonical GT identities, deduped by track name across the file (pose-only:
-    # ``SegmentationMask`` carries no ``identity`` attr -> naturally skipped). Seeded
-    # from any identities already on the file so we reuse the catalog's objects.
-    ident_by_name: dict = {
-        i.name: i for i in (getattr(labels, "identities", None) or [])
-    }
-    # Only the identities minted here (never the pre-existing catalog) are appended
-    # at save time, so a file already carrying same-named identities is not collapsed
-    # by the name-keyed reuse map (``Identity.name`` is not unique).
-    new_identities: list = []
 
     # Sibling .slp path: strip a known suffix off ``out`` and append ``.slp``.
     slp_stem = out
@@ -294,18 +284,6 @@ def predict_embeddings_to_h5(
                         source=model_id,
                     )
                     n_attached += 1
-                    # Optional: promote the source detection's GT track to a canonical
-                    # GT ``sio.Identity`` (identity_score=None). Pose-only: a
-                    # ``SegmentationMask`` has no ``identity`` attr, so masks skip this.
-                    track = getattr(mask_obj, "track", None)
-                    if track is not None and hasattr(mask_obj, "identity"):
-                        name = str(track.name)
-                        ident = ident_by_name.get(name)
-                        if ident is None:
-                            ident = sio.Identity(name=name)
-                            ident_by_name[name] = ident
-                            new_identities.append(ident)
-                        mask_obj.identity = ident
 
             if not write_h5:
                 continue
@@ -352,17 +330,12 @@ def predict_embeddings_to_h5(
         logger.info(f"Wrote {n_written} embeddings (dim={embedding_dim}) to {out}")
 
     if attach_slp:
-        # Register the canonical GT identities before saving so the producer-side
-        # ``identity in labels.identities`` check passes. Append only the
-        # newly-minted identities to the existing catalog (never overwrite it) so
-        # pre-existing same-named identities are preserved.
-        if new_identities:
-            labels.identities = (
-                list(getattr(labels, "identities", None) or []) + new_identities
-            )
+        # Embeddings only — the embedding model produces appearance vectors, not
+        # identities. Any ``sio.Identity`` already on the input labels passes
+        # through untouched; we do NOT fabricate identities from track names (a
+        # track/class name is not a global animal identity). Both Instance and
+        # SegmentationMask (owner_type=3, sleap-io#527) embeddings persist here.
         sio.save_slp(labels, slp_out, embed=False)
-        # Both Instance and SegmentationMask (owner_type=3, sleap-io#527) detections
-        # persist their embeddings + identities here.
         logger.info(
             f"Attached {n_attached} embeddings (dim={embedding_dim}) and wrote {slp_out}"
         )

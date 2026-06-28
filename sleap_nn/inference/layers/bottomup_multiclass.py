@@ -60,6 +60,7 @@ class BottomUpMultiClassLayer(InferenceLayer):
         postprocess_config: Optional[PostprocessConfig] = None,
         class_names: Optional[List[str]] = None,
         class_uuids: Optional[List[str]] = None,
+        class_output: str = "track",
     ) -> None:
         """Compose the layer with the two output strides."""
         super().__init__(
@@ -74,6 +75,7 @@ class BottomUpMultiClassLayer(InferenceLayer):
         self.max_instances = max_instances
         self.class_names = list(class_names) if class_names is not None else None
         self.class_uuids = list(class_uuids) if class_uuids is not None else None
+        self.class_output = class_output
 
     # ──────────────────────────────────────────────────────────────────
     # Postprocess (class-maps based grouping)
