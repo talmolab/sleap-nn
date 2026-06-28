@@ -221,7 +221,7 @@ def test_run_inference_centroid_guard_accepts_ckpt_path():
     """The lone-centroid guard in ``run_inference`` resolves a centroid best.ckpt
     path to its dir and still detects the centroid-only case (raising the
     redirect error rather than silently failing open)."""
-    from sleap_nn.predict import run_inference
+    from sleap_nn.legacy_predict import run_inference
 
     with pytest.raises(ValueError, match="Centroid-only inference is not supported"):
         run_inference(

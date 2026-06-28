@@ -108,7 +108,7 @@ def exported_bottomup_onnx_dir(bottomup_ckpt_path, tmp_path_factory):
 @pytest.fixture(scope="session")
 def pytorch_bottomup_labels(bottomup_ckpt_path, video_path):
     """Run PyTorch inference on the test video and return Labels."""
-    from sleap_nn.predict import run_inference
+    from sleap_nn.legacy_predict import run_inference
 
     labels = run_inference(
         data_path=str(video_path),
@@ -411,15 +411,14 @@ def _collect_distances(labels_a: sio.Labels, labels_b: sio.Labels) -> np.ndarray
 class TestSingleInstanceONNXAccuracy:
     """PyTorch vs ONNX parity for single-instance models.
 
-    The single-instance ONNX wrapper bakes ``input_scale`` into the
-    TorchScript trace as a constant, which introduces small rounding
-    differences vs the PyTorch path's dynamic rescaling. Max per-keypoint
-    deviation is ~12 px on the test fixture; the threshold is set at 15 px
-    (well below the 100+ px that a real coordinate-scaling bug produces).
+    The test checkpoint runs at ``input_scale=0.5``; the ONNX wrapper resizes with
+    the same antialiased bilinear filter as the PyTorch inference path, so the
+    confidence maps (and thus the argmax peaks) match. The only residual difference
+    is sub-pixel: the wrapper takes plain argmax peaks while the PyTorch path here
+    integral-refines them, a difference well under the generic ceiling.
     """
 
-    # Wider than the generic 10 px ceiling because of traced input_scale.
-    _MAX_DIST_PX = 15.0
+    _MAX_DIST_PX = 10.0
 
     @pytest.fixture(scope="class")
     def exported_dir(self, tmp_path_factory):

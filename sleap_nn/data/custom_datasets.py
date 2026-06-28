@@ -36,6 +36,7 @@ from sleap_nn.data.normalization import (
     convert_to_rgb,
 )
 from sleap_nn.data.providers import (
+    filter_oob_points,
     get_max_instances,
     get_max_height_width,
     process_lf,
@@ -1393,6 +1394,10 @@ class CenteredInstanceDataset(BaseDataset):
 
         img_hw = sample["instance_image"].shape[-2:]
 
+        # Drop keypoints pushed outside the crop by augmentation so their target
+        # confidence map is empty rather than a partial blob at the crop edge.
+        sample["instance"] = filter_oob_points(sample["instance"], img_hw[0], img_hw[1])
+
         # Generate confidence maps
         confidence_maps = generate_confmaps(
             sample["instance"],
@@ -2534,6 +2539,10 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
 
         img_hw = sample["instance_image"].shape[-2:]
 
+        # Drop keypoints pushed outside the crop by augmentation so their target
+        # confidence map is empty rather than a partial blob at the crop edge.
+        sample["instance"] = filter_oob_points(sample["instance"], img_hw[0], img_hw[1])
+
         # Generate confidence maps
         confidence_maps = generate_confmaps(
             sample["instance"],
@@ -2873,6 +2882,12 @@ class SingleInstanceDataset(BaseDataset):
         sample = self._apply_common_preprocessing(sample)
 
         img_hw = sample["image"].shape[-2:]
+
+        # Drop keypoints pushed outside the image by augmentation so their target
+        # confidence map is empty rather than a partial blob at the image edge.
+        sample["instances"] = filter_oob_points(
+            sample["instances"], img_hw[0], img_hw[1]
+        )
 
         # Generate confidence maps
         confidence_maps = generate_confmaps(

@@ -1,7 +1,7 @@
 from typing import DefaultDict, Deque, List
 import numpy as np
 import torch
-from sleap_nn.predict import run_inference
+from sleap_nn.legacy_predict import run_inference
 from sleap_nn.tracking.track_instance import TrackedInstanceFeature
 from sleap_nn.tracking.candidates.fixed_window import FixedWindowCandidates
 from sleap_nn.tracking.tracker import Tracker

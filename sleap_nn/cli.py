@@ -1023,7 +1023,7 @@ def track(**kwargs):
     This command uses the legacy ``run_inference`` pipeline. For the new
     inference pipeline, use ``sleap-nn predict``.
     """
-    from sleap_nn.predict import frame_list, run_inference
+    from sleap_nn.legacy_predict import frame_list, run_inference
 
     if "model_paths" in kwargs and kwargs["model_paths"]:
         kwargs["model_paths"] = list(kwargs["model_paths"])
@@ -1087,7 +1087,7 @@ def _run_inference_impl(**kwargs):
     ``--frames`` string into a list of int frame indices, and routes to
     the new :class:`Predictor`-based pipeline.
     """
-    from sleap_nn.predict import frame_list
+    from sleap_nn.legacy_predict import frame_list
 
     paf_workers = kwargs.pop("paf_workers", 0) or 0
     cpu_workers = kwargs.pop("cpu_workers", None)
@@ -1175,7 +1175,7 @@ def _run_inference_impl(**kwargs):
 def _resolve_device(value: object) -> str:
     """Resolve a CLI ``--device`` value to a concrete torch device string.
 
-    The legacy :func:`sleap_nn.predict.run_inference` resolves ``"auto"``
+    The legacy :func:`sleap_nn.legacy_predict.run_inference` resolves ``"auto"``
     before any checkpoint loading; the new flow needs the same so
     ``torch.load(map_location="auto")`` doesn't blow up on the legacy
     factory loader.
@@ -1254,11 +1254,12 @@ def _build_tracker_config(kwargs: dict) -> "object":
     """Build a :class:`TrackerConfig` from the CLI ``--tracking_*`` flags.
 
     Replicates the legacy ``run_inference`` edge-layer defaulting (see
-    ``sleap_nn/predict.py`` pre-#530) so the new ``predict`` flow behaves
+    ``sleap_nn/legacy_predict.py`` pre-#530) so the new ``predict`` flow behaves
     identically (#582):
 
-    * ``--max_tracks`` with no ``--candidates_method`` defaults the method to
-      ``local_queues`` (``max_tracks`` is silently ignored by ``fixed_window``).
+    * ``--max_tracks`` forces ``--candidates_method local_queues`` (``max_tracks``
+      is silently ignored by ``fixed_window``), overriding even an explicit
+      ``--candidates_method fixed_window`` since that pairing is non-functional.
     * ``--post_connect_single_breaks`` / ``--tracking_pre_cull_to_target`` with
       only ``--max_instances`` (no explicit ``--tracking_target_instance_count``)
       derive the target count from ``max_instances`` instead of crashing /
@@ -1275,15 +1276,22 @@ def _build_tracker_config(kwargs: dict) -> "object":
     pcsb = kwargs.get("post_connect_single_breaks", False)
     use_kalman = kwargs.get("use_kalman", False)
 
-    # Default candidates_method to local_queues when max_tracks is set but the
-    # user did not explicitly choose a method (the click default is None).
-    # Record explicitness so apply_tracking can default mask-mode tracking to
-    # local_queues (much better identity on over-segmented masks) unless the user
-    # explicitly picked a method.
+    # max_tracks is only honored by the local_queues candidate maker; fixed_window
+    # silently ignores it. Whenever a track cap is requested, use local_queues so
+    # the cap is enforced -- even if the user explicitly passed fixed_window, since
+    # that combination is non-functional (the cap would be dropped). Logged at INFO
+    # (sleap#2720, #582). Record explicitness so apply_tracking can default
+    # mask-mode tracking to local_queues (much better identity on over-segmented
+    # masks) unless the user explicitly picked a method.
     candidates_method_explicit = kwargs.get("candidates_method") is not None
-    candidates_method = kwargs.get("candidates_method")
-    if candidates_method is None:
-        candidates_method = "local_queues" if max_tracks is not None else "fixed_window"
+    candidates_method = kwargs.get("candidates_method") or "fixed_window"
+    if max_tracks is not None and candidates_method == "fixed_window":
+        logger.info(
+            "max_tracks=%s requested; using candidates_method='local_queues' "
+            "(fixed_window ignores max_tracks).",
+            max_tracks,
+        )
+        candidates_method = "local_queues"
 
     # Legacy: post_connect_single_breaks defaults max_tracks from max_instances.
     if pcsb and max_tracks is None:
@@ -1690,7 +1698,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
             kwargs.get("output_path")
             or _default_predictions_path(source_str, src_is_url, scoped_video_name)
         ),
-        "output_format": kwargs.get("output_format") or "slp",
+        "output_format": kwargs.get("output_format") or ("slp",),
         "embed": kwargs.get("embed") or "false",
         "restore_source_videos": kwargs.get("restore_source_videos", True),
         # Bottom-up PAF grouping knobs (inert for non-bottom-up models). #583.
@@ -1881,7 +1889,7 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
     save_predictions(
         out,
         output_path,
-        output_format=kwargs.get("output_format") or "slp",
+        output_format=kwargs.get("output_format") or ("slp",),
         embed=kwargs.get("embed") or "false",
         restore_source_videos=kwargs.get("restore_source_videos", True),
     )
@@ -2071,7 +2079,7 @@ def _run_stream_to_file(
             "streaming writes each batch to disk and cannot drop empty "
             "frames after the fact. Drop --stream-to-file to use it."
         )
-    if (kwargs.get("output_format") or "slp").lower() != "slp":
+    if any(str(f).lower() != "slp" for f in (kwargs.get("output_format") or ("slp",))):
         raise click.UsageError(
             "--stream-to-file only supports --output_format slp. Drop "
             "--stream-to-file to write analysis HDF5 via the in-memory path."
@@ -2259,9 +2267,13 @@ def _common_inference_options(f):
         ),
         click.option(
             "--output_format",
-            type=click.Choice(["slp", "analysis_h5", "both"], case_sensitive=False),
-            default="slp",
-            help="Output format: 'slp' (SLEAP labels file, the default), 'analysis_h5' (SLEAP Analysis HDF5, one '.analysis.h5' per video), or 'both'.",
+            type=click.Choice(["slp", "analysis_h5"], case_sensitive=False),
+            multiple=True,
+            default=("slp",),
+            help="Output format(s); repeat the flag to write several. 'slp' "
+            "(SLEAP labels file, the default) and/or 'analysis_h5' (SLEAP "
+            "Analysis HDF5, one '.analysis.h5' per video). E.g. "
+            "'--output_format slp --output_format analysis_h5'.",
         ),
         click.option(
             "--embed",

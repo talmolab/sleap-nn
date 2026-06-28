@@ -125,7 +125,7 @@ def test_predict_simple_case_uses_predict(tmp_path):
             "sleap_nn.inference.run.predict",
             return_value=MagicMock(),
         ) as mock_predict,
-        patch("sleap_nn.predict.run_inference") as mock_run_inference,
+        patch("sleap_nn.legacy_predict.run_inference") as mock_run_inference,
     ):
         result = runner.invoke(
             cli,
@@ -164,7 +164,7 @@ def test_predict_with_tracking_uses_predict(tmp_path):
             "sleap_nn.inference.run.predict",
             return_value=MagicMock(),
         ) as mock_predict,
-        patch("sleap_nn.predict.run_inference") as mock_run,
+        patch("sleap_nn.legacy_predict.run_inference") as mock_run,
     ):
         result = runner.invoke(
             cli,
@@ -208,7 +208,7 @@ def test_predict_with_tracking_plus_filter_uses_predict(tmp_path):
             "sleap_nn.inference.run.predict",
             return_value=MagicMock(),
         ) as mock_predict,
-        patch("sleap_nn.predict.run_inference") as mock_run,
+        patch("sleap_nn.legacy_predict.run_inference") as mock_run,
     ):
         result = runner.invoke(
             cli,
@@ -312,7 +312,7 @@ def test_predict_only_suggested_frames_routes_to_predict(tmp_path):
             return_value=MagicMock(),
         ) as mock_predict,
         patch("sleap_nn.inference.providers.LabelsProvider") as mock_provider,
-        patch("sleap_nn.predict.run_inference") as mock_run,
+        patch("sleap_nn.legacy_predict.run_inference") as mock_run,
     ):
         result = runner.invoke(
             cli,
@@ -447,7 +447,7 @@ def test_predict_retrack_only_dispatches_to_predictor_retrack(tmp_path):
         patch(
             "sleap_nn.inference.predictor.Predictor.retrack", return_value=tracked
         ) as mock_retrack,
-        patch("sleap_nn.predict.run_inference") as mock_legacy,
+        patch("sleap_nn.legacy_predict.run_inference") as mock_legacy,
     ):
         result = runner.invoke(
             cli,
@@ -483,7 +483,7 @@ def test_predict_retrack_only_forwards_embed_and_restore(tmp_path):
     with (
         patch("sleap_io.load_slp", return_value=fake_labels),
         patch("sleap_nn.inference.predictor.Predictor.retrack", return_value=tracked),
-        patch("sleap_nn.predict.run_inference") as mock_legacy,
+        patch("sleap_nn.legacy_predict.run_inference") as mock_legacy,
         patch("sleap_nn.inference.run.save_predictions") as mock_save,
     ):
         result = runner.invoke(
@@ -563,8 +563,13 @@ def test_predict_max_tracks_auto_switches_to_local_queues():
         assert cfg.max_tracks == 3
 
 
-def test_predict_explicit_fixed_window_with_max_tracks_respected():
-    """An explicit `--candidates_method fixed_window` is not overridden (#582)."""
+def test_predict_explicit_fixed_window_with_max_tracks_switches_to_local_queues():
+    """`--max_tracks` overrides an explicit `--candidates_method fixed_window`.
+
+    sleap#2720: fixed_window silently ignores max_tracks, so requesting a track
+    cap always wins and switches the method to local_queues (the only maker that
+    honors the cap). This supersedes the earlier #582 escape-hatch behavior.
+    """
     runner = CliRunner()
     with patch(
         "sleap_nn.inference.run.predict", return_value=MagicMock()
@@ -586,7 +591,7 @@ def test_predict_explicit_fixed_window_with_max_tracks_respected():
         )
         assert result.exit_code == 0, result.output
         assert mock_predict.call_args[1]["tracker_config"].candidates_method == (
-            "fixed_window"
+            "local_queues"
         )
 
 
@@ -598,7 +603,9 @@ def test_track_command_candidates_method_defaults_fixed_window():
     stay 'fixed_window', else run_inference -> Tracker.from_config(None) crashes).
     """
     runner = CliRunner()
-    with patch("sleap_nn.predict.run_inference", return_value=MagicMock()) as mock_run:
+    with patch(
+        "sleap_nn.legacy_predict.run_inference", return_value=MagicMock()
+    ) as mock_run:
         result = runner.invoke(
             cli,
             [
@@ -622,7 +629,9 @@ def test_track_command_candidates_method_defaults_fixed_window():
 def test_track_gui_forwards_to_run_inference():
     """`track --gui` forwards gui=True to run_inference (no longer popped). #583."""
     runner = CliRunner()
-    with patch("sleap_nn.predict.run_inference", return_value=MagicMock()) as mock_run:
+    with patch(
+        "sleap_nn.legacy_predict.run_inference", return_value=MagicMock()
+    ) as mock_run:
         result = runner.invoke(
             cli,
             [
@@ -641,7 +650,9 @@ def test_track_gui_forwards_to_run_inference():
 def test_track_no_gui_defaults_false():
     """Without --gui, track forwards gui=False."""
     runner = CliRunner()
-    with patch("sleap_nn.predict.run_inference", return_value=MagicMock()) as mock_run:
+    with patch(
+        "sleap_nn.legacy_predict.run_inference", return_value=MagicMock()
+    ) as mock_run:
         result = runner.invoke(
             cli,
             ["track", "--data_path", "/fake/x.mp4", "--model_paths", "/fake/m"],
@@ -830,7 +841,7 @@ def test_predict_retrack_only_sets_tracking_provenance(tmp_path):
 
 
 def test_predict_forwards_output_format(tmp_path):
-    """``--output_format`` propagates to ``predict()`` as the output_format kwarg."""
+    """Repeated ``--output_format`` propagates to ``predict()`` as a tuple."""
     out = tmp_path / "out.slp"
     runner = CliRunner()
     with patch(
@@ -848,12 +859,14 @@ def test_predict_forwards_output_format(tmp_path):
                 "--output_path",
                 str(out),
                 "--output_format",
-                "both",
+                "slp",
+                "--output_format",
+                "analysis_h5",
             ],
         )
     assert result.exit_code == 0, result.output
     assert mock_predict.called
-    assert mock_predict.call_args[1]["output_format"] == "both"
+    assert mock_predict.call_args[1]["output_format"] == ("slp", "analysis_h5")
 
 
 def test_predict_stream_to_file_rejects_non_slp_format(tmp_path):

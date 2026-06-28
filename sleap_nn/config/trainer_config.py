@@ -335,6 +335,7 @@ class TrainerConfig:
         train_steps_per_epoch: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data or `min_train_steps_per_epoch`, whichever is largest. *Default*: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.
         visualize_preds_during_training: (bool) If set to `True`, sample predictions (keypoints + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table. *Default*: `False`.
         keep_viz: (bool) If set to `True`, the `viz` folder will be kept after training. If `False`, the `viz` folder will be deleted after training. Only applies when `visualize_preds_during_training` is `True`. *Default*: `False`.
+        viz_img_format: (str) Image format for the visualization figures saved to the local `viz` folder, one of `"png"` or `"jpg"`. `"jpg"` produces much smaller files, which helps when training a battery of models on the same dataset (#644). Only applies when `visualize_preds_during_training` is `True`. *Default*: `"png"`.
         max_epochs: (int) Maximum number of epochs to run. *Default*: `100`.
         seed: (int) Seed value for the current experiment. This ensures deterministic train/val splits across runs, which is critical for safe checkpoint resume. *Default*: `42`.
         use_wandb: (bool) True to enable wandb logging. *Default*: `False`.
@@ -366,6 +367,7 @@ class TrainerConfig:
     train_steps_per_epoch: Optional[int] = None
     visualize_preds_during_training: bool = False
     keep_viz: bool = False
+    viz_img_format: str = "png"
     max_epochs: int = 100
     seed: Optional[int] = 42
     use_wandb: bool = False

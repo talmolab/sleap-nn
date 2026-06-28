@@ -27,7 +27,7 @@ sleap-nn predict -i video.mp4 -m models/bottomup/ --tracking
 | `--scoring_method` | Similarity scoring method | `oks`, `cosine_sim`, `iou`, `euclidean_dist` | `oks` |
 | `--scoring_reduction` | Score reduction method | `mean`, `max`, `robust_quantile` | `mean` |
 | `--track_matching_method` | Assignment algorithm | `hungarian`, `greedy` | `hungarian` |
-| `--max_tracks` | Maximum track count | `INT` | `None` |
+| `--max_tracks` | Maximum track count (auto-selects `local_queues`) | `INT` | `None` |
 | `--use_flow` | Enable optical flow | Flag | `False` |
 | `--use_kalman` | Enable Kalman-filter tracking | Flag | `False` |
 | `--kf_init_frame_count` | Warm-up frames before EM init | `INT` | `10` |
@@ -63,6 +63,13 @@ sleap-nn predict -i video.mp4 -m models/ \
 ```
 
 **Best for**: Robust to track breaks, handles occlusions better.
+
+!!! note "`--max_tracks` requires `local_queues`"
+    `--max_tracks` (the cap on how many track IDs may be created) is honored
+    **only** by `local_queues`; `fixed_window` ignores it. Setting `--max_tracks`
+    therefore auto-selects `candidates_method local_queues` (logged at INFO),
+    overriding `fixed_window` even if you pass it explicitly. You do **not** need
+    to set `--candidates_method` yourself when capping the track count.
 
 ### Optical Flow
 

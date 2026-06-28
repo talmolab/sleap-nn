@@ -5,7 +5,7 @@ import pytest
 from pathlib import Path
 import copy
 import torch
-from sleap_nn.predict import run_inference
+from sleap_nn.legacy_predict import run_inference
 from sleap_nn.evaluation import (
     compute_instance_area,
     compute_oks,

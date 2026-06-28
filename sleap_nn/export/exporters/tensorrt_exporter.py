@@ -140,16 +140,33 @@ def _export_tensorrt_onnx(
         else:
             example_input = torch.randn(*input_shape, dtype=input_dtype, device=device)
 
-        # Export to ONNX
-        torch.onnx.export(
-            model,
-            example_input,
-            onnx_path,
-            opset_version=17,
+        # Export to ONNX. Default to the legacy exporter, falling back to the
+        # torch.export-based one for ops it cannot trace (e.g. the antialiased resize
+        # ``aten::_upsample_bilinear2d_aa`` that downscaling wrappers use) — mirroring
+        # ``export_to_onnx``.
+        onnx_kwargs = dict(
             input_names=["images"],
             dynamic_axes={"images": {0: "batch", 2: "height", 3: "width"}},
-            do_constant_folding=True,
         )
+        try:
+            torch.onnx.export(
+                model,
+                example_input,
+                onnx_path,
+                opset_version=17,
+                do_constant_folding=True,
+                dynamo=False,
+                **onnx_kwargs,
+            )
+        except torch.onnx.errors.UnsupportedOperatorError:
+            torch.onnx.export(
+                model,
+                example_input,
+                onnx_path,
+                opset_version=18,
+                dynamo=True,
+                **onnx_kwargs,
+            )
 
         if verbose:
             print(f"  ONNX export complete: {onnx_path}")

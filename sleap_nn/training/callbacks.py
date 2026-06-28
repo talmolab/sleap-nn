@@ -480,6 +480,18 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
         trainer.strategy.barrier()
 
 
+def _resolve_viz_img_format(img_format: str):
+    """Resolve a viz image-format string to ``(extension, savefig_format, kwargs)``.
+
+    ``"jpg"`` / ``"jpeg"`` (case-insensitive) map to JPEG at quality 90, which
+    yields much smaller files when training a battery of models on the same
+    dataset (#644). Any other value falls back to ``"png"``.
+    """
+    if str(img_format).lower() in ("jpg", "jpeg"):
+        return "jpg", "jpg", {"pil_kwargs": {"quality": 90}}
+    return "png", "png", {}
+
+
 class UnifiedVizCallback(Callback):
     """Unified callback for all visualization outputs during training.
 
@@ -522,6 +534,7 @@ class UnifiedVizCallback(Callback):
         wandb_box_size: float = 5.0,
         wandb_confmap_threshold: float = 0.1,
         log_wandb_table: bool = False,
+        img_format: str = "png",
     ):
         """Initialize the unified visualization callback.
 
@@ -537,6 +550,9 @@ class UnifiedVizCallback(Callback):
             wandb_box_size: Size of keypoint boxes in pixels.
             wandb_confmap_threshold: Threshold for confidence map masks.
             log_wandb_table: If True, also log to a wandb.Table.
+            img_format: Image format for figures saved to ``local_save_dir`` --
+                ``"png"`` (default) or ``"jpg"`` (smaller files; #644). Unknown
+                values fall back to ``"png"``.
         """
         super().__init__()
         from itertools import cycle
@@ -554,6 +570,11 @@ class UnifiedVizCallback(Callback):
         # Local disk config
         self.save_local = save_local
         self.local_save_dir = local_save_dir
+        # Local viz image format: jpg yields much smaller files for batteries of
+        # models on the same dataset (#644); png is the default.
+        self._viz_ext, self._viz_fmt, self._viz_savefig_kwargs = (
+            _resolve_viz_img_format(img_format)
+        )
 
         # WandB config
         self.log_wandb = log_wandb
@@ -649,50 +670,65 @@ class UnifiedVizCallback(Callback):
 
         # Confmaps visualization
         fig = self._mpl_renderer.render(data)
-        fig_path = self.local_save_dir / f"{prefix}.{epoch:04d}.png"
-        fig.savefig(fig_path, format="png")
+        fig_path = self.local_save_dir / f"{prefix}.{epoch:04d}.{self._viz_ext}"
+        fig.savefig(fig_path, format=self._viz_fmt, **self._viz_savefig_kwargs)
         plt.close(fig)
 
         # PAFs visualization (for bottomup models)
         if self.viz_pafs and data.pred_pafs is not None:
             fig = self._mpl_renderer.render_pafs(data)
-            fig_path = self.local_save_dir / f"{prefix}.pafs_magnitude.{epoch:04d}.png"
-            fig.savefig(fig_path, format="png")
+            fig_path = (
+                self.local_save_dir
+                / f"{prefix}.pafs_magnitude.{epoch:04d}.{self._viz_ext}"
+            )
+            fig.savefig(fig_path, format=self._viz_fmt, **self._viz_savefig_kwargs)
             plt.close(fig)
 
         # Class maps visualization (for multi_class_bottomup models)
         if self.viz_class_maps and data.pred_class_maps is not None:
             fig = self._render_class_maps(data)
-            fig_path = self.local_save_dir / f"{prefix}.class_maps.{epoch:04d}.png"
-            fig.savefig(fig_path, format="png")
+            fig_path = (
+                self.local_save_dir / f"{prefix}.class_maps.{epoch:04d}.{self._viz_ext}"
+            )
+            fig.savefig(fig_path, format=self._viz_fmt, **self._viz_savefig_kwargs)
             plt.close(fig)
 
         # Center heatmap visualization (for segmentation models)
         if self.viz_center_heatmap and data.pred_center_heatmap is not None:
             fig = self._render_center_heatmap(data)
-            fig_path = self.local_save_dir / f"{prefix}.center_heatmap.{epoch:04d}.png"
-            fig.savefig(fig_path, format="png")
+            fig_path = (
+                self.local_save_dir
+                / f"{prefix}.center_heatmap.{epoch:04d}.{self._viz_ext}"
+            )
+            fig.savefig(fig_path, format=self._viz_fmt, **self._viz_savefig_kwargs)
             plt.close(fig)
 
         # Center-offset field visualization (for segmentation models)
         if self.viz_offsets and data.pred_offsets is not None:
             fig = self._mpl_renderer.render_offsets(data)
-            fig_path = self.local_save_dir / f"{prefix}.offsets.{epoch:04d}.png"
-            fig.savefig(fig_path, format="png")
+            fig_path = (
+                self.local_save_dir / f"{prefix}.offsets.{epoch:04d}.{self._viz_ext}"
+            )
+            fig.savefig(fig_path, format=self._viz_fmt, **self._viz_savefig_kwargs)
             plt.close(fig)
 
         # GT-vs-prediction foreground mask overlay (for segmentation models)
         if self.viz_gt_mask and data.gt_mask is not None:
             fig = self._mpl_renderer.render_gt_mask(data)
-            fig_path = self.local_save_dir / f"{prefix}.gt_mask.{epoch:04d}.png"
-            fig.savefig(fig_path, format="png")
+            fig_path = (
+                self.local_save_dir / f"{prefix}.gt_mask.{epoch:04d}.{self._viz_ext}"
+            )
+            fig.savefig(fig_path, format=self._viz_fmt, **self._viz_savefig_kwargs)
             plt.close(fig)
 
         # Colored grouped per-instance mask overlay (bottom-up segmentation)
         if self.viz_instance_masks and data.instance_masks is not None:
             fig = self._mpl_renderer.render_instance_masks(data)
-            fig_path = self.local_save_dir / f"{prefix}.instance_masks.{epoch:04d}.png"
-            fig.savefig(fig_path, format="png")
+            fig_path = (
+                self.local_save_dir
+                / f"{prefix}.instance_masks.{epoch:04d}.{self._viz_ext}"
+            )
+            fig.savefig(fig_path, format=self._viz_fmt, **self._viz_savefig_kwargs)
             plt.close(fig)
 
     def _render_class_maps(self, data):

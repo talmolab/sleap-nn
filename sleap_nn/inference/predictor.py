@@ -1207,11 +1207,29 @@ class Predictor:
 
         from sleap_nn.inference.providers import (
             LabelsProvider,
+            NumpyProvider,
             VideoProvider,
         )
 
-        if isinstance(source, (str, np.ndarray)):
-            if isinstance(source, str) and source.endswith(".slp"):
+        if isinstance(source, (np.ndarray, torch.Tensor)):
+            # In-memory frame stack ``(N, H, W, C)`` — the batch-oriented analog
+            # of the realtime ``layer.predict`` path. Route to ``NumpyProvider``;
+            # a raw array is not a video file, so ``VideoProvider`` raised
+            # "Unknown video file type", and a bare tensor would otherwise be
+            # mistaken for a ``Provider`` by the ``__iter__`` branch below.
+            # ``frames`` (if given) labels the per-frame indices on the output.
+            provider = NumpyProvider(
+                images=source,
+                batch_size=self.batch_size,
+                frame_indices=(
+                    np.asarray(frames, dtype=np.int64) if frames is not None else None
+                ),
+                **provider_kwargs,
+            )
+            return provider, None
+
+        if isinstance(source, str):
+            if source.endswith(".slp"):
                 # Load once so we can both build the provider AND attach the
                 # real videos to the output Labels — legacy parity: predicted
                 # frames must reference the source video, not be dropped
@@ -1226,15 +1244,14 @@ class Predictor:
                     **provider_kwargs,
                 )
                 return provider, (list(labels.videos) if labels.videos else None)
-            video = sio.Video(source) if isinstance(source, str) else None
+            video = sio.Video(source)
             provider = VideoProvider(
                 video=source,
                 batch_size=self.batch_size,
                 frames=frames,
                 **provider_kwargs,
             )
-            videos = [video] if video is not None else None
-            return provider, videos
+            return provider, [video]
 
         if isinstance(source, sio.Video):
             provider = VideoProvider(

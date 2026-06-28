@@ -348,6 +348,12 @@ predictor = Predictor.from_model_paths(
 labels = predictor.predict("video.mp4")   # tracked
 ```
 
+!!! note "`max_tracks` auto-selects `local_queues`"
+    `max_tracks` is honored only by the `local_queues` candidate maker;
+    `fixed_window` ignores it. Setting `max_tracks` (here or anywhere a
+    `TrackerConfig`/`Tracker.from_config` is built) auto-switches the method to
+    `local_queues` (logged at INFO), overriding `candidates_method="fixed_window"`.
+
 ### Tracking existing labels with `apply_tracking`
 
 `apply_tracking` is the labels-in / labels-out tracking function. It builds a

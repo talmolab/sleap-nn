@@ -1342,6 +1342,11 @@ class ModelTrainer:
                     log_wandb_table=OmegaConf.select(
                         self.config, "trainer_config.wandb.log_viz_table", default=False
                     ),
+                    img_format=OmegaConf.select(
+                        self.config,
+                        "trainer_config.viz_img_format",
+                        default="png",
+                    ),
                 )
             )
 

@@ -28,7 +28,7 @@ Usage::
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Sequence, Union
 
 import sleap_io as sio
 from loguru import logger
@@ -171,10 +171,43 @@ def _resolve_embed(embed, labels) -> bool:
     raise ValueError(f"Invalid embed={embed!r}; expected 'auto', 'true', or 'false'.")
 
 
+def _normalize_output_formats(
+    output_format: Union[str, Sequence[str]],
+) -> List[str]:
+    """Normalize ``output_format`` (a string or sequence) to a de-duped list.
+
+    Accepts a single format (``"slp"``) or several
+    (``["slp", "analysis_h5"]``, as produced by repeating ``--output_format``).
+    Returns an order-preserving, de-duplicated list drawn from
+    ``{"slp", "analysis_h5"}``; an empty input defaults to ``["slp"]``.
+
+    Raises:
+        ValueError: If any requested format is not ``"slp"`` or ``"analysis_h5"``.
+    """
+    requested = (
+        [output_format] if isinstance(output_format, str) else list(output_format)
+    )
+    formats: List[str] = []
+    for fmt in requested:
+        fmt = str(fmt).lower()
+        if fmt not in formats:
+            formats.append(fmt)
+    if not formats:
+        formats = ["slp"]
+    valid = ("slp", "analysis_h5")
+    invalid = [f for f in formats if f not in valid]
+    if invalid:
+        raise ValueError(
+            f"Invalid output_format: {invalid!r}. Each must be one of {valid} "
+            "(pass --output_format more than once to write several)."
+        )
+    return formats
+
+
 def save_predictions(
     labels: sio.Labels,
     output_path: Union[str, Path],
-    output_format: str = "slp",
+    output_format: Union[str, Sequence[str]] = "slp",
     video_index: Optional[int] = None,
     embed: Union[str, bool] = "false",
     restore_source_videos: bool = True,
@@ -185,8 +218,9 @@ def save_predictions(
         labels: Predicted ``sio.Labels`` to save.
         output_path: Canonical ``.slp`` output path. Analysis HDF5 paths are
             derived from it.
-        output_format: One of ``"slp"`` (the default), ``"analysis_h5"``, or
-            ``"both"``.
+        output_format: One format or several — ``"slp"`` (the default),
+            ``"analysis_h5"``, or a sequence like ``["slp", "analysis_h5"]`` to
+            write both. (The CLI exposes this as a repeatable ``--output_format``.)
         video_index: Restrict the analysis HDF5 export to a single video index;
             ``None`` exports every video with predicted frames.
         embed: Image-embedding policy for the ``.slp`` output, one of
@@ -202,21 +236,15 @@ def save_predictions(
             embedding.
 
     Returns:
-        The list of analysis HDF5 paths written (empty when
-        ``output_format == "slp"``).
+        The list of analysis HDF5 paths written (empty unless ``"analysis_h5"``
+        was requested).
 
     Raises:
-        ValueError: If ``output_format`` is not one of the valid options.
+        ValueError: If any requested format is not ``"slp"`` or ``"analysis_h5"``.
     """
-    output_format = str(output_format).lower()
-    valid_output_formats = ("slp", "analysis_h5", "both")
-    if output_format not in valid_output_formats:
-        raise ValueError(
-            f"Invalid output_format: {output_format!r}. Must be one of "
-            f"{valid_output_formats}."
-        )
+    formats = _normalize_output_formats(output_format)
 
-    if output_format in ("slp", "both"):
+    if "slp" in formats:
         labels.save(
             Path(output_path).as_posix(),
             embed=_resolve_embed(embed, labels),
@@ -224,7 +252,7 @@ def save_predictions(
         )
 
     h5_paths: List[Path] = []
-    if output_format in ("analysis_h5", "both"):
+    if "analysis_h5" in formats:
         h5_paths = save_analysis_h5_files(labels, output_path, video_index=video_index)
     return h5_paths
 
@@ -297,7 +325,7 @@ def predict(
     tracker_config: Optional["TrackerConfig"] = None,
     # Output
     output_path: Optional[str] = None,
-    output_format: str = "slp",
+    output_format: Union[str, Sequence[str]] = "slp",
     embed: Union[str, bool] = "false",
     restore_source_videos: bool = True,
     clean_empty_frames: bool = False,
@@ -458,7 +486,9 @@ def predict(
         # format stores poses/tracks, not ``PredictedSegmentationMask``, so it
         # would silently drop the masks (the actual output). Reject it up front
         # rather than write a mask-less ``.h5``.
-        if output_path is not None and str(output_format).lower() != "slp":
+        if output_path is not None and any(
+            f != "slp" for f in _normalize_output_formats(output_format)
+        ):
             raise ValueError(
                 f"mask_backend output only supports output_format='slp' (got "
                 f"{output_format!r}); the SLEAP Analysis HDF5 format stores "

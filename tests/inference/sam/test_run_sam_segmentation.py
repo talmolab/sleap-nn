@@ -476,7 +476,7 @@ def test_predict_sam_forwards_sam3_model_id(minimal_instance, tmp_path):
     assert captured["sam3_model_id"] == "acme/custom-sam3"
 
 
-@pytest.mark.parametrize("output_format", ["analysis_h5", "both"])
+@pytest.mark.parametrize("output_format", ["analysis_h5", ["slp", "analysis_h5"]])
 def test_predict_sam_rejects_non_slp_output_format(
     minimal_instance, tmp_path, output_format
 ):

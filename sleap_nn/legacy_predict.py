@@ -329,7 +329,7 @@ def run_inference(
     import warnings
 
     warnings.warn(
-        "sleap_nn.predict.run_inference() is deprecated and will be removed "
+        "sleap_nn.legacy_predict.run_inference() is deprecated and will be removed "
         "in a future release. Use the factory functions in sleap_nn.inference — "
         "either get_predictor_from_model_paths(...).predict(...) for checkpoint "
         "inference, .predict_to_file(...) for disk-streaming, or "

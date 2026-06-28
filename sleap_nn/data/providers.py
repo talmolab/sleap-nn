@@ -1,6 +1,6 @@
 """This module implements pipeline blocks for reading input data such as labels."""
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import sleap_io as sio
@@ -35,6 +35,40 @@ def get_max_height_width(labels: sio.Labels) -> Tuple[int, int]:
     )
 
 
+def filter_oob_points(
+    points: Union[np.ndarray, torch.Tensor], img_height: int, img_width: int
+) -> Union[np.ndarray, torch.Tensor]:
+    """Set out-of-bounds (OOB) keypoints to NaN.
+
+    A keypoint is OOB if it has a negative coordinate or falls outside the frame /
+    crop of size ``img_height`` x ``img_width`` (``x >= img_width`` or
+    ``y >= img_height``; upper bound exclusive). Such points cannot be supervised
+    correctly during training — they would bleed a partial confidence-map blob onto
+    the edge — so they are set to NaN, the missing-point representation used
+    throughout the data pipeline. This is used both to drop annotation errors against
+    the original image frame (in `process_lf`) and to drop keypoints pushed outside a
+    crop by augmentation (before confidence-map generation).
+
+    Works on both NumPy arrays and torch tensors, and on any leading batch/instance
+    dimensions; the last axis must be ``(x, y)``.
+
+    Args:
+        points: Keypoints of shape ``(..., num_nodes, 2)`` with ``(x, y)`` pixel
+            coordinates. May already contain NaNs for missing points.
+        img_height: Height of the frame / crop.
+        img_width: Width of the frame / crop.
+
+    Returns:
+        A copy of ``points`` (same type as the input) with OOB keypoints set to NaN.
+    """
+    points = points.clone() if isinstance(points, torch.Tensor) else points.copy()
+    x = points[..., 0]
+    y = points[..., 1]
+    oob = (x < 0) | (x >= img_width) | (y < 0) | (y >= img_height)
+    points[oob] = float("nan")
+    return points
+
+
 def process_lf(
     instances_list: List[sio.Instance],
     img: np.ndarray,
@@ -66,11 +100,18 @@ def process_lf(
             instances_list = user_instances
 
     image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+    img_height, img_width = image.shape[-2:]
 
     instances = []
     for inst in instances_list:
-        if not inst.is_empty:
-            instances.append(inst.numpy())
+        if inst.is_empty:
+            continue
+        # Sanity check: set out-of-bounds keypoints (annotation errors) to NaN and
+        # drop instances that fall entirely outside the original image frame.
+        pts = filter_oob_points(inst.numpy(), img_height, img_width)
+        if np.isnan(pts).all():
+            continue
+        instances.append(pts)
     if len(instances) == 0:
         return None
     instances = np.stack(instances, axis=0)
@@ -84,7 +125,6 @@ def process_lf(
     instances = torch.from_numpy(instances.astype("float32"))
 
     num_instances, nodes = instances.shape[1:3]
-    img_height, img_width = image.shape[-2:]
 
     # append with nans for broadcasting
     if max_instances != 1:
