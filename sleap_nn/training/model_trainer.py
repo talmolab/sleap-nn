@@ -738,7 +738,9 @@ class ModelTrainer:
                         logger.info(
                             f"Updating data preprocessing to ensure_grayscale to True based on the pretrained model weights."
                         )
-                    elif input_channels == 3:
+                    elif input_channels == 3 and self.model_type != "embedding":
+                        # Embedding keeps its (default grayscale) DATA channels even with a
+                        # 3-channel pretrained stem (gray is repeated in Model.forward).
                         self.config.data_config.preprocessing.ensure_rgb = True
                         self.config.data_config.preprocessing.ensure_grayscale = False
                         logger.info(
@@ -766,7 +768,8 @@ class ModelTrainer:
                         logger.info(
                             f"Updating data preprocessing to ensure_grayscale to True based on the pretrained model weights."
                         )
-                    elif input_channels == 3:
+                    elif input_channels == 3 and self.model_type != "embedding":
+                        # Embedding keeps grayscale data with a 3-channel pretrained stem.
                         self.config.data_config.preprocessing.ensure_rgb = True
                         self.config.data_config.preprocessing.ensure_grayscale = False
                         logger.info(
@@ -1221,15 +1224,21 @@ class ModelTrainer:
 
         if self.config.trainer_config.early_stopping.stop_training_on_plateau:
             # early stopping callback
-            callbacks.append(
-                EarlyStopping(
-                    monitor=ckpt_monitor,
-                    mode=ckpt_mode,
-                    verbose=False,
-                    min_delta=self.config.trainer_config.early_stopping.min_delta,
-                    patience=self.config.trainer_config.early_stopping.patience,
-                )
+            es_kwargs = dict(
+                monitor=ckpt_monitor,
+                mode=ckpt_mode,
+                verbose=False,
+                min_delta=self.config.trainer_config.early_stopping.min_delta,
+                patience=self.config.trainer_config.early_stopping.patience,
             )
+            if self.model_type == "embedding":
+                # The retrieval selection metric is logged only on eval epochs (so it is
+                # absent when eval.frequency > 1) and the verification metrics (auc/eer)
+                # can be NaN on a degenerate val set/shard. Don't let an absent/NaN value
+                # abort the run — pose/seg models keep the strict defaults.
+                es_kwargs["strict"] = False
+                es_kwargs["check_finite"] = False
+            callbacks.append(EarlyStopping(**es_kwargs))
 
         if self.config.trainer_config.use_wandb:
             # wandb logger
@@ -1493,6 +1502,13 @@ class ModelTrainer:
             logger.info(f"Using GPUs with most available memory: {devices}")
 
         # create lightning.Trainer instance.
+        # The embedding loader uses a custom group-aware ``batch_sampler`` that shards
+        # itself per rank (seed + rank). Lightning's default sampler replacement cannot
+        # inject a DistributedSampler into a custom batch_sampler (it raises), so disable
+        # replacement for embedding; every other model type passes an explicit
+        # DistributedSampler under DDP, so the default (True) is correct for them.
+        use_distributed_sampler = self.model_type != "embedding"
+
         self.trainer = L.Trainer(
             callbacks=callbacks,
             logger=loggers,
@@ -1504,6 +1520,7 @@ class ModelTrainer:
             strategy=strategy,
             profiler=profiler,
             log_every_n_steps=1,
+            use_distributed_sampler=use_distributed_sampler,
         )
 
         self.trainer.strategy.barrier()

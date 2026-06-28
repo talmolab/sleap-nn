@@ -336,8 +336,9 @@ def export(
                     "does a MASKLESS whole-crop standardize and cannot reproduce the "
                     "masked (foreground-only) standardize used at training/native "
                     "inference, so exported embeddings will diverge. Use the native "
-                    "`sleap-nn embed` path for exact parity, or train/export a "
-                    "burn_in=False model for a faithful single-input ONNX embedder."
+                    "`sleap-nn predict ... --embeddings_path <out.h5>` path for exact "
+                    "parity, or train/export a burn_in=False model for a faithful "
+                    "single-input ONNX embedder."
                 )
         else:
             raise click.ClickException(
@@ -492,6 +493,8 @@ def export(
                 embedding_dim=metadata_embedding_dim,
                 normalize=metadata_normalize,
                 backbone_source=metadata_backbone_source,
+                burn_in=metadata_burn_in,
+                background_fill=metadata_background_fill,
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
         return

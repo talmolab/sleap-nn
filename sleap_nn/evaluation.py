@@ -2157,7 +2157,7 @@ def embedding_full_eval(gallery_emb, gallery_y, query_emb, query_y, k: int = 7):
     return out
 
 
-def embedding_leave_self_out_eval(emb, y, k: int = 7):
+def embedding_leave_self_out_eval(emb, y, k: int = 7, max_n: int = 5000):
     """Leave-self-out retrieval/verification/kNN over one labeled embedding set.
 
     Gallery == query == the same set, with each item's self-match excluded (the
@@ -2170,12 +2170,20 @@ def embedding_leave_self_out_eval(emb, y, k: int = 7):
         emb: ``(N, D)`` embeddings.
         y: ``(N,)`` integer identity labels.
         k: ``k`` for the cosine-kNN accuracy (clamped to ``N - 1``).
+        max_n: Cap on the number of embeddings used for the ``N x N`` similarity. Larger
+            sets are deterministically subsampled so the per-epoch eval stays bounded
+            (an uncapped set would build an O(N^2) float64 matrix every epoch). ``None``
+            disables the cap.
 
     Returns:
         dict with ``rank1``, ``mAP``, ``auc``, ``eer``, ``knn_acc``.
     """
     emb = np.asarray(emb, dtype=np.float64)
     y = np.asarray(y)
+    if max_n is not None and len(emb) > max_n:
+        # Deterministic subsample so the N x N similarity + argsort stay bounded.
+        keep = np.sort(np.random.default_rng(0).choice(len(emb), max_n, replace=False))
+        emb, y = emb[keep], y[keep]
     emb = emb / np.maximum(np.linalg.norm(emb, axis=1, keepdims=True), 1e-8)
     n = len(emb)
     sim = emb @ emb.T

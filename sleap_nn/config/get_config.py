@@ -410,10 +410,14 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
                 )
             )
         elif head_cfg == "embedding":
+            # Default to the self-supervised `aug_view` scope so the bare string factory
+            # yields a TRAINABLE config: `global_id`/`tracklet` require declaring
+            # `data_config.identity` (else training raises), but `aug_view` needs no
+            # identity declaration. Override the scope (+ identity) for supervised re-ID.
             head_configs.embedding = EmbeddingConfig(
                 embedding=EmbeddingHeadConfig(
                     objective=ObjectiveConfig(
-                        positives=PositivesConfig(),
+                        positives=PositivesConfig(scope="aug_view"),
                         negatives=NegativesConfig(),
                         loss=LossConfig(),
                         sampler=SamplerConfig(),

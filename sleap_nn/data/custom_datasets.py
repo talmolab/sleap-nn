@@ -3991,6 +3991,16 @@ def get_train_val_datasets(
             cache_workers=cache_workers,
         )
 
+        if len(train_dataset) == 0:
+            message = (
+                "The embedding train dataset is empty: no tracked detections whose "
+                f"track name is in the resolved vocabulary ({len(class_names)} "
+                "class(es)) were found. Check that the labels carry tracked "
+                "masks/instances and that the track names match."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
     else:
         train_dataset = SingleInstanceDataset(
             labels=train_labels,
@@ -4123,8 +4133,9 @@ def get_train_val_dataloaders(
             K=OmegaConf.select(config, f"{sp}.samples_per_group", default=16),
             batches_per_epoch=max(1, round(train_steps_per_epoch / trainer_devices)),
             seed=OmegaConf.select(config, "trainer_config.seed", default=0) or 0,
-            # DDP: each rank draws a distinct batch stream (no DistributedSampler wraps a
-            # batch_sampler), so the all-reduced gradient covers world_size x P x K crops.
+            # DDP: each rank draws an INDEPENDENT (seed + rank) batch stream of the same
+            # length over the full dataset — not a partition — so the all-reduced gradient
+            # aggregates roughly world_size x P x K decorrelated crops per step.
             rank=rank if rank is not None else 0,
             world_size=trainer_devices,
         )

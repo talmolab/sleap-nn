@@ -2936,6 +2936,10 @@ class EmbeddingLightningModule(LightningModel):
         # mask-based model opts in there and train/inference stay in lockstep. When
         # burn_in is off, `_standardize` falls back to whole-crop standardize.
         self.burn_in = False
+        # Per-crop standardize is always on (nothing sets this False), so the ``/255``
+        # branch of ``_build_input`` is currently unreachable and ``background_fill='mean'``
+        # is identical to ``'black'`` (the foreground mean is 0 in standardized space) —
+        # see PreprocessingConfig.background_fill docs.
         self.standardize = True
         # What the masked-out background is replaced with when burn_in is on. The
         # factory / inference loader override this from
@@ -2959,6 +2963,18 @@ class EmbeddingLightningModule(LightningModel):
                 f"(got {self.loss_margin})."
             )
         self.pos_scope = OmegaConf.select(obj, "positives.scope", default="global_id")
+        if self.pos_scope == "aug_view":
+            # Validation is not doubled (single view per crop) and aug_view has no
+            # identity positives, so the per-row positive set is empty -> val/loss is
+            # structurally ~0 every epoch. Checkpoint selection uses the retrieval
+            # metric (not val/loss), but a `reduce_lr_on_plateau` scheduler that
+            # monitors val/loss would decay the LR spuriously.
+            logger.warning(
+                "Embedding positives.scope='aug_view': val/loss is uninformative "
+                "(no in-batch validation positives). Checkpoint selection uses the "
+                "retrieval metric; avoid lr_scheduler='reduce_lr_on_plateau' (it "
+                "monitors val/loss) for this self-supervised regime."
+            )
         self.neg_sources = list(
             OmegaConf.select(
                 obj, "negatives.sources", default=["same_frame", "in_batch"]

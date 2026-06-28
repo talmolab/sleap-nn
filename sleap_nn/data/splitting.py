@@ -31,7 +31,7 @@ Mask-only labels (e.g. the gerbil instance-segmentation data) carry detections o
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import sleap_io as sio
@@ -39,7 +39,6 @@ from loguru import logger
 from sklearn.model_selection import (
     GroupKFold,
     StratifiedGroupKFold,
-    StratifiedKFold,
 )
 
 # Sentinel used for detections with no track (so they form their own group / class
@@ -118,13 +117,19 @@ def _select_val_fold(
         n_groups = len(np.unique(groups))
         effective = min(n_folds, n_classes, n_groups)
         if effective < 2:
-            # Not enough classes/groups to stratify by group; fall back to a plain
-            # stratified split over detections.
-            effective = max(2, min(n_folds, n_classes))
-            splitter = StratifiedKFold(
-                n_splits=effective, shuffle=True, random_state=seed
-            )
-            splits = list(splitter.split(idx, y))
+            # Can't stratify by identity (e.g. a single identity class), but still keep
+            # frames WHOLE on one side via a frame-grouped split (a plain StratifiedKFold
+            # would leak a frame's detections across train and val).
+            effective = min(n_folds, n_groups)
+            if effective < 2:
+                message = (
+                    "split_by='frame' requires at least 2 frames to hold one out, but "
+                    f"found {n_groups}. Provide separate val_labels."
+                )
+                logger.error(message)
+                raise ValueError(message)
+            splitter = GroupKFold(n_splits=effective, shuffle=True, random_state=seed)
+            splits = list(splitter.split(idx, y, groups=groups))
         else:
             splitter = StratifiedGroupKFold(
                 n_splits=effective, shuffle=True, random_state=seed
@@ -163,6 +168,17 @@ def _select_val_fold(
         logger.error(message)
         raise ValueError(message)
 
+    # Surface silent reductions/wraps so a misconfigured fold/n_folds is visible.
+    if len(splits) < n_folds:
+        logger.warning(
+            f"Group-aware split: only {len(splits)} fold(s) possible (requested "
+            f"n_folds={n_folds}); the val partition is ~1/{len(splits)} of the data."
+        )
+    if int(fold) >= len(splits):
+        logger.warning(
+            f"Group-aware split: fold={fold} is out of range for {len(splits)} fold(s); "
+            f"wrapping to fold {int(fold) % len(splits)}."
+        )
     fold = int(fold) % len(splits)
     _, val_det_idx = splits[fold]
     mask = np.zeros(n_detections, dtype=bool)
@@ -175,12 +191,17 @@ def _rebuild_labels(
     lf_idx: np.ndarray,
     det_idx: np.ndarray,
     keep_mask: np.ndarray,
+    extra_lf_idx: Optional[List[int]] = None,
 ) -> sio.Labels:
     """Build a new ``sio.Labels`` from the kept detections.
 
     Groups kept detections by source frame and constructs a new ``LabeledFrame`` per source
     frame containing only the selected detections (preserving video / frame_idx). Detections
     are attached on the same attribute (``instances`` or ``masks``) they came from.
+
+    ``extra_lf_idx`` lists source-frame indices to carry through with NO detections (e.g.
+    user-confirmed negative frames, which have no identity to fold) — emitted as empty
+    ``LabeledFrame``s preserving ``is_negative``.
     """
     new_frames = []
     # Group kept detection rows by their source frame index, preserving frame order.
@@ -189,6 +210,8 @@ def _rebuild_labels(
         if not keep:
             continue
         kept_by_lf.setdefault(int(li), []).append(int(di))
+    for li in extra_lf_idx or []:
+        kept_by_lf.setdefault(int(li), [])  # carried negative/empty frame
 
     for li in sorted(kept_by_lf):
         src_lf = source.labeled_frames[li]
@@ -242,10 +265,29 @@ def split_labels_train_val(
     """
     lf_idx, det_idx, track_names, video_idx = _build_pool(source)
     n = len(lf_idx)
+
+    # Frames with zero detections (e.g. user-confirmed negatives) have no identity to
+    # fold, so they would otherwise be silently dropped from BOTH sides. Carry them on
+    # the train side (deterministic) — mirroring the non-split path's negative handling.
+    frames_with_dets = set(int(i) for i in lf_idx)
+    negative_lf_idx = [
+        li for li in range(len(source.labeled_frames)) if li not in frames_with_dets
+    ]
+
     if n == 0:
-        message = "Cannot split empty labels (no detections found)."
-        logger.error(message)
-        raise ValueError(message)
+        # No detections at all (e.g. an all-negative or empty .slp). Don't abort the
+        # run — keep any frames on the train side, leave val empty.
+        if negative_lf_idx:
+            logger.warning(
+                "Group-aware split: a labels file has no detections; keeping its "
+                f"{len(negative_lf_idx)} frame(s) on the train side (val empty)."
+            )
+        empty = np.zeros(0, dtype=bool)
+        train_labels = _rebuild_labels(
+            source, lf_idx, det_idx, empty, extra_lf_idx=negative_lf_idx
+        )
+        val_labels = _rebuild_labels(source, lf_idx, det_idx, empty)
+        return train_labels, val_labels
 
     # Identity label per detection (used as stratification target and as identity group).
     y = track_names
@@ -266,7 +308,14 @@ def split_labels_train_val(
         seed=seed,
     )
 
-    train_labels = _rebuild_labels(source, lf_idx, det_idx, ~val_mask)
+    if negative_lf_idx:
+        logger.info(
+            f"Group-aware split: carried {len(negative_lf_idx)} zero-detection "
+            "frame(s) to the train side."
+        )
+    train_labels = _rebuild_labels(
+        source, lf_idx, det_idx, ~val_mask, extra_lf_idx=negative_lf_idx
+    )
     val_labels = _rebuild_labels(source, lf_idx, det_idx, val_mask)
     return train_labels, val_labels
 

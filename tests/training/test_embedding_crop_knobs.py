@@ -403,3 +403,43 @@ class TestSamplerDDPSharding:
         assert list(self._make(rank=1, world_size=2, seed=7)) == list(
             self._make(rank=1, world_size=2, seed=7)
         )
+
+
+class TestSamplerComposition:
+    """The sampler's core invariant: PK batches = P distinct groups x K samples each."""
+
+    _G = np.array([0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3])
+    _V = np.array([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1])
+    _F = np.arange(12)
+
+    def _make(self, kind="pk", P=2, K=2):
+        from sleap_nn.data.custom_datasets import GroupAwareBatchSampler
+
+        return GroupAwareBatchSampler(
+            self._G,
+            self._V,
+            self._F,
+            kind=kind,
+            P=P,
+            K=K,
+            batches_per_epoch=8,
+            seed=0,
+        )
+
+    def test_pk_batch_has_P_groups_K_each(self):
+        sampler = self._make(kind="pk", P=2, K=2)
+        for batch in sampler:
+            assert len(batch) == 2 * 2
+            groups = self._G[batch]
+            uniq, counts = np.unique(groups, return_counts=True)
+            assert len(uniq) == 2  # P distinct groups
+            assert (counts == 2).all()  # K samples per group
+
+    def test_within_video_batch_is_single_video(self):
+        sampler = self._make(kind="within_video", P=2, K=2)
+        for batch in sampler:
+            assert len(np.unique(self._V[batch])) == 1  # all from one video
+
+    def test_unknown_kind_raises(self):
+        with pytest.raises(ValueError, match="kind"):
+            list(self._make(kind="diagonal"))

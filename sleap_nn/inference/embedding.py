@@ -20,8 +20,9 @@ This module hosts:
   training and the embeddings are consistent with the validation retrieval
   metrics.
 
-Reachable from ``sleap-nn predict --embeddings_path <out.h5>`` (and the Python
-``sleap_nn.inference.run.predict`` flow).
+Reachable from ``sleap-nn predict --embeddings_path <out.h5>`` (the CLI routes
+embedding models here); the pose-packaging ``sleap_nn.inference.run.predict`` flow
+rejects embedding models and points back to this function.
 """
 
 from __future__ import annotations
@@ -294,6 +295,19 @@ def _stream_embeddings_centroid_driven(
         raise ValueError(
             "Expected a composed centroid + embedding model for the centroid-driven "
             f"embedding stream (got layer {type(layer).__name__})."
+        )
+    # The centroid-driven path crops from RAW frames, so there is no instance mask to
+    # burn in: a mask-burn-in model is run with a whole-crop standardize, which diverges
+    # from its (masked, foreground-only) training/native standardize and degrades the
+    # embeddings. Warn so the divergence is not silent.
+    emb_module = getattr(layer.centered_instance_layer, "embedding_module", None)
+    if getattr(emb_module, "burn_in", False):
+        logger.warning(
+            "This embedding model was trained with mask burn-in, but the centroid-driven "
+            "stream crops from raw frames (no masks): embeddings use a whole-crop "
+            "standardize and will diverge from the masked training standardize. For exact "
+            "parity, embed a mask-bearing .slp via the mask-driven path (pass only the "
+            "embedding model dir, no centroid)."
         )
     embedding_dim = int(layer.centered_instance_layer.embedding_dim)
 

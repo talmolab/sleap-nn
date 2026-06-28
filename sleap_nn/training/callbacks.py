@@ -947,7 +947,10 @@ class UnifiedVizCallback(Callback):
                 continue
             grays.append(s["instance_image"])
             masks.append(s["instance_mask"])
-            groups.append(int(s["group_id"]))
+            # Color by the same global identity the retrieval metric evaluates on
+            # (track name), not the training group_id (which may be a per-video
+            # tracklet), so the scatter matches the reported rank1/mAP.
+            groups.append(int(s.get("global_group_id", s["group_id"])))
         if not grays:
             return None, None
 
@@ -2135,11 +2138,18 @@ class EmbeddingEvaluationCallback(Callback):
                     )
                     wandb_logger = self._get_wandb_logger(trainer)
                     if wandb_logger is not None:
-                        log_dict = {"epoch": trainer.current_epoch}
-                        log_dict.update(
-                            {f"eval/val/{k}": v for k, v in metrics.items()}
-                        )
-                        wandb_logger.experiment.log(log_dict, commit=False)
+                        # The selection metrics (rank1/mAP/auc/eer/knn_acc) are logged
+                        # below via pl_module.log (which Lightning forwards to wandb), so
+                        # only log any EXTRA keys here to avoid double-logging the series.
+                        _selected = {"rank1", "mAP", "auc", "eer", "knn_acc"}
+                        log_dict = {
+                            f"eval/val/{k}": v
+                            for k, v in metrics.items()
+                            if k not in _selected
+                        }
+                        if log_dict:
+                            log_dict["epoch"] = trainer.current_epoch
+                            wandb_logger.experiment.log(log_dict, commit=False)
                 except Exception as e:
                     logger.warning(f"Embedding epoch-end evaluation failed: {e}")
 
