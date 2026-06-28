@@ -17,9 +17,10 @@ These tests assert, on a tiny (random-weights) embedding model:
    ``load_slp``,
 3. ``"slp"`` (pose) -> only the ``.slp`` is written (no ``.h5``),
 4. the source detection's GT track is promoted to a canonical ``sio.Identity``
-   (``identity_score=None``) registered on ``labels.identities`` (pose-only),
-5. mask path: a mask-only ``.slp`` with ``save_embeddings`` on does NOT crash
-   (mask embeddings warn + drop until sleap-io#525); the ``.h5`` is still written.
+   (``identity_score=None``) registered on ``labels.identities``,
+5. mask path: a mask-only ``.slp`` round-trips its ``SegmentationMask`` embeddings
+   + GT identities into the ``.slp`` (mask-modality persistence, ``owner_type=3``,
+   landed in sleap-io#527); the ``.h5`` is still written.
 """
 
 from __future__ import annotations
@@ -314,12 +315,18 @@ def test_identity_from_gt_track_pose(embedding_model_dir, pose_slp, tmp_path):
             assert inst.identity.uuid == by_name[inst.identity.name].uuid
 
 
-# ── (5) mask path: no crash; .h5 still written (vectors warn + drop) ──────────
+# ── (5) mask path: SegmentationMask embeddings + identities persist (#527) ────
 
 
-def test_mask_path_no_crash_h5_written(embedding_model_dir, mask_slp, tmp_path):
-    """Mask path: no crash with save_embeddings on; .h5 still carries the vectors."""
-    # Must not raise even though save_slp drops mask (owner_type=3) embeddings.
+def test_mask_path_persists_embeddings_and_identity(
+    embedding_model_dir, mask_slp, tmp_path
+):
+    """Mask path: SegmentationMask embeddings + GT-promoted identities persist.
+
+    Mask-modality persistence (``owner_type=3`` + ``SegmentationMask.identity``)
+    landed in sleap-io#527, so mask detections now round-trip their re-ID vector
+    and a canonical GT ``sio.Identity`` (mirroring the pose path).
+    """
     res, out_h5, slp_out = _run(embedding_model_dir, mask_slp, tmp_path, "both")
     assert res == out_h5
     # The .h5 still carries the vectors.
@@ -328,10 +335,23 @@ def test_mask_path_no_crash_h5_written(embedding_model_dir, mask_slp, tmp_path):
 
     with h5py.File(out_h5, "r") as h:
         assert h["embeddings"].shape == (6, _DIM)
-    # The .slp is written and reloads cleanly (mask embeddings dropped, no crash).
+    # The .slp now PERSISTS the mask embeddings + GT identities.
     assert os.path.exists(slp_out)
     reloaded = sio.load_slp(slp_out)
-    assert sum(len(lf.masks) for lf in reloaded.labeled_frames) == 6
+    masks = [m for lf in reloaded.labeled_frames for m in lf.masks]
+    assert len(masks) == 6
+    # Every mask carries its reid embedding (dim _DIM, normalized, model-tagged).
+    assert all(m.embedding is not None for m in masks)
+    assert {m.embedding.dim for m in masks} == {_DIM}
+    assert all(m.embedding.normalized for m in masks)
+    # GT track promoted to a canonical Identity (identity_score None == GT).
+    assert all(m.identity is not None for m in masks)
+    assert all(m.identity_score is None for m in masks)
+    assert {m.identity.name for m in masks} == {"animal0", "animal1"}
+    # Catalog registered with exactly the two canonical (uuid-stable) identities.
+    ids = reloaded.identities
+    assert {i.name for i in ids} == {"animal0", "animal1"}
+    assert all(len(i.uuid) == 32 for i in ids)
 
 
 # ── CLI routing: --save_embeddings threads through / guards correctly ─────────

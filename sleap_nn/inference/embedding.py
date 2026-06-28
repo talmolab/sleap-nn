@@ -94,12 +94,11 @@ def predict_embeddings_to_h5(
             ``sio.Instance`` / ``sio.SegmentationMask``) via
             :meth:`sio.Instance.set_embedding` (``name="reid"``) and writes a sibling
             ``.slp`` (no ``.h5``). ``"both"`` writes the ``.h5`` AND the ``.slp``.
-            Pose detections (``Instance``) persist now; mask detections
-            (``SegmentationMask``) attach in-memory but ``save_slp`` warns + drops the
-            vectors until sleap-io#525 lands ``owner_type=3`` (the ``.h5`` still
-            carries them) — this never crashes. Only honored by the single-stage
-            mask-driven path; the centroid-driven stream warns and writes ``.h5`` only
-            (predicted centroids have no source detection to attach to).
+            Both pose (``Instance``) and mask (``SegmentationMask``) detections
+            persist their embeddings (mask-modality ``owner_type=3`` landed in
+            sleap-io#527). Only honored by the single-stage mask-driven path; the
+            centroid-driven stream warns and writes ``.h5`` only (predicted centroids
+            have no source detection to attach to).
 
     Returns:
         The output path: the ``.h5`` path when one is written (OFF / ``"both"``),
@@ -354,16 +353,16 @@ def predict_embeddings_to_h5(
 
     if attach_slp:
         # Register the canonical GT identities before saving so the producer-side
-        # ``identity in labels.identities`` check passes (mirrors sleap-io#525 M1).
-        # Append only the newly-minted identities to the existing catalog (never
-        # overwrite it) so pre-existing same-named identities are preserved.
+        # ``identity in labels.identities`` check passes. Append only the
+        # newly-minted identities to the existing catalog (never overwrite it) so
+        # pre-existing same-named identities are preserved.
         if new_identities:
             labels.identities = (
                 list(getattr(labels, "identities", None) or []) + new_identities
             )
         sio.save_slp(labels, slp_out, embed=False)
-        # NOTE: mask detections (SegmentationMask, owner_type=3) warn + drop their
-        # vectors here until sleap-io#525 lands; pose detections (Instance) persist.
+        # Both Instance and SegmentationMask (owner_type=3, sleap-io#527) detections
+        # persist their embeddings + identities here.
         logger.info(
             f"Attached {n_attached} embeddings (dim={embedding_dim}) and wrote {slp_out}"
         )

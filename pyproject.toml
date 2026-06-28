@@ -29,13 +29,13 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    # Re-ID identity/embedding persistence (Instance.identity / identity_score /
-    # Embedding + per-instance/Identity SLP persistence) requires the sleap-io
-    # Identity+Embedding data model merged in talmolab/sleap-io#513/#514/#515.
-    # TEMPORARY git pin to main until a release ships those (then move to the
-    # released >=0.9.0). Mask-modality identity/embedding persistence is tracked
-    # in sleap-io#525 (SegmentationMask.identity + embedding owner_type=3).
-    "sleap-io @ git+https://github.com/talmolab/sleap-io@c6326f6562e43c52c3cb516a6df9dd5cd8fb56d9",
+    # Re-ID identity/embedding persistence (Instance/SegmentationMask.identity /
+    # identity_score / Embedding + owner-type-aware SLP persistence) requires the
+    # sleap-io Identity+Embedding data model (talmolab/sleap-io#513/#514/#515) plus
+    # the mask-modality persistence from #527 (SegmentationMask identity + embedding
+    # owner_type=3, /identity_links, save_embedding_vectors). TEMPORARY git pin to
+    # the #527 commit until it lands on main + a release ships (then move to >=0.9.0).
+    "sleap-io @ git+https://github.com/talmolab/sleap-io@9f131dacaae4c0233f0328c713d22dd60d524e17",
     "numpy",
     "torch",
     "torchvision>=0.20.0",
