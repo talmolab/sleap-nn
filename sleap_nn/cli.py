@@ -877,13 +877,13 @@ def train(
     "--features",
     type=str,
     default="keypoints",
-    help="Feature representation for the candidates to update current detections. One of [`keypoints`, `centroids`, `bboxes`, `image`].",
+    help="Feature representation for the candidates to update current detections. One of [`keypoints`, `centroids`, `bboxes`, `masks`, `embeddings`]. `embeddings` tracks by the `reid` appearance vector attached by the embedding model (pair with `--scoring_method cosine_sim`).",
 )
 @click.option(
     "--scoring_method",
     type=str,
     default="oks",
-    help="Method to compute association score between features from the current frame and the previous tracks. One of [`oks`, `cosine_sim`, `iou`, `euclidean_dist`].",
+    help="Method to compute association score between features from the current frame and the previous tracks. One of [`oks`, `cosine_sim`, `iou`, `mask_iou`, `euclidean_dist`]. `cosine_sim` pairs with `--features embeddings`.",
 )
 @click.option(
     "--scoring_reduction",
@@ -1127,19 +1127,49 @@ def _run_inference_impl(**kwargs):
     embeddings_path = kwargs.pop("embeddings_path", None)
     save_embeddings = kwargs.pop("save_embeddings", "none") or "none"
     if _has_embedding_model(kwargs.get("model_paths")):
-        # ``--save_embeddings slp|both`` opts into a .slp (derived from --data_path when
-        # --embeddings_path is omitted), so only the default (.h5-only) path requires it.
-        if not embeddings_path and save_embeddings in ("none",):
+        # The embedding (re-ID) path is in-memory only; it does not stream to file and
+        # has no SAM mask stage. Reject those flags up front (they precede the generic
+        # stream-to-file / mask_backend guards below) so they are not silently ignored.
+        if stream_to_file is not None:
+            raise click.UsageError(
+                "--stream-to-file is not supported for `embedding` (re-ID) models; "
+                "the embedding path is in-memory. Use -o/--output_path to name the "
+                "output."
+            )
+        if kwargs.get("mask_backend"):
+            raise click.UsageError(
+                "--mask_backend (SAM) is not supported with an `embedding` (re-ID) "
+                "model."
+            )
+        # ``--tracking`` (WF2) embeds every detection and tracks by appearance, so a
+        # tracked .slp is the output -- no --embeddings_path / --save_embeddings needed.
+        # Otherwise ``--save_embeddings slp|both`` opts into a .slp (derived from
+        # --data_path when --embeddings_path is omitted), so only the default
+        # (.h5-only) path requires --embeddings_path.
+        tracking = bool(kwargs.get("tracking"))
+        if not embeddings_path and save_embeddings == "none" and not tracking:
             raise click.UsageError(
                 "The provided model is an `embedding` (re-ID) model; pass "
                 "--embeddings_path <out.h5> to stream the per-mask appearance "
-                "vectors for offline re-ID, or --save_embeddings slp|both to "
-                "persist them into a .slp."
+                "vectors for offline re-ID, --save_embeddings slp|both to "
+                "persist them into a .slp, or --tracking to track detections by "
+                "appearance (cosine similarity) into a .slp."
             )
+        tracker_config = None
+        if tracking:
+            # An embedding model tracks by appearance: default --features/--scoring
+            # to embeddings/cosine_sim (the user can still override). Injected into
+            # kwargs so _build_tracker_config records them as explicit.
+            if not kwargs.get("features"):
+                kwargs["features"] = "embeddings"
+            if not kwargs.get("scoring_method"):
+                kwargs["scoring_method"] = "cosine_sim"
+            tracker_config = _build_tracker_config(kwargs)
         return _run_embeddings(
             kwargs,
             embeddings_path=embeddings_path,
             save_embeddings=save_embeddings,
+            tracker_config=tracker_config,
         )
     if embeddings_path is not None or save_embeddings != "none":
         raise click.UsageError(
@@ -1424,18 +1454,24 @@ def _has_embedding_model(model_paths) -> bool:
 
 
 def _run_embeddings(
-    kwargs: dict, embeddings_path: Optional[str], save_embeddings: str = "none"
+    kwargs: dict,
+    embeddings_path: Optional[str],
+    save_embeddings: str = "none",
+    tracker_config: "object" = None,
 ) -> "object":
     """Stream per-mask appearance vectors of an ``embedding`` model.
 
     Writes a ``.h5`` (default) and/or, when ``save_embeddings`` is ``slp``/``both``,
-    attaches each vector to its source detection and writes a ``.slp``.
+    attaches each vector to its source detection and writes a ``.slp``. With
+    ``tracker_config`` (``--tracking``, WF2) every detection is embedded and tracked
+    by appearance into a tracked ``.slp`` (the ``.h5`` sidecar is dropped).
     """
     from sleap_nn.inference.embedding import predict_embeddings_to_h5
 
     if not kwargs.get("data_path"):
         raise click.UsageError(
-            "--data_path is required for --embeddings_path / --save_embeddings."
+            "--data_path is required for --embeddings_path / --save_embeddings / "
+            "--tracking on an embedding model."
         )
     out = predict_embeddings_to_h5(
         model_paths=kwargs["model_paths"],
@@ -1445,8 +1481,15 @@ def _run_embeddings(
         batch_size=kwargs.get("batch_size", 4) or 4,
         peak_threshold=kwargs.get("peak_threshold"),
         save_embeddings=save_embeddings,
+        tracker_config=tracker_config,
+        # -o/--output_path names the output .slp for both the tracked path (WF2) and
+        # the non-tracking --save_embeddings slp/both path.
+        slp_output_path=kwargs.get("output_path"),
     )
-    click.echo(f"Wrote embeddings to {out}")
+    if tracker_config is not None:
+        click.echo(f"Wrote tracked labels to {out}")
+    else:
+        click.echo(f"Wrote embeddings to {out}")
     return out
 
 
@@ -2758,8 +2801,10 @@ def _common_inference_options(f):
             type=str,
             default=None,
             help="Feature for track association: one of keypoints, centroids, "
-            "bboxes, masks. Left unset, single-node/centroid models resolve to "
-            "'centroids' and bottom-up segmentation (mask) models to 'masks'.",
+            "bboxes, masks, embeddings. Left unset, single-node/centroid models "
+            "resolve to 'centroids' and bottom-up segmentation (mask) models to "
+            "'masks'. 'embeddings' tracks by the 'reid' appearance vector attached "
+            "by the embedding model (auto-pairs with cosine_sim).",
         ),
         click.option(
             "--scoring_method",
@@ -2767,8 +2812,8 @@ def _common_inference_options(f):
             default=None,
             help="Track association scoring method: one of oks, cosine_sim, "
             "iou, mask_iou, euclidean_dist. Left unset, single-node/centroid "
-            "models resolve to 'euclidean_dist' and segmentation (mask) models "
-            "to 'mask_iou'.",
+            "models resolve to 'euclidean_dist', segmentation (mask) models "
+            "to 'mask_iou', and '--features embeddings' to 'cosine_sim'.",
         ),
         click.option("--scoring_reduction", type=str, default="mean"),
         click.option("--robust_best_instance", type=float, default=1.0),

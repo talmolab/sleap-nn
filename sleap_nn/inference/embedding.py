@@ -65,6 +65,8 @@ def predict_embeddings_to_h5(
     batch_size: int = 64,
     peak_threshold: Optional[float] = None,
     save_embeddings: Optional[str] = None,
+    tracker_config: Optional["TrackerConfig"] = None,  # noqa: F821
+    slp_output_path: Optional[str] = None,
 ) -> str:
     """Embed every tracked mask crop in ``data_path`` and STREAM them to ``.h5``.
 
@@ -99,10 +101,24 @@ def predict_embeddings_to_h5(
             sleap-io#527). Only honored by the single-stage mask-driven path; the
             centroid-driven stream warns and writes ``.h5`` only (predicted centroids
             have no source detection to attach to).
+        tracker_config: Optional :class:`~sleap_nn.inference.tracking.TrackerConfig`.
+            When set (WF2: "embed + track on the fly"), every detection in
+            ``data_path`` is embedded — **tracked OR untracked** (the dataset runs in
+            ``include_untracked`` mode) — the vectors are attached to their source
+            detections, and :func:`~sleap_nn.inference.tracking.apply_tracking` then
+            assigns ``sio.Track``s by appearance (``features="embeddings"`` /
+            ``scoring_method="cosine_sim"``). The tracked ``.slp`` is written (the
+            ``.h5`` sidecar is dropped); the appearance vectors are persisted in it
+            only when ``save_embeddings`` is ``"slp"`` / ``"both"`` (else stripped
+            after tracking — ``"none"`` = tracks only). Only the single-stage
+            mask-driven path supports tracking (the centroid-driven stream raises).
+        slp_output_path: Output ``.slp`` path for the tracked labels (only used with
+            ``tracker_config``). Defaults to ``<data_path>.tracked.slp``.
 
     Returns:
-        The output path: the ``.h5`` path when one is written (OFF / ``"both"``),
-        else the ``.slp`` path (``"slp"``).
+        The output path: with ``tracker_config`` set, the tracked ``.slp`` path;
+        otherwise the ``.h5`` path when one is written (OFF / ``"both"``), else the
+        ``.slp`` path (``"slp"``).
     """
     import contextlib
     from pathlib import Path
@@ -146,6 +162,14 @@ def predict_embeddings_to_h5(
         get_model_type_from_cfg(config=_load_training_config(d)[0]) for d in model_dirs
     ]
     if "centroid" in model_types:
+        if tracker_config is not None:
+            raise ValueError(
+                "Embedding tracking (tracker_config) is not supported for the "
+                "centroid-driven embedding stream: it crops predicted centroids from "
+                "raw frames and has no source detections in a .slp to attach vectors "
+                "to and re-track. Embed a .slp that already has detections (pass only "
+                "the embedding model dir, no centroid model) with --tracking instead."
+            )
         if save_embeddings != "none":
             logger.warning(
                 "--save_embeddings is not supported for the centroid-driven embedding "
@@ -184,9 +208,14 @@ def predict_embeddings_to_h5(
     )
     emb_head = config.model_config.head_configs.embedding.embedding
 
+    # WF2: track-by-appearance on the freshly-computed vectors. Embed EVERY detection
+    # (tracked or not) so untracked .slp inputs can be tracked too, and attach the
+    # vectors regardless of save_embeddings (the tracker needs them on the objects).
+    tracking = tracker_config is not None
+
     labels = sio.load_slp(data_path)
     class_names = resolve_embedding_class_names([labels])
-    if not class_names:
+    if not class_names and not tracking:
         raise ValueError(f"No tracked masks found in {data_path} to embed.")
 
     from sleap_nn.inference.loaders import _resolve_embedding_channels
@@ -202,10 +231,13 @@ def predict_embeddings_to_h5(
         embedding_head_config=emb_head,
         max_stride=max_stride,
         crop_centering=crop_centering,
+        include_untracked=tracking,
         ensure_rgb=emb_ensure_rgb,
         ensure_grayscale=emb_ensure_grayscale,
         cache_img=None,
     )
+    if len(dataset) == 0:
+        raise ValueError(f"No detections found in {data_path} to embed.")
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
     out = output_path or f"{data_path}.embeddings.h5"
@@ -217,18 +249,22 @@ def predict_embeddings_to_h5(
     # ``"both"`` -> .h5 + .slp. The .slp rides on the SAME source detection objects the
     # dataset indexed (``mask_idx_list[item_id]["mask_obj"]``), so attaching mutates the
     # in-memory ``labels`` that gets saved.
-    write_h5 = save_embeddings in ("none", "both")
-    attach_slp = save_embeddings in ("slp", "both")
+    # WF2 tracking: drop the .h5 sidecar and always attach (the tracker consumes the
+    # in-memory vectors); save_embeddings then only decides whether they persist in the
+    # tracked .slp (else they are stripped post-tracking).
+    write_h5 = (save_embeddings in ("none", "both")) and not tracking
+    attach_slp = (save_embeddings in ("slp", "both")) or tracking
     # The model dir name tags every vector's ``Embedding.source`` (provenance).
     model_id = Path(str(model_dir)).name
 
-    # Sibling .slp path: strip a known suffix off ``out`` and append ``.slp``.
+    # Sibling .slp path: prefer an explicit slp_output_path (-o/--output_path), else
+    # strip a known suffix off ``out`` and append ``.slp``.
     slp_stem = out
     for suffix in (".h5", ".slp"):
         if slp_stem.endswith(suffix):
             slp_stem = slp_stem[: -len(suffix)]
             break
-    slp_out = slp_stem + ".slp"
+    slp_out = slp_output_path or (slp_stem + ".slp")
 
     # Per-(video, frame) running detection ordinal, stable across batches. The stream is
     # frame-ordered (shuffle=False), so a frame's entry is evicted once the key changes
@@ -329,6 +365,27 @@ def predict_embeddings_to_h5(
     if write_h5:
         logger.info(f"Wrote {n_written} embeddings (dim={embedding_dim}) to {out}")
 
+    if tracking:
+        # WF2: track by appearance on the freshly-attached vectors, then write the
+        # tracked .slp. apply_tracking re-assigns sio.Track from scratch (any prior
+        # tracks are overwritten); it emits Tracks only (no global sio.Identity — a
+        # track name is not a global animal identity).
+        from sleap_nn.inference.tracking import apply_tracking
+
+        logger.info(
+            f"Attached {n_attached} embeddings (dim={embedding_dim}); tracking by "
+            "appearance (cosine similarity)."
+        )
+        tracked = apply_tracking(labels, tracker_config)
+        # save_embeddings controls whether the vectors persist in the tracked .slp;
+        # "none" (default) -> tracks only, so strip the attached vectors.
+        if save_embeddings not in ("slp", "both"):
+            _strip_embeddings(tracked)
+        tracked_out = slp_output_path or f"{data_path}.tracked.slp"
+        sio.save_slp(tracked, tracked_out, embed=False)
+        logger.info(f"Wrote tracked labels to {tracked_out}")
+        return tracked_out
+
     if attach_slp:
         # Embeddings only — the embedding model produces appearance vectors, not
         # identities. Any ``sio.Identity`` already on the input labels passes
@@ -343,6 +400,25 @@ def predict_embeddings_to_h5(
             return slp_out
 
     return out
+
+
+def _strip_embeddings(labels: sio.Labels) -> None:
+    """Drop all ``"reid"`` appearance embeddings from a labels' detections in place.
+
+    Used when ``--tracking`` runs on an ``embedding`` model with
+    ``save_embeddings="none"`` (the default): the vectors are attached only so the
+    tracker can consume them, and are removed before the tracked ``.slp`` is written
+    (tracks only). Both pose (``lf.instances``) and mask (``lf.masks``) carriers.
+    """
+    for lf in labels.labeled_frames:
+        for inst in lf.instances:
+            embs = getattr(inst, "embeddings", None)
+            if embs:
+                embs.clear()
+        for m in getattr(lf, "masks", None) or []:
+            embs = getattr(m, "embeddings", None)
+            if embs:
+                embs.clear()
 
 
 @torch.inference_mode()
