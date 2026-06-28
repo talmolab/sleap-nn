@@ -361,6 +361,77 @@ class TestGeMExponentClamp:
 
 
 # ----------------------------------------------------------------------------
+# aug_views validation (no longer a silent no-op)
+# ----------------------------------------------------------------------------
+
+
+class TestAugViewsValidation:
+    """positives.aug_views must be 2 (the two-view contrastive setup) or raise."""
+
+    def test_aug_views_not_two_raises(self):
+        with pytest.raises(ValueError, match="aug_views"):
+            _make_embedding_module(
+                objective_overrides={
+                    "positives": {"scope": "global_id", "aug_views": 3}
+                }
+            )
+
+    def test_aug_views_two_ok(self):
+        _make_embedding_module(
+            objective_overrides={"positives": {"scope": "global_id", "aug_views": 2}}
+        )  # no raise
+
+
+# ----------------------------------------------------------------------------
+# Per-channel standardize (RGB) + mask-aware forward
+# ----------------------------------------------------------------------------
+
+
+class TestStandardizePerChannel:
+    """`_standardize` reduces per-channel: RGB channels are independently normalized."""
+
+    def test_rgb_each_channel_zero_mean_unit_std(self):
+        module = _make_embedding_module(in_channels=3)
+        # Channels at very different intensities: a cross-channel ("whole-tensor") mean
+        # would leave large per-channel offsets; a true per-channel standardize zeroes
+        # each channel's mean and unit-scales its std.
+        gray = torch.empty(2, 3, 8, 8)
+        gray[:, 0] = torch.rand(2, 8, 8) * 5 + 10
+        gray[:, 1] = torch.rand(2, 8, 8) * 5 + 100
+        gray[:, 2] = torch.rand(2, 8, 8) * 5 + 200
+        g = module._standardize(gray, torch.ones_like(gray[:, :1]))
+        per_ch_mean = g.mean(dim=(2, 3))  # (B, 3)
+        per_ch_std = g.std(dim=(2, 3), unbiased=False)  # (B, 3)
+        assert torch.allclose(per_ch_mean, torch.zeros_like(per_ch_mean), atol=1e-4)
+        assert torch.allclose(per_ch_std, torch.ones_like(per_ch_std), atol=1e-2)
+
+    def test_grayscale_zero_mean(self):
+        # For C=1 the per-channel reduction equals the old whole-tensor reduction.
+        module = _make_embedding_module(in_channels=1)
+        gray = torch.rand(2, 1, 8, 8) * 255.0
+        g = module._standardize(gray, torch.ones_like(gray[:, :1]))
+        assert torch.allclose(g.mean(dim=(2, 3)), torch.zeros(2, 1), atol=1e-4)
+
+
+class TestForwardMaskAware:
+    """`forward` uses the instance mask when provided (burn-in parity with training)."""
+
+    def test_forward_uses_mask_when_provided(self):
+        module = _make_embedding_module(in_channels=1)
+        module.burn_in = True
+        module.background_fill = "black"
+        # Crops as the dataset stores them: (B, 1, C, H, W).
+        img = torch.rand(2, 1, 1, 16, 16) * 255.0
+        mask = torch.zeros(2, 1, 1, 16, 16)
+        mask[..., :8, :] = 1.0  # half foreground
+        with torch.no_grad():
+            e_nomask = module(img)  # mask=None -> whole-crop standardize
+            e_mask = module(img, mask)  # masked, foreground-only standardize + fill
+        # The mask changes the standardization statistics, so the embeddings differ.
+        assert not torch.allclose(e_nomask, e_mask, atol=1e-4)
+
+
+# ----------------------------------------------------------------------------
 # GroupAwareBatchSampler DDP sharding
 # ----------------------------------------------------------------------------
 

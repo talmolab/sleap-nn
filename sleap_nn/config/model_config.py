@@ -1047,6 +1047,9 @@ class PositivesConfig:
             ``global_id`` (same track name across all videos — requires globally
             consistent names; gated by ``data_config.identity.track_names_are_global``).
         aug_views: Number of augmented views of each anchor (always positives).
+            Fixed at 2 (the standard two-view contrastive setup the ``training_step``
+            implements); any other value is unsupported in P1 and raises a
+            ``ValueError`` at model construction rather than being silently ignored.
     """
 
     scope: str = "global_id"

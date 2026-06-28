@@ -77,6 +77,7 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
             - 'multi_class_topdown'
             - 'bottomup_segmentation'
             - 'centered_instance_segmentation'
+            - 'embedding'
         head_config (DictConfig): A config for the head.
 
     Returns:
@@ -137,7 +138,7 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
         )
 
     else:
-        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`."
+        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`, `embedding`."
         logger.error(message)
         raise Exception(message)
 

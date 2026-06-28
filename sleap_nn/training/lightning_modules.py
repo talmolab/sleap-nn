@@ -305,7 +305,7 @@ class LightningModel(L.LightningModule):
         }
 
         if model_type not in lightning_models:
-            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`]"
+            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`, `embedding`]"
             logger.error(message)
             raise ValueError(message)
 
@@ -2963,6 +2963,14 @@ class EmbeddingLightningModule(LightningModel):
                 f"(got {self.loss_margin})."
             )
         self.pos_scope = OmegaConf.select(obj, "positives.scope", default="global_id")
+        aug_views = int(OmegaConf.select(obj, "positives.aug_views", default=2))
+        if aug_views != 2:
+            raise ValueError(
+                "head_configs.embedding.embedding.objective.positives.aug_views must "
+                f"be 2 (got {aug_views}); the contrastive training_step uses exactly "
+                "two augmented views per crop. Other view counts are not supported "
+                "in P1 — set aug_views=2 (the default)."
+            )
         if self.pos_scope == "aug_view":
             # Validation is not doubled (single view per crop) and aug_view has no
             # identity positives, so the per-row positive set is empty -> val/loss is
@@ -3031,10 +3039,15 @@ class EmbeddingLightningModule(LightningModel):
 
     # ---- crop intensity (Stage 5) + two-view aug (Stage 0, GPU) ----
     def _standardize(self, gray, mask, eps=1e-5):
+        # Reduce over spatial dims ONLY (keep the channel axis) so each channel is
+        # standardized independently. For grayscale (C=1) this is byte-identical to the
+        # old whole-tensor reduction; for RGB (C=3) it yields a true per-channel
+        # zero-mean/unit-std instead of a ~C x-scaled cross-channel "mean". `mask` is
+        # single-channel and broadcasts across channels.
         m = mask if self.burn_in else torch.ones_like(mask)
-        cnt = m.sum((1, 2, 3), keepdim=True).clamp(min=1)
-        mu = (gray * m).sum((1, 2, 3), keepdim=True) / cnt
-        std = (((gray - mu) ** 2 * m).sum((1, 2, 3), keepdim=True) / cnt).sqrt() + eps
+        cnt = m.sum((2, 3), keepdim=True).clamp(min=1)
+        mu = (gray * m).sum((2, 3), keepdim=True) / cnt
+        std = (((gray - mu) ** 2 * m).sum((2, 3), keepdim=True) / cnt).sqrt() + eps
         g = (gray - mu) / std
         if not self.burn_in:
             return g
@@ -3096,12 +3109,27 @@ class EmbeddingLightningModule(LightningModel):
             gray2, mask2 = gray1, mask1
         return (gray1, mask1), (gray2, mask2)
 
-    def forward(self, img):
-        """Inference forward: image -> L2-normalized embedding (B, D)."""
+    def forward(self, img, mask=None):
+        """Inference forward: image -> embedding (B, D).
+
+        Runs the SAME crop pipeline as training/validation (``_build_input``: mask
+        burn-in + per-crop standardize), so pass ``mask`` (the instance mask) to
+        reproduce a burn-in model's masked, foreground-only standardize and stay in
+        lockstep with training. When ``mask is None`` — no mask available, e.g.
+        centroid-driven raw-frame inference — a whole-crop (all-ones) standardize is
+        used, which DIVERGES from a burn-in model's masked training standardize
+        (callers on that path warn; see ``inference/embedding.py``). The mask-driven
+        inference layer (``EmbeddingLayer``) calls ``_build_input`` with the real mask
+        directly, so it is unaffected by this fallback.
+        """
         img = torch.squeeze(img, dim=1).to(self.device).to(torch.float32)
-        # No mask available at inference: whole-crop standardize.
-        x = self._standardize(img, torch.ones_like(img[:, :1]))
-        return self.model(x)["EmbeddingHead"]
+        if mask is None:
+            mask = torch.ones_like(img[:, :1])
+        else:
+            mask = mask.to(self.device).to(torch.float32)
+            if mask.dim() == 5:
+                mask = torch.squeeze(mask, dim=1)
+        return self.model(self._build_input(img, mask))["EmbeddingHead"]
 
     def training_step(self, batch, batch_idx):
         """Two-view contrastive training step (views augmented in the dataset)."""

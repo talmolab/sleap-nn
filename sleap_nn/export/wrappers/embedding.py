@@ -41,19 +41,19 @@ class EmbeddingONNXWrapper(BaseExportWrapper):
         """image: (B, C, H, W) [0, 255] -> {"embedding": (B, D)}.
 
         Replicates ``EmbeddingLightningModule._standardize``'s MASKLESS path exactly
-        (i.e. the ``burn_in=False`` native path): a 1-channel ones "mask" makes the
-        normalization count the spatial size (H*W), summing the numerator over all
-        channels. For grayscale (C=1) this is the plain per-crop standardize; for RGB
-        (C=3) it matches the PyTorch inference path (whose ``cnt`` is also H*W). Computing
-        the count from a ones tensor (rather than a baked H*W constant) keeps the graph
-        valid under dynamic spatial axes. NOTE: a ``burn_in=True`` model's masked
-        (foreground-only) standardize is NOT reproduced here — see the class docstring.
+        (i.e. the ``burn_in=False`` native path): reduce over the spatial dims only so
+        each channel is standardized independently. For grayscale (C=1) this is the plain
+        per-crop standardize; for RGB (C=3) it is a true per-channel zero-mean/unit-std,
+        matching the PyTorch inference path. Computing the count from a ones tensor
+        (rather than a baked H*W constant) keeps the graph valid under dynamic spatial
+        axes. NOTE: a ``burn_in=True`` model's masked (foreground-only) standardize is NOT
+        reproduced here — see the class docstring.
         """
         x = image.float()
         ones = torch.ones_like(x[:, :1])
-        cnt = ones.sum((1, 2, 3), keepdim=True).clamp(min=1)
-        mu = (x * ones).sum((1, 2, 3), keepdim=True) / cnt
-        var = ((x - mu) ** 2 * ones).sum((1, 2, 3), keepdim=True) / cnt
+        cnt = ones.sum((2, 3), keepdim=True).clamp(min=1)
+        mu = (x * ones).sum((2, 3), keepdim=True) / cnt
+        var = ((x - mu) ** 2 * ones).sum((2, 3), keepdim=True) / cnt
         x = (x - mu) / (var.sqrt() + self.eps)
         feat = self._extract_tensor(self.model(x), ["embedding", "vector"])
         if feat.dim() > 2:
