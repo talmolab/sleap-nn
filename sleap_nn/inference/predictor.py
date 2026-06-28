@@ -156,6 +156,63 @@ def _multiclass_class_names(assets: Any, head_type: str) -> Optional[List[str]]:
     return [str(c) for c in classes]
 
 
+def _multiclass_class_uuids(assets: Any, head_type: str) -> Optional[List[str]]:
+    """Ordered per-class canonical identity UUIDs for a multi-class head.
+
+    Sibling of :func:`_multiclass_class_names`, reading the ``class_uuids`` field
+    frozen into the head config at train time (the train→inference uuid bridge).
+    Each entry is the canonical ``sio.Identity.uuid`` for the class at the same
+    index in ``classes``.
+
+    Returns ``None`` when the config or ``class_uuids`` list is unavailable
+    (e.g. a legacy checkpoint trained before this field existed); callers then
+    mint fresh UUIDs.
+    """
+    if head_type == "multi_class_topdown":
+        cfg = getattr(assets, "confmap_config", None)
+        sub_key = "class_vectors"
+    elif head_type == "multi_class_bottomup":
+        cfg = getattr(assets, "bottomup_config", None)
+        sub_key = "class_maps"
+    else:
+        return None
+    if cfg is None:
+        return None
+    try:
+        class_uuids = cfg.model_config.head_configs[head_type][sub_key]["class_uuids"]
+    except (KeyError, AttributeError, TypeError):
+        return None
+    if class_uuids is None:
+        return None
+    return [str(u) for u in class_uuids]
+
+
+def _multiclass_class_output(assets: Any, head_type: str) -> str:
+    """How a multi-class head's classes map to ``sleap_io`` objects.
+
+    Reads the ``class_output`` field off the head config (``"track"`` /
+    ``"identity"`` / ``"category"``). Defaults to ``"track"`` when unavailable
+    (e.g. a legacy checkpoint trained before this field existed), which restores
+    the track-only packaging — no global ``sio.Identity`` is fabricated unless the
+    model explicitly declares its classes are unique individuals.
+    """
+    if head_type == "multi_class_topdown":
+        cfg = getattr(assets, "confmap_config", None)
+        sub_key = "class_vectors"
+    elif head_type == "multi_class_bottomup":
+        cfg = getattr(assets, "bottomup_config", None)
+        sub_key = "class_maps"
+    else:
+        return "track"
+    if cfg is None:
+        return "track"
+    try:
+        value = cfg.model_config.head_configs[head_type][sub_key]["class_output"]
+    except (KeyError, AttributeError, TypeError):
+        return "track"
+    return str(value) if value is not None else "track"
+
+
 def _build_single_instance_layer(predictor: Any, device: str) -> SingleInstanceLayer:
     """Wrap a ``SingleInstanceInferenceModel`` in an ``InferenceLayer``."""
     inf = predictor.inference_model
@@ -230,6 +287,8 @@ def _build_bottomup_multiclass_layer(
         max_stride=max_stride,
         max_instances=getattr(predictor, "max_instances", None),
         class_names=_multiclass_class_names(predictor, "multi_class_bottomup"),
+        class_uuids=_multiclass_class_uuids(predictor, "multi_class_bottomup"),
+        class_output=_multiclass_class_output(predictor, "multi_class_bottomup"),
         preprocess_config=PreprocessConfig(
             scale=inf.input_scale,
             max_height=_pp_field(predictor, "max_height"),
@@ -361,7 +420,11 @@ def _build_centroid_layer_gt_only(assets: Any, backend: Any) -> CentroidLayer:
 
 
 def _build_centered_instance_multiclass_layer(
-    instance_model: Any, device: str, class_names: Optional[List[str]] = None
+    instance_model: Any,
+    device: str,
+    class_names: Optional[List[str]] = None,
+    class_uuids: Optional[List[str]] = None,
+    class_output: str = "track",
 ) -> CenteredInstanceMultiClassLayer:
     """Wrap a ``TopDownMultiClassFindInstancePeaks`` model in a layer."""
     return CenteredInstanceMultiClassLayer(
@@ -369,6 +432,8 @@ def _build_centered_instance_multiclass_layer(
         output_stride=instance_model.output_stride,
         max_stride=instance_model.max_stride,
         class_names=class_names,
+        class_uuids=class_uuids,
+        class_output=class_output,
         preprocess_config=PreprocessConfig(scale=instance_model.input_scale),
         postprocess_config=PostprocessConfig(
             peak_threshold=instance_model.peak_threshold,
@@ -402,6 +467,8 @@ def _build_topdown_multiclass_layer(
         inf.instance_peaks,
         device,
         class_names=_multiclass_class_names(predictor, "multi_class_topdown"),
+        class_uuids=_multiclass_class_uuids(predictor, "multi_class_topdown"),
+        class_output=_multiclass_class_output(predictor, "multi_class_topdown"),
     )
     crop_h, crop_w = inf.centroid_crop.crop_hw
     return TopDownMultiClassLayer(
@@ -1674,6 +1741,12 @@ class Predictor:
             videos = derived
         self._log_inference_start(source, provider, derived)
         pkg = self._resolve_centroid_packaging()
+        # NOTE: this streaming writer does NOT apply multi-class packaging — neither
+        # `tracks` (pre-existing) nor `identities` are threaded into the per-batch
+        # `slim.to_labels`. The default `sleap-nn predict` flow uses the in-memory
+        # `Predictor.predict`/`to_labels` path (run.py), which DOES emit both. A
+        # multi-class model run through this streaming path therefore omits the
+        # predicted Track/Identity packaging; route such models through `predict()`.
         writer = IncrementalLabelsWriter(
             path=path,
             skeleton=self.skeleton,
@@ -1843,6 +1916,7 @@ class Predictor:
         skeleton = self.skeleton
         pkg = self._resolve_centroid_packaging()
         tracks = self._multiclass_tracks()
+        identities = self._multiclass_identities()
         videos = list(videos) if videos else [None]
         # When a standalone centroid model collapses to a 1-node 'centroid'
         # skeleton, that is the skeleton attached to emitted instances and to
@@ -1857,12 +1931,15 @@ class Predictor:
         all_lf: list = []
         used_tracks: list = []
         seen_track_ids: set = set()
+        used_identities: list = []
+        seen_identity_uuids: set = set()
         for outputs in outputs_list:
             sub = outputs.to_labels(
                 skeleton=skeleton,
                 videos=videos,
                 anchor_ind=pkg.anchor_ind,
                 tracks=tracks,
+                identities=identities,
                 collapse_skeleton=pkg.collapse_skeleton,
                 emit_centroid=pkg.emit_centroid,
                 source=pkg.source,
@@ -1874,6 +1951,13 @@ class Predictor:
                 if id(trk) not in seen_track_ids:
                     seen_track_ids.add(id(trk))
                     used_tracks.append(trk)
+            # Dedup identities by uuid across batches (the same canonical objects
+            # are reused for every frame, so this collapses to the registry).
+            for ident in sub.identities:
+                uuid = getattr(ident, "uuid", None)
+                if uuid not in seen_identity_uuids:
+                    seen_identity_uuids.add(uuid)
+                    used_identities.append(ident)
         valid_videos = [v for v in videos if v is not None]
         labels = sio.Labels(
             labeled_frames=all_lf,
@@ -1882,6 +1966,8 @@ class Predictor:
         )
         if used_tracks:
             labels.tracks = used_tracks
+        if used_identities:
+            labels.identities = used_identities
         return labels
 
     def _multiclass_tracks(self) -> Optional[list["sio.Track"]]:
@@ -1899,6 +1985,51 @@ class Predictor:
         if not class_names:
             return None
         return [sio.Track(name=str(name)) for name in class_names]
+
+    def _multiclass_identities(self) -> Optional[list["sio.Identity"]]:
+        """Build the canonical ``sio.Identity`` registry for multi-class models.
+
+        Sibling of :meth:`_multiclass_tracks`. Reads ``class_names`` and
+        ``class_uuids`` off the (possibly composed) multi-class layer and builds
+        one ``sio.Identity(name, uuid)`` per class, ordered by class index. The
+        per-class ``uuid`` is the train→inference bridge (frozen into the head
+        config at train time), so a predicted instance and a GT instance of the
+        same animal share the **same canonical uuid** across files.
+
+        The identities are built **once** here and the same objects are reused
+        for every frame/instance (the canonical-reference contract — ``Identity``
+        compares by object identity, so the writer's ``identity in
+        labels.identities`` registration check only passes for the exact objects
+        we register). Mints a fresh ``uuid4`` per class for legacy checkpoints
+        that predate ``class_uuids``. Returns ``None`` for non-multiclass layers.
+        """
+        import sleap_io as sio
+        from uuid import uuid4
+
+        class_names = getattr(self.layer, "class_names", None)
+        if not class_names:
+            return None
+        # The classes map to a global Identity only when the model declares them
+        # as unique individuals (``class_output == "identity"``). A ``"track"``
+        # model (the default) emits only the per-video Track — no Identity is
+        # fabricated. ``"category"`` (shared types/roles) is not yet implemented.
+        class_output = getattr(self.layer, "class_output", "track")
+        if class_output == "category":
+            raise NotImplementedError(
+                "class_output='category' is not yet implemented; predicted classes "
+                "can currently be emitted as 'track' (default) or 'identity'. Set "
+                "the multi-class head's class_output to 'track' or 'identity'."
+            )
+        if class_output != "identity":
+            return None
+        class_uuids = getattr(self.layer, "class_uuids", None)
+        if not class_uuids or len(class_uuids) != len(class_names):
+            # Legacy checkpoint (or length mismatch): mint stable-per-run UUIDs.
+            class_uuids = [uuid4().hex for _ in class_names]
+        return [
+            sio.Identity(name=str(name), uuid=str(uuid))
+            for name, uuid in zip(class_names, class_uuids)
+        ]
 
     def _packaging_anchor_ind(self) -> Optional[int]:
         """Anchor-node slot for centroid-only output packaging."""

@@ -64,6 +64,7 @@ def predict_embeddings_to_h5(
     device: str = "cuda",
     batch_size: int = 64,
     peak_threshold: Optional[float] = None,
+    save_embeddings: Optional[str] = None,
 ) -> str:
     """Embed every tracked mask crop in ``data_path`` and STREAM them to ``.h5``.
 
@@ -85,10 +86,27 @@ def predict_embeddings_to_h5(
         peak_threshold: Centroid peak threshold for the composed centroid + embedding
             path (ignored by the single-stage mask-driven path, which has no centroid
             stage). ``None`` keeps the model's default.
+        save_embeddings: Optional ``.slp`` persistence of the appearance vectors,
+            one of ``None`` / ``"none"`` / ``"slp"`` / ``"both"`` (default
+            ``None``, OFF). When OFF the output is byte-identical to today: the
+            vectors stream to ``.h5`` only and NO ``.slp`` is written. ``"slp"``
+            attaches each crop's vector to its **source detection** (the exact
+            ``sio.Instance`` / ``sio.SegmentationMask``) via
+            :meth:`sio.Instance.set_embedding` (``name="reid"``) and writes a sibling
+            ``.slp`` (no ``.h5``). ``"both"`` writes the ``.h5`` AND the ``.slp``.
+            Both pose (``Instance``) and mask (``SegmentationMask``) detections
+            persist their embeddings (mask-modality ``owner_type=3`` landed in
+            sleap-io#527). Only honored by the single-stage mask-driven path; the
+            centroid-driven stream warns and writes ``.h5`` only (predicted centroids
+            have no source detection to attach to).
 
     Returns:
-        The output ``.h5`` path.
+        The output path: the ``.h5`` path when one is written (OFF / ``"both"``),
+        else the ``.slp`` path (``"slp"``).
     """
+    import contextlib
+    from pathlib import Path
+
     import h5py
 
     from sleap_nn.config.utils import resolve_model_dir
@@ -109,6 +127,18 @@ def predict_embeddings_to_h5(
     model_paths = list(model_paths)
     model_dirs = [resolve_model_dir(m) for m in model_paths]
 
+    # Normalize the optional .slp persistence mode (A1). ``None``/``"none"`` keeps
+    # today's behavior (stream to .h5 only, no .slp). ``"slp"`` attaches each vector
+    # to its source detection and writes a .slp; ``"both"`` writes .h5 AND .slp.
+    if save_embeddings is None:
+        save_embeddings = "none"
+    save_embeddings = str(save_embeddings).lower()
+    if save_embeddings not in ("none", "slp", "both"):
+        raise ValueError(
+            "save_embeddings must be one of None|'none'|'slp'|'both', got "
+            f"{save_embeddings!r}."
+        )
+
     # A centroid + embedding pair composes the centroid -> crop -> embed path on the
     # RAW video (no masks needed): stream embeddings that ride on the predicted
     # centroids. A lone embedding dir is the single-stage, mask-driven case below.
@@ -116,6 +146,12 @@ def predict_embeddings_to_h5(
         get_model_type_from_cfg(config=_load_training_config(d)[0]) for d in model_dirs
     ]
     if "centroid" in model_types:
+        if save_embeddings != "none":
+            logger.warning(
+                "--save_embeddings is not supported for the centroid-driven embedding "
+                "stream (predicted centroids have no source detection to attach to); "
+                "writing the .h5 only."
+            )
         return _stream_embeddings_centroid_driven(
             model_dirs,
             data_path,
@@ -175,30 +211,56 @@ def predict_embeddings_to_h5(
     out = output_path or f"{data_path}.embeddings.h5"
     str_dt = h5py.string_dtype("utf-8")
     embedding_dim = int(emb_head.embedding_dim)
+    normalize_flag = bool(emb_head.normalize)
+
+    # A1 persistence: ``"none"`` -> .h5 only (today); ``"slp"`` -> attach + .slp only;
+    # ``"both"`` -> .h5 + .slp. The .slp rides on the SAME source detection objects the
+    # dataset indexed (``mask_idx_list[item_id]["mask_obj"]``), so attaching mutates the
+    # in-memory ``labels`` that gets saved.
+    write_h5 = save_embeddings in ("none", "both")
+    attach_slp = save_embeddings in ("slp", "both")
+    # The model dir name tags every vector's ``Embedding.source`` (provenance).
+    model_id = Path(str(model_dir)).name
+
+    # Sibling .slp path: strip a known suffix off ``out`` and append ``.slp``.
+    slp_stem = out
+    for suffix in (".h5", ".slp"):
+        if slp_stem.endswith(suffix):
+            slp_stem = slp_stem[: -len(suffix)]
+            break
+    slp_out = slp_stem + ".slp"
+
     # Per-(video, frame) running detection ordinal, stable across batches. The stream is
     # frame-ordered (shuffle=False), so a frame's entry is evicted once the key changes
     # (``prev_key``) -> det_counter stays O(1), matching the documented O(batch) RAM.
     det_counter: dict = {}
     prev_key = None
     n_written = 0
+    n_attached = 0
 
-    with h5py.File(out, "w") as h:
-        emb_ds = h.create_dataset(
-            "embeddings",
-            shape=(0, embedding_dim),
-            maxshape=(None, embedding_dim),
-            dtype=np.float32,
-            chunks=(min(batch_size, 256), embedding_dim),
-            compression="gzip",
-        )
-        vid_ds = h.create_dataset("video", shape=(0,), maxshape=(None,), dtype=np.int64)
-        frame_ds = h.create_dataset(
-            "frame", shape=(0,), maxshape=(None,), dtype=np.int64
-        )
-        det_ds = h.create_dataset(
-            "detection", shape=(0,), maxshape=(None,), dtype=np.int64
-        )
-        track_ds = h.create_dataset("track", shape=(0,), maxshape=(None,), dtype=str_dt)
+    h5_file = h5py.File(out, "w") if write_h5 else contextlib.nullcontext()
+    with h5_file as h:
+        if write_h5:
+            emb_ds = h.create_dataset(
+                "embeddings",
+                shape=(0, embedding_dim),
+                maxshape=(None, embedding_dim),
+                dtype=np.float32,
+                chunks=(min(batch_size, 256), embedding_dim),
+                compression="gzip",
+            )
+            vid_ds = h.create_dataset(
+                "video", shape=(0,), maxshape=(None,), dtype=np.int64
+            )
+            frame_ds = h.create_dataset(
+                "frame", shape=(0,), maxshape=(None,), dtype=np.int64
+            )
+            det_ds = h.create_dataset(
+                "detection", shape=(0,), maxshape=(None,), dtype=np.int64
+            )
+            track_ds = h.create_dataset(
+                "track", shape=(0,), maxshape=(None,), dtype=str_dt
+            )
 
         for batch in loader:
             # EmbeddingDataset yields (b, 1, C, H, W); drop the n_samples axis to
@@ -208,6 +270,23 @@ def predict_embeddings_to_h5(
             emb = layer.predict(crops, masks=masks).pred_embeddings
             emb = emb.squeeze(1).detach().cpu().numpy().astype(np.float32)  # (b, D)
             b = emb.shape[0]
+
+            if attach_slp:
+                # Map each emitted crop back to its OBJECT-EXACT source detection and
+                # attach the vector. ``item_id`` is the dataset index carried per sample.
+                for i in range(b):
+                    item_id = int(batch["item_id"][i])
+                    mask_obj = dataset.mask_idx_list[item_id]["mask_obj"]
+                    mask_obj.set_embedding(
+                        emb[i],
+                        name="reid",
+                        normalized=normalize_flag,
+                        source=model_id,
+                    )
+                    n_attached += 1
+
+            if not write_h5:
+                continue
 
             vids: List[int] = []
             frames: List[int] = []
@@ -242,11 +321,27 @@ def predict_embeddings_to_h5(
             track_ds[n_written:new_n] = np.array(tracks, dtype=object)
             n_written = new_n
 
-        h.attrs["embedding_dim"] = embedding_dim
-        h.attrs["normalize"] = bool(emb_head.normalize)
-        h.attrs["n"] = n_written
+        if write_h5:
+            h.attrs["embedding_dim"] = embedding_dim
+            h.attrs["normalize"] = normalize_flag
+            h.attrs["n"] = n_written
 
-    logger.info(f"Wrote {n_written} embeddings (dim={embedding_dim}) to {out}")
+    if write_h5:
+        logger.info(f"Wrote {n_written} embeddings (dim={embedding_dim}) to {out}")
+
+    if attach_slp:
+        # Embeddings only — the embedding model produces appearance vectors, not
+        # identities. Any ``sio.Identity`` already on the input labels passes
+        # through untouched; we do NOT fabricate identities from track names (a
+        # track/class name is not a global animal identity). Both Instance and
+        # SegmentationMask (owner_type=3, sleap-io#527) embeddings persist here.
+        sio.save_slp(labels, slp_out, embed=False)
+        logger.info(
+            f"Attached {n_attached} embeddings (dim={embedding_dim}) and wrote {slp_out}"
+        )
+        if not write_h5:
+            return slp_out
+
     return out
 
 

@@ -293,6 +293,7 @@ class Outputs:
         anchor_ind: Optional[int] = None,
         tracks: Optional[list["sio.Track"]] = None,
         *,
+        identities: Optional[list["sio.Identity"]] = None,
         collapse_skeleton: Optional["sio.Skeleton"] = None,
     ) -> list["sio.PredictedInstance"]:
         """Convert one batch slot into a list of ``sio.PredictedInstance``.
@@ -315,6 +316,15 @@ class Outputs:
                 ``instance_tracking_scores``. Matches legacy
                 ``TopDownMultiClass`` / ``BottomUpMultiClass`` packaging.
                 ``None`` for non-multiclass paths.
+            identities: Multi-class identity packaging — a list of
+                ``sio.Identity`` indexed by class, parallel to ``tracks``. When
+                provided, each instance is **additively** assigned
+                ``identity = identities[cls_ind]`` and ``identity_score`` (the
+                class probability from ``instance_tracking_scores``) alongside
+                the existing ``track`` / ``tracking_score``. ``Identity`` carries
+                the canonical per-class uuid (the train→inference bridge); the
+                same objects must be reused across calls so the saver's
+                registration check passes. ``None`` for non-multiclass paths.
             collapse_skeleton: Centroid-only collapse — when supplied (a 1-node
                 'centroid' skeleton), standalone-centroid output is packaged on
                 it with the centroid at node 0, instead of NaN-padding the
@@ -410,21 +420,34 @@ class Outputs:
             #     mean class score; score = mean confidence.
             track = None
             tracking_score = None
-            if tracks is not None:
+            identity = None
+            identity_score = None
+            if tracks is not None or identities is not None:
                 # Top-down carries an explicit per-instance class index; bottom-up
                 # uses the instance slot ``i`` directly as the class (legacy
                 # ``tracks[i]``).
                 cls_ind = int(class_inds[i, 0]) if class_inds is not None else i
-                if 0 <= cls_ind < len(tracks):
+                if tracks is not None and 0 <= cls_ind < len(tracks):
                     track = tracks[cls_ind]
+                # Migrate the predicted class onto a canonical ``sio.Identity``,
+                # additively (alongside the legacy ``track``). The class
+                # probability serves as both ``tracking_score`` and
+                # ``identity_score``.
+                if identities is not None and 0 <= cls_ind < len(identities):
+                    identity = identities[cls_ind]
                 if tracking_scores is not None:
                     tracking_score = float(tracking_scores[i])
+                    identity_score = tracking_score
 
             kwargs: Dict[str, Any] = {}
             if track is not None:
                 kwargs["track"] = track
             if tracking_score is not None:
                 kwargs["tracking_score"] = tracking_score
+            if identity is not None:
+                kwargs["identity"] = identity
+                if identity_score is not None:
+                    kwargs["identity_score"] = identity_score
             instances.append(
                 sio.PredictedInstance.from_numpy(
                     points_data=kpts[i],
@@ -621,6 +644,7 @@ class Outputs:
         anchor_ind: Optional[int] = None,
         tracks: Optional[list["sio.Track"]] = None,
         *,
+        identities: Optional[list["sio.Identity"]] = None,
         collapse_skeleton: Optional["sio.Skeleton"] = None,
         emit_centroid: str = "instance",
         source: str = "center_of_mass",
@@ -639,6 +663,12 @@ class Outputs:
                 class. Forwarded to :meth:`to_instances`; the tracks that get
                 used are registered on the returned ``sio.Labels.tracks``.
                 ``None`` for non-multiclass paths.
+            identities: Multi-class canonical ``sio.Identity`` registry indexed
+                by class, parallel to ``tracks``. Forwarded to
+                :meth:`to_instances`; the identities that get used are registered
+                (deduped by uuid) on the returned ``sio.Labels.identities`` so
+                the saver's registration check passes. ``None`` for non-multiclass
+                paths.
             collapse_skeleton: When set (a 1-node 'centroid' skeleton), a
                 standalone centroid model's output is packaged on it instead of
                 the original multi-node ``skeleton`` and ``Labels.skeletons`` is
@@ -676,6 +706,8 @@ class Outputs:
         labeled_frames: List[sio.LabeledFrame] = []
         used_tracks: List["sio.Track"] = []
         seen_track_ids: set[int] = set()
+        used_identities: List["sio.Identity"] = []
+        seen_identity_uuids: set = set()
         for b in range(self.batch_size):
             instances = (
                 self.to_instances(
@@ -683,6 +715,7 @@ class Outputs:
                     batch_index=b,
                     anchor_ind=anchor_ind,
                     tracks=tracks,
+                    identities=identities,
                     collapse_skeleton=collapse_skeleton,
                 )
                 if want_instances
@@ -716,6 +749,12 @@ class Outputs:
                 if trk is not None and id(trk) not in seen_track_ids:
                     seen_track_ids.add(id(trk))
                     used_tracks.append(trk)
+                ident = getattr(inst, "identity", None)
+                if ident is not None:
+                    uuid = getattr(ident, "uuid", None)
+                    if uuid not in seen_identity_uuids:
+                        seen_identity_uuids.add(uuid)
+                        used_identities.append(ident)
             for cen in centroids:
                 trk = getattr(cen, "track", None)
                 if trk is not None and id(trk) not in seen_track_ids:
@@ -767,4 +806,6 @@ class Outputs:
         )
         if used_tracks:
             labels.tracks = used_tracks
+        if used_identities:
+            labels.identities = used_identities
         return labels
