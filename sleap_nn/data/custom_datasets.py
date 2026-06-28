@@ -1885,6 +1885,22 @@ def derive_centroids_from_masks(
         logger.error(message)
         raise ValueError(message)
 
+    # Guard the footgun: this path overwrites `lf.instances` with the synthesized
+    # single-node centroids, which would silently destroy real keypoint poses. It is
+    # for mask-only data, so refuse (atomically, before any mutation) if any frame
+    # carries BOTH masks and pre-existing instances rather than clobbering them.
+    for lf in labels:
+        if (getattr(lf, "masks", None)) and (getattr(lf, "instances", None)):
+            message = (
+                "derive_centroids_from_masks (data_config.centroids_from_masks) is for "
+                "mask-only data, but a LabeledFrame carries BOTH masks and existing "
+                "instances; synthesizing centroids from masks would overwrite the real "
+                "pose instances. Disable centroids_from_masks for data that already has "
+                "keypoint poses (the standard centroid path handles it directly)."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
     skeleton = sio.Skeleton(nodes=["centroid"], name="centroid")
     n_inst = 0
     saw_mask = False
