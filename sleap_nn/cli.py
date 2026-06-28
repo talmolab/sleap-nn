@@ -7,6 +7,7 @@ import tempfile
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import rich_click as click
 from click import Command
@@ -1124,17 +1125,26 @@ def _run_inference_impl(**kwargs):
     # the dedicated writer. Detect it up front so `--embeddings_path` is required
     # for embedding models (and rejected for non-embedding models).
     embeddings_path = kwargs.pop("embeddings_path", None)
+    save_embeddings = kwargs.pop("save_embeddings", "none") or "none"
     if _has_embedding_model(kwargs.get("model_paths")):
-        if not embeddings_path:
+        # ``--save_embeddings slp|both`` opts into a .slp (derived from --data_path when
+        # --embeddings_path is omitted), so only the default (.h5-only) path requires it.
+        if not embeddings_path and save_embeddings in ("none",):
             raise click.UsageError(
                 "The provided model is an `embedding` (re-ID) model; pass "
                 "--embeddings_path <out.h5> to stream the per-mask appearance "
-                "vectors for offline re-ID."
+                "vectors for offline re-ID, or --save_embeddings slp|both to "
+                "persist them into a .slp."
             )
-        return _run_embeddings(kwargs, embeddings_path=embeddings_path)
-    if embeddings_path is not None:
+        return _run_embeddings(
+            kwargs,
+            embeddings_path=embeddings_path,
+            save_embeddings=save_embeddings,
+        )
+    if embeddings_path is not None or save_embeddings != "none":
         raise click.UsageError(
-            "--embeddings_path is only valid with an `embedding` (re-ID) model."
+            "--embeddings_path / --save_embeddings are only valid with an "
+            "`embedding` (re-ID) model."
         )
 
     # The SAM mask path is in-memory only (it masks an existing .slp); it does not
@@ -1413,12 +1423,20 @@ def _has_embedding_model(model_paths) -> bool:
     return False
 
 
-def _run_embeddings(kwargs: dict, embeddings_path: str) -> "object":
-    """Stream per-mask appearance vectors of an ``embedding`` model to ``.h5``."""
+def _run_embeddings(
+    kwargs: dict, embeddings_path: Optional[str], save_embeddings: str = "none"
+) -> "object":
+    """Stream per-mask appearance vectors of an ``embedding`` model.
+
+    Writes a ``.h5`` (default) and/or, when ``save_embeddings`` is ``slp``/``both``,
+    attaches each vector to its source detection and writes a ``.slp``.
+    """
     from sleap_nn.inference.embedding import predict_embeddings_to_h5
 
     if not kwargs.get("data_path"):
-        raise click.UsageError("--data_path is required for --embeddings_path.")
+        raise click.UsageError(
+            "--data_path is required for --embeddings_path / --save_embeddings."
+        )
     out = predict_embeddings_to_h5(
         model_paths=kwargs["model_paths"],
         data_path=kwargs["data_path"],
@@ -1426,6 +1444,7 @@ def _run_embeddings(kwargs: dict, embeddings_path: str) -> "object":
         device=_resolve_device(kwargs.get("device")),
         batch_size=kwargs.get("batch_size", 4) or 4,
         peak_threshold=kwargs.get("peak_threshold"),
+        save_embeddings=save_embeddings,
     )
     click.echo(f"Wrote embeddings to {out}")
     return out
@@ -2300,7 +2319,20 @@ def _common_inference_options(f):
             default=None,
             help="For an `embedding` (re-ID) model: stream per-mask appearance "
             "vectors + index arrays (video/frame/detection/track) to this .h5 "
-            "for offline re-ID. Required when --model_paths is an embedding model.",
+            "for offline re-ID. Required when --model_paths is an embedding model "
+            "(unless --save_embeddings slp|both is given).",
+        ),
+        click.option(
+            "--save_embeddings",
+            "save_embeddings",
+            type=click.Choice(["none", "slp", "both"]),
+            default="none",
+            help="For an `embedding` (re-ID) model: optionally persist each "
+            "detection's appearance vector into a .slp (in addition to / instead "
+            "of the .h5). 'none' (default) = .h5 only, output unchanged; 'slp' = "
+            "attach to the source detection + write a .slp (no .h5); 'both' = .h5 "
+            "+ .slp. Pose detections persist now; mask detections warn + drop "
+            "(sleap-io#525) but never crash.",
         ),
         click.option(
             "--device",

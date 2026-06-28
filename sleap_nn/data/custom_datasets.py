@@ -2138,6 +2138,10 @@ class EmbeddingDataset(BaseDataset):
                             "video_idx": video_idx,
                             "frame_idx": lf.frame_idx,
                             "centroid": centroid,
+                            # Object-exact source detection (same ``sio.Instance`` held
+                            # by ``labels``), parallel to the mask path's ``mask_obj``,
+                            # so the embedding writer can attach the vector to it.
+                            "mask_obj": inst,
                             "group_id": group_id,
                             "global_group_id": global_group_id,
                         }
