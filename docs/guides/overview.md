@@ -11,6 +11,7 @@ Task-oriented guides for common workflows.
 | &nbsp;&nbsp;&nbsp;&nbsp;[Monitoring](monitoring.md) | WandB, visualizations, epoch-end evaluation |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Multi-GPU](multi-gpu.md) | Scale training across multiple GPUs |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Resume & Fine-Tune](resume-finetune.md) | Continue from existing weights |
+| &nbsp;&nbsp;&nbsp;&nbsp;[Supervised ID](supervised-id.md) | Predict pose + persistent identity in one model |
 | [Inference](inference/overview.md) | Run predictions on videos and label files |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Running Inference](inference-guide.md) | Run predictions from the CLI |
 | &nbsp;&nbsp;&nbsp;&nbsp;[Post-Processing Filters](post-processing-filters.md) | Node-count, confidence, and overlap-NMS filters |

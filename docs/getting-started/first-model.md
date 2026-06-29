@@ -20,18 +20,19 @@ In this tutorial, you'll:
 
 ## Step 1: Choose Your Model Type
 
-The right model depends on your data:
+The right model depends on how many animals are in frame, how big they are, and whether they overlap or need persistent identities:
 
 | Scenario | Model Type | Config |
 |----------|-----------|--------|
-| **One animal per frame** | Single Instance | `single_instance` |
+| **One animal, fills the frame** | Single Instance | `single_instance` |
+| **One small animal in a large frame** | Top-Down | `centroid` + `centered_instance` |
 | **Multiple animals, not touching** | Top-Down | `centroid` + `centered_instance` |
 | **Multiple animals, overlapping** | Bottom-Up | `bottomup` |
 | **Known identities (tracking by ID)** | Multi-Class | `multi_class_bottomup` or `multi_class_topdown` |
 
 For this tutorial, we'll use **Single Instance** (simplest case).
 
-[:octicons-arrow-right-24: Learn more about model types](../reference/models.md)
+[:octicons-arrow-right-24: Full decision tree and model details](../reference/models.md#choosing-a-model)
 
 ---
 
