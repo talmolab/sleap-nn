@@ -981,6 +981,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/supervised-id/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supervised ID
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1765,6 +1793,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#choosing-a-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing a Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Choosing a Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#quick-guidelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Guidelines
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#single-instance" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2025,34 +2081,6 @@
     <span class="md-ellipsis">
       
         Swin Transformer
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#choosing-a-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Choosing a Model
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Choosing a Model">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#quick-guidelines" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Quick Guidelines
       
     </span>
   </a>
@@ -7171,6 +7199,34 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#choosing-a-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing a Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Choosing a Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#quick-guidelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Guidelines
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#single-instance" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -7443,34 +7499,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#choosing-a-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Choosing a Model
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Choosing a Model">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#quick-guidelines" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Quick Guidelines
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#performance-comparison" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -7589,32 +7617,96 @@
 </thead>
 <tbody>
 <tr>
-<td>Single Instance</td>
+<td><a href="#single-instance">Single Instance</a></td>
 <td>1</td>
 <td>N/A</td>
 <td>1 model</td>
 <td>Isolated animals</td>
 </tr>
 <tr>
-<td>Top-Down</td>
+<td><a href="#top-down">Top-Down</a></td>
 <td>Many</td>
 <td>Some</td>
 <td>2 models</td>
 <td>Multiple non-overlapping and animal sizes are smaller compared to the whole image</td>
 </tr>
 <tr>
-<td>Bottom-Up</td>
+<td><a href="#bottom-up">Bottom-Up</a></td>
 <td>Many</td>
 <td>Heavy</td>
 <td>1 model</td>
 <td>Crowded scenes</td>
 </tr>
 <tr>
-<td>Multi-Class</td>
+<td><a href="#multi-class-identity-models">Multi-Class</a></td>
 <td>Many</td>
 <td>Varies</td>
 <td>1-2 models</td>
 <td>Known identities</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="choosing-a-model">Choosing a Model<a class="headerlink" href="#choosing-a-model" title="Permanent link">&para;</a></h2>
+<p>Ask yourself these questions, in order. The first one that matches your data points to a model — follow the link for setup details. Answer based on your <strong>entire project</strong>, not just a typical frame: if even some frames have more than one animal, treat it as a multi-animal problem.</p>
+<p><strong>1. Only one animal per frame?</strong> It comes down to how big the animal is relative to the frame:</p>
+<ul>
+<li>It usually <strong>fills more than ~50% of the frame</strong> → <strong><a href="#single-instance">Single Instance</a></strong></li>
+<li>It's <strong>usually small but <em>sometimes</em> fills the frame</strong> (e.g., it walks up to the camera) → <strong><a href="#single-instance">Single Instance</a></strong> — there's no benefit to cropping once the animal is already large</li>
+<li>It's <strong>consistently small</strong> (well under half the frame, in every frame) → <strong><a href="#top-down">Top-Down</a></strong> — the centroid stage finds the animal, then crops in for precise keypoints</li>
+</ul>
+<p><strong>2. Multiple animals — do you need to keep <em>persistent</em> identities?</strong> (a label like <code>"male"</code>/<code>"female"</code> that stays attached to the same individual across frames)</p>
+<ul>
+<li><strong>No</strong> → skip to question 3, then add <a href="../../guides/tracking/">tracking</a> afterward to link instances across frames.</li>
+<li><strong>Yes, and the individuals are visually distinct</strong> (markers, fur color, ear-clips) → <strong><a href="#multi-class-identity-models">Multi-Class</a></strong> — it predicts identity directly, no separate tracking step. Pick its top-down or bottom-up variant using question 3 below, then follow the <a href="../../guides/supervised-id/">Supervised ID guide</a>.</li>
+<li><strong>Yes, but they look too similar</strong> to learn apart → use a standard pose model (question 3) plus <a href="../../guides/tracking/">tracking</a>.</li>
+</ul>
+<p><strong>3. Multiple animals, just need their poses?</strong></p>
+<ul>
+<li>They're <strong>separated / rarely overlap</strong> → <strong><a href="#top-down">Top-Down</a></strong> (usually the most accurate option)</li>
+<li>They <strong>overlap or touch often</strong> <em>and</em> have <strong>flexible, deformable bodies</strong> (long limbs, worms) → <strong><a href="#bottom-up">Bottom-Up</a></strong></li>
+<li>They overlap but are <strong>rigid / compact</strong> → <strong><a href="#top-down">Top-Down</a></strong> still works well</li>
+</ul>
+<div class="admonition tip">
+<p class="admonition-title">When in doubt, try both</p>
+<p>Top-down and bottom-up trade off differently across datasets. If you're on the fence, train both and compare metrics on your validation set.</p>
+</div>
+<h3 id="quick-guidelines">Quick Guidelines<a class="headerlink" href="#quick-guidelines" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Recommendation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Single fly in chamber, fills the frame</td>
+<td><a href="#single-instance">Single Instance</a></td>
+</tr>
+<tr>
+<td>Single mouse, small in a large arena</td>
+<td><a href="#top-down">Top-Down</a></td>
+</tr>
+<tr>
+<td>2-3 mice in separate areas</td>
+<td><a href="#top-down">Top-Down</a></td>
+</tr>
+<tr>
+<td>Social behavior, animals touching</td>
+<td><a href="#bottom-up">Bottom-Up</a></td>
+</tr>
+<tr>
+<td>Worms / long flexible bodies that cross</td>
+<td><a href="#bottom-up">Bottom-Up</a></td>
+</tr>
+<tr>
+<td>Visually distinct individuals to keep labeled</td>
+<td><a href="#multi-class-identity-models">Multi-Class</a></td>
+</tr>
+<tr>
+<td>Similar-looking individuals to keep separate</td>
+<td>Standard pose model + <a href="../../guides/tracking/">tracking</a></td>
 </tr>
 </tbody>
 </table>
@@ -7652,6 +7744,12 @@
 <li>Animals vary in size (centroid crops normalize scale)</li>
 <li>Need precise localization per individual</li>
 </ul>
+<div class="admonition tip">
+<p class="admonition-title">Need persistent identities?</p>
+<p>If your animals have distinct, consistent appearances, use the
+<code>multi_class_topdown</code> variant to predict identity alongside pose — see the
+<a href="../../guides/supervised-id/">Supervised ID guide</a>.</p>
+</div>
 <h3 id="centroid-model-tips">Centroid Model Tips<a class="headerlink" href="#centroid-model-tips" title="Permanent link">&para;</a></h3>
 <div class="admonition tip">
 <p class="admonition-title">Sigma for centroid detection</p>
@@ -7712,6 +7810,12 @@
 <li>Uniform animal sizes</li>
 </ul>
 <div class="admonition tip">
+<p class="admonition-title">Need persistent identities?</p>
+<p>If your animals have distinct, consistent appearances, use the
+<code>multi_class_bottomup</code> variant to predict identity alongside pose — see the
+<a href="../../guides/supervised-id/">Supervised ID guide</a>.</p>
+</div>
+<div class="admonition tip">
 <p class="admonition-title">Try both approaches</p>
 <p>Top-down works better for some datasets while bottom-up works better for others. To maximize accuracy, try both and compare results.</p>
 </div>
@@ -7739,7 +7843,9 @@
 <hr />
 <h2 id="multi-class-identity-models">Multi-Class (Identity Models)<a class="headerlink" href="#multi-class-identity-models" title="Permanent link">&para;</a></h2>
 <p><strong>Pose estimation + supervised identity prediction.</strong></p>
-<p>Use when you have labeled identity/track information in training data.</p>
+<p>Use when you have labeled identity/track information in training data. For the
+full workflow — labeling identities, choosing a variant, tuning, and inference —
+see the <a href="../../guides/supervised-id/">Supervised ID guide</a>.</p>
 <h3 id="multi-class-bottom-up">Multi-Class Bottom-Up<a class="headerlink" href="#multi-class-bottom-up" title="Permanent link">&para;</a></h3>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">head_configs</span><span class="p">:</span>
 </span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">multi_class_bottomup</span><span class="p">:</span>
@@ -7798,45 +7904,6 @@
 </span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="w">    </span><span class="nt">model_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tiny</span>
 </span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">    </span><span class="nt">pre_trained_weights</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Swin_T_Weights</span>
 </span></code></pre></div>
-<hr />
-<h2 id="choosing-a-model">Choosing a Model<a class="headerlink" href="#choosing-a-model" title="Permanent link">&para;</a></h2>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>graph TD
-</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>    A[How many animals?] --&gt;|One| B[Single Instance]
-</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>    A --&gt;|Multiple| C[Do they overlap?]
-</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a>    C --&gt;|No/Rarely| D[Top-Down]
-</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>    C --&gt;|Yes/Often| E[Bottom-Up]
-</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>    D --&gt; F[Need identity?]
-</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>    E --&gt; F
-</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a>    F --&gt;|Yes| G[Multi-Class variant]
-</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a>    F --&gt;|No| H[Standard variant]
-</span></code></pre></div>
-<h3 id="quick-guidelines">Quick Guidelines<a class="headerlink" href="#quick-guidelines" title="Permanent link">&para;</a></h3>
-<table>
-<thead>
-<tr>
-<th>Scenario</th>
-<th>Recommendation</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Single fly in chamber</td>
-<td>Single Instance</td>
-</tr>
-<tr>
-<td>2-3 mice, separate areas</td>
-<td>Top-Down</td>
-</tr>
-<tr>
-<td>Social behavior, touching</td>
-<td>Bottom-Up</td>
-</tr>
-<tr>
-<td>Same individuals across sessions</td>
-<td>Multi-Class</td>
-</tr>
-</tbody>
-</table>
 <hr />
 <h2 id="performance-comparison">Performance Comparison<a class="headerlink" href="#performance-comparison" title="Permanent link">&para;</a></h2>
 <p>Approximate training times on RTX 3090 (1000 labeled frames):</p>

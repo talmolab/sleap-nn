@@ -979,6 +979,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/supervised-id/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supervised ID
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -7149,12 +7177,12 @@ uv tool install sleap-nn --torch-backend auto --upgrade
 
 # Verify
 sleap-nn --version
-# Expected output: 0.3.0"><pre><span class="pl-c"><span class="pl-c">#</span> Install / upgrade the CLI tool (auto-selects the right torch backend)</span>
+# Expected output: sleap-nn 0.3.0"><pre><span class="pl-c"><span class="pl-c">#</span> Install / upgrade the CLI tool (auto-selects the right torch backend)</span>
 uv tool install sleap-nn --torch-backend auto --upgrade
 
 <span class="pl-c"><span class="pl-c">#</span> Verify</span>
 sleap-nn --version
-<span class="pl-c"><span class="pl-c">#</span> Expected output: 0.3.0</span></pre></div>
+<span class="pl-c"><span class="pl-c">#</span> Expected output: sleap-nn 0.3.0</span></pre></div>
 <p>GPU builds now default to the <strong>cu130</strong> (CUDA 13) backend. See the <a href="https://nn.sleap.ai/installation/" rel="nofollow">installation docs</a> for CPU-only, specific CUDA versions, and project-dependency usage.</p>
 <hr>
 <h2>Breaking Changes</h2>
@@ -7258,7 +7286,7 @@ sleap-nn <span class="pl-c1">eval</span> -g gt.slp -p centroids.slp --match_meth
 <p>Segmentation is <strong>experimental</strong> in 0.3.0 — see <a href="#known-limitations-planned-for-031">Known Limitations</a>.</p>
 </blockquote>
 <h3>Tracking</h3>
-<p><code>KalmanShiftTracker</code> (<code>--use_kalman</code>, requires a target instance count; uses <code>pykalman</code>) lands alongside optical-flow shift, with a per-node "keypoints" tracking mode. <code>FlowShiftTracker</code> no longer crashes on frames with no detections.</p>
+<p><code>KalmanShiftTracker</code> (<code>--use_kalman</code>, requires a target instance count; uses <code>pykalman</code>) lands alongside optical-flow shift, with a per-node "keypoints" tracking mode. <code>FlowShiftTracker</code> no longer crashes on frames with no detections. Setting a track cap (<code>--max_tracks</code>) now auto-switches the candidate method to <code>local_queues</code> (logged at INFO) so the cap is actually honored — previously it was silently ignored under the default <code>fixed_window</code> (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4753583815" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/670" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/670/hovercard" href="https://github.com/talmolab/sleap-nn/pull/670">#670</a>).</p>
 <h3>Inference UX &amp; I/O</h3>
 <ul>
 <li><strong>Repeatable <code>--output_format</code></strong> — write several formats by repeating the flag: <code>--output_format slp --output_format analysis_h5</code> writes both a <code>.slp</code> and a SLEAP Analysis HDF5 (one <code>.analysis.h5</code> per video).</li>
@@ -7268,7 +7296,7 @@ sleap-nn <span class="pl-c1">eval</span> -g gt.slp -p centroids.slp --match_meth
 <li><code>--workspace-size-gb</code> for TensorRT export.</li>
 </ul>
 <h3>Training</h3>
-<p>Symmetry-aware flip augmentation; a hard error on multi-instance frames in single-instance training; and negative-frame split metrics (<code>val/loss_negative</code>, <code>val/n_negative</code>) with a double-count fix. Training visualizations can now be saved as JPG to shrink the local <code>viz/</code> folder when training a battery of models (<code>trainer_config.viz_img_format: jpg</code>; <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4590474519" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/644" data-hovercard-type="issue" data-hovercard-url="/talmolab/sleap-nn/issues/644/hovercard" href="https://github.com/talmolab/sleap-nn/issues/644">#644</a>).</p>
+<p>Symmetry-aware flip augmentation; a hard error on multi-instance frames in single-instance training; and negative-frame split metrics (<code>val/loss_negative</code>, <code>val/n_negative</code>) with a double-count fix. Out-of-bounds keypoints — off-frame annotations, or nodes pushed outside the crop/frame by augmentation — are now masked to empty targets instead of producing phantom Gaussian blobs at the image/crop edge (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4748310567" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/666" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/666/hovercard" href="https://github.com/talmolab/sleap-nn/pull/666">#666</a>). Training visualizations can now be saved as JPG to shrink the local <code>viz/</code> folder when training a battery of models (<code>trainer_config.viz_img_format: jpg</code>; <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4590474519" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/644" data-hovercard-type="issue" data-hovercard-url="/talmolab/sleap-nn/issues/644/hovercard" href="https://github.com/talmolab/sleap-nn/issues/644">#644</a>).</p>
 <hr>
 <h2>Fixes</h2>
 <ul>
@@ -7277,6 +7305,7 @@ sleap-nn <span class="pl-c1">eval</span> -g gt.slp -p centroids.slp --match_meth
 <li><code>WandBRenderer</code> peak-values shape fixed for the centroid case (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4416431463" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/557" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/557/hovercard" href="https://github.com/talmolab/sleap-nn/pull/557">#557</a>).</li>
 <li>Each <code>Tracker</code> gets its own <code>_track_objects</code> state (mutable-default bug) (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4552341527" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/592" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/592/hovercard" href="https://github.com/talmolab/sleap-nn/pull/592">#592</a>).</li>
 <li>Three bottom-up segmentation inference parity bugs fixed (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4576559203" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/614" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/614/hovercard" href="https://github.com/talmolab/sleap-nn/pull/614">#614</a>).</li>
+<li>Single-instance ONNX/TensorRT export now antialiases the input resize to match PyTorch inference, fixing a ~5 px keypoint discrepancy (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4756930978" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/672" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/672/hovercard" href="https://github.com/talmolab/sleap-nn/pull/672">#672</a>).</li>
 </ul>
 <hr>
 <h2>Dependencies &amp; Build</h2>
@@ -7377,9 +7406,12 @@ sleap-nn <span class="pl-c1">eval</span> -g gt.slp -p centroids.slp --match_meth
 <li><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4745841060" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/663" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/663/hovercard" href="https://github.com/talmolab/sleap-nn/pull/663">#663</a>: Migrate inference docs to <code>sleap-nn predict</code> + nav/overview cleanup (multi-GPU &amp; Windows uv fixes) (<a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a>)</li>
 <li><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4746183942" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/664" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/664/hovercard" href="https://github.com/talmolab/sleap-nn/pull/664">#664</a>: flies13 top-down training + tracking demo notebook (<a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">@talmo</a>)</li>
 <li><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4748201864" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/665" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/665/hovercard" href="https://github.com/talmolab/sleap-nn/pull/665">#665</a>: 0.3.0 version bump + seed-config fix + docs-correctness sweep (<a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">@talmo</a>)</li>
+<li><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4748310567" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/666" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/666/hovercard" href="https://github.com/talmolab/sleap-nn/pull/666">#666</a>: Filter out-of-bounds points before training (NaN-mask off-crop/off-frame nodes) (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4481383827" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/571" data-hovercard-type="issue" data-hovercard-url="/talmolab/sleap-nn/issues/571/hovercard" href="https://github.com/talmolab/sleap-nn/issues/571">#571</a>) (<a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a>)</li>
 <li><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4748450576" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/667" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/667/hovercard" href="https://github.com/talmolab/sleap-nn/pull/667">#667</a>: Route np.ndarray / torch.Tensor predict() source to NumpyProvider (<a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">@talmo</a>)</li>
 <li><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4749249147" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/668" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/668/hovercard" href="https://github.com/talmolab/sleap-nn/pull/668">#668</a>: Top-level predict/Predictor/load_models + repeatable --output_format (<a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">@talmo</a>)</li>
 <li><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4749356496" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/669" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/669/hovercard" href="https://github.com/talmolab/sleap-nn/pull/669">#669</a>: Add trainer_config.viz_img_format (png|jpg) for local training-viz images (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4590474519" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/644" data-hovercard-type="issue" data-hovercard-url="/talmolab/sleap-nn/issues/644/hovercard" href="https://github.com/talmolab/sleap-nn/issues/644">#644</a>) (<a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">@talmo</a>)</li>
+<li><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4753583815" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/670" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/670/hovercard" href="https://github.com/talmolab/sleap-nn/pull/670">#670</a>: Auto-switch to local_queues when max_tracks is set so the track cap is honored (sleap#2720) (<a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a>)</li>
+<li><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="4756930978" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/672" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/672/hovercard" href="https://github.com/talmolab/sleap-nn/pull/672">#672</a>: Antialias the single-instance ONNX resize to match PyTorch inference (<a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">@talmo</a>)</li>
 </ul>
 <p><strong>Contributors:</strong> <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">@talmo</a>, <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a>, <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/tom21100227/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/tom21100227">@tom21100227</a>, <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/davorvr/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/davorvr">@davorvr</a></p>
 <p><strong>Full Changelog</strong>: <a class="commit-link" href="https://github.com/talmolab/sleap-nn/compare/v0.2.0...v0.3.0"><tt>v0.2.0...v0.3.0</tt></a></p>

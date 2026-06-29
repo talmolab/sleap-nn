@@ -1255,6 +1255,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/supervised-id/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supervised ID
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -7241,7 +7269,7 @@
 <p><strong>Time</strong>: ~20 minutes (plus training time)</p>
 <hr />
 <h2 id="step-1-choose-your-model-type">Step 1: Choose Your Model Type<a class="headerlink" href="#step-1-choose-your-model-type" title="Permanent link">&para;</a></h2>
-<p>The right model depends on your data:</p>
+<p>The right model depends on how many animals are in frame, how big they are, and whether they overlap or need persistent identities:</p>
 <table>
 <thead>
 <tr>
@@ -7252,9 +7280,14 @@
 </thead>
 <tbody>
 <tr>
-<td><strong>One animal per frame</strong></td>
+<td><strong>One animal, fills the frame</strong></td>
 <td>Single Instance</td>
 <td><code>single_instance</code></td>
+</tr>
+<tr>
+<td><strong>One small animal in a large frame</strong></td>
+<td>Top-Down</td>
+<td><code>centroid</code> + <code>centered_instance</code></td>
 </tr>
 <tr>
 <td><strong>Multiple animals, not touching</strong></td>
@@ -7274,7 +7307,7 @@
 </tbody>
 </table>
 <p>For this tutorial, we'll use <strong>Single Instance</strong> (simplest case).</p>
-<p><a href="../../reference/models/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Learn more about model types</a></p>
+<p><a href="../../reference/models/#choosing-a-model"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Full decision tree and model details</a></p>
 <hr />
 <h2 id="step-2-prepare-your-data">Step 2: Prepare Your Data<a class="headerlink" href="#step-2-prepare-your-data" title="Permanent link">&para;</a></h2>
 <p>You need a SLEAP labels file (<code>.slp</code> or <code>.pkg.slp</code>) with:</p>

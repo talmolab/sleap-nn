@@ -8,13 +8,13 @@
       
       
       
-        <link rel="canonical" href="https://nn.sleap.ai/dev/guides/tracking/">
+        <link rel="canonical" href="https://nn.sleap.ai/dev/guides/supervised-id/">
       
       
-        <link rel="prev" href="../evaluation/">
+        <link rel="prev" href="../resume-finetune/">
       
       
-        <link rel="next" href="../export/">
+        <link rel="next" href="../inference/overview/">
       
       
         
@@ -25,7 +25,7 @@
     
     
       
-        <title>Tracking - sleap-nn documentation</title>
+        <title>Supervised ID - sleap-nn documentation</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#tracking" class="md-skip">
+        <a href="#supervised-id-models" class="md-skip">
           Skip to content
         </a>
       
@@ -119,7 +119,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Tracking
+              Supervised ID
             
           </span>
         </div>
@@ -742,6 +742,8 @@
                 
   
   
+    
+  
   
   
     
@@ -757,11 +759,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" checked>
         
           
           <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="">
@@ -782,7 +784,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -993,10 +995,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../supervised-id/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supervised ID
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1012,6 +1041,81 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-label-identities-as-tracks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Label identities as tracks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-configure-the-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Configure the model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-train" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Train
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-run-inference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Run inference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1344,37 +1448,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Tracking
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../tracking/" class="md-nav__link">
         
   
   
@@ -1390,192 +1467,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#enable-tracking" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Enable Tracking
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#tracking-parameters" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tracking Parameters
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#tracking-methods" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tracking Methods
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Tracking Methods">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#fixed-window-default" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fixed Window (Default)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#local-queues" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Local Queues
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#optical-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Optical Flow
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#kalman-filter" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Kalman Filter
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#track-only-mode" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Track-Only Mode
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#limit-instances" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Limit Instances
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#example-configurations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Example Configurations
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Example Configurations">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#fast-animals" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fast Animals
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#crowded-scenes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Crowded Scenes
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#high-accuracy" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        High Accuracy
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Troubleshooting
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -6963,10 +6854,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#enable-tracking" class="md-nav__link">
+  <a href="#1-label-identities-as-tracks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Enable Tracking
+        1. Label identities as tracks
       
     </span>
   </a>
@@ -6974,10 +6865,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tracking-parameters" class="md-nav__link">
+  <a href="#2-configure-the-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Tracking Parameters
+        2. Configure the model
       
     </span>
   </a>
@@ -6985,71 +6876,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#tracking-methods" class="md-nav__link">
+  <a href="#3-train" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Tracking Methods
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Tracking Methods">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#fixed-window-default" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fixed Window (Default)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#local-queues" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Local Queues
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#optical-flow" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Optical Flow
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#kalman-filter" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Kalman Filter
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#track-only-mode" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Track-Only Mode
+        3. Train
       
     </span>
   </a>
@@ -7057,10 +6887,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#limit-instances" class="md-nav__link">
+  <a href="#4-run-inference" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Limit Instances
+        4. Run inference
       
     </span>
   </a>
@@ -7068,60 +6898,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#example-configurations" class="md-nav__link">
+  <a href="#see-also" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Example Configurations
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Example Configurations">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#fast-animals" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fast Animals
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#crowded-scenes" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Crowded Scenes
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#high-accuracy" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        High Accuracy
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Troubleshooting
+        See also
       
     </span>
   </a>
@@ -7148,342 +6928,71 @@
   
 
 
-<h1 id="tracking">Tracking<a class="headerlink" href="#tracking" title="Permanent link">&para;</a></h1>
-<p>Assign consistent IDs to instances across frames.</p>
-<hr />
-<h2 id="enable-tracking">Enable Tracking<a class="headerlink" href="#enable-tracking" title="Permanent link">&para;</a></h2>
-<p>Add <code>--tracking</code> to your inference command:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/bottomup/<span class="w"> </span>--tracking
+<h1 id="supervised-id-models">Supervised ID models<a class="headerlink" href="#supervised-id-models" title="Permanent link">&para;</a></h1>
+<p>Supervised ID models (<code>multi_class_topdown</code> and <code>multi_class_bottomup</code>) predict
+pose <strong>and</strong> a persistent identity for each animal — so identities come straight
+from the model and you don't need a separate <a href="../tracking/">tracking</a> step.</p>
+<p>Use them when your animals have <strong>distinct, consistent appearances</strong> (visual
+markers, fur color, ear-clips, dye spots). If the animals look too similar to
+tell apart, or you don't need fixed identities, use a standard pose model plus
+<a href="../tracking/">tracking</a> instead. These models can be a bit finicky to train,
+since you're optimizing for pose and identity at the same time — but for animals
+with clearly distinct appearances they can essentially eliminate ID
+proofreading.</p>
+<h2 id="1-label-identities-as-tracks">1. Label identities as tracks<a class="headerlink" href="#1-label-identities-as-tracks" title="Permanent link">&para;</a></h2>
+<p>Each track <em>name</em> becomes an identity <em>class</em>. In the
+<a href="https://github.com/talmolab/sleap">SLEAP GUI</a>, assign a track to every labeled
+instance:</p>
+<ol>
+<li>Select an instance (it should show <strong>Track: none</strong>).</li>
+<li><strong>Tracks → Set Instance Track → New Track</strong>.</li>
+<li>In the <strong>Instances</strong> panel, double-click the track and rename it to the
+   identity class — e.g. <code>male</code>, <code>female</code>, <code>dark_fur</code>. Any consistent scheme
+   works (even <code>A</code>/<code>B</code>, or names based on the marker pattern or location).</li>
+<li>For the rest of your frames, select each instance and assign it with the
+   <strong>Ctrl+1 – Ctrl+9</strong> shortcuts (hold <strong>Ctrl</strong> to see which shortcut maps to
+   which track).</li>
+</ol>
+<p>Only user instances <strong>with a track assigned</strong> are used for training, so give
+every labeled instance a track and keep the names consistent across the project.
+The class list is inferred from those names (leave <code>classes: null</code> in the
+config).</p>
+<h2 id="2-configure-the-model">2. Configure the model<a class="headerlink" href="#2-configure-the-model" title="Permanent link">&para;</a></h2>
+<p>Take your existing top-down (<code>centered_instance</code>) or bottom-up (<code>bottomup</code>)
+config and swap in the ID head, keeping the backbone and pose parameters the
+same. Starter configs:
+<a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_multi_class_centered_instance_unet.yaml"><code>config_topdown_multi_class_centered_instance_unet.yaml</code></a>
+and
+<a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_multi_class_bottomup_unet.yaml"><code>config_multi_class_bottomup_unet.yaml</code></a>.</p>
+<p><code>multi_class_topdown</code> is a top-down model, so it still pairs with a centroid
+model. <code>multi_class_bottomup</code> is a single model.</p>
+<p>The one knob to tune is the <strong><code>loss_weight</code> on the classification head</strong>
+(<code>class_vectors</code> for top-down, <code>class_maps</code> for bottom-up). Start around <code>0.001</code>;
+<strong>decrease</strong> toward <code>0.0001</code> if poses get worse, or <strong>increase</strong> toward <code>0.01</code>
+if identities don't separate.</p>
+<h2 id="3-train">3. Train<a class="headerlink" href="#3-train" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Bottom-up ID: one model</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config_multi_class_bottomup_unet.yaml
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Top-down ID: centroid model + multi-class centered-instance model</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config_centroid_unet.yaml
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config_topdown_multi_class_centered_instance_unet.yaml
 </span></code></pre></div>
-<hr />
-<h2 id="tracking-parameters">Tracking Parameters<a class="headerlink" href="#tracking-parameters" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Parameter</th>
-<th>Description</th>
-<th>Values</th>
-<th>Default</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>--tracking</code> / <code>-t</code></td>
-<td>Enable tracking</td>
-<td>Flag</td>
-<td><code>False</code></td>
-</tr>
-<tr>
-<td><code>--tracking_window_size</code></td>
-<td>Frames to look back</td>
-<td><code>INT</code></td>
-<td><code>5</code></td>
-</tr>
-<tr>
-<td><code>--min_new_track_points</code></td>
-<td>Min points for new track</td>
-<td><code>INT</code></td>
-<td><code>0</code></td>
-</tr>
-<tr>
-<td><code>--candidates_method</code></td>
-<td>Candidate selection method</td>
-<td><code>fixed_window</code>, <code>local_queues</code></td>
-<td><code>fixed_window</code></td>
-</tr>
-<tr>
-<td><code>--min_match_points</code></td>
-<td>Min non-NaN points for matching</td>
-<td><code>INT</code></td>
-<td><code>0</code></td>
-</tr>
-<tr>
-<td><code>--features</code></td>
-<td>Features for matching</td>
-<td><code>keypoints</code>, <code>centroids</code>, <code>bboxes</code>, <code>image</code></td>
-<td><code>keypoints</code></td>
-</tr>
-<tr>
-<td><code>--scoring_method</code></td>
-<td>Similarity scoring method</td>
-<td><code>oks</code>, <code>cosine_sim</code>, <code>iou</code>, <code>euclidean_dist</code></td>
-<td><code>oks</code></td>
-</tr>
-<tr>
-<td><code>--scoring_reduction</code></td>
-<td>Score reduction method</td>
-<td><code>mean</code>, <code>max</code>, <code>robust_quantile</code></td>
-<td><code>mean</code></td>
-</tr>
-<tr>
-<td><code>--track_matching_method</code></td>
-<td>Assignment algorithm</td>
-<td><code>hungarian</code>, <code>greedy</code></td>
-<td><code>hungarian</code></td>
-</tr>
-<tr>
-<td><code>--max_tracks</code></td>
-<td>Maximum track count (auto-selects <code>local_queues</code>)</td>
-<td><code>INT</code></td>
-<td><code>None</code></td>
-</tr>
-<tr>
-<td><code>--use_flow</code></td>
-<td>Enable optical flow</td>
-<td>Flag</td>
-<td><code>False</code></td>
-</tr>
-<tr>
-<td><code>--use_kalman</code></td>
-<td>Enable Kalman-filter tracking</td>
-<td>Flag</td>
-<td><code>False</code></td>
-</tr>
-<tr>
-<td><code>--kf_init_frame_count</code></td>
-<td>Warm-up frames before EM init</td>
-<td><code>INT</code></td>
-<td><code>10</code></td>
-</tr>
-<tr>
-<td><code>--kf_node_indices</code></td>
-<td>Node indices to filter (comma-sep; empty = all)</td>
-<td>e.g. <code>0,1,2</code></td>
-<td><code>None</code></td>
-</tr>
-<tr>
-<td><code>--kf_reset_gap_size</code></td>
-<td>Missed frames before a stale track resets</td>
-<td><code>INT</code></td>
-<td><code>5</code></td>
-</tr>
-</tbody>
-</table>
-<hr />
-<h2 id="tracking-methods">Tracking Methods<a class="headerlink" href="#tracking-methods" title="Permanent link">&para;</a></h2>
-<h3 id="fixed-window-default">Fixed Window (Default)<a class="headerlink" href="#fixed-window-default" title="Permanent link">&para;</a></h3>
-<p>Uses instances from the last N frames as matching candidates:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span>--candidates_method<span class="w"> </span>fixed_window<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">10</span>
+<h2 id="4-run-inference">4. Run inference<a class="headerlink" href="#4-run-inference" title="Permanent link">&para;</a></h2>
+<p>No tracking arguments needed — the model assigns identities:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Bottom-up ID</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/multi_class_bottomup/<span class="w"> </span>-o<span class="w"> </span>predictions.slp
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Top-down ID: centroid + multi-class centered-instance</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/centroid/<span class="w"> </span>-m<span class="w"> </span>models/multi_class_topdown/<span class="w"> </span>-o<span class="w"> </span>predictions.slp
 </span></code></pre></div>
-<p><strong>Best for</strong>: Most scenarios, good balance of speed and accuracy.</p>
-<h3 id="local-queues">Local Queues<a class="headerlink" href="#local-queues" title="Permanent link">&para;</a></h3>
-<p>Maintains separate history for each track ID:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span>--candidates_method<span class="w"> </span>local_queues<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">5</span>
-</span></code></pre></div>
-<p><strong>Best for</strong>: Robust to track breaks, handles occlusions better.</p>
-<div class="admonition note">
-<p class="admonition-title"><code>--max_tracks</code> requires <code>local_queues</code></p>
-<p><code>--max_tracks</code> (the cap on how many track IDs may be created) is honored
-<strong>only</strong> by <code>local_queues</code>; <code>fixed_window</code> ignores it. Setting <code>--max_tracks</code>
-therefore auto-selects <code>candidates_method local_queues</code> (logged at INFO),
-overriding <code>fixed_window</code> even if you pass it explicitly. You do <strong>not</strong> need
-to set <code>--candidates_method</code> yourself when capping the track count.</p>
-</div>
-<h3 id="optical-flow">Optical Flow<a class="headerlink" href="#optical-flow" title="Permanent link">&para;</a></h3>
-<p>Uses optical flow to predict instance positions:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span>--use_flow
-</span></code></pre></div>
-<p><strong>Best for</strong>: Fast-moving animals.</p>
-<h4 id="optical-flow-parameters">Optical Flow Parameters<a class="headerlink" href="#optical-flow-parameters" title="Permanent link">&para;</a></h4>
-<table>
-<thead>
-<tr>
-<th>Parameter</th>
-<th>Description</th>
-<th>Values</th>
-<th>Default</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>--of_img_scale</code></td>
-<td>Image scale (lower = faster)</td>
-<td><code>FLOAT</code></td>
-<td><code>1.0</code></td>
-</tr>
-<tr>
-<td><code>--of_window_size</code></td>
-<td>Window size per pyramid level</td>
-<td><code>INT</code></td>
-<td><code>21</code></td>
-</tr>
-<tr>
-<td><code>--of_max_levels</code></td>
-<td>Pyramid levels</td>
-<td><code>INT</code></td>
-<td><code>3</code></td>
-</tr>
-</tbody>
-</table>
-<h3 id="kalman-filter">Kalman Filter<a class="headerlink" href="#kalman-filter" title="Permanent link">&para;</a></h3>
-<p>Tracks each identity with a per-track constant-velocity Kalman filter on the
-instance <strong>centroid</strong>. The tracker runs a normal-tracker warm-up for
-<code>--kf_init_frame_count</code> frames, fits one centroid filter per track via EM, and then
-predicts each track's centroid forward and scores the current detections against the
-last observed pose <strong>rigidly translated</strong> by that predicted displacement (analogous to
-optical flow, but using a motion model instead of image displacements):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/centroid<span class="w"> </span>models/centered_instance<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span>--use_kalman<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span>--tracking_target_instance_count<span class="w"> </span><span class="m">2</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span>--kf_init_frame_count<span class="w"> </span><span class="m">10</span>
-</span></code></pre></div>
-<p><strong>Best for</strong>: A known, fixed number of animals whose motion is informative for
-association — identities that <strong>cross or pass close</strong> to each other, <strong>converge</strong>, or
-move <strong>fast and smoothly</strong> — after the base detector has been culled to the top-N
-instances per frame. In these regimes the motion prediction substantially reduces ID
-switches over plain similarity matching.</p>
-<div class="admonition note">
-<p class="admonition-title">When it helps vs. when it doesn't</p>
-<p>The motion model is a net win where association is ambiguous (crossings, converging
-or fast tracks). Under <strong>heavy detection noise with frequent missed detections on
-long sequences</strong> it can slightly <em>reduce</em> IDF1 versus the memoryless similarity
-tracker (any motion prediction occasionally causes a swap a memoryless tracker
-avoids) — though it usually still produces fewer ID switches there. If your
-detections are very noisy, prefer the plain tracker or lower <code>kf_prediction_blend</code>
-(e.g. <code>Tracker.from_config(..., kf_prediction_blend=0.25)</code>).</p>
-</div>
-<p>Notes:</p>
+<p>Each predicted instance carries its identity as a track in the output <code>.slp</code>.</p>
+<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Requires a known target identity count: pass <code>--tracking_target_instance_count</code>
-  (or let it be derived from <code>--max_instances</code> / <code>--max_tracks</code>).</li>
-<li>Mutually exclusive with <code>--use_flow</code>.</li>
-<li>Use <code>--kf_node_indices</code> to filter on a stable subset of nodes (e.g. spine nodes):
-  <code>--kf_node_indices 0,1,2</code>. Leave it unset to use all nodes.</li>
-<li>Depends on the <code>pykalman</code> package (a core dependency).</li>
+<li><a href="../../reference/models/#choosing-a-model">Choosing a Model</a></li>
+<li><a href="../../configuration/model/">Model config reference</a> — full <code>multi_class_*</code> head schemas</li>
+<li><a href="https://www.nature.com/articles/s41592-022-01426-1">SLEAP paper</a> — supervised-identity background</li>
 </ul>
-<div class="admonition note">
-<p class="admonition-title">Centroid vs keypoints (<code>--kf_track_features</code>)</p>
-<p>By default (<code>--kf_track_features centroid</code>) the motion model tracks each instance's
-<strong>centroid</strong> and rigidly translates the last pose — stable and the recommended
-choice. <code>--kf_track_features keypoints</code> instead runs one filter <strong>per node</strong> and uses
-the predicted pose directly: it can help when subjects are small and move
-distinctively (e.g. it cut ID switches markedly on a 2-fly clip), but the per-node
-prediction is noisier, so it needs a tolerant similarity score. Pair it with the
-auto-default <code>--oks_stddev 0.1</code> (set automatically for keypoints mode; <strong>do not</strong> use
-the strict 0.025), or with <code>--features bboxes --scoring_method iou</code> for noisy but
-well-separated, non-rotating subjects. On clean or occlusion-heavy data the centroid
-mode (or the plain tracker) is at least as good, so keypoints mode is an opt-in
-alternative, not a replacement.</p>
-</div>
-<p>The motion model is robustified so it does not degrade tracking outside its sweet
-spot: each correction is gated by distance (rejecting false-positive / mismatched
-detections), the learned velocity is capped, the filter coasts across occlusion gaps,
-stale tracks are reset, and the scoring candidate blends the prediction with the last
-observation. These robustness parameters (<code>kf_prediction_blend</code>, the gate and
-velocity-cap multipliers) have tuned defaults and can be overridden when constructing a
-tracker via <code>Tracker.from_config(...)</code>.</p>
-<h4 id="kalman-filter-parameters">Kalman Filter Parameters<a class="headerlink" href="#kalman-filter-parameters" title="Permanent link">&para;</a></h4>
-<table>
-<thead>
-<tr>
-<th>Parameter</th>
-<th>Description</th>
-<th>Values</th>
-<th>Default</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>--kf_track_features</code></td>
-<td>What the motion model tracks</td>
-<td><code>centroid</code>, <code>keypoints</code></td>
-<td><code>centroid</code></td>
-</tr>
-<tr>
-<td><code>--oks_stddev</code></td>
-<td>OKS keypoint-spread tolerance (larger = more forgiving)</td>
-<td><code>FLOAT</code></td>
-<td><code>0.025</code>; <code>0.1</code> for <code>keypoints</code></td>
-</tr>
-<tr>
-<td><code>--kf_init_frame_count</code></td>
-<td>Warm-up frames before EM init</td>
-<td><code>INT</code></td>
-<td><code>10</code></td>
-</tr>
-<tr>
-<td><code>--kf_node_indices</code></td>
-<td>Node indices to filter (comma-sep; empty = all)</td>
-<td>e.g. <code>0,1,2</code></td>
-<td><code>None</code></td>
-</tr>
-<tr>
-<td><code>--kf_reset_gap_size</code></td>
-<td>Missed frames before a stale track resets</td>
-<td><code>INT</code></td>
-<td><code>5</code></td>
-</tr>
-</tbody>
-</table>
-<hr />
-<h2 id="track-only-mode">Track-Only Mode<a class="headerlink" href="#track-only-mode" title="Permanent link">&para;</a></h2>
-<p>Assign tracks to existing predictions (no inference):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>--tracking
-</span></code></pre></div>
-<p>Note: Omit <code>--model_paths</code> for track-only mode.</p>
-<p>With specific frames:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>-t<span class="w"> </span>--frames<span class="w"> </span><span class="m">0</span>-100<span class="w"> </span>--video_index<span class="w"> </span><span class="m">0</span>
-</span></code></pre></div>
-<hr />
-<h2 id="limit-instances">Limit Instances<a class="headerlink" href="#limit-instances" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Maximum 5 instances per frame</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--max_instances<span class="w"> </span><span class="m">5</span>
-</span></code></pre></div>
-<hr />
-<h2 id="example-configurations">Example Configurations<a class="headerlink" href="#example-configurations" title="Permanent link">&para;</a></h2>
-<h3 id="fast-animals">Fast Animals<a class="headerlink" href="#fast-animals" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span>--use_flow<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span>--of_img_scale<span class="w"> </span><span class="m">0</span>.5
-</span></code></pre></div>
-<h3 id="crowded-scenes">Crowded Scenes<a class="headerlink" href="#crowded-scenes" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span>--candidates_method<span class="w"> </span>local_queues<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span>--max_tracks<span class="w"> </span><span class="m">10</span>
-</span></code></pre></div>
-<h3 id="high-accuracy">High Accuracy<a class="headerlink" href="#high-accuracy" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span>--scoring_method<span class="w"> </span>oks<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span>--scoring_reduction<span class="w"> </span>mean<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span>--track_matching_method<span class="w"> </span>hungarian
-</span></code></pre></div>
-<hr />
-<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
-<details class="question">
-<summary>Tracks switch identities</summary>
-<ul>
-<li>Increase <code>--tracking_window_size</code></li>
-<li>Try <code>--candidates_method local_queues</code></li>
-<li>Use <code>--use_flow</code> for fast motion</li>
-</ul>
-</details>
-<details class="question">
-<summary>Too many tracks</summary>
-<ul>
-<li>Set <code>--max_tracks</code> to limit track count</li>
-<li>Increase <code>--min_new_track_points</code></li>
-</ul>
-</details>
-<details class="question">
-<summary>Tracking is slow</summary>
-<ul>
-<li>Reduce <code>--tracking_window_size</code></li>
-<li>Use <code>--of_img_scale 0.5</code> with optical flow</li>
-</ul>
-</details>
 
 
 
