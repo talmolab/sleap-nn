@@ -1,0 +1,7630 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://nn.sleap.ai/v0.3.0/api/inference/loaders/">
+      
+      
+        <link rel="prev" href="../layers/topdown_segmentation/">
+      
+      
+        <link rel="next" href="../ops/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>loaders - sleap-nn documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="deep-orange">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sleap_nn.inference.loaders" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+      
+  <img src="../../../assets/sleap-logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sleap-nn documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              loaders
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="deep-orange"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="deep-orange"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/talmolab/sleap-nn" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Overview
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../installation/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Installation
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../tutorials/overview/" class="md-tabs__link">
+          
+  
+  
+  Tutorials
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../guides/overview/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../../reference/overview/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../../changelog/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="https://github.com/talmolab/sleap-nn/releases" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Releases
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+      
+  <img src="../../../assets/sleap-logo.png" alt="logo">
+
+    </a>
+    sleap-nn documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/talmolab/sleap-nn" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tutorials/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../getting-started/first-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your First Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../tutorials/notebooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example Notebooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Training
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/training/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/training-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/config-generator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config Generator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/negative-frames/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Negative Frames
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/multi-gpu/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Multi-GPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/resume-finetune/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resume & Fine-Tune
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/supervised-id/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supervised ID
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Inference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/inference/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/inference-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running Inference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/post-processing-filters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Post-Processing Filters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/inference-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/centroid-only-inference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Centroid-Only
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/topdown-segmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Top-Down Segmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/sam-inference-segmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SAM-Prompted Segmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/inference-performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Performance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/tracking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tracking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../../configuration/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_2" id="__nav_5_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/config-picker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config Picker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/trainer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Trainer Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/samples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sample Configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Types
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../reference/evaluation_metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Evaluation Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../help/faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sleap_nn
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1" id="__nav_6_1_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_1_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    sleap_nn
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../architectures/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    architectures
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_1" id="__nav_6_1_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    architectures
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architectures/common/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    common
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architectures/convnext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    convnext
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architectures/encoder_decoder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    encoder_decoder
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architectures/heads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    heads
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architectures/model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architectures/swint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    swint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architectures/unet/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    unet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architectures/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cli
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../config/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_3" id="__nav_6_1_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    config
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/data_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    data_config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/get_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    get_config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/model_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    model_config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/trainer_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    trainer_config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/training_job_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    training_job_config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../config_generator/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config_generator
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_4" id="__nav_6_1_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    config_generator
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/analyzer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analyzer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/architecture_estimates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    architecture_estimates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/generator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    generator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/recommender/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    recommender
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_4_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../config_generator/tui/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tui
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_4_6" id="__nav_6_1_4_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_6_1_4_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_4_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    tui
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/tui/app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_4_6_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../config_generator/tui/screens/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    screens
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_4_6_2" id="__nav_6_1_4_6_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="5" aria-labelledby="__nav_6_1_4_6_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_4_6_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    screens
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/tui/screens/configure_screen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    configure_screen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/tui/screens/export_screen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    export_screen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/tui/screens/load_screen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    load_screen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/tui/screens/model_select_screen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    model_select_screen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/tui/state/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    state
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_4_6_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../config_generator/tui/widgets/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    widgets
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_4_6_4" id="__nav_6_1_4_6_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="5" aria-labelledby="__nav_6_1_4_6_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_4_6_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    widgets
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/tui/widgets/collapsible/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    collapsible
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/tui/widgets/info_box/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    info_box
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/tui/widgets/memory_gauge/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    memory_gauge
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/tui/widgets/recommendation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    recommendation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/tui/widgets/size_display/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    size_display
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config_generator/tui/widgets/slider/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    slider
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../data/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    data
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_5" id="__nav_6_1_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    data
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data/augmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    augmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data/confidence_maps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    confidence_maps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data/custom_datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    custom_datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data/edge_maps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    edge_maps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data/identity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    identity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data/instance_centroids/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    instance_centroids
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data/instance_cropping/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    instance_cropping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data/normalization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    normalization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data/providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data/resizing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    resizing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data/segmentation_maps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    segmentation_maps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data/skia_augmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    skia_augmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    evaluation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../export/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    export
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_7" id="__nav_6_1_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    export
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../export/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cli
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_7_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../export/exporters/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    exporters
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_7_2" id="__nav_6_1_7_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_6_1_7_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_7_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    exporters
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../export/exporters/onnx_exporter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    onnx_exporter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../export/exporters/tensorrt_exporter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tensorrt_exporter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../export/metadata/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    metadata
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../export/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_7_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../export/wrappers/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    wrappers
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_7_5" id="__nav_6_1_7_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_6_1_7_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_7_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    wrappers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../export/wrappers/base/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    base
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../export/wrappers/bottomup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bottomup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../export/wrappers/bottomup_multiclass/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bottomup_multiclass
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../export/wrappers/centered_instance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    centered_instance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../export/wrappers/centroid/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    centroid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../export/wrappers/single_instance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    single_instance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../export/wrappers/topdown/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    topdown
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../export/wrappers/topdown_multiclass/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    topdown_multiclass
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_8" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    inference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_8" id="__nav_6_1_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_8_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6_1_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    inference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bottomup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bottomup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../centroid_convert/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    centroid_convert
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../filters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    filters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../identity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    identity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_8_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../layers/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    layers
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_8_5" id="__nav_6_1_8_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_6_1_8_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_8_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    layers
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_8_5_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../layers/backends/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    backends
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_8_5_1" id="__nav_6_1_8_5_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="5" aria-labelledby="__nav_6_1_8_5_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_8_5_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    backends
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/backends/base/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    base
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/backends/onnx_backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    onnx_backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/backends/tensorrt_backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tensorrt_backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/backends/torch_backend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    torch_backend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/base/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    base
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/bottomup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bottomup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/bottomup_multiclass/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    bottomup_multiclass
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/centered_instance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    centered_instance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/centroid/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    centroid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/configs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    configs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/exported/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    exported
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/segmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    segmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/single_instance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    single_instance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/topdown/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    topdown
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/topdown_multiclass/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    topdown_multiclass
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layers/topdown_segmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    topdown_segmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    loaders
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    loaders
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#sleap_nn.inference.loaders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        loaders
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="loaders">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sleap_nn.inference.loaders.LoadedAssets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LoadedAssets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sleap_nn.inference.loaders.load_model_assets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_model_assets
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_8_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../ops/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ops
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_8_7" id="__nav_6_1_8_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_6_1_8_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_8_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    ops
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ops/coord/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    coord
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ops/crops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    crops
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ops/filters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    filters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ops/identity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    identity
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ops/paf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    paf
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ops/peaks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    peaks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    outputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../paf_grouping/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    paf_grouping
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../peak_finding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    peak_finding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../postprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    postprocessing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../predictor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    predictor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../predictors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    predictors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../preprocess_info/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    preprocess_info
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provenance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    provenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    run
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_8_18" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../sam/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sam
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_8_18" id="__nav_6_1_8_18_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_6_1_8_18_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_8_18">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    sam
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sam/backends/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    backends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sam/mask_layer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    mask_layer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sam/overlay/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    overlay
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sam/prompts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    prompts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sam/reconciliation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    reconciliation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sam/retrack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    retrack
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../segmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    segmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../segmentation_convert/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    segmentation_convert
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../single_instance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    single_instance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../streaming/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    streaming
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../topdown/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    topdown
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tracking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tracking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../writer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    writer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../legacy_models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    legacy_models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../legacy_predict/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    legacy_predict
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model_info/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    model_info
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../system_info/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    system_info
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_13" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../tracking/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tracking
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_13" id="__nav_6_1_13_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    tracking
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_13_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../tracking/candidates/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    candidates
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_13_1" id="__nav_6_1_13_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_6_1_13_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_13_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    candidates
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tracking/candidates/fixed_window/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fixed_window
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tracking/candidates/local_queues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    local_queues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tracking/track_instance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    track_instance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tracking/tracker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tracker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tracking/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../train/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    train
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_15" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../training/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    training
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6_1_15" id="__nav_6_1_15_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_15_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6_1_15">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    training
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../training/callbacks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    callbacks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../training/lightning_modules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    lightning_modules
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../training/losses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    losses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../training/model_trainer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    model_trainer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../training/schedulers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    schedulers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../training/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://github.com/talmolab/sleap-nn/releases" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Releases
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#sleap_nn.inference.loaders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        loaders
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="loaders">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sleap_nn.inference.loaders.LoadedAssets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LoadedAssets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sleap_nn.inference.loaders.load_model_assets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_model_assets
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+  <h1>loaders</h1>
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="sleap_nn.inference.loaders" class="doc doc-heading">
+            <code>sleap_nn.inference.loaders</code>
+
+
+<a href="#sleap_nn.inference.loaders" class="headerlink" title="Permanent link">&para;</a></h2>
+
+    <div class="doc doc-contents first">
+
+        <p>Standalone checkpoint loading for the inference pipeline.</p>
+<p>Nothing user-facing here -- the public API remains
+:class:<code>sleap_nn.inference.Predictor</code> via
+:meth:<code>Predictor.from_model_paths</code>.</p>
+
+
+
+
+
+
+
+
+
+
+<p><span class="doc-section-title">Classes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;LoadedAssets&lt;/code&gt; (&lt;code&gt;sleap_nn.inference.loaders.LoadedAssets&lt;/code&gt;)" href="#sleap_nn.inference.loaders.LoadedAssets">LoadedAssets</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Everything the factory's <code>_build_*_layer</code> helpers need.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+<p><span class="doc-section-title">Functions:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;load_model_assets&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;model_paths&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;device&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&amp;#39;cpu&amp;#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;backbone_ckpt_path&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;head_ckpt_path&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;peak_threshold&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;integral_refinement&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&amp;#39;integral&amp;#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;integral_patch_size&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_instances&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;return_confmaps&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;False&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;preprocess_config&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;anchor_part&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;max_edge_length_ratio&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.25&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;dist_penalty_weight&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;1.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n_points&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;10&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;min_instance_peaks&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;min_line_scores&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.25&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;fg_threshold&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;min_mask_area&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;center_nms_kernel&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;mask_cleanup&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;False&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;mask_cleanup_radius&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;distance_gate_alpha&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;merge_fragments&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;False&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;merge_method&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&amp;#39;greedy&amp;#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;merge_thresholds&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.85&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mf&quot;&gt;0.6&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mf&quot;&gt;0.4&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;merge_w_valley&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;1.0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;merge_w_offset&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.25&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;merge_dilate&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;full_res_masks&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;False&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;mask_output&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&amp;#39;mask&amp;#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;polygon_epsilon&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.01&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.inference.loaders.load_model_assets&lt;/code&gt;)" href="#sleap_nn.inference.loaders.load_model_assets">load_model_assets</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Load checkpoints and build inference models.</p>
+                </div>
+              </td>
+            </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="sleap_nn.inference.loaders.LoadedAssets" class="doc doc-heading">
+            <code>LoadedAssets</code>
+
+
+<a href="#sleap_nn.inference.loaders.LoadedAssets" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Everything the factory's <code>_build_*_layer</code> helpers need.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+              <details class="mkdocstrings-source">
+                <summary>Source code in <code>sleap_nn/inference/loaders.py</code></summary>
+                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-59">59</a></span>
+<span class="normal"><a href="#__codelineno-0-60">60</a></span>
+<span class="normal"><a href="#__codelineno-0-61">61</a></span>
+<span class="normal"><a href="#__codelineno-0-62">62</a></span>
+<span class="normal"><a href="#__codelineno-0-63">63</a></span>
+<span class="normal"><a href="#__codelineno-0-64">64</a></span>
+<span class="normal"><a href="#__codelineno-0-65">65</a></span>
+<span class="normal"><a href="#__codelineno-0-66">66</a></span>
+<span class="normal"><a href="#__codelineno-0-67">67</a></span>
+<span class="normal"><a href="#__codelineno-0-68">68</a></span>
+<span class="normal"><a href="#__codelineno-0-69">69</a></span>
+<span class="normal"><a href="#__codelineno-0-70">70</a></span>
+<span class="normal"><a href="#__codelineno-0-71">71</a></span>
+<span class="normal"><a href="#__codelineno-0-72">72</a></span>
+<span class="normal"><a href="#__codelineno-0-73">73</a></span>
+<span class="normal"><a href="#__codelineno-0-74">74</a></span>
+<span class="normal"><a href="#__codelineno-0-75">75</a></span>
+<span class="normal"><a href="#__codelineno-0-76">76</a></span>
+<span class="normal"><a href="#__codelineno-0-77">77</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59"></a><span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span><span class="p">(</span><span class="n">eq</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="nb">repr</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60"></a><span class="k">class</span><span class="w"> </span><span class="nc">LoadedAssets</span><span class="p">:</span>
+</span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Everything the factory&#39;s ``_build_*_layer`` helpers need.&quot;&quot;&quot;</span>
+</span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62"></a>
+</span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63"></a>    <span class="n">inference_model</span><span class="p">:</span> <span class="n">Any</span>  <span class="c1"># Union of all *InferenceModel types</span>
+</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64"></a>    <span class="n">preprocess_config</span><span class="p">:</span> <span class="s2">&quot;DictConfig&quot;</span>
+</span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65"></a>    <span class="n">skeletons</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="s2">&quot;sio.Skeleton&quot;</span><span class="p">]</span>
+</span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66"></a>
+</span><span id="__span-0-67"><a id="__codelineno-0-67" name="__codelineno-0-67"></a>    <span class="n">bottomup_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">&quot;DictConfig&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-68"><a id="__codelineno-0-68" name="__codelineno-0-68"></a>    <span class="n">backbone_type</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-69"><a id="__codelineno-0-69" name="__codelineno-0-69"></a>    <span class="n">max_stride</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-70"><a id="__codelineno-0-70" name="__codelineno-0-70"></a>
+</span><span id="__span-0-71"><a id="__codelineno-0-71" name="__codelineno-0-71"></a>    <span class="n">centroid_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">&quot;DictConfig&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-72"><a id="__codelineno-0-72" name="__codelineno-0-72"></a>    <span class="n">confmap_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">&quot;DictConfig&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-73"><a id="__codelineno-0-73" name="__codelineno-0-73"></a>
+</span><span id="__span-0-74"><a id="__codelineno-0-74" name="__codelineno-0-74"></a>    <span class="c1"># Cap on instances per frame. Threaded through to the bottom-up grouping</span>
+</span><span id="__span-0-75"><a id="__codelineno-0-75" name="__codelineno-0-75"></a>    <span class="c1"># stage (the legacy ``BottomUpInferenceModel`` has no such field, so the</span>
+</span><span id="__span-0-76"><a id="__codelineno-0-76" name="__codelineno-0-76"></a>    <span class="c1"># value is carried on the assets and read by ``_build_bottomup_layer``).</span>
+</span><span id="__span-0-77"><a id="__codelineno-0-77" name="__codelineno-0-77"></a>    <span class="n">max_instances</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span></code></pre></div></td></tr></table></div>
+              </details>
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="sleap_nn.inference.loaders.load_model_assets" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">load_model_assets</span><span class="p">(</span><span class="n">model_paths</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">device</span><span class="o">=</span><span class="s1">&#39;cpu&#39;</span><span class="p">,</span> <span class="n">backbone_ckpt_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">head_ckpt_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">peak_threshold</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">integral_refinement</span><span class="o">=</span><span class="s1">&#39;integral&#39;</span><span class="p">,</span> <span class="n">integral_patch_size</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">max_instances</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">return_confmaps</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">preprocess_config</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">anchor_part</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">max_edge_length_ratio</span><span class="o">=</span><span class="mf">0.25</span><span class="p">,</span> <span class="n">dist_penalty_weight</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">n_points</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">min_instance_peaks</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">min_line_scores</span><span class="o">=</span><span class="mf">0.25</span><span class="p">,</span> <span class="n">fg_threshold</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">min_mask_area</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">center_nms_kernel</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">mask_cleanup</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">mask_cleanup_radius</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">distance_gate_alpha</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">merge_fragments</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">merge_method</span><span class="o">=</span><span class="s1">&#39;greedy&#39;</span><span class="p">,</span> <span class="n">merge_thresholds</span><span class="o">=</span><span class="p">(</span><span class="mf">0.85</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">),</span> <span class="n">merge_w_valley</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">merge_w_offset</span><span class="o">=</span><span class="mf">0.25</span><span class="p">,</span> <span class="n">merge_dilate</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">full_res_masks</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">mask_output</span><span class="o">=</span><span class="s1">&#39;mask&#39;</span><span class="p">,</span> <span class="n">polygon_epsilon</span><span class="o">=</span><span class="mf">0.01</span><span class="p">)</span></code>
+
+<a href="#sleap_nn.inference.loaders.load_model_assets" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Load checkpoints and build inference models.</p>
+<p>Each entry in <code>model_paths</code> may be a model directory, or a path to its
+<code>best.ckpt</code> checkpoint or <code>training_config.{yaml,json}</code> config file; every
+form is resolved to the model directory (#575).</p>
+<p>The five bottom-up PAF grouping knobs (<code>max_edge_length_ratio</code>,
+<code>dist_penalty_weight</code>, <code>n_points</code>, <code>min_instance_peaks</code>,
+<code>min_line_scores</code>) are forwarded ONLY to the plain bottom-up builder
+(legacy applied them only to <code>BottomUpPredictor</code>); they are inert for
+other model types. Likewise <code>fg_threshold</code> / <code>min_mask_area</code> are
+forwarded ONLY to the bottom-up segmentation builder.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="tuple">tuple</span>[<a class="autorefs autorefs-internal" title="&lt;code&gt;LoadedAssets&lt;/code&gt; (&lt;code&gt;sleap_nn.inference.loaders.LoadedAssets&lt;/code&gt;)" href="#sleap_nn.inference.loaders.LoadedAssets">LoadedAssets</a>, <span title="typing.List">List</span>[<span title="str">str</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(loaded_assets, model_types)</code> — <em>model_types</em> is the list of
+detected model types (one per path in <em>model_paths</em>).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>sleap_nn/inference/loaders.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-941"> 941</a></span>
+<span class="normal"><a href="#__codelineno-0-942"> 942</a></span>
+<span class="normal"><a href="#__codelineno-0-943"> 943</a></span>
+<span class="normal"><a href="#__codelineno-0-944"> 944</a></span>
+<span class="normal"><a href="#__codelineno-0-945"> 945</a></span>
+<span class="normal"><a href="#__codelineno-0-946"> 946</a></span>
+<span class="normal"><a href="#__codelineno-0-947"> 947</a></span>
+<span class="normal"><a href="#__codelineno-0-948"> 948</a></span>
+<span class="normal"><a href="#__codelineno-0-949"> 949</a></span>
+<span class="normal"><a href="#__codelineno-0-950"> 950</a></span>
+<span class="normal"><a href="#__codelineno-0-951"> 951</a></span>
+<span class="normal"><a href="#__codelineno-0-952"> 952</a></span>
+<span class="normal"><a href="#__codelineno-0-953"> 953</a></span>
+<span class="normal"><a href="#__codelineno-0-954"> 954</a></span>
+<span class="normal"><a href="#__codelineno-0-955"> 955</a></span>
+<span class="normal"><a href="#__codelineno-0-956"> 956</a></span>
+<span class="normal"><a href="#__codelineno-0-957"> 957</a></span>
+<span class="normal"><a href="#__codelineno-0-958"> 958</a></span>
+<span class="normal"><a href="#__codelineno-0-959"> 959</a></span>
+<span class="normal"><a href="#__codelineno-0-960"> 960</a></span>
+<span class="normal"><a href="#__codelineno-0-961"> 961</a></span>
+<span class="normal"><a href="#__codelineno-0-962"> 962</a></span>
+<span class="normal"><a href="#__codelineno-0-963"> 963</a></span>
+<span class="normal"><a href="#__codelineno-0-964"> 964</a></span>
+<span class="normal"><a href="#__codelineno-0-965"> 965</a></span>
+<span class="normal"><a href="#__codelineno-0-966"> 966</a></span>
+<span class="normal"><a href="#__codelineno-0-967"> 967</a></span>
+<span class="normal"><a href="#__codelineno-0-968"> 968</a></span>
+<span class="normal"><a href="#__codelineno-0-969"> 969</a></span>
+<span class="normal"><a href="#__codelineno-0-970"> 970</a></span>
+<span class="normal"><a href="#__codelineno-0-971"> 971</a></span>
+<span class="normal"><a href="#__codelineno-0-972"> 972</a></span>
+<span class="normal"><a href="#__codelineno-0-973"> 973</a></span>
+<span class="normal"><a href="#__codelineno-0-974"> 974</a></span>
+<span class="normal"><a href="#__codelineno-0-975"> 975</a></span>
+<span class="normal"><a href="#__codelineno-0-976"> 976</a></span>
+<span class="normal"><a href="#__codelineno-0-977"> 977</a></span>
+<span class="normal"><a href="#__codelineno-0-978"> 978</a></span>
+<span class="normal"><a href="#__codelineno-0-979"> 979</a></span>
+<span class="normal"><a href="#__codelineno-0-980"> 980</a></span>
+<span class="normal"><a href="#__codelineno-0-981"> 981</a></span>
+<span class="normal"><a href="#__codelineno-0-982"> 982</a></span>
+<span class="normal"><a href="#__codelineno-0-983"> 983</a></span>
+<span class="normal"><a href="#__codelineno-0-984"> 984</a></span>
+<span class="normal"><a href="#__codelineno-0-985"> 985</a></span>
+<span class="normal"><a href="#__codelineno-0-986"> 986</a></span>
+<span class="normal"><a href="#__codelineno-0-987"> 987</a></span>
+<span class="normal"><a href="#__codelineno-0-988"> 988</a></span>
+<span class="normal"><a href="#__codelineno-0-989"> 989</a></span>
+<span class="normal"><a href="#__codelineno-0-990"> 990</a></span>
+<span class="normal"><a href="#__codelineno-0-991"> 991</a></span>
+<span class="normal"><a href="#__codelineno-0-992"> 992</a></span>
+<span class="normal"><a href="#__codelineno-0-993"> 993</a></span>
+<span class="normal"><a href="#__codelineno-0-994"> 994</a></span>
+<span class="normal"><a href="#__codelineno-0-995"> 995</a></span>
+<span class="normal"><a href="#__codelineno-0-996"> 996</a></span>
+<span class="normal"><a href="#__codelineno-0-997"> 997</a></span>
+<span class="normal"><a href="#__codelineno-0-998"> 998</a></span>
+<span class="normal"><a href="#__codelineno-0-999"> 999</a></span>
+<span class="normal"><a href="#__codelineno-0-1000">1000</a></span>
+<span class="normal"><a href="#__codelineno-0-1001">1001</a></span>
+<span class="normal"><a href="#__codelineno-0-1002">1002</a></span>
+<span class="normal"><a href="#__codelineno-0-1003">1003</a></span>
+<span class="normal"><a href="#__codelineno-0-1004">1004</a></span>
+<span class="normal"><a href="#__codelineno-0-1005">1005</a></span>
+<span class="normal"><a href="#__codelineno-0-1006">1006</a></span>
+<span class="normal"><a href="#__codelineno-0-1007">1007</a></span>
+<span class="normal"><a href="#__codelineno-0-1008">1008</a></span>
+<span class="normal"><a href="#__codelineno-0-1009">1009</a></span>
+<span class="normal"><a href="#__codelineno-0-1010">1010</a></span>
+<span class="normal"><a href="#__codelineno-0-1011">1011</a></span>
+<span class="normal"><a href="#__codelineno-0-1012">1012</a></span>
+<span class="normal"><a href="#__codelineno-0-1013">1013</a></span>
+<span class="normal"><a href="#__codelineno-0-1014">1014</a></span>
+<span class="normal"><a href="#__codelineno-0-1015">1015</a></span>
+<span class="normal"><a href="#__codelineno-0-1016">1016</a></span>
+<span class="normal"><a href="#__codelineno-0-1017">1017</a></span>
+<span class="normal"><a href="#__codelineno-0-1018">1018</a></span>
+<span class="normal"><a href="#__codelineno-0-1019">1019</a></span>
+<span class="normal"><a href="#__codelineno-0-1020">1020</a></span>
+<span class="normal"><a href="#__codelineno-0-1021">1021</a></span>
+<span class="normal"><a href="#__codelineno-0-1022">1022</a></span>
+<span class="normal"><a href="#__codelineno-0-1023">1023</a></span>
+<span class="normal"><a href="#__codelineno-0-1024">1024</a></span>
+<span class="normal"><a href="#__codelineno-0-1025">1025</a></span>
+<span class="normal"><a href="#__codelineno-0-1026">1026</a></span>
+<span class="normal"><a href="#__codelineno-0-1027">1027</a></span>
+<span class="normal"><a href="#__codelineno-0-1028">1028</a></span>
+<span class="normal"><a href="#__codelineno-0-1029">1029</a></span>
+<span class="normal"><a href="#__codelineno-0-1030">1030</a></span>
+<span class="normal"><a href="#__codelineno-0-1031">1031</a></span>
+<span class="normal"><a href="#__codelineno-0-1032">1032</a></span>
+<span class="normal"><a href="#__codelineno-0-1033">1033</a></span>
+<span class="normal"><a href="#__codelineno-0-1034">1034</a></span>
+<span class="normal"><a href="#__codelineno-0-1035">1035</a></span>
+<span class="normal"><a href="#__codelineno-0-1036">1036</a></span>
+<span class="normal"><a href="#__codelineno-0-1037">1037</a></span>
+<span class="normal"><a href="#__codelineno-0-1038">1038</a></span>
+<span class="normal"><a href="#__codelineno-0-1039">1039</a></span>
+<span class="normal"><a href="#__codelineno-0-1040">1040</a></span>
+<span class="normal"><a href="#__codelineno-0-1041">1041</a></span>
+<span class="normal"><a href="#__codelineno-0-1042">1042</a></span>
+<span class="normal"><a href="#__codelineno-0-1043">1043</a></span>
+<span class="normal"><a href="#__codelineno-0-1044">1044</a></span>
+<span class="normal"><a href="#__codelineno-0-1045">1045</a></span>
+<span class="normal"><a href="#__codelineno-0-1046">1046</a></span>
+<span class="normal"><a href="#__codelineno-0-1047">1047</a></span>
+<span class="normal"><a href="#__codelineno-0-1048">1048</a></span>
+<span class="normal"><a href="#__codelineno-0-1049">1049</a></span>
+<span class="normal"><a href="#__codelineno-0-1050">1050</a></span>
+<span class="normal"><a href="#__codelineno-0-1051">1051</a></span>
+<span class="normal"><a href="#__codelineno-0-1052">1052</a></span>
+<span class="normal"><a href="#__codelineno-0-1053">1053</a></span>
+<span class="normal"><a href="#__codelineno-0-1054">1054</a></span>
+<span class="normal"><a href="#__codelineno-0-1055">1055</a></span>
+<span class="normal"><a href="#__codelineno-0-1056">1056</a></span>
+<span class="normal"><a href="#__codelineno-0-1057">1057</a></span>
+<span class="normal"><a href="#__codelineno-0-1058">1058</a></span>
+<span class="normal"><a href="#__codelineno-0-1059">1059</a></span>
+<span class="normal"><a href="#__codelineno-0-1060">1060</a></span>
+<span class="normal"><a href="#__codelineno-0-1061">1061</a></span>
+<span class="normal"><a href="#__codelineno-0-1062">1062</a></span>
+<span class="normal"><a href="#__codelineno-0-1063">1063</a></span>
+<span class="normal"><a href="#__codelineno-0-1064">1064</a></span>
+<span class="normal"><a href="#__codelineno-0-1065">1065</a></span>
+<span class="normal"><a href="#__codelineno-0-1066">1066</a></span>
+<span class="normal"><a href="#__codelineno-0-1067">1067</a></span>
+<span class="normal"><a href="#__codelineno-0-1068">1068</a></span>
+<span class="normal"><a href="#__codelineno-0-1069">1069</a></span>
+<span class="normal"><a href="#__codelineno-0-1070">1070</a></span>
+<span class="normal"><a href="#__codelineno-0-1071">1071</a></span>
+<span class="normal"><a href="#__codelineno-0-1072">1072</a></span>
+<span class="normal"><a href="#__codelineno-0-1073">1073</a></span>
+<span class="normal"><a href="#__codelineno-0-1074">1074</a></span>
+<span class="normal"><a href="#__codelineno-0-1075">1075</a></span>
+<span class="normal"><a href="#__codelineno-0-1076">1076</a></span>
+<span class="normal"><a href="#__codelineno-0-1077">1077</a></span>
+<span class="normal"><a href="#__codelineno-0-1078">1078</a></span>
+<span class="normal"><a href="#__codelineno-0-1079">1079</a></span>
+<span class="normal"><a href="#__codelineno-0-1080">1080</a></span>
+<span class="normal"><a href="#__codelineno-0-1081">1081</a></span>
+<span class="normal"><a href="#__codelineno-0-1082">1082</a></span>
+<span class="normal"><a href="#__codelineno-0-1083">1083</a></span>
+<span class="normal"><a href="#__codelineno-0-1084">1084</a></span>
+<span class="normal"><a href="#__codelineno-0-1085">1085</a></span>
+<span class="normal"><a href="#__codelineno-0-1086">1086</a></span>
+<span class="normal"><a href="#__codelineno-0-1087">1087</a></span>
+<span class="normal"><a href="#__codelineno-0-1088">1088</a></span>
+<span class="normal"><a href="#__codelineno-0-1089">1089</a></span>
+<span class="normal"><a href="#__codelineno-0-1090">1090</a></span>
+<span class="normal"><a href="#__codelineno-0-1091">1091</a></span>
+<span class="normal"><a href="#__codelineno-0-1092">1092</a></span>
+<span class="normal"><a href="#__codelineno-0-1093">1093</a></span>
+<span class="normal"><a href="#__codelineno-0-1094">1094</a></span>
+<span class="normal"><a href="#__codelineno-0-1095">1095</a></span>
+<span class="normal"><a href="#__codelineno-0-1096">1096</a></span>
+<span class="normal"><a href="#__codelineno-0-1097">1097</a></span>
+<span class="normal"><a href="#__codelineno-0-1098">1098</a></span>
+<span class="normal"><a href="#__codelineno-0-1099">1099</a></span>
+<span class="normal"><a href="#__codelineno-0-1100">1100</a></span>
+<span class="normal"><a href="#__codelineno-0-1101">1101</a></span>
+<span class="normal"><a href="#__codelineno-0-1102">1102</a></span>
+<span class="normal"><a href="#__codelineno-0-1103">1103</a></span>
+<span class="normal"><a href="#__codelineno-0-1104">1104</a></span>
+<span class="normal"><a href="#__codelineno-0-1105">1105</a></span>
+<span class="normal"><a href="#__codelineno-0-1106">1106</a></span>
+<span class="normal"><a href="#__codelineno-0-1107">1107</a></span>
+<span class="normal"><a href="#__codelineno-0-1108">1108</a></span>
+<span class="normal"><a href="#__codelineno-0-1109">1109</a></span>
+<span class="normal"><a href="#__codelineno-0-1110">1110</a></span>
+<span class="normal"><a href="#__codelineno-0-1111">1111</a></span>
+<span class="normal"><a href="#__codelineno-0-1112">1112</a></span>
+<span class="normal"><a href="#__codelineno-0-1113">1113</a></span>
+<span class="normal"><a href="#__codelineno-0-1114">1114</a></span>
+<span class="normal"><a href="#__codelineno-0-1115">1115</a></span>
+<span class="normal"><a href="#__codelineno-0-1116">1116</a></span>
+<span class="normal"><a href="#__codelineno-0-1117">1117</a></span>
+<span class="normal"><a href="#__codelineno-0-1118">1118</a></span>
+<span class="normal"><a href="#__codelineno-0-1119">1119</a></span>
+<span class="normal"><a href="#__codelineno-0-1120">1120</a></span>
+<span class="normal"><a href="#__codelineno-0-1121">1121</a></span>
+<span class="normal"><a href="#__codelineno-0-1122">1122</a></span>
+<span class="normal"><a href="#__codelineno-0-1123">1123</a></span>
+<span class="normal"><a href="#__codelineno-0-1124">1124</a></span>
+<span class="normal"><a href="#__codelineno-0-1125">1125</a></span>
+<span class="normal"><a href="#__codelineno-0-1126">1126</a></span>
+<span class="normal"><a href="#__codelineno-0-1127">1127</a></span>
+<span class="normal"><a href="#__codelineno-0-1128">1128</a></span>
+<span class="normal"><a href="#__codelineno-0-1129">1129</a></span>
+<span class="normal"><a href="#__codelineno-0-1130">1130</a></span>
+<span class="normal"><a href="#__codelineno-0-1131">1131</a></span>
+<span class="normal"><a href="#__codelineno-0-1132">1132</a></span>
+<span class="normal"><a href="#__codelineno-0-1133">1133</a></span>
+<span class="normal"><a href="#__codelineno-0-1134">1134</a></span>
+<span class="normal"><a href="#__codelineno-0-1135">1135</a></span>
+<span class="normal"><a href="#__codelineno-0-1136">1136</a></span>
+<span class="normal"><a href="#__codelineno-0-1137">1137</a></span>
+<span class="normal"><a href="#__codelineno-0-1138">1138</a></span>
+<span class="normal"><a href="#__codelineno-0-1139">1139</a></span>
+<span class="normal"><a href="#__codelineno-0-1140">1140</a></span>
+<span class="normal"><a href="#__codelineno-0-1141">1141</a></span>
+<span class="normal"><a href="#__codelineno-0-1142">1142</a></span>
+<span class="normal"><a href="#__codelineno-0-1143">1143</a></span>
+<span class="normal"><a href="#__codelineno-0-1144">1144</a></span>
+<span class="normal"><a href="#__codelineno-0-1145">1145</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-941"><a id="__codelineno-0-941" name="__codelineno-0-941"></a><span class="k">def</span><span class="w"> </span><span class="nf">load_model_assets</span><span class="p">(</span>
+</span><span id="__span-0-942"><a id="__codelineno-0-942" name="__codelineno-0-942"></a>    <span class="n">model_paths</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+</span><span id="__span-0-943"><a id="__codelineno-0-943" name="__codelineno-0-943"></a>    <span class="o">*</span><span class="p">,</span>
+</span><span id="__span-0-944"><a id="__codelineno-0-944" name="__codelineno-0-944"></a>    <span class="n">device</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;cpu&quot;</span><span class="p">,</span>
+</span><span id="__span-0-945"><a id="__codelineno-0-945" name="__codelineno-0-945"></a>    <span class="n">backbone_ckpt_path</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-946"><a id="__codelineno-0-946" name="__codelineno-0-946"></a>    <span class="n">head_ckpt_path</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-947"><a id="__codelineno-0-947" name="__codelineno-0-947"></a>    <span class="n">peak_threshold</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
+</span><span id="__span-0-948"><a id="__codelineno-0-948" name="__codelineno-0-948"></a>    <span class="n">integral_refinement</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;integral&quot;</span><span class="p">,</span>
+</span><span id="__span-0-949"><a id="__codelineno-0-949" name="__codelineno-0-949"></a>    <span class="n">integral_patch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span>
+</span><span id="__span-0-950"><a id="__codelineno-0-950" name="__codelineno-0-950"></a>    <span class="n">max_instances</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-951"><a id="__codelineno-0-951" name="__codelineno-0-951"></a>    <span class="n">return_confmaps</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-952"><a id="__codelineno-0-952" name="__codelineno-0-952"></a>    <span class="n">preprocess_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="s2">&quot;DictConfig&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-953"><a id="__codelineno-0-953" name="__codelineno-0-953"></a>    <span class="n">anchor_part</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-954"><a id="__codelineno-0-954" name="__codelineno-0-954"></a>    <span class="n">max_edge_length_ratio</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.25</span><span class="p">,</span>
+</span><span id="__span-0-955"><a id="__codelineno-0-955" name="__codelineno-0-955"></a>    <span class="n">dist_penalty_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-0-956"><a id="__codelineno-0-956" name="__codelineno-0-956"></a>    <span class="n">n_points</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
+</span><span id="__span-0-957"><a id="__codelineno-0-957" name="__codelineno-0-957"></a>    <span class="n">min_instance_peaks</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-0-958"><a id="__codelineno-0-958" name="__codelineno-0-958"></a>    <span class="n">min_line_scores</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.25</span><span class="p">,</span>
+</span><span id="__span-0-959"><a id="__codelineno-0-959" name="__codelineno-0-959"></a>    <span class="n">fg_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+</span><span id="__span-0-960"><a id="__codelineno-0-960" name="__codelineno-0-960"></a>    <span class="n">min_mask_area</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-0-961"><a id="__codelineno-0-961" name="__codelineno-0-961"></a>    <span class="n">center_nms_kernel</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>
+</span><span id="__span-0-962"><a id="__codelineno-0-962" name="__codelineno-0-962"></a>    <span class="n">mask_cleanup</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-963"><a id="__codelineno-0-963" name="__codelineno-0-963"></a>    <span class="n">mask_cleanup_radius</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-0-964"><a id="__codelineno-0-964" name="__codelineno-0-964"></a>    <span class="n">distance_gate_alpha</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-965"><a id="__codelineno-0-965" name="__codelineno-0-965"></a>    <span class="n">merge_fragments</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-966"><a id="__codelineno-0-966" name="__codelineno-0-966"></a>    <span class="n">merge_method</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;greedy&quot;</span><span class="p">,</span>
+</span><span id="__span-0-967"><a id="__codelineno-0-967" name="__codelineno-0-967"></a>    <span class="n">merge_thresholds</span><span class="p">:</span> <span class="nb">tuple</span> <span class="o">=</span> <span class="p">(</span><span class="mf">0.85</span><span class="p">,</span> <span class="mf">0.6</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">),</span>
+</span><span id="__span-0-968"><a id="__codelineno-0-968" name="__codelineno-0-968"></a>    <span class="n">merge_w_valley</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-0-969"><a id="__codelineno-0-969" name="__codelineno-0-969"></a>    <span class="n">merge_w_offset</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.25</span><span class="p">,</span>
+</span><span id="__span-0-970"><a id="__codelineno-0-970" name="__codelineno-0-970"></a>    <span class="n">merge_dilate</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-0-971"><a id="__codelineno-0-971" name="__codelineno-0-971"></a>    <span class="n">full_res_masks</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-972"><a id="__codelineno-0-972" name="__codelineno-0-972"></a>    <span class="n">mask_output</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;mask&quot;</span><span class="p">,</span>
+</span><span id="__span-0-973"><a id="__codelineno-0-973" name="__codelineno-0-973"></a>    <span class="n">polygon_epsilon</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span>
+</span><span id="__span-0-974"><a id="__codelineno-0-974" name="__codelineno-0-974"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">LoadedAssets</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
+</span><span id="__span-0-975"><a id="__codelineno-0-975" name="__codelineno-0-975"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Load checkpoints and build inference models.</span>
+</span><span id="__span-0-976"><a id="__codelineno-0-976" name="__codelineno-0-976"></a>
+</span><span id="__span-0-977"><a id="__codelineno-0-977" name="__codelineno-0-977"></a><span class="sd">    Each entry in ``model_paths`` may be a model directory, or a path to its</span>
+</span><span id="__span-0-978"><a id="__codelineno-0-978" name="__codelineno-0-978"></a><span class="sd">    ``best.ckpt`` checkpoint or ``training_config.{yaml,json}`` config file; every</span>
+</span><span id="__span-0-979"><a id="__codelineno-0-979" name="__codelineno-0-979"></a><span class="sd">    form is resolved to the model directory (#575).</span>
+</span><span id="__span-0-980"><a id="__codelineno-0-980" name="__codelineno-0-980"></a>
+</span><span id="__span-0-981"><a id="__codelineno-0-981" name="__codelineno-0-981"></a><span class="sd">    The five bottom-up PAF grouping knobs (``max_edge_length_ratio``,</span>
+</span><span id="__span-0-982"><a id="__codelineno-0-982" name="__codelineno-0-982"></a><span class="sd">    ``dist_penalty_weight``, ``n_points``, ``min_instance_peaks``,</span>
+</span><span id="__span-0-983"><a id="__codelineno-0-983" name="__codelineno-0-983"></a><span class="sd">    ``min_line_scores``) are forwarded ONLY to the plain bottom-up builder</span>
+</span><span id="__span-0-984"><a id="__codelineno-0-984" name="__codelineno-0-984"></a><span class="sd">    (legacy applied them only to ``BottomUpPredictor``); they are inert for</span>
+</span><span id="__span-0-985"><a id="__codelineno-0-985" name="__codelineno-0-985"></a><span class="sd">    other model types. Likewise ``fg_threshold`` / ``min_mask_area`` are</span>
+</span><span id="__span-0-986"><a id="__codelineno-0-986" name="__codelineno-0-986"></a><span class="sd">    forwarded ONLY to the bottom-up segmentation builder.</span>
+</span><span id="__span-0-987"><a id="__codelineno-0-987" name="__codelineno-0-987"></a>
+</span><span id="__span-0-988"><a id="__codelineno-0-988" name="__codelineno-0-988"></a><span class="sd">    Returns:</span>
+</span><span id="__span-0-989"><a id="__codelineno-0-989" name="__codelineno-0-989"></a><span class="sd">        ``(loaded_assets, model_types)`` — *model_types* is the list of</span>
+</span><span id="__span-0-990"><a id="__codelineno-0-990" name="__codelineno-0-990"></a><span class="sd">        detected model types (one per path in *model_paths*).</span>
+</span><span id="__span-0-991"><a id="__codelineno-0-991" name="__codelineno-0-991"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-992"><a id="__codelineno-0-992" name="__codelineno-0-992"></a>    <span class="k">if</span> <span class="n">preprocess_config</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-993"><a id="__codelineno-0-993" name="__codelineno-0-993"></a>        <span class="n">preprocess_config</span> <span class="o">=</span> <span class="n">OmegaConf</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+</span><span id="__span-0-994"><a id="__codelineno-0-994" name="__codelineno-0-994"></a>            <span class="p">{</span>
+</span><span id="__span-0-995"><a id="__codelineno-0-995" name="__codelineno-0-995"></a>                <span class="s2">&quot;ensure_rgb&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-996"><a id="__codelineno-0-996" name="__codelineno-0-996"></a>                <span class="s2">&quot;ensure_grayscale&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-997"><a id="__codelineno-0-997" name="__codelineno-0-997"></a>                <span class="s2">&quot;crop_size&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-998"><a id="__codelineno-0-998" name="__codelineno-0-998"></a>                <span class="s2">&quot;max_width&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-999"><a id="__codelineno-0-999" name="__codelineno-0-999"></a>                <span class="s2">&quot;max_height&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-1000"><a id="__codelineno-0-1000" name="__codelineno-0-1000"></a>                <span class="s2">&quot;scale&quot;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-1001"><a id="__codelineno-0-1001" name="__codelineno-0-1001"></a>            <span class="p">}</span>
+</span><span id="__span-0-1002"><a id="__codelineno-0-1002" name="__codelineno-0-1002"></a>        <span class="p">)</span>
+</span><span id="__span-0-1003"><a id="__codelineno-0-1003" name="__codelineno-0-1003"></a>
+</span><span id="__span-0-1004"><a id="__codelineno-0-1004" name="__codelineno-0-1004"></a>    <span class="c1"># Accept a model directory, a best.ckpt path, or a training_config.{yaml,json}</span>
+</span><span id="__span-0-1005"><a id="__codelineno-0-1005" name="__codelineno-0-1005"></a>    <span class="c1"># path for each entry; resolve every form to its model directory before</span>
+</span><span id="__span-0-1006"><a id="__codelineno-0-1006" name="__codelineno-0-1006"></a>    <span class="c1"># detection/dispatch (the builders below index back into model_paths and join</span>
+</span><span id="__span-0-1007"><a id="__codelineno-0-1007" name="__codelineno-0-1007"></a>    <span class="c1"># `best.ckpt` onto it). #575.</span>
+</span><span id="__span-0-1008"><a id="__codelineno-0-1008" name="__codelineno-0-1008"></a>    <span class="n">model_paths</span> <span class="o">=</span> <span class="p">[</span><span class="n">resolve_model_dir</span><span class="p">(</span><span class="n">mp</span><span class="p">)</span> <span class="k">for</span> <span class="n">mp</span> <span class="ow">in</span> <span class="n">model_paths</span><span class="p">]</span>
+</span><span id="__span-0-1009"><a id="__codelineno-0-1009" name="__codelineno-0-1009"></a>
+</span><span id="__span-0-1010"><a id="__codelineno-0-1010" name="__codelineno-0-1010"></a>    <span class="n">model_types</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-1011"><a id="__codelineno-0-1011" name="__codelineno-0-1011"></a>    <span class="n">configs</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+</span><span id="__span-0-1012"><a id="__codelineno-0-1012" name="__codelineno-0-1012"></a>    <span class="k">for</span> <span class="n">mp</span> <span class="ow">in</span> <span class="n">model_paths</span><span class="p">:</span>
+</span><span id="__span-0-1013"><a id="__codelineno-0-1013" name="__codelineno-0-1013"></a>        <span class="n">cfg</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_load_training_config</span><span class="p">(</span><span class="n">mp</span><span class="p">)</span>
+</span><span id="__span-0-1014"><a id="__codelineno-0-1014" name="__codelineno-0-1014"></a>        <span class="n">configs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cfg</span><span class="p">)</span>
+</span><span id="__span-0-1015"><a id="__codelineno-0-1015" name="__codelineno-0-1015"></a>        <span class="n">model_types</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">get_model_type_from_cfg</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">cfg</span><span class="p">))</span>
+</span><span id="__span-0-1016"><a id="__codelineno-0-1016" name="__codelineno-0-1016"></a>
+</span><span id="__span-0-1017"><a id="__codelineno-0-1017" name="__codelineno-0-1017"></a>    <span class="n">common_kwargs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+</span><span id="__span-0-1018"><a id="__codelineno-0-1018" name="__codelineno-0-1018"></a>        <span class="n">device</span><span class="o">=</span><span class="n">device</span><span class="p">,</span>
+</span><span id="__span-0-1019"><a id="__codelineno-0-1019" name="__codelineno-0-1019"></a>        <span class="n">backbone_ckpt_path</span><span class="o">=</span><span class="n">backbone_ckpt_path</span><span class="p">,</span>
+</span><span id="__span-0-1020"><a id="__codelineno-0-1020" name="__codelineno-0-1020"></a>        <span class="n">head_ckpt_path</span><span class="o">=</span><span class="n">head_ckpt_path</span><span class="p">,</span>
+</span><span id="__span-0-1021"><a id="__codelineno-0-1021" name="__codelineno-0-1021"></a>        <span class="n">peak_threshold</span><span class="o">=</span><span class="n">peak_threshold</span><span class="p">,</span>
+</span><span id="__span-0-1022"><a id="__codelineno-0-1022" name="__codelineno-0-1022"></a>        <span class="n">integral_refinement</span><span class="o">=</span><span class="n">integral_refinement</span><span class="p">,</span>
+</span><span id="__span-0-1023"><a id="__codelineno-0-1023" name="__codelineno-0-1023"></a>        <span class="n">integral_patch_size</span><span class="o">=</span><span class="n">integral_patch_size</span><span class="p">,</span>
+</span><span id="__span-0-1024"><a id="__codelineno-0-1024" name="__codelineno-0-1024"></a>        <span class="n">return_confmaps</span><span class="o">=</span><span class="n">return_confmaps</span><span class="p">,</span>
+</span><span id="__span-0-1025"><a id="__codelineno-0-1025" name="__codelineno-0-1025"></a>        <span class="n">preprocess_config</span><span class="o">=</span><span class="n">preprocess_config</span><span class="p">,</span>
+</span><span id="__span-0-1026"><a id="__codelineno-0-1026" name="__codelineno-0-1026"></a>    <span class="p">)</span>
+</span><span id="__span-0-1027"><a id="__codelineno-0-1027" name="__codelineno-0-1027"></a>
+</span><span id="__span-0-1028"><a id="__codelineno-0-1028" name="__codelineno-0-1028"></a>    <span class="c1"># Dispatch on detected model type. The order (bottomup checked before the</span>
+</span><span id="__span-0-1029"><a id="__codelineno-0-1029" name="__codelineno-0-1029"></a>    <span class="c1"># topdown family) differs from legacy but is inert for parity: each model</span>
+</span><span id="__span-0-1030"><a id="__codelineno-0-1030" name="__codelineno-0-1030"></a>    <span class="c1"># path is exactly one type and bottom-up is a single-stage model never</span>
+</span><span id="__span-0-1031"><a id="__codelineno-0-1031" name="__codelineno-0-1031"></a>    <span class="c1"># combined with a centroid/centered-instance pair, so the branches are</span>
+</span><span id="__span-0-1032"><a id="__codelineno-0-1032" name="__codelineno-0-1032"></a>    <span class="c1"># mutually exclusive (a mixed bottomup+topdown path list is not a supported</span>
+</span><span id="__span-0-1033"><a id="__codelineno-0-1033" name="__codelineno-0-1033"></a>    <span class="c1"># workflow and falls through to the final ValueError). #584.</span>
+</span><span id="__span-0-1034"><a id="__codelineno-0-1034" name="__codelineno-0-1034"></a>    <span class="k">if</span> <span class="s2">&quot;single_instance&quot;</span> <span class="ow">in</span> <span class="n">model_types</span><span class="p">:</span>
+</span><span id="__span-0-1035"><a id="__codelineno-0-1035" name="__codelineno-0-1035"></a>        <span class="n">path</span> <span class="o">=</span> <span class="n">model_paths</span><span class="p">[</span><span class="n">model_types</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s2">&quot;single_instance&quot;</span><span class="p">)]</span>
+</span><span id="__span-0-1036"><a id="__codelineno-0-1036" name="__codelineno-0-1036"></a>        <span class="n">assets</span> <span class="o">=</span> <span class="n">_build_single_instance</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="o">**</span><span class="n">common_kwargs</span><span class="p">)</span>
+</span><span id="__span-0-1037"><a id="__codelineno-0-1037" name="__codelineno-0-1037"></a>
+</span><span id="__span-0-1038"><a id="__codelineno-0-1038" name="__codelineno-0-1038"></a>    <span class="k">elif</span> <span class="s2">&quot;bottomup&quot;</span> <span class="ow">in</span> <span class="n">model_types</span><span class="p">:</span>
+</span><span id="__span-0-1039"><a id="__codelineno-0-1039" name="__codelineno-0-1039"></a>        <span class="n">path</span> <span class="o">=</span> <span class="n">model_paths</span><span class="p">[</span><span class="n">model_types</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s2">&quot;bottomup&quot;</span><span class="p">)]</span>
+</span><span id="__span-0-1040"><a id="__codelineno-0-1040" name="__codelineno-0-1040"></a>        <span class="n">assets</span> <span class="o">=</span> <span class="n">_build_bottomup</span><span class="p">(</span>
+</span><span id="__span-0-1041"><a id="__codelineno-0-1041" name="__codelineno-0-1041"></a>            <span class="n">path</span><span class="p">,</span>
+</span><span id="__span-0-1042"><a id="__codelineno-0-1042" name="__codelineno-0-1042"></a>            <span class="n">max_instances</span><span class="o">=</span><span class="n">max_instances</span><span class="p">,</span>
+</span><span id="__span-0-1043"><a id="__codelineno-0-1043" name="__codelineno-0-1043"></a>            <span class="n">max_edge_length_ratio</span><span class="o">=</span><span class="n">max_edge_length_ratio</span><span class="p">,</span>
+</span><span id="__span-0-1044"><a id="__codelineno-0-1044" name="__codelineno-0-1044"></a>            <span class="n">dist_penalty_weight</span><span class="o">=</span><span class="n">dist_penalty_weight</span><span class="p">,</span>
+</span><span id="__span-0-1045"><a id="__codelineno-0-1045" name="__codelineno-0-1045"></a>            <span class="n">n_points</span><span class="o">=</span><span class="n">n_points</span><span class="p">,</span>
+</span><span id="__span-0-1046"><a id="__codelineno-0-1046" name="__codelineno-0-1046"></a>            <span class="n">min_instance_peaks</span><span class="o">=</span><span class="n">min_instance_peaks</span><span class="p">,</span>
+</span><span id="__span-0-1047"><a id="__codelineno-0-1047" name="__codelineno-0-1047"></a>            <span class="n">min_line_scores</span><span class="o">=</span><span class="n">min_line_scores</span><span class="p">,</span>
+</span><span id="__span-0-1048"><a id="__codelineno-0-1048" name="__codelineno-0-1048"></a>            <span class="o">**</span><span class="n">common_kwargs</span><span class="p">,</span>
+</span><span id="__span-0-1049"><a id="__codelineno-0-1049" name="__codelineno-0-1049"></a>        <span class="p">)</span>
+</span><span id="__span-0-1050"><a id="__codelineno-0-1050" name="__codelineno-0-1050"></a>
+</span><span id="__span-0-1051"><a id="__codelineno-0-1051" name="__codelineno-0-1051"></a>    <span class="k">elif</span> <span class="s2">&quot;multi_class_bottomup&quot;</span> <span class="ow">in</span> <span class="n">model_types</span><span class="p">:</span>
+</span><span id="__span-0-1052"><a id="__codelineno-0-1052" name="__codelineno-0-1052"></a>        <span class="n">path</span> <span class="o">=</span> <span class="n">model_paths</span><span class="p">[</span><span class="n">model_types</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s2">&quot;multi_class_bottomup&quot;</span><span class="p">)]</span>
+</span><span id="__span-0-1053"><a id="__codelineno-0-1053" name="__codelineno-0-1053"></a>        <span class="n">assets</span> <span class="o">=</span> <span class="n">_build_bottomup_multiclass</span><span class="p">(</span>
+</span><span id="__span-0-1054"><a id="__codelineno-0-1054" name="__codelineno-0-1054"></a>            <span class="n">path</span><span class="p">,</span> <span class="n">max_instances</span><span class="o">=</span><span class="n">max_instances</span><span class="p">,</span> <span class="o">**</span><span class="n">common_kwargs</span>
+</span><span id="__span-0-1055"><a id="__codelineno-0-1055" name="__codelineno-0-1055"></a>        <span class="p">)</span>
+</span><span id="__span-0-1056"><a id="__codelineno-0-1056" name="__codelineno-0-1056"></a>
+</span><span id="__span-0-1057"><a id="__codelineno-0-1057" name="__codelineno-0-1057"></a>    <span class="k">elif</span> <span class="s2">&quot;bottomup_segmentation&quot;</span> <span class="ow">in</span> <span class="n">model_types</span><span class="p">:</span>
+</span><span id="__span-0-1058"><a id="__codelineno-0-1058" name="__codelineno-0-1058"></a>        <span class="n">path</span> <span class="o">=</span> <span class="n">model_paths</span><span class="p">[</span><span class="n">model_types</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s2">&quot;bottomup_segmentation&quot;</span><span class="p">)]</span>
+</span><span id="__span-0-1059"><a id="__codelineno-0-1059" name="__codelineno-0-1059"></a>        <span class="n">assets</span> <span class="o">=</span> <span class="n">_build_bottomup_segmentation</span><span class="p">(</span>
+</span><span id="__span-0-1060"><a id="__codelineno-0-1060" name="__codelineno-0-1060"></a>            <span class="n">path</span><span class="p">,</span>
+</span><span id="__span-0-1061"><a id="__codelineno-0-1061" name="__codelineno-0-1061"></a>            <span class="n">fg_threshold</span><span class="o">=</span><span class="n">fg_threshold</span><span class="p">,</span>
+</span><span id="__span-0-1062"><a id="__codelineno-0-1062" name="__codelineno-0-1062"></a>            <span class="n">min_mask_area</span><span class="o">=</span><span class="n">min_mask_area</span><span class="p">,</span>
+</span><span id="__span-0-1063"><a id="__codelineno-0-1063" name="__codelineno-0-1063"></a>            <span class="n">max_instances</span><span class="o">=</span><span class="n">max_instances</span><span class="p">,</span>
+</span><span id="__span-0-1064"><a id="__codelineno-0-1064" name="__codelineno-0-1064"></a>            <span class="n">center_nms_kernel</span><span class="o">=</span><span class="n">center_nms_kernel</span><span class="p">,</span>
+</span><span id="__span-0-1065"><a id="__codelineno-0-1065" name="__codelineno-0-1065"></a>            <span class="n">mask_cleanup</span><span class="o">=</span><span class="n">mask_cleanup</span><span class="p">,</span>
+</span><span id="__span-0-1066"><a id="__codelineno-0-1066" name="__codelineno-0-1066"></a>            <span class="n">mask_cleanup_radius</span><span class="o">=</span><span class="n">mask_cleanup_radius</span><span class="p">,</span>
+</span><span id="__span-0-1067"><a id="__codelineno-0-1067" name="__codelineno-0-1067"></a>            <span class="n">distance_gate_alpha</span><span class="o">=</span><span class="n">distance_gate_alpha</span><span class="p">,</span>
+</span><span id="__span-0-1068"><a id="__codelineno-0-1068" name="__codelineno-0-1068"></a>            <span class="n">merge_fragments</span><span class="o">=</span><span class="n">merge_fragments</span><span class="p">,</span>
+</span><span id="__span-0-1069"><a id="__codelineno-0-1069" name="__codelineno-0-1069"></a>            <span class="n">merge_method</span><span class="o">=</span><span class="n">merge_method</span><span class="p">,</span>
+</span><span id="__span-0-1070"><a id="__codelineno-0-1070" name="__codelineno-0-1070"></a>            <span class="n">merge_thresholds</span><span class="o">=</span><span class="n">merge_thresholds</span><span class="p">,</span>
+</span><span id="__span-0-1071"><a id="__codelineno-0-1071" name="__codelineno-0-1071"></a>            <span class="n">merge_w_valley</span><span class="o">=</span><span class="n">merge_w_valley</span><span class="p">,</span>
+</span><span id="__span-0-1072"><a id="__codelineno-0-1072" name="__codelineno-0-1072"></a>            <span class="n">merge_w_offset</span><span class="o">=</span><span class="n">merge_w_offset</span><span class="p">,</span>
+</span><span id="__span-0-1073"><a id="__codelineno-0-1073" name="__codelineno-0-1073"></a>            <span class="n">merge_dilate</span><span class="o">=</span><span class="n">merge_dilate</span><span class="p">,</span>
+</span><span id="__span-0-1074"><a id="__codelineno-0-1074" name="__codelineno-0-1074"></a>            <span class="n">full_res_masks</span><span class="o">=</span><span class="n">full_res_masks</span><span class="p">,</span>
+</span><span id="__span-0-1075"><a id="__codelineno-0-1075" name="__codelineno-0-1075"></a>            <span class="n">mask_output</span><span class="o">=</span><span class="n">mask_output</span><span class="p">,</span>
+</span><span id="__span-0-1076"><a id="__codelineno-0-1076" name="__codelineno-0-1076"></a>            <span class="n">polygon_epsilon</span><span class="o">=</span><span class="n">polygon_epsilon</span><span class="p">,</span>
+</span><span id="__span-0-1077"><a id="__codelineno-0-1077" name="__codelineno-0-1077"></a>            <span class="o">**</span><span class="n">common_kwargs</span><span class="p">,</span>
+</span><span id="__span-0-1078"><a id="__codelineno-0-1078" name="__codelineno-0-1078"></a>        <span class="p">)</span>
+</span><span id="__span-0-1079"><a id="__codelineno-0-1079" name="__codelineno-0-1079"></a>
+</span><span id="__span-0-1080"><a id="__codelineno-0-1080" name="__codelineno-0-1080"></a>    <span class="k">elif</span> <span class="s2">&quot;centered_instance_segmentation&quot;</span> <span class="ow">in</span> <span class="n">model_types</span><span class="p">:</span>
+</span><span id="__span-0-1081"><a id="__codelineno-0-1081" name="__codelineno-0-1081"></a>        <span class="c1"># Top-down (crop-centered) instance segmentation. MUST be checked BEFORE</span>
+</span><span id="__span-0-1082"><a id="__codelineno-0-1082" name="__codelineno-0-1082"></a>        <span class="c1"># the topdown family block below: a centroid + centered_instance_segmentation</span>
+</span><span id="__span-0-1083"><a id="__codelineno-0-1083" name="__codelineno-0-1083"></a>        <span class="c1"># pair has &quot;centroid&quot; in model_types, so it would otherwise enter that block</span>
+</span><span id="__span-0-1084"><a id="__codelineno-0-1084" name="__codelineno-0-1084"></a>        <span class="c1"># and — finding neither &quot;centered_instance&quot; nor &quot;multi_class_topdown&quot; — fall</span>
+</span><span id="__span-0-1085"><a id="__codelineno-0-1085" name="__codelineno-0-1085"></a>        <span class="c1"># to the centroid-only else, SILENTLY DROPPING the seg dir (verify/v2 #1).</span>
+</span><span id="__span-0-1086"><a id="__codelineno-0-1086" name="__codelineno-0-1086"></a>        <span class="n">seg_path</span> <span class="o">=</span> <span class="n">model_paths</span><span class="p">[</span><span class="n">model_types</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s2">&quot;centered_instance_segmentation&quot;</span><span class="p">)]</span>
+</span><span id="__span-0-1087"><a id="__codelineno-0-1087" name="__codelineno-0-1087"></a>        <span class="n">centroid_path</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="__span-0-1088"><a id="__codelineno-0-1088" name="__codelineno-0-1088"></a>            <span class="n">model_paths</span><span class="p">[</span><span class="n">model_types</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s2">&quot;centroid&quot;</span><span class="p">)]</span>
+</span><span id="__span-0-1089"><a id="__codelineno-0-1089" name="__codelineno-0-1089"></a>            <span class="k">if</span> <span class="s2">&quot;centroid&quot;</span> <span class="ow">in</span> <span class="n">model_types</span>
+</span><span id="__span-0-1090"><a id="__codelineno-0-1090" name="__codelineno-0-1090"></a>            <span class="k">else</span> <span class="kc">None</span>
+</span><span id="__span-0-1091"><a id="__codelineno-0-1091" name="__codelineno-0-1091"></a>        <span class="p">)</span>
+</span><span id="__span-0-1092"><a id="__codelineno-0-1092" name="__codelineno-0-1092"></a>        <span class="n">assets</span> <span class="o">=</span> <span class="n">_build_topdown_segmentation</span><span class="p">(</span>
+</span><span id="__span-0-1093"><a id="__codelineno-0-1093" name="__codelineno-0-1093"></a>            <span class="n">centroid_path</span><span class="p">,</span>
+</span><span id="__span-0-1094"><a id="__codelineno-0-1094" name="__codelineno-0-1094"></a>            <span class="n">seg_path</span><span class="p">,</span>
+</span><span id="__span-0-1095"><a id="__codelineno-0-1095" name="__codelineno-0-1095"></a>            <span class="n">max_instances</span><span class="o">=</span><span class="n">max_instances</span><span class="p">,</span>
+</span><span id="__span-0-1096"><a id="__codelineno-0-1096" name="__codelineno-0-1096"></a>            <span class="n">anchor_part</span><span class="o">=</span><span class="n">anchor_part</span><span class="p">,</span>
+</span><span id="__span-0-1097"><a id="__codelineno-0-1097" name="__codelineno-0-1097"></a>            <span class="n">fg_threshold</span><span class="o">=</span><span class="n">fg_threshold</span><span class="p">,</span>
+</span><span id="__span-0-1098"><a id="__codelineno-0-1098" name="__codelineno-0-1098"></a>            <span class="n">mask_output</span><span class="o">=</span><span class="n">mask_output</span><span class="p">,</span>
+</span><span id="__span-0-1099"><a id="__codelineno-0-1099" name="__codelineno-0-1099"></a>            <span class="n">polygon_epsilon</span><span class="o">=</span><span class="n">polygon_epsilon</span><span class="p">,</span>
+</span><span id="__span-0-1100"><a id="__codelineno-0-1100" name="__codelineno-0-1100"></a>            <span class="o">**</span><span class="n">common_kwargs</span><span class="p">,</span>
+</span><span id="__span-0-1101"><a id="__codelineno-0-1101" name="__codelineno-0-1101"></a>        <span class="p">)</span>
+</span><span id="__span-0-1102"><a id="__codelineno-0-1102" name="__codelineno-0-1102"></a>
+</span><span id="__span-0-1103"><a id="__codelineno-0-1103" name="__codelineno-0-1103"></a>    <span class="k">elif</span> <span class="p">(</span>
+</span><span id="__span-0-1104"><a id="__codelineno-0-1104" name="__codelineno-0-1104"></a>        <span class="s2">&quot;centroid&quot;</span> <span class="ow">in</span> <span class="n">model_types</span>
+</span><span id="__span-0-1105"><a id="__codelineno-0-1105" name="__codelineno-0-1105"></a>        <span class="ow">or</span> <span class="s2">&quot;centered_instance&quot;</span> <span class="ow">in</span> <span class="n">model_types</span>
+</span><span id="__span-0-1106"><a id="__codelineno-0-1106" name="__codelineno-0-1106"></a>        <span class="ow">or</span> <span class="s2">&quot;multi_class_topdown&quot;</span> <span class="ow">in</span> <span class="n">model_types</span>
+</span><span id="__span-0-1107"><a id="__codelineno-0-1107" name="__codelineno-0-1107"></a>    <span class="p">):</span>
+</span><span id="__span-0-1108"><a id="__codelineno-0-1108" name="__codelineno-0-1108"></a>        <span class="n">centroid_path</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-1109"><a id="__codelineno-0-1109" name="__codelineno-0-1109"></a>        <span class="n">confmap_path</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-1110"><a id="__codelineno-0-1110" name="__codelineno-0-1110"></a>        <span class="k">if</span> <span class="s2">&quot;centroid&quot;</span> <span class="ow">in</span> <span class="n">model_types</span><span class="p">:</span>
+</span><span id="__span-0-1111"><a id="__codelineno-0-1111" name="__codelineno-0-1111"></a>            <span class="n">centroid_path</span> <span class="o">=</span> <span class="n">model_paths</span><span class="p">[</span><span class="n">model_types</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s2">&quot;centroid&quot;</span><span class="p">)]</span>
+</span><span id="__span-0-1112"><a id="__codelineno-0-1112" name="__codelineno-0-1112"></a>        <span class="k">if</span> <span class="s2">&quot;centered_instance&quot;</span> <span class="ow">in</span> <span class="n">model_types</span><span class="p">:</span>
+</span><span id="__span-0-1113"><a id="__codelineno-0-1113" name="__codelineno-0-1113"></a>            <span class="n">confmap_path</span> <span class="o">=</span> <span class="n">model_paths</span><span class="p">[</span><span class="n">model_types</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s2">&quot;centered_instance&quot;</span><span class="p">)]</span>
+</span><span id="__span-0-1114"><a id="__codelineno-0-1114" name="__codelineno-0-1114"></a>            <span class="n">assets</span> <span class="o">=</span> <span class="n">_build_topdown</span><span class="p">(</span>
+</span><span id="__span-0-1115"><a id="__codelineno-0-1115" name="__codelineno-0-1115"></a>                <span class="n">centroid_path</span><span class="p">,</span>
+</span><span id="__span-0-1116"><a id="__codelineno-0-1116" name="__codelineno-0-1116"></a>                <span class="n">confmap_path</span><span class="p">,</span>
+</span><span id="__span-0-1117"><a id="__codelineno-0-1117" name="__codelineno-0-1117"></a>                <span class="n">max_instances</span><span class="o">=</span><span class="n">max_instances</span><span class="p">,</span>
+</span><span id="__span-0-1118"><a id="__codelineno-0-1118" name="__codelineno-0-1118"></a>                <span class="n">anchor_part</span><span class="o">=</span><span class="n">anchor_part</span><span class="p">,</span>
+</span><span id="__span-0-1119"><a id="__codelineno-0-1119" name="__codelineno-0-1119"></a>                <span class="o">**</span><span class="n">common_kwargs</span><span class="p">,</span>
+</span><span id="__span-0-1120"><a id="__codelineno-0-1120" name="__codelineno-0-1120"></a>            <span class="p">)</span>
+</span><span id="__span-0-1121"><a id="__codelineno-0-1121" name="__codelineno-0-1121"></a>        <span class="k">elif</span> <span class="s2">&quot;multi_class_topdown&quot;</span> <span class="ow">in</span> <span class="n">model_types</span><span class="p">:</span>
+</span><span id="__span-0-1122"><a id="__codelineno-0-1122" name="__codelineno-0-1122"></a>            <span class="n">confmap_path</span> <span class="o">=</span> <span class="n">model_paths</span><span class="p">[</span><span class="n">model_types</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s2">&quot;multi_class_topdown&quot;</span><span class="p">)]</span>
+</span><span id="__span-0-1123"><a id="__codelineno-0-1123" name="__codelineno-0-1123"></a>            <span class="n">assets</span> <span class="o">=</span> <span class="n">_build_topdown_multiclass</span><span class="p">(</span>
+</span><span id="__span-0-1124"><a id="__codelineno-0-1124" name="__codelineno-0-1124"></a>                <span class="n">centroid_path</span><span class="p">,</span>
+</span><span id="__span-0-1125"><a id="__codelineno-0-1125" name="__codelineno-0-1125"></a>                <span class="n">confmap_path</span><span class="p">,</span>
+</span><span id="__span-0-1126"><a id="__codelineno-0-1126" name="__codelineno-0-1126"></a>                <span class="n">max_instances</span><span class="o">=</span><span class="n">max_instances</span><span class="p">,</span>
+</span><span id="__span-0-1127"><a id="__codelineno-0-1127" name="__codelineno-0-1127"></a>                <span class="n">anchor_part</span><span class="o">=</span><span class="n">anchor_part</span><span class="p">,</span>
+</span><span id="__span-0-1128"><a id="__codelineno-0-1128" name="__codelineno-0-1128"></a>                <span class="o">**</span><span class="n">common_kwargs</span><span class="p">,</span>
+</span><span id="__span-0-1129"><a id="__codelineno-0-1129" name="__codelineno-0-1129"></a>            <span class="p">)</span>
+</span><span id="__span-0-1130"><a id="__codelineno-0-1130" name="__codelineno-0-1130"></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-1131"><a id="__codelineno-0-1131" name="__codelineno-0-1131"></a>            <span class="c1"># centroid-only: still goes through _build_topdown with confmap=None</span>
+</span><span id="__span-0-1132"><a id="__codelineno-0-1132" name="__codelineno-0-1132"></a>            <span class="n">assets</span> <span class="o">=</span> <span class="n">_build_topdown</span><span class="p">(</span>
+</span><span id="__span-0-1133"><a id="__codelineno-0-1133" name="__codelineno-0-1133"></a>                <span class="n">centroid_path</span><span class="p">,</span>
+</span><span id="__span-0-1134"><a id="__codelineno-0-1134" name="__codelineno-0-1134"></a>                <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-1135"><a id="__codelineno-0-1135" name="__codelineno-0-1135"></a>                <span class="n">max_instances</span><span class="o">=</span><span class="n">max_instances</span><span class="p">,</span>
+</span><span id="__span-0-1136"><a id="__codelineno-0-1136" name="__codelineno-0-1136"></a>                <span class="n">anchor_part</span><span class="o">=</span><span class="n">anchor_part</span><span class="p">,</span>
+</span><span id="__span-0-1137"><a id="__codelineno-0-1137" name="__codelineno-0-1137"></a>                <span class="o">**</span><span class="n">common_kwargs</span><span class="p">,</span>
+</span><span id="__span-0-1138"><a id="__codelineno-0-1138" name="__codelineno-0-1138"></a>            <span class="p">)</span>
+</span><span id="__span-0-1139"><a id="__codelineno-0-1139" name="__codelineno-0-1139"></a>    <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-1140"><a id="__codelineno-0-1140" name="__codelineno-0-1140"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+</span><span id="__span-0-1141"><a id="__codelineno-0-1141" name="__codelineno-0-1141"></a>            <span class="sa">f</span><span class="s2">&quot;Could not create inference assets from model paths:</span><span class="se">\n</span><span class="si">{</span><span class="n">model_paths</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+</span><span id="__span-0-1142"><a id="__codelineno-0-1142" name="__codelineno-0-1142"></a>            <span class="sa">f</span><span class="s2">&quot;Detected types: </span><span class="si">{</span><span class="n">model_types</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span id="__span-0-1143"><a id="__codelineno-0-1143" name="__codelineno-0-1143"></a>        <span class="p">)</span>
+</span><span id="__span-0-1144"><a id="__codelineno-0-1144" name="__codelineno-0-1144"></a>
+</span><span id="__span-0-1145"><a id="__codelineno-0-1145" name="__codelineno-0-1145"></a>    <span class="k">return</span> <span class="n">assets</span><span class="p">,</span> <span class="n">model_types</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/talmolab" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://twitter.com/talmop" target="_blank" rel="noopener" title="twitter.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M357.2 48h70.6L273.6 224.2 455 464H313L201.7 318.6 74.5 464H3.8l164.9-188.5L-5.2 48h145.6l100.5 132.9zm-24.8 373.8h39.1L119.1 88h-42z"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tabs", "navigation.tabs.sticky", "navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
