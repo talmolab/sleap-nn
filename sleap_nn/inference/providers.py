@@ -289,10 +289,29 @@ class LabelsProvider:
         top-down with centroid model, bottom-up) skip the GT-shaped
         kwargs entirely.
         """
-        for start in range(0, len(self._labeled_frames), self.batch_size):
-            stop = min(start + self.batch_size, len(self._labeled_frames))
-            chunk = self._labeled_frames[start:stop]
-            frames = np.stack([lf.image for lf in chunk], axis=0)
+        # Group frames into chunks bounded by batch_size that ALSO share a
+        # common image shape. Frames from different videos can differ in
+        # resolution, and np.stack requires uniform shape; same-video frames
+        # share a shape, so this only shrinks a chunk at a resolution (video)
+        # boundary instead of crashing on np.stack (#mixed-resolution .slp).
+        n_frames = len(self._labeled_frames)
+        start = 0
+        while start < n_frames:
+            chunk = []
+            chunk_imgs = []
+            first_shape = None
+            idx = start
+            while idx < n_frames and len(chunk) < self.batch_size:
+                img = self._labeled_frames[idx].image
+                if first_shape is None:
+                    first_shape = img.shape
+                elif img.shape != first_shape:
+                    break
+                chunk.append(self._labeled_frames[idx])
+                chunk_imgs.append(img)
+                idx += 1
+            start = idx
+            frames = np.stack(chunk_imgs, axis=0)
 
             inst_lists = [self._frame_instances(lf) for lf in chunk]
             max_inst = max(len(insts) for insts in inst_lists)

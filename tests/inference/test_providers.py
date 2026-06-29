@@ -165,6 +165,48 @@ def test_labels_provider_only_suggested_frames_yields_unlabeled_suggestions():
     assert len(provider._labeled_frames[0].instances) == 0
 
 
+def test_labels_provider_mixed_resolution_batches_by_shape(tmp_path):
+    """Frames from videos of different shapes batch without crashing.
+
+    A single ``.slp`` can span videos at different resolutions, so a fixed
+    ``batch_size`` chunk can straddle a video boundary and mix ``.image``
+    shapes — which used to crash ``np.stack`` with "all input arrays must
+    have the same shape". The provider must instead close a batch at the
+    resolution boundary, never drop or reorder a frame.
+    """
+    import imageio.v3 as iio
+    import sleap_io as sio
+
+    # Two single-image videos at different resolutions.
+    p_small = tmp_path / "small.png"
+    p_large = tmp_path / "large.png"
+    iio.imwrite(p_small, np.zeros((10, 12, 3), dtype=np.uint8))
+    iio.imwrite(p_large, np.zeros((14, 16, 3), dtype=np.uint8))
+    v_small = sio.Video.from_filename(str(p_small))
+    v_large = sio.Video.from_filename(str(p_large))
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    lf_small = sio.LabeledFrame(video=v_small, frame_idx=0)
+    lf_large = sio.LabeledFrame(video=v_large, frame_idx=0)
+    labels = sio.Labels(
+        videos=[v_small, v_large],
+        skeletons=[skel],
+        labeled_frames=[lf_small, lf_large],
+    )
+
+    # batch_size=4 would put both frames in one chunk; the shape boundary
+    # must split them into two single-frame batches instead of crashing.
+    provider = LabelsProvider(labels=labels, batch_size=4, only_labeled_frames=False)
+    batches = list(provider)
+
+    # Two distinct shapes → two batches, each internally uniform.
+    assert len(batches) == 2
+    shapes = sorted(tuple(b.images.shape[1:]) for b in batches)
+    assert shapes == [(10, 12, 1), (14, 16, 1)]
+    # Every frame yielded exactly once, none reordered or dropped.
+    assert sum(b.images.shape[0] for b in batches) == 2
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # IncrementalLabelsWriter
 # ─────────────────────────────────────────────────────────────────────────
