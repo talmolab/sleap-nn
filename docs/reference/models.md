@@ -8,10 +8,49 @@ Understand the different model architectures in SLEAP-NN.
 
 | Model Type | Animals | Occlusion | Training | Use Case |
 |------------|---------|-----------|----------|----------|
-| Single Instance | 1 | N/A | 1 model | Isolated animals |
-| Top-Down | Many | Some | 2 models | Multiple non-overlapping and animal sizes are smaller compared to the whole image |
-| Bottom-Up | Many | Heavy | 1 model | Crowded scenes |
-| Multi-Class | Many | Varies | 1-2 models | Known identities |
+| [Single Instance](#single-instance) | 1 | N/A | 1 model | Isolated animals |
+| [Top-Down](#top-down) | Many | Some | 2 models | Multiple non-overlapping and animal sizes are smaller compared to the whole image |
+| [Bottom-Up](#bottom-up) | Many | Heavy | 1 model | Crowded scenes |
+| [Multi-Class](#multi-class-identity-models) | Many | Varies | 1-2 models | Known identities |
+
+---
+
+## Choosing a Model
+
+Ask yourself these questions, in order. The first one that matches your data points to a model — follow the link for setup details. Answer based on your **entire project**, not just a typical frame: if even some frames have more than one animal, treat it as a multi-animal problem.
+
+**1. Only one animal per frame?** It comes down to how big the animal is relative to the frame:
+
+- It usually **fills more than ~50% of the frame** → **[Single Instance](#single-instance)**
+- It's **usually small but *sometimes* fills the frame** (e.g., it walks up to the camera) → **[Single Instance](#single-instance)** — there's no benefit to cropping once the animal is already large
+- It's **consistently small** (well under half the frame, in every frame) → **[Top-Down](#top-down)** — the centroid stage finds the animal, then crops in for precise keypoints
+
+**2. Multiple animals — do you need to keep *persistent* identities?** (a label like `"male"`/`"female"` that stays attached to the same individual across frames)
+
+- **No** → skip to question 3, then add [tracking](../guides/tracking.md) afterward to link instances across frames.
+- **Yes, and the individuals are visually distinct** (markers, fur color, ear-clips) → **[Multi-Class](#multi-class-identity-models)** — it predicts identity directly, no separate tracking step. Pick its top-down or bottom-up variant using question 3 below, then follow the [Supervised ID guide](../guides/supervised-id.md).
+- **Yes, but they look too similar** to learn apart → use a standard pose model (question 3) plus [tracking](../guides/tracking.md).
+
+**3. Multiple animals, just need their poses?**
+
+- They're **separated / rarely overlap** → **[Top-Down](#top-down)** (usually the most accurate option)
+- They **overlap or touch often** *and* have **flexible, deformable bodies** (long limbs, worms) → **[Bottom-Up](#bottom-up)**
+- They overlap but are **rigid / compact** → **[Top-Down](#top-down)** still works well
+
+!!! tip "When in doubt, try both"
+    Top-down and bottom-up trade off differently across datasets. If you're on the fence, train both and compare metrics on your validation set.
+
+### Quick Guidelines
+
+| Scenario | Recommendation |
+|----------|----------------|
+| Single fly in chamber, fills the frame | [Single Instance](#single-instance) |
+| Single mouse, small in a large arena | [Top-Down](#top-down) |
+| 2-3 mice in separate areas | [Top-Down](#top-down) |
+| Social behavior, animals touching | [Bottom-Up](#bottom-up) |
+| Worms / long flexible bodies that cross | [Bottom-Up](#bottom-up) |
+| Visually distinct individuals to keep labeled | [Multi-Class](#multi-class-identity-models) |
+| Similar-looking individuals to keep separate | Standard pose model + [tracking](../guides/tracking.md) |
 
 ---
 
@@ -63,6 +102,11 @@ Stage 2: Crop → Backbone → Confidence Maps → Keypoints
 - Multiple animals that are clearly separated
 - Animals vary in size (centroid crops normalize scale)
 - Need precise localization per individual
+
+!!! tip "Need persistent identities?"
+    If your animals have distinct, consistent appearances, use the
+    `multi_class_topdown` variant to predict identity alongside pose — see the
+    [Supervised ID guide](../guides/supervised-id.md).
 
 ### Centroid Model Tips
 
@@ -138,6 +182,11 @@ Image → Backbone → [Confidence Maps + Part Affinity Fields] → Grouping →
 - Animals touching/interacting
 - Uniform animal sizes
 
+!!! tip "Need persistent identities?"
+    If your animals have distinct, consistent appearances, use the
+    `multi_class_bottomup` variant to predict identity alongside pose — see the
+    [Supervised ID guide](../guides/supervised-id.md).
+
 !!! tip "Try both approaches"
     Top-down works better for some datasets while bottom-up works better for others. To maximize accuracy, try both and compare results.
 
@@ -174,7 +223,9 @@ sleap-nn predict -i video.mp4 -m models/bottomup/
 
 **Pose estimation + supervised identity prediction.**
 
-Use when you have labeled identity/track information in training data.
+Use when you have labeled identity/track information in training data. For the
+full workflow — labeling identities, choosing a variant, tuning, and inference —
+see the [Supervised ID guide](../guides/supervised-id.md).
 
 ### Multi-Class Bottom-Up
 
@@ -247,31 +298,6 @@ backbone_config:
     model_type: tiny
     pre_trained_weights: Swin_T_Weights
 ```
-
----
-
-## Choosing a Model
-
-```mermaid
-graph TD
-    A[How many animals?] -->|One| B[Single Instance]
-    A -->|Multiple| C[Do they overlap?]
-    C -->|No/Rarely| D[Top-Down]
-    C -->|Yes/Often| E[Bottom-Up]
-    D --> F[Need identity?]
-    E --> F
-    F -->|Yes| G[Multi-Class variant]
-    F -->|No| H[Standard variant]
-```
-
-### Quick Guidelines
-
-| Scenario | Recommendation |
-|----------|----------------|
-| Single fly in chamber | Single Instance |
-| 2-3 mice, separate areas | Top-Down |
-| Social behavior, touching | Bottom-Up |
-| Same individuals across sessions | Multi-Class |
 
 ---
 

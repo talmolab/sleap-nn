@@ -11,3 +11,4 @@ explore the focused topics below.
 | [Monitoring](../monitoring.md) | WandB, visualizations, epoch-end evaluation |
 | [Multi-GPU](../multi-gpu.md) | Scale training across multiple GPUs |
 | [Resume & Fine-Tune](../resume-finetune.md) | Continue from existing weights |
+| [Supervised ID](../supervised-id.md) | Predict pose + persistent identity in one model |
