@@ -2060,8 +2060,8 @@ class Predictor:
         Embedding models are skeleton-less (like segmentation): they emit
         ``Outputs.pred_embeddings`` rather than keypoints/masks. Gates the
         no-skeleton path so a bare ``predict()`` on an embedding model does not
-        raise the "requires a skeleton" error (the offline re-ID stream goes
-        through :func:`sleap_nn.inference.embedding.predict_embeddings_to_h5`).
+        raise the "requires a skeleton" error (the re-ID path goes
+        through :func:`sleap_nn.inference.embedding.predict_embeddings_to_slp`).
         """
         return isinstance(self.layer, (EmbeddingLayer, TopDownEmbeddingLayer))
 

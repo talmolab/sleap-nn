@@ -41,7 +41,7 @@ assignment. Only the per-detection feature and the pairwise score differ.
 
 ## Workflow 1 — track an existing `.slp` of embeddings
 
-You already ran an embedding model with `--save_embeddings slp` (or `both`), so each
+You already ran an embedding model with `--save_embeddings slp`, so each
 detection in the `.slp` carries its `"reid"` vector. Track it (no model, no GPU):
 
 ```bash
@@ -71,9 +71,8 @@ sleap-nn predict -m models/embedding/ -i detections.slp -t
 - The output is a **tracked `.slp`** (default `<input>.tracked.slp`, or `-o out.slp`).
 - `--features` / `--scoring_method` default to `embeddings` / `cosine_sim` for an
   embedding model; you can still override them.
-- `--tracking` lifts the usual requirement to pass `--embeddings_path` /
-  `--save_embeddings` for an embedding model (the tracked `.slp` is the output).
-- The offline `.h5` sidecar is **not** written in this path.
+- `--tracking` lifts the usual requirement to pass `--save_embeddings` for an embedding
+  model (the tracked `.slp` is the output).
 
 ### Persisting the vectors
 
@@ -83,19 +82,34 @@ sleap-nn predict -m models/embedding/ -i detections.slp -t
 | `--save_embeddings` | Tracked `.slp` contents |
 |---|---|
 | `none` (default) | tracks only — vectors are stripped after tracking |
-| `slp` / `both` | tracks **and** the `"reid"` vectors (for later re-tracking, retrieval, clustering) |
+| `slp` | tracks **and** the `"reid"` vectors (for later re-tracking, retrieval, clustering) |
 
 ```bash
 # Track AND keep the appearance vectors in the output for later reuse:
-sleap-nn predict -m models/embedding/ -i detections.slp -t --save_embeddings both
+sleap-nn predict -m models/embedding/ -i detections.slp -t --save_embeddings slp
 ```
 
-!!! note "Centroid-driven embedding streams"
-    Embedding tracking operates on a `.slp` that already has detections (the
-    mask-driven / pose path). The composed **centroid + embedding** stream (which crops
-    predicted centroids from raw frames) has no source detections to attach to and
-    re-track, so `--tracking` is rejected there — embed a `.slp` with detections
-    instead (pass only the embedding model directory).
+---
+
+## Workflow 3 — detect, embed, and track a video (fused)
+
+Pass a detection stack **and** the embedding model together to run detection,
+embedding, and appearance tracking on a raw video in one command. The detection models
+(a centroid, optionally plus a centered-instance model, i.e. top-down) run first to
+produce the per-frame detections, those detections are embedded, and the tracker
+assigns `sio.Track`s by cosine similarity:
+
+```bash
+# top-down detect (centroid + centered_instance) -> embed -> track, in one command
+sleap-nn predict -m models/centroid/ -m models/centered_instance/ \
+  -m models/embedding/ -i video.mp4 -t --max_tracks 6 -o tracked.slp
+```
+
+This is exactly Workflow 2 with the detection step folded in — equivalent to running
+`sleap-nn predict -m centroid -m centered_instance -i video.mp4 -o poses.slp` and then
+`sleap-nn predict -m embedding -i poses.slp -t -o tracked.slp`. `--save_embeddings slp`
+keeps the vectors in the output as above; a centroid-only detector (no
+centered-instance model) yields single-node detections to embed + track.
 
 ---
 
@@ -116,7 +130,7 @@ separate, future step; multi_class models can emit `sio.Identity` via
 | `--features embeddings` | Track by the `"reid"` appearance vector | — |
 | `--scoring_method cosine_sim` | Cosine similarity (auto-selected for embeddings; `euclidean_dist` also allowed) | auto |
 | `--candidates_method local_queues` | Per-track appearance gallery (recommended) | `fixed_window` |
-| `--save_embeddings {none,slp,both}` | Persist vectors in the tracked `.slp` (WF2) | `none` |
+| `--save_embeddings {none,slp}` | Persist vectors in the tracked `.slp` (WF2/WF3) | `none` |
 
 All other [tracking parameters](tracking.md#tracking-parameters)
 (`--tracking_window_size`, `--scoring_reduction`, `--max_tracks`,

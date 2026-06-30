@@ -5,7 +5,7 @@ Covers the second tracker-integration workflow: ``sleap-nn predict --model_paths
 embeds EVERY detection (tracked or not — ``EmbeddingDataset(include_untracked=True)``),
 attaches the vectors, and :func:`apply_tracking` assigns ``sio.Track``s by cosine
 similarity. ``--save_embeddings`` decides whether the vectors persist in the tracked
-``.slp`` (default ``none`` = tracks only); the ``.h5`` sidecar is dropped.
+``.slp`` (default ``none`` = tracks only; ``slp`` keeps the vectors).
 
 Reuses the tiny random-weights embedding model + crop config from
 ``test_embedding_persistence`` (the canonical embedding inference fixtures).
@@ -18,7 +18,7 @@ import pytest
 import sleap_io as sio
 
 from sleap_nn.data.custom_datasets import EmbeddingDataset
-from sleap_nn.inference.embedding import predict_embeddings_to_h5
+from sleap_nn.inference.embedding import predict_embeddings_to_slp
 from sleap_nn.inference.tracking import TrackerConfig
 
 # Reuse the canonical embedding fixtures/helpers (model dir, video writer, config).
@@ -128,7 +128,7 @@ def test_dataset_include_untracked_detects_mask_mode(untracked_mask_slp):
     assert len(ds) == 8
 
 
-# ── predict_embeddings_to_h5 + tracker_config (the WF2 entry point) ──────────────
+# ── predict_embeddings_to_slp + tracker_config (the WF2 entry point) ──────────────
 
 
 def _trk_cfg(**kw):
@@ -144,19 +144,17 @@ def test_wf2_pose_untracked_gets_tracked(
     embedding_model_dir, untracked_pose_slp, tmp_path
 ):
     """Untracked pose .slp -> all detections embedded + tracked into a .slp."""
-    out = predict_embeddings_to_h5(
+    out = predict_embeddings_to_slp(
         [embedding_model_dir],
         untracked_pose_slp,
+        output_path=str(tmp_path / "tracked.slp"),
         device="cpu",
         batch_size=4,
         save_embeddings="none",
         tracker_config=_trk_cfg(),
-        slp_output_path=str(tmp_path / "tracked.slp"),
     )
     assert out == str(tmp_path / "tracked.slp")
     assert os.path.exists(out)
-    # No .h5 sidecar in the tracking path.
-    assert not os.path.exists(str(tmp_path / "tracked.h5"))
     tracked = sio.load_slp(out)
     insts = [i for lf in tracked.labeled_frames for i in lf.instances]
     assert len(insts) == 8
@@ -168,19 +166,19 @@ def test_wf2_pose_untracked_gets_tracked(
 def test_wf2_save_embeddings_persists_vectors(
     embedding_model_dir, untracked_pose_slp, tmp_path
 ):
-    out = predict_embeddings_to_h5(
+    out = predict_embeddings_to_slp(
         [embedding_model_dir],
         untracked_pose_slp,
+        output_path=str(tmp_path / "tracked.slp"),
         device="cpu",
         batch_size=4,
-        save_embeddings="both",
+        save_embeddings="slp",
         tracker_config=_trk_cfg(),
-        slp_output_path=str(tmp_path / "tracked.slp"),
     )
     tracked = sio.load_slp(out)
     insts = [i for lf in tracked.labeled_frames for i in lf.instances]
     assert all(i.track is not None for i in insts)
-    # save_embeddings="both"/"slp" -> the appearance vectors persist alongside tracks.
+    # save_embeddings="slp" -> the appearance vectors persist alongside tracks.
     assert all(i.embedding is not None for i in insts)
     assert all(np.asarray(i.embedding.vector).shape == (_DIM,) for i in insts)
 
@@ -188,14 +186,14 @@ def test_wf2_save_embeddings_persists_vectors(
 def test_wf2_mask_untracked_gets_tracked(
     embedding_model_dir, untracked_mask_slp, tmp_path
 ):
-    out = predict_embeddings_to_h5(
+    out = predict_embeddings_to_slp(
         [embedding_model_dir],
         untracked_mask_slp,
+        output_path=str(tmp_path / "tracked_mask.slp"),
         device="cpu",
         batch_size=4,
         save_embeddings="slp",
         tracker_config=_trk_cfg(),
-        slp_output_path=str(tmp_path / "tracked_mask.slp"),
     )
     tracked = sio.load_slp(out)
     masks = [m for lf in tracked.labeled_frames for m in lf.masks]
@@ -204,9 +202,9 @@ def test_wf2_mask_untracked_gets_tracked(
     assert all(m.embedding is not None for m in masks)  # slp -> vectors persist
 
 
-def test_wf2_default_slp_output_path(embedding_model_dir, untracked_pose_slp):
-    """No slp_output_path -> defaults to ``<data_path>.tracked.slp``."""
-    out = predict_embeddings_to_h5(
+def test_wf2_default_output_path(embedding_model_dir, untracked_pose_slp):
+    """No output_path -> defaults to ``<data_path>.tracked.slp``."""
+    out = predict_embeddings_to_slp(
         [embedding_model_dir],
         untracked_pose_slp,
         device="cpu",
@@ -228,7 +226,6 @@ def _impl_kwargs(**over):
         device="cpu",
         batch_size=4,
         peak_threshold=None,
-        embeddings_path=None,
         save_embeddings="none",
         tracking=False,
     )
@@ -237,6 +234,8 @@ def _impl_kwargs(**over):
 
 
 def _patch_embed_writer(monkeypatch):
+    """Patch the embedding writer + model-type detection; capture threaded kwargs."""
+    import sleap_nn.cli as cli
     import sleap_nn.inference.embedding as emb_mod
 
     captured = {}
@@ -245,7 +244,10 @@ def _patch_embed_writer(monkeypatch):
         captured.update(kwargs)
         return "RET"
 
-    monkeypatch.setattr(emb_mod, "predict_embeddings_to_h5", _fake)
+    monkeypatch.setattr(emb_mod, "predict_embeddings_to_slp", _fake)
+    # The single fake model path is the embedding model (no detection stack -> no fused
+    # detect pass), so _run_embeddings calls the (patched) writer directly.
+    monkeypatch.setattr(cli, "_is_embedding_model", lambda *_: True)
     return captured
 
 
@@ -264,18 +266,18 @@ def test_cli_embedding_tracking_threads_tracker_config(monkeypatch):
     assert cfg.scoring_method == "cosine_sim"
 
 
-def test_cli_embedding_tracking_no_path_required(monkeypatch):
-    """``--tracking`` lifts the --embeddings_path / --save_embeddings requirement."""
+def test_cli_embedding_tracking_no_save_embeddings_required(monkeypatch):
+    """``--tracking`` lifts the save_embeddings requirement (tracks-only output)."""
     import sleap_nn.cli as cli
 
     monkeypatch.setattr(cli, "_has_embedding_model", lambda *_: True)
     _patch_embed_writer(monkeypatch)
-    # Default OFF + no embeddings_path would normally raise; --tracking makes it OK.
+    # Default OFF + no --save_embeddings would normally raise; --tracking makes it OK.
     cli._run_inference_impl(**_impl_kwargs(tracking=True))
 
 
-def test_cli_embedding_no_tracking_still_requires_path(monkeypatch):
-    """Without --tracking, the OFF + no-path guard still fires."""
+def test_cli_embedding_no_tracking_requires_save_embeddings(monkeypatch):
+    """Without --tracking, the OFF guard fires (need --save_embeddings slp)."""
     import click
 
     import sleap_nn.cli as cli
@@ -314,3 +316,89 @@ def test_cli_embedding_rejects_stream_and_mask_backend(monkeypatch, flag):
     _patch_embed_writer(monkeypatch)
     with pytest.raises(click.UsageError):
         cli._run_inference_impl(**_impl_kwargs(save_embeddings="slp", **flag))
+
+
+# ── WF3: fused detect -> embed (+track) ──────────────────────────────────────────
+
+
+def _patch_fused(monkeypatch, emb_dir, detections_slp):
+    """Classify ``emb_dir`` as the embedding model and stub the detection pass.
+
+    The fused path runs the detection stack to ``det_kwargs["output_path"]``; the stub
+    drops a known UNTRACKED ``.slp`` there so the (real) embedding step has fresh,
+    track-less detections to embed — exactly what a centroid/CI detector produces.
+    """
+    import shutil
+
+    import sleap_nn.cli as cli
+
+    monkeypatch.setattr(cli, "_is_embedding_model", lambda m: m == emb_dir)
+
+    def _fake_detect(det_kwargs, paf_workers=0):
+        shutil.copy(detections_slp, det_kwargs["output_path"])
+
+    monkeypatch.setattr(cli, "_run_in_memory_new_flow", _fake_detect)
+
+
+def _fused_kwargs(emb_dir, **over):
+    base = dict(
+        model_paths=["det_dir", emb_dir],  # detection stack + embedding model
+        frames=None,
+        data_path="video.mp4",  # a raw video -> triggers the fused detect pass
+        device="cpu",
+        batch_size=4,
+        peak_threshold=None,
+        save_embeddings="none",
+        tracking=False,
+    )
+    base.update(over)
+    return base
+
+
+def test_cli_fused_detect_embed_track(
+    monkeypatch, embedding_model_dir, untracked_pose_slp, tmp_path
+):
+    """WF3: detection dirs + embedding dir -> detect (stubbed) -> embed + track a .slp."""
+    import sleap_nn.cli as cli
+
+    _patch_fused(monkeypatch, embedding_model_dir, untracked_pose_slp)
+    out = cli._run_inference_impl(
+        **_fused_kwargs(
+            embedding_model_dir,
+            tracking=True,
+            max_tracks=6,
+            output_path=str(tmp_path / "fused.slp"),
+        )
+    )
+    assert out == str(tmp_path / "fused.slp")
+    tracked = sio.load_slp(out)
+    insts = [i for lf in tracked.labeled_frames for i in lf.instances]
+    # 4 frames x 2 untracked detections -> all embedded + tracked.
+    assert len(insts) == 8
+    assert all(i.track is not None for i in insts)
+
+
+def test_cli_fused_no_tracking_persists_vectors(
+    monkeypatch, embedding_model_dir, untracked_pose_slp, tmp_path
+):
+    """WF3 without --tracking: fresh (untracked) detections are embedded + persisted.
+
+    Regression guard: the fused detections carry no tracks, so embedding must run in
+    include-untracked mode even when not tracking (else it raises "No tracked
+    detections found to embed").
+    """
+    import sleap_nn.cli as cli
+
+    _patch_fused(monkeypatch, embedding_model_dir, untracked_pose_slp)
+    out = cli._run_inference_impl(
+        **_fused_kwargs(
+            embedding_model_dir,
+            tracking=False,
+            save_embeddings="slp",
+            output_path=str(tmp_path / "fused_emb.slp"),
+        )
+    )
+    embedded = sio.load_slp(out)
+    insts = [i for lf in embedded.labeled_frames for i in lf.instances]
+    assert len(insts) == 8
+    assert all(getattr(i, "embedding", None) is not None for i in insts)

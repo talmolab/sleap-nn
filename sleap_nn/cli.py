@@ -1119,12 +1119,12 @@ def _run_inference_impl(**kwargs):
     else:
         kwargs["frames"] = None
 
-    # ── Embedding (re-ID) path: stream per-mask appearance vectors to .h5 ──
-    # An `embedding` model emits appearance vectors, not poses/masks, so it does
-    # not go through the normal Labels-producing flow; it streams to a .h5 via
-    # the dedicated writer. Detect it up front so `--embeddings_path` is required
-    # for embedding models (and rejected for non-embedding models).
-    embeddings_path = kwargs.pop("embeddings_path", None)
+    # ── Embedding (re-ID) path: persist appearance vectors into a .slp ──
+    # An `embedding` model emits appearance vectors, not poses/masks, so it does not go
+    # through the normal Labels-producing flow; it attaches `sio.Embedding` vectors to
+    # the source detections and writes a .slp. A fused
+    # `-m centroid [-m centered_instance] -m <embedding>` command runs the detection
+    # stack first (to a temp .slp) and then embeds + (optionally) tracks those detections.
     save_embeddings = kwargs.pop("save_embeddings", "none") or "none"
     if _has_embedding_model(kwargs.get("model_paths")):
         # The embedding (re-ID) path is in-memory only; it does not stream to file and
@@ -1141,19 +1141,16 @@ def _run_inference_impl(**kwargs):
                 "--mask_backend (SAM) is not supported with an `embedding` (re-ID) "
                 "model."
             )
-        # ``--tracking`` (WF2) embeds every detection and tracks by appearance, so a
-        # tracked .slp is the output -- no --embeddings_path / --save_embeddings needed.
-        # Otherwise ``--save_embeddings slp|both`` opts into a .slp (derived from
-        # --data_path when --embeddings_path is omitted), so only the default
-        # (.h5-only) path requires --embeddings_path.
+        # ``--tracking`` (WF2) embeds every detection and tracks by appearance into a
+        # tracked .slp. Without tracking, ``--save_embeddings slp`` persists the vectors
+        # into a .slp; the default (none) writes nothing, so require one or the other.
         tracking = bool(kwargs.get("tracking"))
-        if not embeddings_path and save_embeddings == "none" and not tracking:
+        if save_embeddings == "none" and not tracking:
             raise click.UsageError(
                 "The provided model is an `embedding` (re-ID) model; pass "
-                "--embeddings_path <out.h5> to stream the per-mask appearance "
-                "vectors for offline re-ID, --save_embeddings slp|both to "
-                "persist them into a .slp, or --tracking to track detections by "
-                "appearance (cosine similarity) into a .slp."
+                "--save_embeddings slp to persist the appearance vectors into a .slp, "
+                "or --tracking to track detections by appearance (cosine similarity) "
+                "into a .slp."
             )
         tracker_config = None
         if tracking:
@@ -1167,14 +1164,13 @@ def _run_inference_impl(**kwargs):
             tracker_config = _build_tracker_config(kwargs)
         return _run_embeddings(
             kwargs,
-            embeddings_path=embeddings_path,
             save_embeddings=save_embeddings,
             tracker_config=tracker_config,
+            paf_workers=paf_workers,
         )
-    if embeddings_path is not None or save_embeddings != "none":
+    if save_embeddings != "none":
         raise click.UsageError(
-            "--embeddings_path / --save_embeddings are only valid with an "
-            "`embedding` (re-ID) model."
+            "--save_embeddings is only valid with an `embedding` (re-ID) model."
         )
 
     # The SAM mask path is in-memory only (it masks an existing .slp); it does not
@@ -1430,62 +1426,118 @@ def _scope_labels_to_video(labels, video_index: int, frames=None):
     return scoped, target
 
 
-def _has_embedding_model(model_paths) -> bool:
-    """Return ``True`` if any entry in ``model_paths`` is an ``embedding`` model.
+def _is_embedding_model(model_path) -> bool:
+    """Return ``True`` if ``model_path`` is an ``embedding`` (re-ID) model directory.
 
-    Best-effort: loads each model's training config and checks its model type.
+    Best-effort: loads the model's training config and checks its model type.
     Export directories / unreadable configs are treated as non-embedding.
     """
-    if not model_paths:
-        return False
     from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
     from sleap_nn.inference.loaders import _load_training_config
 
-    for mp in model_paths:
-        try:
-            if _is_export_dir(mp):
-                continue
-            cfg, _ = _load_training_config(resolve_model_dir(mp))
-            if get_model_type_from_cfg(config=cfg) == "embedding":
-                return True
-        except Exception:  # noqa: BLE001 — fail open; only gate the exact case
-            continue
-    return False
+    try:
+        if _is_export_dir(model_path):
+            return False
+        cfg, _ = _load_training_config(resolve_model_dir(model_path))
+        return get_model_type_from_cfg(config=cfg) == "embedding"
+    except Exception:  # noqa: BLE001 — fail open; only gate the exact case
+        return False
+
+
+def _has_embedding_model(model_paths) -> bool:
+    """Return ``True`` if any entry in ``model_paths`` is an ``embedding`` model."""
+    if not model_paths:
+        return False
+    return any(_is_embedding_model(mp) for mp in model_paths)
 
 
 def _run_embeddings(
     kwargs: dict,
-    embeddings_path: Optional[str],
     save_embeddings: str = "none",
     tracker_config: "object" = None,
+    paf_workers: int = 0,
 ) -> "object":
-    """Stream per-mask appearance vectors of an ``embedding`` model.
+    """Embed detections of an ``embedding`` model and persist the vectors into a ``.slp``.
 
-    Writes a ``.h5`` (default) and/or, when ``save_embeddings`` is ``slp``/``both``,
-    attaches each vector to its source detection and writes a ``.slp``. With
-    ``tracker_config`` (``--tracking``, WF2) every detection is embedded and tracked
-    by appearance into a tracked ``.slp`` (the ``.h5`` sidecar is dropped).
+    Attaches each detection's appearance vector (``sio.Embedding`` ``"reid"``) to its
+    source detection and writes a ``.slp``. With
+    ``tracker_config`` (``--tracking``, WF2) every detection is embedded and tracked by
+    appearance (cosine similarity) into a tracked ``.slp``; ``save_embeddings`` then
+    decides whether the vectors persist in it (``"slp"``) or are stripped (``"none"`` =
+    tracks only).
+
+    **Fused detect→embed:** when ``--model_paths`` carries a detection stack (centroid
+    and/or centered_instance) ALONGSIDE the embedding model, the detection stack is run
+    first on ``--data_path`` (to a temporary ``.slp``) and those detections are then
+    embedded + (optionally) tracked — equivalent to the two-step
+    ``detect → .slp → embed+track``, fused into a single command.
     """
-    from sleap_nn.inference.embedding import predict_embeddings_to_h5
+    import os
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    from sleap_nn.inference.embedding import predict_embeddings_to_slp
 
     if not kwargs.get("data_path"):
         raise click.UsageError(
-            "--data_path is required for --embeddings_path / --save_embeddings / "
-            "--tracking on an embedding model."
+            "--data_path is required for --save_embeddings / --tracking on an "
+            "embedding model."
         )
-    out = predict_embeddings_to_h5(
-        model_paths=kwargs["model_paths"],
-        data_path=kwargs["data_path"],
-        output_path=embeddings_path,
-        device=_resolve_device(kwargs.get("device")),
-        batch_size=kwargs.get("batch_size", 4) or 4,
-        peak_threshold=kwargs.get("peak_threshold"),
-        save_embeddings=save_embeddings,
-        tracker_config=tracker_config,
-        # -o/--output_path names the output .slp for both the tracked path (WF2) and
-        # the non-tracking --save_embeddings slp/both path.
-        slp_output_path=kwargs.get("output_path"),
-    )
+
+    model_paths = list(kwargs["model_paths"])
+    embedding_dirs = [m for m in model_paths if _is_embedding_model(m)]
+    detection_dirs = [m for m in model_paths if not _is_embedding_model(m)]
+
+    data_path = kwargs["data_path"]
+    output_path = kwargs.get("output_path")
+    tmpdir = None
+    try:
+        if detection_dirs:
+            # FUSED: run the detection stack (centroid [+ centered_instance]) on the raw
+            # input -> temp poses .slp, then embed (+track). Exactly the two-step
+            # `detect -> .slp -> embed+track` path, fused into one command.
+            tmpdir = tempfile.mkdtemp(prefix="sleapnn_fused_det_")
+            poses_tmp = os.path.join(tmpdir, "detections.slp")
+            det_kwargs = dict(kwargs)
+            det_kwargs["model_paths"] = detection_dirs
+            det_kwargs["tracking"] = False  # detect only; the embedding path tracks
+            det_kwargs["output_path"] = poses_tmp
+            det_kwargs["output_format"] = kwargs.get("output_format") or ("slp",)
+            click.echo(
+                f"[fused] detecting with {len(detection_dirs)} model(s), then "
+                "embedding the detections..."
+            )
+            _run_in_memory_new_flow(det_kwargs, paf_workers=paf_workers)
+            data_path = poses_tmp
+            # Default the final output off the ORIGINAL input (the temp detections .slp
+            # would otherwise leak into the auto-derived name).
+            if not output_path:
+                src, _, _ = _resolve_data_path(kwargs["data_path"])
+                stem = str(Path(src).with_suffix(""))
+                output_path = (
+                    f"{stem}.tracked.slp"
+                    if tracker_config is not None
+                    else f"{stem}.embeddings.slp"
+                )
+
+        out = predict_embeddings_to_slp(
+            model_paths=embedding_dirs,
+            data_path=data_path,
+            output_path=output_path,
+            device=_resolve_device(kwargs.get("device")),
+            batch_size=kwargs.get("batch_size", 4) or 4,
+            save_embeddings=save_embeddings,
+            tracker_config=tracker_config,
+            # Fused detections are freshly produced and carry no tracks yet, so embed
+            # them all (tracked-only would be empty); the lone-embedding path keeps the
+            # default (derive from tracking).
+            include_untracked=True if detection_dirs else None,
+        )
+    finally:
+        if tmpdir:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
     if tracker_config is not None:
         click.echo(f"Wrote tracked labels to {out}")
     else:
@@ -2356,26 +2408,16 @@ def _common_inference_options(f):
             ".pkg.slp file(s) instead. Ignored when embedding.",
         ),
         click.option(
-            "--embeddings_path",
-            "embeddings_path",
-            type=str,
-            default=None,
-            help="For an `embedding` (re-ID) model: stream per-mask appearance "
-            "vectors + index arrays (video/frame/detection/track) to this .h5 "
-            "for offline re-ID. Required when --model_paths is an embedding model "
-            "(unless --save_embeddings slp|both is given).",
-        ),
-        click.option(
             "--save_embeddings",
             "save_embeddings",
-            type=click.Choice(["none", "slp", "both"]),
+            type=click.Choice(["none", "slp"]),
             default="none",
-            help="For an `embedding` (re-ID) model: optionally persist each "
-            "detection's appearance vector into a .slp (in addition to / instead "
-            "of the .h5). 'none' (default) = .h5 only, output unchanged; 'slp' = "
-            "attach to the source detection + write a .slp (no .h5); 'both' = .h5 "
-            "+ .slp. Pose detections persist now; mask detections warn + drop "
-            "(sleap-io#525) but never crash.",
+            help="For an `embedding` (re-ID) model: whether to persist each "
+            "detection's appearance vector into the output .slp, attached to its source "
+            "detection via the sleap-io `Embedding` data model. 'slp' writes the "
+            "vectors; 'none' (default) does not. With --tracking, 'none' yields tracks "
+            "only while 'slp' keeps the vectors alongside the assigned tracks. Without "
+            "--tracking, use 'slp' to write a .slp of appearance vectors.",
         ),
         click.option(
             "--device",

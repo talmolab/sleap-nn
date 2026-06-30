@@ -258,7 +258,7 @@ def _run_embedding_split_eval(
     The ``embedding`` (re-ID) model is skeleton-less: it emits per-mask appearance
     vectors, not keypoints/masks, so it cannot use the keypoint/seg eval paths.
     Instead embed every tracked mask crop in ``path`` via the embedding inference
-    path (:func:`sleap_nn.inference.embedding.predict_embeddings_to_h5`) and compute
+    kernel (:func:`sleap_nn.inference.embedding.embed_labels`) and compute
     leave-self-out retrieval / verification / kNN over the split's own identities
     (track names) — the same protocol the per-epoch ``EmbeddingEvaluationCallback``
     uses to select the checkpoint, so the held-out **test** number is the headline.
@@ -281,25 +281,19 @@ def _run_embedding_split_eval(
     import numpy as np
 
     from sleap_nn.evaluation import embedding_leave_self_out_eval
-    from sleap_nn.inference.embedding import predict_embeddings_to_h5
+    from sleap_nn.inference.embedding import embed_labels
 
-    emb_h5 = run_path / f"embeddings.{d_name}.h5"
     try:
-        predict_embeddings_to_h5(
-            model_paths=[run_path.as_posix()],
-            data_path=path,
-            output_path=emb_h5.as_posix(),
+        labels = sio.load_slp(path)
+        emb, tracks, _, _ = embed_labels(
+            run_path.as_posix(),
+            labels,
             device=device,
+            include_untracked=False,
         )
     except Exception as e:  # noqa: BLE001 — eval is best-effort post-training.
         logger.warning(f"Skipping embedding eval on `{d_name}`: {e}")
         return None
-
-    import h5py
-
-    with h5py.File(emb_h5.as_posix(), "r") as h:
-        emb = h["embeddings"][:]
-        tracks = h["track"][:]
 
     if emb.shape[0] < 2:
         logger.info(f"Skipping eval on `{d_name}` dataset: fewer than 2 embeddings.")
