@@ -145,6 +145,7 @@ nav:
       - Performance: guides/inference-performance.md
     - Evaluation: guides/evaluation.md
     - Tracking: guides/tracking.md
+    - Embedding (re-ID) Tracking: guides/embedding-tracking.md
     - Export: guides/export.md
   - Reference:
     - Overview: reference/overview.md

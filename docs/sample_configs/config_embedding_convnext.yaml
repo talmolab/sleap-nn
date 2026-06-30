@@ -25,7 +25,7 @@ data_config:
     # (and ensure_grayscale: false) to train/infer on color crops where hue is a real
     # re-ID cue. A 3-channel ImageNet backbone repeats the gray channel internally, so
     # grayscale works with convnext/swint; the channel choice is honored end-to-end
-    # (training, the `--embeddings_path` inference stream, and ONNX export).
+    # (training, the `--save_embeddings` inference path, and ONNX export).
     ensure_rgb: false
     ensure_grayscale: true  # re-ID typically benefits from grayscale (drops camera color)
     max_height: null

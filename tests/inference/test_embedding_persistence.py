@@ -1,26 +1,24 @@
-"""A1: optional embedding persistence into ``.slp`` (default OFF).
+"""Embedding persistence into ``.slp`` via the sleap-io ``Embedding`` data model.
 
-``sleap_nn.inference.embedding.predict_embeddings_to_h5`` gains a
-``save_embeddings`` option (``None`` / ``"none"`` / ``"slp"`` / ``"both"``,
-default OFF). When enabled it attaches each emitted crop's appearance vector to
-its **object-exact source detection** (the ``sio.Instance`` for pose data, the
-``sio.SegmentationMask`` for mask data) via ``set_embedding`` and writes a
-``.slp`` (in addition to / instead of today's sidecar ``.h5``).
+``sleap_nn.inference.embedding.predict_embeddings_to_slp`` takes a ``save_embeddings``
+option (``"none"`` / ``"slp"``). With ``"slp"`` it attaches each emitted crop's
+appearance vector to its **object-exact source detection** (the ``sio.Instance`` for
+pose data, the ``sio.SegmentationMask`` for mask data) via ``set_embedding`` and writes
+a ``.slp``.
 
 These tests assert, on a tiny (random-weights) embedding model:
 
-1. default OFF -> output unchanged: ``.h5`` only, NO ``.slp`` written, the source
-   ``.slp`` is untouched (no embeddings on reload),
-2. ``"both"`` (pose) -> ``.h5`` AND ``.slp`` written; each ``Instance`` carries
-   ``embedding`` of dim D, the ``normalized`` flag + ``source`` set, ``(video,
-   frame, track)`` integrity preserved, and it survives ``save_slp`` ->
-   ``load_slp``,
-3. ``"slp"`` (pose) -> only the ``.slp`` is written (no ``.h5``),
+1. ``"none"`` without tracking has nothing to persist -> raises (the source ``.slp`` is
+   not written / not mutated on disk),
+2. ``"slp"`` (pose) -> each ``Instance`` carries ``embedding`` of dim D, the
+   ``normalized`` flag + ``source`` set, ``(video, frame, track)`` integrity preserved,
+   and it survives ``save_slp`` -> ``load_slp``,
+3. ``"slp"`` (pose) -> every detection's vector is written,
 4. the pathway stores vectors ONLY — it does not fabricate ``sio.Identity`` from
    GT track names (existing identities pass through; tracks are preserved),
 5. mask path: a mask-only ``.slp`` round-trips its ``SegmentationMask`` embeddings
    into the ``.slp`` (mask-modality persistence, ``owner_type=3``, landed in
-   sleap-io#527); the ``.h5`` is still written.
+   sleap-io#527).
 """
 
 from __future__ import annotations
@@ -199,32 +197,30 @@ def mask_slp(tmp_path):
 
 
 def _run(model_dir, data_path, tmp_path, save_embeddings):
-    from sleap_nn.inference.embedding import predict_embeddings_to_h5
+    from sleap_nn.inference.embedding import predict_embeddings_to_slp
 
-    out_h5 = str(tmp_path / "out.embeddings.h5")
-    res = predict_embeddings_to_h5(
+    slp_out = str(tmp_path / "out.embeddings.slp")
+    res = predict_embeddings_to_slp(
         [model_dir],
         data_path,
-        output_path=out_h5,
+        output_path=slp_out,
         device="cpu",
         batch_size=4,
         save_embeddings=save_embeddings,
     )
-    slp_out = out_h5[:-3] + ".slp"
-    return res, out_h5, slp_out
+    return res, slp_out
 
 
-# ── (1) default OFF: byte-identical to today (h5 only, no .slp) ────────────────
+# ── (1) "none" without tracking: nothing to persist -> raises ──────────────────
 
 
 @pytest.mark.parametrize("off", [None, "none"])
-def test_default_off_writes_only_h5(embedding_model_dir, pose_slp, tmp_path, off):
-    """Default OFF: .h5 only, no .slp written, source .slp untouched."""
-    res, out_h5, slp_out = _run(embedding_model_dir, pose_slp, tmp_path, off)
-    assert res == out_h5
-    assert os.path.exists(out_h5)
-    # No .slp is written when OFF.
-    assert not os.path.exists(slp_out)
+def test_none_without_tracking_raises(embedding_model_dir, pose_slp, tmp_path, off):
+    """``none`` (no tracking) has nothing to persist: raises, source untouched."""
+    with pytest.raises(ValueError):
+        _run(embedding_model_dir, pose_slp, tmp_path, off)
+    # No .slp is written.
+    assert not os.path.exists(str(tmp_path / "out.embeddings.slp"))
     # Source .slp is untouched: no embeddings on reload.
     src = sio.load_slp(pose_slp)
     for lf in src.labeled_frames:
@@ -232,14 +228,14 @@ def test_default_off_writes_only_h5(embedding_model_dir, pose_slp, tmp_path, off
             assert not inst.embeddings
 
 
-# ── (2) both: pose embeddings persist with dim/flag/source + integrity ────────
+# ── (2) slp: pose embeddings persist with dim/flag/source + integrity ──────────
 
 
-def test_both_writes_h5_and_slp_pose(embedding_model_dir, pose_slp, tmp_path):
-    """``both``: pose vectors persist (dim/flag/source) + (video,frame,track) integrity."""
-    res, out_h5, slp_out = _run(embedding_model_dir, pose_slp, tmp_path, "both")
-    assert res == out_h5
-    assert os.path.exists(out_h5) and os.path.exists(slp_out)
+def test_slp_writes_slp_pose(embedding_model_dir, pose_slp, tmp_path):
+    """``slp``: pose vectors persist (dim/flag/source) + (video,frame,track) integrity."""
+    res, slp_out = _run(embedding_model_dir, pose_slp, tmp_path, "slp")
+    assert res == slp_out
+    assert os.path.exists(slp_out)
 
     model_id = os.path.basename(embedding_model_dir.rstrip("/"))
     reloaded = sio.load_slp(slp_out)
@@ -275,15 +271,14 @@ def test_both_writes_h5_and_slp_pose(embedding_model_dir, pose_slp, tmp_path):
         np.testing.assert_allclose(before[k], after[k], rtol=0, atol=1e-6)
 
 
-# ── (3) slp-only: no .h5 produced ─────────────────────────────────────────────
+# ── (3) slp: every detection's vector is written ───────────────────────────────
 
 
-def test_slp_only_writes_no_h5(embedding_model_dir, pose_slp, tmp_path):
-    """``slp``: only the .slp is written (no .h5); returns the .slp path."""
-    res, out_h5, slp_out = _run(embedding_model_dir, pose_slp, tmp_path, "slp")
+def test_slp_writes_all_vectors(embedding_model_dir, pose_slp, tmp_path):
+    """``slp``: returns the .slp path; every detection (3 frames x 2) gets a vector."""
+    res, slp_out = _run(embedding_model_dir, pose_slp, tmp_path, "slp")
     assert res == slp_out
     assert os.path.exists(slp_out)
-    assert not os.path.exists(out_h5)
     reloaded = sio.load_slp(slp_out)
     n = sum(
         1
@@ -305,7 +300,7 @@ def test_no_identity_minted_from_track_pose(embedding_model_dir, pose_slp, tmp_p
     re-ID resolve loop's job, deferred). The source tracks are preserved; the
     identity slots stay empty and the identity catalog is not populated.
     """
-    _, _, slp_out = _run(embedding_model_dir, pose_slp, tmp_path, "both")
+    _, slp_out = _run(embedding_model_dir, pose_slp, tmp_path, "slp")
     reloaded = sio.load_slp(slp_out)
 
     assert not (getattr(reloaded, "identities", None) or [])  # no catalog minted
@@ -327,15 +322,8 @@ def test_mask_path_persists_embeddings(embedding_model_dir, mask_slp, tmp_path):
     so mask detections now round-trip their re-ID vector into the ``.slp`` — but,
     like the pose path, no ``sio.Identity`` is minted from the GT track.
     """
-    res, out_h5, slp_out = _run(embedding_model_dir, mask_slp, tmp_path, "both")
-    assert res == out_h5
-    # The .h5 still carries the vectors.
-    assert os.path.exists(out_h5)
-    import h5py
-
-    with h5py.File(out_h5, "r") as h:
-        assert h["embeddings"].shape == (6, _DIM)
-    # The .slp now PERSISTS the mask embeddings.
+    res, slp_out = _run(embedding_model_dir, mask_slp, tmp_path, "slp")
+    assert res == slp_out
     assert os.path.exists(slp_out)
     reloaded = sio.load_slp(slp_out)
     masks = [m for lf in reloaded.labeled_frames for m in lf.masks]
@@ -360,7 +348,6 @@ def _impl_kwargs(**over):
         device="cpu",
         batch_size=4,
         peak_threshold=None,
-        embeddings_path=None,
         save_embeddings="none",
     )
     base.update(over)
@@ -368,7 +355,8 @@ def _impl_kwargs(**over):
 
 
 def _patch_embed_writer(monkeypatch):
-    """Capture the kwargs threaded into ``predict_embeddings_to_h5``."""
+    """Patch the embedding writer + model-type detection; capture threaded kwargs."""
+    import sleap_nn.cli as cli
     import sleap_nn.inference.embedding as emb_mod
 
     captured = {}
@@ -377,7 +365,10 @@ def _patch_embed_writer(monkeypatch):
         captured.update(kwargs)
         return "RET"
 
-    monkeypatch.setattr(emb_mod, "predict_embeddings_to_h5", _fake)
+    monkeypatch.setattr(emb_mod, "predict_embeddings_to_slp", _fake)
+    # The single fake model path is the embedding model (no detection stack -> no fused
+    # detect pass), so _run_embeddings calls the (patched) writer directly.
+    monkeypatch.setattr(cli, "_is_embedding_model", lambda *_: True)
     return captured
 
 
@@ -390,31 +381,28 @@ def test_cli_threads_save_embeddings(monkeypatch):
     out = cli._run_inference_impl(**_impl_kwargs(save_embeddings="slp"))
     assert out == "RET"
     assert captured["save_embeddings"] == "slp"
-    assert captured["output_path"] is None  # no --embeddings_path needed for slp
+    assert captured["output_path"] is None  # defaults derived in the writer
 
 
-def test_cli_both_routes_with_embeddings_path(monkeypatch):
-    """``--save_embeddings both`` with an --embeddings_path threads both through."""
+def test_cli_output_path_threads(monkeypatch):
+    """``-o/--output_path`` is threaded to the writer as the output .slp."""
     import sleap_nn.cli as cli
 
     monkeypatch.setattr(cli, "_has_embedding_model", lambda *_: True)
     captured = _patch_embed_writer(monkeypatch)
-    cli._run_inference_impl(
-        **_impl_kwargs(save_embeddings="both", embeddings_path="o.h5")
-    )
-    assert captured["save_embeddings"] == "both"
-    assert captured["output_path"] == "o.h5"
+    cli._run_inference_impl(**_impl_kwargs(save_embeddings="slp", output_path="o.slp"))
+    assert captured["output_path"] == "o.slp"
 
 
-def test_cli_embedding_model_off_requires_path(monkeypatch):
-    """Embedding model + default OFF + no path still requires --embeddings_path."""
+def test_cli_embedding_model_off_requires_save_embeddings(monkeypatch):
+    """Embedding model + default OFF + no tracking requires --save_embeddings slp."""
     import click
 
     import sleap_nn.cli as cli
 
     monkeypatch.setattr(cli, "_has_embedding_model", lambda *_: True)
     with pytest.raises(click.UsageError):
-        cli._run_inference_impl(**_impl_kwargs())  # off + no embeddings_path
+        cli._run_inference_impl(**_impl_kwargs())  # off + no tracking
 
 
 def test_cli_save_embeddings_rejected_for_non_embedding(monkeypatch):
@@ -426,14 +414,3 @@ def test_cli_save_embeddings_rejected_for_non_embedding(monkeypatch):
     monkeypatch.setattr(cli, "_has_embedding_model", lambda *_: False)
     with pytest.raises(click.UsageError):
         cli._run_inference_impl(**_impl_kwargs(save_embeddings="slp"))
-
-
-def test_cli_embeddings_path_rejected_for_non_embedding(monkeypatch):
-    """``--embeddings_path`` on a non-embedding model is a UsageError (unchanged)."""
-    import click
-
-    import sleap_nn.cli as cli
-
-    monkeypatch.setattr(cli, "_has_embedding_model", lambda *_: False)
-    with pytest.raises(click.UsageError):
-        cli._run_inference_impl(**_impl_kwargs(embeddings_path="o.h5"))

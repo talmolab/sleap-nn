@@ -336,7 +336,7 @@ def export(
                     "does a MASKLESS whole-crop standardize and cannot reproduce the "
                     "masked (foreground-only) standardize used at training/native "
                     "inference, so exported embeddings will diverge. Use the native "
-                    "`sleap-nn predict ... --embeddings_path <out.h5>` path for exact "
+                    "`sleap-nn predict ... --save_embeddings slp` path for exact "
                     "parity, or train/export a burn_in=False model for a faithful "
                     "single-input ONNX embedder."
                 )
