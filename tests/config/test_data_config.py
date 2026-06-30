@@ -231,6 +231,90 @@ def test_data_mapper():
     assert config.skeletons == None
 
 
+def test_data_mapper_centered_instance_drops_max_hw(caplog):
+    """Centered-instance configs must not inherit full-frame max_height/width.
+
+    Legacy top-down (centered-instance) configs set ``target_height``/
+    ``target_width`` when ``resize_and_pad_to_target`` was enabled. Mapping those
+    to ``max_height``/``max_width`` would downscale the whole frame before the
+    fixed-size crop is taken, shrinking the animal inside the crop and clustering
+    predicted nodes near the anchor (talmolab/sleap#2748). The importer must drop
+    them and keep only ``crop_size``.
+    """
+    legacy_config = {
+        "data": {
+            "preprocessing": {
+                "target_height": 384,
+                "target_width": 384,
+                "input_scaling": 0.5,
+            },
+            "instance_cropping": {"crop_size": 96, "center_on_part": "thorax"},
+        },
+        "model": {
+            "heads": {
+                "single_instance": None,
+                "centroid": None,
+                "centered_instance": {"anchor_part": "thorax", "output_stride": 2},
+                "multi_instance": None,
+            }
+        },
+    }
+
+    config = data_mapper(legacy_config)
+
+    # Full-frame resize params must be left unset for crop-based models...
+    assert config.preprocessing.max_height is None
+    assert config.preprocessing.max_width is None
+    # ...but crop_size and scale should still come through.
+    assert config.preprocessing.crop_size == 96
+    assert config.preprocessing.scale == 0.5
+    # A note should be logged so the dropped values aren't silently discarded.
+    assert "Ignoring legacy target_height/target_width" in caplog.text
+
+
+def test_data_mapper_multi_class_topdown_drops_max_hw():
+    """multi_class_topdown is crop-based too, so max_height/width are dropped."""
+    legacy_config = {
+        "data": {
+            "preprocessing": {"target_height": 512, "target_width": 512},
+            "instance_cropping": {"crop_size": 128},
+        },
+        "model": {
+            "heads": {
+                "centered_instance": None,
+                "multi_class_topdown": {"confmaps": {"anchor_part": "thorax"}},
+            }
+        },
+    }
+
+    config = data_mapper(legacy_config)
+
+    assert config.preprocessing.max_height is None
+    assert config.preprocessing.max_width is None
+    assert config.preprocessing.crop_size == 128
+
+
+def test_data_mapper_centroid_keeps_max_hw():
+    """Full-frame heads (e.g. centroid) still map target_height/width -> max_*."""
+    legacy_config = {
+        "data": {
+            "preprocessing": {"target_height": 384, "target_width": 384},
+        },
+        "model": {
+            "heads": {
+                "centroid": {"anchor_part": "thorax", "output_stride": 2},
+                "centered_instance": None,
+            }
+        },
+    }
+
+    config = data_mapper(legacy_config)
+
+    assert config.preprocessing.max_height == 384
+    assert config.preprocessing.max_width == 384
+    assert config.preprocessing.crop_size is None
+
+
 def test_validate_test_file_path():
     """Test the validate_test_file_path validator function."""
     # Test with None (should pass)
