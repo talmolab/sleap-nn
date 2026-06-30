@@ -29,6 +29,21 @@ class PreprocessingConfig:
         crop_padding: (int) Padding in pixels to add around the instance bounding box when computing crop size.
             If `None`, padding is auto-computed based on augmentation settings (rotation/scale).
             Only used when `crop_size` is `None`. *Default*: `None`.
+        burn_in: (bool) For the `embedding` model type: burn the instance mask into the
+            crop (background pixels set to `background_fill`) so the embedder sees only
+            the masked instance. *Default*: `False`.
+        background_fill: (str) Fill value for masked-out background when `burn_in` is
+            True (`embedding` model type). One of `black` (the original mask-multiply;
+            foreground mean / 0 in standardized space), `grey` (mid-grey), `mean`
+            (foreground mean — equivalent to `black` for standardized inputs), or
+            `noise` (per-pixel noise). *Default*: `black`.
+        crop_centering: (str) For the `embedding` model type, what the fixed-square crop
+            is centered on. `auto` (mask mode -> mask center-of-mass; pose mode ->
+            `head_configs.embedding.embedding.anchor_part` with a mean-of-visible-nodes
+            fallback), `mask_com` (force the mask center-of-mass), or `bbox` (the mask
+            bounding-box midpoint, robust to concave masks whose COM lands off the
+            instance). Only `mask`-mode centering is affected; pose-mode centering is
+            driven by `anchor_part`. *Default*: `auto`.
     """
 
     ensure_rgb: bool = False
@@ -41,6 +56,9 @@ class PreprocessingConfig:
     crop_size: Optional[int] = None
     min_crop_size: Optional[int] = 100  # to help app work in case of error
     crop_padding: Optional[int] = None
+    burn_in: bool = False
+    background_fill: str = "black"
+    crop_centering: str = "auto"
 
     def validate_scale(self):
         """Scale Validation.
@@ -185,6 +203,57 @@ def validate_test_file_path(instance, attribute, value):
 
 
 @define
+class IdentityConfig:
+    """Declared identity-equality semantics for the `embedding` model type.
+
+    Each positives/negatives source silently asserts "same/different animal". These
+    fields DECLARE what the track labels mean so the objective can validate them
+    (e.g. `positives.scope=global_id` requires `track_names_are_global=True`).
+
+    Attributes:
+        tracks_are_proofread: (bool) Tracks are swap-free within a video. Gates
+            `positives.scope=tracklet` (warn if False). *Default*: `False`.
+        track_names_are_global: (bool) The same track name means the same animal
+            across videos. Gates `positives.scope=global_id` (error if False).
+            *Default*: `False`.
+        detections_deduplicated: (bool) No duplicate/over-segmented detection per
+            frame. Gates `same_frame` negatives (warn if False). *Default*: `True`.
+    """
+
+    tracks_are_proofread: bool = False
+    track_names_are_global: bool = False
+    detections_deduplicated: bool = True
+
+
+@define
+class SplitConfig:
+    """Group-aware train/val split, decided before training.
+
+    For the `embedding` model type the train/val partition *is* the generalization axis:
+    the model must only ever see the training partition, with val/test held out by a group
+    key so there is no leakage. When set on `DataConfig.split` (and no explicit
+    `val_labels_path` is provided), the trainer partitions the training labels by
+    `split_by` instead of the default frame-level random `validation_fraction` split.
+
+    Attributes:
+        split_by: (str) Group key for the partition. One of:
+            `frame` (stratified-random over `LabeledFrame`s, identity-balanced; both train
+            and val contain all identities), `video` (hold out whole videos by sio video
+            index), or `identity` (hold out whole track names; disjoint identity sets).
+            *Default*: `frame`.
+        n_folds: (int) Number of CV folds; the val partition is `1 / n_folds` of the data.
+            *Default*: `5`.
+        fold: (int) Which fold (0-based) to hold out as validation. *Default*: `0`.
+        seed: (int) Random seed for the (shuffled) splitter. *Default*: `0`.
+    """
+
+    split_by: str = "frame"
+    n_folds: int = 5
+    fold: int = 0
+    seed: int = 0
+
+
+@define
 class DataConfig:
     """Data configuration.
 
@@ -214,6 +283,11 @@ class DataConfig:
             Values < 1 down-weight negatives; values > 1 up-weight them. Only has effect when
             ``use_negative_frames`` is ``True``. *Default*: `1.0`.
         skeletons: skeleton configuration for the `.slp` file. This will be pulled from the train dataset and saved to the `training_config.yaml`
+        split: (Optional[SplitConfig]) Group-aware train/val split decided before training.
+            When set and `val_labels_path` is not provided, the trainer
+            partitions the training labels by the configured group key (`frame`/`video`/
+            `identity`) instead of the default frame-level random `validation_fraction`
+            split. *Default*: `None` (unchanged default behavior).
     """
 
     train_labels_path: Optional[List[str]] = None
@@ -239,6 +313,8 @@ class DataConfig:
     use_negative_frames: bool = False
     negative_loss_weight: float = field(default=1.0, validator=validators.gt(0))
     skeletons: Optional[list] = None
+    identity: Optional[IdentityConfig] = None
+    split: Optional[SplitConfig] = None
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:

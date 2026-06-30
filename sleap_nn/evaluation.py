@@ -2063,3 +2063,161 @@ def run_evaluation(
         logger.info(f"Metrics saved successfully to {save_path}")
 
     return metrics
+
+
+# ---------------------------------------------------------------------------
+# Retrieval / verification metrics for the `embedding` model type (SPEC §8).
+#
+# Pure numpy (+ sklearn ROC-AUC). Consume embedding matrices + integer group labels;
+# they do NOT touch `.slp` instances (retrieval is appearance-only).
+# ---------------------------------------------------------------------------
+def _l2_normalize(x: np.ndarray) -> np.ndarray:
+    """Row-wise L2-normalize."""
+    return x / np.maximum(np.linalg.norm(x, axis=1, keepdims=True), 1e-8)
+
+
+def retrieval_metrics(gallery_emb, gallery_y, query_emb, query_y):
+    """Rank-1 (CMC@1) + mAP of queries against a gallery (cosine similarity)."""
+    g, q = _l2_normalize(np.asarray(gallery_emb)), _l2_normalize(np.asarray(query_emb))
+    gy, qy = np.asarray(gallery_y), np.asarray(query_y)
+    sim = q @ g.T
+    order = np.argsort(-sim, axis=1)
+    ranked = gy[order]
+    rank1 = float(np.mean(ranked[:, 0] == qy))
+    aps = []
+    for i in range(len(qy)):
+        rel = (ranked[i] == qy[i]).astype(float)
+        if rel.sum() == 0:
+            continue
+        csum = np.cumsum(rel)
+        prec = csum / np.arange(1, len(rel) + 1)
+        aps.append((prec * rel).sum() / rel.sum())
+    mAP = float(np.mean(aps)) if aps else 0.0
+    return {"rank1": round(rank1, 4), "mAP": round(mAP, 4)}
+
+
+def verification_metrics(
+    gallery_emb, gallery_y, query_emb, query_y, exclude_diagonal: bool = False
+):
+    """ROC-AUC + EER over all query x gallery pairs (same vs different identity).
+
+    When ``exclude_diagonal`` (gallery == query in the same order), the self-pairs on
+    the similarity diagonal are dropped before scoring so a leave-self-out evaluation is
+    not optimistically biased by ``N`` perfect same-identity matches at sim=1.0.
+    """
+    from sklearn.metrics import roc_auc_score
+
+    g, q = _l2_normalize(np.asarray(gallery_emb)), _l2_normalize(np.asarray(query_emb))
+    gy, qy = np.asarray(gallery_y), np.asarray(query_y)
+    sim2d = q @ g.T
+    same2d = (qy[:, None] == gy[None, :]).astype(int)
+    if exclude_diagonal:
+        keep = ~np.eye(sim2d.shape[0], sim2d.shape[1], dtype=bool)
+        sim = sim2d[keep]
+        same = same2d[keep]
+    else:
+        sim = sim2d.ravel()
+        same = same2d.ravel()
+    if same.min() == same.max():
+        return {"auc": float("nan"), "eer": float("nan")}
+    auc = float(roc_auc_score(same, sim))
+    order = np.argsort(-sim)
+    lab = same[order]
+    P, N = lab.sum(), len(lab) - lab.sum()
+    fnr = 1 - np.cumsum(lab) / max(P, 1)
+    fpr = np.cumsum(1 - lab) / max(N, 1)
+    j = int(np.argmin(np.abs(fnr - fpr)))
+    eer = float((fnr[j] + fpr[j]) / 2)
+    return {"auc": round(auc, 4), "eer": round(eer, 4)}
+
+
+def knn_classify(gallery_emb, gallery_y, query_emb, k: int = 7):
+    """Cosine k-NN classification (weighted vote). Returns (pred, conf)."""
+    g, q = _l2_normalize(np.asarray(gallery_emb)), _l2_normalize(np.asarray(query_emb))
+    gy = np.asarray(gallery_y)
+    sim = q @ g.T
+    idx = np.argsort(-sim, 1)[:, :k]
+    nn_y, nn_s = gy[idx], np.take_along_axis(sim, idx, 1)
+    nclass = int(gy.max()) + 1
+    votes = np.zeros((len(q), nclass))
+    for c in range(nclass):
+        votes[:, c] = (nn_s * (nn_y == c)).sum(1)
+    pred = votes.argmax(1)
+    conf = votes.max(1) / (np.abs(votes).sum(1) + 1e-8)
+    return pred, conf
+
+
+def embedding_full_eval(gallery_emb, gallery_y, query_emb, query_y, k: int = 7):
+    """Combined retrieval + verification + kNN-accuracy metrics dict."""
+    out = {}
+    out.update(retrieval_metrics(gallery_emb, gallery_y, query_emb, query_y))
+    out.update(verification_metrics(gallery_emb, gallery_y, query_emb, query_y))
+    pred, _ = knn_classify(gallery_emb, gallery_y, query_emb, k=k)
+    out["knn_acc"] = round(float(np.mean(pred == np.asarray(query_y))), 4)
+    return out
+
+
+def embedding_leave_self_out_eval(emb, y, k: int = 7, max_n: int = 5000):
+    """Leave-self-out retrieval/verification/kNN over one labeled embedding set.
+
+    Gallery == query == the same set, with each item's self-match excluded (the
+    similarity diagonal is masked to -inf so an item is never retrieved by itself).
+    This is exactly the protocol the per-epoch
+    :class:`~sleap_nn.training.callbacks.EmbeddingEvaluationCallback` uses for
+    checkpoint selection, so the post-training headline matches the selected metric.
+
+    Args:
+        emb: ``(N, D)`` embeddings.
+        y: ``(N,)`` integer identity labels.
+        k: ``k`` for the cosine-kNN accuracy (clamped to ``N - 1``).
+        max_n: Cap on the number of embeddings used for the ``N x N`` similarity. Larger
+            sets are deterministically subsampled so the per-epoch eval stays bounded
+            (an uncapped set would build an O(N^2) float64 matrix every epoch). ``None``
+            disables the cap.
+
+    Returns:
+        dict with ``rank1``, ``mAP``, ``auc``, ``eer``, ``knn_acc``.
+    """
+    emb = np.asarray(emb, dtype=np.float64)
+    y = np.asarray(y)
+    if max_n is not None and len(emb) > max_n:
+        # Deterministic subsample so the N x N similarity + argsort stay bounded.
+        keep = np.sort(np.random.default_rng(0).choice(len(emb), max_n, replace=False))
+        emb, y = emb[keep], y[keep]
+    emb = emb / np.maximum(np.linalg.norm(emb, axis=1, keepdims=True), 1e-8)
+    n = len(emb)
+    sim = emb @ emb.T
+    np.fill_diagonal(sim, -np.inf)  # leave-self-out (self sorts to the very end)
+    order = np.argsort(-sim, axis=1)[:, : n - 1]  # drop the self slot
+    ranked = y[order]
+
+    rank1 = float(np.mean(ranked[:, 0] == y))
+    aps = []
+    for i in range(n):
+        rel = (ranked[i] == y[i]).astype(float)
+        if rel.sum() == 0:
+            continue
+        csum = np.cumsum(rel)
+        prec = csum / np.arange(1, len(rel) + 1)
+        aps.append((prec * rel).sum() / rel.sum())
+    mAP = float(np.mean(aps)) if aps else 0.0
+
+    # kNN accuracy (leave-self-out): top-k excluding self.
+    kk = min(k, n - 1)
+    idx = order[:, :kk]
+    nn_y = y[idx]
+    nn_s = np.take_along_axis(sim, idx, 1)
+    nclass = int(y.max()) + 1
+    votes = np.zeros((n, nclass))
+    for c in range(nclass):
+        votes[:, c] = (nn_s * (nn_y == c)).sum(1)
+    knn_acc = float(np.mean(votes.argmax(1) == y))
+
+    ver = verification_metrics(emb, y, emb, y, exclude_diagonal=True)
+    return {
+        "rank1": round(rank1, 4),
+        "mAP": round(mAP, 4),
+        "auc": ver["auc"],
+        "eer": ver["eer"],
+        "knn_acc": round(knn_acc, 4),
+    }

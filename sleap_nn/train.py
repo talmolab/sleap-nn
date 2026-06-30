@@ -245,6 +245,93 @@ def _run_segmentation_split_eval(
     return metrics
 
 
+def _run_embedding_split_eval(
+    config: DictConfig,
+    d_name: str,
+    path: str,
+    run_path: Path,
+    metrics_path: Path,
+    device: str,
+):
+    """Run post-training retrieval eval for a single split of an embedding model.
+
+    The ``embedding`` (re-ID) model is skeleton-less: it emits per-mask appearance
+    vectors, not keypoints/masks, so it cannot use the keypoint/seg eval paths.
+    Instead embed every tracked mask crop in ``path`` via the embedding inference
+    path (:func:`sleap_nn.inference.embedding.predict_embeddings_to_h5`) and compute
+    leave-self-out retrieval / verification / kNN over the split's own identities
+    (track names) — the same protocol the per-epoch ``EmbeddingEvaluationCallback``
+    uses to select the checkpoint, so the held-out **test** number is the headline.
+
+    Post-training eval is best-effort: a split with no tracked masks, fewer than two
+    crops, or fewer than two distinct identities is logged and skipped rather than
+    aborting the run.
+
+    Args:
+        config: Training configuration.
+        d_name: Split name, e.g. ``"train.0"``/``"val.0"``/``"test.0"``.
+        path: Path to the ground-truth ``.slp`` for this split.
+        run_path: The ``<ckpt_dir>/<run_name>`` directory (the embedding model).
+        metrics_path: Output path for the saved metrics ``.npz``.
+        device: Torch device string to run inference on.
+
+    Returns:
+        The retrieval metrics dict, or ``None`` if the split was skipped.
+    """
+    import numpy as np
+
+    from sleap_nn.evaluation import embedding_leave_self_out_eval
+    from sleap_nn.inference.embedding import predict_embeddings_to_h5
+
+    emb_h5 = run_path / f"embeddings.{d_name}.h5"
+    try:
+        predict_embeddings_to_h5(
+            model_paths=[run_path.as_posix()],
+            data_path=path,
+            output_path=emb_h5.as_posix(),
+            device=device,
+        )
+    except Exception as e:  # noqa: BLE001 — eval is best-effort post-training.
+        logger.warning(f"Skipping embedding eval on `{d_name}`: {e}")
+        return None
+
+    import h5py
+
+    with h5py.File(emb_h5.as_posix(), "r") as h:
+        emb = h["embeddings"][:]
+        tracks = h["track"][:]
+
+    if emb.shape[0] < 2:
+        logger.info(f"Skipping eval on `{d_name}` dataset: fewer than 2 embeddings.")
+        return None
+    tracks = np.array([t.decode() if isinstance(t, bytes) else t for t in tracks])
+    _, y = np.unique(tracks, return_inverse=True)
+    if len(np.unique(y)) < 2:
+        logger.info(
+            f"Skipping eval on `{d_name}` dataset: fewer than 2 distinct identities."
+        )
+        return None
+
+    metrics = embedding_leave_self_out_eval(emb, y)
+    np.savez(metrics_path.as_posix(), **metrics)
+    logger.info(f"---------Evaluation on `{d_name}` dataset (embedding)---------")
+    logger.info(
+        f"rank1={metrics['rank1']} mAP={metrics['mAP']} auc={metrics['auc']} "
+        f"eer={metrics['eer']} knn_acc={metrics['knn_acc']} "
+        f"(n={emb.shape[0]}, ids={len(np.unique(y))})"
+    )
+
+    # Log test metrics to wandb summary (mirrors the keypoint/seg eval paths).
+    if d_name.startswith("test") and config.trainer_config.use_wandb:
+        import wandb
+
+        if wandb.run is not None:
+            for key, value in metrics.items():
+                wandb.run.summary[f"eval/{d_name}/{key}"] = value
+
+    return metrics
+
+
 def run_training(
     config: DictConfig,
     train_labels: Optional[List[sio.Labels]] = None,
@@ -318,6 +405,20 @@ def run_training(
                 # d_name is now in format: "train.0", "val.0", "test.0", etc.
                 pred_path = run_path / f"labels_pr.{d_name}.slp"
                 metrics_path = run_path / f"metrics.{d_name}.npz"
+
+                if model_type == "embedding":
+                    # Skeleton-less re-ID model: retrieval eval over appearance
+                    # vectors (the held-out test split is the headline) instead of
+                    # the keypoint OKS/distance path below, which would crash.
+                    _run_embedding_split_eval(
+                        config=trainer.config,
+                        d_name=d_name,
+                        path=path,
+                        run_path=run_path,
+                        metrics_path=metrics_path,
+                        device=str(trainer.trainer.strategy.root_device),
+                    )
+                    continue
 
                 if model_type == "centroid":
                     _run_centroid_split_eval(

@@ -39,6 +39,13 @@ from sleap_nn.config.model_config import (
     SegmentationHeadConfig,
     InstanceCenterConfig,
     CenterOffsetConfig,
+    EmbeddingConfig,
+    EmbeddingHeadConfig,
+    ObjectiveConfig,
+    PositivesConfig,
+    NegativesConfig,
+    LossConfig,
+    SamplerConfig,
 )
 from sleap_nn.config.data_config import DataConfig, PreprocessingConfig
 from sleap_nn.config.model_config import ModelConfig
@@ -402,9 +409,24 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
                     segmentation=CenteredInstanceSegmentationHeadConfig()
                 )
             )
+        elif head_cfg == "embedding":
+            # Default to the self-supervised `aug_view` scope so the bare string factory
+            # yields a TRAINABLE config: `global_id`/`tracklet` require declaring
+            # `data_config.identity` (else training raises), but `aug_view` needs no
+            # identity declaration. Override the scope (+ identity) for supervised re-ID.
+            head_configs.embedding = EmbeddingConfig(
+                embedding=EmbeddingHeadConfig(
+                    objective=ObjectiveConfig(
+                        positives=PositivesConfig(scope="aug_view"),
+                        negatives=NegativesConfig(),
+                        loss=LossConfig(),
+                        sampler=SamplerConfig(),
+                    )
+                )
+            )
         else:
             raise ValueError(
-                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown', 'bottomup_segmentation', 'centered_instance_segmentation']"
+                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown', 'bottomup_segmentation', 'centered_instance_segmentation', 'embedding']"
             )
 
     elif isinstance(head_cfg, dict):
@@ -480,6 +502,27 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
                         **seg["segmentation"]
                     )
                 )
+            )
+        elif "embedding" in head_cfg and head_cfg["embedding"] is not None:
+            emb = head_cfg["embedding"].get("embedding")
+            if emb is None:
+                raise ValueError(
+                    "head_configs.embedding must contain a non-null 'embedding' leaf "
+                    "(head_configs.embedding.embedding with embedding_dim / pool / "
+                    "objective / ...); see "
+                    "docs/sample_configs/config_embedding_convnext.yaml."
+                )
+            obj = emb.get("objective", {}) or {}
+            objective = ObjectiveConfig(
+                positives=PositivesConfig(**(obj.get("positives", {}) or {})),
+                negatives=NegativesConfig(**(obj.get("negatives", {}) or {})),
+                loss=LossConfig(**(obj.get("loss", {}) or {})),
+                sampler=SamplerConfig(**(obj.get("sampler", {}) or {})),
+                **{k: obj[k] for k in ("use_projection", "projection_dim") if k in obj},
+            )
+            leaf_scalars = {k: v for k, v in emb.items() if k != "objective"}
+            head_configs.embedding = EmbeddingConfig(
+                embedding=EmbeddingHeadConfig(objective=objective, **leaf_scalars)
             )
 
     return head_configs

@@ -1821,6 +1821,475 @@ class CenteredInstanceSegmentationDataset(CenteredInstanceDataset):
         return sample
 
 
+def resolve_embedding_class_names(labels: List[sio.Labels]) -> List[str]:
+    """Collect the sorted set of track names across all labels (the group vocabulary).
+
+    Track names are the identity groups for ``global_id`` positives. Scanning BOTH
+    train + val labels and sorting gives one consistent vocabulary shared by the
+    train and val datasets.
+    """
+    names = set()
+    for label in labels:
+        for tr in getattr(label, "tracks", []) or []:
+            if tr is not None and tr.name is not None:
+                names.add(tr.name)
+    return sorted(names)
+
+
+def _mask_bbox_midpoint(mask_bool: np.ndarray) -> Tuple[float, float]:
+    """Return the ``(cx, cy)`` midpoint of a boolean mask's bounding box.
+
+    Robust to concave masks whose center-of-mass falls off the instance. Falls back
+    to the image center when the mask is empty.
+    """
+    ys, xs = np.where(mask_bool)
+    if xs.size == 0:
+        h, w = mask_bool.shape[:2]
+        return float(w) / 2.0, float(h) / 2.0
+    cx = (float(xs.min()) + float(xs.max())) / 2.0
+    cy = (float(ys.min()) + float(ys.max())) / 2.0
+    return cx, cy
+
+
+class EmbeddingDataset(BaseDataset):
+    """Dataset for the ``embedding`` (crop -> vector, re-ID) model type.
+
+    One sample per tracked detection. Two detection modes are auto-detected:
+
+    - ``mask``: a tracked ``lf.masks`` entry; the fixed-square crop is centered on the
+      mask center-of-mass and carries the binary mask crop.
+    - ``pose``: a tracked ``lf.instances`` keypoint detection; the crop is centered on
+      the pose centroid (anchor node with a per-instance mean-of-visible-nodes
+      fallback) and carries an all-ones mask.
+
+    Returns the grayscale crop, a mask crop, and per-crop metadata (``video_idx``,
+    ``frame_idx``, ``group_id``, ``global_group_id``, ``item_id``). When ``apply_aug``
+    is set, two independently-augmented views (``instance_image`` / ``_view2``) are
+    produced for the two-view contrastive loss using the standard config-driven
+    augmentation; otherwise a single un-augmented view is returned (val / inference).
+
+    The ``group_id`` keys the training groups: the global track-name index for
+    ``global_id`` scope, or a per-``(labels, video, track)`` tracklet id for
+    ``tracklet`` scope. ``global_group_id`` is always the global track-name index (the
+    grouping used for evaluation).
+
+    Attributes:
+        crop_size: Side length of the square crop (should be divisible by max_stride).
+        class_names: Ordered list of track names (the global ``group_id`` vocabulary).
+        embedding_head_config: The head leaf config (carries ``output_stride`` and the
+            optional pose ``anchor_part``).
+        id_scope: Training-group key: ``global_id`` | ``tracklet`` | ``aug_view``.
+    """
+
+    def __init__(
+        self,
+        labels: List[sio.Labels],
+        crop_size: int,
+        class_names: List[str],
+        embedding_head_config: DictConfig,
+        max_stride: int,
+        id_scope: str = "global_id",
+        crop_centering: str = "auto",
+        user_instances_only: bool = True,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = True,
+        intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        geometric_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        apply_aug: bool = False,
+        scale: float = 1.0,
+        max_hw: Tuple[Optional[int]] = (None, None),
+        cache_img: Optional[str] = None,
+        cache_img_path: Optional[str] = None,
+        use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
+        parallel_caching: bool = True,
+        cache_workers: int = 0,
+    ) -> None:
+        """Initialize class attributes."""
+        self.crop_size = crop_size
+        self.class_names = list(class_names)
+        self.embedding_head_config = embedding_head_config
+        # `group_id` keying: global track-name (global_id) vs per-(video, track)
+        # tracklet. `_tracklet_vocab` lazily assigns a dense id per distinct tracklet.
+        self.id_scope = id_scope
+        # Mask-mode crop center: `auto`/`mask_com` -> mask center-of-mass; `bbox` ->
+        # mask bounding-box midpoint (robust to concave masks). Pose-mode centering is
+        # driven by `anchor_part` regardless of this knob.
+        if crop_centering not in ("auto", "mask_com", "bbox"):
+            message = (
+                f"Unknown crop_centering '{crop_centering}'; choose one of "
+                f"auto|mask_com|bbox."
+            )
+            logger.error(message)
+            raise ValueError(message)
+        self.crop_centering = crop_centering
+        # `scale` is NOT applied to embedding crops (the crop path sizes via the
+        # centroid bbox + max_hw, then resizes to crop_size), but inference's
+        # EmbeddingLayer DOES scale its preprocess — so a non-1.0 scale would make the
+        # trained and inference crops disagree. Warn rather than silently diverge.
+        if float(scale) != 1.0:
+            logger.warning(
+                f"data_config.preprocessing.scale={scale} is not applied to embedding "
+                "crops (only crop_size sizing is), but inference scales its crops — "
+                "leave scale=1.0 for the embedding model to keep train/inference crops "
+                "consistent."
+            )
+        self._tracklet_vocab: Dict[tuple, int] = {}
+        super().__init__(
+            labels=labels,
+            max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
+            intensity_aug=intensity_aug,
+            geometric_aug=geometric_aug,
+            scale=scale,
+            # Two-view contrastive aug now reuses the standard skia augmentation
+            # (config-driven) per-crop in __getitem__ (CPU-side, like every other
+            # dataset) instead of a bespoke GPU reimplementation in the LM.
+            apply_aug=apply_aug,
+            max_hw=max_hw,
+            cache_img=cache_img,
+            cache_img_path=cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
+        )
+        # Anchor node for pose-centroid centering (Stage 1). Resolved against the
+        # skeleton; falls back per-instance to the mean of visible nodes (the topdown
+        # convention via `generate_centroids`).
+        self.anchor_part = OmegaConf.select(
+            embedding_head_config, "anchor_part", default=None
+        )
+        self.anchor_ind = None
+        if self.anchor_part is not None:
+            for label in labels:
+                if label.skeletons:
+                    names = label.skeletons[0].node_names
+                    if self.anchor_part in names:
+                        self.anchor_ind = names.index(self.anchor_part)
+                    break
+
+        # Detection mode: tracked masks (crop on the mask center-of-mass) vs tracked
+        # keypoint instances (crop on the pose centroid, no mask).
+        self.detection_mode = self._detect_mode(labels)
+        if self.detection_mode == "pose":
+            self.mask_idx_list = self._get_instance_idx_list(labels)
+        else:
+            self.mask_idx_list = self._get_mask_idx_list(labels)
+        # Per-crop arrays for the group-aware batch sampler.
+        self.group_ids = np.array([m["group_id"] for m in self.mask_idx_list], np.int64)
+        self.video_ids = np.array(
+            [m["video_idx"] for m in self.mask_idx_list], np.int64
+        )
+        self.frame_ids = np.array(
+            [m["frame_idx"] for m in self.mask_idx_list], np.int64
+        )
+
+    def _detect_mode(self, labels: List[sio.Labels]) -> str:
+        """``"mask"`` if any frame has a tracked mask, else ``"pose"`` (keypoints)."""
+        for label in labels:
+            for lf in label:
+                for m in getattr(lf, "masks", None) or []:
+                    if getattr(m, "track", None) is not None:
+                        return "mask"
+        return "pose"
+
+    def _group_keys(self, labels_idx, video_idx, track_name):
+        """Return ``(group_id, global_group_id)`` for a tracked detection.
+
+        ``global_group_id`` is always the global track-name index (the eval grouping).
+        ``group_id`` is the training group: the global index for ``global_id``/
+        ``aug_view`` scope, or a per-``(labels, video, track)`` tracklet id for
+        ``tracklet`` scope.
+        """
+        gid = self.class_names.index(track_name)
+        if self.id_scope == "tracklet":
+            key = (labels_idx, video_idx, track_name)
+            tid = self._tracklet_vocab.setdefault(key, len(self._tracklet_vocab))
+            return tid, gid
+        return gid, gid
+
+    def _get_instance_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+        """Index per tracked keypoint instance (pose mode).
+
+        Centroid via the topdown :func:`generate_centroids` (anchor node with a
+        per-instance fallback to the mean of visible nodes).
+        """
+        idx_list = []
+        n_missing = 0
+        for labels_idx, label in enumerate(labels):
+            for lf_idx, lf in enumerate(label):
+                for inst_idx, inst in enumerate(lf.instances):
+                    track = getattr(inst, "track", None)
+                    if track is None or track.name not in self.class_names:
+                        n_missing += 1
+                        continue
+                    pts = torch.from_numpy(inst.numpy()).to(
+                        torch.float32
+                    )  # (n_nodes,2)
+                    centroid = generate_centroids(
+                        pts.unsqueeze(0), anchor_ind=self.anchor_ind
+                    )[
+                        0
+                    ]  # (x, y) in original image coords
+                    if torch.isnan(centroid).any():
+                        continue
+                    centroid = centroid.numpy().astype(np.float32)
+                    video_idx = labels[labels_idx].videos.index(lf.video)
+                    group_id, global_group_id = self._group_keys(
+                        labels_idx, video_idx, track.name
+                    )
+                    idx_list.append(
+                        {
+                            "labels_idx": labels_idx,
+                            "lf_idx": lf_idx,
+                            "instance_idx": inst_idx,
+                            "video_idx": video_idx,
+                            "frame_idx": lf.frame_idx,
+                            "centroid": centroid,
+                            "group_id": group_id,
+                            "global_group_id": global_group_id,
+                        }
+                    )
+        if n_missing:
+            logger.warning(
+                f"EmbeddingDataset: skipped {n_missing} instance(s) with no track / "
+                f"unknown track name."
+            )
+        return idx_list
+
+    def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+        """Index frames carrying >=1 tracked mask OR instance (so the image cache covers them).
+
+        Mask-only (gerbil) data carries no user *instances* and pose (fly) data carries
+        no *masks*, so the base ``_get_lf_idx_list`` (which filters on user instances)
+        can leave the image cache empty. Index on either a tracked ``lf.masks`` or a
+        tracked ``lf.instances``. Runs before ``detection_mode`` is set, so it is
+        mode-agnostic.
+        """
+        lf_idx_list = []
+        for labels_idx, label in enumerate(labels):
+            for lf_idx, lf in enumerate(label):
+                lf_masks = getattr(lf, "masks", None) or []
+                has_tracked = any(
+                    getattr(m, "track", None) is not None
+                    and m.track.name in self.class_names
+                    for m in lf_masks
+                ) or any(
+                    getattr(inst, "track", None) is not None
+                    and inst.track.name in self.class_names
+                    for inst in lf.instances
+                )
+                if has_tracked:
+                    video_idx = labels[labels_idx].videos.index(lf.video)
+                    lf_idx_list.append(
+                        {
+                            "labels_idx": labels_idx,
+                            "lf_idx": lf_idx,
+                            "video_idx": video_idx,
+                            "frame_idx": lf.frame_idx,
+                            "is_negative": False,
+                            "instances": None,
+                        }
+                    )
+        return lf_idx_list
+
+    def _get_mask_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+        """Index per mask, capturing the (picklable) mask object + its group id."""
+        mask_idx_list = []
+        n_missing = 0
+        for labels_idx, label in enumerate(labels):
+            for lf_idx, lf in enumerate(label):
+                lf_masks = getattr(lf, "masks", None) or []
+                for mask_idx, mask_obj in enumerate(lf_masks):
+                    track = getattr(mask_obj, "track", None)
+                    if track is None or track.name not in self.class_names:
+                        n_missing += 1
+                        continue
+                    video_idx = labels[labels_idx].videos.index(lf.video)
+                    group_id, global_group_id = self._group_keys(
+                        labels_idx, video_idx, track.name
+                    )
+                    mask_idx_list.append(
+                        {
+                            "labels_idx": labels_idx,
+                            "lf_idx": lf_idx,
+                            "mask_idx": mask_idx,
+                            "video_idx": video_idx,
+                            "frame_idx": lf.frame_idx,
+                            "mask_obj": mask_obj,
+                            "group_id": group_id,
+                            "global_group_id": global_group_id,
+                        }
+                    )
+        if n_missing:
+            logger.warning(
+                f"EmbeddingDataset: skipped {n_missing} mask(s) with no track / "
+                f"unknown track name."
+            )
+        return mask_idx_list
+
+    def __len__(self) -> int:
+        """Return the number of mask crops."""
+        return len(self.mask_idx_list)
+
+    def __getitem__(self, index) -> Dict:
+        """Return one grayscale crop + a mask crop + metadata.
+
+        Mask mode: crop centered on the mask COM, carrying the binary mask crop.
+        Pose mode: crop centered on the pose centroid (mean of visible keypoints),
+        carrying an all-ones mask (no segmentation; train maskless via
+        ``preprocessing.burn_in=false``).
+        """
+        meta = self.mask_idx_list[index]
+        labels_idx, lf_idx = meta["labels_idx"], meta["lf_idx"]
+
+        if self.cache_img is not None and self.cache_img == "memory":
+            img = self.cache[(labels_idx, lf_idx)].copy()
+        elif self.cache_img is not None and self.cache_img == "disk":
+            img = np.array(
+                Image.open(f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg")
+            )
+        else:
+            img = self.labels_list[labels_idx][lf_idx].image
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
+
+        image = np.expand_dims(np.transpose(img, (2, 0, 1)), axis=0)  # (1, C, H, W)
+        image = torch.from_numpy(image.copy())
+
+        if "centroid" in meta:  # pose mode
+            instance_image, instance_mask = self._crop_pose(image, meta)
+        else:  # mask mode
+            instance_image, instance_mask = self._crop_mask(image, meta)
+        return self._pack_sample(instance_image, instance_mask, meta, index)
+
+    def _crop_mask(self, image, meta):
+        """Crop centered on the mask COM; return ``(image_crop, mask_crop)``."""
+        from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
+
+        orig_h, orig_w = image.shape[-2:]
+        mask_np = decode_mask_to_image_res(meta["mask_obj"])
+        if mask_np.shape[:2] != (orig_h, orig_w):
+            full = np.zeros((orig_h, orig_w), dtype=bool)
+            h0 = min(mask_np.shape[0], orig_h)
+            w0 = min(mask_np.shape[1], orig_w)
+            full[:h0, :w0] = mask_np[:h0, :w0]
+            mask_np = full
+        mask_t = torch.from_numpy(np.ascontiguousarray(mask_np, dtype=np.float32))[
+            None, None
+        ]
+
+        if self.ensure_rgb:
+            image = convert_to_rgb(image)
+        elif self.ensure_grayscale:
+            image = convert_to_grayscale(image)
+
+        image, _ = apply_sizematcher(
+            image, max_height=self.max_hw[0], max_width=self.max_hw[1]
+        )
+        mask_t, _ = apply_sizematcher(
+            mask_t, max_height=self.max_hw[0], max_width=self.max_hw[1]
+        )
+
+        mask_bool = mask_t[0, 0].numpy() > 0.5
+        if self.crop_centering == "bbox":
+            cx, cy = _mask_bbox_midpoint(mask_bool)
+        else:  # "auto" / "mask_com"
+            cx, cy = _compute_mask_centroids([mask_bool])[0]
+        bbox = make_centered_bboxes(
+            torch.tensor([cx, cy], dtype=torch.float32),
+            self.crop_size,
+            self.crop_size,
+        ).unsqueeze(0)
+        instance_image = crop_and_resize(
+            image, boxes=bbox, size=(self.crop_size, self.crop_size)
+        )
+        instance_mask = crop_and_resize(
+            mask_t, boxes=bbox, size=(self.crop_size, self.crop_size)
+        )
+        return instance_image, instance_mask
+
+    def _crop_pose(self, image, meta):
+        """Crop centered on the pose centroid; return ``(image_crop, ones_mask)``."""
+        if self.ensure_rgb:
+            image = convert_to_rgb(image)
+        elif self.ensure_grayscale:
+            image = convert_to_grayscale(image)
+
+        image, ratio = apply_sizematcher(
+            image, max_height=self.max_hw[0], max_width=self.max_hw[1]
+        )
+        cx = float(meta["centroid"][0]) * ratio
+        cy = float(meta["centroid"][1]) * ratio
+        bbox = make_centered_bboxes(
+            torch.tensor([cx, cy], dtype=torch.float32),
+            self.crop_size,
+            self.crop_size,
+        ).unsqueeze(0)
+        instance_image = crop_and_resize(
+            image, boxes=bbox, size=(self.crop_size, self.crop_size)
+        )
+        # No segmentation in pose mode: an all-ones mask (burn-in is a no-op; train
+        # maskless via preprocessing.burn_in=false).
+        instance_mask = torch.ones(
+            (1, 1, self.crop_size, self.crop_size), dtype=torch.float32
+        )
+        return instance_image, instance_mask
+
+    def _apply_crop_aug(self, image, mask):
+        """Apply the standard config-driven skia aug to a crop + its mask.
+
+        Reuses sleap-nn's :func:`apply_intensity_augmentation` /
+        :func:`apply_geometric_augmentation` (the same functions every other dataset
+        uses) instead of a bespoke GPU reimplementation: the mask co-transforms under
+        the SAME affine via the ``masks=`` arg, and a placeholder keypoint rides along
+        (the crop has no keypoints) and is discarded. Returns ``(image, mask)``.
+        """
+        # (n_samples=1, n_inst=1, n_nodes=1, 2) center placeholder for the keypoint
+        # co-transform the skia aug expects; its output is ignored.
+        dummy = torch.full((1, 1, 1, 2), float(self.crop_size) / 2.0)
+        if self.intensity_aug is not None:
+            image, _ = apply_intensity_augmentation(image, dummy, **self.intensity_aug)
+        if self.geometric_aug is not None:
+            image, _, mask = apply_geometric_augmentation(
+                image, dummy, masks=mask, symmetric_inds=None, **self.geometric_aug
+            )
+        return image, mask
+
+    def _pack_sample(self, instance_image, instance_mask, meta, index):
+        """Pack one crop into a sample dict.
+
+        Training (``apply_aug=True``): emit TWO independently-augmented views
+        (``instance_image``/``instance_image_view2`` + masks) for the two-view
+        contrastive loss. Val / inference (``apply_aug=False``): emit one un-augmented
+        view (``instance_image``) only.
+        """
+        sample = {
+            "group_id": torch.tensor(meta["group_id"], dtype=torch.int64),
+            "global_group_id": torch.tensor(
+                meta.get("global_group_id", meta["group_id"]), dtype=torch.int64
+            ),
+            "video_idx": torch.tensor(meta["video_idx"], dtype=torch.int64),
+            "frame_idx": torch.tensor(meta["frame_idx"], dtype=torch.int64),
+            "item_id": torch.tensor(index, dtype=torch.int64),
+            "labels_idx": meta["labels_idx"],
+        }
+        if self.apply_aug:
+            img1, m1 = self._apply_crop_aug(instance_image, instance_mask)
+            img2, m2 = self._apply_crop_aug(instance_image, instance_mask)
+            sample["instance_image"] = img1.to(torch.float32)
+            sample["instance_mask"] = (m1 > 0.5).to(torch.float32)
+            sample["instance_image_view2"] = img2.to(torch.float32)
+            sample["instance_mask_view2"] = (m2 > 0.5).to(torch.float32)
+        else:
+            sample["instance_image"] = instance_image.to(torch.float32)
+            sample["instance_mask"] = (instance_mask > 0.5).to(torch.float32)
+        return sample
+
+
 class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
     """Dataset class for instance-centered confidence map ID models.
 
@@ -2527,6 +2996,124 @@ class _RepeatSampler:
             yield from iter(self.sampler)
 
 
+class GroupAwareBatchSampler(torch.utils.data.Sampler):
+    """Group-aware batch sampler for contrastive embedding training.
+
+    Its only job is to make the wanted positives/negatives co-occur in a batch. Modes:
+      - ``pk``: P groups x K crops (the contrastive-standard sampler; guarantees K
+        positives per group).
+      - ``within_video``: pick ONE video, then P tracks x K crops from it — every
+        in-batch pair is same-video so its relationship is KNOWN (the correct
+        video-local sampler; cross-video pairs never co-occur). Falls back to PK when
+        there is a single video.
+      - ``random``: plain random batch (aug-view-only / self-supervised objectives).
+
+    Yields lists of dataset indices. ``__len__`` = ``batches_per_epoch``.
+    """
+
+    def __init__(
+        self,
+        group_ids: np.ndarray,
+        video_ids: np.ndarray,
+        frame_ids: np.ndarray,
+        kind: str = "pk",
+        P: int = 8,
+        K: int = 16,
+        batches_per_epoch: Optional[int] = None,
+        seed: int = 0,
+        rank: int = 0,
+        world_size: int = 1,
+    ):
+        """Initialize the sampler from the dataset's per-crop arrays.
+
+        Under multi-GPU (DDP) training, ``rank`` / ``world_size`` make each replica
+        draw a DIFFERENT batch stream (the RNG is seeded per ``(seed, rank)``). With the
+        per-replica ``batches_per_epoch``, the replicas process distinct batches whose
+        gradients are all-reduced — a genuinely larger effective batch instead of every
+        rank recomputing the identical batch. ``rank=0`` / ``world_size=1`` reproduces
+        the single-GPU stream exactly.
+        """
+        self.group_ids = np.asarray(group_ids)
+        self.video_ids = np.asarray(video_ids)
+        self.frame_ids = np.asarray(frame_ids)
+        self.kind = kind
+        self.P = P
+        self.K = K
+        self.rank = int(rank)
+        self.world_size = int(world_size)
+        # Per-rank stream: offsetting the seed by the rank gives each replica an
+        # independent batch sequence (SeedSequence decorrelates adjacent seeds), while
+        # rank 0 reproduces the single-GPU stream (seed + 0 == seed) byte-for-byte.
+        self.rng = np.random.default_rng(seed + self.rank)
+        n = len(self.group_ids)
+        self.all_idx = np.arange(n)
+
+        self.uniq_groups = np.unique(self.group_ids)
+        self.by_group = {g: self.all_idx[self.group_ids == g] for g in self.uniq_groups}
+
+        self.uniq_videos = np.unique(self.video_ids)
+        self.groups_in_video = {}
+        self.by_video_group = {}
+        for v in self.uniq_videos:
+            vmask = self.video_ids == v
+            vg = np.unique(self.group_ids[vmask])
+            self.groups_in_video[v] = vg
+            for g in vg:
+                self.by_video_group[(v, g)] = self.all_idx[
+                    vmask & (self.group_ids == g)
+                ]
+        elig = [v for v in self.uniq_videos if len(self.groups_in_video[v]) >= 2]
+        self.elig_videos = np.array(elig) if elig else self.uniq_videos
+        w = np.array([(self.video_ids == v).sum() for v in self.elig_videos], float)
+        self.video_w = w / w.sum()
+
+        self.batches_per_epoch = batches_per_epoch or max(
+            1, int(np.ceil(n / (self.P * self.K)))
+        )
+
+    def __len__(self) -> int:
+        """Number of batches per epoch."""
+        return self.batches_per_epoch
+
+    def _pk_batch(self):
+        P = min(self.P, len(self.uniq_groups))
+        groups = self.rng.choice(self.uniq_groups, size=P, replace=False)
+        batch = []
+        for g in groups:
+            pool = self.by_group[g]
+            replace = len(pool) < self.K
+            batch.extend(self.rng.choice(pool, size=self.K, replace=replace).tolist())
+        return batch
+
+    def _within_video_batch(self):
+        v = self.elig_videos[self.rng.choice(len(self.elig_videos), p=self.video_w)]
+        gs = self.groups_in_video[v]
+        P = min(self.P, len(gs))
+        groups = self.rng.choice(gs, size=P, replace=False)
+        batch = []
+        for g in groups:
+            pool = self.by_video_group[(v, g)]
+            replace = len(pool) < self.K
+            batch.extend(self.rng.choice(pool, size=self.K, replace=replace).tolist())
+        return batch
+
+    def _random_batch(self):
+        size = min(self.P * self.K, len(self.all_idx))
+        return self.rng.choice(self.all_idx, size=size, replace=False).tolist()
+
+    def __iter__(self) -> Iterator:
+        """Yield ``batches_per_epoch`` lists of dataset indices."""
+        for _ in range(self.batches_per_epoch):
+            if self.kind == "pk":
+                yield self._pk_batch()
+            elif self.kind == "within_video":
+                yield self._within_video_batch()
+            elif self.kind == "random":
+                yield self._random_batch()
+            else:
+                raise ValueError(f"Unknown sampler kind: {self.kind}")
+
+
 class BottomUpSegmentationDataset(BaseDataset):
     """Dataset class for bottom-up instance segmentation models.
 
@@ -2834,10 +3421,24 @@ def get_train_val_datasets(
     model_type = get_model_type_from_cfg(config=config)
     backbone_type = get_backbone_type_from_cfg(config=config)
 
+    # Gate the lossy disk cache for the embedding (appearance / re-ID) model (SPEC §5.1):
+    # `torch_dataset_cache_img_disk` writes source frames as JPEG, which silently
+    # degrades an appearance model. The disk cache has no lossless format, so refuse it
+    # for embedding and require the in-memory cache (or an uncached fw) instead.
+    if model_type == "embedding" and cache_imgs == "disk":
+        raise ValueError(
+            "data_pipeline_fw='torch_dataset_cache_img_disk' is not supported for the "
+            "`embedding` model type: the disk cache stores frames as JPEG, which "
+            "silently degrades an appearance / re-ID model. Use "
+            "data_pipeline_fw='torch_dataset_cache_img_memory' (lossless, recommended) "
+            "or 'torch_dataset' (uncached)."
+        )
+
     if use_negative_frames and model_type in (
         "centered_instance",
         "multi_class_topdown",
         "centered_instance_segmentation",
+        "embedding",
     ):
         logger.warning(
             f"use_negative_frames is enabled but model_type='{model_type}' "
@@ -3324,6 +3925,97 @@ def get_train_val_datasets(
             cache_workers=cache_workers,
         )
 
+    elif model_type == "embedding":
+        emb_cfg = config.model_config.head_configs.embedding.embedding
+        # One global track-name vocabulary shared by train + val (the group_id space).
+        class_names = resolve_embedding_class_names(train_labels + val_labels)
+        # Training-group key (global track-name vs per-video tracklet).
+        id_scope = OmegaConf.select(
+            emb_cfg, "objective.positives.scope", default="global_id"
+        )
+        max_stride = config.model_config.backbone_config[f"{backbone_type}"][
+            "max_stride"
+        ]
+        crop_size = config.data_config.preprocessing.crop_size
+        max_hw = (
+            config.data_config.preprocessing.max_height,
+            config.data_config.preprocessing.max_width,
+        )
+        # Grayscale is the embedding default (helps the cross-video gap), but the user
+        # can opt into RGB via `preprocessing.ensure_rgb`. A 3ch ImageNet backbone
+        # repeats the gray channel in Model.forward, so grayscale data still works with
+        # convnext/swint. When neither flag is set, default to grayscale.
+        emb_ensure_rgb = bool(config.data_config.preprocessing.ensure_rgb)
+        emb_ensure_grayscale = (
+            bool(config.data_config.preprocessing.ensure_grayscale)
+            or not emb_ensure_rgb
+        )
+        crop_centering = OmegaConf.select(
+            config, "data_config.preprocessing.crop_centering", default="auto"
+        )
+        train_dataset = EmbeddingDataset(
+            labels=train_labels,
+            crop_size=crop_size,
+            class_names=class_names,
+            embedding_head_config=emb_cfg,
+            max_stride=max_stride,
+            id_scope=id_scope,
+            crop_centering=crop_centering,
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=emb_ensure_rgb,
+            ensure_grayscale=emb_ensure_grayscale,
+            # Two contrastive views via the standard config-driven skia aug (per crop).
+            intensity_aug=(
+                config.data_config.augmentation_config.intensity
+                if config.data_config.augmentation_config is not None
+                else None
+            ),
+            geometric_aug=(
+                config.data_config.augmentation_config.geometric
+                if config.data_config.augmentation_config is not None
+                else None
+            ),
+            apply_aug=config.data_config.use_augmentations_train,
+            scale=config.data_config.preprocessing.scale,
+            max_hw=max_hw,
+            cache_img=cache_imgs,
+            cache_img_path=train_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
+        )
+        val_dataset = EmbeddingDataset(
+            labels=val_labels,
+            crop_size=crop_size,
+            class_names=class_names,
+            embedding_head_config=emb_cfg,
+            max_stride=max_stride,
+            id_scope=id_scope,
+            crop_centering=crop_centering,
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=emb_ensure_rgb,
+            ensure_grayscale=emb_ensure_grayscale,
+            scale=config.data_config.preprocessing.scale,
+            max_hw=max_hw,
+            cache_img=cache_imgs,
+            cache_img_path=val_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
+        )
+
+        if len(train_dataset) == 0:
+            message = (
+                "The embedding train dataset is empty: no tracked detections whose "
+                f"track name is in the resolved vocabulary ({len(class_names)} "
+                "class(es)) were found. Check that the labels carry tracked "
+                "masks/instances and that the track names match."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
     else:
         train_dataset = SingleInstanceDataset(
             labels=train_labels,
@@ -3441,6 +4133,52 @@ def get_train_val_dataloaders(
             dataset=val_dataset,
             batch_size=config.trainer_config.val_data_loader.batch_size,
         )
+
+    # Embedding training uses a group-aware BATCH sampler (PK / within_video) so the
+    # wanted positives/negatives co-occur in each batch. The batch_sampler is mutually
+    # exclusive with batch_size/shuffle/sampler, so build a distinct loader here.
+    if isinstance(train_dataset, EmbeddingDataset):
+        sp = "model_config.head_configs.embedding.embedding.objective.sampler"
+        batch_sampler = GroupAwareBatchSampler(
+            group_ids=train_dataset.group_ids,
+            video_ids=train_dataset.video_ids,
+            frame_ids=train_dataset.frame_ids,
+            kind=OmegaConf.select(config, f"{sp}.kind", default="pk"),
+            P=OmegaConf.select(config, f"{sp}.groups_per_batch", default=8),
+            K=OmegaConf.select(config, f"{sp}.samples_per_group", default=16),
+            batches_per_epoch=max(1, round(train_steps_per_epoch / trainer_devices)),
+            seed=OmegaConf.select(config, "trainer_config.seed", default=0) or 0,
+            # DDP: each rank draws an INDEPENDENT (seed + rank) batch stream of the same
+            # length over the full dataset — not a partition — so the all-reduced gradient
+            # aggregates roughly world_size x P x K decorrelated crops per step.
+            rank=rank if rank is not None else 0,
+            world_size=trainer_devices,
+        )
+        # Use a plain DataLoader (NOT InfiniteDataLoader): the GroupAwareBatchSampler
+        # is already epoch-bounded (yields `batches_per_epoch` batches per __iter__,
+        # re-randomized each epoch via its rng), so the infinite-recycling wrapper is
+        # unnecessary. Critically, InfiniteDataLoader eagerly creates its worker
+        # iterator + wraps the sampler in an infinite _RepeatSampler, which deadlocks
+        # under Lightning with num_workers>0; the plain loader iterates with workers
+        # correctly (so heavy CPU/skia aug can be parallelized).
+        train_nw = config.trainer_config.train_data_loader.num_workers
+        val_nw = config.trainer_config.val_data_loader.num_workers
+        train_data_loader = DataLoader(
+            dataset=train_dataset,
+            batch_sampler=batch_sampler,
+            num_workers=train_nw,
+            pin_memory=pin_memory,
+            persistent_workers=train_nw > 0,
+        )
+        val_data_loader = DataLoader(
+            dataset=val_dataset,
+            shuffle=False,
+            batch_size=config.trainer_config.val_data_loader.batch_size,
+            num_workers=val_nw,
+            pin_memory=pin_memory,
+            persistent_workers=val_nw > 0,
+        )
+        return train_data_loader, val_data_loader
 
     train_sampler = (
         DistributedSampler(

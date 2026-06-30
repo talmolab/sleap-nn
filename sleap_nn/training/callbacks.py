@@ -560,6 +560,11 @@ class UnifiedVizCallback(Callback):
         self.model_trainer = model_trainer
         self.train_pipeline = cycle(train_dataset)
         self.val_pipeline = cycle(val_dataset)
+        # Raw (un-cycled) dataset refs — the embedding scatter samples them by index
+        # to spread points across the whole set (the per-sample image viz uses the
+        # cycles above).
+        self.train_dataset = train_dataset
+        self.val_dataset = val_dataset
         self.model_type = model_type
 
         # Local disk config
@@ -591,6 +596,13 @@ class UnifiedVizCallback(Callback):
             "bottomup_segmentation",
             "centered_instance_segmentation",
         )
+        # The `embedding` model is skeleton-less (crop -> vector): the per-sample
+        # keypoint/confmap viz makes no sense (and would crash on the missing
+        # `get_visualization_data`). Instead render a 2D embedding-scatter panel
+        # (SPEC §9), handled by a dedicated branch in `on_train_epoch_end`.
+        self.viz_embedding = model_type == "embedding"
+        # Max crops sampled per split for the scatter (spread across the dataset).
+        self.embedding_scatter_n = 256
 
         # Initialize renderers
         from sleap_nn.training.utils import MatplotlibRenderer, WandBRenderer
@@ -920,22 +932,198 @@ class UnifiedVizCallback(Callback):
             epoch = trainer.current_epoch
             wandb_logger = self._get_wandb_logger(trainer) if self.log_wandb else None
 
-            # Get ONE sample for train visualization
-            train_sample = next(self.train_pipeline)
-            # Run inference ONCE with all needed data
-            train_data = self._get_viz_data(train_sample)
-            # Output to all destinations
-            self._save_local_viz(train_data, "train", epoch)
-            self._log_wandb_viz(train_data, "train", epoch, wandb_logger)
+            if self.viz_embedding:
+                # Skeleton-less embedder: render a 2D embedding-scatter panel instead
+                # of the per-sample keypoint viz (which has no meaning here and would
+                # crash on the missing `get_visualization_data`).
+                self._embedding_viz_epoch(epoch, wandb_logger)
+            else:
+                # Get ONE sample for train visualization
+                train_sample = next(self.train_pipeline)
+                # Run inference ONCE with all needed data
+                train_data = self._get_viz_data(train_sample)
+                # Output to all destinations
+                self._save_local_viz(train_data, "train", epoch)
+                self._log_wandb_viz(train_data, "train", epoch, wandb_logger)
 
-            # Same for validation
-            val_sample = next(self.val_pipeline)
-            val_data = self._get_viz_data(val_sample)
-            self._save_local_viz(val_data, "validation", epoch)
-            self._log_wandb_viz(val_data, "val", epoch, wandb_logger)
+                # Same for validation
+                val_sample = next(self.val_pipeline)
+                val_data = self._get_viz_data(val_sample)
+                self._save_local_viz(val_data, "validation", epoch)
+                self._log_wandb_viz(val_data, "val", epoch, wandb_logger)
 
         # Sync all processes - barrier must be reached by ALL ranks
         trainer.strategy.barrier()
+
+    # ── embedding-scatter viz (SPEC §9) ─────────────────────────────────────
+    def _embed_dataset_sample(self, module, dataset, n: int):
+        """Embed up to ``n`` crops spread evenly across ``dataset``.
+
+        Returns ``(embeddings (M, D) float32, group_ids (M,) int)`` or ``(None,
+        None)`` if no crops could be sampled. Mirrors the eval embedding path
+        (mask burn-in + standardize -> EmbeddingHead, pre-projection) so the scatter
+        matches the retrieval metrics.
+        """
+        import numpy as np
+        import torch
+
+        if dataset is None or not hasattr(dataset, "__len__") or len(dataset) == 0:
+            return None, None
+        total = len(dataset)
+        n = min(int(n), total)
+        # Evenly-spaced unique indices so the sample spans the whole set (the index
+        # order may cluster by identity).
+        idxs = sorted(set(np.linspace(0, total - 1, n).astype(int).tolist()))
+
+        grays, masks, groups = [], [], []
+        for i in idxs:
+            try:
+                s = dataset[i]
+            except Exception:  # noqa: BLE001 — skip an unreadable crop, keep going
+                continue
+            grays.append(s["instance_image"])
+            masks.append(s["instance_mask"])
+            # Color by the same global identity the retrieval metric evaluates on
+            # (track name), not the training group_id (which may be a per-video
+            # tracklet), so the scatter matches the reported rank1/mAP.
+            groups.append(int(s.get("global_group_id", s["group_id"])))
+        if not grays:
+            return None, None
+
+        device = module.device
+        gray = torch.stack(grays, 0).squeeze(1).to(device=device, dtype=torch.float32)
+        mask = torch.stack(masks, 0).squeeze(1).to(device=device, dtype=torch.float32)
+        was_training = module.training
+        module.eval()
+        try:
+            with torch.no_grad():
+                x = module._build_input(gray, mask)
+                emb = module.model(x)["EmbeddingHead"]
+        finally:
+            if was_training:
+                module.train()
+        return emb.detach().cpu().float().numpy(), np.asarray(groups)
+
+    @staticmethod
+    def _reduce_to_2d(x):
+        """Reduce ``(N, D)`` embeddings to ``(N, 2)`` (UMAP if available, else PCA)."""
+        import numpy as np
+
+        if x.shape[1] <= 2:
+            out = np.zeros((x.shape[0], 2), dtype=np.float32)
+            out[:, : x.shape[1]] = x
+            return out, "raw"
+        if x.shape[0] >= 10:
+            try:
+                import umap  # optional dependency
+
+                reducer = umap.UMAP(
+                    n_components=2,
+                    n_neighbors=min(15, x.shape[0] - 1),
+                    random_state=0,
+                )
+                return reducer.fit_transform(x).astype(np.float32), "umap"
+            except Exception:  # noqa: BLE001 — fall back to dependency-free PCA
+                pass
+        import torch
+
+        t = torch.from_numpy(x.astype("float32"))
+        t = t - t.mean(0, keepdim=True)
+        q = min(2, t.shape[0], t.shape[1])
+        _, _, v = torch.pca_lowrank(t, q=q)
+        proj = (t @ v[:, :2]).numpy()
+        if proj.shape[1] < 2:  # degenerate (1 sample / 1 dim)
+            proj = np.pad(proj, ((0, 0), (0, 2 - proj.shape[1])))
+        return proj.astype(np.float32), "pca"
+
+    def _embedding_viz_epoch(self, epoch: int, wandb_logger):
+        """Render + save/log the 2D embedding scatter for this epoch."""
+        import numpy as np
+
+        module = self.model_trainer.lightning_model
+        tr_emb, tr_grp = self._embed_dataset_sample(
+            module, self.train_dataset, self.embedding_scatter_n
+        )
+        va_emb, va_grp = self._embed_dataset_sample(
+            module, self.val_dataset, self.embedding_scatter_n
+        )
+        parts = [
+            (e, g) for e, g in ((tr_emb, tr_grp), (va_emb, va_grp)) if e is not None
+        ]
+        if not parts:
+            logger.warning("Embedding viz: no crops to embed; skipping scatter.")
+            return
+
+        all_emb = np.concatenate([e for e, _ in parts], axis=0)
+        all_grp = np.concatenate([g for _, g in parts], axis=0)
+        n_train = tr_emb.shape[0] if tr_emb is not None else 0
+        emb2d, method = self._reduce_to_2d(all_emb)
+
+        fig = self._render_embedding_scatter(emb2d, all_grp, n_train, epoch, method)
+
+        if self.save_local and self.local_save_dir is not None:
+            fig_path = self.local_save_dir / f"embedding_scatter.{epoch:04d}.png"
+            fig.savefig(fig_path, format="png", bbox_inches="tight")
+
+        if self.log_wandb and wandb_logger is not None:
+            from io import BytesIO
+            from PIL import Image as PILImage
+
+            buf = BytesIO()
+            fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0.1)
+            buf.seek(0)
+            wandb_logger.experiment.log(
+                {
+                    "viz/embedding_scatter": wandb.Image(
+                        PILImage.open(buf),
+                        caption=f"Embedding ({method}) — epoch {epoch}",
+                    )
+                },
+                commit=False,
+            )
+        plt.close(fig)
+
+    @staticmethod
+    def _render_embedding_scatter(emb2d, groups, n_train: int, epoch: int, method: str):
+        """Scatter of 2D embeddings colored by identity (train faint, val bold)."""
+        import numpy as np
+
+        fig, ax = plt.subplots(figsize=(6, 6), dpi=100)
+        uniq = sorted(set(int(g) for g in groups.tolist()))
+        cmap = plt.get_cmap("tab20")
+        color_of = {g: cmap(i % 20) for i, g in enumerate(uniq)}
+        colors = np.array([color_of[int(g)] for g in groups])
+
+        tr = slice(0, n_train)
+        va = slice(n_train, None)
+        if n_train > 0:
+            ax.scatter(
+                emb2d[tr, 0],
+                emb2d[tr, 1],
+                c=colors[tr],
+                s=12,
+                alpha=0.35,
+                linewidths=0,
+            )
+        if n_train < len(groups):
+            ax.scatter(
+                emb2d[va, 0],
+                emb2d[va, 1],
+                c=colors[va],
+                s=44,
+                alpha=0.95,
+                edgecolors="black",
+                linewidths=0.5,
+            )
+        n_val = len(groups) - n_train
+        ax.set_title(
+            f"Embedding ({method}) — epoch {epoch}\n"
+            f"{len(uniq)} ids · train○ {n_train} · val● {n_val}"
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+        fig.tight_layout()
+        return fig
 
 
 class MatplotlibSaver(Callback):
@@ -1905,3 +2093,131 @@ class CentroidEvaluationCallback(Callback):
                 wandb_logger.experiment.summary[summary_key] = value
             elif not is_distance and value > current_best:
                 wandb_logger.experiment.summary[summary_key] = value
+
+
+class EmbeddingEvaluationCallback(Callback):
+    """Per-epoch retrieval evaluation for the ``embedding`` model type.
+
+    Mirrors :class:`SegmentationEvaluationCallback`'s lifecycle: flips
+    ``pl_module._collect_val_predictions`` on at validation start so the embedding
+    ``validation_step`` collects per-crop ``{"embedding": vec}`` + ``{"label": id}``,
+    then computes retrieval (rank-1 / mAP), verification (ROC-AUC / EER) and cosine-kNN
+    accuracy over the val set (leave-self-out gallery == query).
+
+    Crucially it logs the selected metric BOTH via ``pl_module.log`` (so it lands in
+    ``trainer.callback_metrics`` for ``ModelCheckpoint`` / ``EarlyStopping`` to select
+    on a retrieval metric, NOT ``val/loss``) AND to wandb. The selection scalar is
+    broadcast from rank 0 so every rank logs the same value (no DDP deadlock).
+
+    Attributes:
+        eval_frequency: Run evaluation every N epochs (default: 1).
+        select_metric: Metric to log for checkpoint selection (rank1|mAP|auc|knn_acc).
+        knn_k: k for the cosine-kNN accuracy.
+    """
+
+    def __init__(
+        self, eval_frequency: int = 1, select_metric: str = "rank1", knn_k: int = 7
+    ):
+        """Initialize the callback."""
+        super().__init__()
+        self.eval_frequency = eval_frequency
+        self.select_metric = select_metric
+        self.knn_k = knn_k
+
+    def _get_wandb_logger(self, trainer):
+        from lightning.pytorch.loggers import WandbLogger
+
+        for log in trainer.loggers:
+            if isinstance(log, WandbLogger):
+                return log
+        return None
+
+    def on_validation_epoch_start(self, trainer, pl_module):
+        """Enable per-crop embedding collection (skip sanity check)."""
+        if trainer.sanity_checking:
+            return
+        pl_module._collect_val_predictions = True
+
+    def _compute_metrics(self, predictions: list, ground_truth: list) -> dict:
+        """Leave-self-out retrieval/verification/kNN over the collected val embeddings.
+
+        Delegates to :func:`sleap_nn.evaluation.embedding_leave_self_out_eval` so the
+        per-epoch selection metric and the post-training headline (train.py) use the
+        exact same protocol.
+        """
+        import numpy as np
+        from sleap_nn.evaluation import embedding_leave_self_out_eval
+
+        emb = np.stack([p["embedding"].numpy() for p in predictions]).astype(np.float64)
+        y = np.asarray([g["label"] for g in ground_truth])
+        return embedding_leave_self_out_eval(emb, y, k=self.knn_k)
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """Compute retrieval metrics; log to callback_metrics (selection) + wandb."""
+        should_evaluate = (
+            trainer.current_epoch + 1
+        ) % self.eval_frequency == 0 and trainer.is_global_zero
+
+        metrics = None
+        if should_evaluate:
+            if not pl_module.val_predictions or not pl_module.val_ground_truth:
+                logger.warning("No embeddings collected for embedding evaluation.")
+            else:
+                try:
+                    metrics = self._compute_metrics(
+                        pl_module.val_predictions, pl_module.val_ground_truth
+                    )
+                    logger.info(
+                        f"Epoch {trainer.current_epoch} embedding eval: "
+                        f"rank1={metrics['rank1']:.4f} mAP={metrics['mAP']:.4f} "
+                        f"auc={metrics['auc']} knn_acc={metrics['knn_acc']:.4f}"
+                    )
+                    wandb_logger = self._get_wandb_logger(trainer)
+                    if wandb_logger is not None:
+                        # The selection metrics (rank1/mAP/auc/eer/knn_acc) are logged
+                        # below via pl_module.log (which Lightning forwards to wandb), so
+                        # only log any EXTRA keys here to avoid double-logging the series.
+                        _selected = {"rank1", "mAP", "auc", "eer", "knn_acc"}
+                        log_dict = {
+                            f"eval/val/{k}": v
+                            for k, v in metrics.items()
+                            if k not in _selected
+                        }
+                        if log_dict:
+                            log_dict["epoch"] = trainer.current_epoch
+                            wandb_logger.experiment.log(log_dict, commit=False)
+                except Exception as e:
+                    logger.warning(f"Embedding epoch-end evaluation failed: {e}")
+
+        # Whether metrics were actually computed this epoch is known only on rank 0
+        # (eval cadence + data availability + a possibly-swallowed exception). Broadcast
+        # the flag so EVERY rank takes the SAME logging branch — mismatched ``self.log``
+        # calls across ranks would hang the DDP sync barrier.
+        have_metrics = bool(trainer.strategy.broadcast(metrics is not None, src=0))
+        if have_metrics:
+            # Broadcast each scalar from rank 0 so all ranks log the SAME value into
+            # callback_metrics (the ModelCheckpoint / EarlyStopping monitor reads it).
+            for k in ("rank1", "mAP", "auc", "eer", "knn_acc"):
+                v = (
+                    float(metrics[k])
+                    if (metrics is not None and k in metrics)
+                    else float("nan")
+                )
+                v = trainer.strategy.broadcast(v, src=0)
+                pl_module.log(
+                    f"eval/val/{k}",
+                    v,
+                    on_epoch=True,
+                    sync_dist=False,
+                    rank_zero_only=False,
+                )
+        # On non-eval epochs we log NOTHING for these keys: ``callback_metrics`` retains
+        # the last computed value, so the monitored selection metric stays finite and we
+        # never NaN-poison ``EarlyStopping(check_finite=True)`` into aborting the run at
+        # the first non-eval epoch.
+
+        pl_module._collect_val_predictions = False
+        if trainer.is_global_zero:
+            pl_module.val_predictions = []
+            pl_module.val_ground_truth = []
+        trainer.strategy.barrier()

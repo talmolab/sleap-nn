@@ -186,3 +186,16 @@ def test_model_oneof_failure_head_config(caplog):
             centroid=CentroidConfig(),
         )
     assert "Only one attribute of this class can be set (not None).\n" in caplog.text
+
+
+def test_get_head_configs_embedding_missing_leaf_raises():
+    """A dict embedding head with no inner `embedding` leaf raises a clear error.
+
+    The dict factory must point the user at the expected structure instead of
+    surfacing a raw KeyError/AttributeError.
+    """
+    from sleap_nn.config.get_config import get_head_configs
+
+    for bad in ({"embedding": {}}, {"embedding": {"embedding": None}}):
+        with pytest.raises(ValueError, match="embedding"):
+            get_head_configs(bad)

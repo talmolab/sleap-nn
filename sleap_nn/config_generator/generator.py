@@ -384,6 +384,20 @@ class ConfigGenerator:
         Returns:
             self for method chaining.
         """
+        # The config generator targets the pose pipelines. The `embedding` (re-ID)
+        # model type has its own extensive schema (identity semantics, the
+        # positives x negatives x loss objective, the PK sampler, crop/burn-in knobs)
+        # that the pose-oriented generator does not model — a generated config would be
+        # incomplete (e.g. no crop size, no objective) rather than trainable. Point the
+        # user at the dedicated sample config instead of emitting a silently-wrong one.
+        if pipeline == "embedding":
+            raise ValueError(
+                "The config generator does not support the 'embedding' (re-ID) model "
+                "type. Start from the sample config "
+                "'docs/sample_configs/config_embedding_convnext.yaml' (or train via "
+                "`sleap-nn train`) and set the identity / objective / crop knobs there."
+            )
+
         self._pipeline = pipeline
 
         if pipeline == "centroid":

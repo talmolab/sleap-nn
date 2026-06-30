@@ -40,6 +40,8 @@ from sleap_nn.training.losses import (
     compute_ohkm_loss,
     compute_bce_dice_loss,
     compute_masked_smooth_l1,
+    build_contrastive_masks,
+    get_contrastive_loss,
 )
 from loguru import logger
 from sleap_nn.training.utils import (
@@ -299,10 +301,11 @@ class LightningModel(L.LightningModule):
             "multi_class_topdown": TopDownCenteredInstanceMultiClassLightningModule,
             "bottomup_segmentation": BottomUpSegmentationLightningModule,
             "centered_instance_segmentation": TopDownCenteredInstanceSegmentationLightningModule,
+            "embedding": EmbeddingLightningModule,
         }
 
         if model_type not in lightning_models:
-            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`]"
+            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`, `embedding`]"
             logger.error(message)
             raise ValueError(message)
 
@@ -327,6 +330,10 @@ class LightningModel(L.LightningModule):
             amsgrad=config.trainer_config.optimizer.amsgrad,
             negative_loss_weight=negative_loss_weight,
         )
+
+        if model_type == "embedding":
+            # Make `data_config.preprocessing.burn_in` live (mask-on vs centroid-crop).
+            set_embedding_burn_in_from_config(lightning_model, config)
 
         return lightning_model
 
@@ -618,18 +625,27 @@ class LightningModel(L.LightningModule):
         """Validation step."""
         pass
 
-    def configure_optimizers(self):
-        """Configure optimiser and learning rate scheduler."""
-        if self.optimizer == "Adam":
-            optim = torch.optim.Adam
-        elif self.optimizer == "AdamW":
-            optim = torch.optim.AdamW
+    def configure_optimizers(self, optimizer=None):
+        """Configure optimiser and learning rate scheduler.
 
-        optimizer = optim(
-            self.parameters(),
-            lr=self.lr,
-            amsgrad=self.amsgrad,
-        )
+        Args:
+            optimizer: Optional pre-built optimizer. Subclasses that need a custom
+                parameter set (e.g. the embedding model's frozen-backbone filter) build
+                their own optimizer and pass it here so the scheduler is bound to the
+                SAME optimizer that is returned (Lightning rejects a scheduler attached
+                to an optimizer that is not returned from ``configure_optimizers``).
+        """
+        if optimizer is None:
+            if self.optimizer == "Adam":
+                optim = torch.optim.Adam
+            elif self.optimizer == "AdamW":
+                optim = torch.optim.AdamW
+
+            optimizer = optim(
+                self.parameters(),
+                lr=self.lr,
+                amsgrad=self.amsgrad,
+            )
 
         lr_scheduler_cfg = LRSchedulerConfig()
         if self.lr_scheduler is None:
@@ -2710,6 +2726,485 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                         "num_instances": 1,
                     }
                 )
+
+
+def validate_embedding_identity(objective, identity):
+    """Enforce the identity-equality gates for the embedding objective.
+
+    Each positive/negative source silently asserts "same / different animal"; a wrong
+    assertion trains the appearance model on label noise (pulling two *different*
+    animals together, or pushing the *same* animal apart). The ``data_config.identity``
+    block DECLARES the data's semantics so the objective can be validated against it:
+
+    - pos ``aug_view``: two views = same id (same crop) -> no assumption.
+    - pos ``tracklet``: same ``(video, track)`` = same animal -> **warn** if
+      ``identity.tracks_are_proofread`` is False (tracker swaps poison training).
+    - pos ``global_id``: same track name across videos = same animal -> **error** if
+      ``identity.track_names_are_global`` is False (names must be globally consistent).
+    - neg ``same_frame``: two detections / frame = different animals -> **warn** if
+      ``identity.detections_deduplicated`` is False (a double / over-segmented
+      detection becomes a hard negative against itself).
+
+    The defaults assumed for absent fields match :class:`EmbeddingLightningModule`'s
+    resolution and the conservative :class:`IdentityConfig` defaults.
+
+    Args:
+        objective: The ``head_configs.embedding.embedding.objective`` node (``DictConfig``
+            or ``None`` — defaults assumed when absent). Only ``positives.scope`` and
+            ``negatives.sources`` are read.
+        identity: The ``data_config.identity`` node (``DictConfig`` or ``None`` —
+            defaults assumed when absent).
+
+    Raises:
+        ValueError: if ``positives.scope='global_id'`` but the data does not declare
+            ``identity.track_names_are_global=True``.
+    """
+    # Resolve objective semantics with the same defaults the LightningModule uses.
+    if objective is not None:
+        scope = OmegaConf.select(objective, "positives.scope", default="global_id")
+        neg_sources = OmegaConf.select(
+            objective, "negatives.sources", default=["same_frame", "in_batch"]
+        )
+    else:
+        scope = "global_id"
+        neg_sources = ["same_frame", "in_batch"]
+    neg_sources = list(neg_sources) if neg_sources else []
+
+    # Declared data semantics (default to the conservative IdentityConfig defaults).
+    if identity is not None:
+        tracks_are_proofread = bool(
+            OmegaConf.select(identity, "tracks_are_proofread", default=False)
+        )
+        track_names_are_global = bool(
+            OmegaConf.select(identity, "track_names_are_global", default=False)
+        )
+        detections_deduplicated = bool(
+            OmegaConf.select(identity, "detections_deduplicated", default=True)
+        )
+    else:
+        tracks_are_proofread = False
+        track_names_are_global = False
+        detections_deduplicated = True
+
+    if scope == "global_id" and not track_names_are_global:
+        raise ValueError(
+            "head_configs.embedding.embedding.objective.positives.scope='global_id' "
+            "requires data_config.identity.track_names_are_global=True (the same track "
+            "name must mean the same animal across videos). Set it only if your labels "
+            "are globally consistent, or use scope='tracklet' (video-local) instead."
+        )
+    if scope == "tracklet" and not tracks_are_proofread:
+        logger.warning(
+            "embedding objective positives.scope='tracklet' but "
+            "data_config.identity.tracks_are_proofread=False: tracker swaps will pull "
+            "DIFFERENT animals together (training on label noise)."
+        )
+    if scope == "tracklet" and "in_batch" in neg_sources:
+        # Under tracklet scope identity is per-(video, track), so the same animal in two
+        # different videos is NOT a positive. With in-batch negatives and
+        # restrict_same_video=False those cross-video same-animal pairs become hard
+        # negatives — training the model to push the same animal apart across videos,
+        # the exact opposite of cross-session re-ID. The invariant is documented on both
+        # NegativesConfig.restrict_same_video and build_contrastive_masks; enforce it.
+        restrict_same_video = bool(
+            OmegaConf.select(objective, "negatives.restrict_same_video", default=False)
+        )
+        if not restrict_same_video:
+            raise ValueError(
+                "embedding objective positives.scope='tracklet' with 'in_batch' "
+                "negatives REQUIRES "
+                "head_configs.embedding.embedding.objective.negatives."
+                "restrict_same_video=True. Without it, two crops of the SAME animal in "
+                "different videos become in-batch hard negatives and the model is "
+                "trained to push that animal apart across videos. Set "
+                "restrict_same_video=True, or use a video-global scope='global_id' with "
+                "globally-consistent track names."
+            )
+    if "same_frame" in neg_sources and not detections_deduplicated:
+        logger.warning(
+            "embedding objective negatives include 'same_frame' but "
+            "data_config.identity.detections_deduplicated=False: a double / "
+            "over-segmented detection will be treated as a hard negative against itself."
+        )
+
+
+_EMBEDDING_BACKGROUND_FILLS = ("black", "grey", "mean", "noise")
+
+
+def set_embedding_burn_in_from_config(module, config) -> None:
+    """Honor ``data_config.preprocessing.burn_in`` on an ``EmbeddingLightningModule``.
+
+    ``burn_in`` is a pure runtime toggle (read in ``training_step`` / ``forward`` /
+    ``validation_step``), so setting it after construction is safe. The canonical
+    default is ``False`` (matching ``PreprocessingConfig.burn_in`` and the LM
+    ``__init__``); BOTH the training factory
+    (:meth:`LightningModel.get_lightning_model_from_config`) and the inference loader
+    (:func:`sleap_nn.inference.loaders._load_lightning_module`) call this so a model
+    trained maskless (``burn_in=False``, the "centroid-crop" objective) also runs
+    maskless at inference — no train/inference mismatch.
+
+    When ``burn_in`` is ``False`` the crop is NOT multiplied by the mask and
+    ``_standardize`` falls back to whole-crop standardize (the full square crop around
+    the centroid / mask-COM is kept, background included).
+
+    Also honors ``data_config.preprocessing.background_fill`` (what the masked-out
+    background is replaced with when ``burn_in`` is on): ``black`` (default, the
+    original mask-multiply), ``grey`` (mid-grey), ``mean`` (foreground mean — neutral,
+    equivalent to ``black`` for standardized inputs), or ``noise`` (per-pixel noise).
+
+    Args:
+        module: The constructed ``EmbeddingLightningModule``.
+        config: The full training config (carries ``data_config.preprocessing``).
+    """
+    module.burn_in = bool(
+        OmegaConf.select(config, "data_config.preprocessing.burn_in", default=False)
+    )
+    background_fill = OmegaConf.select(
+        config, "data_config.preprocessing.background_fill", default="black"
+    )
+    if background_fill not in _EMBEDDING_BACKGROUND_FILLS:
+        message = (
+            f"Unknown data_config.preprocessing.background_fill "
+            f"'{background_fill}'; choose one of "
+            f"{'|'.join(_EMBEDDING_BACKGROUND_FILLS)}."
+        )
+        logger.error(message)
+        raise ValueError(message)
+    module.background_fill = background_fill
+
+
+class EmbeddingLightningModule(LightningModel):
+    """Lightning Module for the ``embedding`` (crop -> vector, re-ID) model type.
+
+    The embedder (backbone + EmbeddingHead) maps a grayscale, mask-burned-in crop to an
+    L2-normalized vector. Training is contrastive: the ``training_step`` makes two
+    augmented views of each crop (GPU-side), builds a positive/negative mask from each
+    item's ``(video, frame, group, item_id)``, and applies the configured contrastive
+    loss on a train-only projection head. The objective (positives x negatives x loss)
+    is read from the head config; swapping it requires no code change here.
+    """
+
+    def __init__(
+        self,
+        model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
+        negative_loss_weight: Optional[float] = 1.0,
+    ):
+        """Initialise the configs, model, objective + projection head."""
+        super().__init__(
+            model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
+            negative_loss_weight=negative_loss_weight,
+        )
+        leaf = self.head_configs.embedding.embedding
+        self.embedding_dim = leaf.embedding_dim
+        self.freeze_backbone = bool(
+            OmegaConf.select(leaf, "freeze_backbone", default=False)
+        )
+        # Grayscale input + mask burn-in + per-crop standardize. `burn_in` defaults OFF
+        # (matching `PreprocessingConfig.burn_in=False` and the sample config); BOTH the
+        # training factory and the inference loader override it from
+        # `data_config.preprocessing.burn_in` (set_embedding_burn_in_from_config), so a
+        # mask-based model opts in there and train/inference stay in lockstep. When
+        # burn_in is off, `_standardize` falls back to whole-crop standardize.
+        self.burn_in = False
+        # Per-crop standardize is always on (nothing sets this False), so the ``/255``
+        # branch of ``_build_input`` is currently unreachable and ``background_fill='mean'``
+        # is identical to ``'black'`` (the foreground mean is 0 in standardized space) —
+        # see PreprocessingConfig.background_fill docs.
+        self.standardize = True
+        # What the masked-out background is replaced with when burn_in is on. The
+        # factory / inference loader override this from
+        # ``data_config.preprocessing.background_fill`` (set_embedding_burn_in_from_config).
+        self.background_fill = "black"
+
+        # Resolve the objective with defaults (nested sub-configs may be None).
+        obj = leaf.objective
+        self.loss_name = OmegaConf.select(obj, "loss.name", default="supcon")
+        self.loss_temperature = OmegaConf.select(obj, "loss.temperature", default=0.1)
+        self.loss_margin = OmegaConf.select(obj, "loss.margin", default=0.2)
+        if float(self.loss_temperature) <= 0:
+            raise ValueError(
+                "head_configs.embedding.embedding.objective.loss.temperature must be "
+                f"> 0 (got {self.loss_temperature}); a non-positive temperature makes "
+                "the contrastive logits inf/NaN or inverts the objective."
+            )
+        if float(self.loss_margin) < 0:
+            raise ValueError(
+                "head_configs.embedding.embedding.objective.loss.margin must be >= 0 "
+                f"(got {self.loss_margin})."
+            )
+        self.pos_scope = OmegaConf.select(obj, "positives.scope", default="global_id")
+        aug_views = int(OmegaConf.select(obj, "positives.aug_views", default=2))
+        if aug_views != 2:
+            raise ValueError(
+                "head_configs.embedding.embedding.objective.positives.aug_views must "
+                f"be 2 (got {aug_views}); the contrastive training_step uses exactly "
+                "two augmented views per crop. Other view counts are not supported "
+                "in P1 — set aug_views=2 (the default)."
+            )
+        if self.pos_scope == "aug_view":
+            # Validation is not doubled (single view per crop) and aug_view has no
+            # identity positives, so the per-row positive set is empty -> val/loss is
+            # structurally ~0 every epoch. Checkpoint selection uses the retrieval
+            # metric (not val/loss), but a `reduce_lr_on_plateau` scheduler that
+            # monitors val/loss would decay the LR spuriously.
+            logger.warning(
+                "Embedding positives.scope='aug_view': val/loss is uninformative "
+                "(no in-batch validation positives). Checkpoint selection uses the "
+                "retrieval metric; avoid lr_scheduler='reduce_lr_on_plateau' (it "
+                "monitors val/loss) for this self-supervised regime."
+            )
+        self.neg_sources = list(
+            OmegaConf.select(
+                obj, "negatives.sources", default=["same_frame", "in_batch"]
+            )
+        )
+        self.neg_exclude_same_track = bool(
+            OmegaConf.select(obj, "negatives.exclude_same_track", default=True)
+        )
+        self.neg_restrict_same_video = bool(
+            OmegaConf.select(obj, "negatives.restrict_same_video", default=False)
+        )
+        self.use_projection = bool(
+            OmegaConf.select(obj, "use_projection", default=True)
+        )
+        projection_dim = int(OmegaConf.select(obj, "projection_dim", default=128))
+
+        self.loss_fn = get_contrastive_loss(self.loss_name)
+        # Train-only projection head (discarded at inference) for supcon/infonce.
+        if self.use_projection and self.loss_name in ("supcon", "infonce"):
+            self.projection = nn.Sequential(
+                nn.Linear(self.embedding_dim, projection_dim),
+                nn.ReLU(inplace=True),
+                nn.Linear(projection_dim, projection_dim),
+            )
+        else:
+            self.projection = None
+
+        if self.freeze_backbone:
+            for p in self.model.backbone.parameters():
+                p.requires_grad_(False)
+
+    # ---- objective helpers ----
+    def _project(self, e: torch.Tensor) -> torch.Tensor:
+        if self.projection is None:
+            return F.normalize(e, dim=1)
+        return F.normalize(self.projection(e), dim=1)
+
+    def _loss_kwargs(self):
+        if self.loss_name in ("supcon", "infonce"):
+            return {"temperature": self.loss_temperature}
+        return {"margin": self.loss_margin}
+
+    def _build_masks(self, item_id, video, frame, group):
+        return build_contrastive_masks(
+            item_id=item_id,
+            video=video,
+            frame=frame,
+            group=group,
+            positives_scope=self.pos_scope,
+            negatives_sources=self.neg_sources,
+            exclude_same_track=self.neg_exclude_same_track,
+            restrict_same_video=self.neg_restrict_same_video,
+        )
+
+    # ---- crop intensity (Stage 5) + two-view aug (Stage 0, GPU) ----
+    def _standardize(self, gray, mask, eps=1e-5):
+        # Reduce over spatial dims ONLY (keep the channel axis) so each channel is
+        # standardized independently. For grayscale (C=1) this is byte-identical to the
+        # old whole-tensor reduction; for RGB (C=3) it yields a true per-channel
+        # zero-mean/unit-std instead of a ~C x-scaled cross-channel "mean". `mask` is
+        # single-channel and broadcasts across channels.
+        m = mask if self.burn_in else torch.ones_like(mask)
+        cnt = m.sum((2, 3), keepdim=True).clamp(min=1)
+        mu = (gray * m).sum((2, 3), keepdim=True) / cnt
+        std = (((gray - mu) ** 2 * m).sum((2, 3), keepdim=True) / cnt).sqrt() + eps
+        g = (gray - mu) / std
+        if not self.burn_in:
+            return g
+        # Compose the standardized foreground with the configured background fill.
+        return g * m + self._background_fill(g, m, mu, std) * (1 - m)
+
+    def _background_fill(self, g, m, mu, std):
+        """Standardized-space fill for the masked-out background (burn-in only).
+
+        ``black`` (default) and ``mean`` are 0 (the foreground mean in standardized
+        space — the original mask-multiply); ``grey`` is the standardized value of raw
+        mid-grey for the crop; ``noise`` is per-pixel standard-normal noise. ``noise``
+        is applied only during training (it is an augmentation): at eval / inference it
+        falls back to the neutral 0 fill so the retrieval metric — and thus checkpoint
+        selection — stays deterministic.
+        """
+        fill = getattr(self, "background_fill", "black")
+        if fill == "grey":
+            return (127.5 - mu) / std
+        if fill == "noise" and self.training:
+            return torch.randn_like(g)
+        # "black" / "mean" / (noise at eval) -> foreground mean == 0 in standardized space.
+        return torch.zeros_like(g)
+
+    def _build_input(self, gray, mask):
+        if self.standardize:
+            return self._standardize(gray, mask)
+        g = gray / 255.0
+        if not self.burn_in:
+            return g
+        fill = getattr(self, "background_fill", "black")
+        if fill == "grey":
+            bg = torch.full_like(g, 0.5)
+        elif fill == "mean":
+            cnt = mask.sum((1, 2, 3), keepdim=True).clamp(min=1)
+            bg = (g * mask).sum((1, 2, 3), keepdim=True) / cnt
+        elif fill == "noise" and self.training:  # augmentation; deterministic at eval
+            bg = torch.rand_like(g)
+        else:  # "black" / (noise at eval)
+            bg = torch.zeros_like(g)
+        return g * mask + bg * (1 - mask)
+
+    def _two_views(self, batch):
+        """Return the two augmented (gray, mask) views for the contrastive step.
+
+        The views are produced by the standard config-driven skia augmentation in
+        ``EmbeddingDataset.__getitem__`` (``instance_image`` / ``instance_image_view2``).
+        If a second view is absent (``apply_aug=False``), the first view is reused
+        (degenerate — train with ``use_augmentations_train=True``).
+        """
+        gray1 = torch.squeeze(batch["instance_image"], dim=1).to(torch.float32)
+        mask1 = torch.squeeze(batch["instance_mask"], dim=1).to(torch.float32)
+        if "instance_image_view2" in batch:
+            gray2 = torch.squeeze(batch["instance_image_view2"], dim=1).to(
+                torch.float32
+            )
+            mask2 = torch.squeeze(batch["instance_mask_view2"], dim=1).to(torch.float32)
+        else:
+            gray2, mask2 = gray1, mask1
+        return (gray1, mask1), (gray2, mask2)
+
+    def forward(self, img, mask=None):
+        """Inference forward: image -> embedding (B, D).
+
+        Runs the SAME crop pipeline as training/validation (``_build_input``: mask
+        burn-in + per-crop standardize), so pass ``mask`` (the instance mask) to
+        reproduce a burn-in model's masked, foreground-only standardize and stay in
+        lockstep with training. When ``mask is None`` — no mask available, e.g.
+        centroid-driven raw-frame inference — a whole-crop (all-ones) standardize is
+        used, which DIVERGES from a burn-in model's masked training standardize
+        (callers on that path warn; see ``inference/embedding.py``). The mask-driven
+        inference layer (``EmbeddingLayer``) calls ``_build_input`` with the real mask
+        directly, so it is unaffected by this fallback.
+        """
+        img = torch.squeeze(img, dim=1).to(self.device).to(torch.float32)
+        if mask is None:
+            mask = torch.ones_like(img[:, :1])
+        else:
+            mask = mask.to(self.device).to(torch.float32)
+            if mask.dim() == 5:
+                mask = torch.squeeze(mask, dim=1)
+        return self.model(self._build_input(img, mask))["EmbeddingHead"]
+
+    def training_step(self, batch, batch_idx):
+        """Two-view contrastive training step (views augmented in the dataset)."""
+        (g1, m1), (g2, m2) = self._two_views(batch)
+        x = torch.cat([self._build_input(g1, m1), self._build_input(g2, m2)], dim=0)
+        e = self.model(x)["EmbeddingHead"]
+        z = self._project(e)
+
+        item_id = torch.cat([batch["item_id"], batch["item_id"]], dim=0)
+        video = torch.cat([batch["video_idx"], batch["video_idx"]], dim=0)
+        frame = torch.cat([batch["frame_idx"], batch["frame_idx"]], dim=0)
+        group = torch.cat([batch["group_id"], batch["group_id"]], dim=0)
+        pos, neg = self._build_masks(item_id, video, frame, group)
+        loss = self.loss_fn(z, pos, neg, **self._loss_kwargs())
+
+        self.log(
+            "loss", loss, prog_bar=True, on_step=True, on_epoch=False, sync_dist=True
+        )
+        self._accumulate_loss(loss)
+        self.log("train/loss", loss, on_step=False, on_epoch=True, sync_dist=True)
+        with torch.no_grad():
+            self.log(
+                "train/pos_per_anchor",
+                (pos.sum(1).float().mean()),
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Embed the val batch (no aug); compute a val loss + collect for retrieval."""
+        gray = torch.squeeze(batch["instance_image"], dim=1).to(torch.float32)
+        mask = torch.squeeze(batch["instance_mask"], dim=1).to(torch.float32)
+        x = self._build_input(gray, mask)
+        e = self.model(x)["EmbeddingHead"]
+        z = self._project(e)
+
+        item_id = batch["item_id"]
+        pos, neg = self._build_masks(
+            item_id, batch["video_idx"], batch["frame_idx"], batch["group_id"]
+        )
+        val_loss = self.loss_fn(z, pos, neg, **self._loss_kwargs())
+        self.log(
+            "val/loss",
+            val_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+
+        if self._collect_val_predictions:
+            emb = e.detach().cpu()
+            # Evaluate on the GLOBAL grouping (track-name), independent of the training
+            # group (e.g. tracklet), so different objectives are comparable on one
+            # retrieval metric. Falls back to group_id when no global grouping exists.
+            label_key = "global_group_id" if "global_group_id" in batch else "group_id"
+            labels = batch[label_key].detach().cpu()
+            for i in range(emb.shape[0]):
+                self.val_predictions.append({"embedding": emb[i]})
+                self.val_ground_truth.append({"label": int(labels[i])})
+
+    def configure_optimizers(self):
+        """Optimizer over trainable params only (frozen backbone -> adapter only).
+
+        Builds the optimizer over ``requires_grad`` params, then delegates to the base
+        scheduler construction with THAT optimizer so the scheduler is bound to the
+        optimizer that is returned (val/loss monitor; checkpoint SELECTION still moves
+        to the retrieval metric via ModelCheckpoint in the trainer).
+        """
+        optim = torch.optim.AdamW if self.optimizer == "AdamW" else torch.optim.Adam
+        params = [p for p in self.parameters() if p.requires_grad]
+        optimizer = optim(params, lr=self.lr, amsgrad=self.amsgrad)
+        return LightningModel.configure_optimizers(self, optimizer=optimizer)
 
 
 class BottomUpSegmentationLightningModule(LightningModel):

@@ -7,6 +7,7 @@ from sleap_nn.export.wrappers import (
     SingleInstanceONNXWrapper,
     CentroidONNXWrapper,
     CenteredInstanceONNXWrapper,
+    EmbeddingONNXWrapper,
 )
 from sleap_nn.export.wrappers.base import BaseExportWrapper
 
@@ -894,3 +895,93 @@ class TestTopDownMultiClassCombinedONNXWrapper:
         # Just verify it runs and has correct output shapes
         assert output["peaks"].shape == (1, 5, 3, 2)
         assert output["class_logits"].shape == (1, 5, 2)
+
+
+class _MockEmbeddingModel(torch.nn.Module):
+    """Mock embedder: pooled linear -> {'EmbeddingHead': (B, D)}.
+
+    Mirrors the real ``Model`` output (a dict keyed by the head name) so the
+    wrapper's ``_extract_tensor(["embedding", "vector"])`` resolves it.
+    """
+
+    def __init__(self, embedding_dim=8, in_channels=1):
+        super().__init__()
+        self.fc = torch.nn.Linear(in_channels, embedding_dim)
+
+    def forward(self, x):
+        pooled = x.mean((2, 3))  # (B, C)
+        return {"EmbeddingHead": self.fc(pooled)}
+
+
+class TestEmbeddingONNXWrapper:
+    """Tests for EmbeddingONNXWrapper (crop -> appearance vector)."""
+
+    def test_embedding_wrapper_forward_shape_and_norm(self):
+        """forward(image) -> {'embedding': (B, D)}; L2-normalized when enabled."""
+        model = _MockEmbeddingModel(embedding_dim=8)
+        wrapper = EmbeddingONNXWrapper(model, normalize=True).eval()
+
+        image = torch.randint(0, 256, (3, 1, 16, 16), dtype=torch.uint8)
+        out = wrapper(image)
+
+        assert isinstance(out, dict)
+        assert "embedding" in out
+        assert out["embedding"].shape == (3, 8)
+        norms = out["embedding"].norm(dim=1)
+        assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5)
+
+    def test_embedding_wrapper_no_normalize(self):
+        """normalize=False skips L2-normalization."""
+        torch.manual_seed(0)
+        model = _MockEmbeddingModel(embedding_dim=8)
+        wrapper = EmbeddingONNXWrapper(model, normalize=False).eval()
+
+        # Non-constant image so per-crop standardize doesn't zero it out.
+        image = torch.arange(1 * 1 * 16 * 16, dtype=torch.uint8).reshape(1, 1, 16, 16)
+        out = wrapper(image)
+        norm = out["embedding"].norm(dim=1)
+        # Extremely unlikely to land exactly on the unit sphere without normalize.
+        assert not torch.allclose(norm, torch.ones_like(norm), atol=1e-3)
+
+    def test_embedding_wrapper_handles_3channel_input(self):
+        """The wrapper standardizes over channels, so 3-channel crops work too."""
+        model = _MockEmbeddingModel(embedding_dim=8, in_channels=3)
+        wrapper = EmbeddingONNXWrapper(model, normalize=True).eval()
+
+        image = torch.randint(0, 256, (2, 3, 16, 16), dtype=torch.uint8)
+        out = wrapper(image)
+        assert out["embedding"].shape == (2, 8)
+
+    @pytest.mark.parametrize("channels", [1, 3])
+    def test_embedding_wrapper_standardize_matches_inference(self, channels):
+        """The wrapper's standardize must equal the inference _standardize exactly.
+
+        The exported graph must reproduce the PyTorch inference normalization for any
+        channel count (grayscale default AND the RGB opt-in), else exported embeddings
+        silently diverge from inference. Inference uses a 1-channel ones mask, so the
+        count is H*W (spatial only); the wrapper must match that, not divide by C*H*W.
+        """
+        from sleap_nn.training.lightning_modules import EmbeddingLightningModule
+
+        x = torch.rand(2, channels, 8, 8) * 255.0
+
+        class _Stub:
+            burn_in = True
+            standardize = True
+            background_fill = "black"
+            training = False
+
+        _Stub._standardize = EmbeddingLightningModule._standardize
+        _Stub._background_fill = EmbeddingLightningModule._background_fill
+        inference = _Stub()._standardize(x, torch.ones_like(x[:, :1]))
+
+        # Capture the wrapper's standardized tensor via an identity "model".
+        captured = {}
+
+        class _Capture(torch.nn.Module):
+            def forward(self, t):
+                captured["x"] = t
+                return {"EmbeddingHead": t.flatten(1)[:, :4]}
+
+        EmbeddingONNXWrapper(_Capture(), normalize=False)(x)
+        assert torch.allclose(captured["x"], inference, atol=1e-5)

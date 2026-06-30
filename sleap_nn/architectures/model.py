@@ -25,6 +25,7 @@ from sleap_nn.architectures.heads import (
     SegmentationHead,
     InstanceCenterHead,
     CenterOffsetHead,
+    EmbeddingHead,
 )
 from sleap_nn.architectures.unet import UNet
 from sleap_nn.architectures.convnext import ConvNextWrapper
@@ -76,6 +77,7 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
             - 'multi_class_topdown'
             - 'bottomup_segmentation'
             - 'centered_instance_segmentation'
+            - 'embedding'
         head_config (DictConfig): A config for the head.
 
     Returns:
@@ -119,8 +121,24 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
             )
         )
 
+    elif model_type == "embedding":
+        # Lone pooled head (crop -> vector). The `objective` block lives in the head
+        # leaf but is consumed by the LightningModule, not the head module.
+        emb = head_config.embedding
+        heads.append(
+            EmbeddingHead(
+                embedding_dim=emb.embedding_dim,
+                num_fc_layers=emb.num_fc_layers,
+                num_fc_units=emb.num_fc_units,
+                pool=emb.pool,
+                normalize=emb.normalize,
+                output_stride=emb.output_stride,
+                loss_weight=emb.loss_weight,
+            )
+        )
+
     else:
-        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`."
+        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`, `embedding`."
         logger.error(message)
         raise Exception(message)
 
@@ -167,7 +185,7 @@ class Model(nn.Module):
 
         self.head_layers = nn.ModuleList([])
         for head in self.heads:
-            if isinstance(head, ClassVectorsHead):
+            if isinstance(head, (ClassVectorsHead, EmbeddingHead)):
                 in_channels = int(self.backbone.middle_blocks[-1].filters)
             else:
                 in_channels = self.backbone.decoder_stride_to_filters[
@@ -208,7 +226,7 @@ class Model(nn.Module):
             if not len(backbone_outputs["outputs"]):
                 outputs[head.name] = head_layer(backbone_outputs["middle_output"])
             else:
-                if isinstance(head, ClassVectorsHead):
+                if isinstance(head, (ClassVectorsHead, EmbeddingHead)):
                     backbone_out = backbone_outputs["intermediate_feat"]
                     outputs[head.name] = head_layer(backbone_out)
                 else:

@@ -263,6 +263,17 @@ def test_centroid_only_is_not_topdown_but_centroid_is():
     assert paired.is_topdown is True
 
 
+def test_embedding_pipeline_rejected_with_pointer():
+    """The pose-oriented generator rejects 'embedding' with a clear pointer (P2 #8).
+
+    Rather than silently emitting a pose config with no embedding head, selecting the
+    re-ID model type raises and points at the dedicated sample config.
+    """
+    gen = ConfigGenerator.from_slp(FIXTURE_SLP).auto()
+    with pytest.raises(ValueError, match="embedding"):
+        gen.pipeline("embedding")
+
+
 def test_centroid_only_save_emits_single_file(tmp_path):
     """save() writes ONE file for centroid_only vs TWO for the paired centroid."""
     out = tmp_path / "cfg.yaml"
