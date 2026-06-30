@@ -1548,3 +1548,53 @@ def test_multi_gpu_no_cache_auto_generates_run_name(config, tmp_path, minimal_in
 
         assert trainer.config.trainer_config.run_name is not None
         assert re.match(r"\d{6}_\d{6}\.", trainer.config.trainer_config.run_name)
+
+
+def test_setup_preprocessing_config_crop_based_skips_max_hw(
+    pytestconfig, minimal_instance
+):
+    """Crop-based models must not auto-fill max_height/max_width (#2748).
+
+    Top-down / crop-based models (``centered_instance``, ``multi_class_topdown``,
+    ``centered_instance_segmentation``) are sized by ``crop_size``. A stray
+    full-frame ``max_height``/``max_width`` makes the inference pipeline resize
+    frames before cropping, which clusters predictions (talmolab/sleap#2748).
+    ``_setup_preprocessing_config`` must therefore leave ``max_height`` /
+    ``max_width`` as configured (``None``) for crop-based models while still
+    auto-computing ``crop_size``. Full-frame models (e.g. ``centroid``) must
+    still get ``max_height``/``max_width`` auto-filled from the video dims.
+    """
+    configs_dir = Path(pytestconfig.rootdir) / "tests/assets/generated_configs"
+    labels = sio.load_slp(minimal_instance)  # 384 x 384
+
+    # Crop-based model: max_height/max_width must stay None, crop_size computed.
+    ci_cfg = OmegaConf.load(configs_dir / "centered_instance.yaml")
+    ci_cfg.data_config.preprocessing.max_height = None
+    ci_cfg.data_config.preprocessing.max_width = None
+    ci_cfg.data_config.preprocessing.crop_size = None
+
+    ci_trainer = ModelTrainer(config=ci_cfg)
+    ci_trainer.model_type = "centered_instance"
+    ci_trainer.backbone_type = "unet"
+    ci_trainer.train_labels = [labels]
+    ci_trainer._setup_preprocessing_config()
+
+    ci_pp = ci_trainer.config.data_config.preprocessing
+    assert ci_pp.max_height is None
+    assert ci_pp.max_width is None
+    assert ci_pp.crop_size is not None
+
+    # Full-frame model: max_height/max_width must be auto-filled from video dims.
+    centroid_cfg = OmegaConf.load(configs_dir / "centroid.yaml")
+    centroid_cfg.data_config.preprocessing.max_height = None
+    centroid_cfg.data_config.preprocessing.max_width = None
+
+    centroid_trainer = ModelTrainer(config=centroid_cfg)
+    centroid_trainer.model_type = "centroid"
+    centroid_trainer.backbone_type = "unet"
+    centroid_trainer.train_labels = [labels]
+    centroid_trainer._setup_preprocessing_config()
+
+    centroid_pp = centroid_trainer.config.data_config.preprocessing
+    assert centroid_pp.max_height == 384
+    assert centroid_pp.max_width == 384
