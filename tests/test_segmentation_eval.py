@@ -18,6 +18,7 @@ from sleap_nn.evaluation import (
     _mask_pair_stats,
     _percentile_size_edges,
     _size_mask,
+    mask_cldice,
     match_masks,
     run_evaluation,
 )
@@ -468,6 +469,39 @@ def test_boundary_iou_identical_and_shifted():
     assert 0.0 <= biou < 1.0
     # Boundary IoU is stricter than mask IoU for the same contour shift.
     assert biou < _mask_iou(a, shifted)
+
+
+def test_mask_cldice_identical_and_width_tolerant():
+    """clDice = 1.0 for identical masks and stays high (width-tolerant) when a
+    prediction shares the centerline but differs in thickness (unlike mask IoU)."""
+    thin = np.zeros((40, 60), bool)
+    thin[20, 5:55] = True  # 1-px centerline
+    assert mask_cldice(thin, thin) == 1.0
+
+    thick = np.zeros((40, 60), bool)
+    thick[18:23, 5:55] = True  # same centerline, 5px thick
+    cld = mask_cldice(thin, thick)
+    assert cld > 0.9  # skeletons coincide -> ~1.0
+    assert cld > _mask_iou(thin, thick)  # clDice tolerates width; IoU does not
+
+    off = np.zeros((40, 60), bool)
+    off[5, 5:55] = True  # parallel line elsewhere -> disjoint centerlines
+    assert mask_cldice(thin, off) < 0.2
+
+
+def test_mask_metrics_cldice_perfect(tmp_path):
+    """Perfect match -> mean clDice = 1.0."""
+    masks = [_disk(H, W, 14, 14, 8), _disk(H, W, 34, 34, 8)]
+    gt_path, pr_path = tmp_path / "gt.slp", tmp_path / "pr.slp"
+    _make_gt(masks).save(gt_path.as_posix())
+    _make_pred(masks).save(pr_path.as_posix())
+
+    mm = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_path.as_posix(),
+        match_method="mask",
+    )["mask_metrics"]
+    assert abs(mm["mean_cldice"] - 1.0) < 1e-9
 
 
 def test_mask_pair_stats_matches_mask_iou_and_reports_intersection():
