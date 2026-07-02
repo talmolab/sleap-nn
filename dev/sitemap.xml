@@ -73,6 +73,10 @@
          <lastmod>2026-07-02</lastmod>
     </url>
     <url>
+         <loc>https://nn.sleap.ai/dev/api/architectures/pretrained/</loc>
+         <lastmod>2026-07-02</lastmod>
+    </url>
+    <url>
          <loc>https://nn.sleap.ai/dev/api/architectures/swint/</loc>
          <lastmod>2026-07-02</lastmod>
     </url>
@@ -674,6 +678,10 @@
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/guides/post-processing-filters/</loc>
+         <lastmod>2026-07-02</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/guides/pretrained-backbones/</loc>
          <lastmod>2026-07-02</lastmod>
     </url>
     <url>
