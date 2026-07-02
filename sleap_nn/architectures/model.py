@@ -178,9 +178,24 @@ class Model(nn.Module):
             if isinstance(head, ClassVectorsHead):
                 in_channels = int(self.backbone.middle_blocks[-1].filters)
             else:
-                in_channels = self.backbone.decoder_stride_to_filters[
-                    head.output_stride
-                ]
+                stride_to_filters = self.backbone.decoder_stride_to_filters
+                if head.output_stride not in stride_to_filters:
+                    # An encoder-only backbone (e.g. an isotropic ViT like DINOv2
+                    # under mode="auto") has no spatial decoder, so a spatial head
+                    # has no feature map to bind to. Surface an actionable error
+                    # instead of a bare KeyError.
+                    produced = sorted(stride_to_filters) or "[] (encoder-only)"
+                    message = (
+                        f"Head '{head.name}' needs a spatial feature at "
+                        f"output_stride {head.output_stride}, but backbone "
+                        f"'{self.backbone_type}' produces strides {produced}. An "
+                        f"encoder-only backbone supports only pooled heads "
+                        f"(class-vectors); use a hierarchical backbone or "
+                        f"mode='decoder' for spatial heads."
+                    )
+                    logger.error(message)
+                    raise ValueError(message)
+                in_channels = stride_to_filters[head.output_stride]
             self.head_layers.append(head.make_head(x_in=in_channels))
 
     @classmethod

@@ -83,6 +83,25 @@ def test_caseA_output_stride(output_stride):
     assert output_stride in bb.decoder_stride_to_filters
 
 
+def test_caseA_two_feature_maps_no_skip_block():
+    """A 2-map pyramid (n_skips=1) with more decoder blocks than skips must not
+    crash: the extra block(s) take the no-concat path. Regression for the
+    down_blocks clamp (max(0, ...) not max(1, ...))."""
+    bb = PretrainedBackbone.from_config(
+        _caseA_cfg(
+            "facebook/convnextv2-nano-22k-224",
+            out_indices=[3, 4],  # strides 16, 32 -> n_skips=1
+            output_stride=8,  # up_blocks=2 => one skip block + one no-skip block
+        )
+    )
+    bb.eval()
+    assert bb.mode == "decoder"
+    with torch.no_grad():
+        out = bb(torch.rand(1, 3, 256, 256))
+    assert out["strides"][-1] == 8
+    assert out["outputs"][-1].shape[-2] == 256 // 8
+
+
 def test_caseA_grayscale_and_rgb_equivalent_shapes():
     """Grayscale (1ch) input is handled by Model.forward's 1->3 replicate."""
     m = Model(
@@ -246,6 +265,30 @@ def test_encoder_trainable_by_default():
 def test_unsupported_source_raises():
     with pytest.raises(ValueError, match="Unsupported pretrained backbone source"):
         PretrainedBackbone(source="torchvision", model_name="resnet50", weights=False)
+
+
+def test_encoder_only_backbone_with_spatial_head_raises():
+    """A spatial head on an encoder-only backbone gives an actionable error,
+    not a bare KeyError."""
+    with pytest.raises(ValueError, match="encoder-only backbone supports only"):
+        Model(
+            backbone_type="pretrained",
+            backbone_config=OmegaConf.create(
+                {
+                    "source": "hf",
+                    "model_name": "facebook/dinov2-with-registers-base",
+                    "weights": False,
+                    "mode": "encoder",
+                    "in_channels": 3,
+                    "output_stride": 2,
+                    "max_stride": 14,
+                }
+            ),
+            head_configs=OmegaConf.create(
+                {"confmaps": {"part_names": ["a"], "sigma": 2.5, "output_stride": 2}}
+            ),
+            model_type="single_instance",
+        )
 
 
 def test_resolve_mode():

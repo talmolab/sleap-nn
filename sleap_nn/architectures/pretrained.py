@@ -372,7 +372,12 @@ class PretrainedBackbone(nn.Module):
         # typically 4, so reaching output_stride=2 adds one learned-upsample block
         # with no skip (see encoder_decoder.Decoder for the branch condition).
         stem_blocks = 1
-        down_blocks = max(1, n_skips - stem_blocks)
+        # Keep the feat_concat=False threshold (down_blocks + stem_blocks) equal to
+        # n_skips so decoder blocks past the available skips take the no-concat
+        # path. Must NOT clamp to 1: with only 2 feature maps (n_skips == 1, e.g. a
+        # 2-entry out_indices) a clamp to 1 pushes the threshold to 2, so block 1 is
+        # built expecting a skip but gets None at forward -> channel mismatch.
+        down_blocks = max(0, n_skips - stem_blocks)
         encoder_channels = channels[:-1][::-1]  # skip channels, deepest-first
 
         self.dec = Decoder(

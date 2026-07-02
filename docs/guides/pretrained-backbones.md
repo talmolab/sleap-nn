@@ -61,8 +61,8 @@ The table lists the main models we recommend and tested. The wrapper is
 **family-agnostic** — it probes strides and channels at construction rather than
 hard-coding per-model taps — so any `AutoBackbone`-compatible checkpoint should
 work. That includes the other hierarchical families `transformers` exposes
-(e.g. ConvNeXt v1, BiT, FocalNet, Hiera, ViTDet) for `decoder` mode, and other
-isotropic ViTs (e.g. BEiT, ViT-MAE, I-JEPA) for `encoder` mode. Pick a model id
+(e.g. ConvNeXt v1, BiT, FocalNet, Hiera) for `decoder` mode, and other isotropic
+ViTs (e.g. BEiT, ViT-MAE, ViTDet, I-JEPA) for `encoder` mode. Pick a model id
 from the [HuggingFace Hub](https://huggingface.co/models?other=backbone) and set
 it as `model_name`; mind the license/gating column above (Hiera and I-JEPA
 weights are non-commercial).
