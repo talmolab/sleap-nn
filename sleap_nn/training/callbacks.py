@@ -839,7 +839,7 @@ class UnifiedVizCallback(Callback):
             offsets_pil = PILImage.open(buf)
             log_dict[f"viz/{prefix}/offsets"] = wandb.Image(
                 offsets_pil,
-                caption=f"{prefix.title()} Offset Magnitude Epoch {epoch}",
+                caption=f"{prefix.title()} Offset Direction Epoch {epoch}",
             )
 
         # GT-vs-prediction foreground mask overlay (for segmentation models)
@@ -1549,6 +1549,7 @@ class SegmentationEvaluationCallback(Callback):
                     logger.info(
                         f"Epoch {trainer.current_epoch} segmentation evaluation: "
                         f"mask_mean_iou={metrics['mask_mean_iou']:.4f}, "
+                        f"mask_mean_cldice={metrics['mask_mean_cldice']:.4f}, "
                         f"precision={metrics['precision']:.4f}, "
                         f"recall={metrics['recall']:.4f}"
                     )
@@ -1571,24 +1572,32 @@ class SegmentationEvaluationCallback(Callback):
         for one image/crop, with predicted and GT masks on the SAME grid.
         """
         import numpy as np
-        from sleap_nn.evaluation import match_masks
+        from sleap_nn.evaluation import mask_cldice, match_masks
 
         ious: list = []
+        cldices: list = []
         tp = fp = fn = 0
         n_gt = 0
         for pred, gt in zip(predictions, ground_truth):
             pred_masks = pred.get("masks", [])
             gt_masks = gt.get("masks", [])
             n_gt += len(gt_masks)
-            _, _, unmatched_pred, unmatched_gt, pair_ious = match_masks(
-                pred_masks, gt_masks, min_iou=self.match_threshold
+            matched_pred, matched_gt, unmatched_pred, unmatched_gt, pair_ious = (
+                match_masks(pred_masks, gt_masks, min_iou=self.match_threshold)
             )
             ious.extend(float(x) for x in pair_ious)
+            # Centerline Dice over the matched pairs (connectivity/width-aware,
+            # fairer than IoU for thin structures). NaN (scikit-image missing) skipped.
+            for pi, gj in zip(matched_pred, matched_gt):
+                cd = mask_cldice(pred_masks[pi], gt_masks[gj])
+                if not np.isnan(cd):
+                    cldices.append(cd)
             tp += len(pair_ious)
             fp += len(unmatched_pred)
             fn += len(unmatched_gt)
 
         mask_mean_iou = float(np.mean(ious)) if ious else float("nan")
+        mask_mean_cldice = float(np.mean(cldices)) if cldices else float("nan")
         # Misses (unmatched GT) contribute IoU 0 -> a recall-sensitive mean.
         mask_mean_iou_all_gt = (float(np.sum(ious)) / n_gt) if n_gt else float("nan")
         precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
@@ -1601,6 +1610,7 @@ class SegmentationEvaluationCallback(Callback):
         return {
             "mask_mean_iou": mask_mean_iou,
             "mask_mean_iou_all_gt": mask_mean_iou_all_gt,
+            "mask_mean_cldice": mask_mean_cldice,
             "precision": precision,
             "recall": recall,
             "f1": f1,
@@ -1627,6 +1637,8 @@ class SegmentationEvaluationCallback(Callback):
             log_dict["eval/val/mask_mean_iou"] = metrics["mask_mean_iou"]
         if not np.isnan(metrics["mask_mean_iou_all_gt"]):
             log_dict["eval/val/mask_mean_iou_all_gt"] = metrics["mask_mean_iou_all_gt"]
+        if not np.isnan(metrics["mask_mean_cldice"]):
+            log_dict["eval/val/mask_mean_cldice"] = metrics["mask_mean_cldice"]
         log_dict["eval/val/mask_precision"] = metrics["precision"]
         log_dict["eval/val/mask_recall"] = metrics["recall"]
         log_dict["eval/val/mask_f1"] = metrics["f1"]

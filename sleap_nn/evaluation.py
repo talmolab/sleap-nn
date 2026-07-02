@@ -365,6 +365,59 @@ def _boundary_iou(
     return 1.0 if union == 0 else float(inter / union)
 
 
+def _skeletonize(mask: np.ndarray) -> Optional[np.ndarray]:
+    """1-px morphological skeleton of a binary mask (via scikit-image).
+
+    Returns an empty skeleton for an empty mask, and ``None`` if scikit-image is
+    not installed (clDice is then skipped rather than crashing eval).
+    """
+    if not mask.any():
+        return np.zeros_like(mask, dtype=bool)
+    try:
+        from skimage.morphology import skeletonize
+    except ImportError:
+        return None
+    return np.asarray(skeletonize(np.ascontiguousarray(mask, dtype=bool)), dtype=bool)
+
+
+def mask_cldice(pred: np.ndarray, gt: np.ndarray) -> float:
+    """Centerline Dice (clDice) between two binary masks.
+
+    Shit et al., "clDice — A Novel Topology-Preserving Loss Function for Tubular
+    Structure Segmentation," CVPR 2021 (arXiv:2003.07311). The connectivity-aware
+    F-score of two skeleton-overlap terms:
+
+    * ``Tprec`` = fraction of the *predicted* skeleton lying inside the *GT* mask
+      (is my centerline drawn on a real object?),
+    * ``Tsens`` = fraction of the *GT* skeleton lying inside the *predicted* mask
+      (did I cover every real object along its length?),
+
+    with ``clDice = 2·Tprec·Tsens / (Tprec + Tsens)``. Nearly width-insensitive
+    and connectivity-sensitive, so it is a fairer quality measure than area IoU
+    for thin/tubular structures (roots, vessels, neurites). Uses a hard
+    morphological skeleton (exact, no ``k`` to tune).
+
+    Two empty masks return ``1.0`` (matching the ``_mask_iou`` "identical -> 1.0"
+    contract). Returns ``nan`` when scikit-image is unavailable so callers can
+    drop clDice from the summary without failing.
+    """
+    a, b = _align_pair(pred, gt)
+    if not a.any() and not b.any():
+        return 1.0
+    sk_p = _skeletonize(a)
+    sk_g = _skeletonize(b)
+    if sk_p is None or sk_g is None:
+        return float("nan")
+    sp, sg = int(sk_p.sum()), int(sk_g.sum())
+    if sp == 0 or sg == 0:
+        return 0.0
+    tprec = int(np.logical_and(sk_p, b).sum()) / sp
+    tsens = int(np.logical_and(sk_g, a).sum()) / sg
+    if (tprec + tsens) == 0:
+        return 0.0
+    return float(2.0 * tprec * tsens / (tprec + tsens))
+
+
 def _ap_from_pr(
     scores: np.ndarray,
     is_tp: np.ndarray,
@@ -1302,6 +1355,10 @@ class Evaluator:
           Segmentation" (2019).
         * ``mean_boundary_iou`` — boundary IoU over the matched pairs (Cheng et
           al., 2021), more sensitive to contour error than mask IoU.
+        * ``mean_cldice`` — centerline Dice over the matched pairs (Shit et al.,
+          CVPR 2021), connectivity-aware and nearly width-insensitive; a fairer
+          score than IoU for thin/tubular structures. NaN if scikit-image is
+          unavailable.
         * ``oversegmentation`` / ``undersegmentation`` — fragmentation counts:
           GT masks split across >=2 predictions, and predictions spanning >=2
           GT masks (each with >=10% area overlap). The headline over-/under-
@@ -1333,6 +1390,7 @@ class Evaluator:
             "sq": np.nan,
             "rq": np.nan,
             "mean_boundary_iou": np.nan,
+            "mean_cldice": np.nan,
             "oversegmentation": over,
             "undersegmentation": under,
             "per_size": self._mask_per_size_stats(),
@@ -1354,6 +1412,15 @@ class Evaluator:
                 dtype=float,
             )
             results["mean_boundary_iou"] = float(np.mean(boundary_ious))
+            # Centerline Dice (clDice): connectivity/width-tolerant, fairer than
+            # IoU for thin structures. NaN entries (scikit-image missing) drop out.
+            cldices = np.array(
+                [mask_cldice(p, g) for p, g in self._matched_mask_pairs],
+                dtype=float,
+            )
+            cldices = cldices[~np.isnan(cldices)]
+            if cldices.size:
+                results["mean_cldice"] = float(np.mean(cldices))
 
         iou_sum = float(np.sum(ious)) if ious.size else 0.0
         # Miss-penalizing mean: averaged over every GT mask (TP + FN).
@@ -1993,6 +2060,7 @@ def run_evaluation(
         logger.info(f"  mask IoU p50: {mm['p50']:.4f}")
         logger.info(f"  mask IoU p25: {mm['p25']:.4f}")
         logger.info(f"  Mean boundary IoU: {mm['mean_boundary_iou']:.4f}")
+        logger.info(f"  Mean clDice (centerline): {mm['mean_cldice']:.4f}")
         logger.info(f"  mAP @[.5:.95]: {mvoc['mask_voc.mAP']:.4f}")
         logger.info(
             f"  AP50: {mvoc['mask_voc.AP50']:.4f}  AP75: {mvoc['mask_voc.AP75']:.4f}"

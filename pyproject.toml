@@ -50,6 +50,7 @@ dependencies = [
     "loguru",
     "psutil",
     "opencv-python",
+    "scikit-image",  # morphological skeletonize for the clDice segmentation metric
     "hydra-core",
     "jupyter",
     "jupyterlab",

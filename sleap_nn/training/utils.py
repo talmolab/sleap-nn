@@ -9,6 +9,7 @@ matplotlib.use(
     "Agg"
 )  # Use non-interactive backend to avoid tkinter issues on Windows CI
 import matplotlib.pyplot as plt
+import matplotlib.figure
 from loguru import logger
 from torch import nn
 import torch.distributed as dist
@@ -78,7 +79,7 @@ def xavier_init_weights(x):
 
 
 def imgfig(
-    size: float | tuple = 6, dpi: int = 72, scale: float = 1.0
+    size: float | tuple = 6, dpi: int | float = 72, scale: float = 1.0
 ) -> matplotlib.figure.Figure:
     """Create a tight figure for image plotting.
 
@@ -106,7 +107,7 @@ def imgfig(
 
 
 def plot_img(
-    img: np.ndarray, dpi: int = 72, scale: float = 1.0
+    img: np.ndarray, dpi: int | float = 72, scale: float = 1.0
 ) -> matplotlib.figure.Figure:
     """Plot an image in a tight figure.
 
@@ -417,16 +418,26 @@ class MatplotlibRenderer:
         return fig
 
     def render_offsets(self, data: VisualizationData) -> matplotlib.figure.Figure:
-        """Render the center-offset field magnitude for segmentation models.
+        """Render the center-offset field DIRECTION for segmentation models.
+
+        Colors each pixel by the ANGLE of its center-offset vector (hue =
+        ``atan2(dy, dx)``, the standard optical-flow color wheel), so the field
+        reads as "which way does each foreground pixel point to its instance
+        center." Opacity is modulated by the offset magnitude so near-zero
+        (background) offsets stay transparent and only meaningful vectors show
+        their direction.
 
         Args:
-            data: VisualizationData with ``pred_offsets`` (H, W, 2) populated.
+            data: VisualizationData with ``pred_offsets`` (H, W, 2) populated,
+                laid out as ``[..., 0] = dx`` and ``[..., 1] = dy``.
 
         Returns:
-            A matplotlib Figure object showing per-pixel offset magnitude.
+            A matplotlib Figure object showing the per-pixel offset direction.
         """
         if data.pred_offsets is None:
             raise ValueError("pred_offsets is None, cannot render offsets")
+
+        import matplotlib.colors as mcolors
 
         img = data.image
         scale = 1.0
@@ -436,20 +447,29 @@ class MatplotlibRenderer:
             scale = 4.0
 
         offsets = data.pred_offsets  # (H, W, 2) -> (dx, dy)
-        magnitude = np.sqrt(offsets[..., 0] ** 2 + offsets[..., 1] ** 2)
+        dx, dy = offsets[..., 0], offsets[..., 1]
+        angle = np.arctan2(dy, dx)  # [-pi, pi]
+        magnitude = np.hypot(dx, dy)
+
+        # Hue = direction (wrapped to [0, 1]); full saturation/value for vivid color.
+        hue = (angle + np.pi) / (2.0 * np.pi)
+        hsv = np.stack([hue, np.ones_like(hue), np.ones_like(hue)], axis=-1)
+        rgb = mcolors.hsv_to_rgb(hsv)  # (H, W, 3)
+        # Opacity ramps with magnitude so background (~0 offset) is transparent.
+        mmax = float(magnitude.max())
+        alpha = (magnitude / mmax if mmax > 0 else magnitude) * 0.7
+        rgba = np.dstack([rgb, alpha])  # (H, W, 4)
 
         fig = plot_img(img, dpi=72 * scale, scale=scale)
         ax = plt.gca()
-        offset_output_scale = magnitude.shape[0] / img.shape[0]
+        offset_output_scale = rgba.shape[0] / img.shape[0]
         ax.imshow(
-            magnitude,
-            alpha=0.5,
+            rgba,
             origin="upper",
-            cmap="viridis",
             extent=[
                 -0.5,
-                magnitude.shape[1] / offset_output_scale - 0.5,
-                magnitude.shape[0] / offset_output_scale - 0.5,
+                rgba.shape[1] / offset_output_scale - 0.5,
+                rgba.shape[0] / offset_output_scale - 0.5,
                 -0.5,
             ],
         )

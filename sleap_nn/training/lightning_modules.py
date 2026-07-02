@@ -2779,8 +2779,9 @@ class BottomUpSegmentationLightningModule(LightningModel):
         """Extract visualization data from a sample.
 
         For segmentation models, the foreground probability map is used as
-        the confidence map overlay, and detected instance centers are shown
-        as predicted peaks.
+        the confidence map overlay. No keypoints/peaks are drawn on the
+        predictions panel (segmentation has none); the optional
+        ``instance_masks`` overlay shows the offset-grouped per-instance masks.
 
         Args:
             sample: A sample dictionary from the data pipeline.
@@ -2816,56 +2817,32 @@ class BottomUpSegmentationLightningModule(LightningModel):
         # Get image as (H, W, C)
         img_np = ex["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
 
-        # Extract GT center locations from center_heatmap
-        from sleap_nn.inference.segmentation import (
-            find_center_peaks,
-            group_instances_from_offsets,
-        )
-
-        gt_centers = []
-        if "center_heatmap" in ex:
-            # center_heatmap is already (1, 1, H, W) as find_center_peaks expects;
-            # an extra unsqueeze makes it 5D and crashes the max-pool NMS.
-            gt_peaks, _ = find_center_peaks(ex["center_heatmap"], threshold=0.1)
-            if len(gt_peaks) > 0:
-                gt_centers = gt_peaks.cpu().numpy()  # (N, 2) as (x, y)
-
-        # Run instance grouping to get predicted centers
-        seg_cfg = self.head_configs[self.model_type]
-        output_stride = seg_cfg.segmentation.output_stride
-
-        pred_centers = []
-        fg_sigmoid = torch.sigmoid(preds["SegmentationHead"])
-        instances = group_instances_from_offsets(
-            foreground=fg_sigmoid[0:1],
-            center_heatmap=preds["InstanceCenterHead"][0:1],
-            offsets=preds["CenterOffsetHead"][0:1],
-            fg_threshold=0.5,
-            peak_threshold=0.1,
-            output_stride=output_stride,
-        )
-        for inst in instances:
-            # Convert center from original pixel coords to output stride coords
-            cx, cy = inst["center"]
-            pred_centers.append([cx / output_stride, cy / output_stride])
-
-        # Keep the grouped per-instance masks (already produced above; no second
-        # grouping pass) for a colored instance-mask overlay. Each is a (H, W)
-        # bool at output-stride resolution — the same grid as ``fg_prob``.
+        # Colored per-instance mask overlay (separate `instance_masks` panel) is
+        # produced by offset grouping. This is the ONLY place grouping is needed:
+        # the `predictions` panel is a segmentation foreground map with NO
+        # keypoints, so we do not peak-find just to draw center dots on it.
         instance_masks = None
         if include_instance_masks:
+            from sleap_nn.inference.segmentation import group_instances_from_offsets
+
+            seg_cfg = self.head_configs[self.model_type]
+            output_stride = seg_cfg.segmentation.output_stride
+            fg_sigmoid = torch.sigmoid(preds["SegmentationHead"])
+            instances = group_instances_from_offsets(
+                foreground=fg_sigmoid[0:1],
+                center_heatmap=preds["InstanceCenterHead"][0:1],
+                offsets=preds["CenterOffsetHead"][0:1],
+                fg_threshold=0.5,
+                peak_threshold=0.1,
+                output_stride=output_stride,
+            )
+            # Each is a (H, W) bool at output-stride resolution (same grid as fg_prob).
             instance_masks = [inst["mask"] for inst in instances]
 
-        # Format as (N, 1, 2) arrays for plot_peaks (instances, nodes, 2)
-        if len(gt_centers) > 0:
-            gt_pts = np.array(gt_centers).reshape(-1, 1, 2)
-        else:
-            gt_pts = np.zeros((0, 1, 2))
-
-        if len(pred_centers) > 0:
-            pred_pts = np.array(pred_centers).reshape(-1, 1, 2)
-        else:
-            pred_pts = np.zeros((0, 1, 2))
+        # Segmentation has no keypoints -> draw no peak dots on the predictions
+        # panel (matches TopDownCenteredInstanceSegmentationLightningModule).
+        gt_pts = np.zeros((0, 1, 2))
+        pred_pts = np.zeros((0, 1, 2))
 
         # Optionally include center heatmap for separate visualization
         center_hmap = None
@@ -2888,7 +2865,7 @@ class BottomUpSegmentationLightningModule(LightningModel):
             image=img_np,
             pred_confmaps=fg_prob,
             pred_peaks=pred_pts,
-            pred_peak_values=np.ones(len(pred_centers)),
+            pred_peak_values=np.zeros((0,)),
             gt_instances=gt_pts,
             node_names=["center"],
             output_scale=fg_prob.shape[0] / img_np.shape[0],
