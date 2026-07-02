@@ -57,8 +57,15 @@ are exercised network-free in CI; the ✓ families were run end-to-end locally):
 | **DINOv3-ConvNeXt** | `facebook/dinov3-convnext-base-…` | CNN | 4/8/16/32 | decoder | DINOv3 custom / **gated** | foundation SSL + pyramid; opt-in |
 | **DINOv3-ViT** | `facebook/dinov3-vit…16-…` | ViT (isotropic) | 16 | encoder | DINOv3 custom / **gated** | patch-16, RoPE (resolution-agnostic) |
 
-Any other `AutoBackbone`-compatible model id should work; the wrapper probes
-strides and channels at construction, so it is family-agnostic.
+The table lists the main models we recommend and tested. The wrapper is
+**family-agnostic** — it probes strides and channels at construction rather than
+hard-coding per-model taps — so any `AutoBackbone`-compatible checkpoint should
+work. That includes the other hierarchical families `transformers` exposes
+(e.g. ConvNeXt v1, BiT, FocalNet, Hiera, ViTDet) for `decoder` mode, and other
+isotropic ViTs (e.g. BEiT, ViT-MAE, I-JEPA) for `encoder` mode. Pick a model id
+from the [HuggingFace Hub](https://huggingface.co/models?other=backbone) and set
+it as `model_name`; mind the license/gating column above (Hiera and I-JEPA
+weights are non-commercial).
 
 ## Config
 
