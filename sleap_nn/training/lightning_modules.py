@@ -222,6 +222,15 @@ class LightningModel(L.LightningModule):
                 ].DEFAULT.get_state_dict(progress=True, check_hash=True)
                 self.model.backbone.enc.load_state_dict(ckpt, strict=False)
 
+        # External pretrained (HuggingFace) backbone: the wrapper loaded its
+        # weights in __init__, but the xavier init above clobbered them (it runs
+        # on every Conv2d/Linear). Re-apply the snapshotted pretrained weights, then
+        # freeze the encoder if requested. Mirrors the convnext/swint ordering.
+        if self.backbone_type == "pretrained":
+            self.model.backbone.reload_pretrained_weights()
+            if getattr(self.model.backbone, "freeze", False):
+                self.model.backbone.freeze_encoder()
+
         # Initializing backbone (encoder + decoder) with trained ckpts
         if self.pretrained_backbone_weights is not None:
             logger.info(
@@ -625,8 +634,10 @@ class LightningModel(L.LightningModule):
         elif self.optimizer == "AdamW":
             optim = torch.optim.AdamW
 
+        # Only optimize params that require gradients so a frozen pretrained
+        # backbone (freeze=True) is excluded; a no-op for fully-trainable models.
         optimizer = optim(
-            self.parameters(),
+            filter(lambda p: p.requires_grad, self.parameters()),
             lr=self.lr,
             amsgrad=self.amsgrad,
         )

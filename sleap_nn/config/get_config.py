@@ -10,6 +10,7 @@ from sleap_nn.config.data_config import (
 from sleap_nn.config.model_config import (
     ConvNextConfig,
     SwinTConfig,
+    PretrainedConfig,
     BackboneConfig,
     HeadConfig,
     UNetConfig,
@@ -248,9 +249,11 @@ def get_backbone_config(backbone_cfg: Union[str, Dict[str, Any]]):
             backbone_config.convnext = convnext_config_mapper[backbone_cfg]
         elif backbone_cfg.startswith("swint"):
             backbone_config.swint = swint_config_mapper[backbone_cfg]
+        elif backbone_cfg == "pretrained":
+            backbone_config.pretrained = PretrainedConfig()
         else:
             raise ValueError(
-                f"{backbone_cfg} is not a valid backbone. Please choose one of ['unet', 'unet_medium_rf', 'unet_large_rf', 'convnext', 'convnext_tiny', 'convnext_small', 'convnext_base', 'convnext_large', 'swint', 'swint_tiny', 'swint_small', 'swint_base']"
+                f"{backbone_cfg} is not a valid backbone. Please choose one of ['unet', 'unet_medium_rf', 'unet_large_rf', 'convnext', 'convnext_tiny', 'convnext_small', 'convnext_base', 'convnext_large', 'swint', 'swint_tiny', 'swint_small', 'swint_base', 'pretrained']"
             )
 
     elif isinstance(backbone_cfg, dict):
@@ -261,6 +264,8 @@ def get_backbone_config(backbone_cfg: Union[str, Dict[str, Any]]):
             backbone_config.convnext = ConvNextConfig(**backbone_cfg["convnext"])
         elif "swint" in backbone_cfg:
             backbone_config.swint = SwinTConfig(**backbone_cfg["swint"])
+        elif "pretrained" in backbone_cfg:
+            backbone_config.pretrained = PretrainedConfig(**backbone_cfg["pretrained"])
 
     return backbone_config
 

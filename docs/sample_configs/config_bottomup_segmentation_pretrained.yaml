@@ -1,0 +1,175 @@
+data_config:
+  train_labels_path: null
+  val_labels_path: null
+  validation_fraction: 0.1
+  use_same_data_for_val: false
+  test_file_path: null
+  provider: LabelsReader
+  user_instances_only: true
+  data_pipeline_fw: torch_dataset
+  cache_img_path: null
+  use_existing_imgs: false
+  delete_cache_imgs_after_training: true
+  preprocessing:
+    # Pretrained HuggingFace stems are 3-channel; the trainer forces in_channels=3
+    # and ensure_rgb=true, so grayscale videos are replicated to 3 channels.
+    ensure_rgb: true
+    ensure_grayscale: false
+    max_height: null
+    max_width: null
+    # Mask resize in v1 is not pad-aware: train at scale 1.0 (or a scale that
+    # divides evenly) with input dims divisible by the backbone max_stride.
+    scale: 1.0
+    crop_size: null
+    min_crop_size: null
+  use_augmentations_train: true
+  augmentation_config:
+    intensity:
+      uniform_noise_min: 0.0
+      uniform_noise_max: 0.04
+      uniform_noise_p: 0.0
+      gaussian_noise_mean: 0.0
+      gaussian_noise_std: 0.02
+      gaussian_noise_p: 0.0
+      contrast_min: 0.9
+      contrast_max: 1.1
+      contrast_p: 0.0
+      brightness_min: 0.9
+      brightness_max: 1.1
+      brightness_p: 0.0
+    # Geometric augmentation IS supported for segmentation: the image and its
+    # per-instance masks share the same affine matrix (rotation/scale/translate/
+    # flip), with masks resampled nearest-neighbor and re-binarized (erase/mixup
+    # stay image-only). Left null here for brevity; enable a geometric block to use it.
+    geometric: null
+  skeletons:
+model_config:
+  init_weights: xavier
+  pretrained_backbone_weights: null
+  pretrained_head_weights: null
+  backbone_config:
+    unet: null
+    convnext: null
+    swint: null
+    # External pretrained (HuggingFace) backbone. Requires the `backbones` extra:
+    #   pip install "sleap-nn[backbones]"   (or: uv sync --extra backbones)
+    # See docs/guides/pretrained-backbones.md for the tested-model table and the
+    # gating / HF_TOKEN / offline workflow.
+    pretrained:
+      source: hf
+      # Any AutoBackbone-compatible model id. ConvNeXtV2 is the recommended
+      # ungated default for pose/segmentation; microsoft/resnet-50 gives
+      # legacy-SLEAP parity; DINOv3-ConvNeXt is the gated foundation option.
+      model_name: facebook/convnextv2-nano-22k-224
+      weights: true        # download & load pretrained weights (false = random init)
+      mode: auto           # auto | decoder (spatial heads) | encoder (pooled heads)
+      freeze: false        # true = feature extraction (encoder frozen)
+      normalize: true      # apply the model's image_mean/std (read from processor)
+      revision: null       # pin an HF commit sha/tag for reproducibility
+      in_channels: 3
+      filters_rate: 2.0
+      convs_per_block: 2
+      kernel_size: 3
+      up_interpolate: true
+      output_stride: 2     # fine output for dense per-pixel prediction
+      max_stride: 32       # ConvNeXtV2/ResNet/Swinv2 bottom out at stride 32
+  head_configs:
+    single_instance: null
+    centroid: null
+    centered_instance: null
+    bottomup: null
+    multi_class_bottomup: null
+    multi_class_topdown: null
+    # Panoptic-DeepLab-style bottom-up instance segmentation: a foreground head
+    # (BCE+Dice), an instance-center heatmap (MSE), and a per-pixel center-offset
+    # field (masked smooth-L1). Inference groups foreground pixels by offset to
+    # the nearest detected center.
+    bottomup_segmentation:
+      segmentation:
+        output_stride: 2
+        loss_weight: 1.0
+      center:
+        sigma: 10.0
+        output_stride: 2
+        loss_weight: 1.0
+      offsets:
+        output_stride: 2
+        loss_weight: 0.1
+  total_params: null
+trainer_config:
+  train_data_loader:
+    batch_size: 4
+    shuffle: true
+    num_workers: 0
+  val_data_loader:
+    batch_size: 4
+    shuffle: false
+    num_workers: 0
+  model_ckpt:
+    save_top_k: 1
+    save_last: false
+  trainer_devices:
+  trainer_device_indices: null
+  trainer_accelerator: auto
+  profiler: null
+  trainer_strategy: auto
+  enable_progress_bar: true
+  min_train_steps_per_epoch: 200
+  train_steps_per_epoch: null
+  visualize_preds_during_training: true
+  keep_viz: false
+  max_epochs: 200
+  seed: 42
+  use_wandb: false
+  save_ckpt: true
+  ckpt_dir: models
+  run_name: null
+  resume_ckpt_path: null
+  wandb:
+    entity: null
+    project: null
+    name: null
+    save_viz_imgs_wandb: false
+    api_key: null
+    wandb_mode: null
+    prv_runid: null
+    group: null
+    current_run_id: null
+  optimizer_name: Adam
+  optimizer:
+    # A lower LR is a good default when fine-tuning a pretrained backbone.
+    lr: 0.0001
+    amsgrad: false
+  lr_scheduler:
+    step_lr: null
+    reduce_lr_on_plateau:
+      threshold: 1.0e-08
+      threshold_mode: abs
+      cooldown: 3
+      patience: 8
+      factor: 0.5
+      min_lr: 1.0e-08
+  early_stopping:
+    min_delta: 1.0e-08
+    patience: 10
+    stop_training_on_plateau: true
+  online_hard_keypoint_mining:
+    online_mining: false
+    hard_to_easy_ratio: 2.0
+    min_hard_keypoints: 2
+    max_hard_keypoints: null
+    loss_scale: 5.0
+  zmq:
+    controller_port: 9000
+    controller_polling_timeout: 10
+    publish_port: 9001
+  eval:
+    enabled: true
+    frequency: 1
+    oks_stddev: 0.025  # unused for segmentation (keypoint-only)
+    oks_scale: null
+    # For segmentation, match_threshold is reinterpreted as a minimum mask IoU
+    # in (0, 1]. Out-of-range values fall back to 0.5.
+    match_threshold: 0.5
+name: ''
+description: ''

@@ -599,7 +599,7 @@ class Decoder(nn.Module):
         up_blocks: int = 4,
         down_blocks: int = 3,
         stem_blocks: int = 0,
-        filters_rate: int = 2,
+        filters_rate: float = 2,
         convs_per_block: int = 2,
         kernel_size: int = 3,
         block_contraction: bool = False,

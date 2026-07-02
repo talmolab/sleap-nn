@@ -67,6 +67,7 @@ keypoints). `fg_threshold` / `min_mask_area` are inference-time args; train at
 | Config | Backbone | Notes |
 |--------|----------|-------|
 | [bottomup_segmentation_unet](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_unet.yaml) | UNet | Foreground + center + offsets heads |
+| [bottomup_segmentation_pretrained](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_pretrained.yaml) | Pretrained (HuggingFace ConvNeXtV2) | Reuse an external pretrained encoder; see the [Pretrained Backbones guide](../guides/pretrained-backbones.md) |
 
 ---
 

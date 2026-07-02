@@ -186,3 +186,63 @@ def test_model_oneof_failure_head_config(caplog):
             centroid=CentroidConfig(),
         )
     assert "Only one attribute of this class can be set (not None).\n" in caplog.text
+
+
+def test_pretrained_backbone_config():
+    """The `pretrained` backbone member (HuggingFace) is a valid oneof member."""
+    from sleap_nn.config.model_config import PretrainedConfig
+
+    cfg = BackboneConfig(
+        pretrained=PretrainedConfig(
+            model_name="microsoft/resnet-50", output_stride=4, max_stride=32
+        )
+    )
+    assert cfg.which_oneof_attrib_name() == "pretrained"
+    assert cfg.pretrained.source == "hf"
+    assert cfg.pretrained.model_name == "microsoft/resnet-50"
+    # Defaults required by check_output_strides / model_trainer / export.
+    assert cfg.pretrained.in_channels == 3
+    assert cfg.pretrained.output_stride == 4
+    assert cfg.pretrained.max_stride == 32
+    assert cfg.pretrained.weights is True
+    assert cfg.pretrained.freeze is False
+    assert cfg.pretrained.mode == "auto"
+
+
+def test_pretrained_backbone_oneof_exclusive(caplog):
+    """`pretrained` cannot be set alongside another backbone."""
+    from sleap_nn.config.model_config import PretrainedConfig
+
+    with pytest.raises(ValueError):
+        BackboneConfig(unet=UNetConfig(), pretrained=PretrainedConfig())
+    assert "Only one attribute of this class can be set (not None).\n" in caplog.text
+
+
+def test_pretrained_backbone_struct_merge():
+    """A YAML-style dict merges onto the structured schema (the training gate)."""
+    from omegaconf import OmegaConf
+    from sleap_nn.config.model_config import ModelConfig
+
+    struct = OmegaConf.structured(ModelConfig())
+    user = OmegaConf.create(
+        {
+            "backbone_config": {
+                "unet": None,
+                "convnext": None,
+                "swint": None,
+                "pretrained": {
+                    "source": "hf",
+                    "model_name": "facebook/convnextv2-nano-22k-224",
+                    "weights": False,
+                    "output_stride": 2,
+                    "max_stride": 32,
+                },
+            }
+        }
+    )
+    merged = OmegaConf.merge(struct, user)
+    assert (
+        merged.backbone_config.pretrained.model_name
+        == "facebook/convnextv2-nano-22k-224"
+    )
+    assert merged.backbone_config.pretrained.weights is False

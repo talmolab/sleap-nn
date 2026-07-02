@@ -667,6 +667,16 @@ class ModelTrainer:
                     f"Updating backbone in_channels to 3 based on the pretrained model weights."
                 )
 
+        # External pretrained (HuggingFace) backbones have 3-channel stems and
+        # expect RGB (grayscale is replicated). Force in_channels=3 + ensure_rgb so
+        # the data pipeline feeds 3-channel images and the pretrained stem loads.
+        elif self.backbone_type == "pretrained":
+            if self.config.model_config.backbone_config.pretrained.in_channels != 3:
+                self.config.model_config.backbone_config.pretrained.in_channels = 3
+                logger.info("Updating pretrained backbone in_channels to 3 (RGB stem).")
+            self.config.data_config.preprocessing.ensure_rgb = True
+            self.config.data_config.preprocessing.ensure_grayscale = False
+
         elif (
             self.backbone_type == "unet"
             and self.config.model_config.pretrained_backbone_weights is not None
