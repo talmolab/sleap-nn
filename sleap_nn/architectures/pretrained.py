@@ -38,7 +38,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import torch
 from loguru import logger
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 from torch import nn
 
 from sleap_nn.architectures.encoder_decoder import Decoder
@@ -152,6 +152,10 @@ class PretrainedBackbone(nn.Module):
             transposed convs (Case A). Default ``True``.
     """
 
+    # Declared for type checkers; set via register_buffer in __init__.
+    image_mean: torch.Tensor
+    image_std: torch.Tensor
+
     def __init__(
         self,
         source: str = "hf",
@@ -195,7 +199,7 @@ class PretrainedBackbone(nn.Module):
         self.kernel_size = kernel_size
         self.up_interpolate = up_interpolate
 
-        transformers = _import_transformers()
+        _import_transformers()  # actionable error if the extra is missing
         from transformers import AutoBackbone, AutoConfig
 
         hf_config = AutoConfig.from_pretrained(model_name, revision=revision)
@@ -250,7 +254,7 @@ class PretrainedBackbone(nn.Module):
         strides, channels = self._probe(in_channels)
 
         if self.mode == "encoder":
-            self._build_encoder_only(strides, channels, max_stride)
+            self._build_encoder_only(strides, channels)
         else:
             self._build_decoder(strides, channels, max_stride)
 
@@ -399,9 +403,7 @@ class PretrainedBackbone(nn.Module):
         # Class-vectors head reads middle_blocks[-1].filters (bottleneck channels).
         self.middle_blocks = nn.ModuleList([_FiltersHolder(x_in_shape)])
 
-    def _build_encoder_only(
-        self, strides: List[int], channels: List[int], max_stride: int
-    ) -> None:
+    def _build_encoder_only(self, strides: List[int], channels: List[int]) -> None:
         """Case B: expose a pooled bottleneck for a class-vectors/embedding head."""
         self.max_stride = strides[-1]
         hidden = channels[-1]
@@ -432,15 +434,15 @@ class PretrainedBackbone(nn.Module):
     # ------------------------------------------------------------------ config
 
     @classmethod
-    def from_config(cls, config: OmegaConf) -> "PretrainedBackbone":
+    def from_config(cls, config: DictConfig) -> "PretrainedBackbone":
         """Create a `PretrainedBackbone` from a config leaf."""
 
         def get(key, default):
-            return config[key] if key in config else default
+            return OmegaConf.select(config, key, default=default)
 
         return cls(
             source=get("source", "hf"),
-            model_name=config.model_name,
+            model_name=OmegaConf.select(config, "model_name"),
             in_channels=get("in_channels", 3),
             output_stride=get("output_stride", 2),
             max_stride=get("max_stride", 32),
