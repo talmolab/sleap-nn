@@ -130,6 +130,7 @@ nav:
       - Overview: guides/training/overview.md
       - Training Guide: guides/training-guide.md
       - Config Generator: guides/config-generator.md
+      - Pretrained Backbones: guides/pretrained-backbones.md
       - Negative Frames: guides/negative-frames.md
       - Monitoring: guides/monitoring.md
       - Multi-GPU: guides/multi-gpu.md

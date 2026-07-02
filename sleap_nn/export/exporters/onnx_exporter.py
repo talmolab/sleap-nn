@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
 import torch
+from loguru import logger
 
 
 def export_to_onnx(
@@ -19,8 +20,36 @@ def export_to_onnx(
     output_names: Optional[List[str]] = None,
     do_constant_folding: bool = True,
     verify: bool = True,
+    numerical_check: bool = False,
+    numerical_atol: float = 1e-3,
+    numerical_rtol: float = 1e-3,
 ) -> Path:
-    """Export a PyTorch model to ONNX."""
+    """Export a PyTorch model to ONNX.
+
+    Args:
+        model: The PyTorch module to export.
+        save_path: Destination path for the ``.onnx`` file.
+        input_shape: Shape of the dummy input used to trace the graph.
+        input_dtype: Dtype of the dummy input (``uint8`` matches the inference
+            wrappers, which normalize in-graph).
+        opset_version: ONNX opset for the (default) TorchScript exporter.
+        dynamic_axes: Dynamic-axis spec; defaults to batch/height/width dynamic on
+            the ``image`` input.
+        input_names: ONNX input names; defaults to ``["image"]``.
+        output_names: ONNX output names; inferred from a reference forward if
+            ``None``.
+        do_constant_folding: Whether to constant-fold during export.
+        verify: If ``True``, run the structural ``onnx.checker`` on the result.
+        numerical_check: If ``True``, additionally run the exported graph through
+            onnxruntime on the export dummy input and assert output parity against
+            PyTorch (atol/rtol below). ``_verify_onnx`` alone is structural only
+            (``onnx.checker``); a numerical check catches graphs that are valid but
+            wrong — a known failure mode for transformer backbones (e.g. Swin) whose
+            ops trace but disagree numerically. Requires onnxruntime (the ``export``
+            extra); degrades to a warning if it is unavailable.
+        numerical_atol: Absolute tolerance for the numerical parity check.
+        numerical_rtol: Relative tolerance for the numerical parity check.
+    """
     save_path = Path(save_path)
     model.eval()
 
@@ -42,9 +71,12 @@ def export_to_onnx(
             0, 256, input_shape, device=device, dtype=input_dtype
         )
 
-    if output_names is None:
+    # A reference forward is needed to infer output names and/or for parity.
+    test_out = None
+    if output_names is None or numerical_check:
         with torch.no_grad():
             test_out = model(dummy_input)
+    if output_names is None:
         output_names = _infer_output_names(test_out)
 
     common = dict(
@@ -83,6 +115,17 @@ def export_to_onnx(
     if verify:
         _verify_onnx(save_path)
 
+    if numerical_check:
+        _verify_onnx_numerical(
+            save_path,
+            dummy_input,
+            test_out,
+            input_names[0],
+            output_names,
+            atol=numerical_atol,
+            rtol=numerical_rtol,
+        )
+
     return save_path
 
 
@@ -99,3 +142,56 @@ def _verify_onnx(path: Path) -> None:
 
     model = onnx.load(path.as_posix())
     onnx.checker.check_model(model)
+
+
+def _verify_onnx_numerical(
+    path: Path,
+    dummy_input: torch.Tensor,
+    reference_output,
+    input_name: str,
+    output_names: List[str],
+    atol: float = 1e-3,
+    rtol: float = 1e-3,
+) -> None:
+    """Assert onnxruntime output parity against a PyTorch reference.
+
+    Complements the structural ``_verify_onnx`` check for cases where a graph is
+    valid but numerically wrong (a known transformer-backbone failure mode). Lazily
+    imports onnxruntime (the ``export`` extra) and degrades to a warning if it is
+    unavailable rather than failing the export.
+    """
+    try:
+        import numpy as np
+        import onnxruntime as ort
+    except ImportError:  # pragma: no cover - onnxruntime is an optional extra
+        logger.warning(
+            "onnxruntime is not installed; skipping ONNX numerical-parity check. "
+            "Install it with `pip install 'sleap-nn[export]'` to enable it."
+        )
+        return
+
+    session = ort.InferenceSession(path.as_posix(), providers=["CPUExecutionProvider"])
+    ort_outputs = session.run(None, {input_name: dummy_input.detach().cpu().numpy()})
+
+    if isinstance(reference_output, dict):
+        ref_list = [reference_output[name] for name in output_names]
+    elif isinstance(reference_output, (list, tuple)):
+        ref_list = list(reference_output)
+    else:
+        ref_list = [reference_output]
+
+    for name, ref, got in zip(output_names, ref_list, ort_outputs):
+        ref_np = ref.detach().cpu().numpy()
+        max_abs = float(np.abs(ref_np - got).max())
+        if not np.allclose(ref_np, got, atol=atol, rtol=rtol):
+            message = (
+                f"ONNX numerical-parity check failed for output '{name}': max abs "
+                f"diff {max_abs:.3g} exceeds atol={atol}, rtol={rtol}. The exported "
+                f"graph is structurally valid but numerically disagrees with "
+                f"PyTorch (common for transformer backbones)."
+            )
+            logger.error(message)
+            raise AssertionError(message)
+        logger.info(
+            f"ONNX numerical-parity OK for '{name}' (max abs diff {max_abs:.3g})."
+        )

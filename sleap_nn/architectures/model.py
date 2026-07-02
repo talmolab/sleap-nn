@@ -29,6 +29,7 @@ from sleap_nn.architectures.heads import (
 from sleap_nn.architectures.unet import UNet
 from sleap_nn.architectures.convnext import ConvNextWrapper
 from sleap_nn.architectures.swint import SwinTWrapper
+from sleap_nn.architectures.pretrained import PretrainedBackbone
 import torchvision.transforms.v2.functional as F
 
 
@@ -39,7 +40,8 @@ def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
     corresponding to the given backbone name.
 
     Args:
-        backbone (str): Name of the backbone. Supported values are 'unet'.
+        backbone (str): Name of the backbone. Supported values are 'unet',
+            'convnext', 'swint', and 'pretrained' (external HuggingFace backbone).
         backbone_config (DictConfig): A config for the backbone.
 
     Returns:
@@ -48,7 +50,12 @@ def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
     Raises:
         KeyError: If the provided backbone name is not one of the supported values.
     """
-    backbones = {"unet": UNet, "convnext": ConvNextWrapper, "swint": SwinTWrapper}
+    backbones = {
+        "unet": UNet,
+        "convnext": ConvNextWrapper,
+        "swint": SwinTWrapper,
+        "pretrained": PretrainedBackbone,
+    }
 
     if backbone not in backbones:
         message = f"Unsupported backbone: {backbone}. Supported backbones are: {', '.join(backbones.keys())}"
@@ -131,7 +138,8 @@ class Model(nn.Module):
     """Model creates a model consisting of a backbone and head.
 
     Attributes:
-        backbone_type: Backbone type. One of `unet`, `convnext` and `swint`.
+        backbone_type: Backbone type. One of `unet`, `convnext`, `swint`, and
+            `pretrained` (external HuggingFace backbone).
         backbone_config: An `DictConfig` configuration dictionary for the model backbone.
         head_configs: An `DictConfig` configuration dictionary for the model heads.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.

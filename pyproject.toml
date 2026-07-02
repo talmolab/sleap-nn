@@ -109,6 +109,16 @@ sam = [
 sam3 = [
     "transformers>=5.0",
 ]
+# External pretrained image backbones (`model_config.backbone_config.pretrained`).
+# Reuses HuggingFace `transformers` `AutoBackbone`/`*Backbone` encoders (ConvNeXtV2,
+# ResNet, Swinv2, DINOv2, ...) as sleap-nn backbones. Lazy: imported only when a
+# `pretrained` backbone is requested, so the default install never needs it. Native
+# HF backbones (ConvNeXt/Swin/ResNet/DINOv2) need `transformers` core only — no timm.
+# Gated foundation weights (DINOv3, SAM3) additionally require `HF_TOKEN` + accepted
+# terms. See docs/guides/pretrained-backbones.md.
+backbones = [
+    "transformers>=5.0",
+]
 
 [dependency-groups]
 # PEP 735: Dev-only dependencies (`dev` is installed automatically by `uv sync`)

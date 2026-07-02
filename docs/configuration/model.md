@@ -90,6 +90,40 @@ backbone_config:
     pre_trained_weights: Swin_T_Weights  # ImageNet
 ```
 
+### Pretrained (HuggingFace)
+
+Reuse an external pretrained image encoder (ConvNeXtV2, ResNet, Swinv2, DINOv2, …)
+from HuggingFace `transformers` as the backbone — frozen or fine-tuned. Requires
+the `backbones` extra (`pip install "sleap-nn[backbones]"` / `uv sync --extra
+backbones`).
+
+```yaml
+backbone_config:
+  pretrained:
+    source: hf                                   # HuggingFace transformers
+    model_name: facebook/convnextv2-nano-22k-224 # any AutoBackbone model id
+    weights: true          # download & load pretrained weights (false = random init)
+    mode: auto             # auto | decoder (spatial heads) | encoder (pooled heads)
+    freeze: false          # true = feature extraction (encoder frozen)
+    normalize: true        # apply the model's image_mean/std (read from processor)
+    revision: null         # pin an HF commit sha/tag for reproducibility
+    in_channels: 3         # HF stems are 3-channel (grayscale is replicated)
+    output_stride: 2       # finest decoder output (Case A / decoder mode)
+    max_stride: 32         # deepest encoder stride (32 for CNN/Swin; patch size for ViT)
+```
+
+Two integration modes (auto-selected from the model family, or forced via `mode`):
+
+- **`decoder`** (Case A) — a **hierarchical** backbone (ConvNeXtV2 / ResNet /
+  Swinv2 / DINOv3-ConvNeXt) emits a multi-scale feature pyramid that feeds
+  sleap-nn's decoder, so any spatial head (pose, centroid, segmentation) works.
+- **`encoder`** (Case B) — an **isotropic** ViT (DINOv2 / DINOv2-with-registers)
+  emits a single pooled bottleneck for pooled heads (class-vectors / re-ID).
+
+See the [Pretrained Backbones guide](../guides/pretrained-backbones.md) for the
+full tested-model table, gating/`HF_TOKEN` and offline workflow, and freeze /
+fine-tune guidance.
+
 ---
 
 ## Heads

@@ -1058,6 +1058,77 @@ class HeadConfig:
     centered_instance_segmentation: Optional[CenteredInstanceSegmentationConfig] = None
 
 
+@define
+class PretrainedConfig:
+    """Configuration for an external pretrained backbone (HuggingFace).
+
+    Reuses an external pretrained image encoder (ConvNeXtV2, ResNet, Swinv2,
+    DINOv2, ...) as the model backbone via `transformers` `AutoBackbone`. See
+    ``sleap_nn.architectures.pretrained.PretrainedBackbone`` for the two
+    integration surfaces (hierarchical decoder vs. encoder-only pooled).
+
+    Attributes:
+        source: (str) Backbone source. Only ``"hf"`` (HuggingFace `transformers`)
+            is currently supported. *Default*: ``"hf"``.
+        model_name: (str) HuggingFace model id, e.g.
+            ``"facebook/convnextv2-nano-22k-224"``, ``"microsoft/resnet-50"``,
+            ``"facebook/dinov2-with-registers-base"``.
+        weights: (bool) If ``True``, download and load the pretrained weights; if
+            ``False``, build the architecture with random init from the model
+            config (no network) — useful for tests and cold-start training.
+            *Default*: ``True``.
+        mode: (str) One of ``"auto"``, ``"decoder"`` (Case A: hierarchical encoder
+            + sleap decoder for spatial heads), ``"encoder"`` (Case B: encoder-only
+            pooled bottleneck for class-vectors/embedding heads). *Default*:
+            ``"auto"``.
+        freeze: (bool) If ``True``, freeze the pretrained encoder (feature
+            extraction; only the decoder/head train). *Default*: ``False``.
+        revision: (str) Optional HuggingFace revision (commit sha / tag) to pin for
+            reproducibility. *Default*: ``None``.
+        normalize: (bool) If ``True``, apply model-specific per-channel mean/std
+            normalization inside the backbone forward (the data pipeline only
+            rescales to ``[0, 1]``). *Default*: ``True``.
+        image_mean: (List[float]) Optional explicit per-channel mean (length 3). If
+            ``None`` and ``normalize`` is set, read from the model's
+            `AutoImageProcessor`, falling back to ImageNet stats. *Default*: ``None``.
+        image_std: (List[float]) Optional explicit per-channel std (length 3).
+            *Default*: ``None``.
+        out_indices: (List[int]) Optional explicit stage indices to tap (Case A).
+            If ``None``, all stages are requested and deduplicated by stride.
+            *Default*: ``None``.
+        in_channels: (int) Number of input channels the stem expects. Pretrained
+            stems are 3-channel; grayscale is replicated upstream. *Default*: ``3``.
+        filters_rate: (float) Decoder filter growth factor (Case A). *Default*: ``2.0``.
+        convs_per_block: (int) Refinement convs per decoder block (Case A).
+            *Default*: ``2``.
+        kernel_size: (int) Decoder conv kernel size (Case A). *Default*: ``3``.
+        up_interpolate: (bool) Bilinear upsampling (vs. transposed conv) in the
+            decoder (Case A). *Default*: ``True``.
+        output_stride: (int) Stride of the finest decoder output (Case A).
+            *Default*: ``2``.
+        max_stride: (int) Deepest stride the encoder reaches (``32`` for
+            hierarchical CNN/Swin; patch size for a ViT). *Default*: ``32``.
+    """
+
+    source: str = "hf"
+    model_name: str = "facebook/convnextv2-nano-22k-224"
+    weights: bool = True
+    mode: str = "auto"
+    freeze: bool = False
+    revision: Optional[str] = None
+    normalize: bool = True
+    image_mean: Optional[List[float]] = None
+    image_std: Optional[List[float]] = None
+    out_indices: Optional[List[int]] = None
+    in_channels: int = 3
+    filters_rate: float = 2.0
+    convs_per_block: int = 2
+    kernel_size: int = 3
+    up_interpolate: bool = True
+    output_stride: int = 2
+    max_stride: int = 32
+
+
 @oneof
 @define
 class BackboneConfig:
@@ -1067,11 +1138,14 @@ class BackboneConfig:
         unet: An instance of `UNetConfig`.
         convnext: An instance of `ConvNextConfig`.
         swint: An instance of `SwinTConfig`.
+        pretrained: An instance of `PretrainedConfig` (external HuggingFace
+            pretrained backbone).
     """
 
     unet: Optional[UNetConfig] = None
     convnext: Optional[ConvNextConfig] = None
     swint: Optional[SwinTConfig] = None
+    pretrained: Optional[PretrainedConfig] = None
 
 
 @define
