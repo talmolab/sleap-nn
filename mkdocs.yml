@@ -136,6 +136,7 @@ nav:
       - Multi-GPU: guides/multi-gpu.md
       - Resume & Fine-Tune: guides/resume-finetune.md
       - Supervised ID: guides/supervised-id.md
+      - Tiling (High-Res): guides/tiling.md
     - Inference:
       - Overview: guides/inference/overview.md
       - Running Inference: guides/inference-guide.md
