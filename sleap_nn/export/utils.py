@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
 from sleap_nn.config.training_job_config import TrainingJobConfig
@@ -25,6 +26,26 @@ def load_training_config(model_dir: str | Path) -> DictConfig:
     raise FileNotFoundError(
         f"No training_config.yaml or training_config.json found in {model_dir}"
     )
+
+
+def warn_on_tiled_export(cfg: DictConfig) -> None:
+    """Warn that a tiled model is exported without its tiling wrapper (deferred).
+
+    Tiled ONNX/TensorRT export is not yet implemented (design DQ15): the exported
+    graph is the plain per-frame network, so an exported tiled model runs whole-frame
+    (no sliding-window tiling / stitching). PyTorch inference still tiles correctly.
+
+    Args:
+        cfg: A loaded training config.
+    """
+    tiling = OmegaConf.select(cfg, "data_config.preprocessing.tiling")
+    if tiling is not None and getattr(tiling, "enabled", False):
+        logger.warning(
+            "This model was trained with tiling enabled, but tiled ONNX/TensorRT "
+            "export is not yet supported. The exported model runs on WHOLE frames "
+            "without tiling/stitching and will not reproduce tiled-inference results. "
+            "Use PyTorch inference for tiled prediction."
+        )
 
 
 def resolve_input_scale(cfg: DictConfig) -> float:

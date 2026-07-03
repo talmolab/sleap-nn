@@ -98,6 +98,7 @@ def export(
     )
     from sleap_nn.export.utils import (
         load_training_config,
+        warn_on_tiled_export,
         resolve_anchor_part,
         resolve_backbone_type,
         resolve_class_maps_output_stride,
@@ -137,6 +138,8 @@ def export(
 
     model_paths = list(model_paths)
     cfgs = [load_training_config(path) for path in model_paths]
+    for cfg in cfgs:
+        warn_on_tiled_export(cfg)
     model_types = [resolve_model_type(cfg) for cfg in cfgs]
     backbone_types = [resolve_backbone_type(cfg) for cfg in cfgs]
 
