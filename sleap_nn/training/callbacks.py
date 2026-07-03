@@ -1917,3 +1917,61 @@ class CentroidEvaluationCallback(Callback):
                 wandb_logger.experiment.summary[summary_key] = value
             elif not is_distance and value > current_best:
                 wandb_logger.experiment.summary[summary_key] = value
+
+
+class TilingEpochCallback(Callback):
+    """Propagate the current epoch to the tiling sampler + dataset each epoch.
+
+    Registered only when ``data_config.preprocessing.tiling.enabled``. Tiled
+    training reseeds tile positions / halo augmentations per epoch via a
+    ``FrameGroupedTileSampler`` (whose block order is a function of the epoch)
+    and a shared-memory ``_epoch`` tensor on the dataset (read by persistent
+    workers). This callback keeps both in sync at the start of every train and
+    validation epoch.
+
+    The sampler chain follows the ``InfiniteDataLoader`` composition::
+
+        dl.batch_sampler        -> _RepeatSampler
+        dl.batch_sampler.sampler -> BatchSampler
+        dl.batch_sampler.sampler.sampler -> FrameGroupedTileSampler
+    """
+
+    @staticmethod
+    def _iter_dataloaders(dataloaders):
+        """Yield individual dataloaders from Lightning's (possibly nested) handle."""
+        if dataloaders is None:
+            return
+        if isinstance(dataloaders, (list, tuple)):
+            for dl in dataloaders:
+                yield from TilingEpochCallback._iter_dataloaders(dl)
+        else:
+            yield dataloaders
+
+    @staticmethod
+    def _set_loader_epoch(dl, epoch: int) -> None:
+        """Set the epoch on a dataloader's tile sampler and shared epoch tensor."""
+        # Sampler: dl.batch_sampler.sampler.sampler.set_epoch(epoch).
+        sampler = getattr(
+            getattr(getattr(dl, "batch_sampler", None), "sampler", None),
+            "sampler",
+            None,
+        )
+        if sampler is not None and hasattr(sampler, "set_epoch"):
+            sampler.set_epoch(epoch)
+        # Shared epoch tensor read by persistent workers.
+        dataset = getattr(dl, "dataset", None)
+        epoch_tensor = getattr(dataset, "_epoch", None)
+        if epoch_tensor is not None:
+            epoch_tensor.fill_(epoch)
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        """Sync the epoch on the train dataloader(s)."""
+        epoch = int(trainer.current_epoch)
+        for dl in self._iter_dataloaders(trainer.train_dataloader):
+            self._set_loader_epoch(dl, epoch)
+
+    def on_validation_epoch_start(self, trainer, pl_module):
+        """Sync the epoch on the val dataloader(s)."""
+        epoch = int(trainer.current_epoch)
+        for dl in self._iter_dataloaders(trainer.val_dataloaders):
+            self._set_loader_epoch(dl, epoch)

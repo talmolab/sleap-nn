@@ -57,6 +57,17 @@ from sleap_nn.data.segmentation_maps import (
     generate_center_offsets,
 )
 from sleap_nn.data.instance_cropping import make_centered_bboxes
+from sleap_nn.data.tiling import (
+    _FRAME_LRU_CAPACITY,
+    _FrameLRU,
+    FrameGroupedTileSampler,
+    draw_tile_origin,
+    extract_tile,
+    frame_foreground_centers,
+    generate_tile_grid,
+    tile_sample_seed,
+    tiling_worker_init_fn,
+)
 from sleap_nn.training.utils import is_distributed_initialized
 from sleap_nn.config.get_config import get_aug_config
 
@@ -303,6 +314,9 @@ class BaseDataset(Dataset):
         parallel_caching: bool = True,
         cache_workers: int = 0,
         use_negative_frames: bool = False,
+        tiling: Optional[Union[DictConfig, Any]] = None,
+        output_stride: Optional[int] = None,
+        base_seed: int = 0,
     ) -> None:
         """Initialize class attributes."""
         super().__init__()
@@ -310,6 +324,34 @@ class BaseDataset(Dataset):
         self.use_negative_frames = use_negative_frames
         self.ensure_rgb = ensure_rgb
         self.ensure_grayscale = ensure_grayscale
+
+        # --- Tiling awareness (Phase A) -------------------------------------
+        # When a non-None, enabled tiling config is passed, the dataset switches
+        # into tiled mode: the sizematcher step in `_apply_common_preprocessing`
+        # is replaced by a per-tile slice (`extract_tile`) and subclasses emit
+        # one (frame, tile-slot) sample per tile. When tiling is None/disabled
+        # everything below stays inert and the dataset is byte-identical to
+        # before (the regression guarantee).
+        self.tiling = tiling
+        self.tiling_enabled = tiling is not None and bool(
+            getattr(tiling, "enabled", False)
+        )
+        self.base_seed = base_seed
+        if self.tiling_enabled:
+            self.tile_size = int(tiling.tile_size)
+            self.overlap = int(tiling.overlap)
+            # BaseDataset has no head; the head output stride is passed in by the
+            # subclass so the tile grid can snap to the prediction grid.
+            self.output_stride = int(output_stride) if output_stride is not None else 1
+            self.tile_sampling = tiling.sampling
+            self.min_overlap_fraction = float(tiling.min_overlap_fraction)
+            self.tile_fg_fraction = float(tiling.tile_fg_fraction)
+            self.center_jitter = float(tiling.center_jitter)
+            self.min_visible_keypoints = int(tiling.min_visible_keypoints)
+            self.samples_per_frame = int(tiling.samples_per_frame or 1)
+            # Epoch counter in shared memory so persistent/spawned workers see the
+            # main-process epoch updates (they never observe plain attribute writes).
+            self._epoch = torch.zeros((), dtype=torch.long).share_memory_()
 
         # Handle intensity augmentation
         if intensity_aug is not None:
@@ -503,6 +545,123 @@ class BaseDataset(Dataset):
 
         return neg_samples
 
+    def _frame_lru(self) -> _FrameLRU:
+        """Return this process's decoded-frame LRU, building it lazily.
+
+        The cache is stored keyed by ``os.getpid()`` so forked / persistent
+        dataloader workers each get their own instance and never share (or
+        pickle) decoded-frame tensors. It is excluded from pickling via
+        ``__getstate__`` and rebuilt on first access in each process.
+        """
+        pid = os.getpid()
+        store = self.__dict__.get("_frame_lru_store")
+        if store is None or store.get("pid") != pid:
+            store = {"pid": pid, "lru": _FrameLRU(_FRAME_LRU_CAPACITY)}
+            self.__dict__["_frame_lru_store"] = store
+        return store["lru"]
+
+    def __getstate__(self):
+        """Drop the per-process frame LRU so it is never pickled to workers."""
+        state = self.__dict__.copy()
+        state.pop("_frame_lru_store", None)
+        return state
+
+    def _frame_sized_hw(self, lf: sio.LabeledFrame) -> Tuple[int, int]:
+        """Return a labeled frame's ``(H, W)`` after ``scale`` (sizematcher bypassed).
+
+        Uses video metadata when available to avoid decoding the frame. Matches
+        the ``int(dim * scale)`` truncation used by :func:`resize_image` so grid
+        origins align with the sized frame produced by ``apply_resizer``.
+        """
+        shape = getattr(lf.video, "shape", None)
+        if shape is not None and len(shape) >= 3:
+            height, width = int(shape[1]), int(shape[2])
+        else:
+            img = lf.image
+            height, width = int(img.shape[0]), int(img.shape[1])
+        if self.scale != 1.0:
+            height = int(height * self.scale)
+            width = int(width * self.scale)
+        return height, width
+
+    def _get_tile_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+        """Return per-(frame, tile-slot) sample descriptors for tiled datasets.
+
+        Mirrors ``_get_lf_idx_list`` (same user-instance filtering, empty-frame
+        skip, and cache-aware ``instances`` storage), but explodes each frame
+        into multiple tile descriptors: one per grid tile (``sampling="grid"``,
+        pinned origins) or ``samples_per_frame`` runtime-drawn tiles
+        (``sampling="foreground"``, ``tile_origin=None``). A frame's descriptors
+        form a contiguous run (the block the sampler groups on).
+        """
+        tile_idx_list: List[Dict] = []
+        for labels_idx, label in enumerate(labels):
+            for lf_idx, lf in enumerate(label):
+                if self.user_instances_only:
+                    if lf.user_instances is not None and len(lf.user_instances) > 0:
+                        lf.instances = lf.user_instances
+                    else:
+                        continue
+                if all(inst.is_empty for inst in lf.instances):
+                    continue
+                video_idx = labels[labels_idx].videos.index(lf.video)
+
+                if self.tile_sampling == "grid":
+                    origins = generate_tile_grid(
+                        self._frame_sized_hw(lf),
+                        tile_size=self.tile_size,
+                        overlap=self.overlap,
+                        output_stride=self.output_stride,
+                        max_stride=self.max_stride,
+                        min_overlap_fraction=self.min_overlap_fraction,
+                    )
+                else:
+                    origins = [None] * self.samples_per_frame
+
+                for sample_k, origin in enumerate(origins):
+                    tile_idx_list.append(
+                        {
+                            "labels_idx": labels_idx,
+                            "lf_idx": lf_idx,
+                            "video_idx": video_idx,
+                            "frame_idx": lf.frame_idx,
+                            "instances": (
+                                lf.instances if self.cache_img is not None else None
+                            ),
+                            "sample_k": sample_k,
+                            "tile_origin": origin,
+                            "is_grid": self.tile_sampling == "grid",
+                            "is_negative": False,
+                        }
+                    )
+
+        if self.use_negative_frames:
+            for neg in self._collect_negative_frames(labels):
+                for sample_k in range(self.samples_per_frame):
+                    d = dict(neg)
+                    d.update(
+                        sample_k=sample_k,
+                        tile_origin=None,
+                        is_grid=False,
+                        is_negative=True,
+                    )
+                    tile_idx_list.append(d)
+
+        return tile_idx_list
+
+    @staticmethod
+    def _build_frame_blocks(tile_idx_list: List[Dict]) -> List[List[int]]:
+        """Group contiguous per-frame runs of ``tile_idx_list`` into index blocks."""
+        blocks: List[List[int]] = []
+        prev_key = object()
+        for idx, d in enumerate(tile_idx_list):
+            key = (d["labels_idx"], d["lf_idx"])
+            if key != prev_key:
+                blocks.append([])
+                prev_key = key
+            blocks[-1].append(idx)
+        return blocks
+
     def __next__(self):
         """Get the next sample from the dataset."""
         if self.curr_idx >= len(self):
@@ -693,23 +852,48 @@ class BaseDataset(Dataset):
         elif self.ensure_grayscale:
             sample["image"] = convert_to_grayscale(sample["image"])
 
-        # size matcher
-        sample["image"], eff_scale = apply_sizematcher(
-            sample["image"],
-            max_height=self.max_hw[0],
-            max_width=self.max_hw[1],
-        )
-        sample["instances"] = sample["instances"] * eff_scale
-        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
+        if not self.tiling_enabled:
+            # size matcher
+            sample["image"], eff_scale = apply_sizematcher(
+                sample["image"],
+                max_height=self.max_hw[0],
+                max_width=self.max_hw[1],
+            )
+            sample["instances"] = sample["instances"] * eff_scale
+            sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
-        # resize image
-        sample["image"], sample["instances"] = apply_resizer(
-            sample["image"],
-            sample["instances"],
-            scale=self.scale,
-        )
+            # resize image
+            sample["image"], sample["instances"] = apply_resizer(
+                sample["image"],
+                sample["instances"],
+                scale=self.scale,
+            )
+        else:
+            # TILING: slice a tile IN PLACE OF the sizematcher (constant-zero pad
+            # only). The incoming frame is already scaled + channel-coerced (via
+            # `_to_sized_frame`), so `scale` is not re-applied here (that would
+            # double-scale); tiles are extracted in the model's input space where
+            # `tile_size` is divisible by the network strides. Geometric aug is
+            # folded into `extract_tile` (halo path) when enabled.
+            sample["image"], sample["instances"] = extract_tile(
+                image=sample["image"],
+                instances=sample["instances"],
+                tile_origin=sample["tile_origin"],
+                tile_size=self.tile_size,
+                apply_geometric=(self.apply_aug and self.geometric_aug is not None),
+                geometric_kwargs=(
+                    dict(self.geometric_aug) if self.geometric_aug is not None else None
+                ),
+                symmetric_inds=self.symmetric_inds,
+                rng_seed=sample.get("aug_seed"),
+            )
+            sample["eff_scale"] = torch.tensor(1.0, dtype=torch.float32)
+            sample["tile_origin"] = torch.tensor(
+                sample["tile_origin"], dtype=torch.int32
+            )
 
-        # Pad the image (if needed) according max stride
+        # Pad the image (if needed) according max stride. Per-tile under tiling;
+        # a no-op when `tile_size % max_stride == 0` (guaranteed by write-back).
         sample["image"] = apply_pad_to_stride(
             sample["image"], max_stride=self.max_stride
         )
@@ -723,7 +907,9 @@ class BaseDataset(Dataset):
                     **self.intensity_aug,
                 )
 
-            if self.geometric_aug is not None:
+            # Under tiling, geometric augmentation is folded into `extract_tile`
+            # (halo path); do NOT run it again here.
+            if not self.tiling_enabled and self.geometric_aug is not None:
                 sample["image"], sample["instances"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["instances"],
@@ -2436,6 +2622,245 @@ class SingleInstanceDataset(BaseDataset):
         return sample
 
 
+class SingleInstanceTiledDataset(BaseDataset):
+    """Single-instance dataset that emits fixed-size tiles instead of whole frames.
+
+    Phase-A tiled training dataset. Each frame is decomposed into overlapping
+    square tiles (foreground-aware random draws for training, a deterministic
+    grid for validation). A frame is decoded/`process_lf`/channel-coerced/scaled
+    once (cached in a per-worker LRU) and reused across all of its tiles; each
+    tile is then sliced out (`extract_tile`, sizematcher bypassed), optionally
+    geometrically augmented via the halo path, and its per-tile confidence maps
+    are generated on tile-local coordinates.
+
+    Emits one sample per ``(frame, tile-slot)``; ``__len__`` is the total number
+    of tile slots. Returned samples match the ``SingleInstanceDataset`` key
+    contract (plus an ``int32`` ``tile_origin`` of shape ``(2,)``), so the
+    default collate applies with no custom ``collate_fn``.
+
+    Single-instance keeps one pose per frame: on multi-instance labels a one-time
+    warning is emitted (foreground sampling uses all keypoints and inference
+    decodes a single global peak per node).
+    """
+
+    def __init__(
+        self,
+        labels: List[sio.Labels],
+        confmap_head_config: DictConfig,
+        max_stride: int,
+        user_instances_only: bool = True,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
+        intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        geometric_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        scale: float = 1.0,
+        apply_aug: bool = False,
+        max_hw: Tuple[Optional[int]] = (None, None),
+        cache_img: Optional[str] = None,
+        cache_img_path: Optional[str] = None,
+        use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
+        parallel_caching: bool = True,
+        cache_workers: int = 0,
+        use_negative_frames: bool = False,
+        tiling: Optional[Union[DictConfig, Any]] = None,
+        base_seed: int = 0,
+    ) -> None:
+        """Initialize class attributes."""
+        super().__init__(
+            labels=labels,
+            max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
+            intensity_aug=intensity_aug,
+            geometric_aug=geometric_aug,
+            scale=scale,
+            apply_aug=apply_aug,
+            max_hw=max_hw,
+            cache_img=cache_img,
+            cache_img_path=cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
+            use_negative_frames=use_negative_frames,
+            tiling=tiling,
+            output_stride=confmap_head_config.output_stride,
+            base_seed=base_seed,
+        )
+        self.confmap_head_config = confmap_head_config
+
+        # Per-(frame, tile-slot) descriptors + contiguous per-frame index blocks.
+        self.tile_idx_list = self._get_tile_idx_list(labels)
+        self.frame_blocks = self._build_frame_blocks(self.tile_idx_list)
+
+        if self.max_instances > 1:
+            logger.warning(
+                "SingleInstanceTiledDataset received labels with more than one "
+                "instance per frame. Single-instance models keep one pose per "
+                "frame: all keypoints seed foreground tile sampling and inference "
+                "decodes a single global peak per node."
+            )
+
+    def __len__(self) -> int:
+        """Return the number of tile samples (frames x tiles-per-frame)."""
+        return len(self.tile_idx_list)
+
+    def _read_frame(self, d: Dict) -> Tuple[np.ndarray, List[sio.Instance]]:
+        """Read a frame's raw image + instances (cache/disk/labels), restoring 2D->3D.
+
+        Mirrors the cache/disk/labels-list read in ``SingleInstanceDataset``.
+        """
+        labels_idx = d["labels_idx"]
+        lf_idx = d["lf_idx"]
+        if self.cache_img is not None:
+            instances = d["instances"]
+            if self.cache_img == "disk":
+                img = np.array(
+                    Image.open(
+                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                    )
+                )
+            elif self.cache_img == "memory":
+                img = self.cache[(labels_idx, lf_idx)].copy()
+        else:
+            lf = self.labels_list[labels_idx][lf_idx]
+            instances = lf.instances
+            img = lf.image
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
+        return img, instances
+
+    def _to_sized_frame(self, frame: Dict) -> Dict:
+        """Channel-coerce + `apply_resizer(scale)` so the LRU stores sized frames.
+
+        Applies the ensure_rgb/grayscale + ``scale`` prefix once, up front, so the
+        cached frame (and every tile sliced from it) is already in the model's
+        input space. ``_apply_common_preprocessing`` therefore does not re-scale.
+        """
+        if self.ensure_rgb:
+            frame["image"] = convert_to_rgb(frame["image"])
+        elif self.ensure_grayscale:
+            frame["image"] = convert_to_grayscale(frame["image"])
+        frame["image"], frame["instances"] = apply_resizer(
+            frame["image"], frame["instances"], scale=self.scale
+        )
+        return frame
+
+    def __getitem__(self, index) -> Dict:
+        """Return dict with image + confmaps for one tile of one frame."""
+        d = self.tile_idx_list[index]
+        labels_idx = d["labels_idx"]
+        epoch = int(self._epoch)
+
+        # Decode the full frame once per (labels_idx, lf_idx), via per-worker LRU.
+        # The cached value is the fully sized frame dict (image, instances +
+        # per-frame metadata); tiles clone from it so the cache stays pristine.
+        frame = (
+            self._frame_lru().get((labels_idx, d["lf_idx"]))
+            if not d["is_negative"]
+            else None
+        )
+        if frame is None:
+            if d["is_negative"]:
+                frame = self._load_negative_sample(d)
+            else:
+                img, instances = self._read_frame(d)
+                frame = process_lf(
+                    instances_list=instances,
+                    img=img,
+                    frame_idx=d["frame_idx"],
+                    video_idx=d["video_idx"],
+                    max_instances=self.max_instances,
+                    user_instances_only=self.user_instances_only,
+                )
+            frame = self._to_sized_frame(frame)
+            if not d["is_negative"]:
+                self._frame_lru().put((labels_idx, d["lf_idx"]), frame)
+
+        sample = {
+            "image": frame["image"].clone(),
+            "instances": frame["instances"].clone(),
+            "video_idx": frame["video_idx"],
+            "frame_idx": frame["frame_idx"],
+            "orig_size": frame["orig_size"],
+            "num_instances": frame["num_instances"],
+        }
+
+        # Resolve the tile origin: pinned for grid/val, drawn for train.
+        if d["is_grid"]:
+            sample["tile_origin"] = d["tile_origin"]
+        else:
+            rng = np.random.default_rng(
+                tile_sample_seed(
+                    self.base_seed,
+                    epoch,
+                    d["video_idx"],
+                    d["frame_idx"],
+                    d["sample_k"],
+                )
+            )
+            centers = frame_foreground_centers(sample["instances"])
+            sample["tile_origin"] = draw_tile_origin(
+                centers,
+                sample["image"].shape[-2:],
+                self.tile_size,
+                d["sample_k"],
+                self.samples_per_frame,
+                self.tile_fg_fraction,
+                self.center_jitter,
+                rng,
+                pos_ratio=0.0 if d["is_negative"] else 1.0,
+            )
+            sample["aug_seed"] = tile_sample_seed(
+                self.base_seed,
+                epoch,
+                d["video_idx"],
+                d["frame_idx"],
+                d["sample_k"],
+                salt=1,
+            )
+
+        sample = self._apply_common_preprocessing(sample)
+
+        img_hw = sample["image"].shape[-2:]
+
+        # min_visible_keypoints: drop instances with too few in-tile keypoints
+        # BEFORE OOB/confmap generation so a barely-clipped instance at a seam
+        # does not seed a partial blob.
+        inst = sample["instances"]
+        inside = (
+            (inst[..., 0] >= 0)
+            & (inst[..., 0] < img_hw[1])
+            & (inst[..., 1] >= 0)
+            & (inst[..., 1] < img_hw[0])
+        )
+        keep = inside.sum(dim=-1) >= self.min_visible_keypoints
+        inst[~keep] = torch.nan
+        sample["instances"] = inst
+
+        # NaN out remaining OOB keypoints at final tile resolution, then confmaps.
+        sample["instances"] = filter_oob_points(
+            sample["instances"], img_hw[0], img_hw[1]
+        )
+        sample["confidence_maps"] = generate_confmaps(
+            sample["instances"],
+            img_hw=img_hw,
+            sigma=self.confmap_head_config.sigma,
+            output_stride=self.confmap_head_config.output_stride,
+        )
+
+        sample["labels_idx"] = labels_idx
+        if self.use_negative_frames:
+            sample["is_negative"] = d["is_negative"]
+
+        # Drop the transient aug seed so the batch collates uniformly.
+        sample.pop("aug_seed", None)
+
+        return sample
+
+
 class InfiniteDataLoader(DataLoader):
     """Dataloader that reuses workers for infinite iteration.
 
@@ -3325,64 +3750,134 @@ def get_train_val_datasets(
         )
 
     else:
-        train_dataset = SingleInstanceDataset(
-            labels=train_labels,
-            confmap_head_config=config.model_config.head_configs.single_instance.confmaps,
-            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
-                "max_stride"
-            ],
-            user_instances_only=config.data_config.user_instances_only,
-            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
-            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
-            intensity_aug=(
-                config.data_config.augmentation_config.intensity
-                if config.data_config.augmentation_config is not None
-                else None
-            ),
-            geometric_aug=(
-                config.data_config.augmentation_config.geometric
-                if config.data_config.augmentation_config is not None
-                else None
-            ),
-            scale=config.data_config.preprocessing.scale,
-            apply_aug=config.data_config.use_augmentations_train,
-            max_hw=(
-                config.data_config.preprocessing.max_height,
-                config.data_config.preprocessing.max_width,
-            ),
-            cache_img=cache_imgs,
-            cache_img_path=train_cache_img_path,
-            use_existing_imgs=use_existing_imgs,
-            rank=rank,
-            parallel_caching=parallel_caching,
-            cache_workers=cache_workers,
-            use_negative_frames=use_negative_frames,
+        tiling = OmegaConf.select(
+            config, "data_config.preprocessing.tiling", default=None
         )
-        val_dataset = SingleInstanceDataset(
-            labels=val_labels,
-            confmap_head_config=config.model_config.head_configs.single_instance.confmaps,
-            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
-                "max_stride"
-            ],
-            user_instances_only=config.data_config.user_instances_only,
-            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
-            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
-            intensity_aug=None,
-            geometric_aug=None,
-            scale=config.data_config.preprocessing.scale,
-            apply_aug=False,
-            max_hw=(
-                config.data_config.preprocessing.max_height,
-                config.data_config.preprocessing.max_width,
-            ),
-            cache_img=cache_imgs,
-            cache_img_path=val_cache_img_path,
-            use_existing_imgs=use_existing_imgs,
-            rank=rank,
-            parallel_caching=parallel_caching,
-            cache_workers=cache_workers,
-            use_negative_frames=use_negative_frames,
-        )
+        if tiling is not None and tiling.enabled:
+            # Tiled single-instance training. Train draws foreground-aware tiles;
+            # val always uses a deterministic full-coverage grid (no aug).
+            base_seed = config.trainer_config.seed or 0
+            train_dataset = SingleInstanceTiledDataset(
+                labels=train_labels,
+                confmap_head_config=config.model_config.head_configs.single_instance.confmaps,
+                max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                    "max_stride"
+                ],
+                user_instances_only=config.data_config.user_instances_only,
+                ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+                ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+                intensity_aug=(
+                    config.data_config.augmentation_config.intensity
+                    if config.data_config.augmentation_config is not None
+                    else None
+                ),
+                geometric_aug=(
+                    config.data_config.augmentation_config.geometric
+                    if config.data_config.augmentation_config is not None
+                    else None
+                ),
+                scale=config.data_config.preprocessing.scale,
+                apply_aug=config.data_config.use_augmentations_train,
+                max_hw=(
+                    config.data_config.preprocessing.max_height,
+                    config.data_config.preprocessing.max_width,
+                ),
+                cache_img=cache_imgs,
+                cache_img_path=train_cache_img_path,
+                use_existing_imgs=use_existing_imgs,
+                rank=rank,
+                parallel_caching=parallel_caching,
+                cache_workers=cache_workers,
+                use_negative_frames=use_negative_frames,
+                tiling=OmegaConf.merge(tiling, {"sampling": tiling.sampling}),
+                base_seed=base_seed,
+            )
+            val_dataset = SingleInstanceTiledDataset(
+                labels=val_labels,
+                confmap_head_config=config.model_config.head_configs.single_instance.confmaps,
+                max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                    "max_stride"
+                ],
+                user_instances_only=config.data_config.user_instances_only,
+                ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+                ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+                intensity_aug=None,
+                geometric_aug=None,
+                scale=config.data_config.preprocessing.scale,
+                apply_aug=False,
+                max_hw=(
+                    config.data_config.preprocessing.max_height,
+                    config.data_config.preprocessing.max_width,
+                ),
+                cache_img=cache_imgs,
+                cache_img_path=val_cache_img_path,
+                use_existing_imgs=use_existing_imgs,
+                rank=rank,
+                parallel_caching=parallel_caching,
+                cache_workers=cache_workers,
+                use_negative_frames=use_negative_frames,
+                tiling=OmegaConf.merge(tiling, {"sampling": "grid"}),
+                base_seed=base_seed,
+            )
+        else:
+            train_dataset = SingleInstanceDataset(
+                labels=train_labels,
+                confmap_head_config=config.model_config.head_configs.single_instance.confmaps,
+                max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                    "max_stride"
+                ],
+                user_instances_only=config.data_config.user_instances_only,
+                ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+                ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+                intensity_aug=(
+                    config.data_config.augmentation_config.intensity
+                    if config.data_config.augmentation_config is not None
+                    else None
+                ),
+                geometric_aug=(
+                    config.data_config.augmentation_config.geometric
+                    if config.data_config.augmentation_config is not None
+                    else None
+                ),
+                scale=config.data_config.preprocessing.scale,
+                apply_aug=config.data_config.use_augmentations_train,
+                max_hw=(
+                    config.data_config.preprocessing.max_height,
+                    config.data_config.preprocessing.max_width,
+                ),
+                cache_img=cache_imgs,
+                cache_img_path=train_cache_img_path,
+                use_existing_imgs=use_existing_imgs,
+                rank=rank,
+                parallel_caching=parallel_caching,
+                cache_workers=cache_workers,
+                use_negative_frames=use_negative_frames,
+            )
+            val_dataset = SingleInstanceDataset(
+                labels=val_labels,
+                confmap_head_config=config.model_config.head_configs.single_instance.confmaps,
+                max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                    "max_stride"
+                ],
+                user_instances_only=config.data_config.user_instances_only,
+                ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+                ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+                intensity_aug=None,
+                geometric_aug=None,
+                scale=config.data_config.preprocessing.scale,
+                apply_aug=False,
+                max_hw=(
+                    config.data_config.preprocessing.max_height,
+                    config.data_config.preprocessing.max_width,
+                ),
+                cache_img=cache_imgs,
+                cache_img_path=val_cache_img_path,
+                use_existing_imgs=use_existing_imgs,
+                rank=rank,
+                parallel_caching=parallel_caching,
+                cache_workers=cache_workers,
+                use_negative_frames=use_negative_frames,
+            )
 
     # If using caching, close the videos to prevent `h5py objects can't be pickled error` when num_workers > 0.
     if "cache_img" in config.data_config.data_pipeline_fw:
@@ -3442,16 +3937,34 @@ def get_train_val_dataloaders(
             batch_size=config.trainer_config.val_data_loader.batch_size,
         )
 
-    train_sampler = (
-        DistributedSampler(
-            dataset=train_dataset,
+    tiling = OmegaConf.select(config, "data_config.preprocessing.tiling", default=None)
+    tiling_enabled = tiling is not None and tiling.enabled
+
+    # Under tiling, a frame-grouped block sampler REPLACES DistributedSampler (it
+    # shards whole frame blocks so a frame's tiles stay together and DDP-disjoint),
+    # and a per-worker RNG init de-correlates the halo augmentation streams.
+    worker_init_fn = tiling_worker_init_fn if tiling_enabled else None
+
+    if tiling_enabled:
+        train_sampler = FrameGroupedTileSampler(
+            train_dataset.frame_blocks,
+            batch_size=config.trainer_config.train_data_loader.batch_size,
             shuffle=config.trainer_config.train_data_loader.shuffle,
-            rank=rank if rank is not None else 0,
+            seed=config.trainer_config.seed or 0,
             num_replicas=trainer_devices,
+            rank=(rank if rank is not None else 0),
         )
-        if trainer_devices > 1
-        else None
-    )
+    else:
+        train_sampler = (
+            DistributedSampler(
+                dataset=train_dataset,
+                shuffle=config.trainer_config.train_data_loader.shuffle,
+                rank=rank if rank is not None else 0,
+                num_replicas=trainer_devices,
+            )
+            if trainer_devices > 1
+            else None
+        )
 
     train_data_loader = InfiniteDataLoader(
         dataset=train_dataset,
@@ -3465,6 +3978,7 @@ def get_train_val_dataloaders(
         batch_size=config.trainer_config.train_data_loader.batch_size,
         num_workers=config.trainer_config.train_data_loader.num_workers,
         pin_memory=pin_memory,
+        worker_init_fn=worker_init_fn,
         persistent_workers=(
             True if config.trainer_config.train_data_loader.num_workers > 0 else None
         ),
@@ -3475,16 +3989,26 @@ def get_train_val_dataloaders(
         ),
     )
 
-    val_sampler = (
-        DistributedSampler(
-            dataset=val_dataset,
+    if tiling_enabled:
+        val_sampler = FrameGroupedTileSampler(
+            val_dataset.frame_blocks,
+            batch_size=config.trainer_config.val_data_loader.batch_size,
             shuffle=False,
-            rank=rank if rank is not None else 0,
+            seed=config.trainer_config.seed or 0,
             num_replicas=trainer_devices,
+            rank=(rank if rank is not None else 0),
         )
-        if trainer_devices > 1
-        else None
-    )
+    else:
+        val_sampler = (
+            DistributedSampler(
+                dataset=val_dataset,
+                shuffle=False,
+                rank=rank if rank is not None else 0,
+                num_replicas=trainer_devices,
+            )
+            if trainer_devices > 1
+            else None
+        )
     val_data_loader = InfiniteDataLoader(
         dataset=val_dataset,
         shuffle=False if val_sampler is None else None,
@@ -3497,6 +4021,7 @@ def get_train_val_dataloaders(
         batch_size=config.trainer_config.val_data_loader.batch_size,
         num_workers=config.trainer_config.val_data_loader.num_workers,
         pin_memory=pin_memory,
+        worker_init_fn=worker_init_fn,
         persistent_workers=(
             True if config.trainer_config.val_data_loader.num_workers > 0 else None
         ),

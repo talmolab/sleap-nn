@@ -43,6 +43,7 @@ from sleap_nn.data.custom_datasets import (
     get_steps_per_epoch,
     get_train_val_datasets,
 )
+from sleap_nn.data.tiling import generate_tile_grid
 from loguru import logger
 from sleap_nn.config.utils import (
     get_backbone_type_from_cfg,
@@ -65,6 +66,7 @@ from sleap_nn.training.callbacks import (
     EpochEndEvaluationCallback,
     CentroidEvaluationCallback,
     SegmentationEvaluationCallback,
+    TilingEpochCallback,
     UnifiedVizCallback,
 )
 from sleap_nn import RANK
@@ -632,6 +634,43 @@ class ModelTrainer:
                     f"(confmap_sigma={sigma}, backbone_margin={backbone_margin})."
                 )
             self.config.data_config.preprocessing.tiling.overlap = overlap
+
+        overlap = int(self.config.data_config.preprocessing.tiling.overlap)
+
+        # samples_per_frame default: a conservative grid-tile count for a
+        # representative (max-sized) frame, so train coverage ~= one grid pass
+        # per frame. Written back into the live config before dataset creation.
+        if tiling.samples_per_frame is None:
+            scale = float(self.config.data_config.preprocessing.scale)
+            rep_h = self.config.data_config.preprocessing.max_height
+            rep_w = self.config.data_config.preprocessing.max_width
+            if rep_h is None or rep_w is None:
+                # Fall back to the first labeled frame's native size.
+                shape = getattr(self.train_labels[0].videos[0], "shape", None)
+                if shape is not None and len(shape) >= 3:
+                    rep_h, rep_w = int(shape[1]), int(shape[2])
+                else:
+                    img = self.train_labels[0][0].image
+                    rep_h, rep_w = int(img.shape[0]), int(img.shape[1])
+            sized_hw = (int(rep_h * scale), int(rep_w * scale))
+            n_tiles = len(
+                generate_tile_grid(
+                    sized_hw,
+                    tile_size=tile_size,
+                    overlap=overlap,
+                    output_stride=output_stride,
+                    max_stride=max_stride,
+                    min_overlap_fraction=float(tiling.min_overlap_fraction),
+                )
+            )
+            self.config.data_config.preprocessing.tiling.samples_per_frame = max(
+                1, n_tiles
+            )
+            logger.info(
+                "Auto-sized tiling.samples_per_frame="
+                f"{max(1, n_tiles)} (grid tiles for a "
+                f"{sized_hw[0]}x{sized_hw[1]} frame)."
+            )
 
     def _setup_head_config(self):
         """Setup node, edge and class names in head config."""
@@ -1394,6 +1433,13 @@ class ModelTrainer:
                     )
                 )
 
+        # Sync the tiling sampler + shared epoch tensor each epoch (tiling only).
+        tiling = OmegaConf.select(
+            self.config, "data_config.preprocessing.tiling", default=None
+        )
+        if tiling is not None and tiling.enabled:
+            callbacks.append(TilingEpochCallback())
+
         return loggers, callbacks
 
     def _delete_cache_imgs(self):
@@ -1514,15 +1560,27 @@ class ModelTrainer:
 
         # set-up steps per epoch
         train_steps_per_epoch = self.config.trainer_config.train_steps_per_epoch
+        tiling = OmegaConf.select(
+            self.config, "data_config.preprocessing.tiling", default=None
+        )
         if train_steps_per_epoch is None:
-            train_steps_per_epoch = get_steps_per_epoch(
-                dataset=train_dataset,
-                batch_size=self.config.trainer_config.train_data_loader.batch_size,
-            )
+            if (
+                tiling is not None
+                and tiling.enabled
+                and tiling.steps_per_epoch is not None
+            ):
+                # TRAIN decouple: the tiling knob overrides the tile-count length.
+                train_steps_per_epoch = tiling.steps_per_epoch
+            else:
+                train_steps_per_epoch = get_steps_per_epoch(
+                    dataset=train_dataset,
+                    batch_size=self.config.trainer_config.train_data_loader.batch_size,
+                )
         if self.config.trainer_config.min_train_steps_per_epoch > train_steps_per_epoch:
             train_steps_per_epoch = self.config.trainer_config.min_train_steps_per_epoch
         self.config.trainer_config.train_steps_per_epoch = train_steps_per_epoch
 
+        # VAL: always full-coverage (every grid tile visited once), NOT decoupled.
         val_steps_per_epoch = get_steps_per_epoch(
             dataset=val_dataset,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
