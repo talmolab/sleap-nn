@@ -314,6 +314,99 @@ class CenteredInstanceMaskInferenceModel(L.LightningModule):
         self.polygon_epsilon = float(polygon_epsilon)
 
 
+class SemanticSegmentationInferenceModel(L.LightningModule):
+    """Inference model for whole-frame semantic (foreground/background) segmentation.
+
+    A lone :class:`~sleap_nn.architectures.heads.SegmentationHead` on the WHOLE
+    frame (no crop, no instance grouping). The trained model's ``forward`` returns
+    ``{"SegmentationHead": prob}`` with the sigmoid ALREADY applied (mirroring
+    :class:`BottomUpSegmentationLightningModule`, whose foreground head is
+    sigmoided in ``forward`` — required so tiled inference stitches probabilities,
+    not logits). ``postprocess`` thresholds the foreground map into ONE mask per
+    frame; there is no center/offset field and no ``group_instances_from_offsets``.
+
+    Like :class:`BottomUpSegmentationInferenceModel`, this is primarily an
+    attribute bag whose ``.torch_model`` + packaging knobs are read off it by
+    ``_build_semantic_segmentation_layer`` (via ``getattr``); the real inference
+    run is driven by the composed
+    :class:`~sleap_nn.inference.layers.segmentation.SemanticSegmentationLayer`.
+    ``forward`` is provided for training-viz / GPU mask-eval parity and emits raw
+    output-stride masks (``min_mask_area`` / ``full_res_masks`` / packaging knobs
+    are applied later, in the layer's ``postprocess``).
+
+    Attributes:
+        torch_model: Callable model returning ``{"SegmentationHead": prob}``
+            (sigmoid already applied).
+        fg_threshold: Foreground probability threshold for binarization.
+        output_stride: Stride of the seg head map relative to the model input.
+        input_scale: Input scale the model was trained with (applied to frames).
+        min_mask_area: Minimum mask area (ORIGINAL-image pixels) carried through
+            to ``SemanticSegmentationLayer`` to drop a tiny spurious mask. ``0``
+            disables it. Not applied here (``forward`` returns output-stride masks).
+        full_res_masks / mask_output / polygon_epsilon: Output-packaging knobs
+            read by the layer builder and forwarded to the layer / ``Outputs.to_labels``.
+    """
+
+    def __init__(
+        self,
+        torch_model,
+        fg_threshold: float = 0.5,
+        output_stride: int = 2,
+        input_scale: float = 1.0,
+        min_mask_area: int = 0,
+        full_res_masks: bool = False,
+        mask_output: str = "mask",
+        polygon_epsilon: float = 0.01,
+    ):
+        """Stash the whole-frame seg model + packaging knobs."""
+        super().__init__()
+        self.torch_model = torch_model
+        self.fg_threshold = float(fg_threshold)
+        self.output_stride = int(output_stride)
+        self.input_scale = float(input_scale)
+        self.min_mask_area = int(min_mask_area)
+        self.full_res_masks = bool(full_res_masks)
+        self.mask_output = str(mask_output)
+        self.polygon_epsilon = float(polygon_epsilon)
+
+    def forward(self, batch: Dict) -> List[List[Dict]]:
+        """Threshold the foreground map into ONE mask per batch element.
+
+        Args:
+            batch: Dict with an ``"image"`` key. Shape ``(B, C, H, W)``. Images
+                should already be padded to the model's max stride.
+
+        Returns:
+            List (one per batch element) of instance lists. Each element is either
+            empty (no foreground above threshold) or a single-item list
+            ``[{"mask", "score"}]`` where ``mask`` is an ``(h, w)`` boolean numpy
+            array at output-stride resolution and ``score`` is the mean foreground
+            probability over the mask.
+        """
+        images = batch["image"]
+        if images.dim() == 5:
+            images = images.squeeze(1)
+
+        images = images.to(self.device)
+
+        output = self.torch_model(images.unsqueeze(1))
+
+        foreground = output["SegmentationHead"]  # (B, 1, h, w), already sigmoid
+        foreground = foreground.detach().cpu()
+
+        batch_results: List[List[Dict]] = []
+        for b in range(foreground.shape[0]):
+            fg = foreground[b, 0]  # (h, w)
+            fg_binary = fg > self.fg_threshold
+            if not bool(fg_binary.any()):
+                batch_results.append([])
+                continue
+            score = float(fg[fg_binary].mean())
+            batch_results.append([{"mask": fg_binary.numpy(), "score": score}])
+
+        return batch_results
+
+
 # --------------------------------------------------------------------------- #
 # Fragment-merge: RAG over candidate masks + greedy/multicut agglomeration.
 #

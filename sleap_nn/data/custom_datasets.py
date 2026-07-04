@@ -3220,6 +3220,252 @@ class BottomUpSegmentationDataset(BaseDataset):
         return sample_dict
 
 
+class SemanticSegmentationDataset(BaseDataset):
+    """Dataset class for whole-frame semantic (foreground/background) segmentation.
+
+    Loads per-instance segmentation masks from ``LabeledFrame.masks`` and reduces
+    them to a SINGLE binary foreground mask per frame (the union of every instance
+    mask, area-downsampled to the segmentation head's output stride). There is NO
+    instance grouping: unlike :class:`BottomUpSegmentationDataset`, no center
+    heatmap, per-pixel offset field, or offset weight mask is generated — the model
+    predicts one whole-frame foreground channel and decoding is a plain threshold.
+
+    Masks are captured into the sample index at construction time (mirroring how
+    keypoint instances are captured for caching), so ``__getitem__`` never needs
+    a live ``Labels`` handle — this keeps it correct under the memory/disk image
+    caching paths (where ``self.labels_list`` is ``None``).
+
+    Note:
+        Augmentation: intensity aug is applied to the image; geometric aug
+        (rotation/scale/translate/flip) co-transforms every per-instance mask with the
+        SAME affine matrix as the image (nearest-neighbor, re-binarized) at the
+        preprocessed resolution, before the foreground mask is derived. Erase/mixup
+        stay image-only. Mask resizing to the preprocessed image size handles scaling
+        but is not pad-aware; for v1 train with ``scale=1.0`` and input dims divisible
+        by ``max_stride`` (and prefer small rotation ranges, since a full-frame rotation
+        can clip instances at the frame edge, as it does for bottom-up pose).
+
+    Attributes:
+        seg_head_config: Configuration for the segmentation head (``output_stride``).
+    """
+
+    def __init__(
+        self,
+        labels: List[sio.Labels],
+        seg_head_config: DictConfig,
+        max_stride: int,
+        user_instances_only: bool = True,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
+        intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        geometric_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        scale: float = 1.0,
+        apply_aug: bool = False,
+        max_hw: Tuple[Optional[int]] = (None, None),
+        cache_img: Optional[str] = None,
+        cache_img_path: Optional[str] = None,
+        use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
+        parallel_caching: bool = True,
+        cache_workers: int = 0,
+        use_negative_frames: bool = False,
+    ) -> None:
+        """Initialize class attributes."""
+        self.seg_head_config = seg_head_config
+        # Segmentation never uses negative frames (degenerate num_nodes/instances).
+        super().__init__(
+            labels=labels,
+            max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
+            intensity_aug=intensity_aug,
+            geometric_aug=geometric_aug,
+            scale=scale,
+            apply_aug=apply_aug,
+            max_hw=max_hw,
+            cache_img=cache_img,
+            cache_img_path=cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
+            use_negative_frames=False,
+        )
+
+    def _apply_common_preprocessing(self, sample: Dict) -> Dict:
+        """Apply common preprocessing with geometric augmentation deferred.
+
+        Geometric augmentation must co-transform the segmentation masks, but those
+        masks are not present in ``sample`` here (they are loaded separately), so the
+        base method would warp only the image. We disable geometric aug for the base
+        call (intensity aug still applies) and re-apply it in ``__getitem__`` once the
+        masks have been resized to the preprocessed resolution, co-transforming image
+        and masks with the same matrix.
+
+        Args:
+            sample: Sample dict with at least ``image`` and ``instances`` keys.
+
+        Returns:
+            The sample dict with preprocessing applied in-place.
+        """
+        saved_geometric_aug = self.geometric_aug
+        self.geometric_aug = None
+        try:
+            sample = super()._apply_common_preprocessing(sample)
+        finally:
+            self.geometric_aug = saved_geometric_aug
+        return sample
+
+    def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+        """Return samples for frames that have segmentation masks.
+
+        Overrides the base class to index frames by their masks rather than
+        keypoint instances. The decoded mask arrays are captured into each
+        sample so ``__getitem__`` does not depend on a live ``Labels`` handle.
+        """
+        lf_idx_list = []
+        for labels_idx, label in enumerate(labels):
+            for lf_idx, lf in enumerate(label):
+                lf_masks = getattr(lf, "masks", None)
+                if not lf_masks:
+                    continue
+                # Scale-aware decode: masks written by the segmentation inference
+                # layer are encoded at output-stride (non-identity scale); decode
+                # them up to the IMAGE-pixel grid so self-training / pseudo-label
+                # ``.slp`` files yield correctly-scaled targets (a stride-res
+                # ``m.data`` would silently mis-scale the GT, since __getitem__'s
+                # resize branch only fires on a preprocessing size change). Scale-1
+                # GT masks take the zero-copy fast path.
+                from sleap_nn.inference.segmentation_convert import (
+                    decode_mask_to_image_res,
+                )
+
+                mask_arrays = [decode_mask_to_image_res(m) for m in lf_masks]
+                if len(mask_arrays) == 0:
+                    continue
+                video_idx = label.videos.index(lf.video)
+                sample = {
+                    "labels_idx": labels_idx,
+                    "lf_idx": lf_idx,
+                    "video_idx": video_idx,
+                    "frame_idx": lf.frame_idx,
+                    "is_negative": False,
+                    "instances": None,
+                    "masks": mask_arrays,
+                }
+                lf_idx_list.append(sample)
+
+        return lf_idx_list
+
+    def __getitem__(self, index) -> Dict:
+        """Return dict with image and whole-frame foreground mask for given index."""
+        sample = self.lf_idx_list[index]
+        labels_idx = sample["labels_idx"]
+        lf_idx = sample["lf_idx"]
+        video_idx = sample["video_idx"]
+        frame_idx = sample["frame_idx"]
+
+        # Load image
+        if self.cache_img is not None:
+            if self.cache_img == "disk":
+                img = np.array(
+                    Image.open(
+                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                    )
+                )
+            elif self.cache_img == "memory":
+                img = self.cache[(labels_idx, lf_idx)].copy()
+        else:
+            lf = self.labels_list[labels_idx][lf_idx]
+            img = lf.image
+
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
+
+        image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+        image = np.expand_dims(image, axis=0)  # (1, C, H, W)
+        image = torch.from_numpy(image.copy())
+
+        # Dummy instances tensor (needed for preprocessing compatibility)
+        instances = torch.zeros((1, 1, 1, 2), dtype=torch.float32)
+
+        sample_dict = {
+            "image": image,
+            "instances": instances,
+            "video_idx": torch.tensor(video_idx, dtype=torch.int32),
+            "frame_idx": torch.tensor(frame_idx, dtype=torch.int32),
+            "orig_size": torch.Tensor([image.shape[-2], image.shape[-1]]).unsqueeze(0),
+            "num_instances": 0,
+        }
+
+        # Masks captured at index-build time (decoded bool arrays at orig res).
+        mask_arrays = [np.asarray(m, dtype=bool) for m in sample["masks"]]
+
+        # Record original image size before preprocessing
+        orig_img_hw = (image.shape[-2], image.shape[-1])
+
+        # Apply common preprocessing (RGB/grayscale, size matching, scaling, padding)
+        sample_dict = self._apply_common_preprocessing(sample_dict)
+
+        img_hw = sample_dict["image"].shape[-2:]
+
+        # Resize masks to match preprocessed image dimensions if size changed.
+        if img_hw != orig_img_hw and len(mask_arrays) > 0:
+            target_h, target_w = img_hw
+            resized_masks = []
+            for m in mask_arrays:
+                # Convert mask to float tensor: (1, 1, H, W)
+                m_tensor = (
+                    torch.from_numpy(m.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+                )
+                m_resized = F.interpolate(
+                    m_tensor, size=(target_h, target_w), mode="area"
+                )
+                # Threshold back to binary
+                resized_masks.append((m_resized.squeeze().numpy() > 0.5))
+            mask_arrays = resized_masks
+
+        # Geometric augmentation: co-transform the per-instance masks with the SAME
+        # flip/affine matrix as the image (nearest-neighbor, re-binarized). Applied
+        # here (post size-match / resize / pad) so the image and masks share a
+        # resolution, and BEFORE the foreground mask is generated so it is derived
+        # from the augmented masks. Semantic segmentation has no keypoints, so a dummy
+        # instances tensor rides along; erase/mixup stay image-only.
+        if self.apply_aug and self.geometric_aug is not None and len(mask_arrays) > 0:
+            masks_t = torch.from_numpy(
+                np.stack([m.astype(np.float32) for m in mask_arrays])
+            ).unsqueeze(
+                0
+            )  # (1, K, H, W)
+            (
+                sample_dict["image"],
+                _,
+                masks_t,
+            ) = apply_geometric_augmentation(
+                sample_dict["image"],
+                torch.zeros((1, 1, 1, 2), dtype=torch.float32),
+                masks=masks_t,
+                **self.geometric_aug,
+            )
+            mask_arrays = [masks_t[0, k].numpy() > 0.5 for k in range(masks_t.shape[1])]
+
+        # Generate the single whole-frame foreground mask (union of all instance
+        # masks, area-downsampled + re-binarized to the seg head's output stride).
+        # No center/offset/weight targets: decoding is a plain threshold with no
+        # instance grouping.
+        foreground_mask = generate_foreground_mask(
+            mask_arrays,
+            img_hw=img_hw,
+            output_stride=self.seg_head_config.output_stride,
+        )
+
+        sample_dict["foreground_mask"] = foreground_mask
+        sample_dict["labels_idx"] = labels_idx
+
+        return sample_dict
+
+
 # Minimum number of tile-local foreground pixels for a mask to be "owned" by a tile.
 # Guards against degenerate near-empty slivers (and all-zero background masks, whose
 # `_compute_mask_centroids` fallback lands at the tile center) being kept as owners.
@@ -3643,6 +3889,397 @@ class BottomUpSegmentationTiledDataset(BaseDataset):
             "center_heatmap": center_heatmap,
             "center_offsets": center_offsets,
             "foreground_weight": foreground_weight,
+            "labels_idx": labels_idx,
+            "tile_origin": torch.tensor(tile_origin, dtype=torch.int32),
+        }
+
+
+class SemanticSegmentationTiledDataset(BaseDataset):
+    """Whole-frame semantic (fg/bg) segmentation dataset emitting fixed-size tiles.
+
+    Tiling analogue of :class:`SemanticSegmentationDataset` and a fg-only sibling of
+    :class:`BottomUpSegmentationTiledDataset`: each frame is decomposed into
+    overlapping square tiles (foreground-aware random draws for training, a
+    deterministic grid for validation). A frame is decoded / channel-coerced / scaled
+    once (cached in a per-worker LRU together with its decoded per-instance masks) and
+    reused across all of its tiles. Each tile is then cut out with a constant-zero pad;
+    when geometric augmentation is enabled the tile is taken via a ``sqrt(2)`` halo so a
+    rotation has valid context, co-transforming every per-instance mask with the SAME
+    affine matrix as the image (nearest-neighbor, re-binarized).
+
+    Unlike the bottom-up center-offset pipeline there is NO instance grouping: the
+    single ``foreground_mask`` GT is the union of ALL masks that touch the tile (no
+    centroid-ownership filter, no center heatmap, no offsets, no foreground weight).
+
+    Emits one sample per ``(frame, tile-slot)``; ``__len__`` is the total number of
+    tile slots. Returned samples match the ``SemanticSegmentationDataset`` key contract
+    (plus an ``int32`` ``tile_origin`` of shape ``(2,)``), so the default collate and
+    the ``SemanticSegmentationLightningModule`` apply with no changes.
+
+    Attributes:
+        seg_head_config: Configuration for the segmentation (foreground) head.
+    """
+
+    def __init__(
+        self,
+        labels: List[sio.Labels],
+        seg_head_config: DictConfig,
+        max_stride: int,
+        user_instances_only: bool = True,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
+        intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        geometric_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        scale: float = 1.0,
+        apply_aug: bool = False,
+        max_hw: Tuple[Optional[int]] = (None, None),
+        cache_img: Optional[str] = None,
+        cache_img_path: Optional[str] = None,
+        use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
+        parallel_caching: bool = True,
+        cache_workers: int = 0,
+        use_negative_frames: bool = False,
+        tiling: Optional[Union[DictConfig, Any]] = None,
+        base_seed: int = 0,
+    ) -> None:
+        """Initialize class attributes."""
+        self.seg_head_config = seg_head_config
+        # Segmentation never uses negative frames (degenerate num_nodes/instances).
+        super().__init__(
+            labels=labels,
+            max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
+            intensity_aug=intensity_aug,
+            geometric_aug=geometric_aug,
+            scale=scale,
+            apply_aug=apply_aug,
+            max_hw=max_hw,
+            cache_img=cache_img,
+            cache_img_path=cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
+            use_negative_frames=False,
+            tiling=tiling,
+            output_stride=seg_head_config.output_stride,
+            base_seed=base_seed,
+        )
+
+        # Per-(frame, tile-slot) descriptors + contiguous per-frame index blocks.
+        self.tile_idx_list = self._get_tile_idx_list(labels)
+        self.frame_blocks = self._build_frame_blocks(self.tile_idx_list)
+
+    def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+        """Return per-frame samples for frames that have segmentation masks.
+
+        Mirrors ``SemanticSegmentationDataset._get_lf_idx_list``: indexes frames by
+        their masks (not keypoint instances) and captures the decoded mask arrays so
+        ``__getitem__`` never needs a live ``Labels`` handle. This is what the base
+        ``__init__`` stores as ``self.lf_idx_list`` (used for image caching);
+        ``_get_tile_idx_list`` explodes it into per-tile descriptors.
+        """
+        from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
+
+        lf_idx_list = []
+        for labels_idx, label in enumerate(labels):
+            for lf_idx, lf in enumerate(label):
+                lf_masks = getattr(lf, "masks", None)
+                if not lf_masks:
+                    continue
+                # Scale-aware decode up to the IMAGE-pixel grid (scale-1 GT masks
+                # take the zero-copy fast path); see SemanticSegmentationDataset.
+                mask_arrays = [decode_mask_to_image_res(m) for m in lf_masks]
+                if len(mask_arrays) == 0:
+                    continue
+                video_idx = label.videos.index(lf.video)
+                lf_idx_list.append(
+                    {
+                        "labels_idx": labels_idx,
+                        "lf_idx": lf_idx,
+                        "video_idx": video_idx,
+                        "frame_idx": lf.frame_idx,
+                        "is_negative": False,
+                        "instances": None,
+                        "masks": mask_arrays,
+                    }
+                )
+        return lf_idx_list
+
+    def _get_tile_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+        """Return per-(frame, tile-slot) descriptors for the tiled seg dataset.
+
+        Mirrors :meth:`BaseDataset._get_tile_idx_list` but keys off the mask-indexed
+        per-frame list (``self.lf_idx_list``, built by :meth:`_get_lf_idx_list`) so the
+        decoded ``mask_arrays`` ride along on every descriptor. Grid (val) pins one
+        descriptor per :func:`generate_tile_grid` origin (sized-frame ``H, W`` taken
+        from the decoded mask shape); foreground (train) emits ``samples_per_frame``
+        slots with ``tile_origin=None`` (drawn at runtime). A frame's descriptors form
+        a contiguous run (the block the sampler groups on).
+        """
+        tile_idx_list: List[Dict] = []
+        for f in self.lf_idx_list:
+            mask_arrays = f["masks"]
+            # Masks are at image resolution; the sized (post-scale) frame H, W match
+            # `apply_resizer`'s int(dim * scale) truncation used by `_frame_sized_hw`.
+            mh, mw = mask_arrays[0].shape[:2]
+            if self.scale != 1.0:
+                sized_hw = (int(mh * self.scale), int(mw * self.scale))
+            else:
+                sized_hw = (int(mh), int(mw))
+
+            if self.tile_sampling == "grid":
+                origins = generate_tile_grid(
+                    sized_hw,
+                    tile_size=self.tile_size,
+                    overlap=self.overlap,
+                    output_stride=self.output_stride,
+                    max_stride=self.max_stride,
+                    min_overlap_fraction=self.min_overlap_fraction,
+                )
+            else:
+                origins = [None] * self.samples_per_frame
+
+            for sample_k, origin in enumerate(origins):
+                tile_idx_list.append(
+                    {
+                        "labels_idx": f["labels_idx"],
+                        "lf_idx": f["lf_idx"],
+                        "video_idx": f["video_idx"],
+                        "frame_idx": f["frame_idx"],
+                        "masks": mask_arrays,
+                        "sample_k": sample_k,
+                        "tile_origin": origin,
+                        "is_grid": self.tile_sampling == "grid",
+                        "is_negative": False,
+                    }
+                )
+        return tile_idx_list
+
+    def __len__(self) -> int:
+        """Return the number of tile samples (frames x tiles-per-frame)."""
+        return len(self.tile_idx_list)
+
+    def _read_image(self, d: Dict) -> np.ndarray:
+        """Read a frame's raw HWC image (cache/disk/labels), restoring 2D -> 3D."""
+        labels_idx = d["labels_idx"]
+        lf_idx = d["lf_idx"]
+        if self.cache_img is not None:
+            if self.cache_img == "disk":
+                img = np.array(
+                    Image.open(
+                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                    )
+                )
+            elif self.cache_img == "memory":
+                img = self.cache[(labels_idx, lf_idx)].copy()
+        else:
+            lf = self.labels_list[labels_idx][lf_idx]
+            img = lf.image
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
+        return img
+
+    def _load_sized_frame(
+        self, d: Dict
+    ) -> Tuple[torch.Tensor, List[np.ndarray], tuple]:
+        """Decode a frame once: channel-coerce + scale the image, size-match masks.
+
+        Returns ``(image, mask_arrays, orig_hw)`` where ``image`` is a sized
+        ``(1, C, H, W)`` tensor, ``mask_arrays`` are bool arrays at the sized image
+        resolution, and ``orig_hw`` is the raw full-frame ``(H, W)`` before scaling.
+        """
+        img = self._read_image(d)  # HWC
+        orig_hw = (int(img.shape[0]), int(img.shape[1]))
+
+        image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+        image = np.expand_dims(image, axis=0)  # (1, C, H, W)
+        image = torch.from_numpy(image.copy())
+
+        if self.ensure_rgb:
+            image = convert_to_rgb(image)
+        elif self.ensure_grayscale:
+            image = convert_to_grayscale(image)
+
+        dummy = torch.zeros((1, 1, 1, 2), dtype=torch.float32)
+        image, _ = apply_resizer(image, dummy, scale=self.scale)
+
+        mask_arrays = [np.asarray(m, dtype=bool) for m in d["masks"]]
+        sized_hw = (image.shape[-2], image.shape[-1])
+        if (sized_hw != orig_hw) and len(mask_arrays) > 0:
+            # Resize masks to the sized image resolution (mirrors
+            # SemanticSegmentationDataset's scale-change branch).
+            target_h, target_w = sized_hw
+            resized = []
+            for m in mask_arrays:
+                m_tensor = (
+                    torch.from_numpy(m.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+                )
+                m_resized = F.interpolate(
+                    m_tensor, size=(target_h, target_w), mode="area"
+                )
+                resized.append(m_resized.squeeze().numpy() > 0.5)
+            mask_arrays = resized
+
+        return image, mask_arrays, orig_hw
+
+    def _slice_halo(
+        self,
+        image: torch.Tensor,
+        mask_arrays: List[np.ndarray],
+        hy0: int,
+        hx0: int,
+        side: int,
+    ) -> Tuple[torch.Tensor, List[np.ndarray]]:
+        """Slice a ``side x side`` window (top-left ``hy0, hx0``) with constant-zero pad.
+
+        Slices both the image and every per-instance mask at the SAME offsets so they
+        stay pixel-aligned. Out-of-bounds regions are zero.
+        """
+        _, C, H, W = image.shape
+        ys, xs = max(0, hy0), max(0, hx0)
+        ye, xe = min(H, hy0 + side), min(W, hx0 + side)
+        win_img = image.new_zeros((1, C, side, side))
+        win_masks = [np.zeros((side, side), dtype=bool) for _ in mask_arrays]
+        if ye > ys and xe > xs:
+            win_img[:, :, ys - hy0 : ye - hy0, xs - hx0 : xe - hx0] = image[
+                :, :, ys:ye, xs:xe
+            ]
+            for k, m in enumerate(mask_arrays):
+                win_masks[k][ys - hy0 : ye - hy0, xs - hx0 : xe - hx0] = m[ys:ye, xs:xe]
+        return win_img, win_masks
+
+    def __getitem__(self, index) -> Dict:
+        """Return dict with image + foreground GT for one tile of one frame."""
+        d = self.tile_idx_list[index]
+        labels_idx = d["labels_idx"]
+        video_idx = d["video_idx"]
+        frame_idx = d["frame_idx"]
+        epoch = int(self._epoch)
+        ts = self.tile_size
+
+        # 1. Decode the full frame once per (labels_idx, lf_idx), via per-worker LRU.
+        cached = self._frame_lru().get((labels_idx, d["lf_idx"]))
+        if cached is None:
+            cached = self._load_sized_frame(d)
+            self._frame_lru().put((labels_idx, d["lf_idx"]), cached)
+        image, mask_arrays, orig_hw = cached
+        sized_hw = (image.shape[-2], image.shape[-1])
+
+        # 2. Resolve the tile origin: pinned for grid/val, drawn for train. The
+        #    foreground-aware draw is seeded from instance centroids (placement only;
+        #    semantic GT does not use them), so tiles still land on foreground.
+        if d["is_grid"]:
+            tile_origin = tuple(int(v) for v in d["tile_origin"])
+            aug_seed = None
+        else:
+            rng = np.random.default_rng(
+                tile_sample_seed(
+                    self.base_seed, epoch, video_idx, frame_idx, d["sample_k"]
+                )
+            )
+            cents = _compute_mask_centroids(mask_arrays)  # list of (x, y)
+            centers = (
+                torch.tensor(cents, dtype=torch.float32).reshape(-1, 2)
+                if len(cents) > 0
+                else torch.zeros((0, 2), dtype=torch.float32)
+            )
+            tile_origin = draw_tile_origin(
+                centers,
+                sized_hw,
+                ts,
+                d["sample_k"],
+                self.samples_per_frame,
+                self.tile_fg_fraction,
+                self.center_jitter,
+                rng,
+            )
+            aug_seed = tile_sample_seed(
+                self.base_seed, epoch, video_idx, frame_idx, d["sample_k"], salt=1
+            )
+
+        y0, x0 = tile_origin
+        apply_geo = self.apply_aug and self.geometric_aug is not None
+
+        # 3. Cut the tile out of the frame (image + co-transformed masks). Under
+        #    geometric aug, take a sqrt(2) halo centered on the tile center so the
+        #    rotation has valid context, augment image + masks with the SAME matrix
+        #    (nearest-neighbor, re-binarized), then trim the center tile back out.
+        if apply_geo:
+            halo = int(math.ceil(ts * math.sqrt(2)))
+            hy0 = y0 - (halo - ts) // 2
+            hx0 = x0 - (halo - ts) // 2
+            halo_img, halo_masks = self._slice_halo(image, mask_arrays, hy0, hx0, halo)
+
+            if len(halo_masks) > 0:
+                halo_masks_t = torch.from_numpy(
+                    np.stack([hm.astype(np.float32) for hm in halo_masks])
+                ).unsqueeze(
+                    0
+                )  # (1, K, halo, halo)
+                # The skia geometric backend samples its transform from the GLOBAL
+                # numpy RNG (and torch); seed both so the halo path is reproducible.
+                np.random.seed(aug_seed & 0xFFFFFFFF)
+                torch.manual_seed(aug_seed)
+                halo_img, _, halo_masks_t = apply_geometric_augmentation(
+                    halo_img,
+                    torch.zeros((1, 1, 1, 2), dtype=torch.float32),
+                    masks=halo_masks_t,
+                    **dict(self.geometric_aug),
+                )
+                halo_masks = [
+                    halo_masks_t[0, k].numpy() > 0.5
+                    for k in range(halo_masks_t.shape[1])
+                ]
+
+            # Trim the augmented halo back to `ts`, centered on the halo center:
+            # crop_and_resize for the image (codebase convention), an equivalent
+            # integer center-slice for the (axis-aligned) mask arrays.
+            c = halo / 2.0
+            bbox = make_centered_bboxes(
+                torch.tensor([[c, c]], dtype=torch.float32), ts, ts
+            )
+            tile_image = crop_and_resize(halo_img, boxes=bbox, size=(ts, ts))
+            off = (halo - ts) // 2
+            tile_masks = [hm[off : off + ts, off : off + ts] for hm in halo_masks]
+        else:
+            # Fast path (no aug): direct slice + constant-zero pad, byte-identical.
+            tile_image, tile_masks = self._slice_halo(image, mask_arrays, y0, x0, ts)
+
+        # 4. Intensity aug (image only) + pad to stride (no-op when ts % max_stride==0).
+        if self.apply_aug and self.intensity_aug is not None:
+            tile_image, _ = apply_intensity_augmentation(
+                tile_image,
+                torch.zeros((1, 1, 1, 2), dtype=torch.float32),
+                **self.intensity_aug,
+            )
+        tile_image = apply_pad_to_stride(tile_image, max_stride=self.max_stride)
+
+        # 5. Foreground GT: union of ALL masks touching the tile (NO ownership filter,
+        #    NO center/offset heads). Empty (fully-zero) tile masks contribute nothing.
+        img_hw = tile_image.shape[-2:]
+        foreground_mask = generate_foreground_mask(
+            tile_masks,
+            img_hw=img_hw,
+            output_stride=self.seg_head_config.output_stride,
+        )
+        # Count of masks with any foreground in this tile (logging/eval convenience).
+        num_masks_in_tile = sum(1 for m in tile_masks if int(m.sum()) > 0)
+
+        return {
+            "image": tile_image,
+            "instances": torch.zeros((1, 1, 1, 2), dtype=torch.float32),
+            "video_idx": torch.tensor(video_idx, dtype=torch.int32),
+            "frame_idx": torch.tensor(frame_idx, dtype=torch.int32),
+            "orig_size": torch.Tensor([orig_hw[0], orig_hw[1]]).unsqueeze(0),
+            "num_instances": num_masks_in_tile,
+            # Tiles are extracted in the model's input space (sizematcher bypassed),
+            # so the effective scale is 1.0 (matches SingleInstanceTiledDataset).
+            "eff_scale": torch.tensor(1.0, dtype=torch.float32),
+            "foreground_mask": foreground_mask,
             "labels_idx": labels_idx,
             "tile_origin": torch.tensor(tile_origin, dtype=torch.int32),
         }
@@ -4161,6 +4798,138 @@ def get_train_val_datasets(
                 seg_head_config=seg_cfg.segmentation,
                 center_head_config=seg_cfg.center,
                 offset_head_config=seg_cfg.offsets,
+                max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                    "max_stride"
+                ],
+                user_instances_only=config.data_config.user_instances_only,
+                ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+                ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+                intensity_aug=None,
+                geometric_aug=None,
+                scale=config.data_config.preprocessing.scale,
+                apply_aug=False,
+                max_hw=(
+                    config.data_config.preprocessing.max_height,
+                    config.data_config.preprocessing.max_width,
+                ),
+                cache_img=cache_imgs,
+                cache_img_path=val_cache_img_path,
+                use_existing_imgs=use_existing_imgs,
+                rank=rank,
+                parallel_caching=parallel_caching,
+                cache_workers=cache_workers,
+                use_negative_frames=False,
+            )
+
+    elif model_type == "semantic_segmentation":
+        seg_cfg = config.model_config.head_configs.semantic_segmentation
+        tiling = OmegaConf.select(
+            config, "data_config.preprocessing.tiling", default=None
+        )
+        if tiling is not None and tiling.enabled:
+            # Tiled whole-frame semantic segmentation. Train draws foreground-aware
+            # tiles (aug on); val always uses a deterministic full-coverage grid (no
+            # aug). Masks are co-transformed with the image under the halo path.
+            base_seed = config.trainer_config.seed or 0
+            train_dataset = SemanticSegmentationTiledDataset(
+                labels=train_labels,
+                seg_head_config=seg_cfg.segmentation,
+                max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                    "max_stride"
+                ],
+                user_instances_only=config.data_config.user_instances_only,
+                ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+                ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+                intensity_aug=(
+                    config.data_config.augmentation_config.intensity
+                    if config.data_config.augmentation_config is not None
+                    else None
+                ),
+                geometric_aug=(
+                    config.data_config.augmentation_config.geometric
+                    if config.data_config.augmentation_config is not None
+                    else None
+                ),
+                scale=config.data_config.preprocessing.scale,
+                apply_aug=config.data_config.use_augmentations_train,
+                max_hw=(
+                    config.data_config.preprocessing.max_height,
+                    config.data_config.preprocessing.max_width,
+                ),
+                cache_img=cache_imgs,
+                cache_img_path=train_cache_img_path,
+                use_existing_imgs=use_existing_imgs,
+                rank=rank,
+                parallel_caching=parallel_caching,
+                cache_workers=cache_workers,
+                use_negative_frames=False,
+                tiling=OmegaConf.merge(tiling, {"sampling": tiling.sampling}),
+                base_seed=base_seed,
+            )
+            val_dataset = SemanticSegmentationTiledDataset(
+                labels=val_labels,
+                seg_head_config=seg_cfg.segmentation,
+                max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                    "max_stride"
+                ],
+                user_instances_only=config.data_config.user_instances_only,
+                ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+                ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+                intensity_aug=None,
+                geometric_aug=None,
+                scale=config.data_config.preprocessing.scale,
+                apply_aug=False,
+                max_hw=(
+                    config.data_config.preprocessing.max_height,
+                    config.data_config.preprocessing.max_width,
+                ),
+                cache_img=cache_imgs,
+                cache_img_path=val_cache_img_path,
+                use_existing_imgs=use_existing_imgs,
+                rank=rank,
+                parallel_caching=parallel_caching,
+                cache_workers=cache_workers,
+                use_negative_frames=False,
+                tiling=OmegaConf.merge(tiling, {"sampling": "grid"}),
+                base_seed=base_seed,
+            )
+        else:
+            train_dataset = SemanticSegmentationDataset(
+                labels=train_labels,
+                seg_head_config=seg_cfg.segmentation,
+                max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                    "max_stride"
+                ],
+                user_instances_only=config.data_config.user_instances_only,
+                ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+                ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+                intensity_aug=(
+                    config.data_config.augmentation_config.intensity
+                    if config.data_config.augmentation_config is not None
+                    else None
+                ),
+                geometric_aug=(
+                    config.data_config.augmentation_config.geometric
+                    if config.data_config.augmentation_config is not None
+                    else None
+                ),
+                scale=config.data_config.preprocessing.scale,
+                apply_aug=config.data_config.use_augmentations_train,
+                max_hw=(
+                    config.data_config.preprocessing.max_height,
+                    config.data_config.preprocessing.max_width,
+                ),
+                cache_img=cache_imgs,
+                cache_img_path=train_cache_img_path,
+                use_existing_imgs=use_existing_imgs,
+                rank=rank,
+                parallel_caching=parallel_caching,
+                cache_workers=cache_workers,
+                use_negative_frames=False,
+            )
+            val_dataset = SemanticSegmentationDataset(
+                labels=val_labels,
+                seg_head_config=seg_cfg.segmentation,
                 max_stride=config.model_config.backbone_config[f"{backbone_type}"][
                     "max_stride"
                 ],

@@ -116,17 +116,22 @@ def _run_segmentation_split_eval(
     pred_path: Path,
     metrics_path: Path,
     device: str,
+    match_method: str = "mask",
 ):
     """Run post-training eval for a single split of a segmentation model.
 
-    ``bottomup_segmentation`` models predict per-instance masks (not
-    keypoints), so they use the NEW inference flow
+    ``bottomup_segmentation`` / ``centered_instance_segmentation`` models predict
+    per-instance masks (not keypoints), so they use the NEW inference flow
     (``sleap_nn.inference.run.predict``, which auto-detects the segmentation
     model) and mask-IoU evaluation (``run_evaluation(match_method="mask")``).
-    The mask metrics dict has ``detection_metrics`` (IoU-matched
+    ``semantic_segmentation`` predicts ONE whole-frame foreground mask per frame,
+    so it uses the matching-free ``run_evaluation(match_method="semantic")``
+    (whole-frame fg IoU / clDice / boundary-IoU). ``match_method`` selects between
+    them. The mask metrics dict has ``detection_metrics`` (IoU-matched
     precision/recall/F1) + ``mask_metrics`` (mean IoU) only — no
     ``voc_metrics``/``mOKS``/``pck``/``visibility`` keys — so every access is
-    guarded and the OKS mAP line is intentionally NOT logged.
+    guarded and the OKS mAP line is intentionally NOT logged. Semantic mode
+    populates ``semantic_metrics`` instead; both are handled below.
 
     Post-training eval is best-effort: a weak model that predicts no masks (so
     no frames pair) is logged and skipped rather than aborting the run.
@@ -139,10 +144,15 @@ def _run_segmentation_split_eval(
         pred_path: Output path for the predicted ``.slp``.
         metrics_path: Output path for the saved metrics ``.npz``.
         device: Torch device string to run inference on.
+        match_method: ``"mask"`` (per-instance mask-IoU, for
+            ``bottomup_segmentation`` / ``centered_instance_segmentation``) or
+            ``"semantic"`` (matching-free whole-frame foreground IoU/clDice, for
+            ``semantic_segmentation``). Default ``"mask"``.
 
     Returns:
-        The metrics dict returned by ``run_evaluation`` (mask mode), or ``None``
-        if there were no predicted frames / no matched frames (eval skipped).
+        The metrics dict returned by ``run_evaluation`` (mask or semantic mode),
+        or ``None`` if there were no predicted frames / no matched frames (eval
+        skipped).
     """
     # Lazy import of the NEW inference flow (segmentation auto-detected).
     from sleap_nn.inference.run import predict as predict_new
@@ -175,13 +185,39 @@ def _run_segmentation_split_eval(
         metrics = run_evaluation(
             ground_truth_path=path,
             predicted_path=pred_path.as_posix(),
-            match_method="mask",
+            match_method=match_method,
             match_threshold=match_threshold,
             save_metrics=metrics_path.as_posix(),
         )
     except Exception as e:  # noqa: BLE001 — eval is best-effort post-training.
         logger.warning(f"Skipping segmentation eval on `{d_name}`: {e}")
         return None
+
+    if match_method == "semantic":
+        # Whole-frame foreground: matching-free IoU / clDice / boundary-IoU only.
+        sm = metrics.get("semantic_metrics", {}) if metrics is not None else {}
+        logger.info(
+            f"---------Evaluation on `{d_name}` dataset (semantic segmentation)-------"
+        )
+        logger.info(f"Frames scored (non-empty GT fg): {sm.get('n_frames')}")
+        logger.info(f"Mean foreground IoU: {sm.get('mean_iou')}")
+        logger.info(f"Mean clDice (centerline): {sm.get('mean_cldice')}")
+        logger.info(f"Mean boundary IoU: {sm.get('mean_boundary_iou')}")
+        if (
+            d_name.startswith("test")
+            and config.trainer_config.use_wandb
+            and metrics is not None
+        ):
+            import wandb
+
+            if wandb.run is not None:
+                for key, value in {
+                    f"eval/{d_name}/fg_mean_iou": sm.get("mean_iou"),
+                    f"eval/{d_name}/fg_mean_cldice": sm.get("mean_cldice"),
+                    f"eval/{d_name}/fg_mean_boundary_iou": sm.get("mean_boundary_iou"),
+                }.items():
+                    wandb.run.summary[key] = value
+        return metrics
 
     # Mask metrics: detection_metrics + mask_metrics + mask_voc_metrics. Guard
     # every access.
@@ -334,12 +370,15 @@ def run_training(
                 if model_type in (
                     "bottomup_segmentation",
                     "centered_instance_segmentation",
+                    "semantic_segmentation",
                 ):
-                    # Both predict per-instance masks and evaluate with
-                    # match_method="mask". The top-down (crop-centered) model is
-                    # given only its own run dir; the inference flow auto-detects
-                    # it and crops GT instances (GT-centroid fallback) so eval
-                    # needs no separate centroid model.
+                    # Instance seg (bottomup / centered-instance) predicts
+                    # per-instance masks and evaluates with match_method="mask";
+                    # semantic predicts one whole-frame foreground mask and
+                    # evaluates matching-free with match_method="semantic". The
+                    # inference flow auto-detects the model from its run dir (the
+                    # top-down model crops GT instances via the GT-centroid
+                    # fallback, so eval needs no separate centroid model).
                     _run_segmentation_split_eval(
                         config=trainer.config,
                         d_name=d_name,
@@ -348,6 +387,11 @@ def run_training(
                         pred_path=pred_path,
                         metrics_path=metrics_path,
                         device=str(trainer.trainer.strategy.root_device),
+                        match_method=(
+                            "semantic"
+                            if model_type == "semantic_segmentation"
+                            else "mask"
+                        ),
                     )
                     continue
 

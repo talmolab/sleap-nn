@@ -48,9 +48,16 @@ from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLaye
 from sleap_nn.inference.layers.centered_instance import CenteredInstanceLayer
 from sleap_nn.inference.layers.centroid import CentroidLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
-from sleap_nn.inference.layers.segmentation import SegmentationLayer
+from sleap_nn.inference.layers.segmentation import (
+    SegmentationLayer,
+    SemanticSegmentationLayer,
+)
 from sleap_nn.inference.layers.single_instance import SingleInstanceLayer
-from sleap_nn.inference.layers.tiled import TiledLayer, TiledSegmentationLayer
+from sleap_nn.inference.layers.tiled import (
+    TiledLayer,
+    TiledSegmentationLayer,
+    TiledSemanticSegmentationLayer,
+)
 from sleap_nn.inference.layers.topdown import TopDownLayer
 from sleap_nn.inference.layers.topdown_multiclass import (
     CenteredInstanceMultiClassLayer,
@@ -266,6 +273,33 @@ def _build_tiled_segmentation_layer(
     )
 
 
+def _build_tiled_semantic_segmentation_layer(
+    inner_layer: SemanticSegmentationLayer, tiling: Any
+) -> TiledSemanticSegmentationLayer:
+    """Wrap an inner ``SemanticSegmentationLayer`` in a ``TiledSemanticSegmentationLayer``.
+
+    Refuses baked (ONNX/TensorRT) backends — tiled export is deferred. Runtime
+    knobs come off the ``tiling`` config; ``tile_batch_size`` falls back to a
+    conservative default of ``8`` when unset.
+    """
+    if inner_layer.backend.does_baked_postproc:
+        raise NotImplementedError(
+            "Tiled inference is not supported for exported (ONNX/TensorRT) models "
+            "(tiled export deferred)."
+        )
+    return TiledSemanticSegmentationLayer(
+        inner_layer=inner_layer,
+        tile_size=int(tiling.tile_size),
+        overlap=int(tiling.overlap),
+        blend=tiling.blend,
+        sigma_scale=tiling.sigma_scale,
+        min_overlap_fraction=tiling.min_overlap_fraction,
+        tile_batch_size=tiling.tile_batch_size or 8,
+        accumulator_device=tiling.accumulator_device,
+        cpu_thresh=tiling.cpu_thresh,
+    )
+
+
 def _build_bottomup_layer(predictor: Any, device: str) -> BottomUpLayer:
     """Wrap a ``BottomUpInferenceModel`` in an ``InferenceLayer``."""
     inf = predictor.inference_model
@@ -367,6 +401,31 @@ def _build_bottomup_segmentation_layer(
             ensure_grayscale=_pp_field(predictor, "ensure_grayscale"),
         ),
         postprocess_config=PostprocessConfig(peak_threshold=inf.peak_threshold),
+    )
+
+
+def _build_semantic_segmentation_layer(
+    predictor: Any, device: str
+) -> SemanticSegmentationLayer:
+    """Wrap a ``SemanticSegmentationInferenceModel`` in a ``SemanticSegmentationLayer``."""
+    inf = predictor.inference_model
+    max_stride = getattr(predictor, "max_stride", 1) or 1
+    return SemanticSegmentationLayer(
+        backend=TorchBackend(model=inf.torch_model, device=device),
+        output_stride=inf.output_stride,
+        max_stride=max_stride,
+        fg_threshold=inf.fg_threshold,
+        min_mask_area=getattr(inf, "min_mask_area", 0),
+        full_res_masks=getattr(inf, "full_res_masks", False),
+        mask_output=getattr(inf, "mask_output", "mask"),
+        polygon_epsilon=getattr(inf, "polygon_epsilon", 0.01),
+        preprocess_config=PreprocessConfig(
+            scale=inf.input_scale,
+            max_height=_pp_field(predictor, "max_height"),
+            max_width=_pp_field(predictor, "max_width"),
+            ensure_rgb=_pp_field(predictor, "ensure_rgb"),
+            ensure_grayscale=_pp_field(predictor, "ensure_grayscale"),
+        ),
     )
 
 
@@ -561,6 +620,15 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
             # backbone before wrapping in a tiled layer.
             check_tiling_parity(_tiling_source_cfg(assets))
             return _build_tiled_segmentation_layer(inner, tiling)
+        return inner
+    if "semantic_segmentation" in model_types:
+        inner = _build_semantic_segmentation_layer(assets, device)
+        tiling = _resolve_tiling_cfg(assets)
+        if tiling is not None and tiling.enabled:
+            # Geometry is frozen at train time; re-assert it against the loaded
+            # backbone before wrapping in a tiled layer.
+            check_tiling_parity(_tiling_source_cfg(assets))
+            return _build_tiled_semantic_segmentation_layer(inner, tiling)
         return inner
     # Top-down (crop-centered) segmentation: a centroid + centered_instance_segmentation
     # pair, OR a seg dir alone (GT-centroid fallback). Checked BEFORE the bare
@@ -1020,6 +1088,11 @@ class Predictor:
             spec.append(f"mask_output={mask_output}")
         if "centered_instance_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
+            spec.append(f"mask_output={mask_output}")
+        if "semantic_segmentation" in model_types:
+            spec.append(f"fg_threshold={fg_threshold}")
+            spec.append(f"min_mask_area={min_mask_area}")
+            spec.append(f"full_res_masks={full_res_masks}")
             spec.append(f"mask_output={mask_output}")
         logger.info("Loaded inference model | " + " | ".join(spec))
 
@@ -1951,13 +2024,28 @@ class Predictor:
         return isinstance(self.layer, (CentroidLayer, ExportedCentroidLayer))
 
     def _is_segmentation_layer(self) -> bool:
-        """``True`` iff ``layer`` is a mask-producing instance-segmentation layer.
+        """``True`` iff ``layer`` is a mask-producing segmentation layer.
 
-        Covers both bottom-up (:class:`SegmentationLayer`) and top-down
-        (:class:`TopDownSegmentationLayer`). Gates tracking/no-skeleton/mask-count
-        behavior — a top-down seg layer emits ``pred_masks`` just like bottom-up.
+        Covers bottom-up (:class:`SegmentationLayer`), top-down
+        (:class:`TopDownSegmentationLayer`), whole-frame semantic
+        (:class:`SemanticSegmentationLayer`, a ``SegmentationLayer`` subclass),
+        and their tiled wrappers (:class:`TiledSegmentationLayer` /
+        :class:`TiledSemanticSegmentationLayer`, which are NOT ``InferenceLayer``
+        subclasses and would otherwise miss this gate — matters for a genuinely
+        skeleton-less semantic mask model under tiling). Gates
+        tracking/no-skeleton/mask-count behavior — every one of these emits
+        ``pred_masks``.
         """
-        return isinstance(self.layer, (SegmentationLayer, TopDownSegmentationLayer))
+        return isinstance(
+            self.layer,
+            (
+                SegmentationLayer,
+                TopDownSegmentationLayer,
+                SemanticSegmentationLayer,
+                TiledSegmentationLayer,
+                TiledSemanticSegmentationLayer,
+            ),
+        )
 
     def _resolve_centroid_packaging(self) -> _CentroidPackaging:
         """Resolve the single-source centroid output-packaging decision.

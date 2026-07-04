@@ -13,14 +13,15 @@ the pipeline (epoch semantics, memory model, coordinate math) is byte-identical 
 it is off.
 
 !!! note "Scope (current release)"
-    Tiling currently supports the **`single_instance`** model type end to end
-    (training **and** inference). Top-down (centroid), bottom-up (PAF), and
-    segmentation tiling are planned for later releases. Tiling requires a
-    **UNet / ConvNeXt / SwinT** backbone; pretrained HuggingFace-encoder backbones
-    and `ClassVectorsHead` / `multi_class_topdown` models are not supported with
-    tiling (training will raise a clear error). Tiled ONNX/TensorRT **export** is
-    not yet implemented — exporting a tiled model warns and produces a whole-frame
-    graph; use PyTorch inference for tiled prediction.
+    Tiling supports the **`single_instance`**, **`bottomup_segmentation`**, and
+    **`semantic_segmentation`** model types end to end (training **and**
+    inference). Top-down (centroid) and bottom-up (PAF) tiling are planned for
+    later releases. Tiling requires a **UNet / ConvNeXt / SwinT** backbone;
+    pretrained HuggingFace-encoder backbones and `ClassVectorsHead` /
+    `multi_class_topdown` models are not supported with tiling (training will
+    raise a clear error). Tiled ONNX/TensorRT **export** is not yet implemented —
+    exporting a tiled model warns and produces a whole-frame graph; use PyTorch
+    inference for tiled prediction.
 
 ## When to use it
 

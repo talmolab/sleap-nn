@@ -233,6 +233,28 @@ def _frame_masks(frame: sio.LabeledFrame) -> List[np.ndarray]:
     return [decode_mask_to_image_res(m) for m in masks]
 
 
+def _union_frame_fg(frame: sio.LabeledFrame) -> np.ndarray:
+    """Union all of a frame's segmentation masks into ONE foreground mask.
+
+    Decodes each mask to the image grid (scale + top-left offset baked in, via
+    :func:`_frame_masks`) and ORs them onto a common canvas sized to the max H/W
+    across the frame's masks. Returns a ``(1, 1)`` all-False array for a frame
+    with no masks, so an empty frame is a valid (empty) foreground rather than an
+    error. Used only by ``match_method="semantic"`` (whole-frame binary
+    foreground segmentation), where there is a single foreground per frame and no
+    instances to separate.
+    """
+    decoded = _frame_masks(frame)
+    if not decoded:
+        return np.zeros((1, 1), dtype=bool)
+    h = max(d.shape[0] for d in decoded)
+    w = max(d.shape[1] for d in decoded)
+    canvas = np.zeros((h, w), dtype=bool)
+    for d in decoded:
+        canvas[: d.shape[0], : d.shape[1]] |= d
+    return canvas
+
+
 def _frame_pred_scores(frame: sio.LabeledFrame) -> np.ndarray:
     """Per-mask detection scores for a frame (``PredictedSegmentationMask.score``).
 
@@ -947,6 +969,9 @@ class Evaluator:
         # mode (feed mask_voc_metrics / boundary-IoU / fragmentation / per-size).
         self._mask_frames = []
         self._matched_mask_pairs = []
+        # Per-frame (iou, cldice, boundary_iou) triples, populated only in
+        # match_method="semantic" (whole-frame foreground, no matching).
+        self._semantic_rows = []
 
         self._process_frames()
 
@@ -965,6 +990,10 @@ class Evaluator:
 
         if self.match_method == "mask":
             self._process_frames_mask()
+            return
+
+        if self.match_method == "semantic":
+            self._process_frames_semantic()
             return
 
         self.positive_pairs, self.false_negatives = match_frame_pairs(
@@ -1125,6 +1154,41 @@ class Evaluator:
                 self.false_positives.append(frame_pr)
 
         self.mask_ious = np.asarray(ious, dtype=float)
+        self.dists_dict = {"dists": np.array([]), "frame_idxs": [], "video_paths": []}
+
+    def _process_frames_semantic(self):
+        """Whole-frame foreground evaluation (no instance matching).
+
+        For semantic (binary foreground/background) segmentation there is a single
+        foreground mask per frame and no instance grouping, so there is nothing to
+        match. Each paired frame's predicted and ground-truth masks are unioned
+        into one foreground mask (:func:`_union_frame_fg`) and scored directly with
+        :func:`_mask_iou`, :func:`mask_cldice`, and :func:`_boundary_iou`. Frames
+        whose GROUND-TRUTH foreground is empty are skipped (there is no foreground
+        to score).
+
+        Populates ``self._semantic_rows`` as ``(iou, cldice, boundary_iou)``
+        triples (consumed by :meth:`semantic_metrics`). The matching-based
+        attributes (``positive_pairs`` / ``false_negatives`` / ``false_positives``
+        / ``dists_dict``) are left empty so the shared plumbing degrades gracefully
+        (semantic mode reports only ``semantic_metrics``).
+        """
+        self.positive_pairs = []
+        self.false_negatives = []
+        self.false_positives = []
+        self._semantic_rows = []
+
+        for frame_gt, frame_pr in self.frame_pairs:
+            gt_fg = _union_frame_fg(frame_gt)
+            if not gt_fg.any():
+                # No ground-truth foreground: nothing to score on this frame.
+                continue
+            pr_fg = _union_frame_fg(frame_pr)
+            iou = _mask_iou(pr_fg, gt_fg)
+            cldice = mask_cldice(pr_fg, gt_fg)
+            biou = _boundary_iou(pr_fg, gt_fg)
+            self._semantic_rows.append((iou, cldice, biou))
+
         self.dists_dict = {"dists": np.array([]), "frame_idxs": [], "video_paths": []}
 
     @staticmethod
@@ -1435,6 +1499,39 @@ class Evaluator:
             results["rq"] = n_tp / pq_denom
             results["pq"] = iou_sum / pq_denom
         return results
+
+    def semantic_metrics(self) -> dict:
+        """Aggregate whole-frame foreground metrics for ``match_method="semantic"``.
+
+        Averages the per-frame foreground IoU, centerline Dice (clDice), and
+        boundary IoU computed by :meth:`_process_frames_semantic` over all frames
+        with non-empty ground-truth foreground. clDice entries that are NaN
+        (scikit-image unavailable) are dropped from the clDice mean; if every entry
+        is NaN the reported ``mean_cldice`` is NaN.
+
+        Returns:
+            A dict with ``mean_iou``, ``mean_cldice``, ``mean_boundary_iou``, the
+            per-frame ``ious`` / ``cldices`` / ``boundary_ious`` arrays, and
+            ``n_frames`` (frames scored). Means are NaN when no frame was scored.
+        """
+        rows = np.asarray(self._semantic_rows, dtype=float).reshape(-1, 3)
+        ious = rows[:, 0]
+        cldices = rows[:, 1]
+        bious = rows[:, 2]
+        cld_valid = cldices[~np.isnan(cldices)]
+        return {
+            "mean_iou": float(np.mean(ious)) if ious.size else float("nan"),
+            "mean_cldice": (
+                float(np.mean(cld_valid)) if cld_valid.size else float("nan")
+            ),
+            "mean_boundary_iou": (
+                float(np.mean(bious)) if bious.size else float("nan")
+            ),
+            "ious": ious,
+            "cldices": cldices,
+            "boundary_ious": bious,
+            "n_frames": int(ious.size),
+        }
 
     def _fragmentation_counts(self, overlap_frac: float = 0.1) -> Tuple[int, int]:
         """Count over-/under-segmented instances across all mask frames.
@@ -1756,6 +1853,11 @@ class Evaluator:
                 "mask_voc_metrics": self.mask_voc_metrics(),
             }
 
+        if self.match_method == "semantic":
+            # Whole-frame binary foreground segmentation: no instances to match, so
+            # report only matching-free foreground IoU / clDice / boundary-IoU.
+            return {"semantic_metrics": self.semantic_metrics()}
+
         metrics = {}
         metrics["voc_metrics"] = self.voc_metrics(match_score_by="oks")
         metrics["voc_metrics"].update(self.voc_metrics(match_score_by="pck"))
@@ -1930,11 +2032,14 @@ def run_evaluation(
         user_labels_only: If False, predicted instances in the GT frame may be
             matched.
         save_metrics: Optional ``.npz`` path to save metrics to.
-        match_method: ``"oks"``, ``"centroid"``, ``"mask"``, or ``"auto"``.
-            ``"mask"`` matches predicted vs GT segmentation masks by IoU (for
-            ``bottomup_segmentation`` models). ``"auto"`` switches to centroid
-            mode when the PREDICTION skeleton is a single-node skeleton (e.g.
-            ``sio.get_centroid_skeleton()``).
+        match_method: ``"oks"``, ``"centroid"``, ``"mask"``, ``"semantic"``, or
+            ``"auto"``. ``"mask"`` matches predicted vs GT segmentation masks by
+            IoU (for ``bottomup_segmentation`` models). ``"semantic"`` unions each
+            frame's masks into one foreground and scores IoU/clDice/boundary-IoU
+            with NO matching (for whole-frame ``semantic_segmentation`` models).
+            ``"auto"`` switches to centroid mode when the PREDICTION skeleton is a
+            single-node skeleton (e.g. ``sio.get_centroid_skeleton()``); it never
+            auto-selects ``"mask"`` or ``"semantic"`` (pass those explicitly).
         anchor_part: Name of the GT skeleton node used to compute GT centroids
             (centroid mode). Resolved against the GT skeleton; ``None`` (or an
             absent name) falls back to the mean of visible nodes (#586).
@@ -1990,7 +2095,7 @@ def run_evaluation(
     # USER keypoint instances, which silently drops EVERY frame when the GT was
     # built from predicted poses (e.g. pseudo-mask GT from predicted skeletons),
     # raising "Empty Frame Pairs". Mask mode therefore never applies that filter.
-    if match_method == "mask":
+    if match_method in ("mask", "semantic"):
         user_labels_only = False
 
     logger.info("Matching videos and frames...")
@@ -2086,6 +2191,25 @@ def run_evaluation(
             f"  Fragmentation: oversegmentation={mm['oversegmentation']}, "
             f"undersegmentation={mm['undersegmentation']}"
         )
+
+        if save_metrics:
+            logger.info(f"Saving metrics to {save_metrics}...")
+            save_path = Path(save_metrics)
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(save_path, **{"metrics": metrics})
+            logger.info(f"Metrics saved successfully to {save_path}")
+
+        return metrics
+
+    if match_method == "semantic":
+        # Semantic (whole-frame foreground) mode: matching-free IoU / clDice /
+        # boundary-IoU only (no detection / mask-AP keys exist).
+        sm = metrics["semantic_metrics"]
+        logger.info("Evaluation Results (semantic / whole-frame foreground mode):")
+        logger.info(f"  Frames scored (non-empty GT fg): {sm['n_frames']}")
+        logger.info(f"  Mean foreground IoU: {sm['mean_iou']:.4f}")
+        logger.info(f"  Mean clDice (centerline): {sm['mean_cldice']:.4f}")
+        logger.info(f"  Mean boundary IoU: {sm['mean_boundary_iou']:.4f}")
 
         if save_metrics:
             logger.info(f"Saving metrics to {save_metrics}...")

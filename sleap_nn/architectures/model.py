@@ -126,8 +126,14 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
             )
         )
 
+    elif model_type == "semantic_segmentation":
+        # Whole-frame semantic segmentation: a lone foreground-mask head on the
+        # full frame (no crop, no center/offset, no grouping). The leaf is a plain
+        # SegmentationHeadConfig (output_stride + loss_weight), so pass it directly.
+        heads.append(SegmentationHead(**head_config.segmentation))
+
     else:
-        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`."
+        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`, `semantic_segmentation`."
         logger.error(message)
         raise Exception(message)
 

@@ -37,6 +37,7 @@ from sleap_nn.config.model_config import (
     BottomUpSegmentationConfig,
     CenteredInstanceSegmentationConfig,
     CenteredInstanceSegmentationHeadConfig,
+    SemanticSegmentationConfig,
     SegmentationHeadConfig,
     InstanceCenterConfig,
     CenterOffsetConfig,
@@ -407,9 +408,13 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
                     segmentation=CenteredInstanceSegmentationHeadConfig()
                 )
             )
+        elif head_cfg == "semantic_segmentation":
+            head_configs.semantic_segmentation = SemanticSegmentationConfig(
+                segmentation=SegmentationHeadConfig()
+            )
         else:
             raise ValueError(
-                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown', 'bottomup_segmentation', 'centered_instance_segmentation']"
+                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown', 'bottomup_segmentation', 'centered_instance_segmentation', 'semantic_segmentation']"
             )
 
     elif isinstance(head_cfg, dict):
@@ -485,6 +490,14 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
                         **seg["segmentation"]
                     )
                 )
+            )
+        elif (
+            "semantic_segmentation" in head_cfg
+            and head_cfg["semantic_segmentation"] is not None
+        ):
+            seg = head_cfg["semantic_segmentation"]
+            head_configs.semantic_segmentation = SemanticSegmentationConfig(
+                segmentation=SegmentationHeadConfig(**seg["segmentation"])
             )
 
     return head_configs

@@ -1029,6 +1029,24 @@ class CenteredInstanceSegmentationConfig:
     segmentation: Optional[CenteredInstanceSegmentationHeadConfig] = None
 
 
+@define
+class SemanticSegmentationConfig:
+    """Head config for whole-frame semantic (foreground) segmentation models.
+
+    A single foreground-mask head predicting one binary foreground/background mask
+    over the *whole frame* — no instance grouping, no center/offset heads. It is
+    the whole-frame analog of ``centered_instance_segmentation`` (which runs the
+    same fg-only ``SegmentationHead`` on a centroid crop) and the group-free
+    sibling of ``bottomup_segmentation`` (which adds center + offset heads to group
+    the foreground into instances). Tiling-compatible.
+
+    Reuses the bottom-up ``SegmentationHeadConfig`` leaf (``output_stride`` +
+    ``loss_weight``); it carries no ``anchor_part`` because there is no crop.
+    """
+
+    segmentation: Optional[SegmentationHeadConfig] = None
+
+
 @oneof
 @define
 class HeadConfig:
@@ -1046,6 +1064,7 @@ class HeadConfig:
         bottomup_segmentation: An instance of `BottomUpSegmentationConfig`.
         centered_instance_segmentation: An instance of
             `CenteredInstanceSegmentationConfig`.
+        semantic_segmentation: An instance of `SemanticSegmentationConfig`.
     """
 
     single_instance: Optional[SingleInstanceConfig] = None
@@ -1056,6 +1075,7 @@ class HeadConfig:
     multi_class_topdown: Optional[TopDownCenteredInstanceMultiClassConfig] = None
     bottomup_segmentation: Optional[BottomUpSegmentationConfig] = None
     centered_instance_segmentation: Optional[CenteredInstanceSegmentationConfig] = None
+    semantic_segmentation: Optional[SemanticSegmentationConfig] = None
 
 
 @define

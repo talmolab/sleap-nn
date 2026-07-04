@@ -2356,7 +2356,7 @@ def _common_inference_options(f):
             type=float,
             default=0.5,
             help="Foreground probability threshold for binarizing the "
-            "segmentation map (bottom-up segmentation models only).",
+            "segmentation map (bottom-up / semantic segmentation models).",
         ),
         click.option(
             "--min_mask_area",
@@ -2365,9 +2365,9 @@ def _common_inference_options(f):
             type=int,
             default=0,
             help="Drop predicted masks smaller than this many original-image "
-            "pixels to suppress over-segmentation (bottom-up segmentation "
-            "models only). 0 disables. Measured at output-stride resolution and "
-            "converted from original-pixel units.",
+            "pixels to suppress over-segmentation (bottom-up / semantic "
+            "segmentation models). 0 disables. Measured at output-stride "
+            "resolution and converted from original-pixel units.",
         ),
         click.option(
             "--center_nms_kernel",
@@ -2501,7 +2501,8 @@ def _common_inference_options(f):
             "(Douglas-Peucker-simplified sio.PredictedROI into LabeledFrame.rois "
             "only), or 'both' (exact mask + simplified ROI for interop). "
             "polygon/both are CPU-heavy on noisy masks (cost scales with RLE-run "
-            "count) — pair with --mask_cleanup. Bottom-up segmentation models only.",
+            "count) — pair with --mask_cleanup. Bottom-up / semantic segmentation "
+            "models.",
         ),
         click.option(
             "--polygon_epsilon",
@@ -2800,12 +2801,13 @@ def infer(**kwargs):
 )
 @click.option(
     "--match_method",
-    type=click.Choice(["oks", "centroid", "mask", "auto"]),
+    type=click.Choice(["oks", "centroid", "mask", "semantic", "auto"]),
     default="auto",
     help=(
         "Matching method: 'oks' (full-skeleton), 'centroid' (single-point "
-        "pixel-distance), 'mask' (instance-segmentation mask IoU), or 'auto' "
-        "(centroid when the prediction skeleton is single-node). Default: auto."
+        "pixel-distance), 'mask' (instance-segmentation mask IoU), 'semantic' "
+        "(whole-frame foreground IoU/clDice, no matching), or 'auto' (centroid "
+        "when the prediction skeleton is single-node). Default: auto."
     ),
 )
 @click.option(
