@@ -273,6 +273,7 @@ class InferenceLayer(ABC):
         *,
         max_stride: int = 1,
         unsqueeze_n_samples: bool = True,
+        skip_sizematcher: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, Tuple[int, int]]:
         """Run the standard preprocessing chain on a (B, C, H, W) tensor.
 
@@ -304,6 +305,14 @@ class InferenceLayer(ABC):
                 ``n_samples`` axis. Top-down crops feed
                 :class:`CenteredInstanceLayer` post-crop and don't need
                 sizematcher — those callers pass ``False``.
+            skip_sizematcher: When ``True``, bypass the per-sample
+                ``apply_sizematcher`` step entirely and return an all-ones
+                ``eff_scale``. Used by the tiled-inference path
+                (:class:`~sleap_nn.inference.layers.tiled.TiledLayer`), which
+                processes each frame at native resolution (only ``input_scale``
+                applies) instead of shrinking it to
+                ``(max_height, max_width)``. The default (``False``) is
+                byte-identical to the pre-existing behaviour.
 
         Returns:
             ``(processed_tensor, eff_scale, original_HW)``:
@@ -333,8 +342,11 @@ class InferenceLayer(ABC):
         elif cfg.ensure_grayscale and x.shape[-3] != 1:
             x = convert_to_grayscale(x)
 
-        # 2. Per-sample sizematcher → eff_scale.
-        if cfg.max_height is not None or cfg.max_width is not None:
+        # 2. Per-sample sizematcher → eff_scale. Skipped entirely when
+        # ``skip_sizematcher`` (tiled inference runs frames at native res).
+        if not skip_sizematcher and (
+            cfg.max_height is not None or cfg.max_width is not None
+        ):
             resized_frames: list = []
             eff_scales: list = []
             for b in range(B):

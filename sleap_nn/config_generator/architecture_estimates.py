@@ -263,3 +263,117 @@ def compute_pad_to_stride(height: int, width: int, max_stride: int) -> Tuple[int
     h_padded = math.ceil(height / max_stride) * max_stride
     w_padded = math.ceil(width / max_stride) * max_stride
     return h_padded, w_padded
+
+
+# Fixed per-family context margin (px) for non-UNet backbones under tiling.
+# Pretrained backbones are EXCLUDED from tiling (see ``check_tiling``), so no
+# margin is defined for them.
+_BACKBONE_CONTEXT_MARGIN_PX = {"convnext": 128, "swint": 128}
+
+
+def compute_backbone_context_margin(
+    backbone_type: str,
+    max_stride: int,
+    convs_per_block: int = 2,
+    kernel_size: int = 3,
+) -> int:
+    """Half the surrounding context (px) a tile edge needs to keep seams valid.
+
+    A tile-edge output pixel has part of its receptive field off-tile; sizing
+    the overlap by this margin ensures an adjacent tile's *center* (full RF)
+    covers that region.
+
+    - UNet: half the deepest-encoder receptive field (``compute_receptive_field``).
+    - ConvNext / SwinT: a fixed per-family constant (windowed attention /
+      patch-merging make an analytic RF invalid; see design DQ4).
+    - Any other backbone (pretrained / unsupported): raises, since tiling is
+      not supported there.
+
+    Args:
+        backbone_type: One of ``"unet"``, ``"convnext"``, ``"swint"``.
+        max_stride: Backbone total downsampling factor (UNet only).
+        convs_per_block: Convs per UNet down block (UNet only).
+        kernel_size: UNet conv kernel size (UNet only).
+
+    Returns:
+        Context margin in input pixels.
+    """
+    if backbone_type == "unet":
+        rf = compute_receptive_field(max_stride, convs_per_block, kernel_size)
+        return int(math.ceil(rf / 2))
+    if backbone_type in _BACKBONE_CONTEXT_MARGIN_PX:
+        return _BACKBONE_CONTEXT_MARGIN_PX[backbone_type]
+    raise ValueError(
+        f"Tiling context margin is undefined for backbone {backbone_type!r} "
+        "(pretrained / unsupported backbones cannot be tiled)."
+    )
+
+
+def compute_suggested_tile_size(
+    max_bbox_dim: float,
+    max_stride: int,
+    output_stride: int,
+    backbone_margin: int,
+    object_multiple: float = 2.0,
+    min_tile_multiples: int = 2,
+) -> int:
+    """Square tile side that fits an object plus context on both sides.
+
+    Rounded UP to a multiple of ``lcm(max_stride, output_stride)`` so both the
+    confmap target grid (subsamples by ``output_stride``) and the backbone
+    (divides by ``max_stride``) stay exact. Depends ONLY on object extent +
+    margin (no overlap) to avoid a cycle with ``compute_suggested_tile_overlap``.
+
+    Args:
+        max_bbox_dim: Largest instance bbox dimension (height or width).
+        max_stride: Backbone total downsampling factor.
+        output_stride: Head output stride.
+        backbone_margin: Per-side context margin (``compute_backbone_context_margin``).
+        object_multiple: Multiple of the object extent to span.
+        min_tile_multiples: Floor on the tile side, in units of the divisor.
+
+    Returns:
+        Suggested square tile side in pixels, divisible by both strides.
+    """
+    divisor = math.lcm(int(max_stride), int(output_stride))
+    raw = object_multiple * float(max_bbox_dim) + 2 * int(backbone_margin)
+    tile = math.ceil(raw / divisor) * divisor
+    return int(max(tile, min_tile_multiples * divisor))
+
+
+def compute_suggested_tile_overlap(
+    tile_size: int,
+    max_bbox_dim: float,
+    confmap_sigma: float,
+    output_stride: int,
+    backbone_margin: int,
+    min_overlap_fraction: float = 0.25,
+    sigma_multiple: float = 3.0,
+) -> int:
+    """Overlap (px) large enough that a seam-straddling object is whole in one tile.
+
+    Covers half the object extent + a few confmap sigmas + backbone context, is
+    at least ``min_overlap_fraction`` of the tile, rounded UP to a multiple of
+    ``output_stride``, and clamped to leave a positive stride (``>= output_stride``).
+
+    Args:
+        tile_size: Square tile side (from ``compute_suggested_tile_size``).
+        max_bbox_dim: Largest instance bbox dimension.
+        confmap_sigma: Confidence-map Gaussian sigma (input pixels).
+        output_stride: Head output stride.
+        backbone_margin: Per-side context margin.
+        min_overlap_fraction: Minimum overlap as a fraction of ``tile_size``.
+        sigma_multiple: How many sigmas of blob to keep whole across a seam.
+
+    Returns:
+        Suggested overlap in pixels, divisible by ``output_stride``.
+    """
+    object_overlap = (
+        0.5 * float(max_bbox_dim)
+        + sigma_multiple * float(confmap_sigma)
+        + int(backbone_margin)
+    )
+    frac_floor = float(min_overlap_fraction) * int(tile_size)
+    overlap = math.ceil(max(object_overlap, frac_floor) / output_stride) * output_stride
+    max_overlap = int(tile_size) - int(output_stride)
+    return int(min(overlap, max_overlap))

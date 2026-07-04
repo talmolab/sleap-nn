@@ -1,7 +1,8 @@
 """Utilities for config building and validation."""
 
+import math
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
@@ -124,6 +125,182 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
         ][
             "max_stride"
         ]
+    return config
+
+
+def check_tiling(config: OmegaConf) -> OmegaConf:
+    """Validate + reconcile tiling geometry against the finalized backbone/head.
+
+    No-op unless ``data_config.preprocessing.tiling.enabled`` is ``True``.
+    Must run *after* :func:`check_output_strides` so ``max_stride`` /
+    ``output_stride`` are finalized, and after ``_setup_tiling_config`` has
+    auto-sized ``tile_size`` / ``overlap`` from the labels. Enforces:
+
+      - GUARD: pretrained-encoder / non-(unet|convnext|swint) backbone -> ValueError.
+      - GUARD: ``multi_class_topdown`` / ClassVectorsHead -> ValueError.
+      - ``tile_size`` divisible by ``lcm(max_stride, output_stride)`` (rounds UP + warns).
+      - ``overlap`` divisible by ``output_stride``, ``>= min_overlap_fraction * tile_size``
+        (raises overlap + warns), and ``0 <= overlap < tile_size`` (else ValueError).
+
+    Guards are enforced explicitly here (not via attrs validators) because
+    ``_setup_tiling_config`` mutates the config in place on the OmegaConf object,
+    which does not re-run attrs validators.
+
+    Args:
+        config: The (finalized) training/inference config.
+
+    Returns:
+        The config, mutated in place with reconciled tiling geometry.
+    """
+    tiling = OmegaConf.select(config, "data_config.preprocessing.tiling")
+    if tiling is None or not tiling.enabled:
+        return config
+
+    backbone_type = get_backbone_type_from_cfg(config)
+
+    # GUARD 1: pretrained-encoder / unsupported backbone. A HuggingFace pretrained
+    # encoder surfaces as backbone_type == "pretrained" (BatchNorm-bearing; DQ14),
+    # so this also excludes it. A unet/convnext/swint that merely loaded pretrained
+    # *weights* is seam-safe and intentionally NOT excluded.
+    if backbone_type not in ("unet", "convnext", "swint"):
+        message = (
+            "data_config.preprocessing.tiling.enabled=True is not supported with "
+            f"pretrained or non-UNet-family backbones (backbone={backbone_type!r}). "
+            "Disable tiling or train a unet/convnext/swint backbone."
+        )
+        logger.error(message)
+        raise ValueError(message)
+
+    # GUARD 2: class-vector heads (global pool needs whole-instance context).
+    head_configs = config.model_config.head_configs
+    model_type = get_model_type_from_cfg(config)
+    has_class_vectors = any(
+        head_configs[h] is not None and "class_vectors" in head_configs[h]
+        for h in head_configs
+    )
+    if model_type == "multi_class_topdown" or has_class_vectors:
+        message = (
+            "data_config.preprocessing.tiling.enabled=True is not supported for "
+            "ClassVectorsHead / multi_class_topdown models (global pooling needs "
+            "whole-instance context that per-tile stitching cannot recover)."
+        )
+        logger.error(message)
+        raise ValueError(message)
+
+    # GUARD 3: supported-model-types allowlist. Tiled training is only implemented
+    # for these model types; enabling tiling elsewhere would otherwise silently
+    # no-op (the dataset factory falls back to the whole-frame branch), so fail loud.
+    _TILING_SUPPORTED_MODEL_TYPES = {"single_instance", "bottomup_segmentation"}
+    if model_type not in _TILING_SUPPORTED_MODEL_TYPES:
+        message = (
+            f"tiling is not yet implemented for model_type={model_type} "
+            "(supported: single_instance, bottomup_segmentation)"
+        )
+        logger.error(message)
+        raise ValueError(message)
+
+    max_stride = int(
+        config.model_config.backbone_config[f"{backbone_type}"]["max_stride"]
+    )
+    output_strides = get_output_strides_from_heads(head_configs)
+    output_stride = min(output_strides) if output_strides else 1
+    divisor = math.lcm(max_stride, output_stride)
+
+    # tile_size divisibility (auto-round up).
+    tile_size = tiling.tile_size
+    if tile_size is None:
+        message = (
+            "tiling.enabled=True but tile_size is unset in check_tiling; "
+            "_setup_tiling_config must run first to auto-size it."
+        )
+        logger.error(message)
+        raise ValueError(message)
+    if tile_size % divisor != 0:
+        snapped = math.ceil(tile_size / divisor) * divisor
+        logger.warning(
+            f"tiling.tile_size={tile_size} is not divisible by "
+            f"lcm(max_stride={max_stride}, output_stride={output_stride})={divisor}; "
+            f"rounding up to {snapped}."
+        )
+        config.data_config.preprocessing.tiling.tile_size = snapped
+        tile_size = snapped
+
+    # overlap: output_stride divisibility + min_overlap_fraction floor + range.
+    overlap = tiling.overlap
+    if overlap is None:
+        message = (
+            "tiling.enabled=True but overlap is unset in check_tiling; "
+            "_setup_tiling_config must run first."
+        )
+        logger.error(message)
+        raise ValueError(message)
+    if overlap % output_stride != 0:
+        snapped = math.ceil(overlap / output_stride) * output_stride
+        logger.warning(
+            f"tiling.overlap={overlap} not divisible by output_stride={output_stride}; "
+            f"rounding up to {snapped}."
+        )
+        overlap = snapped
+    frac_floor = (
+        math.ceil(tiling.min_overlap_fraction * tile_size / output_stride)
+        * output_stride
+    )
+    if overlap < frac_floor:
+        logger.warning(
+            f"tiling.overlap={overlap} is below the min_overlap_fraction "
+            f"({tiling.min_overlap_fraction}) floor of {frac_floor}px; raising to {frac_floor}."
+        )
+        overlap = frac_floor
+    if not (0 <= overlap < tile_size):
+        message = (
+            f"tiling.overlap={overlap} must satisfy 0 <= overlap < tile_size={tile_size} "
+            "(a tile must have a positive stride)."
+        )
+        logger.error(message)
+        raise ValueError(message)
+    config.data_config.preprocessing.tiling.overlap = overlap
+    return config
+
+
+def check_tiling_parity(
+    config: OmegaConf,
+    tile_size_override: Optional[int] = None,
+    overlap_override: Optional[int] = None,
+) -> OmegaConf:
+    """Re-check inference tiling geometry against the trained model config.
+
+    Tiling requires train-time == infer-time geometry (scale parity); the trained
+    geometry lives in the model config. A user-supplied geometry override that
+    diverges from the trained values requires a retrain, so this raises on a
+    mismatch. No-op unless tiling is enabled.
+
+    Args:
+        config: The loaded (trained) model config.
+        tile_size_override: Optional inference-time ``tile_size`` override.
+        overlap_override: Optional inference-time ``overlap`` override.
+
+    Returns:
+        The config unchanged (parity check only).
+    """
+    tiling = OmegaConf.select(config, "data_config.preprocessing.tiling")
+    if tiling is None or not tiling.enabled:
+        return config
+    if tile_size_override is not None and tile_size_override != tiling.tile_size:
+        message = (
+            f"tile_size override ({tile_size_override}) does not match the trained "
+            f"tiling geometry (tile_size={tiling.tile_size}). Tiling geometry is fixed "
+            "at train time (scale parity) — retrain to change it."
+        )
+        logger.error(message)
+        raise ValueError(message)
+    if overlap_override is not None and overlap_override != tiling.overlap:
+        message = (
+            f"overlap override ({overlap_override}) does not match the trained tiling "
+            f"geometry (overlap={tiling.overlap}). Tiling geometry is fixed at train "
+            "time (scale parity) — retrain to change it."
+        )
+        logger.error(message)
+        raise ValueError(message)
     return config
 
 

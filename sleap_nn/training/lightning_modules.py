@@ -202,6 +202,10 @@ class LightningModel(L.LightningModule):
         self._epoch_loss_sum = 0.0
         self._epoch_loss_count = 0
 
+        # For throughput logging (samples/frames per second).
+        self._epoch_sample_count = 0
+        self._samples_per_frame_cache = None
+
         # For epoch-end evaluation
         self.val_predictions: List[Dict] = []
         self.val_ground_truth: List[Dict] = []
@@ -349,11 +353,43 @@ class LightningModel(L.LightningModule):
         # Reset epoch loss tracking
         self._epoch_loss_sum = 0.0
         self._epoch_loss_count = 0
+        # Reset per-device sample count for throughput.
+        self._epoch_sample_count = 0
 
     def _accumulate_loss(self, loss: torch.Tensor):
         """Accumulate loss for epoch-averaged logging. Call this in training_step."""
         self._epoch_loss_sum += loss.detach().item()
         self._epoch_loss_count += 1
+
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        """Count per-device samples this epoch (for throughput logging)."""
+        try:
+            if isinstance(batch, dict):
+                if "image" in batch and hasattr(batch["image"], "shape"):
+                    self._epoch_sample_count += int(batch["image"].shape[0])
+                elif "frame_idx" in batch:
+                    self._epoch_sample_count += len(batch["frame_idx"])
+        except Exception:
+            pass
+
+    def _tiling_samples_per_frame(self) -> int:
+        """Tiles sampled per source frame (1 when not tiling).
+
+        Used to convert the sample (tile) throughput into a *source-frame*
+        throughput so ``train/frames_per_sec`` reads as full frames, not crops.
+        """
+        if self._samples_per_frame_cache is not None:
+            return self._samples_per_frame_cache
+        spf = 1
+        try:
+            dl = getattr(self.trainer, "train_dataloader", None)
+            ds = getattr(dl, "dataset", None)
+            if ds is not None and getattr(ds, "tiling_enabled", False):
+                spf = max(1, int(getattr(ds, "samples_per_frame", 1) or 1))
+        except Exception:
+            spf = 1
+        self._samples_per_frame_cache = spf
+        return spf
 
     def on_train_epoch_end(self):
         """Configure the train timer at the end of every epoch."""
@@ -396,6 +432,31 @@ class LightningModel(L.LightningModule):
                 on_epoch=True,
                 sync_dist=True,
             )
+
+        # Throughput: optimizer steps/sec, sample (tile/crop) throughput, and
+        # full source-frames/sec. Uses the GLOBAL batch (per-device samples x
+        # world_size), so it is correct under multi-GPU. ``frames_per_sec`` divides
+        # the sample rate by tiles-sampled-per-frame under tiling, so it reads as
+        # source frames rather than crops/tiles.
+        if train_time > 0:
+            world = int(getattr(self.trainer, "world_size", 1) or 1)
+            spf = self._tiling_samples_per_frame()
+            steps_per_sec = self._epoch_loss_count / train_time
+            samples_per_sec = (self._epoch_sample_count * world) / train_time
+            frames_per_sec = samples_per_sec / spf
+            for _name, _val in (
+                ("train/steps_per_sec", steps_per_sec),
+                ("train/samples_per_sec", samples_per_sec),
+                ("train/frames_per_sec", frames_per_sec),
+            ):
+                self.log(
+                    _name,
+                    _val,
+                    prog_bar=False,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=False,
+                )
 
     def on_validation_epoch_start(self):
         """Configure the val timer at the beginning of each epoch."""

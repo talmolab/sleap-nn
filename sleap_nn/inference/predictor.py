@@ -40,7 +40,9 @@ import torch
 from loguru import logger
 
 from sleap_nn.inference.filters import FilterConfig, FilterPipeline
+from sleap_nn.config.utils import check_tiling_parity
 from sleap_nn.inference.layers.backends import TorchBackend
+from sleap_nn.inference.layers.base import InferenceLayer
 from sleap_nn.inference.layers.bottomup import BottomUpLayer
 from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLayer
 from sleap_nn.inference.layers.centered_instance import CenteredInstanceLayer
@@ -48,6 +50,7 @@ from sleap_nn.inference.layers.centroid import CentroidLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
 from sleap_nn.inference.layers.segmentation import SegmentationLayer
 from sleap_nn.inference.layers.single_instance import SingleInstanceLayer
+from sleap_nn.inference.layers.tiled import TiledLayer, TiledSegmentationLayer
 from sleap_nn.inference.layers.topdown import TopDownLayer
 from sleap_nn.inference.layers.topdown_multiclass import (
     CenteredInstanceMultiClassLayer,
@@ -175,6 +178,91 @@ def _build_single_instance_layer(predictor: Any, device: str) -> SingleInstanceL
             integral_patch_size=inf.integral_patch_size,
             return_confmaps=getattr(inf, "return_confmaps", False),
         ),
+    )
+
+
+def _tiling_source_cfg(assets: Any) -> Any:
+    """Return the loaded training config that carries the tiling geometry, or None.
+
+    The single-instance loader stashes the full training config on
+    ``LoadedAssets.confmap_config``; the bottom-up segmentation loader stashes it
+    on ``LoadedAssets.bottomup_config``. The tiling geometry (written back at
+    train setup) lives at ``data_config.preprocessing.tiling`` inside whichever
+    is populated.
+    """
+    for attr in ("confmap_config", "bottomup_config"):
+        cfg = getattr(assets, attr, None)
+        if cfg is not None:
+            return cfg
+    return None
+
+
+def _resolve_tiling_cfg(assets: Any) -> Any:
+    """Return ``data_config.preprocessing.tiling`` off the loaded assets, or None.
+
+    Reads the tiling geometry from whichever training config the loader stashed
+    (``confmap_config`` for single-instance, ``bottomup_config`` for bottom-up
+    segmentation); see :func:`_tiling_source_cfg`.
+    """
+    from omegaconf import OmegaConf
+
+    cfg = _tiling_source_cfg(assets)
+    if cfg is None:
+        return None
+    return OmegaConf.select(cfg, "data_config.preprocessing.tiling")
+
+
+def _build_tiled_layer(
+    inner_layer: InferenceLayer, tiling: Any, *, device: str
+) -> TiledLayer:
+    """Wrap an inner confmap layer in a :class:`TiledLayer`.
+
+    Refuses baked (ONNX/TensorRT) backends — tiled export is deferred. Runtime
+    knobs come off the ``tiling`` config; ``tile_batch_size`` falls back to a
+    conservative default of ``8`` when unset.
+    """
+    if inner_layer.backend.does_baked_postproc:
+        raise NotImplementedError(
+            "Tiled inference is not supported for exported (ONNX/TensorRT) models "
+            "(tiled export deferred)."
+        )
+    return TiledLayer(
+        inner_layer=inner_layer,
+        tile_size=int(tiling.tile_size),
+        overlap=int(tiling.overlap),
+        blend=tiling.blend,
+        sigma_scale=tiling.sigma_scale,
+        min_overlap_fraction=tiling.min_overlap_fraction,
+        tile_batch_size=tiling.tile_batch_size or 8,
+        accumulator_device=tiling.accumulator_device,
+        cpu_thresh=tiling.cpu_thresh,
+    )
+
+
+def _build_tiled_segmentation_layer(
+    inner_layer: SegmentationLayer, tiling: Any
+) -> TiledSegmentationLayer:
+    """Wrap an inner ``SegmentationLayer`` in a :class:`TiledSegmentationLayer`.
+
+    Refuses baked (ONNX/TensorRT) backends — tiled export is deferred. Runtime
+    knobs come off the ``tiling`` config; ``tile_batch_size`` falls back to a
+    conservative default of ``8`` when unset.
+    """
+    if inner_layer.backend.does_baked_postproc:
+        raise NotImplementedError(
+            "Tiled inference is not supported for exported (ONNX/TensorRT) models "
+            "(tiled export deferred)."
+        )
+    return TiledSegmentationLayer(
+        inner_layer=inner_layer,
+        tile_size=int(tiling.tile_size),
+        overlap=int(tiling.overlap),
+        blend=tiling.blend,
+        sigma_scale=tiling.sigma_scale,
+        min_overlap_fraction=tiling.min_overlap_fraction,
+        tile_batch_size=tiling.tile_batch_size or 8,
+        accumulator_device=tiling.accumulator_device,
+        cpu_thresh=tiling.cpu_thresh,
     )
 
 
@@ -453,13 +541,27 @@ def _build_topdown_segmentation_layer(
 def _select_layer(assets: Any, model_types: List[str], device: str):
     """Dispatch on detected model types and build the appropriate layer composition."""
     if "single_instance" in model_types:
-        return _build_single_instance_layer(assets, device)
+        inner = _build_single_instance_layer(assets, device)
+        tiling = _resolve_tiling_cfg(assets)
+        if tiling is not None and tiling.enabled:
+            # Geometry is frozen at train time; re-assert it against the loaded
+            # backbone before wrapping in a tiled layer.
+            check_tiling_parity(assets.confmap_config)
+            return _build_tiled_layer(inner, tiling, device=device)
+        return inner
     if "bottomup" in model_types:
         return _build_bottomup_layer(assets, device)
     if "multi_class_bottomup" in model_types:
         return _build_bottomup_multiclass_layer(assets, device)
     if "bottomup_segmentation" in model_types:
-        return _build_bottomup_segmentation_layer(assets, device)
+        inner = _build_bottomup_segmentation_layer(assets, device)
+        tiling = _resolve_tiling_cfg(assets)
+        if tiling is not None and tiling.enabled:
+            # Geometry is frozen at train time; re-assert it against the loaded
+            # backbone before wrapping in a tiled layer.
+            check_tiling_parity(_tiling_source_cfg(assets))
+            return _build_tiled_segmentation_layer(inner, tiling)
+        return inner
     # Top-down (crop-centered) segmentation: a centroid + centered_instance_segmentation
     # pair, OR a seg dir alone (GT-centroid fallback). Checked BEFORE the bare
     # ``has_centroid`` branch so a centroid+seg pair isn't routed to centroid-only.

@@ -9,6 +9,7 @@ import numpy as np
 import sleap_io as sio
 import sleap_nn
 import time
+import math
 import lightning as L
 import wandb
 import yaml
@@ -42,13 +43,19 @@ from sleap_nn.data.custom_datasets import (
     get_steps_per_epoch,
     get_train_val_datasets,
 )
+from sleap_nn.data.tiling import generate_tile_grid
 from loguru import logger
 from sleap_nn.config.utils import (
     get_backbone_type_from_cfg,
     get_model_type_from_cfg,
 )
 from sleap_nn.training.lightning_modules import LightningModel
-from sleap_nn.config.utils import check_output_strides
+from sleap_nn.config.utils import check_output_strides, check_tiling
+from sleap_nn.config_generator.architecture_estimates import (
+    compute_backbone_context_margin,
+    compute_suggested_tile_size,
+    compute_suggested_tile_overlap,
+)
 from sleap_nn.training.utils import get_gpu_memory
 from sleap_nn.config.training_job_config import verify_training_cfg
 from sleap_nn.training.callbacks import (
@@ -59,10 +66,15 @@ from sleap_nn.training.callbacks import (
     EpochEndEvaluationCallback,
     CentroidEvaluationCallback,
     SegmentationEvaluationCallback,
+    TilingEpochCallback,
     UnifiedVizCallback,
 )
 from sleap_nn import RANK
 from sleap_nn.legacy_models import get_keras_first_layer_channels
+
+# Below this many labeled instances, object-size estimates are unreliable and the
+# tiling overlap falls back to a conservative min_overlap_fraction default (DQ3).
+_SPARSE_LABEL_THRESHOLD = 20
 
 MEMORY_BUFFER = 0.2  # Default memory buffer for caching
 
@@ -523,6 +535,143 @@ class ModelTrainer:
         ):
             self.config.data_config.preprocessing.crop_size = max_crop_size
 
+    def _get_confmap_sigma(self, output_stride: int) -> float:
+        """Return the active head's confmap sigma (input px), else ``output_stride``.
+
+        Used to size the tiling overlap so a keypoint's Gaussian blob is not split
+        across a seam. Segmentation / non-confmap heads have no sigma; callers only
+        rely on this for confmap-based tiled models (Phase A).
+
+        Args:
+            output_stride: Head output stride, used as the fallback value.
+
+        Returns:
+            The confmap Gaussian sigma in input pixels.
+        """
+        head_cfg = self.config.model_config.head_configs[self.model_type]
+        if head_cfg is not None:
+            for head_layer in head_cfg:
+                sub = head_cfg[head_layer]
+                if sub is not None and "sigma" in sub and sub["sigma"] is not None:
+                    return float(sub["sigma"])
+        return float(output_stride)
+
+    def _setup_tiling_config(self):
+        """Auto-size tiling geometry from labels + backbone, writing back to config.
+
+        No-op unless ``data_config.preprocessing.tiling.enabled``. Explicit
+        ``tile_size`` / ``overlap`` values are preserved; only ``None`` values are
+        auto-sized. Must run after :func:`check_output_strides` (so ``max_stride`` /
+        ``output_stride`` are finalized). :func:`check_tiling` then validates and
+        snaps the resulting geometry.
+        """
+        tiling = self.config.data_config.preprocessing.tiling
+        if tiling is None or not tiling.enabled:
+            return
+
+        backbone_type = self.backbone_type
+        backbone_cfg = self.config.model_config.backbone_config[f"{backbone_type}"]
+        max_stride = int(backbone_cfg["max_stride"])
+        output_stride = int(backbone_cfg["output_stride"])
+        convs_per_block = int(backbone_cfg.get("convs_per_block", 2))
+        kernel_size = int(backbone_cfg.get("kernel_size", 3))
+
+        # Object extent + instance count across train labels.
+        max_bbox_dim = 0.0
+        n_instances = 0
+        for train_label in self.train_labels:
+            bbox = find_max_instance_bbox_size(train_label)
+            if bbox > max_bbox_dim:
+                max_bbox_dim = bbox
+            n_instances += sum(len(lf.instances) for lf in train_label)
+
+        try:
+            backbone_margin = compute_backbone_context_margin(
+                backbone_type, max_stride, convs_per_block, kernel_size
+            )
+        except ValueError:
+            # Unsupported backbone under tiling; check_tiling emits the hard error.
+            backbone_margin = 0
+
+        # tile_size (preserve explicit).
+        if tiling.tile_size is None:
+            tile_size = compute_suggested_tile_size(
+                max_bbox_dim, max_stride, output_stride, backbone_margin
+            )
+            self.config.data_config.preprocessing.tiling.tile_size = tile_size
+            logger.info(
+                f"Auto-sized tiling.tile_size={tile_size} "
+                f"(max_bbox_dim={max_bbox_dim:.1f}, backbone_margin={backbone_margin})."
+            )
+        tile_size = int(self.config.data_config.preprocessing.tiling.tile_size)
+
+        # overlap (preserve explicit; conservative + warn when labels sparse).
+        if tiling.overlap is None:
+            if n_instances < _SPARSE_LABEL_THRESHOLD:
+                overlap = (
+                    math.ceil(tiling.min_overlap_fraction * tile_size / output_stride)
+                    * output_stride
+                )
+                logger.warning(
+                    f"Only {n_instances} labeled instances "
+                    f"(< {_SPARSE_LABEL_THRESHOLD}); the object-size estimate is "
+                    f"unreliable. Using a conservative tiling.overlap={overlap} "
+                    f"({tiling.min_overlap_fraction:.0%} of tile_size). Set "
+                    "data_config.preprocessing.tiling.overlap explicitly to override."
+                )
+            else:
+                sigma = self._get_confmap_sigma(output_stride)
+                overlap = compute_suggested_tile_overlap(
+                    tile_size,
+                    max_bbox_dim,
+                    sigma,
+                    output_stride,
+                    backbone_margin,
+                    tiling.min_overlap_fraction,
+                )
+                logger.info(
+                    f"Auto-sized tiling.overlap={overlap} "
+                    f"(confmap_sigma={sigma}, backbone_margin={backbone_margin})."
+                )
+            self.config.data_config.preprocessing.tiling.overlap = overlap
+
+        overlap = int(self.config.data_config.preprocessing.tiling.overlap)
+
+        # samples_per_frame default: a conservative grid-tile count for a
+        # representative (max-sized) frame, so train coverage ~= one grid pass
+        # per frame. Written back into the live config before dataset creation.
+        if tiling.samples_per_frame is None:
+            scale = float(self.config.data_config.preprocessing.scale)
+            rep_h = self.config.data_config.preprocessing.max_height
+            rep_w = self.config.data_config.preprocessing.max_width
+            if rep_h is None or rep_w is None:
+                # Fall back to the first labeled frame's native size.
+                shape = getattr(self.train_labels[0].videos[0], "shape", None)
+                if shape is not None and len(shape) >= 3:
+                    rep_h, rep_w = int(shape[1]), int(shape[2])
+                else:
+                    img = self.train_labels[0][0].image
+                    rep_h, rep_w = int(img.shape[0]), int(img.shape[1])
+            sized_hw = (int(rep_h * scale), int(rep_w * scale))
+            n_tiles = len(
+                generate_tile_grid(
+                    sized_hw,
+                    tile_size=tile_size,
+                    overlap=overlap,
+                    output_stride=output_stride,
+                    max_stride=max_stride,
+                    min_overlap_fraction=float(tiling.min_overlap_fraction),
+                )
+            )
+            self.config.data_config.preprocessing.tiling.samples_per_frame = max(
+                1, n_tiles
+            )
+            logger.info(
+                "Auto-sized tiling.samples_per_frame="
+                f"{max(1, n_tiles)} (grid tiles for a "
+                f"{sized_hw[0]}x{sized_hw[1]} frame)."
+            )
+
     def _setup_head_config(self):
         """Setup node, edge and class names in head config."""
         # if edges and part names aren't set in head configs, get it from labels object.
@@ -783,6 +932,10 @@ class ModelTrainer:
 
         # set output stride for backbone from head config and verify max stride
         self.config = check_output_strides(self.config)
+
+        # auto-size + validate tiling geometry (no-op unless tiling.enabled)
+        self._setup_tiling_config()
+        self.config = check_tiling(self.config)
 
         # if trainer_devices is None, set it to "auto"
         if self.config.trainer_config.trainer_devices is None:
@@ -1280,6 +1433,13 @@ class ModelTrainer:
                     )
                 )
 
+        # Sync the tiling sampler + shared epoch tensor each epoch (tiling only).
+        tiling = OmegaConf.select(
+            self.config, "data_config.preprocessing.tiling", default=None
+        )
+        if tiling is not None and tiling.enabled:
+            callbacks.append(TilingEpochCallback())
+
         return loggers, callbacks
 
     def _delete_cache_imgs(self):
@@ -1400,15 +1560,27 @@ class ModelTrainer:
 
         # set-up steps per epoch
         train_steps_per_epoch = self.config.trainer_config.train_steps_per_epoch
+        tiling = OmegaConf.select(
+            self.config, "data_config.preprocessing.tiling", default=None
+        )
         if train_steps_per_epoch is None:
-            train_steps_per_epoch = get_steps_per_epoch(
-                dataset=train_dataset,
-                batch_size=self.config.trainer_config.train_data_loader.batch_size,
-            )
+            if (
+                tiling is not None
+                and tiling.enabled
+                and tiling.steps_per_epoch is not None
+            ):
+                # TRAIN decouple: the tiling knob overrides the tile-count length.
+                train_steps_per_epoch = tiling.steps_per_epoch
+            else:
+                train_steps_per_epoch = get_steps_per_epoch(
+                    dataset=train_dataset,
+                    batch_size=self.config.trainer_config.train_data_loader.batch_size,
+                )
         if self.config.trainer_config.min_train_steps_per_epoch > train_steps_per_epoch:
             train_steps_per_epoch = self.config.trainer_config.min_train_steps_per_epoch
         self.config.trainer_config.train_steps_per_epoch = train_steps_per_epoch
 
+        # VAL: always full-coverage (every grid tile visited once), NOT decoupled.
         val_steps_per_epoch = get_steps_per_epoch(
             dataset=val_dataset,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,

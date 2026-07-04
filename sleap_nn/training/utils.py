@@ -181,6 +181,112 @@ def plot_confmaps(confmaps: np.ndarray, output_scale: float = 1.0):
     )
 
 
+def plot_tile_grid(
+    img: np.ndarray,
+    tile_size: int,
+    overlap: int,
+    output_stride: int,
+    max_stride: int = 1,
+    min_overlap_fraction: float = 0.25,
+    blend: str = "gaussian",
+    sigma_scale: float = 0.125,
+    show_coverage: bool = True,
+    dpi: int | float = 72,
+    scale: float = 1.0,
+) -> matplotlib.figure.Figure:
+    """Visualize the sliding-window tile grid (and blend coverage) over a frame.
+
+    Draws each tile's extent as a rectangle over the image and, optionally,
+    overlays the summed importance-window coverage (the ``CNT`` denominator used
+    by the tiled-inference stitcher) as a heatmap so seams and edge
+    down-weighting are visible. Useful for choosing ``tile_size`` / ``overlap``
+    and for documentation figures.
+
+    Args:
+        img: Frame image; accepts ``(H, W)``, ``(H, W, C)``, ``(C, H, W)`` or a
+            leading singleton batch, as a numpy array or torch tensor.
+        tile_size: Square tile side length in pixels.
+        overlap: Tile overlap in pixels.
+        output_stride: Model output stride (grid snapping + coverage resolution).
+        max_stride: Backbone max stride (used to snap the inter-tile step).
+        min_overlap_fraction: Minimum overlap as a fraction of ``tile_size``.
+        blend: Importance-window mode, one of ``"gaussian"``/``"pyramid"``/``"constant"``.
+        sigma_scale: Gaussian importance-window sigma scale.
+        show_coverage: If ``True``, overlay the summed-window coverage heatmap.
+        dpi: Dots per inch passed to :func:`plot_img`.
+        scale: Figure size scale passed to :func:`plot_img`.
+
+    Returns:
+        A ``matplotlib.figure.Figure`` with the image, tile rectangles and
+        (optionally) the coverage heatmap.
+    """
+    import matplotlib.patches as mpatches
+    import torch
+
+    from sleap_nn.data.tiling import generate_tile_grid
+    from sleap_nn.inference.tile_merger import build_importance_window
+
+    if hasattr(img, "detach"):
+        img = img.detach().cpu().numpy()
+    img = np.asarray(img)
+    img = np.squeeze(img)
+    if img.ndim == 2:
+        img = img[..., None]
+    elif img.ndim == 3 and img.shape[0] in (1, 3) and img.shape[-1] not in (1, 3):
+        # (C, H, W) -> (H, W, C)
+        img = np.transpose(img, (1, 2, 0))
+
+    height, width = int(img.shape[0]), int(img.shape[1])
+    origins = generate_tile_grid(
+        (height, width),
+        tile_size=tile_size,
+        overlap=overlap,
+        output_stride=output_stride,
+        max_stride=max_stride,
+        min_overlap_fraction=min_overlap_fraction,
+    )
+
+    fig = plot_img(img, dpi=dpi, scale=scale)
+    ax = fig.gca()
+
+    if show_coverage:
+        stride = output_stride
+        cnt = torch.zeros((max(1, height // stride), max(1, width // stride)))
+        win = build_importance_window(
+            (tile_size // stride, tile_size // stride),
+            mode=blend,
+            sigma_scale=sigma_scale,
+        )
+        th, tw = win.shape
+        for y0, x0 in origins:
+            yy, xx = y0 // stride, x0 // stride
+            ye, xe = min(yy + th, cnt.shape[0]), min(xx + tw, cnt.shape[1])
+            if ye > yy and xe > xx:
+                cnt[yy:ye, xx:xe] += win[: ye - yy, : xe - xx]
+        ax.imshow(
+            cnt.numpy(),
+            alpha=0.5,
+            cmap="viridis",
+            origin="upper",
+            extent=[-0.5, width - 0.5, height - 0.5, -0.5],
+        )
+
+    for y0, x0 in origins:
+        ax.add_patch(
+            mpatches.Rectangle(
+                (x0 - 0.5, y0 - 0.5),
+                tile_size,
+                tile_size,
+                fill=False,
+                edgecolor="red",
+                linewidth=1.0,
+                alpha=0.7,
+            )
+        )
+
+    return fig
+
+
 def plot_peaks(
     pts_gt: np.ndarray, pts_pr: np.ndarray | None = None, paired: bool = False
 ):

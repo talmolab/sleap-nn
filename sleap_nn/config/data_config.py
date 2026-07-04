@@ -13,6 +13,138 @@ import yaml
 from sleap_io.io.skeleton import SkeletonDecoder, SkeletonYAMLEncoder
 
 
+def validate_proportion(instance, attribute, value):
+    """General Proportion Validation.
+
+    Ensures all proportions are a 0<=float<=1.0
+    """
+    if not (0.0 <= value <= 1.0):
+        message = f"{attribute.name} must be between 0.0 and 1.0, got {value}"
+        logger.error(message)
+        raise ValueError(message)
+
+
+def validate_optional_positive_int(instance, attribute, value):
+    """Allow None or a strictly-positive int.
+
+    Used for `tile_size`, `tile_batch_size`, `samples_per_frame`, `steps_per_epoch`.
+    """
+    if value is None:
+        return
+    if not (isinstance(value, int) and value > 0):
+        message = f"{attribute.name} must be a positive integer or None, got {value!r}"
+        logger.error(message)
+        raise ValueError(message)
+
+
+def validate_optional_nonneg_int(instance, attribute, value):
+    """Allow None or a non-negative int (e.g. `overlap`)."""
+    if value is None:
+        return
+    if not (isinstance(value, int) and value >= 0):
+        message = (
+            f"{attribute.name} must be a non-negative integer or None, got {value!r}"
+        )
+        logger.error(message)
+        raise ValueError(message)
+
+
+def validate_fg_fraction(instance, attribute, value):
+    """nnU-Net foreground oversample fraction: 0.0 <= value < 1.0 (never 1.0)."""
+    if not (0.0 <= value < 1.0):
+        message = f"{attribute.name} must be in [0.0, 1.0) (never 1.0), got {value}"
+        logger.error(message)
+        raise ValueError(message)
+
+
+def validate_blend(instance, attribute, value):
+    """Ensure the tiling blend window is a supported mode."""
+    if value not in ("gaussian", "pyramid", "constant"):
+        message = (
+            f"blend must be one of ['gaussian', 'pyramid', 'constant'], got {value!r}"
+        )
+        logger.error(message)
+        raise ValueError(message)
+
+
+def validate_accumulator_device(instance, attribute, value):
+    """Ensure the tiling accumulator device is a supported value."""
+    if value not in ("auto", "cpu", "cuda"):
+        message = (
+            "accumulator_device must be one of ['auto', 'cpu', 'cuda'], "
+            f"got {value!r}"
+        )
+        logger.error(message)
+        raise ValueError(message)
+
+
+def validate_sampling(instance, attribute, value):
+    """Ensure the tiling sampling strategy is a supported value."""
+    if value not in ("foreground", "grid"):
+        message = f"sampling must be one of ['foreground', 'grid'], got {value!r}"
+        logger.error(message)
+        raise ValueError(message)
+
+
+@define
+class TilingConfig:
+    """Configuration of tiled training/inference (Phase 0/A).
+
+    Explicit opt-in only (`enabled=True`). Square tiles, constant-zero padding.
+    Geometry (`tile_size`, `overlap`) is auto-sized from labels x backbone margin at
+    train setup and written back into this config (persisted in training_config.yaml),
+    then read + parity-checked at inference. Unsupported with pretrained backbones and
+    with ClassVectorsHead / multi_class_topdown models (see `check_tiling`).
+
+    Attributes:
+        enabled: (bool) If `True`, engage tiled training/inference. Explicit opt-in; there is no engagement heuristic. *Default*: `False`.
+        tile_size: (int) SQUARE tile side length in pixels. If `None`, auto-computed at train setup as a multiple of both the effective backbone max_stride and the head output_stride. *Default*: `None`.
+        overlap: (int) Tile overlap in pixels. If `None`, auto-sized from object extent / confmap sigma plus a fixed backbone context margin; a conservative default is used (with a warning) when labels are sparse. An explicit value always overrides. *Default*: `None`.
+        min_overlap_fraction: (float) Minimum overlap as a fraction of `tile_size`, enforced (overlap raised if needed) in `check_tiling`. Must be in [0.0, 1.0]. *Default*: `0.25`.
+        blend: (str) Merge window for stitching tile predictions. One of ['gaussian', 'pyramid', 'constant']. *Default*: `"gaussian"`.
+        sigma_scale: (float) Per-axis std of the Gaussian importance window as a fraction of the tile side (std = sigma_scale * tile). Must be in (0.0, 1.0]. *Default*: `0.125`.
+        tile_batch_size: (int) Number of tiles forwarded per backend call at inference. Manual knob; a conservative default is used when `None` (no auto-tuner). *Default*: `None`.
+        accumulator_device: (str) Device for the per-frame ACC/CNT merge buffers. One of ['auto', 'cpu', 'cuda']; 'auto' predicts placement and falls back to CPU on OOM. *Default*: `"auto"`.
+        cpu_thresh: (float) Spill ACC/CNT to CPU when the buffers would exceed this fraction of free GPU memory. Must be in [0.0, 1.0]. *Default*: `0.40`.
+        sampling: (str) Tile sampling strategy. 'foreground' (train, object-aware) or 'grid' (val/debug, full-coverage). *Default*: `"foreground"`.
+        tile_fg_fraction: (float) Fraction of sampled train tiles forced to contain an object (nnU-Net oversampling). Must be in [0.0, 1.0) (never 1.0). *Default*: `0.5`.
+        samples_per_frame: (int) Number of tiles emitted per decoded frame as a worker-aligned block. If `None`, a conservative default is used. *Default*: `None`.
+        center_jitter: (float) Foreground-tile center jitter as a fraction of tile/2. Must be in [0.0, 1.0]. *Default*: `0.5`.
+        min_visible_keypoints: (int) Keep an instance in a tile only if at least this many of its keypoints fall inside the tile. Must be >= 0. *Default*: `1`.
+        steps_per_epoch: (int) Decouples the TRAIN epoch length from tile count. Validation is always full-coverage (not decoupled). If `None`, derived from the effective sample count. *Default*: `None`.
+        full_frame_pass: (bool) Full-image mixing pass. DECLARED but INERT in Phase 0/A (wired in Phase C). *Default*: `False`.
+    """
+
+    enabled: bool = False
+    tile_size: Optional[int] = field(
+        default=None, validator=validate_optional_positive_int
+    )
+    overlap: Optional[int] = field(default=None, validator=validate_optional_nonneg_int)
+    min_overlap_fraction: float = field(default=0.25, validator=validate_proportion)
+    blend: str = field(default="gaussian", validator=validate_blend)
+    sigma_scale: float = field(
+        default=0.125, validator=[validators.gt(0), validators.le(1)]
+    )
+    tile_batch_size: Optional[int] = field(
+        default=None, validator=validate_optional_positive_int
+    )
+    accumulator_device: str = field(
+        default="auto", validator=validate_accumulator_device
+    )
+    cpu_thresh: float = field(default=0.40, validator=validate_proportion)
+    sampling: str = field(default="foreground", validator=validate_sampling)
+    tile_fg_fraction: float = field(default=0.5, validator=validate_fg_fraction)
+    samples_per_frame: Optional[int] = field(
+        default=None, validator=validate_optional_positive_int
+    )
+    center_jitter: float = field(default=0.5, validator=validate_proportion)
+    min_visible_keypoints: int = field(default=1, validator=validators.ge(0))
+    steps_per_epoch: Optional[int] = field(
+        default=None, validator=validate_optional_positive_int
+    )
+    full_frame_pass: bool = False
+
+
 @define
 class PreprocessingConfig:
     """Configuration of Preprocessing.
@@ -29,6 +161,7 @@ class PreprocessingConfig:
         crop_padding: (int) Padding in pixels to add around the instance bounding box when computing crop size.
             If `None`, padding is auto-computed based on augmentation settings (rotation/scale).
             Only used when `crop_size` is `None`. *Default*: `None`.
+        tiling: Configuration of tiled training/inference. Inert unless `tiling.enabled` is `True`.
     """
 
     ensure_rgb: bool = False
@@ -41,6 +174,7 @@ class PreprocessingConfig:
     crop_size: Optional[int] = None
     min_crop_size: Optional[int] = 100  # to help app work in case of error
     crop_padding: Optional[int] = None
+    tiling: TilingConfig = field(factory=TilingConfig)
 
     def validate_scale(self):
         """Scale Validation.
@@ -54,17 +188,6 @@ class PreprocessingConfig:
         ):
             return
         message = "PreprocessingConfig's scale must be a float or a list of floats."
-        logger.error(message)
-        raise ValueError(message)
-
-
-def validate_proportion(instance, attribute, value):
-    """General Proportion Validation.
-
-    Ensures all proportions are a 0<=float<=1.0
-    """
-    if not (0.0 <= value <= 1.0):
-        message = f"{attribute.name} must be between 0.0 and 1.0, got {value}"
         logger.error(message)
         raise ValueError(message)
 
