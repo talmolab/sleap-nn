@@ -1037,6 +1037,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../guides/tiling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tiling (High-Res)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -3675,6 +3703,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../data/tiling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tiling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../data/utils/" class="md-nav__link">
         
   
@@ -4965,6 +5021,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../inference/layers/tiled/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tiled
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../inference/layers/topdown/" class="md-nav__link">
         
   
@@ -5947,6 +6031,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../inference/tile_merger/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    tile_merger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../inference/topdown/" class="md-nav__link">
         
   
@@ -6687,6 +6799,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sleap_nn.training.callbacks.TilingEpochCallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TilingEpochCallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#sleap_nn.training.callbacks.TrainingControllerZMQ" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -7086,6 +7209,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sleap_nn.training.callbacks.TilingEpochCallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TilingEpochCallback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#sleap_nn.training.callbacks.TrainingControllerZMQ" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -7252,6 +7386,14 @@
             <td>
               <div class="doc-md-description">
                 <p>Custom progress bar with better formatting for small metric values.</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;TilingEpochCallback&lt;/code&gt; (&lt;code&gt;sleap_nn.training.callbacks.TilingEpochCallback&lt;/code&gt;)" href="#sleap_nn.training.callbacks.TilingEpochCallback">TilingEpochCallback</a></code></td>
+            <td>
+              <div class="doc-md-description">
+                <p>Propagate the current epoch to the tiling sampler + dataset each epoch.</p>
               </div>
             </td>
           </tr>
@@ -11769,6 +11911,276 @@ This subclass formats metrics using scientific notation when appropriate.</p>
 </span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43"></a>        <span class="k">else</span><span class="p">:</span>
 </span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44"></a>            <span class="n">formatted</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">v</span>
 </span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45"></a>    <span class="k">return</span> <span class="n">formatted</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="sleap_nn.training.callbacks.TilingEpochCallback" class="doc doc-heading">
+            <code>TilingEpochCallback</code>
+
+
+<a href="#sleap_nn.training.callbacks.TilingEpochCallback" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="lightning.pytorch.callbacks.Callback">Callback</span></code></p>
+
+
+
+        <p>Propagate the current epoch to the tiling sampler + dataset each epoch.</p>
+<p>Registered only when <code>data_config.preprocessing.tiling.enabled</code>. Tiled
+training reseeds tile positions / halo augmentations per epoch via a
+<code>FrameGroupedTileSampler</code> (whose block order is a function of the epoch)
+and a shared-memory <code>_epoch</code> tensor on the dataset (read by persistent
+workers). This callback keeps both in sync at the start of every train and
+validation epoch.</p>
+<p>The sampler chain follows the <code>InfiniteDataLoader</code> composition::</p>
+<div class="language-text highlight"><pre><span></span><code>dl.batch_sampler        -&gt; _RepeatSampler
+dl.batch_sampler.sampler -&gt; BatchSampler
+dl.batch_sampler.sampler.sampler -&gt; FrameGroupedTileSampler
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+<p><span class="doc-section-title">Methods:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;on_train_epoch_start&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;trainer&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pl_module&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.training.callbacks.TilingEpochCallback.on_train_epoch_start&lt;/code&gt;)" href="#sleap_nn.training.callbacks.TilingEpochCallback.on_train_epoch_start">on_train_epoch_start</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Sync the epoch on the train dataloader(s).</p>
+                </div>
+              </td>
+            </tr>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;on_validation_epoch_start&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;trainer&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;pl_module&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.training.callbacks.TilingEpochCallback.on_validation_epoch_start&lt;/code&gt;)" href="#sleap_nn.training.callbacks.TilingEpochCallback.on_validation_epoch_start">on_validation_epoch_start</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Sync the epoch on the val dataloader(s).</p>
+                </div>
+              </td>
+            </tr>
+      </tbody>
+    </table>
+
+
+
+              <details class="mkdocstrings-source">
+                <summary>Source code in <code>sleap_nn/training/callbacks.py</code></summary>
+                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1922">1922</a></span>
+<span class="normal"><a href="#__codelineno-0-1923">1923</a></span>
+<span class="normal"><a href="#__codelineno-0-1924">1924</a></span>
+<span class="normal"><a href="#__codelineno-0-1925">1925</a></span>
+<span class="normal"><a href="#__codelineno-0-1926">1926</a></span>
+<span class="normal"><a href="#__codelineno-0-1927">1927</a></span>
+<span class="normal"><a href="#__codelineno-0-1928">1928</a></span>
+<span class="normal"><a href="#__codelineno-0-1929">1929</a></span>
+<span class="normal"><a href="#__codelineno-0-1930">1930</a></span>
+<span class="normal"><a href="#__codelineno-0-1931">1931</a></span>
+<span class="normal"><a href="#__codelineno-0-1932">1932</a></span>
+<span class="normal"><a href="#__codelineno-0-1933">1933</a></span>
+<span class="normal"><a href="#__codelineno-0-1934">1934</a></span>
+<span class="normal"><a href="#__codelineno-0-1935">1935</a></span>
+<span class="normal"><a href="#__codelineno-0-1936">1936</a></span>
+<span class="normal"><a href="#__codelineno-0-1937">1937</a></span>
+<span class="normal"><a href="#__codelineno-0-1938">1938</a></span>
+<span class="normal"><a href="#__codelineno-0-1939">1939</a></span>
+<span class="normal"><a href="#__codelineno-0-1940">1940</a></span>
+<span class="normal"><a href="#__codelineno-0-1941">1941</a></span>
+<span class="normal"><a href="#__codelineno-0-1942">1942</a></span>
+<span class="normal"><a href="#__codelineno-0-1943">1943</a></span>
+<span class="normal"><a href="#__codelineno-0-1944">1944</a></span>
+<span class="normal"><a href="#__codelineno-0-1945">1945</a></span>
+<span class="normal"><a href="#__codelineno-0-1946">1946</a></span>
+<span class="normal"><a href="#__codelineno-0-1947">1947</a></span>
+<span class="normal"><a href="#__codelineno-0-1948">1948</a></span>
+<span class="normal"><a href="#__codelineno-0-1949">1949</a></span>
+<span class="normal"><a href="#__codelineno-0-1950">1950</a></span>
+<span class="normal"><a href="#__codelineno-0-1951">1951</a></span>
+<span class="normal"><a href="#__codelineno-0-1952">1952</a></span>
+<span class="normal"><a href="#__codelineno-0-1953">1953</a></span>
+<span class="normal"><a href="#__codelineno-0-1954">1954</a></span>
+<span class="normal"><a href="#__codelineno-0-1955">1955</a></span>
+<span class="normal"><a href="#__codelineno-0-1956">1956</a></span>
+<span class="normal"><a href="#__codelineno-0-1957">1957</a></span>
+<span class="normal"><a href="#__codelineno-0-1958">1958</a></span>
+<span class="normal"><a href="#__codelineno-0-1959">1959</a></span>
+<span class="normal"><a href="#__codelineno-0-1960">1960</a></span>
+<span class="normal"><a href="#__codelineno-0-1961">1961</a></span>
+<span class="normal"><a href="#__codelineno-0-1962">1962</a></span>
+<span class="normal"><a href="#__codelineno-0-1963">1963</a></span>
+<span class="normal"><a href="#__codelineno-0-1964">1964</a></span>
+<span class="normal"><a href="#__codelineno-0-1965">1965</a></span>
+<span class="normal"><a href="#__codelineno-0-1966">1966</a></span>
+<span class="normal"><a href="#__codelineno-0-1967">1967</a></span>
+<span class="normal"><a href="#__codelineno-0-1968">1968</a></span>
+<span class="normal"><a href="#__codelineno-0-1969">1969</a></span>
+<span class="normal"><a href="#__codelineno-0-1970">1970</a></span>
+<span class="normal"><a href="#__codelineno-0-1971">1971</a></span>
+<span class="normal"><a href="#__codelineno-0-1972">1972</a></span>
+<span class="normal"><a href="#__codelineno-0-1973">1973</a></span>
+<span class="normal"><a href="#__codelineno-0-1974">1974</a></span>
+<span class="normal"><a href="#__codelineno-0-1975">1975</a></span>
+<span class="normal"><a href="#__codelineno-0-1976">1976</a></span>
+<span class="normal"><a href="#__codelineno-0-1977">1977</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1922"><a id="__codelineno-0-1922" name="__codelineno-0-1922"></a><span class="k">class</span><span class="w"> </span><span class="nc">TilingEpochCallback</span><span class="p">(</span><span class="n">Callback</span><span class="p">):</span>
+</span><span id="__span-0-1923"><a id="__codelineno-0-1923" name="__codelineno-0-1923"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Propagate the current epoch to the tiling sampler + dataset each epoch.</span>
+</span><span id="__span-0-1924"><a id="__codelineno-0-1924" name="__codelineno-0-1924"></a>
+</span><span id="__span-0-1925"><a id="__codelineno-0-1925" name="__codelineno-0-1925"></a><span class="sd">    Registered only when ``data_config.preprocessing.tiling.enabled``. Tiled</span>
+</span><span id="__span-0-1926"><a id="__codelineno-0-1926" name="__codelineno-0-1926"></a><span class="sd">    training reseeds tile positions / halo augmentations per epoch via a</span>
+</span><span id="__span-0-1927"><a id="__codelineno-0-1927" name="__codelineno-0-1927"></a><span class="sd">    ``FrameGroupedTileSampler`` (whose block order is a function of the epoch)</span>
+</span><span id="__span-0-1928"><a id="__codelineno-0-1928" name="__codelineno-0-1928"></a><span class="sd">    and a shared-memory ``_epoch`` tensor on the dataset (read by persistent</span>
+</span><span id="__span-0-1929"><a id="__codelineno-0-1929" name="__codelineno-0-1929"></a><span class="sd">    workers). This callback keeps both in sync at the start of every train and</span>
+</span><span id="__span-0-1930"><a id="__codelineno-0-1930" name="__codelineno-0-1930"></a><span class="sd">    validation epoch.</span>
+</span><span id="__span-0-1931"><a id="__codelineno-0-1931" name="__codelineno-0-1931"></a>
+</span><span id="__span-0-1932"><a id="__codelineno-0-1932" name="__codelineno-0-1932"></a><span class="sd">    The sampler chain follows the ``InfiniteDataLoader`` composition::</span>
+</span><span id="__span-0-1933"><a id="__codelineno-0-1933" name="__codelineno-0-1933"></a>
+</span><span id="__span-0-1934"><a id="__codelineno-0-1934" name="__codelineno-0-1934"></a><span class="sd">        dl.batch_sampler        -&gt; _RepeatSampler</span>
+</span><span id="__span-0-1935"><a id="__codelineno-0-1935" name="__codelineno-0-1935"></a><span class="sd">        dl.batch_sampler.sampler -&gt; BatchSampler</span>
+</span><span id="__span-0-1936"><a id="__codelineno-0-1936" name="__codelineno-0-1936"></a><span class="sd">        dl.batch_sampler.sampler.sampler -&gt; FrameGroupedTileSampler</span>
+</span><span id="__span-0-1937"><a id="__codelineno-0-1937" name="__codelineno-0-1937"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-1938"><a id="__codelineno-0-1938" name="__codelineno-0-1938"></a>
+</span><span id="__span-0-1939"><a id="__codelineno-0-1939" name="__codelineno-0-1939"></a>    <span class="nd">@staticmethod</span>
+</span><span id="__span-0-1940"><a id="__codelineno-0-1940" name="__codelineno-0-1940"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_iter_dataloaders</span><span class="p">(</span><span class="n">dataloaders</span><span class="p">):</span>
+</span><span id="__span-0-1941"><a id="__codelineno-0-1941" name="__codelineno-0-1941"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Yield individual dataloaders from Lightning&#39;s (possibly nested) handle.&quot;&quot;&quot;</span>
+</span><span id="__span-0-1942"><a id="__codelineno-0-1942" name="__codelineno-0-1942"></a>        <span class="k">if</span> <span class="n">dataloaders</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-1943"><a id="__codelineno-0-1943" name="__codelineno-0-1943"></a>            <span class="k">return</span>
+</span><span id="__span-0-1944"><a id="__codelineno-0-1944" name="__codelineno-0-1944"></a>        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">dataloaders</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+</span><span id="__span-0-1945"><a id="__codelineno-0-1945" name="__codelineno-0-1945"></a>            <span class="k">for</span> <span class="n">dl</span> <span class="ow">in</span> <span class="n">dataloaders</span><span class="p">:</span>
+</span><span id="__span-0-1946"><a id="__codelineno-0-1946" name="__codelineno-0-1946"></a>                <span class="k">yield from</span> <span class="n">TilingEpochCallback</span><span class="o">.</span><span class="n">_iter_dataloaders</span><span class="p">(</span><span class="n">dl</span><span class="p">)</span>
+</span><span id="__span-0-1947"><a id="__codelineno-0-1947" name="__codelineno-0-1947"></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-1948"><a id="__codelineno-0-1948" name="__codelineno-0-1948"></a>            <span class="k">yield</span> <span class="n">dataloaders</span>
+</span><span id="__span-0-1949"><a id="__codelineno-0-1949" name="__codelineno-0-1949"></a>
+</span><span id="__span-0-1950"><a id="__codelineno-0-1950" name="__codelineno-0-1950"></a>    <span class="nd">@staticmethod</span>
+</span><span id="__span-0-1951"><a id="__codelineno-0-1951" name="__codelineno-0-1951"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_set_loader_epoch</span><span class="p">(</span><span class="n">dl</span><span class="p">,</span> <span class="n">epoch</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-1952"><a id="__codelineno-0-1952" name="__codelineno-0-1952"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Set the epoch on a dataloader&#39;s tile sampler and shared epoch tensor.&quot;&quot;&quot;</span>
+</span><span id="__span-0-1953"><a id="__codelineno-0-1953" name="__codelineno-0-1953"></a>        <span class="c1"># Sampler: dl.batch_sampler.sampler.sampler.set_epoch(epoch).</span>
+</span><span id="__span-0-1954"><a id="__codelineno-0-1954" name="__codelineno-0-1954"></a>        <span class="n">sampler</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span>
+</span><span id="__span-0-1955"><a id="__codelineno-0-1955" name="__codelineno-0-1955"></a>            <span class="nb">getattr</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">dl</span><span class="p">,</span> <span class="s2">&quot;batch_sampler&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span> <span class="s2">&quot;sampler&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span>
+</span><span id="__span-0-1956"><a id="__codelineno-0-1956" name="__codelineno-0-1956"></a>            <span class="s2">&quot;sampler&quot;</span><span class="p">,</span>
+</span><span id="__span-0-1957"><a id="__codelineno-0-1957" name="__codelineno-0-1957"></a>            <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-1958"><a id="__codelineno-0-1958" name="__codelineno-0-1958"></a>        <span class="p">)</span>
+</span><span id="__span-0-1959"><a id="__codelineno-0-1959" name="__codelineno-0-1959"></a>        <span class="k">if</span> <span class="n">sampler</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">sampler</span><span class="p">,</span> <span class="s2">&quot;set_epoch&quot;</span><span class="p">):</span>
+</span><span id="__span-0-1960"><a id="__codelineno-0-1960" name="__codelineno-0-1960"></a>            <span class="n">sampler</span><span class="o">.</span><span class="n">set_epoch</span><span class="p">(</span><span class="n">epoch</span><span class="p">)</span>
+</span><span id="__span-0-1961"><a id="__codelineno-0-1961" name="__codelineno-0-1961"></a>        <span class="c1"># Shared epoch tensor read by persistent workers.</span>
+</span><span id="__span-0-1962"><a id="__codelineno-0-1962" name="__codelineno-0-1962"></a>        <span class="n">dataset</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">dl</span><span class="p">,</span> <span class="s2">&quot;dataset&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+</span><span id="__span-0-1963"><a id="__codelineno-0-1963" name="__codelineno-0-1963"></a>        <span class="n">epoch_tensor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">dataset</span><span class="p">,</span> <span class="s2">&quot;_epoch&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+</span><span id="__span-0-1964"><a id="__codelineno-0-1964" name="__codelineno-0-1964"></a>        <span class="k">if</span> <span class="n">epoch_tensor</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-1965"><a id="__codelineno-0-1965" name="__codelineno-0-1965"></a>            <span class="n">epoch_tensor</span><span class="o">.</span><span class="n">fill_</span><span class="p">(</span><span class="n">epoch</span><span class="p">)</span>
+</span><span id="__span-0-1966"><a id="__codelineno-0-1966" name="__codelineno-0-1966"></a>
+</span><span id="__span-0-1967"><a id="__codelineno-0-1967" name="__codelineno-0-1967"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_train_epoch_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+</span><span id="__span-0-1968"><a id="__codelineno-0-1968" name="__codelineno-0-1968"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Sync the epoch on the train dataloader(s).&quot;&quot;&quot;</span>
+</span><span id="__span-0-1969"><a id="__codelineno-0-1969" name="__codelineno-0-1969"></a>        <span class="n">epoch</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">)</span>
+</span><span id="__span-0-1970"><a id="__codelineno-0-1970" name="__codelineno-0-1970"></a>        <span class="k">for</span> <span class="n">dl</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iter_dataloaders</span><span class="p">(</span><span class="n">trainer</span><span class="o">.</span><span class="n">train_dataloader</span><span class="p">):</span>
+</span><span id="__span-0-1971"><a id="__codelineno-0-1971" name="__codelineno-0-1971"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_set_loader_epoch</span><span class="p">(</span><span class="n">dl</span><span class="p">,</span> <span class="n">epoch</span><span class="p">)</span>
+</span><span id="__span-0-1972"><a id="__codelineno-0-1972" name="__codelineno-0-1972"></a>
+</span><span id="__span-0-1973"><a id="__codelineno-0-1973" name="__codelineno-0-1973"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_validation_epoch_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+</span><span id="__span-0-1974"><a id="__codelineno-0-1974" name="__codelineno-0-1974"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Sync the epoch on the val dataloader(s).&quot;&quot;&quot;</span>
+</span><span id="__span-0-1975"><a id="__codelineno-0-1975" name="__codelineno-0-1975"></a>        <span class="n">epoch</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">)</span>
+</span><span id="__span-0-1976"><a id="__codelineno-0-1976" name="__codelineno-0-1976"></a>        <span class="k">for</span> <span class="n">dl</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iter_dataloaders</span><span class="p">(</span><span class="n">trainer</span><span class="o">.</span><span class="n">val_dataloaders</span><span class="p">):</span>
+</span><span id="__span-0-1977"><a id="__codelineno-0-1977" name="__codelineno-0-1977"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_set_loader_epoch</span><span class="p">(</span><span class="n">dl</span><span class="p">,</span> <span class="n">epoch</span><span class="p">)</span>
+</span></code></pre></div></td></tr></table></div>
+              </details>
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="sleap_nn.training.callbacks.TilingEpochCallback.on_train_epoch_start" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">on_train_epoch_start</span><span class="p">(</span><span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">)</span></code>
+
+<a href="#sleap_nn.training.callbacks.TilingEpochCallback.on_train_epoch_start" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Sync the epoch on the train dataloader(s).</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>sleap_nn/training/callbacks.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1967">1967</a></span>
+<span class="normal"><a href="#__codelineno-0-1968">1968</a></span>
+<span class="normal"><a href="#__codelineno-0-1969">1969</a></span>
+<span class="normal"><a href="#__codelineno-0-1970">1970</a></span>
+<span class="normal"><a href="#__codelineno-0-1971">1971</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1967"><a id="__codelineno-0-1967" name="__codelineno-0-1967"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_train_epoch_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+</span><span id="__span-0-1968"><a id="__codelineno-0-1968" name="__codelineno-0-1968"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Sync the epoch on the train dataloader(s).&quot;&quot;&quot;</span>
+</span><span id="__span-0-1969"><a id="__codelineno-0-1969" name="__codelineno-0-1969"></a>    <span class="n">epoch</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">)</span>
+</span><span id="__span-0-1970"><a id="__codelineno-0-1970" name="__codelineno-0-1970"></a>    <span class="k">for</span> <span class="n">dl</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iter_dataloaders</span><span class="p">(</span><span class="n">trainer</span><span class="o">.</span><span class="n">train_dataloader</span><span class="p">):</span>
+</span><span id="__span-0-1971"><a id="__codelineno-0-1971" name="__codelineno-0-1971"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_set_loader_epoch</span><span class="p">(</span><span class="n">dl</span><span class="p">,</span> <span class="n">epoch</span><span class="p">)</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h4 id="sleap_nn.training.callbacks.TilingEpochCallback.on_validation_epoch_start" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">on_validation_epoch_start</span><span class="p">(</span><span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">)</span></code>
+
+<a href="#sleap_nn.training.callbacks.TilingEpochCallback.on_validation_epoch_start" class="headerlink" title="Permanent link">&para;</a></h4>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Sync the epoch on the val dataloader(s).</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>sleap_nn/training/callbacks.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1973">1973</a></span>
+<span class="normal"><a href="#__codelineno-0-1974">1974</a></span>
+<span class="normal"><a href="#__codelineno-0-1975">1975</a></span>
+<span class="normal"><a href="#__codelineno-0-1976">1976</a></span>
+<span class="normal"><a href="#__codelineno-0-1977">1977</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1973"><a id="__codelineno-0-1973" name="__codelineno-0-1973"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_validation_epoch_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+</span><span id="__span-0-1974"><a id="__codelineno-0-1974" name="__codelineno-0-1974"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Sync the epoch on the val dataloader(s).&quot;&quot;&quot;</span>
+</span><span id="__span-0-1975"><a id="__codelineno-0-1975" name="__codelineno-0-1975"></a>    <span class="n">epoch</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">)</span>
+</span><span id="__span-0-1976"><a id="__codelineno-0-1976" name="__codelineno-0-1976"></a>    <span class="k">for</span> <span class="n">dl</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iter_dataloaders</span><span class="p">(</span><span class="n">trainer</span><span class="o">.</span><span class="n">val_dataloaders</span><span class="p">):</span>
+</span><span id="__span-0-1977"><a id="__codelineno-0-1977" name="__codelineno-0-1977"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_set_loader_epoch</span><span class="p">(</span><span class="n">dl</span><span class="p">,</span> <span class="n">epoch</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
