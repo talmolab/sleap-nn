@@ -787,11 +787,28 @@ class UnifiedVizCallback(Callback):
 
         log_dict = {}
 
-        # Render confmaps for each enabled mode
-        for mode_name, renderer in self._wandb_renderers.items():
-            suffix = "" if mode_name == "direct" else f"_{mode_name}"
-            img = renderer.render(data, caption=f"{prefix.title()} Epoch {epoch}")
-            log_dict[f"viz/{prefix}/predictions{suffix}"] = img
+        # Predictions panel. For segmentation models this IS the GT-vs-prediction
+        # foreground overlay (issue #690): it is strictly more informative than the
+        # bare prediction, and the confmap "masks" mode ("predictions_masks") does
+        # not render for seg. So for seg we log ONLY that overlay under the standard
+        # "predictions" key and skip the confmap modes and the separate "gt_mask"
+        # key. Non-seg models keep the per-mode confmap renderers as before.
+        if self.viz_gt_mask and data.gt_mask is not None:
+            gt_mask_fig = self._mpl_renderer.render_gt_mask(data)
+            buf = BytesIO()
+            gt_mask_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+            buf.seek(0)
+            plt.close(gt_mask_fig)
+            gt_mask_pil = PILImage.open(buf)
+            log_dict[f"viz/{prefix}/predictions"] = wandb.Image(
+                gt_mask_pil, caption=f"{prefix.title()} GT vs Pred Mask Epoch {epoch}"
+            )
+        else:
+            # Render confmaps for each enabled mode
+            for mode_name, renderer in self._wandb_renderers.items():
+                suffix = "" if mode_name == "direct" else f"_{mode_name}"
+                img = renderer.render(data, caption=f"{prefix.title()} Epoch {epoch}")
+                log_dict[f"viz/{prefix}/predictions{suffix}"] = img
 
         # PAFs visualization (for bottomup models)
         if self.viz_pafs and data.pred_pafs is not None:
@@ -843,18 +860,8 @@ class UnifiedVizCallback(Callback):
                 caption=f"{prefix.title()} Offset Direction Epoch {epoch}",
             )
 
-        # GT-vs-prediction foreground mask overlay (for segmentation models)
-        if self.viz_gt_mask and data.gt_mask is not None:
-            gt_mask_fig = self._mpl_renderer.render_gt_mask(data)
-            buf = BytesIO()
-            gt_mask_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
-            buf.seek(0)
-            plt.close(gt_mask_fig)
-            gt_mask_pil = PILImage.open(buf)
-            log_dict[f"viz/{prefix}/gt_mask"] = wandb.Image(
-                gt_mask_pil,
-                caption=f"{prefix.title()} GT vs Pred Mask Epoch {epoch}",
-            )
+        # (issue #690) The GT-vs-prediction overlay is now logged above under the
+        # "predictions" key for segmentation models — no separate "gt_mask" panel.
 
         # Colored grouped per-instance mask overlay (bottom-up segmentation)
         if self.viz_instance_masks and data.instance_masks is not None:
@@ -897,9 +904,8 @@ class UnifiedVizCallback(Callback):
                 columns.append(f"{prefix.title()} Offsets")
                 table_data[0].append(log_dict.get(f"viz/{prefix}/offsets"))
 
-            if self.viz_gt_mask and data.gt_mask is not None:
-                columns.append(f"{prefix.title()} GT Mask")
-                table_data[0].append(log_dict.get(f"viz/{prefix}/gt_mask"))
+            # (issue #690) gt_mask is now the "predictions" panel for seg; no
+            # separate GT Mask table column.
 
             if self.viz_instance_masks and data.instance_masks is not None:
                 columns.append(f"{prefix.title()} Instance Masks")
@@ -1717,7 +1723,25 @@ class SegmentationEvaluationCallback(Callback):
     def _log_metrics_foreground(self, trainer, metrics: dict, epoch: int):
         """Log whole-frame foreground (semantic) metrics to WandB."""
         import numpy as np
+        import torch
         from lightning.pytorch.loggers import WandbLogger
+
+        # Expose the full-eval metrics to ModelCheckpoint/EarlyStopping via
+        # callback_metrics, so a run can select best.ckpt on quality
+        # (model_ckpt.monitor="eval/val/fg_mean_cldice", mode="max") instead of the
+        # coarse val/loss. This runs in on_validation_epoch_end (before the
+        # ModelCheckpoint save in on_validation_end), so the value is available.
+        # Set on rank 0 only (this callback computes there); single-GPU. Under DDP,
+        # checkpoint-on-clDice would need an all-rank broadcast of these values.
+        for src_key, ck_key in (
+            ("fg_mean_iou", "eval/val/fg_mean_iou"),
+            ("fg_mean_cldice", "eval/val/fg_mean_cldice"),
+            ("fg_mean_boundary_iou", "eval/val/fg_mean_boundary_iou"),
+            ("fg_frame_recall", "eval/val/fg_frame_recall"),
+        ):
+            v = metrics.get(src_key)
+            if v is not None and not np.isnan(v):
+                trainer.callback_metrics[ck_key] = torch.as_tensor(float(v))
 
         wandb_logger = None
         for log in trainer.loggers:
@@ -1751,7 +1775,24 @@ class SegmentationEvaluationCallback(Callback):
     def _log_metrics(self, trainer, metrics: dict, epoch: int):
         """Log mask evaluation metrics to WandB."""
         import numpy as np
+        import torch
         from lightning.pytorch.loggers import WandbLogger
+
+        # Expose per-instance mask metrics to ModelCheckpoint/EarlyStopping via
+        # callback_metrics so instance-seg runs can select best.ckpt on
+        # eval/val/mask_mean_iou (mode="max") instead of val/loss. See the
+        # foreground variant above for the rank/DDP caveat.
+        for src_key, ck_key in (
+            ("mask_mean_iou", "eval/val/mask_mean_iou"),
+            ("mask_mean_iou_all_gt", "eval/val/mask_mean_iou_all_gt"),
+            ("mask_mean_cldice", "eval/val/mask_mean_cldice"),
+            ("precision", "eval/val/mask_precision"),
+            ("recall", "eval/val/mask_recall"),
+            ("f1", "eval/val/mask_f1"),
+        ):
+            v = metrics.get(src_key)
+            if v is not None and not (isinstance(v, float) and np.isnan(v)):
+                trainer.callback_metrics[ck_key] = torch.as_tensor(float(v))
 
         wandb_logger = None
         for log in trainer.loggers:
