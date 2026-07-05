@@ -312,10 +312,11 @@ class LightningModel(L.LightningModule):
             "multi_class_topdown": TopDownCenteredInstanceMultiClassLightningModule,
             "bottomup_segmentation": BottomUpSegmentationLightningModule,
             "centered_instance_segmentation": TopDownCenteredInstanceSegmentationLightningModule,
+            "semantic_segmentation": SemanticSegmentationLightningModule,
         }
 
         if model_type not in lightning_models:
-            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`]"
+            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`, `semantic_segmentation`]"
             logger.error(message)
             raise ValueError(message)
 
@@ -2839,6 +2840,10 @@ class BottomUpSegmentationLightningModule(LightningModel):
             peak_threshold=0.1,
             output_stride=seg_cfg.segmentation.output_stride,
         )
+        # bce-dice foreground-loss knobs (defaults preserve the symmetric loss).
+        self.fg_bce_weight = getattr(seg_cfg.segmentation, "bce_weight", 0.5)
+        self.fg_dice_weight = getattr(seg_cfg.segmentation, "dice_weight", 0.5)
+        self.fg_bce_pos_weight = getattr(seg_cfg.segmentation, "bce_pos_weight", None)
 
     def get_visualization_data(
         self,
@@ -2989,7 +2994,13 @@ class BottomUpSegmentationLightningModule(LightningModel):
         pred_center = preds["InstanceCenterHead"]
         pred_offsets = preds["CenterOffsetHead"]
 
-        fg_loss = compute_bce_dice_loss(pred_fg, y_fg)
+        fg_loss = compute_bce_dice_loss(
+            pred_fg,
+            y_fg,
+            bce_weight=self.fg_bce_weight,
+            dice_weight=self.fg_dice_weight,
+            pos_weight=self.fg_bce_pos_weight,
+        )
         center_loss = F.mse_loss(pred_center, y_center)
         offset_loss = compute_masked_smooth_l1(pred_offsets, y_offsets, y_weight)
 
@@ -3042,7 +3053,13 @@ class BottomUpSegmentationLightningModule(LightningModel):
         pred_center = preds["InstanceCenterHead"]
         pred_offsets = preds["CenterOffsetHead"]
 
-        fg_loss = compute_bce_dice_loss(pred_fg, y_fg)
+        fg_loss = compute_bce_dice_loss(
+            pred_fg,
+            y_fg,
+            bce_weight=self.fg_bce_weight,
+            dice_weight=self.fg_dice_weight,
+            pos_weight=self.fg_bce_pos_weight,
+        )
         center_loss = F.mse_loss(pred_center, y_center)
         offset_loss = compute_masked_smooth_l1(pred_offsets, y_offsets, y_weight)
 
@@ -3268,6 +3285,222 @@ class TopDownCenteredInstanceSegmentationLightningModule(LightningModel):
 
     def visualize_example(self, sample):
         """Visualize the predicted foreground mask over the crop during training."""
+        data = self.get_visualization_data(sample)
+        scale = 1.0
+        if data.image.shape[0] < 512:
+            scale = 2.0
+        if data.image.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(data.image, dpi=72 * scale, scale=scale)
+        plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
+        return fig
+
+
+class SemanticSegmentationLightningModule(LightningModel):
+    """Lightning Module for whole-frame semantic (foreground/background) segmentation.
+
+    Predicts a single binary foreground mask over the ENTIRE frame with NO
+    instance grouping. This is a hybrid of two existing segmentation modules:
+
+    * :class:`BottomUpSegmentationLightningModule` — whole-frame ``image`` input
+      and tiling compatibility, but WITHOUT its instance-center / center-offset
+      heads or the offset-based grouping (there is no per-instance separation
+      here).
+    * :class:`TopDownCenteredInstanceSegmentationLightningModule` — the bce-dice
+      foreground loss and foreground-IoU metric, but on the whole frame rather
+      than a centroid crop.
+
+    A lone ``SegmentationHead`` (1-channel logits) is trained with
+    ``compute_bce_dice_loss`` and decoded at inference by thresholding the
+    foreground probability into ONE mask per frame (no grouping).
+
+    ``forward`` mirrors :class:`BottomUpSegmentationLightningModule` — it returns
+    ``{"SegmentationHead": sigmoid(logits)}`` (a dict with sigmoid ALREADY
+    applied). This is load-bearing: the whole-frame ``SemanticSegmentationLayer``
+    and its tiled wrapper read ``SegmentationHead`` as probabilities, and the
+    tiled path Gaussian-averages the foreground map across tile overlaps (a blend
+    that is only correct for probabilities, not logits). ``training_step`` /
+    ``validation_step`` bypass ``forward`` and call ``self.model(X)`` directly to
+    supervise the raw logits with ``compute_bce_dice_loss``.
+
+    All-background frames are fully supported: a frame with no instances yields an
+    all-zero ``foreground_mask`` (see ``generate_foreground_mask`` with an empty
+    mask list), and bce-dice supervises the model to predict background
+    everywhere. Enable such frames via ``data_config.use_negative_frames=True``
+    (consumed in the data pipeline, not here).
+    """
+
+    def __init__(
+        self,
+        model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
+        negative_loss_weight: Optional[float] = 1.0,
+    ):
+        """Initialise the configs and the model."""
+        super().__init__(
+            model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
+            negative_loss_weight=negative_loss_weight,
+        )
+        seg = self.head_configs[self.model_type].segmentation
+        self.seg_output_stride = seg.output_stride
+        # bce-dice loss knobs (defaults preserve the symmetric unweighted loss).
+        self.fg_bce_weight = getattr(seg, "bce_weight", 0.5)
+        self.fg_dice_weight = getattr(seg, "dice_weight", 0.5)
+        self.fg_bce_pos_weight = getattr(seg, "bce_pos_weight", None)
+
+    def forward(self, img):
+        """Forward pass returning the foreground PROBABILITY map (sigmoid applied).
+
+        Returns a dict ``{"SegmentationHead": sigmoid(logits)}`` (mirroring
+        :class:`BottomUpSegmentationLightningModule`), so the inference layers see
+        probabilities. Training/validation call ``self.model`` directly instead
+        (raw logits for ``compute_bce_dice_loss``).
+        """
+        img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
+        output = self.model(img)
+        return {"SegmentationHead": torch.sigmoid(output["SegmentationHead"])}
+
+    def training_step(self, batch, batch_idx):
+        """Training step (bce-dice on the whole-frame foreground mask)."""
+        X = torch.squeeze(batch["image"], dim=1)
+        y_fg = torch.squeeze(batch["foreground_mask"], dim=1)
+        X = normalize_on_gpu(X)
+        pred_fg = self.model(X)["SegmentationHead"]  # logits
+        loss = compute_bce_dice_loss(
+            pred_fg,
+            y_fg,
+            bce_weight=self.fg_bce_weight,
+            dice_weight=self.fg_dice_weight,
+            pos_weight=self.fg_bce_pos_weight,
+        )
+
+        self.log(
+            "loss", loss, prog_bar=True, on_step=True, on_epoch=False, sync_dist=True
+        )
+        self._accumulate_loss(loss)
+        self.log("train/fg_loss", loss, on_step=False, on_epoch=True, sync_dist=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step (val loss + whole-frame foreground IoU)."""
+        X = torch.squeeze(batch["image"], dim=1)
+        y_fg = torch.squeeze(batch["foreground_mask"], dim=1)
+        X = normalize_on_gpu(X)
+        pred_fg = self.model(X)["SegmentationHead"]  # logits
+        val_loss = compute_bce_dice_loss(
+            pred_fg,
+            y_fg,
+            bce_weight=self.fg_bce_weight,
+            dice_weight=self.fg_dice_weight,
+            pos_weight=self.fg_bce_pos_weight,
+        )
+
+        self.log(
+            "val/loss",
+            val_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        self.log("val/fg_loss", val_loss, on_step=False, on_epoch=True, sync_dist=True)
+
+        # Whole-frame foreground IoU averaged PER-SAMPLE (mean of per-image IoUs)
+        # rather than pooled over the batch tensor (which over-weights large /
+        # foreground-heavy images). Lightning's on_epoch aggregation then yields a
+        # true mean-per-image IoU.
+        pred_fg_binary = (pred_fg > 0.0).float()
+        dims = (1, 2, 3)
+        intersection = (pred_fg_binary * y_fg).sum(dim=dims)
+        union = pred_fg_binary.sum(dim=dims) + y_fg.sum(dim=dims) - intersection
+        iou = (intersection / (union + 1e-6)).mean()
+        self.log("val/fg_iou", iou, on_step=False, on_epoch=True, sync_dist=True)
+
+        # Optional mask eval (enabled by SegmentationEvaluationCallback in
+        # foreground mode): semantic segmentation has ONE mask per frame (no
+        # grouping), so emit the binarized whole-frame prediction and the GT
+        # foreground as a single-mask pair on the SAME stride grid, appended in
+        # lockstep for positional pairing by the callback.
+        if self._collect_val_predictions:
+            for i in range(X.shape[0]):
+                pm = pred_fg_binary[i, 0].detach().cpu().numpy().astype(bool)
+                gm = (y_fg[i, 0] > 0.5).detach().cpu().numpy()
+                self.val_predictions.append({"masks": [pm] if pm.any() else []})
+                self.val_ground_truth.append({"masks": [gm] if gm.any() else []})
+
+    def get_visualization_data(
+        self, sample, include_gt_mask: bool = False
+    ) -> VisualizationData:
+        """Whole-frame viz: image + predicted foreground vs GT mask overlay.
+
+        Args:
+            sample: A sample dictionary from the data pipeline.
+            include_gt_mask: If True, include the ground-truth foreground mask for
+                a GT-vs-prediction overlay.
+        """
+        ex = sample.copy()
+        for k, v in ex.items():
+            if isinstance(v, torch.Tensor):
+                ex[k] = v.to(device=self.device)
+        ex["image"] = ex["image"].unsqueeze(dim=0)
+
+        # Run the raw model (not self.forward, which returns a sigmoid dict) so we
+        # apply sigmoid exactly once for the foreground-probability overlay.
+        with torch.no_grad():
+            img = ex["image"].squeeze(1).to(self.device)
+            img = normalize_on_gpu(img)
+            preds = self.model(img)
+        fg_prob = torch.sigmoid(preds["SegmentationHead"][0]).cpu().numpy()
+        fg_prob = fg_prob.transpose(1, 2, 0)  # (H, W, 1)
+
+        img_np = ex["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        gt_mask = None
+        if include_gt_mask and "foreground_mask" in ex:
+            gt_mask = ex["foreground_mask"].squeeze().cpu().numpy()  # (H, W)
+        return VisualizationData(
+            image=img_np,
+            pred_confmaps=fg_prob,
+            pred_peaks=np.zeros((0, 1, 2)),
+            pred_peak_values=np.zeros((0,)),
+            gt_instances=np.zeros((0, 1, 2)),
+            node_names=["mask"],
+            output_scale=fg_prob.shape[0] / img_np.shape[0],
+            is_paired=False,
+            gt_mask=gt_mask,
+        )
+
+    def visualize_example(self, sample):
+        """Visualize the predicted foreground mask over the frame during training."""
         data = self.get_visualization_data(sample)
         scale = 1.0
         if data.image.shape[0] < 512:

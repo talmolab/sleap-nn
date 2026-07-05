@@ -362,3 +362,142 @@ class SegmentationLayer(InferenceLayer):
             t = F.interpolate(t, size=(orig_h, orig_w), mode="nearest")
 
         return t[0, 0].numpy() > 0.5
+
+
+class SemanticSegmentationLayer(SegmentationLayer):
+    """Whole-frame binary foreground/background segmentation (no grouping).
+
+    The single-head twin of :class:`SegmentationLayer`. Wraps a trained
+    whole-frame ``SemanticSegmentationLightningModule`` whose ``forward`` returns
+    ``{"SegmentationHead": sigmoid(logits)}`` (fg only — NO instance-center or
+    center-offset heads). ``postprocess`` thresholds the foreground probability
+    at ``fg_threshold`` into ONE whole-frame mask (the union of all foreground,
+    which MAY be disconnected — it is a semantic, not an instance, mask), then
+    packages it into ``Outputs.pred_masks`` with the same output-stride / scale /
+    offset contract as :class:`SegmentationLayer`. No
+    ``group_instances_from_offsets`` / ``merge_instances`` — there is no notion of
+    instances here.
+
+    Reuses :meth:`SegmentationLayer._mask_to_stride` /
+    :meth:`SegmentationLayer._mask_to_original` (pure geometry) and the
+    ``InferenceLayer`` default ``preprocess``/``predict``/``warmup`` verbatim;
+    overrides only ``__init__`` (drops every grouping/merge knob) and
+    ``postprocess`` (fg-only, one mask per frame).
+
+    Args:
+        backend: Runtime backend wrapping the semantic-seg Lightning module. Its
+            ``forward`` returns ``{"SegmentationHead": ...}`` with sigmoid ALREADY
+            applied to the foreground head.
+        output_stride: Stride of the head output map relative to the model input.
+        max_stride: Backbone max stride; the input is padded to a multiple of it
+            during preprocessing.
+        fg_threshold: Foreground probability threshold for binarization.
+        min_mask_area: Minimum area (in ORIGINAL-image pixels) for the frame's
+            foreground mask to be kept. ``0`` disables the filter (only an empty
+            mask is dropped).
+        full_res_masks: When ``True``, encode the mask at full ORIGINAL resolution
+            (identity scale/offset) instead of the output-stride grid. Default
+            ``False`` (output-stride encoding + sio scale/offset).
+        mask_output / polygon_epsilon: Output-packaging knobs read by the Predictor
+            and forwarded to ``Outputs.to_labels`` (``"mask"`` default).
+        preprocess_config / postprocess_config: Standard knobs. ``peak_threshold``
+            is unused (there is no peak finding).
+    """
+
+    _SEG_KEY = "SegmentationHead"
+
+    def __init__(
+        self,
+        backend: ModelBackend,
+        output_stride: int,
+        max_stride: int = 1,
+        fg_threshold: float = 0.5,
+        min_mask_area: int = 0,
+        full_res_masks: bool = False,
+        mask_output: str = "mask",
+        polygon_epsilon: float = 0.01,
+        preprocess_config: Optional[PreprocessConfig] = None,
+        postprocess_config: Optional[PostprocessConfig] = None,
+    ) -> None:
+        """Store the fg threshold + packaging knobs (no grouping/merge knobs)."""
+        # Forward only the fg-relevant args; every grouping/merge knob stays at the
+        # parent's inert default (and is never read by this postprocess).
+        super().__init__(
+            backend=backend,
+            output_stride=output_stride,
+            max_stride=max_stride,
+            fg_threshold=fg_threshold,
+            min_mask_area=min_mask_area,
+            full_res_masks=full_res_masks,
+            mask_output=mask_output,
+            polygon_epsilon=polygon_epsilon,
+            preprocess_config=preprocess_config,
+            postprocess_config=postprocess_config,
+        )
+
+    def postprocess(self, raw_out: dict, info: PreprocInfo) -> Outputs:
+        """Threshold the foreground head → ONE mask per frame (no grouping).
+
+        Args:
+            raw_out: Backend output dict carrying ``SegmentationHead`` — the
+                whole-frame foreground probability with sigmoid already applied.
+            info: Preprocessing metadata for mapping the mask back to the original
+                image resolution.
+
+        Returns:
+            ``Outputs`` with ``pred_masks`` populated: a per-batch list holding at
+            most ONE ``{"mask", "score", "scale", "offset"}`` dict (the whole-frame
+            foreground). By default ``mask`` is at output-stride resolution and
+            ``scale``/``offset`` map it to image pixels (``image_coord =
+            mask_coord / scale + offset``); with ``full_res_masks`` it is at
+            original resolution with identity scale/offset. Frames whose foreground
+            is empty (or below ``min_mask_area``) get an empty list.
+        """
+        foreground = raw_out[self._SEG_KEY]  # (B, 1, h, w), already sigmoid
+        foreground = foreground.detach().cpu()
+
+        # Read via getattr so tests that build the layer through ``__new__`` and set
+        # only a subset of attributes keep working (mirrors SegmentationLayer).
+        full_res_masks = getattr(self, "full_res_masks", False)
+        B = foreground.shape[0]
+        pred_masks: List[List[dict]] = []
+        # ``min_mask_area`` is an ORIGINAL-image-pixel floor. ``max(1, ...)`` keeps
+        # the empty-mask drop when the filter is off.
+        area_floor = max(1, self.min_mask_area)
+        for b in range(B):
+            fg_prob = foreground[b, 0]  # (h, w) sigmoid probabilities
+            fg_binary = fg_prob > self.fg_threshold  # (h, w) bool
+            frame_masks: List[dict] = []
+            if bool(fg_binary.any()):
+                # One score per frame: mean foreground probability over the mask (a
+                # mask-quality signal for AP ranking; mirrors
+                # CenteredInstanceMaskLayer.postprocess).
+                score = float(fg_prob[fg_binary].mean())
+                fg_np = fg_binary.numpy()
+                if full_res_masks:
+                    # Legacy path: materialize the original-resolution mask and
+                    # filter directly in original pixels (scale/offset identity).
+                    mask_out = self._mask_to_original(fg_np, info, b)
+                    scale, offset = (1.0, 1.0), (0.0, 0.0)
+                    keep = int(mask_out.sum()) >= area_floor
+                else:
+                    # Default: keep the mask at output-stride resolution, carrying
+                    # the image mapping via sio scale/offset. Convert the
+                    # original-pixel area floor to stride units (ceil — same parity
+                    # rule as SegmentationLayer.postprocess).
+                    mask_out, scale, offset = self._mask_to_stride(fg_np, info, b)
+                    sx, sy = scale
+                    area_floor_stride = max(1, math.ceil(area_floor * sx * sy))
+                    keep = int(mask_out.sum()) >= area_floor_stride
+                if keep:
+                    frame_masks.append(
+                        {
+                            "mask": mask_out,
+                            "score": score,
+                            "scale": scale,
+                            "offset": offset,
+                        }
+                    )
+            pred_masks.append(frame_masks)
+
+        return Outputs(pred_masks=pred_masks, preprocess_info=info)

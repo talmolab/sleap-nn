@@ -881,15 +881,38 @@ class ClassVectorsConfig:
 class SegmentationHeadConfig:
     """Configuration for the foreground segmentation head.
 
+    Shared by ``bottomup_segmentation`` and ``semantic_segmentation`` (both a
+    plain foreground head). The loss / target knobs default to the historical
+    behavior, so an unset config trains exactly as before.
+
     Attributes:
         output_stride: (int) The stride of the output segmentation maps relative to the
-            input image. Default: 2.
+            input image. Default: 2. Setting ``1`` (dense, full-resolution) avoids the
+            stride-downsample of the foreground target and lets the decoder draw sharp
+            thin structures — recommended for thin/high-res objects (e.g. plant roots).
         loss_weight: (float) Scalar float used to weigh the loss term for this head
             during training. Default: 1.0.
+        bce_weight: (float) Weight of the BCE term in the bce-dice foreground loss.
+            Default: 0.5. Tilt toward Dice (e.g. 0.3 BCE / 0.7 Dice) to reduce the
+            easy-background/thick-object dominance for thin foreground.
+        dice_weight: (float) Weight of the Dice term in the bce-dice loss. Default: 0.5.
+        bce_pos_weight: (Optional[float]) Positive-class weight for the BCE term. For
+            thin/rare foreground (<1% of pixels), a value >1 (e.g. ~5-20) up-weights
+            the foreground so the head stays confident on faint thin structures.
+            ``None`` (default) leaves BCE unweighted.
+        target_maxpool: (bool) Downsample the foreground target with max-pool
+            semantics (any foreground pixel in a stride cell -> foreground) instead of
+            area-average + 0.5 threshold. Default: ``False``. Set ``True`` when
+            ``output_stride`` > 1 to keep thin structures that would otherwise erode
+            below 50% cell coverage. Inert at ``output_stride=1`` (no downsample).
     """
 
     output_stride: int = 2
     loss_weight: float = 1.0
+    bce_weight: float = 0.5
+    dice_weight: float = 0.5
+    bce_pos_weight: Optional[float] = None
+    target_maxpool: bool = False
 
 
 @define
@@ -1029,6 +1052,24 @@ class CenteredInstanceSegmentationConfig:
     segmentation: Optional[CenteredInstanceSegmentationHeadConfig] = None
 
 
+@define
+class SemanticSegmentationConfig:
+    """Head config for whole-frame semantic (foreground) segmentation models.
+
+    A single foreground-mask head predicting one binary foreground/background mask
+    over the *whole frame* — no instance grouping, no center/offset heads. It is
+    the whole-frame analog of ``centered_instance_segmentation`` (which runs the
+    same fg-only ``SegmentationHead`` on a centroid crop) and the group-free
+    sibling of ``bottomup_segmentation`` (which adds center + offset heads to group
+    the foreground into instances). Tiling-compatible.
+
+    Reuses the bottom-up ``SegmentationHeadConfig`` leaf (``output_stride`` +
+    ``loss_weight``); it carries no ``anchor_part`` because there is no crop.
+    """
+
+    segmentation: Optional[SegmentationHeadConfig] = None
+
+
 @oneof
 @define
 class HeadConfig:
@@ -1046,6 +1087,7 @@ class HeadConfig:
         bottomup_segmentation: An instance of `BottomUpSegmentationConfig`.
         centered_instance_segmentation: An instance of
             `CenteredInstanceSegmentationConfig`.
+        semantic_segmentation: An instance of `SemanticSegmentationConfig`.
     """
 
     single_instance: Optional[SingleInstanceConfig] = None
@@ -1056,6 +1098,7 @@ class HeadConfig:
     multi_class_topdown: Optional[TopDownCenteredInstanceMultiClassConfig] = None
     bottomup_segmentation: Optional[BottomUpSegmentationConfig] = None
     centered_instance_segmentation: Optional[CenteredInstanceSegmentationConfig] = None
+    semantic_segmentation: Optional[SemanticSegmentationConfig] = None
 
 
 @define

@@ -144,6 +144,7 @@ nav:
       - Python API: guides/inference-api.md
       - Centroid-Only: guides/centroid-only-inference.md
       - Top-Down Segmentation: guides/topdown-segmentation.md
+      - Semantic Segmentation: guides/semantic-segmentation.md
       - SAM-Prompted Segmentation: guides/sam-inference-segmentation.md
       - Performance: guides/inference-performance.md
     - Evaluation: guides/evaluation.md

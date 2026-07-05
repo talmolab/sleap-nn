@@ -190,11 +190,16 @@ def check_tiling(config: OmegaConf) -> OmegaConf:
     # GUARD 3: supported-model-types allowlist. Tiled training is only implemented
     # for these model types; enabling tiling elsewhere would otherwise silently
     # no-op (the dataset factory falls back to the whole-frame branch), so fail loud.
-    _TILING_SUPPORTED_MODEL_TYPES = {"single_instance", "bottomup_segmentation"}
+    _TILING_SUPPORTED_MODEL_TYPES = {
+        "single_instance",
+        "bottomup_segmentation",
+        "semantic_segmentation",
+    }
     if model_type not in _TILING_SUPPORTED_MODEL_TYPES:
         message = (
             f"tiling is not yet implemented for model_type={model_type} "
-            "(supported: single_instance, bottomup_segmentation)"
+            "(supported: single_instance, bottomup_segmentation, "
+            "semantic_segmentation)"
         )
         logger.error(message)
         raise ValueError(message)

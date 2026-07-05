@@ -11,6 +11,7 @@ def generate_foreground_mask(
     masks: List[np.ndarray],
     img_hw: Tuple[int, int],
     output_stride: int = 2,
+    maxpool: bool = False,
 ) -> torch.Tensor:
     """Generate binary foreground mask as union of all instance masks.
 
@@ -18,6 +19,13 @@ def generate_foreground_mask(
         masks: List of 2D boolean arrays (H, W), one per instance.
         img_hw: Original image size as (height, width).
         output_stride: Stride for downsampling the output mask.
+        maxpool: When ``True``, a stride cell is foreground if ANY of its source
+            pixels is foreground (max-pool semantics: area-downsample then keep
+            ``> 0``). When ``False`` (default), the cell must have >50% foreground
+            coverage (area-average > 0.5) — byte-for-byte the previous behavior.
+            ``maxpool`` preserves thin structures (e.g. plant roots) that would
+            otherwise erode below the 50% threshold when ``output_stride`` > 1.
+            Inert at ``output_stride=1`` (no downsample).
 
     Returns:
         Tensor of shape (1, 1, H/s, W/s) with float32 values in [0, 1].
@@ -42,8 +50,9 @@ def generate_foreground_mask(
     fg = torch.from_numpy(union.astype(np.float32)).unsqueeze(0).unsqueeze(0)
     if output_stride > 1:
         fg = F.interpolate(fg, size=(out_h, out_w), mode="area")
-    # Threshold back to binary-ish (area interpolation produces soft values)
-    fg = (fg > 0.5).float()
+    # Binarize the (soft, from area interpolation) coverage. ``maxpool`` keeps any
+    # nonzero coverage (thin-structure-preserving); the default keeps >50%.
+    fg = (fg > (0.0 if maxpool else 0.5)).float()
 
     return fg  # (1, 1, H/s, W/s)
 

@@ -17,6 +17,12 @@ re-implement ``predict(image) -> Outputs``.
   groups foreground pixels into per-instance masks). The offset field is a
   per-pixel *displacement* to the instance center, so it is translation
   invariant and correct to Gaussian-weighted-average in overlaps.
+- :class:`TiledSemanticSegmentationLayer` (whole-frame semantic segmentation):
+  the single-head twin of :class:`TiledSegmentationLayer`. Stitches ONLY the
+  foreground head into a 1-channel Gaussian-weighted ACC/CNT canvas (no
+  4-channel cat/split), then hands it to the inner
+  ``SemanticSegmentationLayer.postprocess`` which thresholds it into one
+  whole-frame mask.
 
 Per frame both preprocess the whole frame at **native** resolution (only
 ``input_scale`` applies — the sizematcher is bypassed via
@@ -538,3 +544,127 @@ class TiledSegmentationLayer:
             )
             self._window_cache[key] = win
         return win
+
+
+class TiledSemanticSegmentationLayer(TiledSegmentationLayer):
+    """Sliding-window tiled inference wrapping a ``SemanticSegmentationLayer``.
+
+    The single-head (foreground-only) twin of :class:`TiledSegmentationLayer`.
+    Tiles each frame at native resolution, runs the inner backend per tile in
+    batches, and stitches ONLY the foreground head (``SegmentationHead``, sigmoid
+    probabilities) into a **1-channel** Gaussian-weighted ACC/CNT canvas per
+    frame — there is no instance-center or center-offset head, so there is no
+    4-channel cat/split. The stitched foreground map is handed to the inner
+    ``SemanticSegmentationLayer.postprocess`` verbatim, which thresholds it into
+    exactly one whole-frame mask. Not an ``InferenceLayer`` subclass.
+
+    Averaging foreground *probabilities* across tile overlaps is the correct
+    blend (identical to the ``foreground`` channel of the bottom-up path); with no
+    offset field there is no translation-invariance subtlety.
+
+    Reuses :class:`TiledSegmentationLayer`'s ``__init__`` / window cache /
+    ``__call__`` / ``backend`` exposure verbatim; overrides only :meth:`predict`
+    to stitch one channel instead of four. Also re-exposes the inner layer's
+    ``mask_output`` / ``polygon_epsilon`` so the Predictor reads them off the
+    tiled layer (the base ``TiledSegmentationLayer`` omits these).
+    """
+
+    def __init__(self, inner_layer, tile_size, overlap, **kwargs) -> None:
+        """Stash the inner layer + tiling knobs, re-exposing packaging knobs."""
+        super().__init__(inner_layer, tile_size, overlap, **kwargs)
+        # Re-expose the packaging knobs so ``predictor`` reads them off the tiled
+        # layer (via getattr) exactly as it does off the plain ``SegmentationLayer``.
+        self.mask_output = getattr(inner_layer, "mask_output", "mask")
+        self.polygon_epsilon = getattr(inner_layer, "polygon_epsilon", 0.01)
+
+    def predict(self, image: ImageInput) -> Outputs:
+        """Tile -> forward -> stitch fg -> threshold to one mask, per frame."""
+        stride = self.output_stride
+        seg_key = self.inner._SEG_KEY
+
+        # Step 0: whole-frame preprocess, sizematcher-bypassed. Only channel
+        # coercion + input_scale + pad-to-output_stride apply (native res).
+        x = InferenceLayer._to_4d_tensor(image)
+        scaled, eff_scale, orig_hw = self.inner._apply_full_preprocess(
+            x,
+            max_stride=stride,
+            unsqueeze_n_samples=False,
+            skip_sizematcher=True,
+        )  # scaled: (B, C, Hs, Ws); eff_scale == ones(B)
+        input_scale = self.inner.preprocess_config.scale
+
+        B = scaled.shape[0]
+        pred_masks_all: List[list] = []
+        last_info: Optional[PreprocInfo] = None
+
+        # One frame at a time (per-frame accumulator, mixed-resolution safe).
+        for b in range(B):
+            frame = scaled[b]  # (C, Hs, Ws)
+            Hs, Ws = int(frame.shape[-2]), int(frame.shape[-1])
+
+            origins = generate_tile_grid(
+                (Hs, Ws),
+                self.tile_size,
+                self.overlap,
+                stride,
+                self.max_stride,
+                self._min_overlap_fraction,
+            )
+            win = self._get_window((self.tile_size // stride, self.tile_size // stride))
+
+            # Canvas covers max(frame, tile) per axis so a single tile larger than
+            # the frame (tiny-frame case) still fits; cropped back to the frame
+            # head-map size before thresholding.
+            canvas_h = max(Hs, self.tile_size) // stride
+            canvas_w = max(Ws, self.tile_size) // stride
+
+            merger = None
+            for i in range(0, len(origins), self.tile_batch_size):
+                chunk = origins[i : i + self.tile_batch_size]
+                tiles = torch.stack(
+                    [
+                        _extract_square_tile(frame, y0, x0, self.tile_size)
+                        for (y0, x0) in chunk
+                    ]
+                )  # (n, C, ts, ts)
+                with torch.inference_mode():
+                    raw = self.inner.backend(tiles.unsqueeze(1))  # squeeze(dim=1)
+                # Single foreground head only — a 1-channel canvas (no cen/off, so
+                # no torch.cat / split like the bottom-up 4-channel path).
+                fg = raw[seg_key].detach()  # (n, 1, ts//s, ts//s), sigmoid
+                if merger is None:
+                    acc_dev = _resolve_accumulator_device(
+                        self.accumulator_device,
+                        self.cpu_thresh,
+                        n_channels=1,
+                        out_hw=(canvas_h, canvas_w),
+                        model_device=self.inner.backend.device,
+                    )
+                    merger = _make_tile_merger((canvas_h, canvas_w), 1, win, acc_dev)
+                for j, (y0, x0) in enumerate(chunk):
+                    merger.integrate(fg[j], y0 // stride, x0 // stride)
+
+            # Stitch -> crop back to the frame head-map size. One channel, so there
+            # is nothing to split: the stitched canvas IS the fg map.
+            stitched = merger.merge()  # (1, canvas_h, canvas_w)
+            stitched = stitched[:, : Hs // stride, : Ws // stride]
+            fg_s = stitched[0:1].unsqueeze(0)  # (1, 1, H, W)
+
+            raw_out = {seg_key: fg_s}
+            # Match ``SemanticSegmentationLayer.predict``'s PreprocInfo fields —
+            # tile offsets are baked into paste coords, so no crop offset.
+            info = PreprocInfo(
+                original_size=orig_hw,
+                processed_size=(Hs, Ws),
+                eff_scale=eff_scale[b : b + 1],
+                input_scale=input_scale,
+                output_stride=stride,
+            )
+            # Reuse the fg-threshold -> one-mask packaging verbatim.
+            out_b = self.inner.postprocess(raw_out, info)
+            pred_masks_all.extend(out_b.pred_masks)  # single-frame list per b
+            last_info = info
+
+        # Assemble ONE Outputs per batch (matches the non-tiled shape). Do NOT set
+        # frame/video indices — the Predictor stamps those.
+        return Outputs(pred_masks=pred_masks_all, preprocess_info=last_info)

@@ -67,6 +67,7 @@ def compute_bce_dice_loss(
     bce_weight: float = 0.5,
     dice_weight: float = 0.5,
     smooth: float = 1.0,
+    pos_weight: Optional[float] = None,
 ) -> torch.Tensor:
     """Compute combined Binary Cross-Entropy and Dice loss for segmentation.
 
@@ -76,11 +77,23 @@ def compute_bce_dice_loss(
         bce_weight: Weight for the BCE component.
         dice_weight: Weight for the Dice component.
         smooth: Smoothing factor for Dice loss to avoid division by zero.
+        pos_weight: Optional positive-class weight for the BCE term (passed to
+            ``binary_cross_entropy_with_logits``). For thin/rare foreground (e.g.
+            plant roots at <1% of pixels), a value >1 up-weights the foreground so
+            the head does not hedge below 0.5 on faint thin structures. ``None``
+            (default) leaves BCE unweighted — byte-for-byte the previous behavior.
 
     Returns:
         Scalar loss tensor.
     """
-    bce_loss = F.binary_cross_entropy_with_logits(y_pred, y_gt, reduction="mean")
+    pw = (
+        None
+        if pos_weight is None
+        else torch.as_tensor(pos_weight, dtype=y_pred.dtype, device=y_pred.device)
+    )
+    bce_loss = F.binary_cross_entropy_with_logits(
+        y_pred, y_gt, reduction="mean", pos_weight=pw
+    )
 
     # Dice loss (apply sigmoid to convert logits to probabilities)
     y_pred_sig = torch.sigmoid(y_pred)

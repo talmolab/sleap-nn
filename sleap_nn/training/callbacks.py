@@ -586,10 +586,11 @@ class UnifiedVizCallback(Callback):
         # Colored grouped per-instance mask overlay (bottom-up seg only; the
         # grouped masks come from the offset-grouping in get_visualization_data).
         self.viz_instance_masks = model_type == "bottomup_segmentation"
-        # GT-vs-prediction mask overlay for both segmentation model types.
+        # GT-vs-prediction mask overlay for all segmentation model types.
         self.viz_gt_mask = model_type in (
             "bottomup_segmentation",
             "centered_instance_segmentation",
+            "semantic_segmentation",
         )
 
         # Initialize renderers
@@ -1503,7 +1504,12 @@ class SegmentationEvaluationCallback(Callback):
             as a true positive (default: 0.5).
     """
 
-    def __init__(self, eval_frequency: int = 1, match_threshold: float = 0.5):
+    def __init__(
+        self,
+        eval_frequency: int = 1,
+        match_threshold: float = 0.5,
+        foreground: bool = False,
+    ):
         """Initialize the callback.
 
         Args:
@@ -1512,10 +1518,17 @@ class SegmentationEvaluationCallback(Callback):
                 count as a true positive. The shared
                 ``trainer_config.eval.match_threshold`` defaults to 50.0 (a
                 centroid pixel distance), which is never a valid IoU, so any value
-                outside (0, 1] falls back to 0.5.
+                outside (0, 1] falls back to 0.5. Ignored when ``foreground`` is
+                True (semantic mode does not match, so there is no threshold).
+            foreground: If True, run whole-frame foreground (semantic
+                segmentation) evaluation instead of instance matching: union each
+                image's masks into one foreground mask and score IoU / clDice /
+                boundary-IoU directly, with NO Hungarian matching and no IoU
+                threshold. Used for the ``semantic_segmentation`` model type.
         """
         super().__init__()
         self.eval_frequency = eval_frequency
+        self.foreground = bool(foreground)
         if match_threshold is None or not (0.0 < float(match_threshold) <= 1.0):
             match_threshold = 0.5
         self.match_threshold = float(match_threshold)
@@ -1542,17 +1555,33 @@ class SegmentationEvaluationCallback(Callback):
                 )
             else:
                 try:
-                    metrics = self._compute_metrics(
-                        pl_module.val_predictions, pl_module.val_ground_truth
-                    )
-                    self._log_metrics(trainer, metrics, trainer.current_epoch)
-                    logger.info(
-                        f"Epoch {trainer.current_epoch} segmentation evaluation: "
-                        f"mask_mean_iou={metrics['mask_mean_iou']:.4f}, "
-                        f"mask_mean_cldice={metrics['mask_mean_cldice']:.4f}, "
-                        f"precision={metrics['precision']:.4f}, "
-                        f"recall={metrics['recall']:.4f}"
-                    )
+                    if self.foreground:
+                        metrics = self._compute_metrics_foreground(
+                            pl_module.val_predictions, pl_module.val_ground_truth
+                        )
+                        self._log_metrics_foreground(
+                            trainer, metrics, trainer.current_epoch
+                        )
+                        logger.info(
+                            f"Epoch {trainer.current_epoch} semantic (foreground) "
+                            f"evaluation: fg_mean_iou={metrics['fg_mean_iou']:.4f}, "
+                            f"fg_mean_cldice={metrics['fg_mean_cldice']:.4f}, "
+                            f"fg_mean_boundary_iou="
+                            f"{metrics['fg_mean_boundary_iou']:.4f}, "
+                            f"frames={metrics['n_frames']}"
+                        )
+                    else:
+                        metrics = self._compute_metrics(
+                            pl_module.val_predictions, pl_module.val_ground_truth
+                        )
+                        self._log_metrics(trainer, metrics, trainer.current_epoch)
+                        logger.info(
+                            f"Epoch {trainer.current_epoch} segmentation evaluation: "
+                            f"mask_mean_iou={metrics['mask_mean_iou']:.4f}, "
+                            f"mask_mean_cldice={metrics['mask_mean_cldice']:.4f}, "
+                            f"precision={metrics['precision']:.4f}, "
+                            f"recall={metrics['recall']:.4f}"
+                        )
                 except Exception as e:
                     logger.warning(f"Segmentation epoch-end evaluation failed: {e}")
 
@@ -1618,6 +1647,106 @@ class SegmentationEvaluationCallback(Callback):
             "n_fp": fp,
             "n_fn": fn,
         }
+
+    @staticmethod
+    def _union_masks(masks: list):
+        """Union a list of boolean masks into one foreground mask.
+
+        Masks are already on the same (stride) grid, but are OR-ed onto a
+        max-H/W canvas defensively. Returns ``None`` for an empty list.
+        """
+        import numpy as np
+
+        arrs = [np.asarray(m, dtype=bool) for m in masks]
+        if not arrs:
+            return None
+        h = max(a.shape[0] for a in arrs)
+        w = max(a.shape[1] for a in arrs)
+        canvas = np.zeros((h, w), dtype=bool)
+        for a in arrs:
+            canvas[: a.shape[0], : a.shape[1]] |= a
+        return canvas
+
+    def _compute_metrics_foreground(
+        self, predictions: list, ground_truth: list
+    ) -> dict:
+        """Whole-frame foreground metrics (semantic mode) — no matching.
+
+        Unions each collected image's predicted and GT masks into one foreground
+        mask, then scores IoU / clDice / boundary-IoU directly. Images whose GT
+        foreground is empty are skipped (nothing to score), mirroring the
+        post-training ``match_method="semantic"`` evaluator. Predicted-but-empty
+        foregrounds still count (a missed frame scores IoU/clDice 0 against a
+        non-empty GT). ``fg_frame_recall`` is the fraction of scored frames on
+        which the model predicted ANY foreground.
+        """
+        import numpy as np
+        from sleap_nn.evaluation import _boundary_iou, _mask_iou, mask_cldice
+
+        ious: list = []
+        cldices: list = []
+        bious: list = []
+        n_frames = 0
+        n_pred_present = 0
+        for pred, gt in zip(predictions, ground_truth):
+            gt_fg = self._union_masks(gt.get("masks", []))
+            if gt_fg is None or not gt_fg.any():
+                continue
+            pred_fg = self._union_masks(pred.get("masks", []))
+            if pred_fg is None:
+                pred_fg = np.zeros_like(gt_fg)
+            n_frames += 1
+            if pred_fg.any():
+                n_pred_present += 1
+            ious.append(_mask_iou(pred_fg, gt_fg))
+            cd = mask_cldice(pred_fg, gt_fg)
+            if not np.isnan(cd):
+                cldices.append(cd)
+            bious.append(_boundary_iou(pred_fg, gt_fg))
+
+        return {
+            "fg_mean_iou": float(np.mean(ious)) if ious else float("nan"),
+            "fg_mean_cldice": float(np.mean(cldices)) if cldices else float("nan"),
+            "fg_mean_boundary_iou": float(np.mean(bious)) if bious else float("nan"),
+            "fg_frame_recall": (
+                (n_pred_present / n_frames) if n_frames else float("nan")
+            ),
+            "n_frames": n_frames,
+        }
+
+    def _log_metrics_foreground(self, trainer, metrics: dict, epoch: int):
+        """Log whole-frame foreground (semantic) metrics to WandB."""
+        import numpy as np
+        from lightning.pytorch.loggers import WandbLogger
+
+        wandb_logger = None
+        for log in trainer.loggers:
+            if isinstance(log, WandbLogger):
+                wandb_logger = log
+                break
+        if wandb_logger is None:
+            return
+
+        log_dict = {"epoch": epoch}
+        for src_key, wandb_key in (
+            ("fg_mean_iou", "eval/val/fg_mean_iou"),
+            ("fg_mean_cldice", "eval/val/fg_mean_cldice"),
+            ("fg_mean_boundary_iou", "eval/val/fg_mean_boundary_iou"),
+            ("fg_frame_recall", "eval/val/fg_frame_recall"),
+        ):
+            if not np.isnan(metrics[src_key]):
+                log_dict[wandb_key] = metrics[src_key]
+
+        wandb_logger.experiment.log(log_dict, commit=False)
+
+        # Update best metrics in summary (higher is better for all fg metrics).
+        for key, value in log_dict.items():
+            if key == "epoch":
+                continue
+            summary_key = f"best/{key}"
+            current_best = wandb_logger.experiment.summary.get(summary_key)
+            if current_best is None or value > current_best:
+                wandb_logger.experiment.summary[summary_key] = value
 
     def _log_metrics(self, trainer, metrics: dict, epoch: int):
         """Log mask evaluation metrics to WandB."""

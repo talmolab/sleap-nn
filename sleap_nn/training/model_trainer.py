@@ -1261,6 +1261,14 @@ class ModelTrainer:
                         "val/fg_iou",
                     ]
                 )
+            if self.model_type == "semantic_segmentation":
+                csv_log_keys.extend(
+                    [
+                        "train/fg_loss",
+                        "val/fg_loss",
+                        "val/fg_iou",
+                    ]
+                )
             csv_logger = CSVLoggerCallback(
                 filepath=Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name
@@ -1409,16 +1417,20 @@ class ModelTrainer:
             elif self.model_type in (
                 "bottomup_segmentation",
                 "centered_instance_segmentation",
+                "semantic_segmentation",
             ):
-                # Segmentation has no keypoint predictions for OKS/PCK. Use a
-                # mask-IoU eval that recovers per-instance masks on the shared
-                # preprocessed grid and reports instance-level mask-IoU mAP /
-                # precision / recall (grouping-sensitive), complementing the coarse
-                # val/fg_iou logged in validation_step.
+                # Segmentation has no keypoint predictions for OKS/PCK. Instance seg
+                # (bottomup / centered-instance) recovers per-instance masks on the
+                # shared preprocessed grid and reports instance-level mask-IoU mAP /
+                # precision / recall (grouping-sensitive). Semantic (whole-frame
+                # foreground) has no instances, so it runs the matching-free
+                # foreground IoU / clDice / boundary-IoU variant. Both complement the
+                # coarse val/fg_iou logged in validation_step.
                 callbacks.append(
                     SegmentationEvaluationCallback(
                         eval_frequency=self.config.trainer_config.eval.frequency,
                         match_threshold=self.config.trainer_config.eval.match_threshold,
+                        foreground=(self.model_type == "semantic_segmentation"),
                     )
                 )
             else:
