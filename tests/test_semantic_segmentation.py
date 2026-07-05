@@ -522,3 +522,139 @@ def test_semantic_eval_callback_foreground_mode():
     # An empty-GT frame is skipped (no foreground to score).
     m3 = cb._compute_metrics_foreground([{"masks": [pr]}], [{"masks": []}])
     assert m3["n_frames"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# Thin-structure knobs: loss weighting / pos_weight + max-pool target + OS=1
+# --------------------------------------------------------------------------- #
+def test_seg_head_config_loss_target_knobs():
+    """The shared SegmentationHeadConfig exposes loss + target knobs (default-inert)."""
+    from sleap_nn.config.get_config import get_head_configs
+
+    s = get_head_configs("semantic_segmentation").semantic_segmentation.segmentation
+    # Defaults preserve the historical symmetric-unweighted / area-0.5 behavior.
+    assert (s.bce_weight, s.dice_weight) == (0.5, 0.5)
+    assert s.bce_pos_weight is None
+    assert s.target_maxpool is False
+
+    d = {
+        "semantic_segmentation": {
+            "segmentation": {
+                "output_stride": 1,
+                "loss_weight": 1.0,
+                "bce_weight": 0.3,
+                "dice_weight": 0.7,
+                "bce_pos_weight": 10.0,
+                "target_maxpool": True,
+            }
+        }
+    }
+    s2 = get_head_configs(d).semantic_segmentation.segmentation
+    assert (s2.output_stride, s2.bce_weight, s2.dice_weight) == (1, 0.3, 0.7)
+    assert s2.bce_pos_weight == 10.0 and s2.target_maxpool is True
+
+    # Same leaf is shared by bottomup_segmentation -> knobs available there too.
+    sb = get_head_configs("bottomup_segmentation").bottomup_segmentation.segmentation
+    assert hasattr(sb, "bce_pos_weight") and hasattr(sb, "target_maxpool")
+
+
+def test_bce_dice_loss_pos_weight():
+    """pos_weight up-weights the foreground BCE term; None == prior behavior."""
+    from sleap_nn.training.losses import compute_bce_dice_loss
+
+    y_pred = torch.zeros(1, 1, 8, 8)
+    y_gt = torch.zeros(1, 1, 8, 8)
+    y_gt[0, 0, 3, 3] = 1.0
+    base = compute_bce_dice_loss(y_pred, y_gt)
+    # None pos_weight is byte-for-byte the default-weighted loss.
+    assert torch.allclose(compute_bce_dice_loss(y_pred, y_gt, pos_weight=None), base)
+    weighted = compute_bce_dice_loss(
+        y_pred, y_gt, bce_weight=0.3, dice_weight=0.7, pos_weight=10.0
+    )
+    assert float(weighted) != float(base)
+
+
+def test_generate_foreground_mask_maxpool_preserves_thin():
+    """Max-pool downsample keeps a thin structure that area-0.5 erodes at OS>1."""
+    from sleap_nn.data.segmentation_maps import generate_foreground_mask
+
+    m = np.zeros((64, 64), dtype=bool)
+    for i in range(62):  # a ~2px-wide diagonal "lateral root"
+        m[i, i] = True
+        m[i, i + 1] = True
+    area = generate_foreground_mask([m], (64, 64), output_stride=2, maxpool=False)
+    mp = generate_foreground_mask([m], (64, 64), output_stride=2, maxpool=True)
+    assert mp.sum() > area.sum()  # max-pool preserves more of the thin diagonal
+    # At output_stride=1 there is no downsample, so maxpool is inert (identical).
+    os1_a = generate_foreground_mask([m], (64, 64), output_stride=1, maxpool=False)
+    os1_b = generate_foreground_mask([m], (64, 64), output_stride=1, maxpool=True)
+    assert torch.equal(os1_a, os1_b)
+    assert int(os1_a.sum()) == int(m.sum())  # full-res target == the union exactly
+
+
+def test_semantic_module_reads_loss_knobs():
+    """The LightningModule reads bce/dice/pos_weight from the head config."""
+    from sleap_nn.training.lightning_modules import SemanticSegmentationLightningModule
+
+    backbone_config, head_configs = _backbone_head_configs()
+    head_configs.semantic_segmentation.segmentation.bce_weight = 0.3
+    head_configs.semantic_segmentation.segmentation.dice_weight = 0.7
+    head_configs.semantic_segmentation.segmentation.bce_pos_weight = 10.0
+    module = SemanticSegmentationLightningModule(
+        model_type="semantic_segmentation",
+        backbone_type="unet",
+        backbone_config=backbone_config,
+        head_configs=head_configs,
+        init_weights="default",
+    )
+    assert module.fg_bce_weight == 0.3
+    assert module.fg_dice_weight == 0.7
+    assert module.fg_bce_pos_weight == 10.0
+
+
+def test_semantic_dataset_target_maxpool(minimal_instance):
+    """target_maxpool on the dataset yields >= foreground vs the default target."""
+    from sleap_nn.data.custom_datasets import SemanticSegmentationDataset
+
+    labels = _seg_labels(minimal_instance)
+    common = dict(labels=[labels], max_stride=16, ensure_grayscale=True)
+    ds_area = SemanticSegmentationDataset(
+        seg_head_config=OmegaConf.create({"output_stride": 4, "target_maxpool": False}),
+        **common,
+    )
+    ds_mp = SemanticSegmentationDataset(
+        seg_head_config=OmegaConf.create({"output_stride": 4, "target_maxpool": True}),
+        **common,
+    )
+    fg_area = float(ds_area[0]["foreground_mask"].sum())
+    fg_mp = float(ds_mp[0]["foreground_mask"].sum())
+    assert fg_mp >= fg_area  # max-pool never drops foreground, and grows thin edges
+
+
+def test_semantic_output_stride_1_end_to_end(minimal_instance_seg, tmp_path):
+    """OS=1 + pos_weight + Dice-tilt trains end-to-end and predicts one mask/frame."""
+    from sleap_nn.training.model_trainer import ModelTrainer
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.inference.layers.segmentation import SemanticSegmentationLayer
+
+    cfg = _semantic_train_config(
+        minimal_instance_seg.as_posix(), tmp_path, max_epochs=1
+    )
+    seg = cfg.model_config.head_configs.semantic_segmentation.segmentation
+    seg.output_stride = 1
+    seg.bce_weight = 0.3
+    seg.dice_weight = 0.7
+    seg.bce_pos_weight = 10.0
+    cfg.trainer_config.run_name = "sem_os1"
+    ModelTrainer.get_model_trainer_from_config(cfg).train()
+    run_dir = (tmp_path / "sem_os1").as_posix()
+
+    pred = Predictor.from_model_paths([run_dir], fg_threshold=0.5, device="cpu")
+    assert isinstance(pred.layer, SemanticSegmentationLayer)
+    out = pred.predict(minimal_instance_seg.as_posix(), make_labels=True)
+    assert isinstance(out, sio.Labels)
+    for lf in out:
+        assert len(lf.masks) <= 1
+        for m in lf.masks:
+            assert isinstance(m, sio.PredictedSegmentationMask)
+            assert m.instance is None

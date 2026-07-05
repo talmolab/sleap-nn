@@ -2840,6 +2840,10 @@ class BottomUpSegmentationLightningModule(LightningModel):
             peak_threshold=0.1,
             output_stride=seg_cfg.segmentation.output_stride,
         )
+        # bce-dice foreground-loss knobs (defaults preserve the symmetric loss).
+        self.fg_bce_weight = getattr(seg_cfg.segmentation, "bce_weight", 0.5)
+        self.fg_dice_weight = getattr(seg_cfg.segmentation, "dice_weight", 0.5)
+        self.fg_bce_pos_weight = getattr(seg_cfg.segmentation, "bce_pos_weight", None)
 
     def get_visualization_data(
         self,
@@ -2990,7 +2994,13 @@ class BottomUpSegmentationLightningModule(LightningModel):
         pred_center = preds["InstanceCenterHead"]
         pred_offsets = preds["CenterOffsetHead"]
 
-        fg_loss = compute_bce_dice_loss(pred_fg, y_fg)
+        fg_loss = compute_bce_dice_loss(
+            pred_fg,
+            y_fg,
+            bce_weight=self.fg_bce_weight,
+            dice_weight=self.fg_dice_weight,
+            pos_weight=self.fg_bce_pos_weight,
+        )
         center_loss = F.mse_loss(pred_center, y_center)
         offset_loss = compute_masked_smooth_l1(pred_offsets, y_offsets, y_weight)
 
@@ -3043,7 +3053,13 @@ class BottomUpSegmentationLightningModule(LightningModel):
         pred_center = preds["InstanceCenterHead"]
         pred_offsets = preds["CenterOffsetHead"]
 
-        fg_loss = compute_bce_dice_loss(pred_fg, y_fg)
+        fg_loss = compute_bce_dice_loss(
+            pred_fg,
+            y_fg,
+            bce_weight=self.fg_bce_weight,
+            dice_weight=self.fg_dice_weight,
+            pos_weight=self.fg_bce_pos_weight,
+        )
         center_loss = F.mse_loss(pred_center, y_center)
         offset_loss = compute_masked_smooth_l1(pred_offsets, y_offsets, y_weight)
 
@@ -3354,9 +3370,12 @@ class SemanticSegmentationLightningModule(LightningModel):
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
         )
-        self.seg_output_stride = self.head_configs[
-            self.model_type
-        ].segmentation.output_stride
+        seg = self.head_configs[self.model_type].segmentation
+        self.seg_output_stride = seg.output_stride
+        # bce-dice loss knobs (defaults preserve the symmetric unweighted loss).
+        self.fg_bce_weight = getattr(seg, "bce_weight", 0.5)
+        self.fg_dice_weight = getattr(seg, "dice_weight", 0.5)
+        self.fg_bce_pos_weight = getattr(seg, "bce_pos_weight", None)
 
     def forward(self, img):
         """Forward pass returning the foreground PROBABILITY map (sigmoid applied).
@@ -3377,7 +3396,13 @@ class SemanticSegmentationLightningModule(LightningModel):
         y_fg = torch.squeeze(batch["foreground_mask"], dim=1)
         X = normalize_on_gpu(X)
         pred_fg = self.model(X)["SegmentationHead"]  # logits
-        loss = compute_bce_dice_loss(pred_fg, y_fg)
+        loss = compute_bce_dice_loss(
+            pred_fg,
+            y_fg,
+            bce_weight=self.fg_bce_weight,
+            dice_weight=self.fg_dice_weight,
+            pos_weight=self.fg_bce_pos_weight,
+        )
 
         self.log(
             "loss", loss, prog_bar=True, on_step=True, on_epoch=False, sync_dist=True
@@ -3392,7 +3417,13 @@ class SemanticSegmentationLightningModule(LightningModel):
         y_fg = torch.squeeze(batch["foreground_mask"], dim=1)
         X = normalize_on_gpu(X)
         pred_fg = self.model(X)["SegmentationHead"]  # logits
-        val_loss = compute_bce_dice_loss(pred_fg, y_fg)
+        val_loss = compute_bce_dice_loss(
+            pred_fg,
+            y_fg,
+            bce_weight=self.fg_bce_weight,
+            dice_weight=self.fg_dice_weight,
+            pos_weight=self.fg_bce_pos_weight,
+        )
 
         self.log(
             "val/loss",

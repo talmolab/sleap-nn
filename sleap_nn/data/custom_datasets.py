@@ -3194,6 +3194,7 @@ class BottomUpSegmentationDataset(BaseDataset):
             mask_arrays,
             img_hw=img_hw,
             output_stride=self.seg_head_config.output_stride,
+            maxpool=bool(getattr(self.seg_head_config, "target_maxpool", False)),
         )
 
         center_heatmap = generate_center_heatmap(
@@ -3458,6 +3459,7 @@ class SemanticSegmentationDataset(BaseDataset):
             mask_arrays,
             img_hw=img_hw,
             output_stride=self.seg_head_config.output_stride,
+            maxpool=bool(getattr(self.seg_head_config, "target_maxpool", False)),
         )
 
         sample_dict["foreground_mask"] = foreground_mask
@@ -3860,6 +3862,7 @@ class BottomUpSegmentationTiledDataset(BaseDataset):
             owned_masks,
             img_hw=img_hw,
             output_stride=self.seg_head_config.output_stride,
+            maxpool=bool(getattr(self.seg_head_config, "target_maxpool", False)),
         )
         center_heatmap = generate_center_heatmap(
             owned_masks,
@@ -4265,6 +4268,7 @@ class SemanticSegmentationTiledDataset(BaseDataset):
             tile_masks,
             img_hw=img_hw,
             output_stride=self.seg_head_config.output_stride,
+            maxpool=bool(getattr(self.seg_head_config, "target_maxpool", False)),
         )
         # Count of masks with any foreground in this tile (logging/eval convenience).
         num_masks_in_tile = sum(1 for m in tile_masks if int(m.sum()) > 0)

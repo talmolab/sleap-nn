@@ -111,7 +111,15 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
         heads.append(ClassVectorsHead(**head_config.class_vectors))
 
     elif model_type == "bottomup_segmentation":
-        heads.append(SegmentationHead(**head_config.segmentation))
+        # SegmentationHead takes only output_stride/loss_weight; the leaf's other
+        # fields (bce/dice/pos_weight loss knobs, target_maxpool) are training/data
+        # concerns consumed by the LightningModule + dataset, not the head arch.
+        seg = head_config.segmentation
+        heads.append(
+            SegmentationHead(
+                output_stride=seg.output_stride, loss_weight=seg.loss_weight
+            )
+        )
         heads.append(InstanceCenterHead(**head_config.center))
         heads.append(CenterOffsetHead(**head_config.offsets))
 
@@ -128,9 +136,15 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
 
     elif model_type == "semantic_segmentation":
         # Whole-frame semantic segmentation: a lone foreground-mask head on the
-        # full frame (no crop, no center/offset, no grouping). The leaf is a plain
-        # SegmentationHeadConfig (output_stride + loss_weight), so pass it directly.
-        heads.append(SegmentationHead(**head_config.segmentation))
+        # full frame (no crop, no center/offset, no grouping). Only output_stride /
+        # loss_weight are head args; the leaf's loss/target knobs are consumed
+        # downstream (LightningModule loss + dataset target), not by the head.
+        seg = head_config.segmentation
+        heads.append(
+            SegmentationHead(
+                output_stride=seg.output_stride, loss_weight=seg.loss_weight
+            )
+        )
 
     else:
         message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`, `semantic_segmentation`."

@@ -72,6 +72,50 @@ labels.save("poses_masked.pkg.slp", embed=True)
 - **Viz:** training visualizations overlay the predicted foreground probability and
   the GT mask on the frame.
 
+## Thin / high-resolution structures (e.g. plant roots)
+
+For thin, elongated foreground (roots, fibers, whiskers) at high resolution, the
+default `output_stride: 2` bce-dice recipe systematically **under-segments the thin
+parts**: the foreground target is area-downsampled by the stride and re-binarized at
+50%, which erodes sub-cell structures out of the *label*, and the symmetric loss is
+dominated by the easy background + thick parts, so the head hedges below 0.5 on
+faint structure. The symptom is that lowering `--fg_threshold` at inference recovers
+a lot of real foreground (topology/clDice climbs) — a patch for a training-time
+defect. Three head-config knobs fix it at the source so the model is confident at
+the default threshold:
+
+- **`output_stride: 1`** (recommended) — dense, full-resolution prediction. No target
+  downsample (no erosion) *and* a full-res decoder block to draw sharp thin ridges.
+  Heavier per step, but the single biggest lever for thin structures.
+- **`target_maxpool: true`** — cheaper alternative that keeps `output_stride: 2`:
+  build the foreground target with max-pool semantics (any foreground pixel in a
+  stride cell → foreground) instead of area-average + 0.5, so thin structures survive
+  the downsample. Inert at `output_stride: 1`.
+- **`bce_pos_weight` + `bce_weight` / `dice_weight`** — recalibrate the loss so 0.5 is
+  the right operating point. For foreground that is <1% of pixels, `bce_pos_weight`
+  ~5–20 up-weights the positive class and a tilt toward Dice
+  (`bce_weight: 0.3, dice_weight: 0.7`) reduces easy-background dominance.
+
+```yaml
+model_config:
+  head_configs:
+    semantic_segmentation:
+      segmentation:
+        output_stride: 1        # dense; or keep 2 with target_maxpool: true
+        loss_weight: 1.0
+        bce_weight: 0.3
+        dice_weight: 0.7
+        bce_pos_weight: 10.0
+        target_maxpool: false   # set true only if you keep output_stride: 2
+```
+
+These knobs live on the shared `SegmentationHeadConfig`, so `bottomup_segmentation`
+gets them too; the defaults (`0.5`/`0.5`, `bce_pos_weight: null`, `target_maxpool:
+false`) reproduce the previous behavior exactly. On a thin-root benchmark this recipe
+raised whole-frame clDice at the *default* threshold from ~0.60 to ~0.68 and removed
+the need for a hand-tuned inference threshold. Evaluate thin structures with **clDice**
+(topology-aware), not IoU (area-dominated).
+
 ## Tiling (high-res / small-object frames)
 
 Semantic segmentation is **tiling-compatible**: cut each frame into overlapping

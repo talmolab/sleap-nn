@@ -102,8 +102,28 @@ model_config:
     # centered_instance_segmentation (no crop / anchor_part).
     semantic_segmentation:
       segmentation:
+        # output_stride 2 is the default. For THIN / high-resolution objects
+        # (e.g. plant roots) set output_stride: 1 (dense, full-resolution): it
+        # avoids downsampling the foreground target and lets the decoder draw
+        # sharp thin structures, so the model is confident at threshold 0.5
+        # instead of needing a low inference --fg_threshold. Heavier per step.
         output_stride: 2
         loss_weight: 1.0
+        # bce-dice loss knobs (defaults 0.5/0.5, no pos_weight = historical
+        # behavior). For thin/rare foreground (<1% of pixels), tilt toward Dice
+        # and up-weight the positive class so the head stays confident on faint
+        # thin structures — e.g. bce_weight: 0.3, dice_weight: 0.7,
+        # bce_pos_weight: 10.0.
+        bce_weight: 0.5
+        dice_weight: 0.5
+        bce_pos_weight: null
+        # target_maxpool: at output_stride > 1, build the foreground target with
+        # max-pool semantics (any fg pixel in a stride cell -> fg) instead of
+        # area-average + 0.5, so thin structures are not eroded below 50% cell
+        # coverage. Set true for thin objects at output_stride 2; inert at
+        # output_stride 1 (there is no downsample). Recommended thin-structure
+        # combos: {output_stride: 1} OR {output_stride: 2, target_maxpool: true}.
+        target_maxpool: false
   total_params: null
 trainer_config:
   train_data_loader:
