@@ -1733,6 +1733,9 @@ class SegmentationEvaluationCallback(Callback):
         # ModelCheckpoint save in on_validation_end), so the value is available.
         # Set on rank 0 only (this callback computes there); single-GPU. Under DDP,
         # checkpoint-on-clDice would need an all-rank broadcast of these values.
+        # ALWAYS populate the key (0.0 for NaN/missing) so a run that monitors it does
+        # not crash ModelCheckpoint on an epoch with no valid metric; these are all
+        # in [0, 1] and higher-is-better, so 0.0 is the correct worst value.
         for src_key, ck_key in (
             ("fg_mean_iou", "eval/val/fg_mean_iou"),
             ("fg_mean_cldice", "eval/val/fg_mean_cldice"),
@@ -1740,8 +1743,8 @@ class SegmentationEvaluationCallback(Callback):
             ("fg_frame_recall", "eval/val/fg_frame_recall"),
         ):
             v = metrics.get(src_key)
-            if v is not None and not np.isnan(v):
-                trainer.callback_metrics[ck_key] = torch.as_tensor(float(v))
+            fv = 0.0 if (v is None or np.isnan(v)) else float(v)
+            trainer.callback_metrics[ck_key] = torch.as_tensor(fv)
 
         wandb_logger = None
         for log in trainer.loggers:
@@ -1781,7 +1784,11 @@ class SegmentationEvaluationCallback(Callback):
         # Expose per-instance mask metrics to ModelCheckpoint/EarlyStopping via
         # callback_metrics so instance-seg runs can select best.ckpt on
         # eval/val/mask_mean_iou (mode="max") instead of val/loss. See the
-        # foreground variant above for the rank/DDP caveat.
+        # foreground variant above for the rank/DDP caveat. ALWAYS populate the key
+        # (0.0 for NaN/missing): mask_mean_iou is NaN on epochs with no matched
+        # instances (common early in training / on sparse-instance datasets), and a
+        # missing monitored key crashes ModelCheckpoint. These metrics are in [0, 1]
+        # higher-is-better, so 0.0 is the correct worst value.
         for src_key, ck_key in (
             ("mask_mean_iou", "eval/val/mask_mean_iou"),
             ("mask_mean_iou_all_gt", "eval/val/mask_mean_iou_all_gt"),
@@ -1791,8 +1798,12 @@ class SegmentationEvaluationCallback(Callback):
             ("f1", "eval/val/mask_f1"),
         ):
             v = metrics.get(src_key)
-            if v is not None and not (isinstance(v, float) and np.isnan(v)):
-                trainer.callback_metrics[ck_key] = torch.as_tensor(float(v))
+            fv = (
+                0.0
+                if (v is None or (isinstance(v, float) and np.isnan(v)))
+                else float(v)
+            )
+            trainer.callback_metrics[ck_key] = torch.as_tensor(fv)
 
         wandb_logger = None
         for log in trainer.loggers:

@@ -537,7 +537,9 @@ class TestSegmentationEvalCallbackCheckpointMetrics:
         ) == pytest.approx(0.55)
         assert "eval/val/mask_mean_cldice" in trainer.callback_metrics
 
-    def test_nan_metric_is_not_pushed(self):
+    def test_nan_metric_pushed_as_zero(self):
+        """A NaN metric is still populated (as 0.0) so a run monitoring it does not
+        crash ModelCheckpoint with a missing-key error."""
         cb = SegmentationEvaluationCallback(foreground=True)
         trainer = self._trainer()
         cb._log_metrics_foreground(
@@ -551,8 +553,35 @@ class TestSegmentationEvalCallbackCheckpointMetrics:
             },
             epoch=1,
         )
-        assert "eval/val/fg_mean_iou" not in trainer.callback_metrics
-        assert "eval/val/fg_mean_cldice" in trainer.callback_metrics
+        assert "eval/val/fg_mean_iou" in trainer.callback_metrics
+        assert float(trainer.callback_metrics["eval/val/fg_mean_iou"]) == 0.0
+        assert float(
+            trainer.callback_metrics["eval/val/fg_mean_cldice"]
+        ) == pytest.approx(0.6)
+
+    def test_nan_mask_iou_pushed_as_zero(self):
+        """Regression: mask_mean_iou is NaN on epochs with no matched instances;
+        the monitored key must still be present (0.0) so ModelCheckpoint(
+        monitor="eval/val/mask_mean_iou") does not raise."""
+        cb = SegmentationEvaluationCallback(foreground=False)
+        trainer = self._trainer()
+        cb._log_metrics(
+            trainer,
+            {
+                "mask_mean_iou": float("nan"),
+                "mask_mean_iou_all_gt": 0.0,
+                "mask_mean_cldice": float("nan"),
+                "precision": 0.0,
+                "recall": 0.0,
+                "f1": 0.0,
+                "n_tp": 0,
+                "n_fp": 3,
+                "n_fn": 5,
+            },
+            epoch=0,
+        )
+        assert "eval/val/mask_mean_iou" in trainer.callback_metrics
+        assert float(trainer.callback_metrics["eval/val/mask_mean_iou"]) == 0.0
 
 
 class TestUnifiedVizCallbackSegmentation:
