@@ -1437,6 +1437,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../semantic-segmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Semantic Segmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../sam-inference-segmentation/" class="md-nav__link">
         
   
@@ -7153,14 +7181,15 @@ the pipeline (epoch semantics, memory model, coordinate math) is byte-identical 
 it is off.</p>
 <div class="admonition note">
 <p class="admonition-title">Scope (current release)</p>
-<p>Tiling currently supports the <strong><code>single_instance</code></strong> model type end to end
-(training <strong>and</strong> inference). Top-down (centroid), bottom-up (PAF), and
-segmentation tiling are planned for later releases. Tiling requires a
-<strong>UNet / ConvNeXt / SwinT</strong> backbone; pretrained HuggingFace-encoder backbones
-and <code>ClassVectorsHead</code> / <code>multi_class_topdown</code> models are not supported with
-tiling (training will raise a clear error). Tiled ONNX/TensorRT <strong>export</strong> is
-not yet implemented — exporting a tiled model warns and produces a whole-frame
-graph; use PyTorch inference for tiled prediction.</p>
+<p>Tiling supports the <strong><code>single_instance</code></strong>, <strong><code>bottomup_segmentation</code></strong>, and
+<strong><code>semantic_segmentation</code></strong> model types end to end (training <strong>and</strong>
+inference). Top-down (centroid) and bottom-up (PAF) tiling are planned for
+later releases. Tiling requires a <strong>UNet / ConvNeXt / SwinT</strong> backbone;
+pretrained HuggingFace-encoder backbones and <code>ClassVectorsHead</code> /
+<code>multi_class_topdown</code> models are not supported with tiling (training will
+raise a clear error). Tiled ONNX/TensorRT <strong>export</strong> is not yet implemented —
+exporting a tiled model warns and produces a whole-frame graph; use PyTorch
+inference for tiled prediction.</p>
 </div>
 <h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
 <p>Reach for tiling when <strong>both</strong> are true:</p>

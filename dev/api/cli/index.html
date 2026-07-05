@@ -1300,6 +1300,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../guides/semantic-segmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Semantic Segmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../guides/sam-inference-segmentation/" class="md-nav__link">
         
   
@@ -7954,9 +7982,7 @@ generate a config with smart defaults based on your data.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/cli.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2868">2868</a></span>
-<span class="normal"><a href="#__codelineno-0-2869">2869</a></span>
-<span class="normal"><a href="#__codelineno-0-2870">2870</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2870">2870</a></span>
 <span class="normal"><a href="#__codelineno-0-2871">2871</a></span>
 <span class="normal"><a href="#__codelineno-0-2872">2872</a></span>
 <span class="normal"><a href="#__codelineno-0-2873">2873</a></span>
@@ -8083,136 +8109,138 @@ generate a config with smart defaults based on your data.</p>
 <span class="normal"><a href="#__codelineno-0-2994">2994</a></span>
 <span class="normal"><a href="#__codelineno-0-2995">2995</a></span>
 <span class="normal"><a href="#__codelineno-0-2996">2996</a></span>
-<span class="normal"><a href="#__codelineno-0-2997">2997</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-2868"><a id="__codelineno-0-2868" name="__codelineno-0-2868"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
-</span><span id="__span-0-2869"><a id="__codelineno-0-2869" name="__codelineno-0-2869"></a><span class="nd">@click</span><span class="o">.</span><span class="n">argument</span><span class="p">(</span><span class="s2">&quot;slp_path&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
-</span><span id="__span-0-2870"><a id="__codelineno-0-2870" name="__codelineno-0-2870"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-2871"><a id="__codelineno-0-2871" name="__codelineno-0-2871"></a>    <span class="s2">&quot;--output&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2872"><a id="__codelineno-0-2872" name="__codelineno-0-2872"></a>    <span class="s2">&quot;-o&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2873"><a id="__codelineno-0-2873" name="__codelineno-0-2873"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-2874"><a id="__codelineno-0-2874" name="__codelineno-0-2874"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-2875"><a id="__codelineno-0-2875" name="__codelineno-0-2875"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Output path for the generated config file(s).&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2876"><a id="__codelineno-0-2876" name="__codelineno-0-2876"></a><span class="p">)</span>
-</span><span id="__span-0-2877"><a id="__codelineno-0-2877" name="__codelineno-0-2877"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-2878"><a id="__codelineno-0-2878" name="__codelineno-0-2878"></a>    <span class="s2">&quot;--auto&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2879"><a id="__codelineno-0-2879" name="__codelineno-0-2879"></a>    <span class="n">is_flag</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-2880"><a id="__codelineno-0-2880" name="__codelineno-0-2880"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-</span><span id="__span-0-2881"><a id="__codelineno-0-2881" name="__codelineno-0-2881"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Auto-generate config without interactive TUI.&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2882"><a id="__codelineno-0-2882" name="__codelineno-0-2882"></a><span class="p">)</span>
-</span><span id="__span-0-2883"><a id="__codelineno-0-2883" name="__codelineno-0-2883"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-2884"><a id="__codelineno-0-2884" name="__codelineno-0-2884"></a>    <span class="s2">&quot;--pipeline&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2885"><a id="__codelineno-0-2885" name="__codelineno-0-2885"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">(</span>
-</span><span id="__span-0-2886"><a id="__codelineno-0-2886" name="__codelineno-0-2886"></a>        <span class="p">[</span>
-</span><span id="__span-0-2887"><a id="__codelineno-0-2887" name="__codelineno-0-2887"></a>            <span class="s2">&quot;single_instance&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2888"><a id="__codelineno-0-2888" name="__codelineno-0-2888"></a>            <span class="s2">&quot;centroid&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2889"><a id="__codelineno-0-2889" name="__codelineno-0-2889"></a>            <span class="s2">&quot;bottomup&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2890"><a id="__codelineno-0-2890" name="__codelineno-0-2890"></a>            <span class="s2">&quot;topdown&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2891"><a id="__codelineno-0-2891" name="__codelineno-0-2891"></a>            <span class="s2">&quot;multi_class_bottomup&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2892"><a id="__codelineno-0-2892" name="__codelineno-0-2892"></a>            <span class="s2">&quot;multi_class_topdown&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2893"><a id="__codelineno-0-2893" name="__codelineno-0-2893"></a>        <span class="p">]</span>
-</span><span id="__span-0-2894"><a id="__codelineno-0-2894" name="__codelineno-0-2894"></a>    <span class="p">),</span>
-</span><span id="__span-0-2895"><a id="__codelineno-0-2895" name="__codelineno-0-2895"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-2896"><a id="__codelineno-0-2896" name="__codelineno-0-2896"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-2897"><a id="__codelineno-0-2897" name="__codelineno-0-2897"></a>        <span class="s2">&quot;Override model pipeline type. &#39;centroid&#39; generates a single STANDALONE &quot;</span>
-</span><span id="__span-0-2898"><a id="__codelineno-0-2898" name="__codelineno-0-2898"></a>        <span class="s2">&quot;centroid config (one point per animal); &#39;topdown&#39; generates paired &quot;</span>
-</span><span id="__span-0-2899"><a id="__codelineno-0-2899" name="__codelineno-0-2899"></a>        <span class="s2">&quot;centroid + centered_instance configs.&quot;</span>
-</span><span id="__span-0-2900"><a id="__codelineno-0-2900" name="__codelineno-0-2900"></a>    <span class="p">),</span>
-</span><span id="__span-0-2901"><a id="__codelineno-0-2901" name="__codelineno-0-2901"></a><span class="p">)</span>
-</span><span id="__span-0-2902"><a id="__codelineno-0-2902" name="__codelineno-0-2902"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-2903"><a id="__codelineno-0-2903" name="__codelineno-0-2903"></a>    <span class="s2">&quot;--show-yaml&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2904"><a id="__codelineno-0-2904" name="__codelineno-0-2904"></a>    <span class="n">is_flag</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-2905"><a id="__codelineno-0-2905" name="__codelineno-0-2905"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-</span><span id="__span-0-2906"><a id="__codelineno-0-2906" name="__codelineno-0-2906"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Print generated YAML to stdout.&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2907"><a id="__codelineno-0-2907" name="__codelineno-0-2907"></a><span class="p">)</span>
-</span><span id="__span-0-2908"><a id="__codelineno-0-2908" name="__codelineno-0-2908"></a><span class="k">def</span><span class="w"> </span><span class="nf">config</span><span class="p">(</span>
-</span><span id="__span-0-2909"><a id="__codelineno-0-2909" name="__codelineno-0-2909"></a>    <span class="n">slp_path</span><span class="p">,</span>
-</span><span id="__span-0-2910"><a id="__codelineno-0-2910" name="__codelineno-0-2910"></a>    <span class="n">output</span><span class="p">,</span>
-</span><span id="__span-0-2911"><a id="__codelineno-0-2911" name="__codelineno-0-2911"></a>    <span class="n">auto</span><span class="p">,</span>
-</span><span id="__span-0-2912"><a id="__codelineno-0-2912" name="__codelineno-0-2912"></a>    <span class="n">pipeline</span><span class="p">,</span>
-</span><span id="__span-0-2913"><a id="__codelineno-0-2913" name="__codelineno-0-2913"></a>    <span class="n">show_yaml</span><span class="p">,</span>
-</span><span id="__span-0-2914"><a id="__codelineno-0-2914" name="__codelineno-0-2914"></a><span class="p">):</span>
-</span><span id="__span-0-2915"><a id="__codelineno-0-2915" name="__codelineno-0-2915"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate training configuration for a SLEAP file.</span>
-</span><span id="__span-0-2916"><a id="__codelineno-0-2916" name="__codelineno-0-2916"></a>
-</span><span id="__span-0-2917"><a id="__codelineno-0-2917" name="__codelineno-0-2917"></a><span class="sd">    **[Experimental]** This feature is experimental and may change in future releases.</span>
+<span class="normal"><a href="#__codelineno-0-2997">2997</a></span>
+<span class="normal"><a href="#__codelineno-0-2998">2998</a></span>
+<span class="normal"><a href="#__codelineno-0-2999">2999</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-2870"><a id="__codelineno-0-2870" name="__codelineno-0-2870"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+</span><span id="__span-0-2871"><a id="__codelineno-0-2871" name="__codelineno-0-2871"></a><span class="nd">@click</span><span class="o">.</span><span class="n">argument</span><span class="p">(</span><span class="s2">&quot;slp_path&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">required</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</span><span id="__span-0-2872"><a id="__codelineno-0-2872" name="__codelineno-0-2872"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-2873"><a id="__codelineno-0-2873" name="__codelineno-0-2873"></a>    <span class="s2">&quot;--output&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2874"><a id="__codelineno-0-2874" name="__codelineno-0-2874"></a>    <span class="s2">&quot;-o&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2875"><a id="__codelineno-0-2875" name="__codelineno-0-2875"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-2876"><a id="__codelineno-0-2876" name="__codelineno-0-2876"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-2877"><a id="__codelineno-0-2877" name="__codelineno-0-2877"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Output path for the generated config file(s).&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2878"><a id="__codelineno-0-2878" name="__codelineno-0-2878"></a><span class="p">)</span>
+</span><span id="__span-0-2879"><a id="__codelineno-0-2879" name="__codelineno-0-2879"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-2880"><a id="__codelineno-0-2880" name="__codelineno-0-2880"></a>    <span class="s2">&quot;--auto&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2881"><a id="__codelineno-0-2881" name="__codelineno-0-2881"></a>    <span class="n">is_flag</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-2882"><a id="__codelineno-0-2882" name="__codelineno-0-2882"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-2883"><a id="__codelineno-0-2883" name="__codelineno-0-2883"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Auto-generate config without interactive TUI.&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2884"><a id="__codelineno-0-2884" name="__codelineno-0-2884"></a><span class="p">)</span>
+</span><span id="__span-0-2885"><a id="__codelineno-0-2885" name="__codelineno-0-2885"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-2886"><a id="__codelineno-0-2886" name="__codelineno-0-2886"></a>    <span class="s2">&quot;--pipeline&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2887"><a id="__codelineno-0-2887" name="__codelineno-0-2887"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">(</span>
+</span><span id="__span-0-2888"><a id="__codelineno-0-2888" name="__codelineno-0-2888"></a>        <span class="p">[</span>
+</span><span id="__span-0-2889"><a id="__codelineno-0-2889" name="__codelineno-0-2889"></a>            <span class="s2">&quot;single_instance&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2890"><a id="__codelineno-0-2890" name="__codelineno-0-2890"></a>            <span class="s2">&quot;centroid&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2891"><a id="__codelineno-0-2891" name="__codelineno-0-2891"></a>            <span class="s2">&quot;bottomup&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2892"><a id="__codelineno-0-2892" name="__codelineno-0-2892"></a>            <span class="s2">&quot;topdown&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2893"><a id="__codelineno-0-2893" name="__codelineno-0-2893"></a>            <span class="s2">&quot;multi_class_bottomup&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2894"><a id="__codelineno-0-2894" name="__codelineno-0-2894"></a>            <span class="s2">&quot;multi_class_topdown&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2895"><a id="__codelineno-0-2895" name="__codelineno-0-2895"></a>        <span class="p">]</span>
+</span><span id="__span-0-2896"><a id="__codelineno-0-2896" name="__codelineno-0-2896"></a>    <span class="p">),</span>
+</span><span id="__span-0-2897"><a id="__codelineno-0-2897" name="__codelineno-0-2897"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-2898"><a id="__codelineno-0-2898" name="__codelineno-0-2898"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-2899"><a id="__codelineno-0-2899" name="__codelineno-0-2899"></a>        <span class="s2">&quot;Override model pipeline type. &#39;centroid&#39; generates a single STANDALONE &quot;</span>
+</span><span id="__span-0-2900"><a id="__codelineno-0-2900" name="__codelineno-0-2900"></a>        <span class="s2">&quot;centroid config (one point per animal); &#39;topdown&#39; generates paired &quot;</span>
+</span><span id="__span-0-2901"><a id="__codelineno-0-2901" name="__codelineno-0-2901"></a>        <span class="s2">&quot;centroid + centered_instance configs.&quot;</span>
+</span><span id="__span-0-2902"><a id="__codelineno-0-2902" name="__codelineno-0-2902"></a>    <span class="p">),</span>
+</span><span id="__span-0-2903"><a id="__codelineno-0-2903" name="__codelineno-0-2903"></a><span class="p">)</span>
+</span><span id="__span-0-2904"><a id="__codelineno-0-2904" name="__codelineno-0-2904"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-2905"><a id="__codelineno-0-2905" name="__codelineno-0-2905"></a>    <span class="s2">&quot;--show-yaml&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2906"><a id="__codelineno-0-2906" name="__codelineno-0-2906"></a>    <span class="n">is_flag</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-2907"><a id="__codelineno-0-2907" name="__codelineno-0-2907"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-0-2908"><a id="__codelineno-0-2908" name="__codelineno-0-2908"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Print generated YAML to stdout.&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2909"><a id="__codelineno-0-2909" name="__codelineno-0-2909"></a><span class="p">)</span>
+</span><span id="__span-0-2910"><a id="__codelineno-0-2910" name="__codelineno-0-2910"></a><span class="k">def</span><span class="w"> </span><span class="nf">config</span><span class="p">(</span>
+</span><span id="__span-0-2911"><a id="__codelineno-0-2911" name="__codelineno-0-2911"></a>    <span class="n">slp_path</span><span class="p">,</span>
+</span><span id="__span-0-2912"><a id="__codelineno-0-2912" name="__codelineno-0-2912"></a>    <span class="n">output</span><span class="p">,</span>
+</span><span id="__span-0-2913"><a id="__codelineno-0-2913" name="__codelineno-0-2913"></a>    <span class="n">auto</span><span class="p">,</span>
+</span><span id="__span-0-2914"><a id="__codelineno-0-2914" name="__codelineno-0-2914"></a>    <span class="n">pipeline</span><span class="p">,</span>
+</span><span id="__span-0-2915"><a id="__codelineno-0-2915" name="__codelineno-0-2915"></a>    <span class="n">show_yaml</span><span class="p">,</span>
+</span><span id="__span-0-2916"><a id="__codelineno-0-2916" name="__codelineno-0-2916"></a><span class="p">):</span>
+</span><span id="__span-0-2917"><a id="__codelineno-0-2917" name="__codelineno-0-2917"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate training configuration for a SLEAP file.</span>
 </span><span id="__span-0-2918"><a id="__codelineno-0-2918" name="__codelineno-0-2918"></a>
-</span><span id="__span-0-2919"><a id="__codelineno-0-2919" name="__codelineno-0-2919"></a><span class="sd">    Launch an interactive TUI to configure training, or use --auto to</span>
-</span><span id="__span-0-2920"><a id="__codelineno-0-2920" name="__codelineno-0-2920"></a><span class="sd">    generate a config with smart defaults based on your data.</span>
-</span><span id="__span-0-2921"><a id="__codelineno-0-2921" name="__codelineno-0-2921"></a>
-</span><span id="__span-0-2922"><a id="__codelineno-0-2922" name="__codelineno-0-2922"></a><span class="sd">    Examples:</span>
-</span><span id="__span-0-2923"><a id="__codelineno-0-2923" name="__codelineno-0-2923"></a><span class="sd">        # Interactive TUI</span>
-</span><span id="__span-0-2924"><a id="__codelineno-0-2924" name="__codelineno-0-2924"></a><span class="sd">        sleap-nn config labels.slp</span>
-</span><span id="__span-0-2925"><a id="__codelineno-0-2925" name="__codelineno-0-2925"></a>
-</span><span id="__span-0-2926"><a id="__codelineno-0-2926" name="__codelineno-0-2926"></a><span class="sd">        # Auto-generate config</span>
-</span><span id="__span-0-2927"><a id="__codelineno-0-2927" name="__codelineno-0-2927"></a><span class="sd">        sleap-nn config labels.slp --auto -o config.yaml</span>
-</span><span id="__span-0-2928"><a id="__codelineno-0-2928" name="__codelineno-0-2928"></a>
-</span><span id="__span-0-2929"><a id="__codelineno-0-2929" name="__codelineno-0-2929"></a><span class="sd">        # Auto-generate with overrides</span>
-</span><span id="__span-0-2930"><a id="__codelineno-0-2930" name="__codelineno-0-2930"></a><span class="sd">        sleap-nn config labels.slp --auto --pipeline bottomup</span>
-</span><span id="__span-0-2931"><a id="__codelineno-0-2931" name="__codelineno-0-2931"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-2932"><a id="__codelineno-0-2932" name="__codelineno-0-2932"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.config_generator.generator</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigGenerator</span>
-</span><span id="__span-0-2933"><a id="__codelineno-0-2933" name="__codelineno-0-2933"></a>
-</span><span id="__span-0-2934"><a id="__codelineno-0-2934" name="__codelineno-0-2934"></a>    <span class="c1"># Auto mode (non-interactive)</span>
-</span><span id="__span-0-2935"><a id="__codelineno-0-2935" name="__codelineno-0-2935"></a>    <span class="k">if</span> <span class="n">auto</span><span class="p">:</span>
-</span><span id="__span-0-2936"><a id="__codelineno-0-2936" name="__codelineno-0-2936"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">slp_path</span><span class="p">:</span>
-</span><span id="__span-0-2937"><a id="__codelineno-0-2937" name="__codelineno-0-2937"></a>            <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="s2">&quot;Error: SLP_PATH is required for --auto mode&quot;</span><span class="p">,</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-0-2938"><a id="__codelineno-0-2938" name="__codelineno-0-2938"></a>            <span class="k">raise</span> <span class="ne">SystemExit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-</span><span id="__span-0-2939"><a id="__codelineno-0-2939" name="__codelineno-0-2939"></a>
-</span><span id="__span-0-2940"><a id="__codelineno-0-2940" name="__codelineno-0-2940"></a>        <span class="n">gen</span> <span class="o">=</span> <span class="n">ConfigGenerator</span><span class="o">.</span><span class="n">from_slp</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span>
-</span><span id="__span-0-2941"><a id="__codelineno-0-2941" name="__codelineno-0-2941"></a>        <span class="n">gen</span><span class="o">.</span><span class="n">auto</span><span class="p">()</span>
-</span><span id="__span-0-2942"><a id="__codelineno-0-2942" name="__codelineno-0-2942"></a>
-</span><span id="__span-0-2943"><a id="__codelineno-0-2943" name="__codelineno-0-2943"></a>        <span class="c1"># Apply overrides</span>
-</span><span id="__span-0-2944"><a id="__codelineno-0-2944" name="__codelineno-0-2944"></a>        <span class="k">if</span> <span class="n">pipeline</span><span class="p">:</span>
-</span><span id="__span-0-2945"><a id="__codelineno-0-2945" name="__codelineno-0-2945"></a>            <span class="c1"># &#39;topdown&#39; is a CLI alias for the centroid STAGE (is_topdown=True),</span>
-</span><span id="__span-0-2946"><a id="__codelineno-0-2946" name="__codelineno-0-2946"></a>            <span class="c1"># which triggers paired centroid + centered_instance generation.</span>
-</span><span id="__span-0-2947"><a id="__codelineno-0-2947" name="__codelineno-0-2947"></a>            <span class="c1"># &#39;centroid&#39; is the STANDALONE single-config centroid model</span>
-</span><span id="__span-0-2948"><a id="__codelineno-0-2948" name="__codelineno-0-2948"></a>            <span class="c1"># (is_topdown=False), emitted via the &quot;centroid_only&quot; pipeline.</span>
-</span><span id="__span-0-2949"><a id="__codelineno-0-2949" name="__codelineno-0-2949"></a>            <span class="k">if</span> <span class="n">pipeline</span> <span class="o">==</span> <span class="s2">&quot;topdown&quot;</span><span class="p">:</span>
-</span><span id="__span-0-2950"><a id="__codelineno-0-2950" name="__codelineno-0-2950"></a>                <span class="n">gen</span><span class="o">.</span><span class="n">pipeline</span><span class="p">(</span><span class="s2">&quot;centroid&quot;</span><span class="p">)</span>
-</span><span id="__span-0-2951"><a id="__codelineno-0-2951" name="__codelineno-0-2951"></a>            <span class="k">elif</span> <span class="n">pipeline</span> <span class="o">==</span> <span class="s2">&quot;centroid&quot;</span><span class="p">:</span>
-</span><span id="__span-0-2952"><a id="__codelineno-0-2952" name="__codelineno-0-2952"></a>                <span class="n">gen</span><span class="o">.</span><span class="n">pipeline</span><span class="p">(</span><span class="s2">&quot;centroid_only&quot;</span><span class="p">)</span>
-</span><span id="__span-0-2953"><a id="__codelineno-0-2953" name="__codelineno-0-2953"></a>            <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-2954"><a id="__codelineno-0-2954" name="__codelineno-0-2954"></a>                <span class="n">gen</span><span class="o">.</span><span class="n">pipeline</span><span class="p">(</span><span class="n">pipeline</span><span class="p">)</span>
-</span><span id="__span-0-2955"><a id="__codelineno-0-2955" name="__codelineno-0-2955"></a>
-</span><span id="__span-0-2956"><a id="__codelineno-0-2956" name="__codelineno-0-2956"></a>        <span class="k">if</span> <span class="n">show_yaml</span><span class="p">:</span>
-</span><span id="__span-0-2957"><a id="__codelineno-0-2957" name="__codelineno-0-2957"></a>            <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="n">gen</span><span class="o">.</span><span class="n">to_yaml</span><span class="p">())</span>
-</span><span id="__span-0-2958"><a id="__codelineno-0-2958" name="__codelineno-0-2958"></a>        <span class="k">elif</span> <span class="n">output</span><span class="p">:</span>
-</span><span id="__span-0-2959"><a id="__codelineno-0-2959" name="__codelineno-0-2959"></a>            <span class="n">gen</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
-</span><span id="__span-0-2960"><a id="__codelineno-0-2960" name="__codelineno-0-2960"></a>            <span class="k">if</span> <span class="n">gen</span><span class="o">.</span><span class="n">is_topdown</span><span class="p">:</span>
-</span><span id="__span-0-2961"><a id="__codelineno-0-2961" name="__codelineno-0-2961"></a>                <span class="n">path_obj</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
-</span><span id="__span-0-2962"><a id="__codelineno-0-2962" name="__codelineno-0-2962"></a>                <span class="n">stem</span> <span class="o">=</span> <span class="n">path_obj</span><span class="o">.</span><span class="n">stem</span>
-</span><span id="__span-0-2963"><a id="__codelineno-0-2963" name="__codelineno-0-2963"></a>                <span class="n">suffix</span> <span class="o">=</span> <span class="n">path_obj</span><span class="o">.</span><span class="n">suffix</span> <span class="ow">or</span> <span class="s2">&quot;.yaml&quot;</span>
-</span><span id="__span-0-2964"><a id="__codelineno-0-2964" name="__codelineno-0-2964"></a>                <span class="n">parent</span> <span class="o">=</span> <span class="n">path_obj</span><span class="o">.</span><span class="n">parent</span>
-</span><span id="__span-0-2965"><a id="__codelineno-0-2965" name="__codelineno-0-2965"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span>
-</span><span id="__span-0-2966"><a id="__codelineno-0-2966" name="__codelineno-0-2966"></a>                    <span class="sa">f</span><span class="s2">&quot;Saved centroid config to: </span><span class="si">{</span><span class="n">parent</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">stem</span><span class="si">}</span><span class="s1">_centroid</span><span class="si">{</span><span class="n">suffix</span><span class="si">}</span><span class="s1">&#39;</span><span class="si">}</span><span class="s2">&quot;</span>
-</span><span id="__span-0-2967"><a id="__codelineno-0-2967" name="__codelineno-0-2967"></a>                <span class="p">)</span>
-</span><span id="__span-0-2968"><a id="__codelineno-0-2968" name="__codelineno-0-2968"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span>
-</span><span id="__span-0-2969"><a id="__codelineno-0-2969" name="__codelineno-0-2969"></a>                    <span class="sa">f</span><span class="s2">&quot;Saved instance config to: </span><span class="si">{</span><span class="n">parent</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">stem</span><span class="si">}</span><span class="s1">_centered_instance</span><span class="si">{</span><span class="n">suffix</span><span class="si">}</span><span class="s1">&#39;</span><span class="si">}</span><span class="s2">&quot;</span>
-</span><span id="__span-0-2970"><a id="__codelineno-0-2970" name="__codelineno-0-2970"></a>                <span class="p">)</span>
-</span><span id="__span-0-2971"><a id="__codelineno-0-2971" name="__codelineno-0-2971"></a>            <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-2972"><a id="__codelineno-0-2972" name="__codelineno-0-2972"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved config to: </span><span class="si">{</span><span class="n">output</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-2973"><a id="__codelineno-0-2973" name="__codelineno-0-2973"></a>        <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-2974"><a id="__codelineno-0-2974" name="__codelineno-0-2974"></a>            <span class="c1"># Default output path</span>
-</span><span id="__span-0-2975"><a id="__codelineno-0-2975" name="__codelineno-0-2975"></a>            <span class="n">slp_stem</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span><span class="o">.</span><span class="n">stem</span>
-</span><span id="__span-0-2976"><a id="__codelineno-0-2976" name="__codelineno-0-2976"></a>            <span class="n">output_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">slp_stem</span><span class="si">}</span><span class="s2">_config.yaml&quot;</span>
-</span><span id="__span-0-2977"><a id="__codelineno-0-2977" name="__codelineno-0-2977"></a>            <span class="n">gen</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">output_path</span><span class="p">))</span>
-</span><span id="__span-0-2978"><a id="__codelineno-0-2978" name="__codelineno-0-2978"></a>            <span class="k">if</span> <span class="n">gen</span><span class="o">.</span><span class="n">is_topdown</span><span class="p">:</span>
-</span><span id="__span-0-2979"><a id="__codelineno-0-2979" name="__codelineno-0-2979"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span>
-</span><span id="__span-0-2980"><a id="__codelineno-0-2980" name="__codelineno-0-2980"></a>                    <span class="sa">f</span><span class="s2">&quot;Saved centroid config to: </span><span class="si">{</span><span class="n">output_path</span><span class="o">.</span><span class="n">parent</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">slp_stem</span><span class="si">}</span><span class="s1">_config_centroid.yaml&#39;</span><span class="si">}</span><span class="s2">&quot;</span>
-</span><span id="__span-0-2981"><a id="__codelineno-0-2981" name="__codelineno-0-2981"></a>                <span class="p">)</span>
-</span><span id="__span-0-2982"><a id="__codelineno-0-2982" name="__codelineno-0-2982"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span>
-</span><span id="__span-0-2983"><a id="__codelineno-0-2983" name="__codelineno-0-2983"></a>                    <span class="sa">f</span><span class="s2">&quot;Saved instance config to: </span><span class="si">{</span><span class="n">output_path</span><span class="o">.</span><span class="n">parent</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">slp_stem</span><span class="si">}</span><span class="s1">_config_centered_instance.yaml&#39;</span><span class="si">}</span><span class="s2">&quot;</span>
-</span><span id="__span-0-2984"><a id="__codelineno-0-2984" name="__codelineno-0-2984"></a>                <span class="p">)</span>
-</span><span id="__span-0-2985"><a id="__codelineno-0-2985" name="__codelineno-0-2985"></a>            <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-2986"><a id="__codelineno-0-2986" name="__codelineno-0-2986"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved config to: </span><span class="si">{</span><span class="n">output_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-2987"><a id="__codelineno-0-2987" name="__codelineno-0-2987"></a>        <span class="k">return</span>
-</span><span id="__span-0-2988"><a id="__codelineno-0-2988" name="__codelineno-0-2988"></a>
-</span><span id="__span-0-2989"><a id="__codelineno-0-2989" name="__codelineno-0-2989"></a>    <span class="c1"># Interactive TUI mode</span>
-</span><span id="__span-0-2990"><a id="__codelineno-0-2990" name="__codelineno-0-2990"></a>    <span class="k">try</span><span class="p">:</span>
-</span><span id="__span-0-2991"><a id="__codelineno-0-2991" name="__codelineno-0-2991"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.config_generator.tui.app</span><span class="w"> </span><span class="kn">import</span> <span class="n">launch_tui</span>
-</span><span id="__span-0-2992"><a id="__codelineno-0-2992" name="__codelineno-0-2992"></a>
-</span><span id="__span-0-2993"><a id="__codelineno-0-2993" name="__codelineno-0-2993"></a>        <span class="n">launch_tui</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span>
-</span><span id="__span-0-2994"><a id="__codelineno-0-2994" name="__codelineno-0-2994"></a>    <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-</span><span id="__span-0-2995"><a id="__codelineno-0-2995" name="__codelineno-0-2995"></a>        <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: TUI dependencies not available: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-0-2996"><a id="__codelineno-0-2996" name="__codelineno-0-2996"></a>        <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="s2">&quot;Install with: pip install textual&quot;</span><span class="p">,</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-0-2997"><a id="__codelineno-0-2997" name="__codelineno-0-2997"></a>        <span class="k">raise</span> <span class="ne">SystemExit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-2919"><a id="__codelineno-0-2919" name="__codelineno-0-2919"></a><span class="sd">    **[Experimental]** This feature is experimental and may change in future releases.</span>
+</span><span id="__span-0-2920"><a id="__codelineno-0-2920" name="__codelineno-0-2920"></a>
+</span><span id="__span-0-2921"><a id="__codelineno-0-2921" name="__codelineno-0-2921"></a><span class="sd">    Launch an interactive TUI to configure training, or use --auto to</span>
+</span><span id="__span-0-2922"><a id="__codelineno-0-2922" name="__codelineno-0-2922"></a><span class="sd">    generate a config with smart defaults based on your data.</span>
+</span><span id="__span-0-2923"><a id="__codelineno-0-2923" name="__codelineno-0-2923"></a>
+</span><span id="__span-0-2924"><a id="__codelineno-0-2924" name="__codelineno-0-2924"></a><span class="sd">    Examples:</span>
+</span><span id="__span-0-2925"><a id="__codelineno-0-2925" name="__codelineno-0-2925"></a><span class="sd">        # Interactive TUI</span>
+</span><span id="__span-0-2926"><a id="__codelineno-0-2926" name="__codelineno-0-2926"></a><span class="sd">        sleap-nn config labels.slp</span>
+</span><span id="__span-0-2927"><a id="__codelineno-0-2927" name="__codelineno-0-2927"></a>
+</span><span id="__span-0-2928"><a id="__codelineno-0-2928" name="__codelineno-0-2928"></a><span class="sd">        # Auto-generate config</span>
+</span><span id="__span-0-2929"><a id="__codelineno-0-2929" name="__codelineno-0-2929"></a><span class="sd">        sleap-nn config labels.slp --auto -o config.yaml</span>
+</span><span id="__span-0-2930"><a id="__codelineno-0-2930" name="__codelineno-0-2930"></a>
+</span><span id="__span-0-2931"><a id="__codelineno-0-2931" name="__codelineno-0-2931"></a><span class="sd">        # Auto-generate with overrides</span>
+</span><span id="__span-0-2932"><a id="__codelineno-0-2932" name="__codelineno-0-2932"></a><span class="sd">        sleap-nn config labels.slp --auto --pipeline bottomup</span>
+</span><span id="__span-0-2933"><a id="__codelineno-0-2933" name="__codelineno-0-2933"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-2934"><a id="__codelineno-0-2934" name="__codelineno-0-2934"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.config_generator.generator</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigGenerator</span>
+</span><span id="__span-0-2935"><a id="__codelineno-0-2935" name="__codelineno-0-2935"></a>
+</span><span id="__span-0-2936"><a id="__codelineno-0-2936" name="__codelineno-0-2936"></a>    <span class="c1"># Auto mode (non-interactive)</span>
+</span><span id="__span-0-2937"><a id="__codelineno-0-2937" name="__codelineno-0-2937"></a>    <span class="k">if</span> <span class="n">auto</span><span class="p">:</span>
+</span><span id="__span-0-2938"><a id="__codelineno-0-2938" name="__codelineno-0-2938"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">slp_path</span><span class="p">:</span>
+</span><span id="__span-0-2939"><a id="__codelineno-0-2939" name="__codelineno-0-2939"></a>            <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="s2">&quot;Error: SLP_PATH is required for --auto mode&quot;</span><span class="p">,</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-0-2940"><a id="__codelineno-0-2940" name="__codelineno-0-2940"></a>            <span class="k">raise</span> <span class="ne">SystemExit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-2941"><a id="__codelineno-0-2941" name="__codelineno-0-2941"></a>
+</span><span id="__span-0-2942"><a id="__codelineno-0-2942" name="__codelineno-0-2942"></a>        <span class="n">gen</span> <span class="o">=</span> <span class="n">ConfigGenerator</span><span class="o">.</span><span class="n">from_slp</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span>
+</span><span id="__span-0-2943"><a id="__codelineno-0-2943" name="__codelineno-0-2943"></a>        <span class="n">gen</span><span class="o">.</span><span class="n">auto</span><span class="p">()</span>
+</span><span id="__span-0-2944"><a id="__codelineno-0-2944" name="__codelineno-0-2944"></a>
+</span><span id="__span-0-2945"><a id="__codelineno-0-2945" name="__codelineno-0-2945"></a>        <span class="c1"># Apply overrides</span>
+</span><span id="__span-0-2946"><a id="__codelineno-0-2946" name="__codelineno-0-2946"></a>        <span class="k">if</span> <span class="n">pipeline</span><span class="p">:</span>
+</span><span id="__span-0-2947"><a id="__codelineno-0-2947" name="__codelineno-0-2947"></a>            <span class="c1"># &#39;topdown&#39; is a CLI alias for the centroid STAGE (is_topdown=True),</span>
+</span><span id="__span-0-2948"><a id="__codelineno-0-2948" name="__codelineno-0-2948"></a>            <span class="c1"># which triggers paired centroid + centered_instance generation.</span>
+</span><span id="__span-0-2949"><a id="__codelineno-0-2949" name="__codelineno-0-2949"></a>            <span class="c1"># &#39;centroid&#39; is the STANDALONE single-config centroid model</span>
+</span><span id="__span-0-2950"><a id="__codelineno-0-2950" name="__codelineno-0-2950"></a>            <span class="c1"># (is_topdown=False), emitted via the &quot;centroid_only&quot; pipeline.</span>
+</span><span id="__span-0-2951"><a id="__codelineno-0-2951" name="__codelineno-0-2951"></a>            <span class="k">if</span> <span class="n">pipeline</span> <span class="o">==</span> <span class="s2">&quot;topdown&quot;</span><span class="p">:</span>
+</span><span id="__span-0-2952"><a id="__codelineno-0-2952" name="__codelineno-0-2952"></a>                <span class="n">gen</span><span class="o">.</span><span class="n">pipeline</span><span class="p">(</span><span class="s2">&quot;centroid&quot;</span><span class="p">)</span>
+</span><span id="__span-0-2953"><a id="__codelineno-0-2953" name="__codelineno-0-2953"></a>            <span class="k">elif</span> <span class="n">pipeline</span> <span class="o">==</span> <span class="s2">&quot;centroid&quot;</span><span class="p">:</span>
+</span><span id="__span-0-2954"><a id="__codelineno-0-2954" name="__codelineno-0-2954"></a>                <span class="n">gen</span><span class="o">.</span><span class="n">pipeline</span><span class="p">(</span><span class="s2">&quot;centroid_only&quot;</span><span class="p">)</span>
+</span><span id="__span-0-2955"><a id="__codelineno-0-2955" name="__codelineno-0-2955"></a>            <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-2956"><a id="__codelineno-0-2956" name="__codelineno-0-2956"></a>                <span class="n">gen</span><span class="o">.</span><span class="n">pipeline</span><span class="p">(</span><span class="n">pipeline</span><span class="p">)</span>
+</span><span id="__span-0-2957"><a id="__codelineno-0-2957" name="__codelineno-0-2957"></a>
+</span><span id="__span-0-2958"><a id="__codelineno-0-2958" name="__codelineno-0-2958"></a>        <span class="k">if</span> <span class="n">show_yaml</span><span class="p">:</span>
+</span><span id="__span-0-2959"><a id="__codelineno-0-2959" name="__codelineno-0-2959"></a>            <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="n">gen</span><span class="o">.</span><span class="n">to_yaml</span><span class="p">())</span>
+</span><span id="__span-0-2960"><a id="__codelineno-0-2960" name="__codelineno-0-2960"></a>        <span class="k">elif</span> <span class="n">output</span><span class="p">:</span>
+</span><span id="__span-0-2961"><a id="__codelineno-0-2961" name="__codelineno-0-2961"></a>            <span class="n">gen</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</span><span id="__span-0-2962"><a id="__codelineno-0-2962" name="__codelineno-0-2962"></a>            <span class="k">if</span> <span class="n">gen</span><span class="o">.</span><span class="n">is_topdown</span><span class="p">:</span>
+</span><span id="__span-0-2963"><a id="__codelineno-0-2963" name="__codelineno-0-2963"></a>                <span class="n">path_obj</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+</span><span id="__span-0-2964"><a id="__codelineno-0-2964" name="__codelineno-0-2964"></a>                <span class="n">stem</span> <span class="o">=</span> <span class="n">path_obj</span><span class="o">.</span><span class="n">stem</span>
+</span><span id="__span-0-2965"><a id="__codelineno-0-2965" name="__codelineno-0-2965"></a>                <span class="n">suffix</span> <span class="o">=</span> <span class="n">path_obj</span><span class="o">.</span><span class="n">suffix</span> <span class="ow">or</span> <span class="s2">&quot;.yaml&quot;</span>
+</span><span id="__span-0-2966"><a id="__codelineno-0-2966" name="__codelineno-0-2966"></a>                <span class="n">parent</span> <span class="o">=</span> <span class="n">path_obj</span><span class="o">.</span><span class="n">parent</span>
+</span><span id="__span-0-2967"><a id="__codelineno-0-2967" name="__codelineno-0-2967"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span>
+</span><span id="__span-0-2968"><a id="__codelineno-0-2968" name="__codelineno-0-2968"></a>                    <span class="sa">f</span><span class="s2">&quot;Saved centroid config to: </span><span class="si">{</span><span class="n">parent</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">stem</span><span class="si">}</span><span class="s1">_centroid</span><span class="si">{</span><span class="n">suffix</span><span class="si">}</span><span class="s1">&#39;</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span id="__span-0-2969"><a id="__codelineno-0-2969" name="__codelineno-0-2969"></a>                <span class="p">)</span>
+</span><span id="__span-0-2970"><a id="__codelineno-0-2970" name="__codelineno-0-2970"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span>
+</span><span id="__span-0-2971"><a id="__codelineno-0-2971" name="__codelineno-0-2971"></a>                    <span class="sa">f</span><span class="s2">&quot;Saved instance config to: </span><span class="si">{</span><span class="n">parent</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">stem</span><span class="si">}</span><span class="s1">_centered_instance</span><span class="si">{</span><span class="n">suffix</span><span class="si">}</span><span class="s1">&#39;</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span id="__span-0-2972"><a id="__codelineno-0-2972" name="__codelineno-0-2972"></a>                <span class="p">)</span>
+</span><span id="__span-0-2973"><a id="__codelineno-0-2973" name="__codelineno-0-2973"></a>            <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-2974"><a id="__codelineno-0-2974" name="__codelineno-0-2974"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved config to: </span><span class="si">{</span><span class="n">output</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-2975"><a id="__codelineno-0-2975" name="__codelineno-0-2975"></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-2976"><a id="__codelineno-0-2976" name="__codelineno-0-2976"></a>            <span class="c1"># Default output path</span>
+</span><span id="__span-0-2977"><a id="__codelineno-0-2977" name="__codelineno-0-2977"></a>            <span class="n">slp_stem</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span><span class="o">.</span><span class="n">stem</span>
+</span><span id="__span-0-2978"><a id="__codelineno-0-2978" name="__codelineno-0-2978"></a>            <span class="n">output_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">slp_stem</span><span class="si">}</span><span class="s2">_config.yaml&quot;</span>
+</span><span id="__span-0-2979"><a id="__codelineno-0-2979" name="__codelineno-0-2979"></a>            <span class="n">gen</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">output_path</span><span class="p">))</span>
+</span><span id="__span-0-2980"><a id="__codelineno-0-2980" name="__codelineno-0-2980"></a>            <span class="k">if</span> <span class="n">gen</span><span class="o">.</span><span class="n">is_topdown</span><span class="p">:</span>
+</span><span id="__span-0-2981"><a id="__codelineno-0-2981" name="__codelineno-0-2981"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span>
+</span><span id="__span-0-2982"><a id="__codelineno-0-2982" name="__codelineno-0-2982"></a>                    <span class="sa">f</span><span class="s2">&quot;Saved centroid config to: </span><span class="si">{</span><span class="n">output_path</span><span class="o">.</span><span class="n">parent</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">slp_stem</span><span class="si">}</span><span class="s1">_config_centroid.yaml&#39;</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span id="__span-0-2983"><a id="__codelineno-0-2983" name="__codelineno-0-2983"></a>                <span class="p">)</span>
+</span><span id="__span-0-2984"><a id="__codelineno-0-2984" name="__codelineno-0-2984"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span>
+</span><span id="__span-0-2985"><a id="__codelineno-0-2985" name="__codelineno-0-2985"></a>                    <span class="sa">f</span><span class="s2">&quot;Saved instance config to: </span><span class="si">{</span><span class="n">output_path</span><span class="o">.</span><span class="n">parent</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">slp_stem</span><span class="si">}</span><span class="s1">_config_centered_instance.yaml&#39;</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span id="__span-0-2986"><a id="__codelineno-0-2986" name="__codelineno-0-2986"></a>                <span class="p">)</span>
+</span><span id="__span-0-2987"><a id="__codelineno-0-2987" name="__codelineno-0-2987"></a>            <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-2988"><a id="__codelineno-0-2988" name="__codelineno-0-2988"></a>                <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saved config to: </span><span class="si">{</span><span class="n">output_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-2989"><a id="__codelineno-0-2989" name="__codelineno-0-2989"></a>        <span class="k">return</span>
+</span><span id="__span-0-2990"><a id="__codelineno-0-2990" name="__codelineno-0-2990"></a>
+</span><span id="__span-0-2991"><a id="__codelineno-0-2991" name="__codelineno-0-2991"></a>    <span class="c1"># Interactive TUI mode</span>
+</span><span id="__span-0-2992"><a id="__codelineno-0-2992" name="__codelineno-0-2992"></a>    <span class="k">try</span><span class="p">:</span>
+</span><span id="__span-0-2993"><a id="__codelineno-0-2993" name="__codelineno-0-2993"></a>        <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.config_generator.tui.app</span><span class="w"> </span><span class="kn">import</span> <span class="n">launch_tui</span>
+</span><span id="__span-0-2994"><a id="__codelineno-0-2994" name="__codelineno-0-2994"></a>
+</span><span id="__span-0-2995"><a id="__codelineno-0-2995" name="__codelineno-0-2995"></a>        <span class="n">launch_tui</span><span class="p">(</span><span class="n">slp_path</span><span class="p">)</span>
+</span><span id="__span-0-2996"><a id="__codelineno-0-2996" name="__codelineno-0-2996"></a>    <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+</span><span id="__span-0-2997"><a id="__codelineno-0-2997" name="__codelineno-0-2997"></a>        <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: TUI dependencies not available: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-0-2998"><a id="__codelineno-0-2998" name="__codelineno-0-2998"></a>        <span class="n">click</span><span class="o">.</span><span class="n">echo</span><span class="p">(</span><span class="s2">&quot;Install with: pip install textual&quot;</span><span class="p">,</span> <span class="n">err</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-0-2999"><a id="__codelineno-0-2999" name="__codelineno-0-2999"></a>        <span class="k">raise</span> <span class="ne">SystemExit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8235,8 +8263,7 @@ generate a config with smart defaults based on your data.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/cli.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2770">2770</a></span>
-<span class="normal"><a href="#__codelineno-0-2771">2771</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2771">2771</a></span>
 <span class="normal"><a href="#__codelineno-0-2772">2772</a></span>
 <span class="normal"><a href="#__codelineno-0-2773">2773</a></span>
 <span class="normal"><a href="#__codelineno-0-2774">2774</a></span>
@@ -8289,61 +8316,64 @@ generate a config with smart defaults based on your data.</p>
 <span class="normal"><a href="#__codelineno-0-2821">2821</a></span>
 <span class="normal"><a href="#__codelineno-0-2822">2822</a></span>
 <span class="normal"><a href="#__codelineno-0-2823">2823</a></span>
-<span class="normal"><a href="#__codelineno-0-2824">2824</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-2770"><a id="__codelineno-0-2770" name="__codelineno-0-2770"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
-</span><span id="__span-0-2771"><a id="__codelineno-0-2771" name="__codelineno-0-2771"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-2772"><a id="__codelineno-0-2772" name="__codelineno-0-2772"></a>    <span class="s2">&quot;--ground_truth_path&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2773"><a id="__codelineno-0-2773" name="__codelineno-0-2773"></a>    <span class="s2">&quot;-g&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2774"><a id="__codelineno-0-2774" name="__codelineno-0-2774"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-2775"><a id="__codelineno-0-2775" name="__codelineno-0-2775"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-2776"><a id="__codelineno-0-2776" name="__codelineno-0-2776"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to ground truth labels file (.slp)&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2777"><a id="__codelineno-0-2777" name="__codelineno-0-2777"></a><span class="p">)</span>
-</span><span id="__span-0-2778"><a id="__codelineno-0-2778" name="__codelineno-0-2778"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-2779"><a id="__codelineno-0-2779" name="__codelineno-0-2779"></a>    <span class="s2">&quot;--predicted_path&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2780"><a id="__codelineno-0-2780" name="__codelineno-0-2780"></a>    <span class="s2">&quot;-p&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2781"><a id="__codelineno-0-2781" name="__codelineno-0-2781"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-2782"><a id="__codelineno-0-2782" name="__codelineno-0-2782"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-2783"><a id="__codelineno-0-2783" name="__codelineno-0-2783"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to predicted labels file (.slp)&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2784"><a id="__codelineno-0-2784" name="__codelineno-0-2784"></a><span class="p">)</span>
-</span><span id="__span-0-2785"><a id="__codelineno-0-2785" name="__codelineno-0-2785"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--save_metrics&quot;</span><span class="p">,</span> <span class="s2">&quot;-s&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to save metrics (.npz file)&quot;</span><span class="p">)</span>
-</span><span id="__span-0-2786"><a id="__codelineno-0-2786" name="__codelineno-0-2786"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-2787"><a id="__codelineno-0-2787" name="__codelineno-0-2787"></a>    <span class="s2">&quot;--oks_stddev&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2788"><a id="__codelineno-0-2788" name="__codelineno-0-2788"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
-</span><span id="__span-0-2789"><a id="__codelineno-0-2789" name="__codelineno-0-2789"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.025</span><span class="p">,</span>
-</span><span id="__span-0-2790"><a id="__codelineno-0-2790" name="__codelineno-0-2790"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Standard deviation for OKS calculation&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2791"><a id="__codelineno-0-2791" name="__codelineno-0-2791"></a><span class="p">)</span>
-</span><span id="__span-0-2792"><a id="__codelineno-0-2792" name="__codelineno-0-2792"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--oks_scale&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Scale factor for OKS calculation&quot;</span><span class="p">)</span>
-</span><span id="__span-0-2793"><a id="__codelineno-0-2793" name="__codelineno-0-2793"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-2794"><a id="__codelineno-0-2794" name="__codelineno-0-2794"></a>    <span class="s2">&quot;--match_threshold&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Threshold for instance matching&quot;</span>
-</span><span id="__span-0-2795"><a id="__codelineno-0-2795" name="__codelineno-0-2795"></a><span class="p">)</span>
-</span><span id="__span-0-2796"><a id="__codelineno-0-2796" name="__codelineno-0-2796"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-2797"><a id="__codelineno-0-2797" name="__codelineno-0-2797"></a>    <span class="s2">&quot;--user_labels_only/--no-user_labels_only&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2798"><a id="__codelineno-0-2798" name="__codelineno-0-2798"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-2799"><a id="__codelineno-0-2799" name="__codelineno-0-2799"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Only evaluate user-labeled frames (default: True)&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2800"><a id="__codelineno-0-2800" name="__codelineno-0-2800"></a><span class="p">)</span>
-</span><span id="__span-0-2801"><a id="__codelineno-0-2801" name="__codelineno-0-2801"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-2802"><a id="__codelineno-0-2802" name="__codelineno-0-2802"></a>    <span class="s2">&quot;--match_method&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2803"><a id="__codelineno-0-2803" name="__codelineno-0-2803"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">([</span><span class="s2">&quot;oks&quot;</span><span class="p">,</span> <span class="s2">&quot;centroid&quot;</span><span class="p">,</span> <span class="s2">&quot;mask&quot;</span><span class="p">,</span> <span class="s2">&quot;auto&quot;</span><span class="p">]),</span>
-</span><span id="__span-0-2804"><a id="__codelineno-0-2804" name="__codelineno-0-2804"></a>    <span class="n">default</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2805"><a id="__codelineno-0-2805" name="__codelineno-0-2805"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-2806"><a id="__codelineno-0-2806" name="__codelineno-0-2806"></a>        <span class="s2">&quot;Matching method: &#39;oks&#39; (full-skeleton), &#39;centroid&#39; (single-point &quot;</span>
-</span><span id="__span-0-2807"><a id="__codelineno-0-2807" name="__codelineno-0-2807"></a>        <span class="s2">&quot;pixel-distance), &#39;mask&#39; (instance-segmentation mask IoU), or &#39;auto&#39; &quot;</span>
-</span><span id="__span-0-2808"><a id="__codelineno-0-2808" name="__codelineno-0-2808"></a>        <span class="s2">&quot;(centroid when the prediction skeleton is single-node). Default: auto.&quot;</span>
-</span><span id="__span-0-2809"><a id="__codelineno-0-2809" name="__codelineno-0-2809"></a>    <span class="p">),</span>
-</span><span id="__span-0-2810"><a id="__codelineno-0-2810" name="__codelineno-0-2810"></a><span class="p">)</span>
-</span><span id="__span-0-2811"><a id="__codelineno-0-2811" name="__codelineno-0-2811"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-2812"><a id="__codelineno-0-2812" name="__codelineno-0-2812"></a>    <span class="s2">&quot;--anchor_part&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2813"><a id="__codelineno-0-2813" name="__codelineno-0-2813"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-2814"><a id="__codelineno-0-2814" name="__codelineno-0-2814"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-2815"><a id="__codelineno-0-2815" name="__codelineno-0-2815"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
-</span><span id="__span-0-2816"><a id="__codelineno-0-2816" name="__codelineno-0-2816"></a>        <span class="s2">&quot;GT skeleton node used to compute ground-truth centroids in centroid &quot;</span>
-</span><span id="__span-0-2817"><a id="__codelineno-0-2817" name="__codelineno-0-2817"></a>        <span class="s2">&quot;mode. Defaults to the mean of visible nodes when absent (#586).&quot;</span>
-</span><span id="__span-0-2818"><a id="__codelineno-0-2818" name="__codelineno-0-2818"></a>    <span class="p">),</span>
-</span><span id="__span-0-2819"><a id="__codelineno-0-2819" name="__codelineno-0-2819"></a><span class="p">)</span>
-</span><span id="__span-0-2820"><a id="__codelineno-0-2820" name="__codelineno-0-2820"></a><span class="k">def</span><span class="w"> </span><span class="nf">eval</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-</span><span id="__span-0-2821"><a id="__codelineno-0-2821" name="__codelineno-0-2821"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run evaluation workflow.&quot;&quot;&quot;</span>
-</span><span id="__span-0-2822"><a id="__codelineno-0-2822" name="__codelineno-0-2822"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_evaluation</span>
-</span><span id="__span-0-2823"><a id="__codelineno-0-2823" name="__codelineno-0-2823"></a>
-</span><span id="__span-0-2824"><a id="__codelineno-0-2824" name="__codelineno-0-2824"></a>    <span class="n">run_evaluation</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-2824">2824</a></span>
+<span class="normal"><a href="#__codelineno-0-2825">2825</a></span>
+<span class="normal"><a href="#__codelineno-0-2826">2826</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-2771"><a id="__codelineno-0-2771" name="__codelineno-0-2771"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+</span><span id="__span-0-2772"><a id="__codelineno-0-2772" name="__codelineno-0-2772"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-2773"><a id="__codelineno-0-2773" name="__codelineno-0-2773"></a>    <span class="s2">&quot;--ground_truth_path&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2774"><a id="__codelineno-0-2774" name="__codelineno-0-2774"></a>    <span class="s2">&quot;-g&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2775"><a id="__codelineno-0-2775" name="__codelineno-0-2775"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-2776"><a id="__codelineno-0-2776" name="__codelineno-0-2776"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-2777"><a id="__codelineno-0-2777" name="__codelineno-0-2777"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to ground truth labels file (.slp)&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2778"><a id="__codelineno-0-2778" name="__codelineno-0-2778"></a><span class="p">)</span>
+</span><span id="__span-0-2779"><a id="__codelineno-0-2779" name="__codelineno-0-2779"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-2780"><a id="__codelineno-0-2780" name="__codelineno-0-2780"></a>    <span class="s2">&quot;--predicted_path&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2781"><a id="__codelineno-0-2781" name="__codelineno-0-2781"></a>    <span class="s2">&quot;-p&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2782"><a id="__codelineno-0-2782" name="__codelineno-0-2782"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-2783"><a id="__codelineno-0-2783" name="__codelineno-0-2783"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-2784"><a id="__codelineno-0-2784" name="__codelineno-0-2784"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to predicted labels file (.slp)&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2785"><a id="__codelineno-0-2785" name="__codelineno-0-2785"></a><span class="p">)</span>
+</span><span id="__span-0-2786"><a id="__codelineno-0-2786" name="__codelineno-0-2786"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--save_metrics&quot;</span><span class="p">,</span> <span class="s2">&quot;-s&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to save metrics (.npz file)&quot;</span><span class="p">)</span>
+</span><span id="__span-0-2787"><a id="__codelineno-0-2787" name="__codelineno-0-2787"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-2788"><a id="__codelineno-0-2788" name="__codelineno-0-2788"></a>    <span class="s2">&quot;--oks_stddev&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2789"><a id="__codelineno-0-2789" name="__codelineno-0-2789"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+</span><span id="__span-0-2790"><a id="__codelineno-0-2790" name="__codelineno-0-2790"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.025</span><span class="p">,</span>
+</span><span id="__span-0-2791"><a id="__codelineno-0-2791" name="__codelineno-0-2791"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Standard deviation for OKS calculation&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2792"><a id="__codelineno-0-2792" name="__codelineno-0-2792"></a><span class="p">)</span>
+</span><span id="__span-0-2793"><a id="__codelineno-0-2793" name="__codelineno-0-2793"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span><span class="s2">&quot;--oks_scale&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Scale factor for OKS calculation&quot;</span><span class="p">)</span>
+</span><span id="__span-0-2794"><a id="__codelineno-0-2794" name="__codelineno-0-2794"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-2795"><a id="__codelineno-0-2795" name="__codelineno-0-2795"></a>    <span class="s2">&quot;--match_threshold&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Threshold for instance matching&quot;</span>
+</span><span id="__span-0-2796"><a id="__codelineno-0-2796" name="__codelineno-0-2796"></a><span class="p">)</span>
+</span><span id="__span-0-2797"><a id="__codelineno-0-2797" name="__codelineno-0-2797"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-2798"><a id="__codelineno-0-2798" name="__codelineno-0-2798"></a>    <span class="s2">&quot;--user_labels_only/--no-user_labels_only&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2799"><a id="__codelineno-0-2799" name="__codelineno-0-2799"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-2800"><a id="__codelineno-0-2800" name="__codelineno-0-2800"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Only evaluate user-labeled frames (default: True)&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2801"><a id="__codelineno-0-2801" name="__codelineno-0-2801"></a><span class="p">)</span>
+</span><span id="__span-0-2802"><a id="__codelineno-0-2802" name="__codelineno-0-2802"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-2803"><a id="__codelineno-0-2803" name="__codelineno-0-2803"></a>    <span class="s2">&quot;--match_method&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2804"><a id="__codelineno-0-2804" name="__codelineno-0-2804"></a>    <span class="nb">type</span><span class="o">=</span><span class="n">click</span><span class="o">.</span><span class="n">Choice</span><span class="p">([</span><span class="s2">&quot;oks&quot;</span><span class="p">,</span> <span class="s2">&quot;centroid&quot;</span><span class="p">,</span> <span class="s2">&quot;mask&quot;</span><span class="p">,</span> <span class="s2">&quot;semantic&quot;</span><span class="p">,</span> <span class="s2">&quot;auto&quot;</span><span class="p">]),</span>
+</span><span id="__span-0-2805"><a id="__codelineno-0-2805" name="__codelineno-0-2805"></a>    <span class="n">default</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2806"><a id="__codelineno-0-2806" name="__codelineno-0-2806"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-2807"><a id="__codelineno-0-2807" name="__codelineno-0-2807"></a>        <span class="s2">&quot;Matching method: &#39;oks&#39; (full-skeleton), &#39;centroid&#39; (single-point &quot;</span>
+</span><span id="__span-0-2808"><a id="__codelineno-0-2808" name="__codelineno-0-2808"></a>        <span class="s2">&quot;pixel-distance), &#39;mask&#39; (instance-segmentation mask IoU), &#39;semantic&#39; &quot;</span>
+</span><span id="__span-0-2809"><a id="__codelineno-0-2809" name="__codelineno-0-2809"></a>        <span class="s2">&quot;(whole-frame foreground IoU/clDice, no matching), or &#39;auto&#39; (centroid &quot;</span>
+</span><span id="__span-0-2810"><a id="__codelineno-0-2810" name="__codelineno-0-2810"></a>        <span class="s2">&quot;when the prediction skeleton is single-node). Default: auto.&quot;</span>
+</span><span id="__span-0-2811"><a id="__codelineno-0-2811" name="__codelineno-0-2811"></a>    <span class="p">),</span>
+</span><span id="__span-0-2812"><a id="__codelineno-0-2812" name="__codelineno-0-2812"></a><span class="p">)</span>
+</span><span id="__span-0-2813"><a id="__codelineno-0-2813" name="__codelineno-0-2813"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-2814"><a id="__codelineno-0-2814" name="__codelineno-0-2814"></a>    <span class="s2">&quot;--anchor_part&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2815"><a id="__codelineno-0-2815" name="__codelineno-0-2815"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-2816"><a id="__codelineno-0-2816" name="__codelineno-0-2816"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-2817"><a id="__codelineno-0-2817" name="__codelineno-0-2817"></a>    <span class="n">help</span><span class="o">=</span><span class="p">(</span>
+</span><span id="__span-0-2818"><a id="__codelineno-0-2818" name="__codelineno-0-2818"></a>        <span class="s2">&quot;GT skeleton node used to compute ground-truth centroids in centroid &quot;</span>
+</span><span id="__span-0-2819"><a id="__codelineno-0-2819" name="__codelineno-0-2819"></a>        <span class="s2">&quot;mode. Defaults to the mean of visible nodes when absent (#586).&quot;</span>
+</span><span id="__span-0-2820"><a id="__codelineno-0-2820" name="__codelineno-0-2820"></a>    <span class="p">),</span>
+</span><span id="__span-0-2821"><a id="__codelineno-0-2821" name="__codelineno-0-2821"></a><span class="p">)</span>
+</span><span id="__span-0-2822"><a id="__codelineno-0-2822" name="__codelineno-0-2822"></a><span class="k">def</span><span class="w"> </span><span class="nf">eval</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+</span><span id="__span-0-2823"><a id="__codelineno-0-2823" name="__codelineno-0-2823"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run evaluation workflow.&quot;&quot;&quot;</span>
+</span><span id="__span-0-2824"><a id="__codelineno-0-2824" name="__codelineno-0-2824"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_evaluation</span>
+</span><span id="__span-0-2825"><a id="__codelineno-0-2825" name="__codelineno-0-2825"></a>
+</span><span id="__span-0-2826"><a id="__codelineno-0-2826" name="__codelineno-0-2826"></a>    <span class="n">run_evaluation</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8366,8 +8396,7 @@ generate a config with smart defaults based on your data.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/cli.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2756">2756</a></span>
-<span class="normal"><a href="#__codelineno-0-2757">2757</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2757">2757</a></span>
 <span class="normal"><a href="#__codelineno-0-2758">2758</a></span>
 <span class="normal"><a href="#__codelineno-0-2759">2759</a></span>
 <span class="normal"><a href="#__codelineno-0-2760">2760</a></span>
@@ -8377,18 +8406,19 @@ generate a config with smart defaults based on your data.</p>
 <span class="normal"><a href="#__codelineno-0-2764">2764</a></span>
 <span class="normal"><a href="#__codelineno-0-2765">2765</a></span>
 <span class="normal"><a href="#__codelineno-0-2766">2766</a></span>
-<span class="normal"><a href="#__codelineno-0-2767">2767</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-2756"><a id="__codelineno-0-2756" name="__codelineno-0-2756"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="s2">&quot;infer&quot;</span><span class="p">,</span> <span class="n">hidden</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
-</span><span id="__span-0-2757"><a id="__codelineno-0-2757" name="__codelineno-0-2757"></a><span class="nd">@_common_inference_options</span>
-</span><span id="__span-0-2758"><a id="__codelineno-0-2758" name="__codelineno-0-2758"></a><span class="k">def</span><span class="w"> </span><span class="nf">infer</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-</span><span id="__span-0-2759"><a id="__codelineno-0-2759" name="__codelineno-0-2759"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Deprecated alias for ``predict``. Use ``sleap-nn predict`` instead.&quot;&quot;&quot;</span>
-</span><span id="__span-0-2760"><a id="__codelineno-0-2760" name="__codelineno-0-2760"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
-</span><span id="__span-0-2761"><a id="__codelineno-0-2761" name="__codelineno-0-2761"></a>
-</span><span id="__span-0-2762"><a id="__codelineno-0-2762" name="__codelineno-0-2762"></a>    <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
-</span><span id="__span-0-2763"><a id="__codelineno-0-2763" name="__codelineno-0-2763"></a>        <span class="s2">&quot;sleap-nn infer is deprecated. Use sleap-nn predict instead.&quot;</span><span class="p">,</span>
-</span><span id="__span-0-2764"><a id="__codelineno-0-2764" name="__codelineno-0-2764"></a>        <span class="ne">DeprecationWarning</span><span class="p">,</span>
-</span><span id="__span-0-2765"><a id="__codelineno-0-2765" name="__codelineno-0-2765"></a>        <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
-</span><span id="__span-0-2766"><a id="__codelineno-0-2766" name="__codelineno-0-2766"></a>    <span class="p">)</span>
-</span><span id="__span-0-2767"><a id="__codelineno-0-2767" name="__codelineno-0-2767"></a>    <span class="k">return</span> <span class="n">_run_inference_impl</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-2767">2767</a></span>
+<span class="normal"><a href="#__codelineno-0-2768">2768</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-2757"><a id="__codelineno-0-2757" name="__codelineno-0-2757"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="s2">&quot;infer&quot;</span><span class="p">,</span> <span class="n">hidden</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+</span><span id="__span-0-2758"><a id="__codelineno-0-2758" name="__codelineno-0-2758"></a><span class="nd">@_common_inference_options</span>
+</span><span id="__span-0-2759"><a id="__codelineno-0-2759" name="__codelineno-0-2759"></a><span class="k">def</span><span class="w"> </span><span class="nf">infer</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+</span><span id="__span-0-2760"><a id="__codelineno-0-2760" name="__codelineno-0-2760"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Deprecated alias for ``predict``. Use ``sleap-nn predict`` instead.&quot;&quot;&quot;</span>
+</span><span id="__span-0-2761"><a id="__codelineno-0-2761" name="__codelineno-0-2761"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+</span><span id="__span-0-2762"><a id="__codelineno-0-2762" name="__codelineno-0-2762"></a>
+</span><span id="__span-0-2763"><a id="__codelineno-0-2763" name="__codelineno-0-2763"></a>    <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+</span><span id="__span-0-2764"><a id="__codelineno-0-2764" name="__codelineno-0-2764"></a>        <span class="s2">&quot;sleap-nn infer is deprecated. Use sleap-nn predict instead.&quot;</span><span class="p">,</span>
+</span><span id="__span-0-2765"><a id="__codelineno-0-2765" name="__codelineno-0-2765"></a>        <span class="ne">DeprecationWarning</span><span class="p">,</span>
+</span><span id="__span-0-2766"><a id="__codelineno-0-2766" name="__codelineno-0-2766"></a>        <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-0-2767"><a id="__codelineno-0-2767" name="__codelineno-0-2767"></a>    <span class="p">)</span>
+</span><span id="__span-0-2768"><a id="__codelineno-0-2768" name="__codelineno-0-2768"></a>    <span class="k">return</span> <span class="n">_run_inference_impl</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8420,9 +8450,7 @@ evaluation metrics (if available), and files in the directory.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/cli.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2839">2839</a></span>
-<span class="normal"><a href="#__codelineno-0-2840">2840</a></span>
-<span class="normal"><a href="#__codelineno-0-2841">2841</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2841">2841</a></span>
 <span class="normal"><a href="#__codelineno-0-2842">2842</a></span>
 <span class="normal"><a href="#__codelineno-0-2843">2843</a></span>
 <span class="normal"><a href="#__codelineno-0-2844">2844</a></span>
@@ -8439,26 +8467,28 @@ evaluation metrics (if available), and files in the directory.</p>
 <span class="normal"><a href="#__codelineno-0-2855">2855</a></span>
 <span class="normal"><a href="#__codelineno-0-2856">2856</a></span>
 <span class="normal"><a href="#__codelineno-0-2857">2857</a></span>
-<span class="normal"><a href="#__codelineno-0-2858">2858</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-2839"><a id="__codelineno-0-2839" name="__codelineno-0-2839"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
-</span><span id="__span-0-2840"><a id="__codelineno-0-2840" name="__codelineno-0-2840"></a><span class="nd">@click</span><span class="o">.</span><span class="n">argument</span><span class="p">(</span><span class="s2">&quot;path&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">)</span>
-</span><span id="__span-0-2841"><a id="__codelineno-0-2841" name="__codelineno-0-2841"></a><span class="k">def</span><span class="w"> </span><span class="nf">info</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
-</span><span id="__span-0-2842"><a id="__codelineno-0-2842" name="__codelineno-0-2842"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Display model configuration and evaluation metrics.</span>
-</span><span id="__span-0-2843"><a id="__codelineno-0-2843" name="__codelineno-0-2843"></a>
-</span><span id="__span-0-2844"><a id="__codelineno-0-2844" name="__codelineno-0-2844"></a><span class="sd">    PATH can be a trained model directory or a training config YAML file.</span>
+<span class="normal"><a href="#__codelineno-0-2858">2858</a></span>
+<span class="normal"><a href="#__codelineno-0-2859">2859</a></span>
+<span class="normal"><a href="#__codelineno-0-2860">2860</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-2841"><a id="__codelineno-0-2841" name="__codelineno-0-2841"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+</span><span id="__span-0-2842"><a id="__codelineno-0-2842" name="__codelineno-0-2842"></a><span class="nd">@click</span><span class="o">.</span><span class="n">argument</span><span class="p">(</span><span class="s2">&quot;path&quot;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">)</span>
+</span><span id="__span-0-2843"><a id="__codelineno-0-2843" name="__codelineno-0-2843"></a><span class="k">def</span><span class="w"> </span><span class="nf">info</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+</span><span id="__span-0-2844"><a id="__codelineno-0-2844" name="__codelineno-0-2844"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Display model configuration and evaluation metrics.</span>
 </span><span id="__span-0-2845"><a id="__codelineno-0-2845" name="__codelineno-0-2845"></a>
-</span><span id="__span-0-2846"><a id="__codelineno-0-2846" name="__codelineno-0-2846"></a><span class="sd">    If a model directory is given, shows config summary, training results,</span>
-</span><span id="__span-0-2847"><a id="__codelineno-0-2847" name="__codelineno-0-2847"></a><span class="sd">    evaluation metrics (if available), and files in the directory.</span>
-</span><span id="__span-0-2848"><a id="__codelineno-0-2848" name="__codelineno-0-2848"></a>
-</span><span id="__span-0-2849"><a id="__codelineno-0-2849" name="__codelineno-0-2849"></a><span class="sd">    If a config YAML is given, shows only the config summary.</span>
+</span><span id="__span-0-2846"><a id="__codelineno-0-2846" name="__codelineno-0-2846"></a><span class="sd">    PATH can be a trained model directory or a training config YAML file.</span>
+</span><span id="__span-0-2847"><a id="__codelineno-0-2847" name="__codelineno-0-2847"></a>
+</span><span id="__span-0-2848"><a id="__codelineno-0-2848" name="__codelineno-0-2848"></a><span class="sd">    If a model directory is given, shows config summary, training results,</span>
+</span><span id="__span-0-2849"><a id="__codelineno-0-2849" name="__codelineno-0-2849"></a><span class="sd">    evaluation metrics (if available), and files in the directory.</span>
 </span><span id="__span-0-2850"><a id="__codelineno-0-2850" name="__codelineno-0-2850"></a>
-</span><span id="__span-0-2851"><a id="__codelineno-0-2851" name="__codelineno-0-2851"></a><span class="sd">    Examples:</span>
-</span><span id="__span-0-2852"><a id="__codelineno-0-2852" name="__codelineno-0-2852"></a><span class="sd">        sleap-nn info path/to/model_dir</span>
-</span><span id="__span-0-2853"><a id="__codelineno-0-2853" name="__codelineno-0-2853"></a>
-</span><span id="__span-0-2854"><a id="__codelineno-0-2854" name="__codelineno-0-2854"></a><span class="sd">        sleap-nn info path/to/training_config.yaml</span>
-</span><span id="__span-0-2855"><a id="__codelineno-0-2855" name="__codelineno-0-2855"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-2856"><a id="__codelineno-0-2856" name="__codelineno-0-2856"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.model_info</span><span class="w"> </span><span class="kn">import</span> <span class="n">print_model_info</span>
-</span><span id="__span-0-2857"><a id="__codelineno-0-2857" name="__codelineno-0-2857"></a>
-</span><span id="__span-0-2858"><a id="__codelineno-0-2858" name="__codelineno-0-2858"></a>    <span class="n">print_model_info</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+</span><span id="__span-0-2851"><a id="__codelineno-0-2851" name="__codelineno-0-2851"></a><span class="sd">    If a config YAML is given, shows only the config summary.</span>
+</span><span id="__span-0-2852"><a id="__codelineno-0-2852" name="__codelineno-0-2852"></a>
+</span><span id="__span-0-2853"><a id="__codelineno-0-2853" name="__codelineno-0-2853"></a><span class="sd">    Examples:</span>
+</span><span id="__span-0-2854"><a id="__codelineno-0-2854" name="__codelineno-0-2854"></a><span class="sd">        sleap-nn info path/to/model_dir</span>
+</span><span id="__span-0-2855"><a id="__codelineno-0-2855" name="__codelineno-0-2855"></a>
+</span><span id="__span-0-2856"><a id="__codelineno-0-2856" name="__codelineno-0-2856"></a><span class="sd">        sleap-nn info path/to/training_config.yaml</span>
+</span><span id="__span-0-2857"><a id="__codelineno-0-2857" name="__codelineno-0-2857"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-2858"><a id="__codelineno-0-2858" name="__codelineno-0-2858"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.model_info</span><span class="w"> </span><span class="kn">import</span> <span class="n">print_model_info</span>
+</span><span id="__span-0-2859"><a id="__codelineno-0-2859" name="__codelineno-0-2859"></a>
+</span><span id="__span-0-2860"><a id="__codelineno-0-2860" name="__codelineno-0-2860"></a>    <span class="n">print_model_info</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8553,21 +8583,21 @@ evaluation metrics (if available), and files in the directory.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/cli.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2746">2746</a></span>
-<span class="normal"><a href="#__codelineno-0-2747">2747</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2747">2747</a></span>
 <span class="normal"><a href="#__codelineno-0-2748">2748</a></span>
 <span class="normal"><a href="#__codelineno-0-2749">2749</a></span>
 <span class="normal"><a href="#__codelineno-0-2750">2750</a></span>
 <span class="normal"><a href="#__codelineno-0-2751">2751</a></span>
 <span class="normal"><a href="#__codelineno-0-2752">2752</a></span>
-<span class="normal"><a href="#__codelineno-0-2753">2753</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-2746"><a id="__codelineno-0-2746" name="__codelineno-0-2746"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
-</span><span id="__span-0-2747"><a id="__codelineno-0-2747" name="__codelineno-0-2747"></a><span class="nd">@_common_inference_options</span>
-</span><span id="__span-0-2748"><a id="__codelineno-0-2748" name="__codelineno-0-2748"></a><span class="k">def</span><span class="w"> </span><span class="nf">predict</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-</span><span id="__span-0-2749"><a id="__codelineno-0-2749" name="__codelineno-0-2749"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run inference on videos or labels files.</span>
-</span><span id="__span-0-2750"><a id="__codelineno-0-2750" name="__codelineno-0-2750"></a>
-</span><span id="__span-0-2751"><a id="__codelineno-0-2751" name="__codelineno-0-2751"></a><span class="sd">    Single unified inference entry point.</span>
-</span><span id="__span-0-2752"><a id="__codelineno-0-2752" name="__codelineno-0-2752"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-2753"><a id="__codelineno-0-2753" name="__codelineno-0-2753"></a>    <span class="k">return</span> <span class="n">_run_inference_impl</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-2753">2753</a></span>
+<span class="normal"><a href="#__codelineno-0-2754">2754</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-2747"><a id="__codelineno-0-2747" name="__codelineno-0-2747"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+</span><span id="__span-0-2748"><a id="__codelineno-0-2748" name="__codelineno-0-2748"></a><span class="nd">@_common_inference_options</span>
+</span><span id="__span-0-2749"><a id="__codelineno-0-2749" name="__codelineno-0-2749"></a><span class="k">def</span><span class="w"> </span><span class="nf">predict</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+</span><span id="__span-0-2750"><a id="__codelineno-0-2750" name="__codelineno-0-2750"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run inference on videos or labels files.</span>
+</span><span id="__span-0-2751"><a id="__codelineno-0-2751" name="__codelineno-0-2751"></a>
+</span><span id="__span-0-2752"><a id="__codelineno-0-2752" name="__codelineno-0-2752"></a><span class="sd">    Single unified inference entry point.</span>
+</span><span id="__span-0-2753"><a id="__codelineno-0-2753" name="__codelineno-0-2753"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-2754"><a id="__codelineno-0-2754" name="__codelineno-0-2754"></a>    <span class="k">return</span> <span class="n">_run_inference_impl</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -8865,25 +8895,25 @@ driver version with compatibility check, GPU details, and package versions.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/cli.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2827">2827</a></span>
-<span class="normal"><a href="#__codelineno-0-2828">2828</a></span>
-<span class="normal"><a href="#__codelineno-0-2829">2829</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2829">2829</a></span>
 <span class="normal"><a href="#__codelineno-0-2830">2830</a></span>
 <span class="normal"><a href="#__codelineno-0-2831">2831</a></span>
 <span class="normal"><a href="#__codelineno-0-2832">2832</a></span>
 <span class="normal"><a href="#__codelineno-0-2833">2833</a></span>
 <span class="normal"><a href="#__codelineno-0-2834">2834</a></span>
 <span class="normal"><a href="#__codelineno-0-2835">2835</a></span>
-<span class="normal"><a href="#__codelineno-0-2836">2836</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-2827"><a id="__codelineno-0-2827" name="__codelineno-0-2827"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
-</span><span id="__span-0-2828"><a id="__codelineno-0-2828" name="__codelineno-0-2828"></a><span class="k">def</span><span class="w"> </span><span class="nf">system</span><span class="p">():</span>
-</span><span id="__span-0-2829"><a id="__codelineno-0-2829" name="__codelineno-0-2829"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Display system information and GPU status.</span>
-</span><span id="__span-0-2830"><a id="__codelineno-0-2830" name="__codelineno-0-2830"></a>
-</span><span id="__span-0-2831"><a id="__codelineno-0-2831" name="__codelineno-0-2831"></a><span class="sd">    Shows Python version, platform, PyTorch version, CUDA availability,</span>
-</span><span id="__span-0-2832"><a id="__codelineno-0-2832" name="__codelineno-0-2832"></a><span class="sd">    driver version with compatibility check, GPU details, and package versions.</span>
-</span><span id="__span-0-2833"><a id="__codelineno-0-2833" name="__codelineno-0-2833"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-2834"><a id="__codelineno-0-2834" name="__codelineno-0-2834"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.system_info</span><span class="w"> </span><span class="kn">import</span> <span class="n">print_system_info</span>
-</span><span id="__span-0-2835"><a id="__codelineno-0-2835" name="__codelineno-0-2835"></a>
-</span><span id="__span-0-2836"><a id="__codelineno-0-2836" name="__codelineno-0-2836"></a>    <span class="n">print_system_info</span><span class="p">()</span>
+<span class="normal"><a href="#__codelineno-0-2836">2836</a></span>
+<span class="normal"><a href="#__codelineno-0-2837">2837</a></span>
+<span class="normal"><a href="#__codelineno-0-2838">2838</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-2829"><a id="__codelineno-0-2829" name="__codelineno-0-2829"></a><span class="nd">@cli</span><span class="o">.</span><span class="n">command</span><span class="p">(</span><span class="n">context_settings</span><span class="o">=</span><span class="n">CONTEXT_SETTINGS</span><span class="p">)</span>
+</span><span id="__span-0-2830"><a id="__codelineno-0-2830" name="__codelineno-0-2830"></a><span class="k">def</span><span class="w"> </span><span class="nf">system</span><span class="p">():</span>
+</span><span id="__span-0-2831"><a id="__codelineno-0-2831" name="__codelineno-0-2831"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Display system information and GPU status.</span>
+</span><span id="__span-0-2832"><a id="__codelineno-0-2832" name="__codelineno-0-2832"></a>
+</span><span id="__span-0-2833"><a id="__codelineno-0-2833" name="__codelineno-0-2833"></a><span class="sd">    Shows Python version, platform, PyTorch version, CUDA availability,</span>
+</span><span id="__span-0-2834"><a id="__codelineno-0-2834" name="__codelineno-0-2834"></a><span class="sd">    driver version with compatibility check, GPU details, and package versions.</span>
+</span><span id="__span-0-2835"><a id="__codelineno-0-2835" name="__codelineno-0-2835"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-2836"><a id="__codelineno-0-2836" name="__codelineno-0-2836"></a>    <span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.system_info</span><span class="w"> </span><span class="kn">import</span> <span class="n">print_system_info</span>
+</span><span id="__span-0-2837"><a id="__codelineno-0-2837" name="__codelineno-0-2837"></a>
+</span><span id="__span-0-2838"><a id="__codelineno-0-2838" name="__codelineno-0-2838"></a>    <span class="n">print_system_info</span><span class="p">()</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>

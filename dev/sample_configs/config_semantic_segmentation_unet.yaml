@@ -1,0 +1,206 @@
+data_config:
+  train_labels_path: null
+  val_labels_path: null
+  validation_fraction: 0.1
+  use_same_data_for_val: false
+  test_file_path: null
+  provider: LabelsReader
+  user_instances_only: true
+  data_pipeline_fw: torch_dataset
+  cache_img_path: null
+  use_existing_imgs: false
+  delete_cache_imgs_after_training: true
+  preprocessing:
+    ensure_rgb: false
+    ensure_grayscale: true
+    max_height: null
+    max_width: null
+    # Mask resize in v1 is not pad-aware: train at scale 1.0 (or a scale that
+    # divides evenly) with input dims divisible by the backbone max_stride.
+    scale: 1.0
+    crop_size: null
+    min_crop_size: null
+    # Sliding-window tiling for high-res / small-object frames (4K++). Off by
+    # default (byte-identical whole-frame training). To enable, set enabled: true;
+    # tile_size / overlap are auto-sized from the labels at train setup, written
+    # into the model config, and parity-checked at inference. Semantic
+    # segmentation is tiling-compatible.
+    # tiling:
+    #   enabled: true
+    #   sampling: foreground
+  use_augmentations_train: true
+  augmentation_config:
+    intensity:
+      uniform_noise_min: 0.0
+      uniform_noise_max: 0.04
+      uniform_noise_p: 0.0
+      gaussian_noise_mean: 0.0
+      gaussian_noise_std: 0.02
+      gaussian_noise_p: 0.0
+      contrast_min: 0.9
+      contrast_max: 1.1
+      contrast_p: 0.0
+      brightness_min: 0.9
+      brightness_max: 1.1
+      brightness_p: 0.0
+    # Geometric augmentation co-transforms the GT foreground mask with the image
+    # (shared affine matrix, nearest-neighbor, re-binarized); erase/mixup stay
+    # image-only. Keep rotation ranges small — a full-frame rotation can clip
+    # foreground at the frame edge.
+    geometric:
+      rotation_min: -15.0
+      rotation_max: 15.0
+      scale_min: 0.9
+      scale_max: 1.1
+      translate_width: 0.0
+      translate_height: 0.0
+      affine_p: 0.0
+      erase_scale_min: 0.0001
+      erase_scale_max: 0.01
+      erase_ratio_min: 1.0
+      erase_ratio_max: 1.0
+      erase_p: 0.0
+      mixup_lambda_min: 0.01
+      mixup_lambda_max: 0.05
+      mixup_p: 0.0
+  skeletons:
+model_config:
+  init_weights: default
+  pretrained_backbone_weights: null
+  pretrained_head_weights: null
+  backbone_config:
+    unet:
+      in_channels: 1
+      kernel_size: 3
+      filters: 16
+      filters_rate: 2.0
+      max_stride: 16
+      stem_stride: null
+      middle_block: true
+      up_interpolate: true
+      stacks: 1
+      convs_per_block: 2
+      # Fine output stride for dense per-pixel prediction. The backbone stride is
+      # reconciled to the head stride (2). Stride 4 is a lighter option.
+      output_stride: 2
+    convnext: null
+    swint: null
+  head_configs:
+    single_instance: null
+    centroid: null
+    centered_instance: null
+    bottomup: null
+    multi_class_bottomup: null
+    multi_class_topdown: null
+    bottomup_segmentation: null
+    centered_instance_segmentation: null
+    # Whole-frame semantic (foreground/background) segmentation: a lone
+    # foreground head (BCE+Dice) on the WHOLE FRAME with no instance grouping.
+    # Inference thresholds the foreground probability into ONE instance-less mask
+    # per frame. This is the group-free sibling of bottomup_segmentation (no
+    # center/offset heads) and the whole-frame analog of
+    # centered_instance_segmentation (no crop / anchor_part).
+    semantic_segmentation:
+      segmentation:
+        # output_stride 2 is the default. For THIN / high-resolution objects
+        # (e.g. plant roots) set output_stride: 1 (dense, full-resolution): it
+        # avoids downsampling the foreground target and lets the decoder draw
+        # sharp thin structures, so the model is confident at threshold 0.5
+        # instead of needing a low inference --fg_threshold. Heavier per step.
+        output_stride: 2
+        loss_weight: 1.0
+        # bce-dice loss knobs (defaults 0.5/0.5, no pos_weight = historical
+        # behavior). For thin/rare foreground (<1% of pixels), tilt toward Dice
+        # and up-weight the positive class so the head stays confident on faint
+        # thin structures — e.g. bce_weight: 0.3, dice_weight: 0.7,
+        # bce_pos_weight: 10.0.
+        bce_weight: 0.5
+        dice_weight: 0.5
+        bce_pos_weight: null
+        # target_maxpool: at output_stride > 1, build the foreground target with
+        # max-pool semantics (any fg pixel in a stride cell -> fg) instead of
+        # area-average + 0.5, so thin structures are not eroded below 50% cell
+        # coverage. Set true for thin objects at output_stride 2; inert at
+        # output_stride 1 (there is no downsample). Recommended thin-structure
+        # combos: {output_stride: 1} OR {output_stride: 2, target_maxpool: true}.
+        target_maxpool: false
+  total_params: null
+trainer_config:
+  train_data_loader:
+    batch_size: 4
+    shuffle: true
+    num_workers: 0
+  val_data_loader:
+    batch_size: 4
+    shuffle: false
+    num_workers: 0
+  model_ckpt:
+    save_top_k: 1
+    save_last: false
+  trainer_devices:
+  trainer_device_indices: null
+  trainer_accelerator: auto
+  profiler: null
+  trainer_strategy: auto
+  enable_progress_bar: true
+  min_train_steps_per_epoch: 200
+  train_steps_per_epoch: null
+  visualize_preds_during_training: true
+  keep_viz: false
+  max_epochs: 200
+  seed: 42
+  use_wandb: false
+  save_ckpt: true
+  ckpt_dir: models
+  run_name: null
+  resume_ckpt_path: null
+  wandb:
+    entity: null
+    project: null
+    name: null
+    save_viz_imgs_wandb: false
+    api_key: null
+    wandb_mode: null
+    prv_runid: null
+    group: null
+    current_run_id: null
+  optimizer_name: Adam
+  optimizer:
+    lr: 0.0001
+    amsgrad: false
+  lr_scheduler:
+    step_lr: null
+    reduce_lr_on_plateau:
+      threshold: 1.0e-08
+      threshold_mode: abs
+      cooldown: 3
+      patience: 8
+      factor: 0.5
+      min_lr: 1.0e-08
+  early_stopping:
+    min_delta: 1.0e-08
+    patience: 10
+    stop_training_on_plateau: true
+  online_hard_keypoint_mining:
+    online_mining: false
+    hard_to_easy_ratio: 2.0
+    min_hard_keypoints: 2
+    max_hard_keypoints: null
+    loss_scale: 5.0
+  zmq:
+    controller_port: 9000
+    controller_polling_timeout: 10
+    publish_port: 9001
+  eval:
+    enabled: true
+    frequency: 1
+    oks_stddev: 0.025  # unused for segmentation (keypoint-only)
+    oks_scale: null
+    # For segmentation eval, match_threshold is reinterpreted as a minimum mask
+    # IoU in (0, 1]. Semantic eval is matching-free (whole-frame fg IoU/clDice),
+    # so this is effectively unused; out-of-range values fall back to 0.5.
+    match_threshold: 0.5
+# fg_threshold and min_mask_area are INFERENCE-time post-processing args
+# (sleap-nn predict --fg_threshold / --min_mask_area), not training config.
+name: ''
+description: ''
