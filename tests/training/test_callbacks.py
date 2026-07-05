@@ -20,6 +20,7 @@ from sleap_nn.training.callbacks import (
     CentroidEvaluationCallback,
     match_centroids,
     UnifiedVizCallback,
+    SegmentationEvaluationCallback,
 )
 from sleap_nn.training.utils import VisualizationData
 
@@ -482,6 +483,78 @@ class TestWandBVizCallbackWithPAFs:
             mock_get_logger.assert_not_called()
 
 
+class TestSegmentationEvalCallbackCheckpointMetrics:
+    """The seg eval callback exposes its metrics via ``trainer.callback_metrics`` so
+    ModelCheckpoint can select best.ckpt on quality (clDice / mask-IoU) not val/loss."""
+
+    def _trainer(self):
+        trainer = MagicMock()
+        trainer.callback_metrics = {}
+        trainer.loggers = (
+            []
+        )  # no wandb -> returns right after the callback_metrics push
+        return trainer
+
+    def test_foreground_metrics_pushed_to_callback_metrics(self):
+        cb = SegmentationEvaluationCallback(foreground=True)
+        trainer = self._trainer()
+        cb._log_metrics_foreground(
+            trainer,
+            {
+                "fg_mean_iou": 0.4,
+                "fg_mean_cldice": 0.75,
+                "fg_mean_boundary_iou": 0.4,
+                "fg_frame_recall": 1.0,
+                "n_frames": 10,
+            },
+            epoch=2,
+        )
+        assert float(
+            trainer.callback_metrics["eval/val/fg_mean_cldice"]
+        ) == pytest.approx(0.75)
+        assert "eval/val/fg_mean_iou" in trainer.callback_metrics
+
+    def test_mask_metrics_pushed_to_callback_metrics(self):
+        cb = SegmentationEvaluationCallback(foreground=False)
+        trainer = self._trainer()
+        cb._log_metrics(
+            trainer,
+            {
+                "mask_mean_iou": 0.55,
+                "mask_mean_iou_all_gt": 0.5,
+                "mask_mean_cldice": 0.7,
+                "precision": 0.8,
+                "recall": 0.7,
+                "f1": 0.75,
+                "n_tp": 5,
+                "n_fp": 1,
+                "n_fn": 2,
+            },
+            epoch=2,
+        )
+        assert float(
+            trainer.callback_metrics["eval/val/mask_mean_iou"]
+        ) == pytest.approx(0.55)
+        assert "eval/val/mask_mean_cldice" in trainer.callback_metrics
+
+    def test_nan_metric_is_not_pushed(self):
+        cb = SegmentationEvaluationCallback(foreground=True)
+        trainer = self._trainer()
+        cb._log_metrics_foreground(
+            trainer,
+            {
+                "fg_mean_iou": float("nan"),
+                "fg_mean_cldice": 0.6,
+                "fg_mean_boundary_iou": 0.5,
+                "fg_frame_recall": 1.0,
+                "n_frames": 3,
+            },
+            epoch=1,
+        )
+        assert "eval/val/fg_mean_iou" not in trainer.callback_metrics
+        assert "eval/val/fg_mean_cldice" in trainer.callback_metrics
+
+
 class TestUnifiedVizCallbackSegmentation:
     """Segmentation-specific visualization wiring for UnifiedVizCallback."""
 
@@ -511,6 +584,61 @@ class TestUnifiedVizCallbackSegmentation:
         _, kwargs = mt.lightning_model.get_visualization_data.call_args
         assert kwargs.get("include_center_heatmap") is True
         assert kwargs.get("include_offsets") is True
+
+    def _seg_viz_data(self):
+        from sleap_nn.training.utils import VisualizationData
+
+        return VisualizationData(
+            image=np.random.rand(64, 64, 3).astype(np.float32),
+            pred_confmaps=np.random.rand(64, 64, 1).astype(np.float32),
+            pred_peaks=np.zeros((0, 1, 2)),
+            pred_peak_values=np.zeros((0,)),
+            gt_instances=np.zeros((0, 1, 2)),
+            output_scale=1.0,
+            gt_mask=(np.random.rand(64, 64) > 0.5),
+        )
+
+    def test_seg_predictions_panel_is_gt_mask_overlay(self):
+        """#690: for seg models the ``viz/{prefix}/predictions`` panel IS the
+        GT-vs-pred overlay; the broken ``predictions_masks`` mode and the separate
+        ``gt_mask`` key are dropped."""
+        cb = UnifiedVizCallback(
+            model_trainer=MagicMock(),
+            train_dataset=[{}],
+            val_dataset=[{}],
+            model_type="semantic_segmentation",
+            log_wandb=True,
+            wandb_modes=["direct", "masks"],  # "masks" would add predictions_masks
+            save_local=False,
+        )
+        mock_logger = MagicMock()
+        cb._log_wandb_viz(self._seg_viz_data(), "val", 3, mock_logger)
+
+        mock_logger.experiment.log.assert_called_once()
+        log_dict = mock_logger.experiment.log.call_args[0][0]
+        assert "viz/val/predictions" in log_dict
+        assert "viz/val/predictions_masks" not in log_dict
+        assert "viz/val/gt_mask" not in log_dict
+
+    def test_nonseg_predictions_keep_confmap_modes(self):
+        """Non-seg models are unchanged: per-mode confmap predictions incl. _masks."""
+        cb = UnifiedVizCallback(
+            model_trainer=MagicMock(),
+            train_dataset=[{}],
+            val_dataset=[{}],
+            model_type="single_instance",
+            log_wandb=True,
+            wandb_modes=["direct", "masks"],
+            save_local=False,
+        )
+        assert cb.viz_gt_mask is False
+        for r in cb._wandb_renderers.values():
+            r.render = MagicMock(return_value="img")
+        mock_logger = MagicMock()
+        cb._log_wandb_viz(self._seg_viz_data(), "val", 1, mock_logger)
+        log_dict = mock_logger.experiment.log.call_args[0][0]
+        assert "viz/val/predictions" in log_dict
+        assert "viz/val/predictions_masks" in log_dict
 
     def test_render_offsets_produces_figure(self):
         """``render_offsets`` renders an offset-magnitude figure from (H, W, 2)."""

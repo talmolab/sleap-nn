@@ -93,15 +93,26 @@ def test_model_ckpt_config():
 
     Check default values and customization
     """
-    # Check default values
+    # Check default values (defaults keep the historical val/loss selection)
     conf = OmegaConf.structured(ModelCkptConfig)
     assert conf.save_top_k == 1
     assert conf.save_last is None
+    assert conf.monitor == "val/loss"
+    assert conf.mode == "min"
 
-    # Test customization
-    custom_conf = OmegaConf.structured(ModelCkptConfig(save_top_k=5, save_last=True))
+    # Test customization (e.g. select best.ckpt on a full-eval quality metric)
+    custom_conf = OmegaConf.structured(
+        ModelCkptConfig(
+            save_top_k=5,
+            save_last=True,
+            monitor="eval/val/fg_mean_cldice",
+            mode="max",
+        )
+    )
     assert custom_conf.save_top_k == 5
     assert custom_conf.save_last is True
+    assert custom_conf.monitor == "eval/val/fg_mean_cldice"
+    assert custom_conf.mode == "max"
 
 
 def test_wandb_config():

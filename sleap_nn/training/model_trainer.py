@@ -1131,8 +1131,8 @@ class ModelTrainer:
                     / self.config.trainer_config.run_name
                 ).as_posix(),
                 filename="best",
-                monitor="val/loss",
-                mode="min",
+                monitor=self.config.trainer_config.model_ckpt.monitor,
+                mode=self.config.trainer_config.model_ckpt.mode,
             )
             callbacks.append(checkpoint_callback)
 

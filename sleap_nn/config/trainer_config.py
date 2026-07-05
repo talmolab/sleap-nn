@@ -62,10 +62,14 @@ class ModelCkptConfig:
     Attributes:
         save_top_k: (int) If save_top_k == k, the best k models according to the quantity monitored will be saved. If save_top_k == 0, no models are saved. If save_top_k == -1, all models are saved. Please note that the monitors are checked every every_n_epochs epochs. if save_top_k >= 2 and the callback is called multiple times inside an epoch, the name of the saved file will be appended with a version count starting with v1 unless enable_version_counter is set to False. *Default*: `1`.
         save_last: (bool) When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. *Default*: `None`.
+        monitor: (str) Metric name the checkpoint tracks to pick the "best" model. Any key present in ``trainer.callback_metrics`` — e.g. ``"val/loss"`` (default), or, for segmentation runs with ``eval.enabled``, a full-resolution quality metric such as ``"eval/val/fg_mean_cldice"`` (semantic) or ``"eval/val/mask_mean_iou"`` (instance) logged by ``SegmentationEvaluationCallback``. *Default*: `"val/loss"`.
+        mode: (str) ``"min"`` (default) or ``"max"`` — direction of improvement for ``monitor`` (use ``"max"`` for IoU/clDice metrics). *Default*: `"min"`.
     """
 
     save_top_k: int = 1
     save_last: Optional[bool] = None
+    monitor: str = "val/loss"
+    mode: str = "min"
 
 
 @define
