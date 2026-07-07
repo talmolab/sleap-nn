@@ -2953,6 +2953,50 @@ class _RepeatSampler:
             yield from iter(self.sampler)
 
 
+def _resize_masks_like_image(
+    mask_arrays: List[np.ndarray],
+    max_hw: Tuple[Optional[int], Optional[int]],
+    scale: float,
+    max_stride: int,
+) -> List[np.ndarray]:
+    """Transform whole-frame instance masks with the SAME geometry as the image.
+
+    The image is preprocessed by :func:`apply_sizematcher` (resize-to-fit +
+    bottom-right pad to ``max_hw``) -> :func:`apply_resizer` (``scale``) ->
+    :func:`apply_pad_to_stride` (bottom-right pad to a ``max_stride`` multiple).
+    The whole-frame foreground target must be derived from masks carried through
+    the IDENTICAL chain: a single resize straight to the final padded size
+    STRETCHES the masks across the bottom-right pad region, which displaces the
+    target from the padded image by ~pad/2 (an offset that grows toward the
+    bottom-right) — an error the model then silently learns. Mirrors the mask
+    handling in :class:`CenteredInstanceSegmentationDataset`.
+
+    Args:
+        mask_arrays: List of 2D boolean arrays at the ORIGINAL image resolution.
+        max_hw: ``(max_height, max_width)`` size-match target (``None`` per axis
+            disables size-matching on that axis).
+        scale: Input scale factor applied after size-matching.
+        max_stride: Backbone max stride the padded input must be divisible by.
+
+    Returns:
+        List of 2D boolean arrays at the preprocessed (size-matched, scaled,
+        stride-padded) image resolution, aligned pixel-for-pixel with the image.
+    """
+    if len(mask_arrays) == 0:
+        return mask_arrays
+    # Stack instance masks as channels: (1, K, H, W). The resizing helpers act on
+    # the trailing (H, W), so every mask rides the exact same transform as the image.
+    masks_t = torch.from_numpy(
+        np.stack([m.astype(np.float32) for m in mask_arrays])
+    ).unsqueeze(0)
+    masks_t, _ = apply_sizematcher(masks_t, max_height=max_hw[0], max_width=max_hw[1])
+    masks_t, _ = apply_resizer(masks_t, torch.zeros(1), scale=scale)
+    masks_t = apply_pad_to_stride(masks_t, max_stride=max_stride)
+    masks_t = masks_t[0]  # (K, H, W)
+    # Single re-binarization at the end (matches the centered-instance seg path).
+    return [masks_t[k].numpy() > 0.5 for k in range(masks_t.shape[0])]
+
+
 class BottomUpSegmentationDataset(BaseDataset):
     """Dataset class for bottom-up instance segmentation models.
 
@@ -3146,21 +3190,18 @@ class BottomUpSegmentationDataset(BaseDataset):
 
         img_hw = sample_dict["image"].shape[-2:]
 
-        # Resize masks to match preprocessed image dimensions if size changed.
+        # Resize masks to match preprocessed image dimensions if size changed. The
+        # masks are carried through the SAME size-match / scale / bottom-right
+        # stride-pad chain as the image (NOT a single stretch to the padded size,
+        # which would desync the target from the image by ~pad/2 — see
+        # ``_resize_masks_like_image``).
         if img_hw != orig_img_hw and len(mask_arrays) > 0:
-            target_h, target_w = img_hw
-            resized_masks = []
-            for m in mask_arrays:
-                # Convert mask to float tensor: (1, 1, H, W)
-                m_tensor = (
-                    torch.from_numpy(m.astype(np.float32)).unsqueeze(0).unsqueeze(0)
-                )
-                m_resized = F.interpolate(
-                    m_tensor, size=(target_h, target_w), mode="area"
-                )
-                # Threshold back to binary
-                resized_masks.append((m_resized.squeeze().numpy() > 0.5))
-            mask_arrays = resized_masks
+            mask_arrays = _resize_masks_like_image(
+                mask_arrays,
+                max_hw=self.max_hw,
+                scale=self.scale,
+                max_stride=self.max_stride,
+            )
 
         # Geometric augmentation: co-transform the per-instance masks with the SAME
         # flip/affine matrix as the image (nearest-neighbor, re-binarized). Applied
@@ -3411,21 +3452,18 @@ class SemanticSegmentationDataset(BaseDataset):
 
         img_hw = sample_dict["image"].shape[-2:]
 
-        # Resize masks to match preprocessed image dimensions if size changed.
+        # Resize masks to match preprocessed image dimensions if size changed. The
+        # masks are carried through the SAME size-match / scale / bottom-right
+        # stride-pad chain as the image (NOT a single stretch to the padded size,
+        # which would desync the target from the image by ~pad/2 — see
+        # ``_resize_masks_like_image``).
         if img_hw != orig_img_hw and len(mask_arrays) > 0:
-            target_h, target_w = img_hw
-            resized_masks = []
-            for m in mask_arrays:
-                # Convert mask to float tensor: (1, 1, H, W)
-                m_tensor = (
-                    torch.from_numpy(m.astype(np.float32)).unsqueeze(0).unsqueeze(0)
-                )
-                m_resized = F.interpolate(
-                    m_tensor, size=(target_h, target_w), mode="area"
-                )
-                # Threshold back to binary
-                resized_masks.append((m_resized.squeeze().numpy() > 0.5))
-            mask_arrays = resized_masks
+            mask_arrays = _resize_masks_like_image(
+                mask_arrays,
+                max_hw=self.max_hw,
+                scale=self.scale,
+                max_stride=self.max_stride,
+            )
 
         # Geometric augmentation: co-transform the per-instance masks with the SAME
         # flip/affine matrix as the image (nearest-neighbor, re-binarized). Applied

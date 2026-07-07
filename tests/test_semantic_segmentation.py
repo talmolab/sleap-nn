@@ -185,6 +185,104 @@ def test_semantic_tiled_dataset_fg_only(minimal_instance):
     assert saw_fg
 
 
+@pytest.mark.parametrize("dataset_cls", ["semantic", "bottomup"])
+def test_seg_target_registers_under_padding(minimal_instance, dataset_cls):
+    """Whole-frame fg target must register to the image grid when the frame is padded.
+
+    Regression for the ~half-pad offset: when the input H/W are not multiples of
+    ``max_stride`` the image is padded bottom-right, but the pre-fix code resized the
+    GT masks with a single ``F.interpolate`` straight to the PADDED size — stretching
+    them across the pad region and displacing the foreground target from the image by
+    ~pad/2 (worse toward the bottom-right). The masks must instead be carried through
+    the SAME bottom-right pad as the image. ``max_stride=40`` is not a divisor of the
+    384x384 frame, so it pads to 400x400 (pad 16), exactly the arabidopsis/soy
+    ``pad_to_stride`` scenario.
+    """
+    import torch.nn.functional as F
+    from sleap_nn.data.custom_datasets import (
+        BottomUpSegmentationDataset,
+        SemanticSegmentationDataset,
+    )
+    from sleap_nn.data.resizing import apply_pad_to_stride
+    from sleap_nn.data.segmentation_maps import generate_foreground_mask
+
+    labels = _seg_labels(minimal_instance)
+    max_stride = 40  # 384 % 40 == 24 -> bottom-right pad of 16 px (400x400)
+    seg_head = OmegaConf.create({"output_stride": 1})  # no downsample: crispest check
+    if dataset_cls == "semantic":
+        ds = SemanticSegmentationDataset(
+            labels=[labels],
+            seg_head_config=seg_head,
+            max_stride=max_stride,
+            ensure_grayscale=True,
+        )
+    else:
+        ds = BottomUpSegmentationDataset(
+            labels=[labels],
+            seg_head_config=seg_head,
+            center_head_config=OmegaConf.create({"output_stride": 1, "sigma": 4.0}),
+            offset_head_config=OmegaConf.create({"output_stride": 1}),
+            max_stride=max_stride,
+            ensure_grayscale=True,
+        )
+
+    sample = ds[0]
+    got = sample["foreground_mask"][0, 0].numpy() > 0.5
+    assert got.shape == (400, 400)  # padded, not the raw 384x384
+
+    # Masks captured at index-build (original resolution, pre-preprocessing).
+    mask_arrays = [np.asarray(m, dtype=bool) for m in ds.lf_idx_list[0]["masks"]]
+
+    # Correct reference: pad each mask bottom-right the SAME way as the image.
+    correct = (
+        generate_foreground_mask(
+            [
+                apply_pad_to_stride(
+                    torch.from_numpy(m.astype(np.float32))[None, None],
+                    max_stride=max_stride,
+                )
+                .squeeze()
+                .numpy()
+                > 0.5
+                for m in mask_arrays
+            ],
+            img_hw=got.shape,
+            output_stride=1,
+        )[0, 0].numpy()
+        > 0.5
+    )
+    # Buggy reference: STRETCH each mask straight to the padded size (pre-fix path).
+    stretched = (
+        generate_foreground_mask(
+            [
+                F.interpolate(
+                    torch.from_numpy(m.astype(np.float32))[None, None],
+                    size=got.shape,
+                    mode="area",
+                )
+                .squeeze()
+                .numpy()
+                > 0.5
+                for m in mask_arrays
+            ],
+            img_hw=got.shape,
+            output_stride=1,
+        )[0, 0].numpy()
+        > 0.5
+    )
+
+    def _iou(a, b):
+        union = (a | b).sum()
+        return float((a & b).sum() / union) if union else 1.0
+
+    # The two references genuinely differ (the pad shift is real) -> test is non-trivial.
+    assert _iou(correct, stretched) < 0.7
+    # After the fix the target equals the pad-correct reference exactly...
+    assert np.array_equal(got, correct)
+    # ...and is clearly NOT the stretched (pre-fix) target.
+    assert _iou(got, stretched) < 0.7
+
+
 # --------------------------------------------------------------------------- #
 # LightningModule — sigmoid-dict forward + val/fg_iou
 # --------------------------------------------------------------------------- #
