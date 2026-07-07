@@ -185,6 +185,276 @@ def test_semantic_tiled_dataset_fg_only(minimal_instance):
     assert saw_fg
 
 
+@pytest.mark.parametrize("dataset_cls", ["semantic", "bottomup"])
+def test_seg_target_registers_under_padding(minimal_instance, dataset_cls):
+    """Whole-frame fg target must register to the image grid when the frame is padded.
+
+    Regression for the ~half-pad offset: when the input H/W are not multiples of
+    ``max_stride`` the image is padded bottom-right, but the pre-fix code resized the
+    GT masks with a single ``F.interpolate`` straight to the PADDED size — stretching
+    them across the pad region and displacing the foreground target from the image by
+    ~pad/2 (worse toward the bottom-right). The masks must instead be carried through
+    the SAME bottom-right pad as the image. ``max_stride=40`` is not a divisor of the
+    384x384 frame, so it pads to 400x400 (pad 16), exactly the arabidopsis/soy
+    ``pad_to_stride`` scenario.
+    """
+    import torch.nn.functional as F
+    from sleap_nn.data.custom_datasets import (
+        BottomUpSegmentationDataset,
+        SemanticSegmentationDataset,
+    )
+    from sleap_nn.data.resizing import apply_pad_to_stride
+    from sleap_nn.data.segmentation_maps import generate_foreground_mask
+
+    labels = _seg_labels(minimal_instance)
+    max_stride = 40  # 384 % 40 == 24 -> bottom-right pad of 16 px (400x400)
+    seg_head = OmegaConf.create({"output_stride": 1})  # no downsample: crispest check
+    if dataset_cls == "semantic":
+        ds = SemanticSegmentationDataset(
+            labels=[labels],
+            seg_head_config=seg_head,
+            max_stride=max_stride,
+            ensure_grayscale=True,
+        )
+    else:
+        ds = BottomUpSegmentationDataset(
+            labels=[labels],
+            seg_head_config=seg_head,
+            center_head_config=OmegaConf.create({"output_stride": 1, "sigma": 4.0}),
+            offset_head_config=OmegaConf.create({"output_stride": 1}),
+            max_stride=max_stride,
+            ensure_grayscale=True,
+        )
+
+    sample = ds[0]
+    got = sample["foreground_mask"][0, 0].numpy() > 0.5
+    assert got.shape == (400, 400)  # padded, not the raw 384x384
+
+    # Masks captured at index-build (original resolution, pre-preprocessing).
+    mask_arrays = [np.asarray(m, dtype=bool) for m in ds.lf_idx_list[0]["masks"]]
+
+    # Correct reference: pad each mask bottom-right the SAME way as the image.
+    correct = (
+        generate_foreground_mask(
+            [
+                apply_pad_to_stride(
+                    torch.from_numpy(m.astype(np.float32))[None, None],
+                    max_stride=max_stride,
+                )
+                .squeeze()
+                .numpy()
+                > 0.5
+                for m in mask_arrays
+            ],
+            img_hw=got.shape,
+            output_stride=1,
+        )[0, 0].numpy()
+        > 0.5
+    )
+    # Buggy reference: STRETCH each mask straight to the padded size (pre-fix path).
+    stretched = (
+        generate_foreground_mask(
+            [
+                F.interpolate(
+                    torch.from_numpy(m.astype(np.float32))[None, None],
+                    size=got.shape,
+                    mode="area",
+                )
+                .squeeze()
+                .numpy()
+                > 0.5
+                for m in mask_arrays
+            ],
+            img_hw=got.shape,
+            output_stride=1,
+        )[0, 0].numpy()
+        > 0.5
+    )
+
+    # The two references genuinely differ (the pad shift is real) -> test is
+    # non-trivial. Use an exact set difference rather than an IoU threshold so the
+    # assertion does not depend on fixture geometry / radius / max_stride.
+    assert not np.array_equal(correct, stretched)
+    # After the fix the target equals the pad-correct reference exactly...
+    assert np.array_equal(got, correct)
+    # ...and is clearly NOT the stretched (pre-fix) target.
+    assert not np.array_equal(got, stretched)
+
+
+def _chain_reference(mask_arrays, max_hw, scale, max_stride, output_stride):
+    """Foreground target from masks carried through the PUBLIC image chain.
+
+    Mirrors :meth:`BaseDataset._apply_common_preprocessing` for the whole-frame
+    masks: size-match -> scale -> stride-pad (the exact helpers the image rides),
+    binarized once, then reduced to the union foreground. Any dataset that skips,
+    reorders, or re-implements a leg (e.g. the pre-fix single stretch-to-padded)
+    diverges from this reference.
+    """
+    from sleap_nn.data.resizing import (
+        apply_pad_to_stride,
+        apply_resizer,
+        apply_sizematcher,
+    )
+    from sleap_nn.data.segmentation_maps import generate_foreground_mask
+
+    mt = torch.from_numpy(
+        np.stack([m.astype(np.float32) for m in mask_arrays])
+    ).unsqueeze(0)
+    mt, _ = apply_sizematcher(mt, max_height=max_hw[0], max_width=max_hw[1])
+    mt, _ = apply_resizer(mt, torch.zeros(1), scale=scale)
+    mt = apply_pad_to_stride(mt, max_stride=max_stride)
+    masks = [mt[0, k].numpy() > 0.5 for k in range(mt.shape[1])]
+    img_hw = (int(mt.shape[-2]), int(mt.shape[-1]))
+    return (
+        generate_foreground_mask(masks, img_hw=img_hw, output_stride=output_stride)[
+            0, 0
+        ].numpy()
+        > 0.5
+    )
+
+
+@pytest.mark.parametrize("dataset_cls", ["semantic", "bottomup"])
+@pytest.mark.parametrize(
+    "leg, max_stride, scale, max_hw",
+    [
+        ("pad", 40, 1.0, (None, None)),  # bottom-right stride pad only (384->400)
+        ("scale", 1, 0.5, (None, None)),  # scale/resizer only (384->192)
+        ("sizematch", 1, 1.0, (256, 256)),  # size-matcher only (384->256)
+        ("sizematch_nonsquare", 1, 1.0, (300, 500)),  # aspect-preserving + asym. pad
+        ("combo", 32, 0.5, (320, 320)),  # all three legs at once
+    ],
+)
+def test_seg_target_matches_full_preprocessing_chain(
+    minimal_instance, dataset_cls, leg, max_stride, scale, max_hw
+):
+    """The fg target must ride the FULL size-match / scale / stride-pad chain.
+
+    The prior regression test only padded (max_stride, scale=1, max_hw=None), so the
+    size-matcher and scale legs were never exercised — a dataset that dropped or
+    re-implemented either leg would still pass. Each parametrization here makes a
+    DIFFERENT leg the one that changes the resolution, and the target is checked
+    against a reference carried through the identical public helpers.
+    """
+    from sleap_nn.data.custom_datasets import (
+        BottomUpSegmentationDataset,
+        SemanticSegmentationDataset,
+    )
+
+    labels = _seg_labels(minimal_instance)
+    seg_head = OmegaConf.create({"output_stride": 1})  # crispest check
+    common = dict(
+        labels=[labels],
+        seg_head_config=seg_head,
+        max_stride=max_stride,
+        scale=scale,
+        max_hw=max_hw,
+        ensure_grayscale=True,
+    )
+    if dataset_cls == "semantic":
+        ds = SemanticSegmentationDataset(**common)
+    else:
+        ds = BottomUpSegmentationDataset(
+            center_head_config=OmegaConf.create({"output_stride": 1, "sigma": 4.0}),
+            offset_head_config=OmegaConf.create({"output_stride": 1}),
+            **common,
+        )
+
+    got = ds[0]["foreground_mask"][0, 0].numpy() > 0.5
+
+    # Masks captured at index-build (original resolution, full-frame).
+    mask_arrays = [np.asarray(m, dtype=bool) for m in ds.lf_idx_list[0]["masks"]]
+    correct = _chain_reference(mask_arrays, max_hw, scale, max_stride, output_stride=1)
+
+    assert got.shape == correct.shape
+    assert np.array_equal(got, correct), f"target diverges from full chain on leg={leg}"
+
+
+@pytest.mark.parametrize("dataset_cls", ["semantic", "bottomup"])
+def test_seg_heterogeneous_mask_shapes_register_without_crash(
+    minimal_instance, dataset_cls
+):
+    """Ragged (offset-carrying) decoded masks must place correctly, not crash.
+
+    ``decode_mask_to_image_res`` top-left-pads an offset mask to a per-instance
+    shape, so a frame's decoded masks can have DIFFERENT (H, W) and none may match
+    the frame. The pre-fix code, whenever preprocessing changed the size, ran the
+    masks through ``_resize_masks_like_image`` -> ``np.stack`` and raised
+    ``ValueError: all input arrays must have the same shape``; the fix canvases each
+    mask onto the full-frame grid at its absolute (top-left-anchored) origin first.
+
+    ``max_stride=40`` forces a bottom-right pad (384 -> 400), which is exactly the
+    condition that made the pre-fix ``np.stack`` fire — so this test discriminates
+    the fix from the old code (a no-size-change config would NOT, since
+    ``generate_foreground_mask`` clips ragged masks itself and never stacks). The
+    placed masks sit well inside 384, so the bottom-right pad only extends the
+    canvas; the fg target must equal the exact union at 400x400.
+    """
+    from sleap_nn.data.custom_datasets import (
+        BottomUpSegmentationDataset,
+        SemanticSegmentationDataset,
+    )
+
+    labels = _seg_labels(minimal_instance)
+    common = dict(
+        labels=[labels],
+        seg_head_config=OmegaConf.create({"output_stride": 1}),
+        max_stride=40,  # 384 -> 400 pad: the size change that fires the pre-fix stack
+        ensure_grayscale=True,
+    )
+    if dataset_cls == "semantic":
+        ds = SemanticSegmentationDataset(**common)
+    else:
+        ds = BottomUpSegmentationDataset(
+            center_head_config=OmegaConf.create({"output_stride": 1, "sigma": 4.0}),
+            offset_head_config=OmegaConf.create({"output_stride": 1}),
+            **common,
+        )
+
+    # Simulate offset-decoded masks: differently-shaped, top-left-anchored arrays.
+    m1 = np.zeros((40, 50), dtype=bool)
+    m1[10:20, 12:22] = True
+    m2 = np.zeros((150, 300), dtype=bool)
+    m2[120:140, 250:280] = True
+    ds.lf_idx_list[0]["masks"] = [m1, m2]
+
+    sample = ds[0]  # pre-fix: raised ValueError in _resize_masks_like_image's np.stack
+    fg = sample["foreground_mask"][0, 0].numpy() > 0.5
+    assert fg.shape == (
+        400,
+        400,
+    )  # padded (proves the size change that fired the stack)
+
+    expected = np.zeros((400, 400), dtype=bool)
+    expected[10:20, 12:22] = True
+    expected[120:140, 250:280] = True
+    assert np.array_equal(fg, expected)
+
+
+def test_masks_to_frame_canvas_handles_ragged_shapes():
+    """``_masks_to_frame_canvas`` unifies ragged masks onto the frame grid."""
+    from sleap_nn.data.custom_datasets import _masks_to_frame_canvas
+
+    m1 = np.zeros((40, 50), dtype=bool)
+    m1[5:8, 5:8] = True
+    m2 = np.zeros((120, 200), dtype=bool)
+    m2[100:110, 150:160] = True
+
+    t = _masks_to_frame_canvas([m1, m2], (384, 384))
+    assert t.shape == (1, 2, 384, 384)
+    assert t.dtype == torch.float32
+    b = t[0].numpy() > 0.5
+    assert b[0, 5:8, 5:8].all() and b[1, 100:110, 150:160].all()
+    assert int(b[0].sum()) == 9 and int(b[1].sum()) == 100
+
+    # Oversized mask (decoded extent can exceed the frame) is clamped, not an error.
+    big = np.ones((500, 500), dtype=bool)
+    t2 = _masks_to_frame_canvas([big], (384, 384))
+    assert t2.shape == (1, 1, 384, 384) and (t2[0, 0].numpy() > 0.5).all()
+
+    # Empty list -> a well-formed (1, 0, H, W) tensor (no instances).
+    assert _masks_to_frame_canvas([], (10, 12)).shape == (1, 0, 10, 12)
+
+
 # --------------------------------------------------------------------------- #
 # LightningModule — sigmoid-dict forward + val/fg_iou
 # --------------------------------------------------------------------------- #

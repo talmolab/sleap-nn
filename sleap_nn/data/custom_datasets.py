@@ -869,6 +869,22 @@ class BaseDataset(Dataset):
                 sample["instances"],
                 scale=self.scale,
             )
+
+            # Co-transform whole-frame segmentation masks (a (1, K, H, W) float
+            # tensor the seg datasets place into the sample) through the IDENTICAL
+            # size-match + scale as the image — the SAME helpers, so the mask
+            # target stays pixel-aligned with the image by construction (bilinear
+            # via ``tvf.resize``, matching the image). Non-seg samples have no
+            # ``masks`` key, so this is a no-op for them.
+            if sample.get("masks") is not None:
+                sample["masks"], _ = apply_sizematcher(
+                    sample["masks"],
+                    max_height=self.max_hw[0],
+                    max_width=self.max_hw[1],
+                )
+                sample["masks"], _ = apply_resizer(
+                    sample["masks"], torch.zeros(1), scale=self.scale
+                )
         else:
             # TILING: slice a tile IN PLACE OF the sizematcher (constant-zero pad
             # only). The incoming frame is already scaled + channel-coerced (via
@@ -898,6 +914,12 @@ class BaseDataset(Dataset):
         sample["image"] = apply_pad_to_stride(
             sample["image"], max_stride=self.max_stride
         )
+        # Pad segmentation masks to the SAME bottom-right stride multiple as the
+        # image so the whole-frame target stays registered to the padded image.
+        if sample.get("masks") is not None:
+            sample["masks"] = apply_pad_to_stride(
+                sample["masks"], max_stride=self.max_stride
+            )
 
         # apply augmentation
         if self.apply_aug:
@@ -1984,8 +2006,15 @@ class CenteredInstanceSegmentationDataset(CenteredInstanceDataset):
         )
         tgt_hw = sample["instance_image"].shape[-2:]
         if tuple(mask_t.shape[-2:]) != tuple(tgt_hw):
+            # Antialiased bilinear, matching the image's ``apply_resizer`` /
+            # ``tvf.resize`` above so the mask stays registered to the image
+            # (standardized across every seg mask-geometry resize).
             mask_t = F.interpolate(
-                mask_t, size=(int(tgt_hw[0]), int(tgt_hw[1])), mode="area"
+                mask_t,
+                size=(int(tgt_hw[0]), int(tgt_hw[1])),
+                mode="bilinear",
+                align_corners=False,
+                antialias=True,
             )
 
         # Pad both to the model's max stride (bottom-right).
@@ -2953,6 +2982,45 @@ class _RepeatSampler:
             yield from iter(self.sampler)
 
 
+def _masks_to_frame_canvas(
+    mask_arrays: List[np.ndarray],
+    orig_hw: Tuple[int, int],
+) -> torch.Tensor:
+    """Place decoded per-instance masks onto the full-frame image grid as one tensor.
+
+    :func:`~sleap_nn.inference.segmentation_convert.decode_mask_to_image_res`
+    returns a PARTIAL-frame array for any mask carrying a non-identity
+    scale/offset (e.g. a top-down crop-centered mask in a pseudo-label ``.slp``),
+    so the raw masks in a single frame can have DIFFERENT shapes and none may
+    match the image. Each mask is zero-placed at its absolute top-left image
+    coordinate (clamped to the frame; the decoded extent can be +/-1 px) so every
+    mask shares the image's pixel grid *before* preprocessing — mirroring the
+    single-mask placement in :class:`CenteredInstanceSegmentationDataset`.
+
+    This is what lets the masks ride the image's size-match / scale / stride-pad
+    chain in :meth:`BaseDataset._apply_common_preprocessing` and stay pixel-aligned
+    with the image by construction (rather than a hand-maintained parallel resize).
+    Uniform framing is also what makes the ``(1, K, H, W)`` stack well-defined —
+    ragged per-instance shapes would otherwise raise in :func:`numpy.stack`.
+
+    Args:
+        mask_arrays: List of 2D boolean arrays at (possibly partial) image
+            resolution, one per instance. May be empty.
+        orig_hw: ``(height, width)`` of the loaded image (the target canvas).
+
+    Returns:
+        Float32 tensor of shape ``(1, K, *orig_hw)`` with each mask placed at its
+        image-space origin (``K = 0`` is allowed and yields ``(1, 0, H, W)``).
+    """
+    h, w = int(orig_hw[0]), int(orig_hw[1])
+    canvas = np.zeros((len(mask_arrays), h, w), dtype=np.float32)
+    for k, m in enumerate(mask_arrays):
+        mh, mw = m.shape[:2]
+        h0, w0 = min(mh, h), min(mw, w)
+        canvas[k, :h0, :w0] = m[:h0, :w0]
+    return torch.from_numpy(canvas).unsqueeze(0)  # (1, K, H, W)
+
+
 class BottomUpSegmentationDataset(BaseDataset):
     """Dataset class for bottom-up instance segmentation models.
 
@@ -3136,55 +3204,48 @@ class BottomUpSegmentationDataset(BaseDataset):
         }
 
         # Masks captured at index-build time (decoded bool arrays at orig res).
+        # Place them on the full-frame image grid as one float (1, K, H, W) tensor
+        # so they ride the IDENTICAL size-match / scale / stride-pad chain as the
+        # image inside ``_apply_common_preprocessing`` (kept as a float tensor
+        # end-to-end and binarized ONCE just before target generation). This is
+        # what keeps the whole-frame target registered to the padded image and
+        # makes ragged/offset-carrying decoded masks well-defined (see
+        # ``_masks_to_frame_canvas``).
         mask_arrays = [np.asarray(m, dtype=bool) for m in sample["masks"]]
-
-        # Record original image size before preprocessing
         orig_img_hw = (image.shape[-2], image.shape[-1])
+        sample_dict["masks"] = _masks_to_frame_canvas(mask_arrays, orig_img_hw)
 
-        # Apply common preprocessing (RGB/grayscale, size matching, scaling, padding)
+        # Apply common preprocessing (RGB/grayscale, size matching, scaling, padding).
+        # Co-transforms ``sample_dict["masks"]`` with the same geometry as the image.
         sample_dict = self._apply_common_preprocessing(sample_dict)
 
         img_hw = sample_dict["image"].shape[-2:]
 
-        # Resize masks to match preprocessed image dimensions if size changed.
-        if img_hw != orig_img_hw and len(mask_arrays) > 0:
-            target_h, target_w = img_hw
-            resized_masks = []
-            for m in mask_arrays:
-                # Convert mask to float tensor: (1, 1, H, W)
-                m_tensor = (
-                    torch.from_numpy(m.astype(np.float32)).unsqueeze(0).unsqueeze(0)
-                )
-                m_resized = F.interpolate(
-                    m_tensor, size=(target_h, target_w), mode="area"
-                )
-                # Threshold back to binary
-                resized_masks.append((m_resized.squeeze().numpy() > 0.5))
-            mask_arrays = resized_masks
-
         # Geometric augmentation: co-transform the per-instance masks with the SAME
-        # flip/affine matrix as the image (nearest-neighbor, re-binarized). Applied
-        # here (post size-match / resize / pad) so the image and masks share a
-        # resolution, and BEFORE centroid/heatmap/offset generation so those targets
-        # are derived from the augmented masks. Bottom-up has no keypoints, so a dummy
-        # instances tensor rides along; erase/mixup stay image-only.
-        if self.apply_aug and self.geometric_aug is not None and len(mask_arrays) > 0:
-            masks_t = torch.from_numpy(
-                np.stack([m.astype(np.float32) for m in mask_arrays])
-            ).unsqueeze(
-                0
-            )  # (1, K, H, W)
+        # flip/affine matrix as the image (nearest-neighbor). Applied here (post
+        # size-match / resize / pad) so image and masks share a resolution, and
+        # BEFORE centroid/heatmap/offset generation so those targets are derived
+        # from the augmented masks. Bottom-up has no keypoints, so a dummy instances
+        # tensor rides along; erase/mixup stay image-only.
+        if (
+            self.apply_aug
+            and self.geometric_aug is not None
+            and sample_dict["masks"].shape[1] > 0
+        ):
             (
                 sample_dict["image"],
                 _,
-                masks_t,
+                sample_dict["masks"],
             ) = apply_geometric_augmentation(
                 sample_dict["image"],
                 torch.zeros((1, 1, 1, 2), dtype=torch.float32),
-                masks=masks_t,
+                masks=sample_dict["masks"],
                 **self.geometric_aug,
             )
-            mask_arrays = [masks_t[0, k].numpy() > 0.5 for k in range(masks_t.shape[1])]
+
+        # Single re-binarization to bool arrays right before target generation.
+        masks_t = sample_dict.pop("masks")
+        mask_arrays = [masks_t[0, k].numpy() > 0.5 for k in range(masks_t.shape[1])]
 
         # Pre-compute mask centroids once for both center heatmap and offset heads
         centers = _compute_mask_centroids(mask_arrays) if len(mask_arrays) > 0 else []
@@ -3401,55 +3462,48 @@ class SemanticSegmentationDataset(BaseDataset):
         }
 
         # Masks captured at index-build time (decoded bool arrays at orig res).
+        # Place them on the full-frame image grid as one float (1, K, H, W) tensor
+        # so they ride the IDENTICAL size-match / scale / stride-pad chain as the
+        # image inside ``_apply_common_preprocessing`` (kept as a float tensor
+        # end-to-end and binarized ONCE just before target generation). This is
+        # what keeps the whole-frame target registered to the padded image and
+        # makes ragged/offset-carrying decoded masks well-defined (see
+        # ``_masks_to_frame_canvas``).
         mask_arrays = [np.asarray(m, dtype=bool) for m in sample["masks"]]
-
-        # Record original image size before preprocessing
         orig_img_hw = (image.shape[-2], image.shape[-1])
+        sample_dict["masks"] = _masks_to_frame_canvas(mask_arrays, orig_img_hw)
 
-        # Apply common preprocessing (RGB/grayscale, size matching, scaling, padding)
+        # Apply common preprocessing (RGB/grayscale, size matching, scaling, padding).
+        # Co-transforms ``sample_dict["masks"]`` with the same geometry as the image.
         sample_dict = self._apply_common_preprocessing(sample_dict)
 
         img_hw = sample_dict["image"].shape[-2:]
 
-        # Resize masks to match preprocessed image dimensions if size changed.
-        if img_hw != orig_img_hw and len(mask_arrays) > 0:
-            target_h, target_w = img_hw
-            resized_masks = []
-            for m in mask_arrays:
-                # Convert mask to float tensor: (1, 1, H, W)
-                m_tensor = (
-                    torch.from_numpy(m.astype(np.float32)).unsqueeze(0).unsqueeze(0)
-                )
-                m_resized = F.interpolate(
-                    m_tensor, size=(target_h, target_w), mode="area"
-                )
-                # Threshold back to binary
-                resized_masks.append((m_resized.squeeze().numpy() > 0.5))
-            mask_arrays = resized_masks
-
         # Geometric augmentation: co-transform the per-instance masks with the SAME
-        # flip/affine matrix as the image (nearest-neighbor, re-binarized). Applied
-        # here (post size-match / resize / pad) so the image and masks share a
-        # resolution, and BEFORE the foreground mask is generated so it is derived
-        # from the augmented masks. Semantic segmentation has no keypoints, so a dummy
-        # instances tensor rides along; erase/mixup stay image-only.
-        if self.apply_aug and self.geometric_aug is not None and len(mask_arrays) > 0:
-            masks_t = torch.from_numpy(
-                np.stack([m.astype(np.float32) for m in mask_arrays])
-            ).unsqueeze(
-                0
-            )  # (1, K, H, W)
+        # flip/affine matrix as the image (nearest-neighbor). Applied here (post
+        # size-match / resize / pad) so image and masks share a resolution, and
+        # BEFORE the foreground mask is generated so it is derived from the augmented
+        # masks. Semantic segmentation has no keypoints, so a dummy instances tensor
+        # rides along; erase/mixup stay image-only.
+        if (
+            self.apply_aug
+            and self.geometric_aug is not None
+            and sample_dict["masks"].shape[1] > 0
+        ):
             (
                 sample_dict["image"],
                 _,
-                masks_t,
+                sample_dict["masks"],
             ) = apply_geometric_augmentation(
                 sample_dict["image"],
                 torch.zeros((1, 1, 1, 2), dtype=torch.float32),
-                masks=masks_t,
+                masks=sample_dict["masks"],
                 **self.geometric_aug,
             )
-            mask_arrays = [masks_t[0, k].numpy() > 0.5 for k in range(masks_t.shape[1])]
+
+        # Single re-binarization to bool arrays right before target generation.
+        masks_t = sample_dict.pop("masks")
+        mask_arrays = [masks_t[0, k].numpy() > 0.5 for k in range(masks_t.shape[1])]
 
         # Generate the single whole-frame foreground mask (union of all instance
         # masks, area-downsampled + re-binarized to the seg head's output stride).
@@ -3696,8 +3750,9 @@ class BottomUpSegmentationTiledDataset(BaseDataset):
         mask_arrays = [np.asarray(m, dtype=bool) for m in d["masks"]]
         sized_hw = (image.shape[-2], image.shape[-1])
         if (sized_hw != orig_hw) and len(mask_arrays) > 0:
-            # Resize masks to the sized image resolution (mirrors
-            # BottomUpSegmentationDataset's scale-change branch).
+            # Resize masks to the sized image resolution with antialiased bilinear,
+            # matching the image's ``apply_resizer`` / ``tvf.resize`` above
+            # (standardized across every seg mask-geometry resize).
             target_h, target_w = sized_hw
             resized = []
             for m in mask_arrays:
@@ -3705,7 +3760,11 @@ class BottomUpSegmentationTiledDataset(BaseDataset):
                     torch.from_numpy(m.astype(np.float32)).unsqueeze(0).unsqueeze(0)
                 )
                 m_resized = F.interpolate(
-                    m_tensor, size=(target_h, target_w), mode="area"
+                    m_tensor,
+                    size=(target_h, target_w),
+                    mode="bilinear",
+                    align_corners=False,
+                    antialias=True,
                 )
                 resized.append(m_resized.squeeze().numpy() > 0.5)
             mask_arrays = resized
@@ -4113,8 +4172,9 @@ class SemanticSegmentationTiledDataset(BaseDataset):
         mask_arrays = [np.asarray(m, dtype=bool) for m in d["masks"]]
         sized_hw = (image.shape[-2], image.shape[-1])
         if (sized_hw != orig_hw) and len(mask_arrays) > 0:
-            # Resize masks to the sized image resolution (mirrors
-            # SemanticSegmentationDataset's scale-change branch).
+            # Resize masks to the sized image resolution with antialiased bilinear,
+            # matching the image's ``apply_resizer`` / ``tvf.resize`` above
+            # (standardized across every seg mask-geometry resize).
             target_h, target_w = sized_hw
             resized = []
             for m in mask_arrays:
@@ -4122,7 +4182,11 @@ class SemanticSegmentationTiledDataset(BaseDataset):
                     torch.from_numpy(m.astype(np.float32)).unsqueeze(0).unsqueeze(0)
                 )
                 m_resized = F.interpolate(
-                    m_tensor, size=(target_h, target_w), mode="area"
+                    m_tensor,
+                    size=(target_h, target_w),
+                    mode="bilinear",
+                    align_corners=False,
+                    antialias=True,
                 )
                 resized.append(m_resized.squeeze().numpy() > 0.5)
             mask_arrays = resized
