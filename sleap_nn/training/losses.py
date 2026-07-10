@@ -131,3 +131,139 @@ def compute_masked_smooth_l1(
         y_pred * mask_expanded, y_gt * mask_expanded, reduction="sum"
     )
     return loss / n_valid
+
+
+# ---------------------------------------------------------------------------
+# Contrastive losses for the `embedding` model type.
+#
+# The OBJECTIVE = positives x negatives x loss (SPEC §4). Sampling builds a batch;
+# `build_contrastive_masks` turns each item's (video, frame, group, item_id) into a
+# positive mask + a negative-eligibility mask; the loss consumes
+# `(embeddings, pos_mask, neg_mask)`. So swapping supcon/infonce/triplet is purely the
+# loss; swapping the sampling regime is purely the masks.
+# ---------------------------------------------------------------------------
+def build_contrastive_masks(
+    item_id: torch.Tensor,
+    video: torch.Tensor,
+    frame: torch.Tensor,
+    group: torch.Tensor,
+    positives_scope: str = "global_id",
+    negatives_sources=("same_frame", "in_batch"),
+    exclude_same_track: bool = True,
+    restrict_same_video: bool = False,
+):
+    """Build the positive + negative-eligibility masks for a contrastive batch.
+
+    Args:
+        item_id: (B,) id of the ORIGINAL crop; augmented views share an item_id.
+        video: (B,) video id (for same_frame + restrict_same_video).
+        frame: (B,) frame id within a video (negative = -1 if unknown).
+        group: (B,) group key — identity (global_id) or (video, track) (tracklet).
+        positives_scope: ``aug_view`` | ``tracklet`` | ``global_id``.
+        negatives_sources: subset of ``{same_frame, in_batch}``.
+        exclude_same_track: drop same-group pairs from negatives.
+        restrict_same_video: restrict negatives to same-video pairs. Required for
+            video-local (tracklet) ids: cross-video pairs are UNKNOWN and must never
+            be used as negatives (they go in neither mask).
+
+    Returns:
+        ``(pos_mask, neg_mask)``, both bool ``(B, B)`` with a False diagonal.
+    """
+    B = item_id.shape[0]
+    eye = torch.eye(B, device=item_id.device, dtype=torch.bool)
+
+    same_item = item_id[:, None] == item_id[None, :]
+    same_group = group[:, None] == group[None, :]
+    same_video = video[:, None] == video[None, :]
+    same_frame = same_video & (frame[:, None] == frame[None, :]) & (frame[:, None] >= 0)
+
+    # Positives: augmented views always; tracklet/global_id add same_group.
+    pos = same_item.clone()
+    if positives_scope in ("tracklet", "global_id"):
+        pos = pos | same_group
+    pos = pos & ~eye
+
+    # Negative eligibility (a KNOWN-different pair, not merely "not known-positive").
+    neg = torch.zeros_like(pos)
+    if "in_batch" in negatives_sources:
+        neg = neg | ~eye
+    if "same_frame" in negatives_sources:
+        neg = neg | same_frame
+    neg = neg & ~pos & ~eye
+    if exclude_same_track:
+        neg = neg & ~same_group
+    if restrict_same_video:
+        neg = neg & same_video
+    return pos, neg
+
+
+def supcon_loss(z, pos_mask, neg_mask, temperature: float = 0.1):
+    """Supervised contrastive loss (Khosla et al.) over masks. `z` is L2-normalized."""
+    B = z.shape[0]
+    eye = torch.eye(B, device=z.device, dtype=torch.bool)
+    sim = (z @ z.T) / temperature
+    sim = sim - sim.max(1, keepdim=True).values.detach()  # numerical stability
+    denom = (pos_mask | neg_mask) & ~eye
+    exp = torch.exp(sim) * denom.float()
+    log_prob = sim - torch.log(exp.sum(1, keepdim=True) + 1e-12)
+    pos = pos_mask & ~eye
+    pos_cnt = pos.sum(1)
+    valid = pos_cnt > 0
+    if not valid.any():
+        return (sim * 0).sum()
+    mean_log_prob_pos = (pos.float() * log_prob).sum(1) / pos_cnt.clamp(min=1)
+    return -mean_log_prob_pos[valid].mean()
+
+
+def infonce_loss(z, pos_mask, neg_mask, temperature: float = 0.1):
+    """NT-Xent / InfoNCE: log of summed-positive over summed-contrast."""
+    B = z.shape[0]
+    eye = torch.eye(B, device=z.device, dtype=torch.bool)
+    sim = (z @ z.T) / temperature
+    sim = sim - sim.max(1, keepdim=True).values.detach()
+    denom = (pos_mask | neg_mask) & ~eye
+    pos = pos_mask & ~eye
+    exp = torch.exp(sim)
+    denom_sum = (exp * denom.float()).sum(1)
+    pos_sum = (exp * pos.float()).sum(1)
+    valid = pos.sum(1) > 0
+    if not valid.any():
+        return (sim * 0).sum()
+    loss = -torch.log((pos_sum + 1e-12) / (denom_sum + 1e-12))
+    return loss[valid].mean()
+
+
+def triplet_loss(z, pos_mask, neg_mask, margin: float = 0.2):
+    """Batch-hard triplet on cosine distance with a margin. `z` is L2-normalized."""
+    B = z.shape[0]
+    eye = torch.eye(B, device=z.device, dtype=torch.bool)
+    dist = 1.0 - (z @ z.T)
+    pos = pos_mask & ~eye
+    neg = neg_mask & ~eye
+    big = dist.max().detach() + 1.0
+    hardest_pos = torch.where(pos, dist, torch.zeros_like(dist)).max(1).values
+    hardest_neg = (
+        torch.where(neg, dist, torch.full_like(dist, float(big))).min(1).values
+    )
+    valid = (pos.sum(1) > 0) & (neg.sum(1) > 0)
+    if not valid.any():
+        return (dist * 0).sum()
+    loss = F.relu(hardest_pos - hardest_neg + margin)
+    return loss[valid].mean()
+
+
+_CONTRASTIVE_LOSSES = {
+    "supcon": supcon_loss,
+    "infonce": infonce_loss,
+    "triplet": triplet_loss,
+}
+
+
+def get_contrastive_loss(name: str):
+    """Return the contrastive loss function by name (supcon|infonce|triplet)."""
+    if name not in _CONTRASTIVE_LOSSES:
+        raise ValueError(
+            f"Unknown contrastive loss '{name}'; choose one of "
+            f"{list(_CONTRASTIVE_LOSSES)}."
+        )
+    return _CONTRASTIVE_LOSSES[name]

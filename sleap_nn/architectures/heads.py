@@ -2,6 +2,8 @@
 
 from typing import List, Optional, Sequence, Text, Tuple
 
+import torch
+import torch.nn.functional as F
 from omegaconf.dictconfig import DictConfig
 from torch import nn
 from loguru import logger
@@ -523,6 +525,164 @@ class ClassVectorsHead(Head):
 
         module_dict[f"ClassVectorsHead"] = nn.Linear(self.num_fc_units, self.channels)
         module_dict[f"softmax"] = get_act_fn("softmax")
+
+        return nn.Sequential(module_dict)
+
+
+class GeM(nn.Module):
+    """Generalized-mean pooling: ``(mean(x.clamp(min=eps)^p))^(1/p)`` over HxW.
+
+    The exponent ``p`` is learnable (init 3.0). The ``clamp(min=eps)`` BEFORE the
+    fractional power guards against NaNs (a fractional power of a negative/zero base).
+    Returns a flattened ``[B, C]`` tensor.
+    """
+
+    def __init__(self, p: float = 3.0, eps: float = 1e-6, learnable: bool = True):
+        """Initialize the pooling layer.
+
+        Args:
+            p: Initial generalized-mean exponent (``p=1`` averages, larger ``p``
+                approaches max-pooling).
+            eps: Small floor applied to the activation before the power to avoid a
+                fractional power of a non-positive value.
+            learnable: If ``True``, ``p`` is a trainable parameter; otherwise it is a
+                fixed buffer.
+        """
+        super().__init__()
+        if learnable:
+            self.p = nn.Parameter(torch.tensor(float(p)))
+        else:
+            self.register_buffer("p", torch.tensor(float(p)))
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Pool ``[B, C, H, W]`` to ``[B, C]`` by the generalized mean over ``HxW``."""
+        # Clamp the (learnable) exponent to a sane floor: p -> 0 makes ``1/p`` explode
+        # and a negative p inverts the mean — either can yield inf/NaN embeddings that
+        # corrupt the whole batch's contrastive loss. The activation eps-clamp guards
+        # the base; this guards the exponent.
+        p = self.p.clamp(min=1.0)
+        xp = x.clamp(min=self.eps).pow(p)
+        return F.adaptive_avg_pool2d(xp, 1).pow(1.0 / p).flatten(1)
+
+
+class L2Norm(nn.Module):
+    """L2-normalize along ``dim`` (so embeddings live on the unit hypersphere)."""
+
+    def __init__(self, dim: int = 1):
+        """Initialize the layer.
+
+        Args:
+            dim: Dimension along which to L2-normalize.
+        """
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """L2-normalize ``x`` along ``dim``."""
+        return F.normalize(x, dim=self.dim)
+
+
+class EmbeddingHead(Head):
+    """Head for crop -> embedding-vector (re-ID) models.
+
+    Mirrors ``ClassVectorsHead`` (a pooled, non-spatial head): ``[pool] -> Flatten ->
+    num_fc_layers x (Linear+ReLU) -> Linear(embedding_dim) -> [L2Norm]``. The pooled
+    feature comes from the backbone's ``middle_output`` (lone head, empty decoder).
+
+    Attributes:
+        embedding_dim: Output embedding dimensionality.
+        num_fc_layers: Number of FC layers before the embedding output.
+        num_fc_units: Units in the pre-embedding FC layers.
+        pool: Pooling over the encoder feature map: ``gem`` | ``max`` | ``avg``.
+        normalize: L2-normalize the output embedding.
+        output_stride: Should equal the backbone max_stride (so the decoder is empty
+            and the head taps ``middle_output``).
+        loss_weight: Weight of the loss term for this head.
+    """
+
+    def __init__(
+        self,
+        embedding_dim: int = 128,
+        num_fc_layers: int = 1,
+        num_fc_units: int = 256,
+        pool: str = "gem",
+        normalize: bool = True,
+        output_stride: int = 1,
+        loss_weight: float = 1.0,
+    ) -> None:
+        """Initialize the object with the specified attributes."""
+        super().__init__(output_stride, loss_weight)
+        self.embedding_dim = embedding_dim
+        self.num_fc_layers = num_fc_layers
+        self.num_fc_units = num_fc_units
+        self.pool = pool
+        self.normalize = normalize
+
+    @property
+    def channels(self) -> int:
+        """Return the number of channels in the tensor output by this head."""
+        return self.embedding_dim
+
+    @property
+    def activation(self) -> str:
+        """Return the activation function of the head output layer."""
+        return "identity"
+
+    @property
+    def loss_function(self) -> str:
+        """Return the loss-function name (informational).
+
+        The contrastive loss is batch-level and is driven by the embedding
+        LightningModule's ``objective``, not by this string.
+        """
+        return "supcon"
+
+    @classmethod
+    def from_config(cls, config: DictConfig) -> "EmbeddingHead":
+        """Create this head from a head-leaf configuration."""
+        return cls(
+            embedding_dim=config.embedding_dim,
+            num_fc_layers=config.num_fc_layers,
+            num_fc_units=config.num_fc_units,
+            pool=config.pool,
+            normalize=config.normalize,
+            output_stride=config.output_stride,
+            loss_weight=config.loss_weight,
+        )
+
+    def make_head(self, x_in: int) -> nn.Sequential:
+        """Make the head output module from the pooled-feature input channels.
+
+        Args:
+            x_in: Number of channels of the encoder feature map (its channel dim).
+
+        Returns:
+            An ``nn.Sequential`` mapping ``[B, x_in, H, W] -> [B, embedding_dim]``.
+        """
+        module_dict = OrderedDict()
+        if self.pool == "gem":
+            module_dict["pre_embedding_pool"] = GeM()
+        elif self.pool == "max":
+            module_dict["pre_embedding_pool"] = nn.AdaptiveMaxPool2d(1)
+        elif self.pool == "avg":
+            module_dict["pre_embedding_pool"] = nn.AdaptiveAvgPool2d(1)
+        else:
+            message = f"Unknown pool '{self.pool}'; choose one of gem|max|avg."
+            logger.error(message)
+            raise ValueError(message)
+
+        module_dict["pre_embedding_flatten"] = nn.Flatten(start_dim=1)
+
+        d_in = x_in
+        for i in range(self.num_fc_layers):
+            module_dict[f"pre_embedding{i}_fc"] = nn.Linear(d_in, self.num_fc_units)
+            module_dict[f"pre_embedding{i}_relu"] = get_act_fn("relu")
+            d_in = self.num_fc_units
+
+        module_dict["EmbeddingHead"] = nn.Linear(d_in, self.embedding_dim)
+        if self.normalize:
+            module_dict["l2norm"] = L2Norm(dim=1)
 
         return nn.Sequential(module_dict)
 

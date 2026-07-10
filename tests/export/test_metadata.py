@@ -103,6 +103,11 @@ class TestExportMetadata:
             "class_names",
             "peak_threshold",
             "anchor_part",
+            "embedding_dim",
+            "normalize",
+            "backbone_source",
+            "burn_in",
+            "background_fill",
             "training_config_embedded",
             "training_config_hash",
         }
@@ -343,6 +348,37 @@ class TestExportMetadata:
         assert d["anchor_part"] == "thorax"
         loaded = ExportMetadata.from_dict(d)
         assert loaded.anchor_part == "thorax"
+
+    def test_embedding_fields_roundtrip(self):
+        """Embedding metadata (embedding_dim/normalize/backbone_source) round-trips."""
+        metadata = build_base_metadata(
+            export_format="onnx",
+            model_type="embedding",
+            model_name="emb",
+            checkpoint_path="/path",
+            backbone="convnext",
+            n_nodes=0,
+            n_edges=0,
+            node_names=[],
+            edge_inds=[],
+            input_scale=1.0,
+            input_channels=1,
+            output_stride=32,
+            crop_size=(128, 128),
+            normalization="per_crop_standardize",
+            embedding_dim=128,
+            normalize=True,
+            backbone_source="imagenet",
+        )
+        assert metadata.embedding_dim == 128
+        assert metadata.normalize is True
+        assert metadata.backbone_source == "imagenet"
+        assert metadata.normalization == "per_crop_standardize"
+
+        loaded = ExportMetadata.from_dict(metadata.to_dict())
+        assert loaded.embedding_dim == 128
+        assert loaded.normalize is True
+        assert loaded.backbone_source == "imagenet"
 
     def test_default_timestamp(self):
         """Test that default_timestamp() returns a valid ISO format string."""

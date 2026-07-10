@@ -923,3 +923,104 @@ class TestResolveNodeNamesEdgeCases:
         )
         names = resolve_node_names(cfg, "nonexistent")
         assert names == []
+
+
+def _embedding_cfg(
+    embedding_dim=128,
+    normalize=True,
+    output_stride=32,
+    ensure_grayscale=True,
+    ensure_rgb=False,
+    pre_trained_weights=None,
+):
+    """Build a minimal config exercising the embedding resolvers."""
+    from omegaconf import OmegaConf
+
+    return OmegaConf.create(
+        {
+            "data_config": {
+                "preprocessing": {
+                    "ensure_grayscale": ensure_grayscale,
+                    "ensure_rgb": ensure_rgb,
+                }
+            },
+            "model_config": {
+                "backbone_type": "convnext",
+                "backbone_config": {
+                    "convnext": {
+                        "in_channels": 3,
+                        "pre_trained_weights": pre_trained_weights,
+                    }
+                },
+                "pretrained_backbone_weights": None,
+                "head_configs": {
+                    "embedding": {
+                        "embedding": {
+                            "embedding_dim": embedding_dim,
+                            "normalize": normalize,
+                            "output_stride": output_stride,
+                            "pool": "gem",
+                        }
+                    }
+                },
+            },
+        }
+    )
+
+
+class TestResolveEmbedding:
+    """Tests for the embedding-specific resolvers (export P2 #6)."""
+
+    def test_resolve_embedding_dim(self):
+        from sleap_nn.export.utils import resolve_embedding_dim
+
+        assert resolve_embedding_dim(_embedding_cfg(embedding_dim=256)) == 256
+
+    def test_resolve_embedding_dim_default(self):
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_embedding_dim
+
+        cfg = OmegaConf.create({"model_config": {"head_configs": {}}})
+        assert resolve_embedding_dim(cfg) == 128
+
+    def test_resolve_normalize(self):
+        from sleap_nn.export.utils import resolve_normalize
+
+        assert resolve_normalize(_embedding_cfg(normalize=True)) is True
+        assert resolve_normalize(_embedding_cfg(normalize=False)) is False
+
+    def test_resolve_output_stride_embedding(self):
+        from sleap_nn.export.utils import resolve_output_stride
+
+        cfg = _embedding_cfg(output_stride=32)
+        assert resolve_output_stride(cfg, "embedding") == 32
+
+    def test_resolve_embedding_input_channels_grayscale(self):
+        from sleap_nn.export.utils import resolve_embedding_input_channels
+
+        cfg = _embedding_cfg(ensure_grayscale=True, ensure_rgb=False)
+        assert resolve_embedding_input_channels(cfg) == 1
+
+    def test_resolve_embedding_input_channels_rgb(self):
+        from sleap_nn.export.utils import resolve_embedding_input_channels
+
+        cfg = _embedding_cfg(ensure_grayscale=False, ensure_rgb=True)
+        assert resolve_embedding_input_channels(cfg) == 3
+
+    def test_resolve_embedding_input_channels_defaults_grayscale(self):
+        """Neither flag set -> embedding default is grayscale (1ch)."""
+        from sleap_nn.export.utils import resolve_embedding_input_channels
+
+        cfg = _embedding_cfg(ensure_grayscale=False, ensure_rgb=False)
+        assert resolve_embedding_input_channels(cfg) == 1
+
+    def test_resolve_backbone_source(self):
+        from sleap_nn.export.utils import resolve_backbone_source
+
+        assert (
+            resolve_backbone_source(
+                _embedding_cfg(pre_trained_weights="ConvNeXt_Tiny_Weights")
+            )
+            == "imagenet"
+        )
+        assert resolve_backbone_source(_embedding_cfg()) == "scratch"

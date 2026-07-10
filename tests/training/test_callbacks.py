@@ -2683,6 +2683,77 @@ class TestCentroidEvaluationCallback:
         assert log_dict["eval/val/centroid_recall"] == 0.0
 
 
+class TestUnifiedVizCallbackEmbedding:
+    """Embedding-specific (skeleton-less, scatter) wiring for UnifiedVizCallback."""
+
+    def _callback(self, model_type="embedding", model_trainer=None):
+        return UnifiedVizCallback(
+            model_trainer=model_trainer or MagicMock(),
+            train_dataset=[{}],
+            val_dataset=[{}],
+            model_type=model_type,
+            save_local=False,
+        )
+
+    def test_embedding_sets_viz_flag_and_disables_keypoint_viz(self):
+        """An embedding model enables scatter viz and no keypoint/mask viz."""
+        cb = self._callback("embedding")
+        assert cb.viz_embedding is True
+        assert cb.viz_pafs is False
+        assert cb.viz_class_maps is False
+        assert cb.viz_center_heatmap is False
+        assert cb.viz_offsets is False
+        assert cb.viz_gt_mask is False
+
+    def test_non_embedding_has_viz_embedding_false(self):
+        """A non-embedding model does not enable the scatter branch."""
+        assert self._callback("bottomup").viz_embedding is False
+
+    def test_on_train_epoch_end_routes_to_scatter_not_keypoints(self):
+        """For embedding, epoch-end renders the scatter and never the keypoint viz."""
+        cb = self._callback("embedding")
+        cb._embedding_viz_epoch = MagicMock()
+        cb._get_viz_data = MagicMock()
+
+        trainer = MagicMock()
+        trainer.is_global_zero = True
+        trainer.current_epoch = 0
+
+        cb.on_train_epoch_end(trainer, MagicMock())
+
+        cb._embedding_viz_epoch.assert_called_once()
+        cb._get_viz_data.assert_not_called()
+        trainer.strategy.barrier.assert_called_once()
+
+    def test_reduce_to_2d_pca_and_raw_passthrough(self):
+        """``_reduce_to_2d`` returns (N, 2): PCA for small N; raw passthrough D<=2."""
+        rng = np.random.RandomState(0)
+        p, m = UnifiedVizCallback._reduce_to_2d(rng.randn(8, 64).astype("float32"))
+        assert p.shape == (8, 2) and m == "pca"
+        # D <= 2 -> raw passthrough (no reduction)
+        p2, m2 = UnifiedVizCallback._reduce_to_2d(rng.randn(5, 1).astype("float32"))
+        assert p2.shape == (5, 2) and m2 == "raw"
+
+    def test_render_embedding_scatter_produces_figure(self):
+        """``_render_embedding_scatter`` renders a figure for train+val points."""
+        import matplotlib.pyplot as plt
+
+        rng = np.random.RandomState(0)
+        emb2d = rng.randn(20, 2).astype("float32")
+        groups = np.array([0, 1, 2, 3] * 5)
+        fig = UnifiedVizCallback._render_embedding_scatter(
+            emb2d, groups, n_train=12, epoch=3, method="pca"
+        )
+        assert fig is not None
+        plt.close(fig)
+
+    def test_embed_dataset_sample_empty_dataset_returns_none(self):
+        """Embedding an empty / lenless dataset yields (None, None) (no crash)."""
+        cb = self._callback("embedding")
+        emb, grp = cb._embed_dataset_sample(MagicMock(), [], n=8)
+        assert emb is None and grp is None
+
+
 class TestUnifiedVizImgFormat:
     """Local viz image format (`viz_img_format` / `_resolve_viz_img_format`, #644)."""
 

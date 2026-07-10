@@ -29,10 +29,14 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    # Instance segmentation (SegmentationMask / Labels.get_masks) requires the
-    # sleap-io 0.8.0 annotation architecture. Fenced below 0.9.0 so a future
-    # major bump (with its own breaking changes) is an explicit, audited upgrade.
-    "sleap-io>=0.8.0,<0.9.0",
+    # Re-ID identity/embedding: the `embedding` model type keys contrastive
+    # positives on the simplified sleap-io `Identity` (name + metadata) data model,
+    # and the persistence/tracking layers use the single `identity_embedding` slot
+    # + `save_embedding_vectors` (talmolab/sleap-io#531/#535/#536, all on main).
+    # TEMPORARY git pin to the main HEAD until a sleap-io release ships these
+    # (then move to the released `>=0.9.0`). Do NOT ship this pin in a released
+    # sleap-nn wheel — cut the sleap-io release first.
+    "sleap-io @ git+https://github.com/talmolab/sleap-io@27191e26a",
     "numpy",
     "torch",
     "torchvision>=0.20.0",
@@ -40,6 +44,8 @@ dependencies = [
     "skia-python>=87.0,<=138.0",  # pinned for Python 3.13 compatibility (see sleap-io#355)
     "jsonpickle",
     "scipy",
+    "scikit-learn>=1.6",  # group-aware split (GroupKFold shuffle/random_state) + roc_auc_score
+
     "attrs",
     "omegaconf",
     "wandb",
@@ -311,4 +317,5 @@ convention = "google"
 skip = '.git*,*.css'
 check-hidden = true
 # ignore-regex = ''
-# ignore-words-list = ''
+# `fpr` = false positive rate (ROC term in the embedding verification eval).
+ignore-words-list = 'fpr'
