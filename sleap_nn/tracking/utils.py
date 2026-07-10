@@ -182,27 +182,25 @@ def count_valid_points(obj) -> int:
 
 
 def get_embedding(pred_instance):
-    """Return the ``"reid"`` appearance embedding vector for a detection.
+    """Return the appearance re-ID embedding vector for a detection.
 
     The ``"embeddings"`` feature extractor (mirrors :func:`get_keypoints` /
-    :func:`get_mask`). Reads the L2-normalized appearance vector attached by the
-    ``embedding`` (re-ID) model via :meth:`sio.Instance.set_embedding`; works on
-    any embedding-carrying detection (``PredictedInstance`` *or*
-    ``PredictedSegmentationMask`` — both expose ``.embedding`` since
-    sleap-io#527), so embedding tracking is keypoint/mask agnostic. Scored by
-    :func:`compute_cosine_sim`.
+    :func:`get_mask`). Reads the appearance vector attached by the ``embedding``
+    (re-ID) model into the single ``identity_embedding`` slot (sleap-io #535); works
+    on any embedding-carrying detection (``PredictedInstance`` *or*
+    ``PredictedSegmentationMask`` — both carry ``identity_embedding``), so embedding
+    tracking is keypoint/mask agnostic. Scored by :func:`compute_cosine_sim`.
 
     Returns the vector as a ``float32`` ``np.ndarray`` of shape ``(D,)``, or
-    ``None`` when the detection carries no ``"reid"`` embedding. ``None`` is the
-    "no feature" sentinel: :func:`compute_cosine_sim` maps it to ``NaN`` (->
-    ``inf`` cost in :meth:`Tracker.scores_to_cost_matrix`), so a detection that
-    is missing its embedding simply never matches and spawns a fresh track
-    instead of crashing the run. An ``np.ndarray`` is passed through unchanged
-    (a precomputed feature).
+    ``None`` when the detection carries no embedding. ``None`` is the "no feature"
+    sentinel: :func:`compute_cosine_sim` maps it to ``NaN`` (-> ``inf`` cost in
+    :meth:`Tracker.scores_to_cost_matrix`), so a detection that is missing its
+    embedding simply never matches and spawns a fresh track instead of crashing the
+    run. An ``np.ndarray`` is passed through unchanged (a precomputed feature).
     """
     if isinstance(pred_instance, np.ndarray):
         return pred_instance
-    emb = getattr(pred_instance, "embedding", None)
+    emb = getattr(pred_instance, "identity_embedding", None)
     if emb is None:
         return None
     return np.asarray(emb.vector, dtype=np.float32)

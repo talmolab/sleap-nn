@@ -107,9 +107,9 @@ def _embedding_carriers(labels: sio.Labels) -> tuple[bool, bool]:
     """Return ``(instances_have_embedding, masks_have_embedding)``.
 
     Scans both carriers — pose ``Instance`` / ``PredictedInstance`` on
-    ``lf.instances`` and ``PredictedSegmentationMask`` on ``lf.masks`` (both expose
-    ``.embedding`` since sleap-io#527) — for any ``"reid"`` appearance vector. Used by
-    :func:`apply_tracking` to (a) fail loudly when ``features="embeddings"`` is
+    ``lf.instances`` and ``PredictedSegmentationMask`` on ``lf.masks`` (both carry the
+    single ``identity_embedding`` slot, sleap-io #535) — for an appearance vector. Used
+    by :func:`apply_tracking` to (a) fail loudly when ``features="embeddings"`` is
     requested on labels with none, and (b) route the tracker to the carrier the
     embeddings actually ride on (not the pose/mask-presence heuristic).
     """
@@ -118,12 +118,12 @@ def _embedding_carriers(labels: sio.Labels) -> tuple[bool, bool]:
     for lf in labels.labeled_frames:
         if not insts_have:
             for inst in lf.instances:
-                if getattr(inst, "embedding", None) is not None:
+                if getattr(inst, "identity_embedding", None) is not None:
                     insts_have = True
                     break
         if not masks_have:
             for m in getattr(lf, "masks", None) or []:
-                if getattr(m, "embedding", None) is not None:
+                if getattr(m, "identity_embedding", None) is not None:
                     masks_have = True
                     break
         if insts_have and masks_have:
@@ -132,7 +132,7 @@ def _embedding_carriers(labels: sio.Labels) -> tuple[bool, bool]:
 
 
 def _labels_have_embeddings(labels: sio.Labels) -> bool:
-    """``True`` if any detection (pose instance or mask) carries a ``"reid"`` vector."""
+    """``True`` if any detection (pose instance or mask) carries a re-ID vector."""
     insts_have, masks_have = _embedding_carriers(labels)
     return insts_have or masks_have
 
@@ -316,8 +316,9 @@ def apply_tracking(
         # the instances do not.
         insts_have_emb, masks_have_emb = _embedding_carriers(labels)
         is_mask_mode = masks_have_emb and not insts_have_emb
-        # The appearance vectors must already ride on the detections (attached by the
-        # `embedding` model via ``set_embedding``); apply_tracking never computes them.
+        # The appearance vectors must already ride on the detections'
+        # ``identity_embedding`` slot (attached by the `embedding` model); apply_tracking
+        # never computes them.
         # Fail loudly if none are present (the common "forgot to run / persist the
         # embedding model" mistake) rather than silently spawning a fresh track per
         # detection (every cosine is NaN -> inf cost -> no match).

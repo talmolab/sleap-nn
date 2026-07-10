@@ -80,8 +80,8 @@ def embed_labels(
     ``ensure_rgb``, optional mask burn-in + ``background_fill``), runs the native
     :class:`~sleap_nn.inference.layers.embedding.EmbeddingLayer`, and attaches each
     crop's vector to its **object-exact** source detection (the exact ``sio.Instance`` /
-    ``sio.SegmentationMask``) via :meth:`set_embedding` (``name="reid"``). Both pose and
-    mask (``owner_type=3``, sleap-io#527) detections persist their embeddings.
+    ``sio.SegmentationMask``) via the single ``identity_embedding`` slot (sleap-io #535).
+    Both pose and mask (``owner_type=3``) detections persist their embeddings.
 
     This is the shared embedding kernel: :func:`predict_embeddings_to_slp` calls it then
     writes a ``.slp``; the post-training retrieval eval calls it for the ``(vectors,
@@ -141,9 +141,6 @@ def embed_labels(
     )
     emb_head = config.model_config.head_configs.embedding.embedding
     embedding_dim = int(emb_head.embedding_dim)
-    normalize_flag = bool(emb_head.normalize)
-    # The model dir name tags every vector's ``Embedding.source`` (provenance).
-    model_id = Path(str(model_dir)).name
 
     class_names = resolve_embedding_class_names([labels])
     if not class_names and not include_untracked:
@@ -190,12 +187,10 @@ def embed_labels(
             # attach the vector. ``item_id`` is the dataset index carried per sample.
             item_id = int(batch["item_id"][i])
             mask_obj = dataset.mask_idx_list[item_id]["mask_obj"]
-            mask_obj.set_embedding(
-                emb[i],
-                name="reid",
-                normalized=normalize_flag,
-                source=model_id,
-            )
+            # Single re-ID slot on every detection modality (sleap-io #535): the vector
+            # is implicitly the appearance embedding; provenance / normalized-flag /
+            # space-name no longer have a home on the bare `Embedding` value object.
+            mask_obj.identity_embedding = sio.Embedding(emb[i])
             g = int(batch["group_id"][i])
             all_tracks.append(
                 class_names[g] if class_names and 0 <= g < len(class_names) else ""
@@ -321,11 +316,17 @@ def predict_embeddings_to_slp(
         )
         tracked = apply_tracking(labels, tracker_config)
         # save_embeddings controls whether the vectors persist in the tracked .slp;
-        # "none" -> tracks only, so strip the attached vectors.
-        if save_embeddings != "slp":
+        # "none" -> tracks only, so strip the attached vectors (belt-and-braces with
+        # the explicit save_embedding_vectors flag below).
+        persist_vectors = save_embeddings == "slp"
+        if not persist_vectors:
             _strip_embeddings(tracked)
         tracked_out = output_path or f"{data_path}.tracked.slp"
-        sio.save_slp(tracked, tracked_out, embed=False)
+        # #536 flipped the save_slp default to False; be explicit either way. Identity
+        # links (sio.Track) always persist regardless of this flag.
+        sio.save_slp(
+            tracked, tracked_out, embed=False, save_embedding_vectors=persist_vectors
+        )
         logger.info(f"Wrote tracked labels to {tracked_out}")
         return tracked_out
 
@@ -335,7 +336,8 @@ def predict_embeddings_to_slp(
     # names (a track/class name is not a global animal identity). Both Instance and
     # SegmentationMask (owner_type=3, sleap-io#527) embeddings persist here.
     slp_out = output_path or f"{data_path}.embeddings.slp"
-    sio.save_slp(labels, slp_out, embed=False)
+    # This path exists to persist the vectors, so opt in explicitly (#536 default flip).
+    sio.save_slp(labels, slp_out, embed=False, save_embedding_vectors=True)
     logger.info(
         f"Attached {n_attached} embeddings (dim={embedding_dim}) and wrote {slp_out}"
     )
@@ -343,19 +345,16 @@ def predict_embeddings_to_slp(
 
 
 def _strip_embeddings(labels: sio.Labels) -> None:
-    """Drop all ``"reid"`` appearance embeddings from a labels' detections in place.
+    """Drop the re-ID appearance embedding from a labels' detections in place.
 
     Used when ``--tracking`` runs on an ``embedding`` model with
     ``save_embeddings="none"`` (the default): the vectors are attached only so the
     tracker can consume them, and are removed before the tracked ``.slp`` is written
-    (tracks only). Both pose (``lf.instances``) and mask (``lf.masks``) carriers.
+    (tracks only). Both pose (``lf.instances``) and mask (``lf.masks``) carriers hold a
+    single ``identity_embedding`` slot (sleap-io #535).
     """
     for lf in labels.labeled_frames:
         for inst in lf.instances:
-            embs = getattr(inst, "embeddings", None)
-            if embs:
-                embs.clear()
+            inst.identity_embedding = None
         for m in getattr(lf, "masks", None) or []:
-            embs = getattr(m, "embeddings", None)
-            if embs:
-                embs.clear()
+            m.identity_embedding = None

@@ -167,16 +167,13 @@ def _multiclass_class_names(assets: Any, head_type: str) -> Optional[List[str]]:
 
 
 def _multiclass_class_uuids(assets: Any, head_type: str) -> Optional[List[str]]:
-    """Ordered per-class canonical identity UUIDs for a multi-class head.
+    """Ordered per-class ``class_uuids`` for a multi-class head (VESTIGIAL).
 
-    Sibling of :func:`_multiclass_class_names`, reading the ``class_uuids`` field
-    frozen into the head config at train time (the train→inference uuid bridge).
-    Each entry is the canonical ``sio.Identity.uuid`` for the class at the same
-    index in ``classes``.
-
-    Returns ``None`` when the config or ``class_uuids`` list is unavailable
-    (e.g. a legacy checkpoint trained before this field existed); callers then
-    mint fresh UUIDs.
+    The simplified sleap-io ``Identity`` (sleap-io #535) matches by name, so the
+    train->inference uuid bridge is obsolete and no longer minted; this reader is
+    retained only so an old ``training_config.yaml`` carrying a ``class_uuids`` field
+    still parses. Always effectively ``None`` for models trained on the new data model.
+    Returns ``None`` when the config or ``class_uuids`` list is unavailable.
     """
     if head_type == "multi_class_topdown":
         cfg = getattr(assets, "confmap_config", None)
@@ -2107,7 +2104,7 @@ class Predictor:
         used_tracks: list = []
         seen_track_ids: set = set()
         used_identities: list = []
-        seen_identity_uuids: set = set()
+        seen_identity_names: set = set()
         for outputs in outputs_list:
             sub = outputs.to_labels(
                 skeleton=skeleton,
@@ -2126,12 +2123,12 @@ class Predictor:
                 if id(trk) not in seen_track_ids:
                     seen_track_ids.add(id(trk))
                     used_tracks.append(trk)
-            # Dedup identities by uuid across batches (the same canonical objects
-            # are reused for every frame, so this collapses to the registry).
+            # Dedup identities by name across batches (the simplified sio.Identity
+            # matches by name; the same canonical objects are reused for every frame,
+            # so this collapses to the registry).
             for ident in sub.identities:
-                uuid = getattr(ident, "uuid", None)
-                if uuid not in seen_identity_uuids:
-                    seen_identity_uuids.add(uuid)
+                if ident.name not in seen_identity_names:
+                    seen_identity_names.add(ident.name)
                     used_identities.append(ident)
         valid_videos = [v for v in videos if v is not None]
         labels = sio.Labels(
@@ -2164,22 +2161,19 @@ class Predictor:
     def _multiclass_identities(self) -> Optional[list["sio.Identity"]]:
         """Build the canonical ``sio.Identity`` registry for multi-class models.
 
-        Sibling of :meth:`_multiclass_tracks`. Reads ``class_names`` and
-        ``class_uuids`` off the (possibly composed) multi-class layer and builds
-        one ``sio.Identity(name, uuid)`` per class, ordered by class index. The
-        per-class ``uuid`` is the train→inference bridge (frozen into the head
-        config at train time), so a predicted instance and a GT instance of the
-        same animal share the **same canonical uuid** across files.
+        Sibling of :meth:`_multiclass_tracks`. Reads ``class_names`` off the (possibly
+        composed) multi-class layer and builds one ``sio.Identity(name=<class name>)``
+        per class, ordered by class index. The simplified sleap-io ``Identity`` (name +
+        metadata, sleap-io #535) matches by NAME across files and retrains, so the class
+        name is itself the canonical cross-file identity key — no per-class uuid bridge.
 
-        The identities are built **once** here and the same objects are reused
-        for every frame/instance (the canonical-reference contract — ``Identity``
-        compares by object identity, so the writer's ``identity in
-        labels.identities`` registration check only passes for the exact objects
-        we register). Mints a fresh ``uuid4`` per class for legacy checkpoints
-        that predate ``class_uuids``. Returns ``None`` for non-multiclass layers.
+        The identities are built **once** here and the same objects are reused for every
+        frame/instance (the canonical-reference contract — ``Identity`` compares by
+        object identity, so the writer's ``identity in labels.identities`` registration
+        check only passes for the exact objects we register; cross-file joins use
+        ``Identity.matches`` on the name). Returns ``None`` for non-multiclass layers.
         """
         import sleap_io as sio
-        from uuid import uuid4
 
         class_names = getattr(self.layer, "class_names", None)
         if not class_names:
@@ -2191,20 +2185,14 @@ class Predictor:
         class_output = getattr(self.layer, "class_output", "track")
         if class_output == "category":
             raise NotImplementedError(
-                "class_output='category' is not yet implemented; predicted classes "
-                "can currently be emitted as 'track' (default) or 'identity'. Set "
-                "the multi-class head's class_output to 'track' or 'identity'."
+                "class_output='category' is not supported (sleap-io removed the "
+                "categories data model in #535); predicted classes can be emitted as "
+                "'track' (default) or 'identity'. Set the multi-class head's "
+                "class_output to 'track' or 'identity'."
             )
         if class_output != "identity":
             return None
-        class_uuids = getattr(self.layer, "class_uuids", None)
-        if not class_uuids or len(class_uuids) != len(class_names):
-            # Legacy checkpoint (or length mismatch): mint stable-per-run UUIDs.
-            class_uuids = [uuid4().hex for _ in class_names]
-        return [
-            sio.Identity(name=str(name), uuid=str(uuid))
-            for name, uuid in zip(class_names, class_uuids)
-        ]
+        return [sio.Identity(name=str(name)) for name in class_names]
 
     def _packaging_anchor_ind(self) -> Optional[int]:
         """Anchor-node slot for centroid-only output packaging."""

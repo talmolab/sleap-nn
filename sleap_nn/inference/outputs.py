@@ -707,7 +707,7 @@ class Outputs:
         used_tracks: List["sio.Track"] = []
         seen_track_ids: set[int] = set()
         used_identities: List["sio.Identity"] = []
-        seen_identity_uuids: set = set()
+        seen_identity_names: set = set()
         for b in range(self.batch_size):
             instances = (
                 self.to_instances(
@@ -750,11 +750,9 @@ class Outputs:
                     seen_track_ids.add(id(trk))
                     used_tracks.append(trk)
                 ident = getattr(inst, "identity", None)
-                if ident is not None:
-                    uuid = getattr(ident, "uuid", None)
-                    if uuid not in seen_identity_uuids:
-                        seen_identity_uuids.add(uuid)
-                        used_identities.append(ident)
+                if ident is not None and ident.name not in seen_identity_names:
+                    seen_identity_names.add(ident.name)
+                    used_identities.append(ident)
             for cen in centroids:
                 trk = getattr(cen, "track", None)
                 if trk is not None and id(trk) not in seen_track_ids:

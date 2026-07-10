@@ -10,7 +10,6 @@ import sleap_io as sio
 import sleap_nn
 import time
 import math
-from uuid import uuid4
 import lightning as L
 import wandb
 import yaml
@@ -773,36 +772,12 @@ class ModelTrainer:
                         "classes"
                     ] = classes
 
-            # Mint per-class canonical identity UUIDs (the train→inference bridge).
-            # One uuid per class, in the SAME order as ``classes``. Reuse a
-            # matching ``sio.Identity.uuid`` from the training labels when present
-            # (so predictions can join a GT file by uuid), else mint ``uuid4``.
-            # ONLY when ``class_output == "identity"`` (the classes enumerate unique
-            # individuals) and ``class_uuids`` is missing/None — a ``"track"``
-            # (default) or ``"category"`` model needs no per-class identity uuid.
-            # Frozen verbatim into ``training_config.yaml``.
-            if (
-                "class_uuids" in head_config[key].keys()
-                and head_config[key].get("class_output") == "identity"
-            ):
-                if head_config[key]["class_uuids"] is None:
-                    classes = head_config[key]["classes"]
-                    if classes is not None and len(classes):
-                        gt_uuid_by_name = {}
-                        for train_label in self.train_labels:
-                            identities = getattr(train_label, "identities", None) or []
-                            for identity in identities:
-                                name = getattr(identity, "name", None)
-                                uuid = getattr(identity, "uuid", None)
-                                if name is not None and uuid is not None:
-                                    # First identity wins for a given name.
-                                    gt_uuid_by_name.setdefault(str(name), str(uuid))
-                        class_uuids = [
-                            gt_uuid_by_name.get(str(c), uuid4().hex) for c in classes
-                        ]
-                        self.config.model_config.head_configs[self.model_type][key][
-                            "class_uuids"
-                        ] = class_uuids
+            # NOTE: no per-class identity UUID is minted. The simplified sleap-io
+            # `Identity` (name + metadata, sleap-io #535) matches by NAME across files
+            # and retrains, so the class name IS the canonical cross-file identity key;
+            # the old train→inference uuid bridge is obsolete. A `class_output ==
+            # "identity"` multi_class model emits `sio.Identity(name=<class name>)` at
+            # inference (see `predictor._multiclass_identities`).
 
     def _setup_ckpt_path(self):
         """Setup checkpoint path."""
