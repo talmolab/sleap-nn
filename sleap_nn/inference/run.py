@@ -560,13 +560,13 @@ def predict(
             raise ValueError(
                 "Embedding (re-ID) models emit appearance vectors, not poses, and are "
                 "not supported by `predict` (which packages pose Labels). Use the "
-                "dedicated embeddings stream instead:\n"
+                "dedicated embedding path instead:\n"
                 "  sleap-nn predict --data_path <video|.slp> --model_paths "
-                "<embedding_dir> --embeddings_path <out.h5>\n"
+                "<embedding_dir> --save_embeddings slp\n"
                 "or, from Python:\n"
-                "  from sleap_nn.inference.embedding import predict_embeddings_to_h5\n"
-                "  predict_embeddings_to_h5(model_paths=[embedding_dir], "
-                "data_path=src, output_path='out.h5')"
+                "  from sleap_nn.inference.embedding import predict_embeddings_to_slp\n"
+                "  predict_embeddings_to_slp(model_paths=[embedding_dir], "
+                "data_path=src, output_path='out.slp')"
             )
         if backbone_ckpt_path is not None:
             build_kwargs["backbone_ckpt_path"] = backbone_ckpt_path
