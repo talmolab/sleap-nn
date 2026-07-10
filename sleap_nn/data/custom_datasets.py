@@ -2125,13 +2125,16 @@ def derive_centroids_from_masks(
     Returns:
         The same ``labels`` object, with synthesized centroid instances + skeleton.
     """
-    from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
-    from sleap_nn.data.segmentation_maps import _compute_mask_centroids
-
     if centering not in ("com", "bbox"):
         message = f"Unknown centering '{centering}'; choose 'com' or 'bbox'."
         logger.error(message)
         raise ValueError(message)
+    # sleap-io #531 upstreamed mask -> centroid -> pose conversion. `center_of_mass`
+    # matches the previous hand-rolled COM bit-for-bit at image resolution and handles
+    # the mask's scale/offset natively (more correct for crop-centered masks);
+    # `bbox_center` uses pixel-as-unit-area, so it sits +0.5px from the old
+    # `(min+max)/2` bbox midpoint.
+    method = "bbox_center" if centering == "bbox" else "center_of_mass"
 
     # Guard the footgun: this path overwrites `lf.instances` with the synthesized
     # single-node centroids, which would silently destroy real keypoint poses. It is
@@ -2159,21 +2162,14 @@ def derive_centroids_from_masks(
         saw_mask = True
         instances = []
         for mask in masks:
-            mask_bool = np.asarray(decode_mask_to_image_res(mask)) > 0.5
-            if not mask_bool.any():
+            if mask.is_empty:
                 # An empty/degenerate mask (filtered or thresholding artifact) has no
-                # location; skip it rather than planting a spurious center-of-frame
+                # location; skip it rather than planting a spurious NaN / center-of-frame
                 # centroid as a training target.
                 continue
-            if centering == "bbox":
-                cx, cy = _mask_bbox_midpoint(mask_bool)
-            else:
-                cx, cy = _compute_mask_centroids([mask_bool])[0]
-            inst = sio.Instance.from_numpy(
-                np.array([[cx, cy]], dtype="float64"),
-                skeleton=skeleton,
-                track=getattr(mask, "track", None),
-            )
+            # Full-image centroid pose via the upstream conversion; the mask's track /
+            # identity propagate onto the derived single-node pose.
+            inst = mask.to_centroid(method=method).to_pose(skeleton=skeleton)
             instances.append(inst)
             mask.instance = inst
             n_inst += 1

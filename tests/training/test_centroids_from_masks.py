@@ -96,8 +96,10 @@ class TestDeriveCentroidsFromMasks:
 
         com = _one("com")
         bbox = _one("bbox")
-        # bbox midpoint = ((4+35)/2, (4+35)/2) = (19.5, 19.5).
-        assert abs(bbox[0] - 19.5) < 1e-6 and abs(bbox[1] - 19.5) < 1e-6
+        # bbox_center (upstream sleap-io #531) treats a pixel as a unit area, so the
+        # midpoint of occupied columns/rows [4, 35] is (4 + 35 + 1) / 2 = 20.0 (the old
+        # hand-rolled `(min+max)/2` gave 19.5; this is the deliberate +0.5px shift).
+        assert abs(bbox[0] - 20.0) < 1e-6 and abs(bbox[1] - 20.0) < 1e-6
         # The COM is pulled off the bbox center by the asymmetric mass.
         assert abs(com[0] - bbox[0]) + abs(com[1] - bbox[1]) > 2.0
 
