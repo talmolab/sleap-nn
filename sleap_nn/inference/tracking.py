@@ -103,6 +103,40 @@ class TrackerConfig:
     candidates_method_explicit: bool = True
 
 
+def _embedding_carriers(labels: sio.Labels) -> tuple[bool, bool]:
+    """Return ``(instances_have_embedding, masks_have_embedding)``.
+
+    Scans both carriers — pose ``Instance`` / ``PredictedInstance`` on
+    ``lf.instances`` and ``PredictedSegmentationMask`` on ``lf.masks`` (both carry the
+    single ``identity_embedding`` slot, sleap-io #535) — for an appearance vector. Used
+    by :func:`apply_tracking` to (a) fail loudly when ``features="embeddings"`` is
+    requested on labels with none, and (b) route the tracker to the carrier the
+    embeddings actually ride on (not the pose/mask-presence heuristic).
+    """
+    insts_have = False
+    masks_have = False
+    for lf in labels.labeled_frames:
+        if not insts_have:
+            for inst in lf.instances:
+                if getattr(inst, "identity_embedding", None) is not None:
+                    insts_have = True
+                    break
+        if not masks_have:
+            for m in getattr(lf, "masks", None) or []:
+                if getattr(m, "identity_embedding", None) is not None:
+                    masks_have = True
+                    break
+        if insts_have and masks_have:
+            break
+    return insts_have, masks_have
+
+
+def _labels_have_embeddings(labels: sio.Labels) -> bool:
+    """``True`` if any detection (pose instance or mask) carries a re-ID vector."""
+    insts_have, masks_have = _embedding_carriers(labels)
+    return insts_have or masks_have
+
+
 def apply_tracking(
     labels: sio.Labels,
     config: TrackerConfig,
@@ -167,7 +201,30 @@ def apply_tracking(
     effective_window_size = config.window_size
     effective_candidates_method = config.candidates_method
     effective_max_tracks = config.max_tracks
-    if len(labels.skeletons) == 1 and len(labels.skeletons[0].nodes) == 1:
+
+    # Embedding (appearance / re-ID) tracking. Selected by an EXPLICIT
+    # ``features="embeddings"`` only — apply_tracking never auto-selects it (nothing
+    # in the labels distinguishes "track by appearance" from "track by pose"). It
+    # tracks by cosine similarity over the ``"reid"`` vector the embedding model
+    # attached to each detection, and works on BOTH pose (``PredictedInstance``) and
+    # mask (``PredictedSegmentationMask``) carriers. Resolved here, BEFORE the
+    # single-node / mask default branches, so neither clobbers the explicit choice.
+    is_embedding_mode = config.features == "embeddings"
+    if is_embedding_mode and (
+        not config.scoring_method_explicit or effective_scoring_method == "oks"
+    ):
+        # Auto-pair embeddings with cosine similarity. The CLI leaves
+        # scoring_method unset (-> not explicit) so this fires; a direct
+        # ``TrackerConfig(features="embeddings")`` inherits the global ``"oks"``
+        # default (which is meaningless for a 1-D vector), so correct that too. An
+        # explicit vector metric (``euclidean_dist``) is preserved.
+        effective_scoring_method = "cosine_sim"
+
+    if (
+        not is_embedding_mode
+        and len(labels.skeletons) == 1
+        and len(labels.skeletons[0].nodes) == 1
+    ):
         if not config.scoring_method_explicit:
             effective_scoring_method = "euclidean_dist"
         if not config.features_explicit:
@@ -191,7 +248,7 @@ def apply_tracking(
     is_mask_mode = any(
         getattr(lf, "masks", None) for lf in labels.labeled_frames
     ) and not any(lf.has_predicted_instances for lf in labels.labeled_frames)
-    if is_mask_mode:
+    if is_mask_mode and not is_embedding_mode:
         if not config.scoring_method_explicit:
             effective_scoring_method = "mask_iou"
         if not config.features_explicit:
@@ -247,6 +304,63 @@ def apply_tracking(
             effective_window_size,
             effective_candidates_method,
             effective_max_tracks,
+        )
+
+    if is_embedding_mode:
+        # Route to the carrier the embeddings actually ride on, NOT the pose/mask
+        # presence heuristic: a .slp may have both pose instances and masks but carry
+        # the "reid" vectors on only one. The default `is_mask_mode` (masks present &&
+        # no predicted instances) would, for masks-with-embeddings + pose-instances,
+        # track the embedding-less poses (all-NaN -> no association). Decide on
+        # embedding location: track masks only when the masks carry the embeddings and
+        # the instances do not.
+        insts_have_emb, masks_have_emb = _embedding_carriers(labels)
+        is_mask_mode = masks_have_emb and not insts_have_emb
+        # The appearance vectors must already ride on the detections'
+        # ``identity_embedding`` slot (attached by the `embedding` model); apply_tracking
+        # never computes them.
+        # Fail loudly if none are present (the common "forgot to run / persist the
+        # embedding model" mistake) rather than silently spawning a fresh track per
+        # detection (every cosine is NaN -> inf cost -> no match).
+        if not (insts_have_emb or masks_have_emb):
+            raise ValueError(
+                "features='embeddings' but no detection in the labels carries a "
+                "'reid' appearance embedding. Run the embedding (re-ID) model and "
+                "persist the vectors first (e.g. `sleap-nn predict --model_paths "
+                "<embedding_model> ... --save_embeddings slp`), then track the "
+                "resulting .slp."
+            )
+        # cosine_sim / euclidean_dist are the only vector-valued metrics; oks / iou /
+        # mask_iou are keypoint/box/mask shaped and crash on a 1-D embedding vector.
+        if effective_scoring_method not in ("cosine_sim", "euclidean_dist"):
+            raise ValueError(
+                "features='embeddings' requires scoring_method='cosine_sim' (or "
+                f"'euclidean_dist'); got {effective_scoring_method!r}. Leave "
+                "--scoring_method unset to auto-select cosine_sim."
+            )
+        # Appearance matching is image-free; the motion models are keypoint-shaped.
+        if config.use_flow or config.use_kalman:
+            raise ValueError(
+                "Embedding (appearance) tracking does not support motion models "
+                "(--use_flow / --use_kalman)."
+            )
+        # Mask-carried embeddings reuse the mask routing (track ``lf.masks``); the
+        # pose-shaped cull/clean/connect ops crash on masks (same as mask_iou mode).
+        if is_mask_mode and (
+            config.tracking_pre_cull_to_target
+            or config.tracking_clean_instance_count
+            or config.post_connect_single_breaks
+        ):
+            raise ValueError(
+                "Embedding tracking on segmentation masks does not support the pose "
+                "cull/clean/connect options (tracking_pre_cull_to_target / "
+                "tracking_clean_instance_count / post_connect_single_breaks)."
+            )
+        logger.info(
+            "Embedding (appearance) tracking: features='embeddings', "
+            "scoring_method=%r, carrier=%s.",
+            effective_scoring_method,
+            "mask" if is_mask_mode else "pose",
         )
 
     tracker = Tracker.from_config(

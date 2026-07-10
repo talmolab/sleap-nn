@@ -1,5 +1,6 @@
 """Test ModelTrainer classes."""
 
+import re
 import torch
 import numpy as np
 from PIL import Image
@@ -1657,3 +1658,105 @@ class TestEmbeddingMemoryFallback:
         """Non-embedding + insufficient RAM keeps the existing disk-cache fallback."""
         mt, _, _ = self._run("centroid")
         assert mt.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_disk"
+
+
+class TestMultiClassIdentityClasses:
+    """Train-time class resolution for multi-class ``class_output='identity'`` models.
+
+    The simplified sleap-io ``Identity`` (name + metadata, sleap-io #535) matches by
+    NAME across files and retrains, so the old per-class uuid bridge is gone:
+    ``ModelTrainer._setup_head_config`` resolves ``classes`` (the class names, which ARE
+    the canonical identity keys) but no longer mints/freezes ``class_uuids``. These
+    tests exercise class resolution in isolation (no full training run) by merging the
+    raw head config with the structured schema and calling ``_setup_head_config``.
+    """
+
+    @staticmethod
+    def _tracked_labels(minimal_instance, track_names=("female", "male")):
+        labels = sio.load_slp(minimal_instance)
+        tracks = [sio.Track(name=n) for n in track_names]
+        for lf in labels:
+            for i, instance in enumerate(lf.instances):
+                instance.track = tracks[i % len(tracks)]
+        labels.tracks = tracks
+        labels.update()
+        return labels, tracks
+
+    @staticmethod
+    def _build_trainer(
+        model_type, sub_key, sub_cfg, train_labels, class_output="identity"
+    ):
+        """Merge with the schema, build a trainer, and set up the class head.
+
+        Includes a ``confmaps`` head (with explicit ``part_names`` so no skeleton
+        lookup is needed) alongside the class head, mirroring the real multi-class
+        head shape.
+        """
+        confmaps = {
+            "part_names": ["A", "B"],
+            "sigma": 1.5,
+            "output_stride": 2,
+            "loss_weight": 1.0,
+        }
+        if model_type == "multi_class_topdown":
+            confmaps["anchor_part"] = "A"
+        sub_cfg = {"class_output": class_output, **sub_cfg}
+        head = {"confmaps": confmaps, sub_key: sub_cfg}
+        raw = OmegaConf.create({"model_config": {"head_configs": {model_type: head}}})
+        schema = OmegaConf.structured(TrainingJobConfig())
+        merged = OmegaConf.merge(schema, raw)
+        trainer = ModelTrainer(config=merged)
+        trainer.model_type = model_type
+        trainer.train_labels = train_labels
+        trainer.skeletons = train_labels[0].skeletons
+        return trainer
+
+    def test_topdown_identity_classes_resolved_no_uuids(self, minimal_instance):
+        """class_vectors: classes resolved from tracks; class_uuids NOT minted."""
+        labels, _ = self._tracked_labels(minimal_instance)
+        trainer = self._build_trainer(
+            "multi_class_topdown", "class_vectors", {"classes": None}, [labels]
+        )
+        trainer._setup_head_config()
+        cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
+        assert cv.classes is not None and set(cv.classes) == {"female", "male"}
+        # The uuid bridge is obsolete: names ARE the identity key, so no uuids frozen.
+        assert cv.class_uuids is None
+
+    def test_bottomup_identity_classes_resolved_no_uuids(self, minimal_instance):
+        """class_maps: classes resolved from tracks; class_uuids NOT minted."""
+        labels, _ = self._tracked_labels(minimal_instance)
+        trainer = self._build_trainer(
+            "multi_class_bottomup", "class_maps", {"classes": None}, [labels]
+        )
+        trainer._setup_head_config()
+        cm = trainer.config.model_config.head_configs.multi_class_bottomup.class_maps
+        assert cm.classes is not None and set(cm.classes) == {"female", "male"}
+        assert cm.class_uuids is None
+
+    def test_gt_identities_do_not_mint_uuids(self, minimal_instance):
+        """GT sio.Identity annotations are name-matched; no uuid is derived/frozen."""
+        labels, tracks = self._tracked_labels(minimal_instance)
+        labels.identities = [sio.Identity(name=t.name) for t in tracks]
+        trainer = self._build_trainer(
+            "multi_class_topdown", "class_vectors", {"classes": None}, [labels]
+        )
+        trainer._setup_head_config()
+        cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
+        assert set(cv.classes) == {"female", "male"}
+        assert cv.class_uuids is None
+
+    def test_track_output_resolves_classes_no_uuids(self, minimal_instance):
+        """Default class_output='track': classes resolved, no uuids (unchanged)."""
+        labels, _ = self._tracked_labels(minimal_instance)
+        trainer = self._build_trainer(
+            "multi_class_topdown",
+            "class_vectors",
+            {"classes": None},
+            [labels],
+            class_output="track",
+        )
+        trainer._setup_head_config()
+        cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
+        assert cv.classes is not None and len(cv.classes) == 2
+        assert cv.class_uuids is None

@@ -772,6 +772,13 @@ class ModelTrainer:
                         "classes"
                     ] = classes
 
+            # NOTE: no per-class identity UUID is minted. The simplified sleap-io
+            # `Identity` (name + metadata, sleap-io #535) matches by NAME across files
+            # and retrains, so the class name IS the canonical cross-file identity key;
+            # the old train→inference uuid bridge is obsolete. A `class_output ==
+            # "identity"` multi_class model emits `sio.Identity(name=<class name>)` at
+            # inference (see `predictor._multiclass_identities`).
+
     def _setup_ckpt_path(self):
         """Setup checkpoint path."""
         # if run_name is None, assign a new dir name
