@@ -7433,44 +7433,7 @@ distance_metrics, pck_metrics, visibility_metrics.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/evaluation.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1927">1927</a></span>
-<span class="normal"><a href="#__codelineno-0-1928">1928</a></span>
-<span class="normal"><a href="#__codelineno-0-1929">1929</a></span>
-<span class="normal"><a href="#__codelineno-0-1930">1930</a></span>
-<span class="normal"><a href="#__codelineno-0-1931">1931</a></span>
-<span class="normal"><a href="#__codelineno-0-1932">1932</a></span>
-<span class="normal"><a href="#__codelineno-0-1933">1933</a></span>
-<span class="normal"><a href="#__codelineno-0-1934">1934</a></span>
-<span class="normal"><a href="#__codelineno-0-1935">1935</a></span>
-<span class="normal"><a href="#__codelineno-0-1936">1936</a></span>
-<span class="normal"><a href="#__codelineno-0-1937">1937</a></span>
-<span class="normal"><a href="#__codelineno-0-1938">1938</a></span>
-<span class="normal"><a href="#__codelineno-0-1939">1939</a></span>
-<span class="normal"><a href="#__codelineno-0-1940">1940</a></span>
-<span class="normal"><a href="#__codelineno-0-1941">1941</a></span>
-<span class="normal"><a href="#__codelineno-0-1942">1942</a></span>
-<span class="normal"><a href="#__codelineno-0-1943">1943</a></span>
-<span class="normal"><a href="#__codelineno-0-1944">1944</a></span>
-<span class="normal"><a href="#__codelineno-0-1945">1945</a></span>
-<span class="normal"><a href="#__codelineno-0-1946">1946</a></span>
-<span class="normal"><a href="#__codelineno-0-1947">1947</a></span>
-<span class="normal"><a href="#__codelineno-0-1948">1948</a></span>
-<span class="normal"><a href="#__codelineno-0-1949">1949</a></span>
-<span class="normal"><a href="#__codelineno-0-1950">1950</a></span>
-<span class="normal"><a href="#__codelineno-0-1951">1951</a></span>
-<span class="normal"><a href="#__codelineno-0-1952">1952</a></span>
-<span class="normal"><a href="#__codelineno-0-1953">1953</a></span>
-<span class="normal"><a href="#__codelineno-0-1954">1954</a></span>
-<span class="normal"><a href="#__codelineno-0-1955">1955</a></span>
-<span class="normal"><a href="#__codelineno-0-1956">1956</a></span>
-<span class="normal"><a href="#__codelineno-0-1957">1957</a></span>
-<span class="normal"><a href="#__codelineno-0-1958">1958</a></span>
-<span class="normal"><a href="#__codelineno-0-1959">1959</a></span>
-<span class="normal"><a href="#__codelineno-0-1960">1960</a></span>
-<span class="normal"><a href="#__codelineno-0-1961">1961</a></span>
-<span class="normal"><a href="#__codelineno-0-1962">1962</a></span>
-<span class="normal"><a href="#__codelineno-0-1963">1963</a></span>
-<span class="normal"><a href="#__codelineno-0-1964">1964</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1964">1964</a></span>
 <span class="normal"><a href="#__codelineno-0-1965">1965</a></span>
 <span class="normal"><a href="#__codelineno-0-1966">1966</a></span>
 <span class="normal"><a href="#__codelineno-0-1967">1967</a></span>
@@ -7480,54 +7443,91 @@ distance_metrics, pck_metrics, visibility_metrics.</p>
 <span class="normal"><a href="#__codelineno-0-1971">1971</a></span>
 <span class="normal"><a href="#__codelineno-0-1972">1972</a></span>
 <span class="normal"><a href="#__codelineno-0-1973">1973</a></span>
-<span class="normal"><a href="#__codelineno-0-1974">1974</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1927"><a id="__codelineno-0-1927" name="__codelineno-0-1927"></a><span class="k">def</span><span class="w"> </span><span class="nf">load_metrics</span><span class="p">(</span>
-</span><span id="__span-0-1928"><a id="__codelineno-0-1928" name="__codelineno-0-1928"></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-1929"><a id="__codelineno-0-1929" name="__codelineno-0-1929"></a>    <span class="n">split</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;test&quot;</span><span class="p">,</span>
-</span><span id="__span-0-1930"><a id="__codelineno-0-1930" name="__codelineno-0-1930"></a>    <span class="n">dataset_idx</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-</span><span id="__span-0-1931"><a id="__codelineno-0-1931" name="__codelineno-0-1931"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
-</span><span id="__span-0-1932"><a id="__codelineno-0-1932" name="__codelineno-0-1932"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Load metrics from a model folder or metrics file.</span>
-</span><span id="__span-0-1933"><a id="__codelineno-0-1933" name="__codelineno-0-1933"></a>
-</span><span id="__span-0-1934"><a id="__codelineno-0-1934" name="__codelineno-0-1934"></a><span class="sd">    This function supports both the new format (single &quot;metrics&quot; key) and the old</span>
-</span><span id="__span-0-1935"><a id="__codelineno-0-1935" name="__codelineno-0-1935"></a><span class="sd">    format (individual metric keys at top level). It also handles both old and new</span>
-</span><span id="__span-0-1936"><a id="__codelineno-0-1936" name="__codelineno-0-1936"></a><span class="sd">    file naming conventions in model folders.</span>
-</span><span id="__span-0-1937"><a id="__codelineno-0-1937" name="__codelineno-0-1937"></a>
-</span><span id="__span-0-1938"><a id="__codelineno-0-1938" name="__codelineno-0-1938"></a><span class="sd">    Args:</span>
-</span><span id="__span-0-1939"><a id="__codelineno-0-1939" name="__codelineno-0-1939"></a><span class="sd">        path: Path to a model folder or metrics file (.npz).</span>
-</span><span id="__span-0-1940"><a id="__codelineno-0-1940" name="__codelineno-0-1940"></a><span class="sd">        split: Name of the split to load. Must be &quot;train&quot;, &quot;val&quot;, or &quot;test&quot;.</span>
-</span><span id="__span-0-1941"><a id="__codelineno-0-1941" name="__codelineno-0-1941"></a><span class="sd">            Default: &quot;test&quot;. If &quot;test&quot; is not found, falls back to &quot;val&quot;.</span>
-</span><span id="__span-0-1942"><a id="__codelineno-0-1942" name="__codelineno-0-1942"></a><span class="sd">            Ignored if path points directly to a .npz file.</span>
-</span><span id="__span-0-1943"><a id="__codelineno-0-1943" name="__codelineno-0-1943"></a><span class="sd">        dataset_idx: Index of the dataset (for multi-dataset training).</span>
-</span><span id="__span-0-1944"><a id="__codelineno-0-1944" name="__codelineno-0-1944"></a><span class="sd">            Default: 0. Ignored if path points directly to a .npz file.</span>
-</span><span id="__span-0-1945"><a id="__codelineno-0-1945" name="__codelineno-0-1945"></a>
-</span><span id="__span-0-1946"><a id="__codelineno-0-1946" name="__codelineno-0-1946"></a><span class="sd">    Returns:</span>
-</span><span id="__span-0-1947"><a id="__codelineno-0-1947" name="__codelineno-0-1947"></a><span class="sd">        Dictionary containing metrics with keys: voc_metrics, mOKS,</span>
-</span><span id="__span-0-1948"><a id="__codelineno-0-1948" name="__codelineno-0-1948"></a><span class="sd">        distance_metrics, pck_metrics, visibility_metrics.</span>
-</span><span id="__span-0-1949"><a id="__codelineno-0-1949" name="__codelineno-0-1949"></a>
-</span><span id="__span-0-1950"><a id="__codelineno-0-1950" name="__codelineno-0-1950"></a><span class="sd">    Raises:</span>
-</span><span id="__span-0-1951"><a id="__codelineno-0-1951" name="__codelineno-0-1951"></a><span class="sd">        FileNotFoundError: If no metrics file is found.</span>
-</span><span id="__span-0-1952"><a id="__codelineno-0-1952" name="__codelineno-0-1952"></a>
-</span><span id="__span-0-1953"><a id="__codelineno-0-1953" name="__codelineno-0-1953"></a><span class="sd">    Examples:</span>
-</span><span id="__span-0-1954"><a id="__codelineno-0-1954" name="__codelineno-0-1954"></a><span class="sd">        &gt;&gt;&gt; # Load from model folder (tries test, falls back to val)</span>
-</span><span id="__span-0-1955"><a id="__codelineno-0-1955" name="__codelineno-0-1955"></a><span class="sd">        &gt;&gt;&gt; metrics = load_metrics(&quot;/path/to/model&quot;)</span>
-</span><span id="__span-0-1956"><a id="__codelineno-0-1956" name="__codelineno-0-1956"></a><span class="sd">        &gt;&gt;&gt; print(metrics[&quot;mOKS&quot;][&quot;mOKS&quot;])</span>
-</span><span id="__span-0-1957"><a id="__codelineno-0-1957" name="__codelineno-0-1957"></a>
-</span><span id="__span-0-1958"><a id="__codelineno-0-1958" name="__codelineno-0-1958"></a><span class="sd">        &gt;&gt;&gt; # Load specific split and dataset</span>
-</span><span id="__span-0-1959"><a id="__codelineno-0-1959" name="__codelineno-0-1959"></a><span class="sd">        &gt;&gt;&gt; metrics = load_metrics(&quot;/path/to/model&quot;, split=&quot;val&quot;, dataset_idx=1)</span>
-</span><span id="__span-0-1960"><a id="__codelineno-0-1960" name="__codelineno-0-1960"></a>
-</span><span id="__span-0-1961"><a id="__codelineno-0-1961" name="__codelineno-0-1961"></a><span class="sd">        &gt;&gt;&gt; # Load directly from npz file</span>
-</span><span id="__span-0-1962"><a id="__codelineno-0-1962" name="__codelineno-0-1962"></a><span class="sd">        &gt;&gt;&gt; metrics = load_metrics(&quot;/path/to/metrics.val.0.npz&quot;)</span>
-</span><span id="__span-0-1963"><a id="__codelineno-0-1963" name="__codelineno-0-1963"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-1964"><a id="__codelineno-0-1964" name="__codelineno-0-1964"></a>    <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
-</span><span id="__span-0-1965"><a id="__codelineno-0-1965" name="__codelineno-0-1965"></a>
-</span><span id="__span-0-1966"><a id="__codelineno-0-1966" name="__codelineno-0-1966"></a>    <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">suffix</span> <span class="o">==</span> <span class="s2">&quot;.npz&quot;</span><span class="p">:</span>
-</span><span id="__span-0-1967"><a id="__codelineno-0-1967" name="__codelineno-0-1967"></a>        <span class="n">metrics_path</span> <span class="o">=</span> <span class="n">path</span>
-</span><span id="__span-0-1968"><a id="__codelineno-0-1968" name="__codelineno-0-1968"></a>    <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-1969"><a id="__codelineno-0-1969" name="__codelineno-0-1969"></a>        <span class="n">metrics_path</span> <span class="o">=</span> <span class="n">_find_metrics_file</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">split</span><span class="p">,</span> <span class="n">dataset_idx</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-1974">1974</a></span>
+<span class="normal"><a href="#__codelineno-0-1975">1975</a></span>
+<span class="normal"><a href="#__codelineno-0-1976">1976</a></span>
+<span class="normal"><a href="#__codelineno-0-1977">1977</a></span>
+<span class="normal"><a href="#__codelineno-0-1978">1978</a></span>
+<span class="normal"><a href="#__codelineno-0-1979">1979</a></span>
+<span class="normal"><a href="#__codelineno-0-1980">1980</a></span>
+<span class="normal"><a href="#__codelineno-0-1981">1981</a></span>
+<span class="normal"><a href="#__codelineno-0-1982">1982</a></span>
+<span class="normal"><a href="#__codelineno-0-1983">1983</a></span>
+<span class="normal"><a href="#__codelineno-0-1984">1984</a></span>
+<span class="normal"><a href="#__codelineno-0-1985">1985</a></span>
+<span class="normal"><a href="#__codelineno-0-1986">1986</a></span>
+<span class="normal"><a href="#__codelineno-0-1987">1987</a></span>
+<span class="normal"><a href="#__codelineno-0-1988">1988</a></span>
+<span class="normal"><a href="#__codelineno-0-1989">1989</a></span>
+<span class="normal"><a href="#__codelineno-0-1990">1990</a></span>
+<span class="normal"><a href="#__codelineno-0-1991">1991</a></span>
+<span class="normal"><a href="#__codelineno-0-1992">1992</a></span>
+<span class="normal"><a href="#__codelineno-0-1993">1993</a></span>
+<span class="normal"><a href="#__codelineno-0-1994">1994</a></span>
+<span class="normal"><a href="#__codelineno-0-1995">1995</a></span>
+<span class="normal"><a href="#__codelineno-0-1996">1996</a></span>
+<span class="normal"><a href="#__codelineno-0-1997">1997</a></span>
+<span class="normal"><a href="#__codelineno-0-1998">1998</a></span>
+<span class="normal"><a href="#__codelineno-0-1999">1999</a></span>
+<span class="normal"><a href="#__codelineno-0-2000">2000</a></span>
+<span class="normal"><a href="#__codelineno-0-2001">2001</a></span>
+<span class="normal"><a href="#__codelineno-0-2002">2002</a></span>
+<span class="normal"><a href="#__codelineno-0-2003">2003</a></span>
+<span class="normal"><a href="#__codelineno-0-2004">2004</a></span>
+<span class="normal"><a href="#__codelineno-0-2005">2005</a></span>
+<span class="normal"><a href="#__codelineno-0-2006">2006</a></span>
+<span class="normal"><a href="#__codelineno-0-2007">2007</a></span>
+<span class="normal"><a href="#__codelineno-0-2008">2008</a></span>
+<span class="normal"><a href="#__codelineno-0-2009">2009</a></span>
+<span class="normal"><a href="#__codelineno-0-2010">2010</a></span>
+<span class="normal"><a href="#__codelineno-0-2011">2011</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1964"><a id="__codelineno-0-1964" name="__codelineno-0-1964"></a><span class="k">def</span><span class="w"> </span><span class="nf">load_metrics</span><span class="p">(</span>
+</span><span id="__span-0-1965"><a id="__codelineno-0-1965" name="__codelineno-0-1965"></a>    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-1966"><a id="__codelineno-0-1966" name="__codelineno-0-1966"></a>    <span class="n">split</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;test&quot;</span><span class="p">,</span>
+</span><span id="__span-0-1967"><a id="__codelineno-0-1967" name="__codelineno-0-1967"></a>    <span class="n">dataset_idx</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-0-1968"><a id="__codelineno-0-1968" name="__codelineno-0-1968"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+</span><span id="__span-0-1969"><a id="__codelineno-0-1969" name="__codelineno-0-1969"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Load metrics from a model folder or metrics file.</span>
 </span><span id="__span-0-1970"><a id="__codelineno-0-1970" name="__codelineno-0-1970"></a>
-</span><span id="__span-0-1971"><a id="__codelineno-0-1971" name="__codelineno-0-1971"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">metrics_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-</span><span id="__span-0-1972"><a id="__codelineno-0-1972" name="__codelineno-0-1972"></a>        <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Metrics file not found at </span><span class="si">{</span><span class="n">metrics_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-1973"><a id="__codelineno-0-1973" name="__codelineno-0-1973"></a>
-</span><span id="__span-0-1974"><a id="__codelineno-0-1974" name="__codelineno-0-1974"></a>    <span class="k">return</span> <span class="n">_load_npz_metrics</span><span class="p">(</span><span class="n">metrics_path</span><span class="p">)</span>
+</span><span id="__span-0-1971"><a id="__codelineno-0-1971" name="__codelineno-0-1971"></a><span class="sd">    This function supports both the new format (single &quot;metrics&quot; key) and the old</span>
+</span><span id="__span-0-1972"><a id="__codelineno-0-1972" name="__codelineno-0-1972"></a><span class="sd">    format (individual metric keys at top level). It also handles both old and new</span>
+</span><span id="__span-0-1973"><a id="__codelineno-0-1973" name="__codelineno-0-1973"></a><span class="sd">    file naming conventions in model folders.</span>
+</span><span id="__span-0-1974"><a id="__codelineno-0-1974" name="__codelineno-0-1974"></a>
+</span><span id="__span-0-1975"><a id="__codelineno-0-1975" name="__codelineno-0-1975"></a><span class="sd">    Args:</span>
+</span><span id="__span-0-1976"><a id="__codelineno-0-1976" name="__codelineno-0-1976"></a><span class="sd">        path: Path to a model folder or metrics file (.npz).</span>
+</span><span id="__span-0-1977"><a id="__codelineno-0-1977" name="__codelineno-0-1977"></a><span class="sd">        split: Name of the split to load. Must be &quot;train&quot;, &quot;val&quot;, or &quot;test&quot;.</span>
+</span><span id="__span-0-1978"><a id="__codelineno-0-1978" name="__codelineno-0-1978"></a><span class="sd">            Default: &quot;test&quot;. If &quot;test&quot; is not found, falls back to &quot;val&quot;.</span>
+</span><span id="__span-0-1979"><a id="__codelineno-0-1979" name="__codelineno-0-1979"></a><span class="sd">            Ignored if path points directly to a .npz file.</span>
+</span><span id="__span-0-1980"><a id="__codelineno-0-1980" name="__codelineno-0-1980"></a><span class="sd">        dataset_idx: Index of the dataset (for multi-dataset training).</span>
+</span><span id="__span-0-1981"><a id="__codelineno-0-1981" name="__codelineno-0-1981"></a><span class="sd">            Default: 0. Ignored if path points directly to a .npz file.</span>
+</span><span id="__span-0-1982"><a id="__codelineno-0-1982" name="__codelineno-0-1982"></a>
+</span><span id="__span-0-1983"><a id="__codelineno-0-1983" name="__codelineno-0-1983"></a><span class="sd">    Returns:</span>
+</span><span id="__span-0-1984"><a id="__codelineno-0-1984" name="__codelineno-0-1984"></a><span class="sd">        Dictionary containing metrics with keys: voc_metrics, mOKS,</span>
+</span><span id="__span-0-1985"><a id="__codelineno-0-1985" name="__codelineno-0-1985"></a><span class="sd">        distance_metrics, pck_metrics, visibility_metrics.</span>
+</span><span id="__span-0-1986"><a id="__codelineno-0-1986" name="__codelineno-0-1986"></a>
+</span><span id="__span-0-1987"><a id="__codelineno-0-1987" name="__codelineno-0-1987"></a><span class="sd">    Raises:</span>
+</span><span id="__span-0-1988"><a id="__codelineno-0-1988" name="__codelineno-0-1988"></a><span class="sd">        FileNotFoundError: If no metrics file is found.</span>
+</span><span id="__span-0-1989"><a id="__codelineno-0-1989" name="__codelineno-0-1989"></a>
+</span><span id="__span-0-1990"><a id="__codelineno-0-1990" name="__codelineno-0-1990"></a><span class="sd">    Examples:</span>
+</span><span id="__span-0-1991"><a id="__codelineno-0-1991" name="__codelineno-0-1991"></a><span class="sd">        &gt;&gt;&gt; # Load from model folder (tries test, falls back to val)</span>
+</span><span id="__span-0-1992"><a id="__codelineno-0-1992" name="__codelineno-0-1992"></a><span class="sd">        &gt;&gt;&gt; metrics = load_metrics(&quot;/path/to/model&quot;)</span>
+</span><span id="__span-0-1993"><a id="__codelineno-0-1993" name="__codelineno-0-1993"></a><span class="sd">        &gt;&gt;&gt; print(metrics[&quot;mOKS&quot;][&quot;mOKS&quot;])</span>
+</span><span id="__span-0-1994"><a id="__codelineno-0-1994" name="__codelineno-0-1994"></a>
+</span><span id="__span-0-1995"><a id="__codelineno-0-1995" name="__codelineno-0-1995"></a><span class="sd">        &gt;&gt;&gt; # Load specific split and dataset</span>
+</span><span id="__span-0-1996"><a id="__codelineno-0-1996" name="__codelineno-0-1996"></a><span class="sd">        &gt;&gt;&gt; metrics = load_metrics(&quot;/path/to/model&quot;, split=&quot;val&quot;, dataset_idx=1)</span>
+</span><span id="__span-0-1997"><a id="__codelineno-0-1997" name="__codelineno-0-1997"></a>
+</span><span id="__span-0-1998"><a id="__codelineno-0-1998" name="__codelineno-0-1998"></a><span class="sd">        &gt;&gt;&gt; # Load directly from npz file</span>
+</span><span id="__span-0-1999"><a id="__codelineno-0-1999" name="__codelineno-0-1999"></a><span class="sd">        &gt;&gt;&gt; metrics = load_metrics(&quot;/path/to/metrics.val.0.npz&quot;)</span>
+</span><span id="__span-0-2000"><a id="__codelineno-0-2000" name="__codelineno-0-2000"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-2001"><a id="__codelineno-0-2001" name="__codelineno-0-2001"></a>    <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+</span><span id="__span-0-2002"><a id="__codelineno-0-2002" name="__codelineno-0-2002"></a>
+</span><span id="__span-0-2003"><a id="__codelineno-0-2003" name="__codelineno-0-2003"></a>    <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">suffix</span> <span class="o">==</span> <span class="s2">&quot;.npz&quot;</span><span class="p">:</span>
+</span><span id="__span-0-2004"><a id="__codelineno-0-2004" name="__codelineno-0-2004"></a>        <span class="n">metrics_path</span> <span class="o">=</span> <span class="n">path</span>
+</span><span id="__span-0-2005"><a id="__codelineno-0-2005" name="__codelineno-0-2005"></a>    <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-2006"><a id="__codelineno-0-2006" name="__codelineno-0-2006"></a>        <span class="n">metrics_path</span> <span class="o">=</span> <span class="n">_find_metrics_file</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">split</span><span class="p">,</span> <span class="n">dataset_idx</span><span class="p">)</span>
+</span><span id="__span-0-2007"><a id="__codelineno-0-2007" name="__codelineno-0-2007"></a>
+</span><span id="__span-0-2008"><a id="__codelineno-0-2008" name="__codelineno-0-2008"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">metrics_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+</span><span id="__span-0-2009"><a id="__codelineno-0-2009" name="__codelineno-0-2009"></a>        <span class="k">raise</span> <span class="ne">FileNotFoundError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Metrics file not found at </span><span class="si">{</span><span class="n">metrics_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-2010"><a id="__codelineno-0-2010" name="__codelineno-0-2010"></a>
+</span><span id="__span-0-2011"><a id="__codelineno-0-2011" name="__codelineno-0-2011"></a>    <span class="k">return</span> <span class="n">_load_npz_metrics</span><span class="p">(</span><span class="n">metrics_path</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
