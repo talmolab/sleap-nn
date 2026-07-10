@@ -217,7 +217,9 @@ def match_masks(
     )
 
 
-def _frame_masks(frame: sio.LabeledFrame) -> List[np.ndarray]:
+def _frame_masks(
+    frame: sio.LabeledFrame, drop_predicted_instances: bool = False
+) -> List[np.ndarray]:
     """Decode a frame's segmentation masks into boolean arrays on the image grid.
 
     Scale-aware: masks encoded at output-stride (non-identity ``scale``, the
@@ -226,10 +228,28 @@ def _frame_masks(frame: sio.LabeledFrame) -> List[np.ndarray]:
     ground-truth mask are compared on a common image-pixel grid. Scale-1 masks
     (legacy full-res GT/preds) take a zero-copy fast path, so existing eval
     numbers are unchanged.
+
+    ``drop_predicted_instances`` (set for the ground-truth side of
+    ``match_method="mask"`` when ``user_labels_only=True``) discards masks whose
+    linked instance is a ``PredictedInstance``. Segmentation-mask files built from
+    poses (``Instance.to_mask`` / ``Labels.convert``) attach a mask to *every*
+    instance, so any ``PredictedInstance`` carried in a labels file also gets a
+    mask; those are model output, not ground truth, and would otherwise be scored
+    as extra ground-truth instances (spurious false negatives that cap recall).
+    Masks linked to a user ``Instance``, or with no linked instance (e.g.
+    whole-frame semantic union masks), are retained -- so this is scoped to
+    per-instance mask matching and never touches the ``match_method="semantic"``
+    union path.
     """
     from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
 
     masks = getattr(frame, "masks", None) or []
+    if drop_predicted_instances:
+        masks = [
+            m
+            for m in masks
+            if not isinstance(getattr(m, "instance", None), sio.PredictedInstance)
+        ]
     return [decode_mask_to_image_res(m) for m in masks]
 
 
@@ -951,8 +971,18 @@ class Evaluator:
         user_labels_only: bool = True,
         match_method: str = "oks",
         anchor_ind: Optional[int] = None,
+        exclude_predicted_instance_masks: bool = False,
     ):
-        """Initialize the Evaluator class with ground-truth and predicted labels."""
+        """Initialize the Evaluator class with ground-truth and predicted labels.
+
+        ``exclude_predicted_instance_masks`` (``match_method="mask"`` only) drops
+        masks linked to a ``PredictedInstance`` from the ground-truth labels, so a
+        labels file that carries stray predicted instances (each of which gets a
+        mask when masks are built from poses) does not treat them as ground truth.
+        It is kept separate from ``user_labels_only`` (which controls the frame-pair
+        filter) because mask mode disables that frame filter -- see
+        :func:`run_evaluation`.
+        """
         self.ground_truth_instances = ground_truth_instances
         self.predicted_instances = predicted_instances
         self.match_threshold = match_threshold
@@ -961,6 +991,7 @@ class Evaluator:
         self.user_labels_only = user_labels_only
         self.match_method = match_method
         self.anchor_ind = anchor_ind
+        self.exclude_predicted_instance_masks = exclude_predicted_instance_masks
         # Populated only in centroid / mask mode.
         self.false_positives = []
         # Matched-pair IoUs, populated only in mask mode.
@@ -1119,7 +1150,13 @@ class Evaluator:
         self._matched_mask_pairs = []
 
         for frame_gt, frame_pr in self.frame_pairs:
-            gt_masks = _frame_masks(frame_gt)
+            # Ground-truth masks drop any PredictedInstance-linked masks when the
+            # caller asked for user-only labels; predicted-side masks are the
+            # model's output and are always kept in full.
+            gt_masks = _frame_masks(
+                frame_gt,
+                drop_predicted_instances=self.exclude_predicted_instance_masks,
+            )
             pr_masks = _frame_masks(frame_pr)
             pr_scores = _frame_pred_scores(frame_pr)
             iou_mat, inter_mat = _mask_pair_stats(pr_masks, gt_masks)
@@ -2030,7 +2067,13 @@ def run_evaluation(
             distance for centroid mode. In centroid mode, if the caller leaves
             the OKS default of ``0.0`` it is bumped to ``50.0`` px.
         user_labels_only: If False, predicted instances in the GT frame may be
-            matched.
+            matched. For ``match_method="mask"`` (default True), this additionally
+            drops masks linked to a ``PredictedInstance`` from the ground-truth
+            labels, so stray predicted instances (each of which gets a mask when
+            masks are built per-instance from poses) are not treated as ground
+            truth. Pass ``False`` when the GT is intentionally built from predicted
+            poses (pseudo-mask GT). The whole-frame ``match_method="semantic"`` union is
+            unaffected either way.
         save_metrics: Optional ``.npz`` path to save metrics to.
         match_method: ``"oks"``, ``"centroid"``, ``"mask"``, ``"semantic"``, or
             ``"auto"``. ``"mask"`` matches predicted vs GT segmentation masks by
@@ -2094,7 +2137,14 @@ def run_evaluation(
     # ``user_labels_only`` frame filter (find_frame_pairs) keeps only frames with
     # USER keypoint instances, which silently drops EVERY frame when the GT was
     # built from predicted poses (e.g. pseudo-mask GT from predicted skeletons),
-    # raising "Empty Frame Pairs". Mask mode therefore never applies that filter.
+    # raising "Empty Frame Pairs". Mask mode therefore never applies that FRAME
+    # filter. The caller's ``user_labels_only`` intent is preserved separately to
+    # govern the ground-truth MASK filter: a labels file with stray
+    # PredictedInstances gives each a mask (masks are built per-instance), and under
+    # user-only labels those must not be treated as ground truth (they would be
+    # spurious false negatives that cap recall). Callers evaluating pseudo-mask GT
+    # pass ``user_labels_only=False``.
+    exclude_predicted_instance_masks = user_labels_only
     if match_method in ("mask", "semantic"):
         user_labels_only = False
 
@@ -2115,6 +2165,7 @@ def run_evaluation(
         user_labels_only=user_labels_only,
         match_method=match_method,
         anchor_ind=anchor_ind,
+        exclude_predicted_instance_masks=exclude_predicted_instance_masks,
     )
     logger.info(
         f"  Frame pairs: {len(evaluator.frame_pairs)}, "

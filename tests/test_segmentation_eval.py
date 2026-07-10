@@ -266,6 +266,71 @@ def test_run_evaluation_mask_partial_recall(tmp_path):
     assert abs(m["mask_metrics"]["mean_iou"] - 1.0) < 1e-9
 
 
+def test_run_evaluation_mask_excludes_predicted_instance_masks(tmp_path):
+    """Masks linked to a ``PredictedInstance`` are not treated as ground truth.
+
+    Segmentation-mask files built from poses (``Instance.to_mask`` /
+    ``Labels.convert``) attach a mask to *every* instance, so any
+    ``PredictedInstance`` carried in the labels also gets a mask. Under
+    ``user_labels_only=True`` (the default) those must be dropped from the
+    ground-truth labels for ``match_method="mask"`` -- otherwise they inflate the
+    ground-truth count as spurious false negatives that cap recall. With
+    ``user_labels_only=False`` they are kept (opt-out), which pins the exact
+    behavior the fix changes.
+    """
+    skel = sio.Skeleton(nodes=["a", "b"], edges=[("a", "b")])
+    video = sio.Video.from_filename(FNAME)
+    user_mask = _disk(H, W, 14, 14, 8)
+    pred_mask = _disk(H, W, 34, 34, 8)
+
+    user_inst = sio.Instance.from_numpy(
+        np.array([[14, 14], [15, 15]], dtype="float64"), skeleton=skel
+    )
+    pred_inst = sio.PredictedInstance.from_numpy(
+        np.array([[34, 34], [35, 35]], dtype="float64"), skeleton=skel, score=0.9
+    )
+    gt_user_mask = sio.UserSegmentationMask.from_numpy(user_mask)
+    gt_user_mask.instance = user_inst
+    gt_pred_mask = sio.UserSegmentationMask.from_numpy(pred_mask)
+    gt_pred_mask.instance = pred_inst  # a mask on a predicted instance -> not GT
+    gt_lf = sio.LabeledFrame(
+        video=video,
+        frame_idx=0,
+        instances=[user_inst, pred_inst],
+        masks=[gt_user_mask, gt_pred_mask],
+    )
+    gt = sio.Labels(videos=[video], skeletons=[skel], labeled_frames=[gt_lf])
+
+    # Prediction perfectly recovers ONLY the user-instance mask.
+    pred = _make_pred([user_mask])
+
+    gt_path = tmp_path / "gt.slp"
+    pr_path = tmp_path / "pr.slp"
+    gt.save(gt_path.as_posix())
+    pred.save(pr_path.as_posix())
+
+    # Default (user_labels_only=True): the predicted-instance mask is excluded,
+    # so the single user mask is a perfect match -> recall 1.0, no false negative.
+    det = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_path.as_posix(),
+        match_method="mask",
+    )["detection_metrics"]
+    assert det["n_tp"] == 1 and det["n_fp"] == 0 and det["n_fn"] == 0
+    assert det["recall"] == 1.0 and det["precision"] == 1.0 and det["f1"] == 1.0
+
+    # Opt-out (user_labels_only=False): the predicted-instance mask is kept and
+    # counts as an unmatched GT -> a spurious false negative (recall 0.5).
+    det_all = run_evaluation(
+        ground_truth_path=gt_path.as_posix(),
+        predicted_path=pr_path.as_posix(),
+        match_method="mask",
+        user_labels_only=False,
+    )["detection_metrics"]
+    assert det_all["n_tp"] == 1 and det_all["n_fp"] == 0 and det_all["n_fn"] == 1
+    assert det_all["recall"] == 0.5
+
+
 def test_run_evaluation_mask_panoptic_quality_perfect(tmp_path):
     """Perfect match -> PQ = SQ = RQ = 1.0 and miss-penalized IoU = 1.0."""
     masks = [_disk(H, W, 14, 14, 8), _disk(H, W, 34, 34, 8)]
