@@ -29,7 +29,7 @@ def test_cosine_sim_basic_values():
 @pytest.mark.parametrize(
     "a,b",
     [
-        (None, np.array([1.0, 0.0])),  # missing feature (no reid embedding)
+        (None, np.array([1.0, 0.0])),  # missing feature (no identity embedding)
         (np.array([1.0, 0.0]), None),
         (np.zeros(3), np.ones(3)),  # zero-norm
         (np.ones(3), np.ones(4)),  # shape mismatch
@@ -49,7 +49,7 @@ def test_get_embedding_reads_reid_vector():
     inst = sio.PredictedInstance.from_numpy(
         np.array([[0.0, 0.0], [1.0, 1.0]]), skeleton=skel, score=0.9
     )
-    inst.set_embedding(np.arange(4, dtype=np.float32), name="reid", normalized=True)
+    inst.identity_embedding = sio.Embedding(np.arange(4, dtype=np.float32))
     vec = get_embedding(inst)
     assert isinstance(vec, np.ndarray)
     np.testing.assert_array_equal(vec, np.arange(4, dtype=np.float32))
@@ -72,7 +72,7 @@ def test_get_embedding_on_mask():
     yy, xx = np.ogrid[:32, :32]
     disk = ((yy - 16) ** 2 + (xx - 16) ** 2) <= 36
     m = sio.PredictedSegmentationMask.from_numpy(disk, score=0.9)
-    m.set_embedding(np.ones(5, dtype=np.float32), name="reid")
+    m.identity_embedding = sio.Embedding(np.ones(5, dtype=np.float32))
     np.testing.assert_array_equal(get_embedding(m), np.ones(5, dtype=np.float32))
 
 
@@ -83,7 +83,7 @@ def _pose(x, vec, skel):
     inst = sio.PredictedInstance.from_numpy(
         np.array([[x, 0.0], [x + 1, 0.0]]), skeleton=skel, score=0.9
     )
-    inst.set_embedding(np.asarray(vec, np.float32), name="reid", normalized=True)
+    inst.identity_embedding = sio.Embedding(np.asarray(vec, np.float32))
     return inst
 
 
@@ -104,7 +104,7 @@ def test_tracker_embeddings_follow_appearance_across_swaps(candidates_method):
         out = tracker.track([_pose(ax, va, skel), _pose(bx, vb, skel)], fi)
         for inst in out:
             per_track_vecs.setdefault(inst.track.name, set()).add(
-                tuple(np.round(inst.embedding.vector, 3))
+                tuple(np.round(inst.identity_embedding.vector, 3))
             )
     # Exactly two tracks, and each rode a single (constant) embedding.
     assert len(per_track_vecs) == 2
@@ -119,7 +119,7 @@ def test_tracker_embeddings_mask_carrier():
     def mk(cy, vec):
         disk = ((yy - cy) ** 2 + (xx - 30) ** 2) <= 64
         m = sio.PredictedSegmentationMask.from_numpy(disk, score=0.9)
-        m.set_embedding(np.asarray(vec, np.float32), name="reid", normalized=True)
+        m.identity_embedding = sio.Embedding(np.asarray(vec, np.float32))
         return m
 
     tracker = Tracker.from_config(
@@ -133,7 +133,7 @@ def test_tracker_embeddings_mask_carrier():
         out = tracker.track([mk(cy_a, va), mk(cy_b, vb)], fi)
         for m in out:
             per_track.setdefault(m.track.name, set()).add(
-                tuple(np.round(m.embedding.vector, 3))
+                tuple(np.round(m.identity_embedding.vector, 3))
             )
     assert len(per_track) == 2
     assert all(len(v) == 1 for v in per_track.values())

@@ -1660,19 +1660,16 @@ class TestEmbeddingMemoryFallback:
         assert mt.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_disk"
 
 
-class TestClassUuidMinting:
-    """Train-time minting of per-class canonical identity UUIDs (the A2 bridge).
+class TestMultiClassIdentityClasses:
+    """Train-time class resolution for multi-class ``class_output='identity'`` models.
 
-    ``ModelTrainer._setup_head_config`` populates ``class_uuids`` parallel to
-    ``classes`` so the frozen per-class uuid persists into
-    ``training_config.yaml`` and is re-emitted at inference. These tests exercise
-    the minting logic in isolation (no full training run) by merging the raw head
-    config with the structured schema (mirroring ``verify_training_cfg``, which is
-    what surfaces the ``class_uuids`` key in production) and calling
-    ``_setup_head_config`` directly.
+    The simplified sleap-io ``Identity`` (name + metadata, sleap-io #535) matches by
+    NAME across files and retrains, so the old per-class uuid bridge is gone:
+    ``ModelTrainer._setup_head_config`` resolves ``classes`` (the class names, which ARE
+    the canonical identity keys) but no longer mints/freezes ``class_uuids``. These
+    tests exercise class resolution in isolation (no full training run) by merging the
+    raw head config with the structured schema and calling ``_setup_head_config``.
     """
-
-    _HEX32 = re.compile(r"^[0-9a-f]{32}$")
 
     @staticmethod
     def _tracked_labels(minimal_instance, track_names=("female", "male")):
@@ -1686,12 +1683,14 @@ class TestClassUuidMinting:
         return labels, tracks
 
     @staticmethod
-    def _build_trainer(model_type, sub_key, sub_cfg, train_labels):
-        """Merge with the schema (to surface ``class_uuids``), build a trainer.
+    def _build_trainer(
+        model_type, sub_key, sub_cfg, train_labels, class_output="identity"
+    ):
+        """Merge with the schema, build a trainer, and set up the class head.
 
         Includes a ``confmaps`` head (with explicit ``part_names`` so no skeleton
-        lookup is needed) alongside the class head, mirroring the real
-        multi-class head shape.
+        lookup is needed) alongside the class head, mirroring the real multi-class
+        head shape.
         """
         confmaps = {
             "part_names": ["A", "B"],
@@ -1701,9 +1700,7 @@ class TestClassUuidMinting:
         }
         if model_type == "multi_class_topdown":
             confmaps["anchor_part"] = "A"
-        # UUID minting only runs for class_output == "identity"; default it on for
-        # these minting tests unless a case overrides it.
-        sub_cfg = {"class_output": "identity", **sub_cfg}
+        sub_cfg = {"class_output": class_output, **sub_cfg}
         head = {"confmaps": confmaps, sub_key: sub_cfg}
         raw = OmegaConf.create({"model_config": {"head_configs": {model_type: head}}})
         schema = OmegaConf.structured(TrainingJobConfig())
@@ -1714,123 +1711,52 @@ class TestClassUuidMinting:
         trainer.skeletons = train_labels[0].skeletons
         return trainer
 
-    def test_topdown_class_uuids_minted(self, minimal_instance):
-        """class_vectors: classes + class_uuids populated, equal len, 32-hex."""
+    def test_topdown_identity_classes_resolved_no_uuids(self, minimal_instance):
+        """class_vectors: classes resolved from tracks; class_uuids NOT minted."""
+        labels, _ = self._tracked_labels(minimal_instance)
+        trainer = self._build_trainer(
+            "multi_class_topdown", "class_vectors", {"classes": None}, [labels]
+        )
+        trainer._setup_head_config()
+        cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
+        assert cv.classes is not None and set(cv.classes) == {"female", "male"}
+        # The uuid bridge is obsolete: names ARE the identity key, so no uuids frozen.
+        assert cv.class_uuids is None
+
+    def test_bottomup_identity_classes_resolved_no_uuids(self, minimal_instance):
+        """class_maps: classes resolved from tracks; class_uuids NOT minted."""
+        labels, _ = self._tracked_labels(minimal_instance)
+        trainer = self._build_trainer(
+            "multi_class_bottomup", "class_maps", {"classes": None}, [labels]
+        )
+        trainer._setup_head_config()
+        cm = trainer.config.model_config.head_configs.multi_class_bottomup.class_maps
+        assert cm.classes is not None and set(cm.classes) == {"female", "male"}
+        assert cm.class_uuids is None
+
+    def test_gt_identities_do_not_mint_uuids(self, minimal_instance):
+        """GT sio.Identity annotations are name-matched; no uuid is derived/frozen."""
+        labels, tracks = self._tracked_labels(minimal_instance)
+        labels.identities = [sio.Identity(name=t.name) for t in tracks]
+        trainer = self._build_trainer(
+            "multi_class_topdown", "class_vectors", {"classes": None}, [labels]
+        )
+        trainer._setup_head_config()
+        cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
+        assert set(cv.classes) == {"female", "male"}
+        assert cv.class_uuids is None
+
+    def test_track_output_resolves_classes_no_uuids(self, minimal_instance):
+        """Default class_output='track': classes resolved, no uuids (unchanged)."""
         labels, _ = self._tracked_labels(minimal_instance)
         trainer = self._build_trainer(
             "multi_class_topdown",
             "class_vectors",
             {"classes": None},
             [labels],
+            class_output="track",
         )
         trainer._setup_head_config()
         cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
         assert cv.classes is not None and len(cv.classes) == 2
-        assert cv.class_uuids is not None
-        assert len(cv.class_uuids) == len(cv.classes)
-        assert all(self._HEX32.match(u) for u in cv.class_uuids)
-        # UUIDs are unique per class.
-        assert len(set(cv.class_uuids)) == len(cv.class_uuids)
-
-    def test_bottomup_class_uuids_minted(self, minimal_instance):
-        """class_maps: classes + class_uuids populated, equal len, 32-hex."""
-        labels, _ = self._tracked_labels(minimal_instance)
-        trainer = self._build_trainer(
-            "multi_class_bottomup",
-            "class_maps",
-            {"classes": None},
-            [labels],
-        )
-        trainer._setup_head_config()
-        cm = trainer.config.model_config.head_configs.multi_class_bottomup.class_maps
-        assert cm.classes is not None and len(cm.classes) == 2
-        assert cm.class_uuids is not None
-        assert len(cm.class_uuids) == len(cm.classes)
-        assert all(self._HEX32.match(u) for u in cm.class_uuids)
-
-    def test_class_uuids_stable_across_yaml_reload(self, minimal_instance, tmp_path):
-        """Minted uuids survive a write+reload of training_config.yaml unchanged."""
-        labels, _ = self._tracked_labels(minimal_instance)
-        trainer = self._build_trainer(
-            "multi_class_topdown",
-            "class_vectors",
-            {"classes": None},
-            [labels],
-        )
-        trainer._setup_head_config()
-        cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
-        classes_before = list(cv.classes)
-        uuids_before = list(cv.class_uuids)
-
-        cfg_path = tmp_path / "training_config.yaml"
-        OmegaConf.save(trainer.config, cfg_path)
-        reloaded = OmegaConf.load(cfg_path)
-        cv2 = reloaded.model_config.head_configs.multi_class_topdown.class_vectors
-        assert list(cv2.classes) == classes_before
-        assert list(cv2.class_uuids) == uuids_before
-
-        # Re-running setup on the reloaded config must NOT re-mint (idempotent).
-        trainer2 = ModelTrainer(config=reloaded)
-        trainer2.model_type = "multi_class_topdown"
-        trainer2.train_labels = [labels]
-        trainer2.skeletons = labels.skeletons
-        trainer2._setup_head_config()
-        cv3 = (
-            trainer2.config.model_config.head_configs.multi_class_topdown.class_vectors
-        )
-        assert list(cv3.class_uuids) == uuids_before
-
-    def test_class_uuids_reused_from_gt_identities(self, minimal_instance):
-        """When labels carry sio.Identity matching a class name, reuse its uuid."""
-        labels, tracks = self._tracked_labels(minimal_instance)
-        # Attach GT identities (name-matched to the track/class names).
-        gt_identities = [sio.Identity(name=t.name) for t in tracks]
-        labels.identities = gt_identities
-        gt_uuid_by_name = {i.name: i.uuid for i in gt_identities}
-
-        trainer = self._build_trainer(
-            "multi_class_topdown",
-            "class_vectors",
-            {"classes": None},
-            [labels],
-        )
-        trainer._setup_head_config()
-        cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
-        for name, uuid in zip(cv.classes, cv.class_uuids):
-            assert (
-                uuid == gt_uuid_by_name[name]
-            ), f"class {name!r} uuid {uuid} != GT uuid {gt_uuid_by_name[name]}"
-
-    def test_class_uuids_minted_when_classes_user_provided(self, minimal_instance):
-        """User-provided classes with class_uuids None still get minted uuids."""
-        labels, _ = self._tracked_labels(minimal_instance)
-        trainer = self._build_trainer(
-            "multi_class_topdown",
-            "class_vectors",
-            {"classes": ["female", "male"], "class_uuids": None},
-            [labels],
-        )
-        trainer._setup_head_config()
-        cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
-        assert list(cv.classes) == ["female", "male"]
-        assert cv.class_uuids is not None
-        assert len(cv.class_uuids) == 2
-        assert all(self._HEX32.match(u) for u in cv.class_uuids)
-
-    def test_no_uuids_minted_for_track_output(self, minimal_instance):
-        """Default class_output='track': classes resolved but NO uuids minted.
-
-        A track/category model's classes are not unique individuals, so no
-        per-class identity uuid should be frozen.
-        """
-        labels, _ = self._tracked_labels(minimal_instance)
-        trainer = self._build_trainer(
-            "multi_class_topdown",
-            "class_vectors",
-            {"classes": None, "class_output": "track"},
-            [labels],
-        )
-        trainer._setup_head_config()
-        cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
-        assert cv.classes is not None and len(cv.classes) == 2  # classes still resolved
-        assert cv.class_uuids is None  # but no identity uuids frozen
+        assert cv.class_uuids is None

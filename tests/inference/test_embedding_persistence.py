@@ -3,15 +3,15 @@
 ``sleap_nn.inference.embedding.predict_embeddings_to_slp`` takes a ``save_embeddings``
 option (``"none"`` / ``"slp"``). With ``"slp"`` it attaches each emitted crop's
 appearance vector to its **object-exact source detection** (the ``sio.Instance`` for
-pose data, the ``sio.SegmentationMask`` for mask data) via ``set_embedding`` and writes
-a ``.slp``.
+pose data, the ``sio.SegmentationMask`` for mask data) via ``identity_embedding`` and
+writes a ``.slp``.
 
 These tests assert, on a tiny (random-weights) embedding model:
 
 1. ``"none"`` without tracking has nothing to persist -> raises (the source ``.slp`` is
    not written / not mutated on disk),
-2. ``"slp"`` (pose) -> each ``Instance`` carries ``embedding`` of dim D, the
-   ``normalized`` flag + ``source`` set, ``(video, frame, track)`` integrity preserved,
+2. ``"slp"`` (pose) -> each ``Instance`` carries ``identity_embedding`` of dim D,
+   ``(video, frame, track)`` integrity preserved,
    and it survives ``save_slp`` -> ``load_slp``,
 3. ``"slp"`` (pose) -> every detection's vector is written,
 4. the pathway stores vectors ONLY — it does not fabricate ``sio.Identity`` from
@@ -225,19 +225,18 @@ def test_none_without_tracking_raises(embedding_model_dir, pose_slp, tmp_path, o
     src = sio.load_slp(pose_slp)
     for lf in src.labeled_frames:
         for inst in lf.instances:
-            assert not inst.embeddings
+            assert inst.identity_embedding is None
 
 
-# ── (2) slp: pose embeddings persist with dim/flag/source + integrity ──────────
+# ── (2) slp: pose embeddings persist with dim + integrity ──────────────────────
 
 
 def test_slp_writes_slp_pose(embedding_model_dir, pose_slp, tmp_path):
-    """``slp``: pose vectors persist (dim/flag/source) + (video,frame,track) integrity."""
+    """``slp``: pose vectors persist (dim) + (video,frame,track) integrity."""
     res, slp_out = _run(embedding_model_dir, pose_slp, tmp_path, "slp")
     assert res == slp_out
     assert os.path.exists(slp_out)
 
-    model_id = os.path.basename(embedding_model_dir.rstrip("/"))
     reloaded = sio.load_slp(slp_out)
     # (video, frame, track) integrity: same frames, 2 instances each, same tracks.
     assert len(reloaded.labeled_frames) == 3
@@ -246,23 +245,21 @@ def test_slp_writes_slp_pose(embedding_model_dir, pose_slp, tmp_path):
         names = {inst.track.name for inst in lf.instances}
         assert names == {"animal0", "animal1"}
         for inst in lf.instances:
-            emb = inst.embeddings.get("reid")
-            assert emb is not None, "instance missing reid embedding"
+            emb = inst.identity_embedding
+            assert emb is not None, "instance missing identity_embedding"
             assert np.asarray(emb.vector).shape == (_DIM,)
-            assert emb.normalized is True  # config normalize=True
-            assert emb.source == model_id
 
     # Round-trip: re-save -> re-load preserves the vectors.
     rt = str(tmp_path / "rt.slp")
-    sio.save_slp(reloaded, rt, embed=False)
+    sio.save_slp(reloaded, rt, embed=False, save_embedding_vectors=True)
     rt_labels = sio.load_slp(rt)
     before = {
-        (lf.frame_idx, inst.track.name): np.asarray(inst.embeddings["reid"].vector)
+        (lf.frame_idx, inst.track.name): np.asarray(inst.identity_embedding.vector)
         for lf in reloaded.labeled_frames
         for inst in lf.instances
     }
     after = {
-        (lf.frame_idx, inst.track.name): np.asarray(inst.embeddings["reid"].vector)
+        (lf.frame_idx, inst.track.name): np.asarray(inst.identity_embedding.vector)
         for lf in rt_labels.labeled_frames
         for inst in lf.instances
     }
@@ -284,7 +281,7 @@ def test_slp_writes_all_vectors(embedding_model_dir, pose_slp, tmp_path):
         1
         for lf in reloaded.labeled_frames
         for inst in lf.instances
-        if inst.embeddings.get("reid") is not None
+        if inst.identity_embedding is not None
     )
     assert n == 6
 
@@ -306,7 +303,7 @@ def test_no_identity_minted_from_track_pose(embedding_model_dir, pose_slp, tmp_p
     assert not (getattr(reloaded, "identities", None) or [])  # no catalog minted
     for lf in reloaded.labeled_frames:
         for inst in lf.instances:
-            assert inst.embedding is not None  # vector attached
+            assert inst.identity_embedding is not None  # vector attached
             assert inst.identity is None  # no fabricated identity
             assert inst.identity_score is None
             assert inst.track is not None  # GT track preserved
@@ -328,10 +325,9 @@ def test_mask_path_persists_embeddings(embedding_model_dir, mask_slp, tmp_path):
     reloaded = sio.load_slp(slp_out)
     masks = [m for lf in reloaded.labeled_frames for m in lf.masks]
     assert len(masks) == 6
-    # Every mask carries its reid embedding (dim _DIM, normalized, model-tagged).
-    assert all(m.embedding is not None for m in masks)
-    assert {m.embedding.dim for m in masks} == {_DIM}
-    assert all(m.embedding.normalized for m in masks)
+    # Every mask carries its identity_embedding (dim _DIM).
+    assert all(m.identity_embedding is not None for m in masks)
+    assert {m.identity_embedding.dim for m in masks} == {_DIM}
     # No identity fabricated from the GT track.
     assert all(m.identity is None for m in masks)
     assert not (getattr(reloaded, "identities", None) or [])

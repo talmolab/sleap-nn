@@ -160,7 +160,7 @@ def test_wf2_pose_untracked_gets_tracked(
     assert len(insts) == 8
     assert all(i.track is not None for i in insts)
     # save_embeddings="none" -> vectors stripped from the tracked .slp.
-    assert all(i.embedding is None for i in insts)
+    assert all(i.identity_embedding is None for i in insts)
 
 
 def test_wf2_save_embeddings_persists_vectors(
@@ -179,8 +179,8 @@ def test_wf2_save_embeddings_persists_vectors(
     insts = [i for lf in tracked.labeled_frames for i in lf.instances]
     assert all(i.track is not None for i in insts)
     # save_embeddings="slp" -> the appearance vectors persist alongside tracks.
-    assert all(i.embedding is not None for i in insts)
-    assert all(np.asarray(i.embedding.vector).shape == (_DIM,) for i in insts)
+    assert all(i.identity_embedding is not None for i in insts)
+    assert all(np.asarray(i.identity_embedding.vector).shape == (_DIM,) for i in insts)
 
 
 def test_wf2_mask_untracked_gets_tracked(
@@ -199,7 +199,9 @@ def test_wf2_mask_untracked_gets_tracked(
     masks = [m for lf in tracked.labeled_frames for m in lf.masks]
     assert len(masks) == 8
     assert all(m.track is not None for m in masks)
-    assert all(m.embedding is not None for m in masks)  # slp -> vectors persist
+    assert all(
+        m.identity_embedding is not None for m in masks
+    )  # slp -> vectors persist
 
 
 def test_wf2_default_output_path(embedding_model_dir, untracked_pose_slp):
@@ -401,4 +403,4 @@ def test_cli_fused_no_tracking_persists_vectors(
     embedded = sio.load_slp(out)
     insts = [i for lf in embedded.labeled_frames for i in lf.instances]
     assert len(insts) == 8
-    assert all(getattr(i, "embedding", None) is not None for i in insts)
+    assert all(i.identity_embedding is not None for i in insts)

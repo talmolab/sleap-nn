@@ -742,7 +742,7 @@ def test_apply_tracking_masks_roundtrip_persistence(video, tmp_path):
 
 def _make_embedded_pose_labels(skeleton, video, vecs=((1, 0, 0, 0), (0, 1, 0, 0))):
     """Pose labels where the two instances swap x-position every frame but keep a
-    constant per-animal ``reid`` embedding (so appearance tracking can hold identity
+    constant per-animal ``identity_embedding`` (so appearance tracking can hold identity
     across the swap, where pose/OKS tracking would fail)."""
     lfs = []
     for fi in range(4):
@@ -754,9 +754,7 @@ def _make_embedded_pose_labels(skeleton, video, vecs=((1, 0, 0, 0), (0, 1, 0, 0)
                 skeleton=skeleton,
                 score=0.9,
             )
-            inst.set_embedding(
-                np.asarray(vec, np.float32), name="reid", normalized=True
-            )
+            inst.identity_embedding = sio.Embedding(np.asarray(vec, np.float32))
             insts.append(inst)
         lfs.append(sio.LabeledFrame(video=video, frame_idx=fi, instances=insts))
     return sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=lfs)
@@ -780,7 +778,7 @@ def test_apply_tracking_embeddings_pose_follows_appearance(skeleton, video):
         for inst in lf.instances:
             assert inst.track is not None
             per_track.setdefault(inst.track.name, set()).add(
-                tuple(np.round(inst.embedding.vector, 3))
+                tuple(np.round(inst.identity_embedding.vector, 3))
             )
     assert len(per_track) == 2
     assert all(len(v) == 1 for v in per_track.values())
@@ -812,7 +810,7 @@ def test_apply_tracking_embeddings_mask_carrier(video):
         for cy, vec in ((cy_a, vecs[0]), (cy_b, vecs[1])):
             disk = ((yy - cy) ** 2 + (xx - 40) ** 2) <= 10**2
             m = sio.PredictedSegmentationMask.from_numpy(disk, score=0.9)
-            m.set_embedding(np.asarray(vec, np.float32), name="reid", normalized=True)
+            m.identity_embedding = sio.Embedding(np.asarray(vec, np.float32))
             masks.append(m)
         lfs.append(sio.LabeledFrame(video=video, frame_idx=fi, masks=masks))
     labels = sio.Labels(videos=[video], labeled_frames=lfs)
@@ -822,14 +820,14 @@ def test_apply_tracking_embeddings_mask_carrier(video):
         for m in lf.masks:
             assert m.track is not None
             per_track.setdefault(m.track.name, set()).add(
-                tuple(np.round(m.embedding.vector, 3))
+                tuple(np.round(m.identity_embedding.vector, 3))
             )
     assert len(per_track) == 2
     assert all(len(v) == 1 for v in per_track.values())
 
 
 def test_apply_tracking_embeddings_no_vectors_raises(skeleton, video):
-    """features='embeddings' but detections carry no reid embedding -> clear error."""
+    """features='embeddings' but detections carry no identity embedding -> clear error."""
     labels = _make_labels(skeleton, video, frames=3)  # no embeddings attached
     with pytest.raises(ValueError, match="no detection in the labels carries"):
         apply_tracking(
@@ -876,7 +874,7 @@ def test_apply_tracking_embeddings_routes_by_embedding_carrier(skeleton, video):
         for cy, vec in ((cy_a, vecs[0]), (cy_b, vecs[1])):
             disk = ((yy - cy) ** 2 + (xx - 40) ** 2) <= 10**2
             m = sio.PredictedSegmentationMask.from_numpy(disk, score=0.9)
-            m.set_embedding(np.asarray(vec, np.float32), name="reid", normalized=True)
+            m.identity_embedding = sio.Embedding(np.asarray(vec, np.float32))
             masks.append(m)
         # Pose instances WITHOUT embeddings coexist on the same frames.
         pose = sio.PredictedInstance.from_numpy(
@@ -894,7 +892,7 @@ def test_apply_tracking_embeddings_routes_by_embedding_carrier(skeleton, video):
         for m in lf.masks:
             assert m.track is not None
             per_track.setdefault(m.track.name, set()).add(
-                tuple(np.round(m.embedding.vector, 3))
+                tuple(np.round(m.identity_embedding.vector, 3))
             )
     assert len(per_track) == 2  # masks tracked by appearance
     assert all(len(v) == 1 for v in per_track.values())
@@ -907,7 +905,7 @@ def test_apply_tracking_embeddings_skip_single_node_default(video, monkeypatch):
     inst = sio.PredictedInstance.from_numpy(
         points_data=np.array([[5.0, 5.0]], dtype=np.float32), skeleton=skel1, score=0.9
     )
-    inst.set_embedding(np.array([1, 0, 0, 0], np.float32), name="reid")
+    inst.identity_embedding = sio.Embedding(np.array([1, 0, 0, 0], np.float32))
     labels = sio.Labels(
         videos=[video],
         skeletons=[skel1],
