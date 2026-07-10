@@ -963,6 +963,12 @@ class ModelTrainer:
         # declared `data_config.identity` semantics (error for global_id without global
         # names; warn for unproofread tracklets / non-deduplicated same-frame negatives).
         if self.model_type == "embedding":
+            # Real `sio.Identity` annotations ground `global_id` grouping directly (no
+            # `track_names_are_global` promise needed).
+            has_identities = any(
+                bool(getattr(label, "identities", None) or [])
+                for label in self.train_labels
+            )
             validate_embedding_identity(
                 objective=OmegaConf.select(
                     self.config,
@@ -972,6 +978,7 @@ class ModelTrainer:
                 identity=OmegaConf.select(
                     self.config, "data_config.identity", default=None
                 ),
+                has_identities=has_identities,
             )
 
         # set max stride for the backbone: convnext and swint

@@ -781,6 +781,30 @@ def test_validate_embedding_identity_global_id_errors_without_global_names():
         )
 
 
+def test_validate_embedding_identity_global_id_ok_with_real_identities():
+    """`global_id` is grounded by real `sio.Identity` labels — no promise needed.
+
+    When the data carries global identities, they ARE the ground-truth cross-video
+    animal identity, so `global_id` grouping is valid without
+    `track_names_are_global`.
+    """
+    validate_embedding_identity(
+        _emb_objective(scope="global_id"),
+        _emb_identity(track_names_are_global=False),
+        has_identities=True,
+    )  # no raise
+
+
+def test_validate_embedding_identity_global_id_errors_no_identities_no_promise():
+    """`global_id` still errors when there are neither identities nor the promise."""
+    with pytest.raises(ValueError, match="sio.Identity"):
+        validate_embedding_identity(
+            _emb_objective(scope="global_id"),
+            _emb_identity(track_names_are_global=False),
+            has_identities=False,
+        )
+
+
 def test_validate_embedding_identity_defaults_error():
     """Absent objective + identity -> default scope `global_id` -> hard error.
 

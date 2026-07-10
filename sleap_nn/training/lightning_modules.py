@@ -2801,7 +2801,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                 )
 
 
-def validate_embedding_identity(objective, identity):
+def validate_embedding_identity(objective, identity, has_identities: bool = False):
     """Enforce the identity-equality gates for the embedding objective.
 
     Each positive/negative source silently asserts "same / different animal"; a wrong
@@ -2812,7 +2812,9 @@ def validate_embedding_identity(objective, identity):
     - pos ``aug_view``: two views = same id (same crop) -> no assumption.
     - pos ``tracklet``: same ``(video, track)`` = same animal -> **warn** if
       ``identity.tracks_are_proofread`` is False (tracker swaps poison training).
-    - pos ``global_id``: same track name across videos = same animal -> **error** if
+    - pos ``global_id``: same GLOBAL identity = same animal. Grounded by a real
+      ``sio.Identity`` when the data carries one (``has_identities``); otherwise falls
+      back to the track name, so it **errors** when the data has no identities AND
       ``identity.track_names_are_global`` is False (names must be globally consistent).
     - neg ``same_frame``: two detections / frame = different animals -> **warn** if
       ``identity.detections_deduplicated`` is False (a double / over-segmented
@@ -2827,9 +2829,13 @@ def validate_embedding_identity(objective, identity):
             ``negatives.sources`` are read.
         identity: The ``data_config.identity`` node (``DictConfig`` or ``None`` —
             defaults assumed when absent).
+        has_identities: Whether the training labels carry global ``sio.Identity``
+            annotations. When ``True``, ``global_id`` grouping is grounded by the real
+            identities and needs no ``track_names_are_global`` promise.
 
     Raises:
-        ValueError: if ``positives.scope='global_id'`` but the data does not declare
+        ValueError: if ``positives.scope='global_id'`` but the data carries no
+            ``sio.Identity`` annotations AND does not declare
             ``identity.track_names_are_global=True``.
     """
     # Resolve objective semantics with the same defaults the LightningModule uses.
@@ -2859,12 +2865,15 @@ def validate_embedding_identity(objective, identity):
         track_names_are_global = False
         detections_deduplicated = True
 
-    if scope == "global_id" and not track_names_are_global:
+    if scope == "global_id" and not (track_names_are_global or has_identities):
         raise ValueError(
             "head_configs.embedding.embedding.objective.positives.scope='global_id' "
-            "requires data_config.identity.track_names_are_global=True (the same track "
-            "name must mean the same animal across videos). Set it only if your labels "
-            "are globally consistent, or use scope='tracklet' (video-local) instead."
+            "requires either (a) the labels to carry global `sio.Identity` annotations "
+            "(the ground-truth cross-video animal identity), or (b) "
+            "data_config.identity.track_names_are_global=True (the same track name must "
+            "mean the same animal across videos). Add identities to your labels, set "
+            "track_names_are_global=True if your track names are globally consistent, "
+            "or use scope='tracklet' (video-local) instead."
         )
     if scope == "tracklet" and not tracks_are_proofread:
         logger.warning(

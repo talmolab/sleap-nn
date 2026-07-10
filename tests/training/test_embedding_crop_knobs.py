@@ -514,3 +514,129 @@ class TestSamplerComposition:
     def test_unknown_kind_raises(self):
         with pytest.raises(ValueError, match="kind"):
             list(self._make(kind="diagonal"))
+
+
+# ----------------------------------------------------------------------------
+# Track/Identity-based positive/negative grouping (sleap-io #535)
+# ----------------------------------------------------------------------------
+
+
+class TestIdentitySampling:
+    """Positives group on the real `sio.Identity` (global animal), else `sio.Track`."""
+
+    @staticmethod
+    def _skel():
+        import sleap_io as sio
+
+        return sio.Skeleton(["a", "b"])
+
+    def _inst(self, x, *, identity=None, track=None):
+        import sleap_io as sio
+
+        return sio.Instance.from_numpy(
+            np.array([[x, x], [x + 1, x + 1]], dtype=float),
+            skeleton=self._skel(),
+            track=track,
+            identity=identity,
+        )
+
+    def _labels_two_videos_same_animals(self):
+        """Same two animals in two videos, with DIFFERENT per-video track names."""
+        import sleap_io as sio
+
+        idA, idB = sio.Identity(name="mouseA"), sio.Identity(name="mouseB")
+        v1, v2 = sio.Video("v1.mp4"), sio.Video("v2.mp4")
+        lf1 = sio.LabeledFrame(
+            video=v1,
+            frame_idx=0,
+            instances=[
+                self._inst(0, identity=idA, track=sio.Track("v1_t0")),
+                self._inst(5, identity=idB, track=sio.Track("v1_t1")),
+            ],
+        )
+        lf2 = sio.LabeledFrame(
+            video=v2,
+            frame_idx=0,
+            instances=[
+                self._inst(0, identity=idA, track=sio.Track("v2_t0")),
+                self._inst(5, identity=idB, track=sio.Track("v2_t1")),
+            ],
+        )
+        return sio.Labels([lf1, lf2])
+
+    def test_global_label_prefers_identity_over_track(self):
+        from sleap_nn.data.custom_datasets import _global_identity_label
+
+        inst = self._inst(0, identity=None, track=None)
+        import sleap_io as sio
+
+        inst.identity = sio.Identity(name="mouseA")
+        inst.track = sio.Track("v1_t0")
+        # Identity wins even when track_names_are_global is False.
+        assert _global_identity_label(inst, track_names_are_global=False) == "mouseA"
+
+    def test_vocabulary_collapses_same_animal_across_videos(self):
+        """4 per-video tracks but only 2 global identities -> 2-class vocabulary."""
+        from sleap_nn.data.custom_datasets import resolve_embedding_class_names
+
+        labels = self._labels_two_videos_same_animals()
+        vocab = resolve_embedding_class_names(labels_iter := [labels])
+        assert vocab == ["mouseA", "mouseB"]
+
+    def test_global_id_group_is_identity_across_videos(self):
+        """Same animal in two videos gets the SAME group_id under global_id scope."""
+        from sleap_nn.data.custom_datasets import (
+            EmbeddingDataset,
+            resolve_embedding_class_names,
+        )
+
+        labels = self._labels_two_videos_same_animals()
+        class_names = resolve_embedding_class_names([labels])
+        ds = EmbeddingDataset.__new__(EmbeddingDataset)
+        ds.class_names = list(class_names)
+        ds.id_scope = "global_id"
+        ds.track_names_are_global = False
+        ds._tracklet_vocab = {}
+        # mouseA in video 0 and video 1 -> same group_id (the identity index).
+        g_v0 = ds._resolve_group(labels[0].instances[0], 0, 0)
+        g_v1 = ds._resolve_group(labels[1].instances[0], 0, 1)
+        assert g_v0 is not None and g_v1 is not None
+        assert g_v0[0] == g_v1[0] == class_names.index("mouseA")
+
+    def test_tracklet_group_is_per_video_track(self):
+        """Under tracklet scope the same animal in two videos is DIFFERENT groups."""
+        from sleap_nn.data.custom_datasets import (
+            EmbeddingDataset,
+            resolve_embedding_class_names,
+        )
+
+        labels = self._labels_two_videos_same_animals()
+        class_names = resolve_embedding_class_names([labels])
+        ds = EmbeddingDataset.__new__(EmbeddingDataset)
+        ds.class_names = list(class_names)
+        ds.id_scope = "tracklet"
+        ds.track_names_are_global = False
+        ds._tracklet_vocab = {}
+        g_v0 = ds._resolve_group(labels[0].instances[0], 0, 0)
+        g_v1 = ds._resolve_group(labels[1].instances[0], 0, 1)
+        # Distinct per-video tracklet group_ids ...
+        assert g_v0[0] != g_v1[0]
+        # ... but the eval (global) grouping still ties them to the same identity.
+        assert g_v0[1] == g_v1[1] == class_names.index("mouseA")
+
+    def test_track_fallback_requires_promise(self):
+        """A track-only detection is grouped only under track_names_are_global."""
+        import sleap_io as sio
+        from sleap_nn.data.custom_datasets import resolve_embedding_class_names
+
+        v = sio.Video("v.mp4")
+        lf = sio.LabeledFrame(
+            video=v, frame_idx=0, instances=[self._inst(0, track=sio.Track("t0"))]
+        )
+        labels = sio.Labels([lf])
+        assert resolve_embedding_class_names([labels], track_names_are_global=True) == [
+            "t0"
+        ]
+        assert (
+            resolve_embedding_class_names([labels], track_names_are_global=False) == []
+        )

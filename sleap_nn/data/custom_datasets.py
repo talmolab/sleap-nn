@@ -2037,18 +2037,50 @@ class CenteredInstanceSegmentationDataset(CenteredInstanceDataset):
         return sample
 
 
-def resolve_embedding_class_names(labels: List[sio.Labels]) -> List[str]:
-    """Collect the sorted set of track names across all labels (the group vocabulary).
+def _global_identity_label(det, track_names_are_global: bool) -> Optional[str]:
+    """The global (cross-video) identity label for one detection, or ``None``.
 
-    Track names are the identity groups for ``global_id`` positives. Scanning BOTH
-    train + val labels and sorting gives one consistent vocabulary shared by the
-    train and val datasets.
+    A ``sio.Identity`` (``det.identity``, added by sleap-io#535) is the ground-truth
+    global animal identity — the same object recognized across videos/sessions — so it
+    is the canonical ``global_id`` grouping key when present (matched by ``name``, the
+    sleap-io cross-file key). ``sio.Track`` is only a per-video tracklet, so a track
+    name is used as the global label ONLY under the ``track_names_are_global`` promise
+    (the pre-Identity convention that a track name denotes the same animal everywhere).
+
+    Works for both pose ``Instance`` and ``SegmentationMask`` detections (both carry
+    ``identity`` / ``track`` on sleap-io main).
+    """
+    identity = getattr(det, "identity", None)
+    if identity is not None and getattr(identity, "name", None):
+        return identity.name
+    if track_names_are_global:
+        track = getattr(det, "track", None)
+        if track is not None and track.name is not None:
+            return track.name
+    return None
+
+
+def resolve_embedding_class_names(
+    labels: List[sio.Labels], track_names_are_global: bool = True
+) -> List[str]:
+    """Collect the sorted global-identity vocabulary (the ``global_id`` / eval grouping).
+
+    The vocabulary is the set of GLOBAL animal identities — a real ``sio.Identity``
+    name when a detection carries one, else its ``sio.Track`` name under the
+    ``track_names_are_global`` promise (see :func:`_global_identity_label`). Resolving
+    per detection (not per track) means an animal with both an ``Identity`` and a
+    per-video ``Track`` contributes only its identity, so identity- and track-labelled
+    data share one coherent vocabulary. Scanning BOTH train + val labels and sorting
+    gives one consistent vocabulary shared by the train and val datasets.
     """
     names = set()
     for label in labels:
-        for tr in getattr(label, "tracks", []) or []:
-            if tr is not None and tr.name is not None:
-                names.add(tr.name)
+        for lf in label:
+            dets = list(lf.instances) + list(getattr(lf, "masks", None) or [])
+            for det in dets:
+                lab = _global_identity_label(det, track_names_are_global)
+                if lab is not None:
+                    names.add(lab)
     return sorted(names)
 
 
@@ -2084,17 +2116,22 @@ class EmbeddingDataset(BaseDataset):
     produced for the two-view contrastive loss using the standard config-driven
     augmentation; otherwise a single un-augmented view is returned (val / inference).
 
-    The ``group_id`` keys the training groups: the global track-name index for
+    The ``group_id`` keys the training groups: the global-identity index for
     ``global_id`` scope, or a per-``(labels, video, track)`` tracklet id for
-    ``tracklet`` scope. ``global_group_id`` is always the global track-name index (the
-    grouping used for evaluation).
+    ``tracklet`` scope. ``global_group_id`` is always the global-identity index (the
+    grouping used for evaluation). The global identity of a detection is its real
+    ``sio.Identity`` name when present, else its ``sio.Track`` name under
+    ``track_names_are_global`` (see :func:`_global_identity_label`).
 
     Attributes:
         crop_size: Side length of the square crop (should be divisible by max_stride).
-        class_names: Ordered list of track names (the global ``group_id`` vocabulary).
+        class_names: Ordered global-identity vocabulary (the ``global_id`` group space;
+            ``sio.Identity`` names, or track names under ``track_names_are_global``).
         embedding_head_config: The head leaf config (carries ``output_stride`` and the
             optional pose ``anchor_part``).
         id_scope: Training-group key: ``global_id`` | ``tracklet`` | ``aug_view``.
+        track_names_are_global: Treat a ``sio.Track`` name as a global animal identity
+            for detections lacking a ``sio.Identity`` (the pre-Identity convention).
     """
 
     def __init__(
@@ -2105,6 +2142,7 @@ class EmbeddingDataset(BaseDataset):
         embedding_head_config: DictConfig,
         max_stride: int,
         id_scope: str = "global_id",
+        track_names_are_global: bool = True,
         crop_centering: str = "auto",
         user_instances_only: bool = True,
         ensure_rgb: bool = False,
@@ -2125,9 +2163,12 @@ class EmbeddingDataset(BaseDataset):
         self.crop_size = crop_size
         self.class_names = list(class_names)
         self.embedding_head_config = embedding_head_config
-        # `group_id` keying: global track-name (global_id) vs per-(video, track)
+        # `group_id` keying: global identity (global_id) vs per-(video, track)
         # tracklet. `_tracklet_vocab` lazily assigns a dense id per distinct tracklet.
         self.id_scope = id_scope
+        # Whether a `sio.Track` name doubles as a global animal identity for detections
+        # without a real `sio.Identity` (the pre-Identity convention).
+        self.track_names_are_global = bool(track_names_are_global)
         # Mask-mode crop center: `auto`/`mask_com` -> mask center-of-mass; `bbox` ->
         # mask bounding-box midpoint (robust to concave masks). Pose-mode centering is
         # driven by `anchor_part` regardless of this knob.
@@ -2212,20 +2253,51 @@ class EmbeddingDataset(BaseDataset):
                         return "mask"
         return "pose"
 
-    def _group_keys(self, labels_idx, video_idx, track_name):
-        """Return ``(group_id, global_group_id)`` for a tracked detection.
+    def _group_keys(self, labels_idx, video_idx, track_name, global_label):
+        """Return ``(group_id, global_group_id)`` for a detection.
 
-        ``global_group_id`` is always the global track-name index (the eval grouping).
-        ``group_id`` is the training group: the global index for ``global_id``/
-        ``aug_view`` scope, or a per-``(labels, video, track)`` tracklet id for
-        ``tracklet`` scope.
+        ``global_group_id`` is the detection's GLOBAL identity index (``sio.Identity``,
+        or track name under ``track_names_are_global``) — the eval grouping; it falls
+        back to ``group_id`` when the detection carries no global label (e.g. a bare
+        tracklet under ``scope='tracklet'``).
+
+        ``group_id`` is the TRAINING positive key: the global-identity index for
+        ``global_id`` / ``aug_view`` scope, or a dense per-``(labels, video, track)``
+        tracklet id for ``tracklet`` scope.
         """
-        gid = self.class_names.index(track_name)
+        gid = (
+            self.class_names.index(global_label)
+            if global_label is not None and global_label in self.class_names
+            else None
+        )
         if self.id_scope == "tracklet":
             key = (labels_idx, video_idx, track_name)
             tid = self._tracklet_vocab.setdefault(key, len(self._tracklet_vocab))
-            return tid, gid
+            return tid, (gid if gid is not None else tid)
         return gid, gid
+
+    def _is_member(self, det) -> bool:
+        """Whether a detection is a training sample under the active scope.
+
+        Side-effect free (does NOT assign tracklet ids), so it is safe to call in the
+        frame-cache pass. ``tracklet`` needs a ``sio.Track`` (the per-video tracklet it
+        groups on); ``global_id`` / ``aug_view`` need a global-identity label
+        (``sio.Identity`` name, or a track name under ``track_names_are_global``)
+        present in the shared vocabulary.
+        """
+        if self.id_scope == "tracklet":
+            return getattr(det, "track", None) is not None
+        global_label = _global_identity_label(det, self.track_names_are_global)
+        return global_label is not None and global_label in self.class_names
+
+    def _resolve_group(self, det, labels_idx, video_idx):
+        """Return ``(group_id, global_group_id)`` for a detection, or ``None`` to skip."""
+        if not self._is_member(det):
+            return None
+        track = getattr(det, "track", None)
+        track_name = track.name if track is not None else None
+        global_label = _global_identity_label(det, self.track_names_are_global)
+        return self._group_keys(labels_idx, video_idx, track_name, global_label)
 
     def _get_instance_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
         """Index per tracked keypoint instance (pose mode).
@@ -2238,8 +2310,9 @@ class EmbeddingDataset(BaseDataset):
         for labels_idx, label in enumerate(labels):
             for lf_idx, lf in enumerate(label):
                 for inst_idx, inst in enumerate(lf.instances):
-                    track = getattr(inst, "track", None)
-                    if track is None or track.name not in self.class_names:
+                    video_idx = labels[labels_idx].videos.index(lf.video)
+                    group = self._resolve_group(inst, labels_idx, video_idx)
+                    if group is None:
                         n_missing += 1
                         continue
                     pts = torch.from_numpy(inst.numpy()).to(
@@ -2253,10 +2326,7 @@ class EmbeddingDataset(BaseDataset):
                     if torch.isnan(centroid).any():
                         continue
                     centroid = centroid.numpy().astype(np.float32)
-                    video_idx = labels[labels_idx].videos.index(lf.video)
-                    group_id, global_group_id = self._group_keys(
-                        labels_idx, video_idx, track.name
-                    )
+                    group_id, global_group_id = group
                     idx_list.append(
                         {
                             "labels_idx": labels_idx,
@@ -2271,8 +2341,9 @@ class EmbeddingDataset(BaseDataset):
                     )
         if n_missing:
             logger.warning(
-                f"EmbeddingDataset: skipped {n_missing} instance(s) with no track / "
-                f"unknown track name."
+                f"EmbeddingDataset: skipped {n_missing} instance(s) with no group "
+                f"under scope='{self.id_scope}' (no track for tracklet scope, or no "
+                f"in-vocabulary global identity for global_id/aug_view)."
             )
         return idx_list
 
@@ -2289,14 +2360,8 @@ class EmbeddingDataset(BaseDataset):
         for labels_idx, label in enumerate(labels):
             for lf_idx, lf in enumerate(label):
                 lf_masks = getattr(lf, "masks", None) or []
-                has_tracked = any(
-                    getattr(m, "track", None) is not None
-                    and m.track.name in self.class_names
-                    for m in lf_masks
-                ) or any(
-                    getattr(inst, "track", None) is not None
-                    and inst.track.name in self.class_names
-                    for inst in lf.instances
+                has_tracked = any(self._is_member(m) for m in lf_masks) or any(
+                    self._is_member(inst) for inst in lf.instances
                 )
                 if has_tracked:
                     video_idx = labels[labels_idx].videos.index(lf.video)
@@ -2320,14 +2385,12 @@ class EmbeddingDataset(BaseDataset):
             for lf_idx, lf in enumerate(label):
                 lf_masks = getattr(lf, "masks", None) or []
                 for mask_idx, mask_obj in enumerate(lf_masks):
-                    track = getattr(mask_obj, "track", None)
-                    if track is None or track.name not in self.class_names:
+                    video_idx = labels[labels_idx].videos.index(lf.video)
+                    group = self._resolve_group(mask_obj, labels_idx, video_idx)
+                    if group is None:
                         n_missing += 1
                         continue
-                    video_idx = labels[labels_idx].videos.index(lf.video)
-                    group_id, global_group_id = self._group_keys(
-                        labels_idx, video_idx, track.name
-                    )
+                    group_id, global_group_id = group
                     mask_idx_list.append(
                         {
                             "labels_idx": labels_idx,
@@ -2342,8 +2405,9 @@ class EmbeddingDataset(BaseDataset):
                     )
         if n_missing:
             logger.warning(
-                f"EmbeddingDataset: skipped {n_missing} mask(s) with no track / "
-                f"unknown track name."
+                f"EmbeddingDataset: skipped {n_missing} mask(s) with no group under "
+                f"scope='{self.id_scope}' (no track for tracklet scope, or no "
+                f"in-vocabulary global identity for global_id/aug_view)."
             )
         return mask_idx_list
 
@@ -5693,9 +5757,19 @@ def get_train_val_datasets(
 
     elif model_type == "embedding":
         emb_cfg = config.model_config.head_configs.embedding.embedding
-        # One global track-name vocabulary shared by train + val (the group_id space).
-        class_names = resolve_embedding_class_names(train_labels + val_labels)
-        # Training-group key (global track-name vs per-video tracklet).
+        # Whether a per-video track name may stand in as a global animal identity for
+        # detections without a real `sio.Identity` (the pre-Identity convention).
+        track_names_are_global = bool(
+            OmegaConf.select(
+                config, "data_config.identity.track_names_are_global", default=False
+            )
+        )
+        # One global-identity vocabulary shared by train + val (the group_id space):
+        # `sio.Identity` names, else track names under `track_names_are_global`.
+        class_names = resolve_embedding_class_names(
+            train_labels + val_labels, track_names_are_global=track_names_are_global
+        )
+        # Training-group key (global identity vs per-video tracklet).
         id_scope = OmegaConf.select(
             emb_cfg, "objective.positives.scope", default="global_id"
         )
@@ -5726,6 +5800,7 @@ def get_train_val_datasets(
             embedding_head_config=emb_cfg,
             max_stride=max_stride,
             id_scope=id_scope,
+            track_names_are_global=track_names_are_global,
             crop_centering=crop_centering,
             user_instances_only=config.data_config.user_instances_only,
             ensure_rgb=emb_ensure_rgb,
@@ -5758,6 +5833,7 @@ def get_train_val_datasets(
             embedding_head_config=emb_cfg,
             max_stride=max_stride,
             id_scope=id_scope,
+            track_names_are_global=track_names_are_global,
             crop_centering=crop_centering,
             user_instances_only=config.data_config.user_instances_only,
             ensure_rgb=emb_ensure_rgb,
