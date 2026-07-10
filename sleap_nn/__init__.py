@@ -8,6 +8,28 @@ from loguru import logger
 RANK = int(os.environ.get("LOCAL_RANK", -1))
 
 
+# Force-disable Apple Metal (MPS) acceleration when ``SLEAP_NN_DISABLE_MPS=1``.
+#
+# MPS on Apple Silicon has known driver bugs. On the GitHub ``macos-14`` CI
+# runner in particular, real MPS compute intermittently *hangs* or raises
+# ``RuntimeError: MPS backend out of memory`` even for tiny allocations.
+# Setting this env var makes torch report MPS as unavailable, so torch itself,
+# Lightning's ``accelerator="auto"`` selection, and every ``--device auto``
+# resolution in this package all fall back to CPU.
+#
+# Applied here at package import (rather than in a pytest fixture) so it also
+# takes effect inside ``sleap-nn`` CLI *subprocesses* spawned by the tests —
+# those inherit the env var but not any in-process patching. torch is imported
+# only when the flag is set, keeping normal CLI startup lean. No-op otherwise.
+if os.environ.get("SLEAP_NN_DISABLE_MPS") == "1":
+    import torch
+
+    if hasattr(torch.backends, "mps"):
+        torch.backends.mps.is_available = lambda: False
+    if hasattr(torch, "mps") and hasattr(torch.mps, "is_available"):
+        torch.mps.is_available = lambda: False
+
+
 # Configure loguru for distributed training
 def _should_log(record):
     """Filter function to control logging based on rank."""

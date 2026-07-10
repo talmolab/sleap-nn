@@ -57,15 +57,23 @@ jobs:
         run: uv run --frozen --no-group gpu --extra torch-cpu ruff check sleap_nn/
 
   tests:
-    # Windows runs ~29 min on this matrix (slow VMs + torch-on-Windows).
-    # 30 was right at the edge and timed out mid-pytest-summary; 45
-    # gives headroom for normal CI load variance without masking real
-    # hangs (which would still saturate the budget).
-    timeout-minutes: 45
+    # Windows is the slowest job at ~11-13 min (slow VMs + torch-on-Windows);
+    # ubuntu ~4 min, mac ~7 min. 20 gives comfortable headroom for load
+    # variance while still catching genuine hangs. (The mac job used to blow
+    # past 45 min because MPS compute intermittently hangs / OOMs on the
+    # virtualized macos-14 runner; that is now neutralized by
+    # SLEAP_NN_DISABLE_MPS below.)
+    timeout-minutes: 20
     env:
       CUDA_VISIBLE_DEVICES: ""
       USE_CUDA: "0"
       UV_FROZEN: "1"
+      # Disable Apple Metal (MPS): the macos-14 runner reports MPS available
+      # but real MPS compute intermittently hangs / raises "MPS backend out of
+      # memory". Set here at the job level so both pytest and the `sleap-nn`
+      # CLI subprocesses it spawns inherit it (honored in sleap_nn/__init__.py).
+      # No-op on ubuntu/windows (no MPS).
+      SLEAP_NN_DISABLE_MPS: "1"
     strategy:
       fail-fast: false
       matrix:
