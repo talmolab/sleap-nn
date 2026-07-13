@@ -828,6 +828,170 @@ class TestNegativeLossWeighting:
         assert logged["train/n_positive"] == 0.0
 
 
+class TestConfmapFgBgLoss:
+    """Tests for _log_confmap_fg_bg_loss (diagnostic-only fg/bg confmap MSE split)."""
+
+    def _make_model(self):
+        """Create a minimal mock for testing _log_confmap_fg_bg_loss."""
+        from sleap_nn.training.lightning_modules import LightningModel
+
+        model = object.__new__(LightningModel)
+        model.log = MagicMock()
+        return model
+
+    @staticmethod
+    def _logged(model):
+        """Map of logged key -> value from the mock (last write per key)."""
+        out = {}
+        for call in model.log.call_args_list:
+            out[call.args[0]] = call.args[1]
+        return out
+
+    def test_basic_fg_bg_split(self):
+        """fg/bg MSE and fg fraction match a hand-computed reference."""
+        model = self._make_model()
+
+        y = torch.zeros(1, 1, 4, 4)
+        y[0, 0, 1, 1] = 1.0
+        y[0, 0, 1, 2] = 0.6
+        y[0, 0, 2, 1] = 0.6
+        y_pred = torch.zeros(1, 1, 4, 4)  # all-zero pred -> squared error == y^2
+
+        model._log_confmap_fg_bg_loss(y_pred, y, stage="train")
+        logged = self._logged(model)
+
+        exp_fg = (1.0**2 + 0.6**2 + 0.6**2) / 3
+        exp_bg = 0.0  # 13 background pixels, all target 0, pred 0
+        exp_frac = 3 / 16
+
+        assert torch.allclose(
+            logged["train/confmap_loss_fg"], torch.tensor(exp_fg), atol=1e-6
+        )
+        assert torch.allclose(
+            logged["train/confmap_loss_bg"], torch.tensor(exp_bg), atol=1e-9
+        )
+        assert torch.allclose(
+            logged["train/confmap_fg_frac"], torch.tensor(exp_frac), atol=1e-6
+        )
+
+    def test_no_foreground_pixels(self):
+        """All-background target: fg_loss is 0 (no crash), bg_loss is the full MSE."""
+        model = self._make_model()
+
+        y = torch.zeros(1, 1, 2, 2)
+        y_pred = torch.ones(1, 1, 2, 2)
+
+        model._log_confmap_fg_bg_loss(y_pred, y, stage="val")
+        logged = self._logged(model)
+
+        assert logged["val/confmap_loss_fg"].item() == 0.0
+        assert torch.allclose(logged["val/confmap_loss_bg"], torch.tensor(1.0))
+        assert logged["val/confmap_fg_frac"].item() == 0.0
+
+    def test_no_background_pixels(self):
+        """All-foreground target: bg_loss is 0 (no crash), fg_loss is the full MSE."""
+        model = self._make_model()
+
+        y = torch.ones(1, 1, 2, 2)
+        y_pred = torch.zeros(1, 1, 2, 2)
+
+        model._log_confmap_fg_bg_loss(y_pred, y, stage="train")
+        logged = self._logged(model)
+
+        assert torch.allclose(logged["train/confmap_loss_fg"], torch.tensor(1.0))
+        assert logged["train/confmap_loss_bg"].item() == 0.0
+        assert logged["train/confmap_fg_frac"].item() == 1.0
+
+    def test_default_stage_is_train(self):
+        """Omitting stage logs under the train/ prefix."""
+        model = self._make_model()
+
+        y = torch.rand(2, 3, 5, 5)
+        y_pred = torch.rand(2, 3, 5, 5)
+
+        model._log_confmap_fg_bg_loss(y_pred, y)
+        keys = set(self._logged(model))
+        assert {
+            "train/confmap_loss_fg",
+            "train/confmap_loss_bg",
+            "train/confmap_fg_frac",
+        } <= keys
+        assert not any(k.startswith("val/") for k in keys)
+
+    def test_val_prefix_no_cross_leak(self):
+        """stage='val' logs only val/* keys, never train/*."""
+        model = self._make_model()
+
+        y = torch.rand(2, 3, 5, 5)
+        y_pred = torch.rand(2, 3, 5, 5)
+
+        model._log_confmap_fg_bg_loss(y_pred, y, stage="val")
+        keys = set(self._logged(model))
+        assert {
+            "val/confmap_loss_fg",
+            "val/confmap_loss_bg",
+            "val/confmap_fg_frac",
+        } <= keys
+        assert not any(k.startswith("train/") for k in keys)
+
+    def test_custom_threshold(self):
+        """A non-default threshold moves pixels between the fg/bg buckets."""
+        model = self._make_model()
+
+        y = torch.tensor([[[[0.2, 0.4, 0.6, 0.8]]]])  # (1,1,1,4)
+        y_pred = torch.zeros(1, 1, 1, 4)
+
+        # threshold=0.5 (default): fg = {0.6, 0.8}, bg = {0.2, 0.4}
+        model._log_confmap_fg_bg_loss(y_pred, y, stage="train")
+        logged = self._logged(model)
+        assert torch.allclose(
+            logged["train/confmap_loss_fg"], torch.tensor((0.6**2 + 0.8**2) / 2)
+        )
+        assert torch.allclose(
+            logged["train/confmap_loss_bg"], torch.tensor((0.2**2 + 0.4**2) / 2)
+        )
+
+        # threshold=0.3: fg = {0.4, 0.6, 0.8}, bg = {0.2}
+        model2 = self._make_model()
+        model2._log_confmap_fg_bg_loss(y_pred, y, stage="train", threshold=0.3)
+        logged2 = self._logged(model2)
+        assert torch.allclose(
+            logged2["train/confmap_loss_fg"],
+            torch.tensor((0.4**2 + 0.6**2 + 0.8**2) / 3),
+        )
+        assert torch.allclose(logged2["train/confmap_loss_bg"], torch.tensor(0.2**2))
+
+    def test_does_not_require_grad_and_leaves_autograd_untouched(self):
+        """Diagnostic computation runs under no_grad and doesn't error on grad tensors."""
+        model = self._make_model()
+
+        y = torch.rand(2, 2, 4, 4)
+        y_pred = torch.rand(2, 2, 4, 4, requires_grad=True)
+
+        model._log_confmap_fg_bg_loss(y_pred, y, stage="train")
+        logged = self._logged(model)
+
+        assert not logged["train/confmap_loss_fg"].requires_grad
+        assert not logged["train/confmap_loss_bg"].requires_grad
+        # The real loss tensor is untouched and still backprop-able.
+        real_loss = torch.nn.MSELoss()(y_pred, y)
+        real_loss.backward()
+        assert y_pred.grad is not None
+
+    def test_epoch_level_and_sync_dist_kwargs(self):
+        """Metrics are epoch-averaged (not per-step) and DDP-synced."""
+        model = self._make_model()
+
+        y = torch.rand(1, 1, 3, 3)
+        y_pred = torch.rand(1, 1, 3, 3)
+
+        model._log_confmap_fg_bg_loss(y_pred, y, stage="train")
+        for call in model.log.call_args_list:
+            assert call.kwargs.get("on_step") is False
+            assert call.kwargs.get("on_epoch") is True
+            assert call.kwargs.get("sync_dist") is True
+
+
 class TestDataConfigNegativeFrames:
     """Test that the DataConfig accepts use_negative_frames."""
 

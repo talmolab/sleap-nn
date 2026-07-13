@@ -681,6 +681,64 @@ class LightningModel(L.LightningModule):
                 sync_dist=True,
             )
 
+    def _log_confmap_fg_bg_loss(
+        self,
+        y_pred: torch.Tensor,
+        y: torch.Tensor,
+        stage: str = "train",
+        threshold: float = 0.5,
+    ) -> None:
+        """Log the confmap MSE split into foreground vs background pixels.
+
+        DIAGNOSTIC / LOGGING ONLY -- these values are **not** added to the
+        optimized loss. Gaussian confidence-map targets are dominated by
+        near-zero background pixels (the foreground blob is typically ~1-2% of
+        the map), so plain ``MSELoss`` is mostly the background term. Splitting
+        the squared error by the GROUND-TRUTH confmap value lets us watch the
+        foreground/background imbalance evolve over training and informs whether
+        a weighted (or focal-style) confmap loss would help.
+
+        Pixels are split by target value: foreground = ``y > threshold``,
+        background = ``y < threshold`` (pixels exactly at ``threshold`` are
+        ignored). Metrics are epoch-averaged and DDP-synced.
+
+        Logged keys:
+
+        * ``{stage}/confmap_loss_fg`` -- mean squared error over foreground pixels.
+        * ``{stage}/confmap_loss_bg`` -- mean squared error over background pixels.
+        * ``{stage}/confmap_fg_frac`` -- fraction of pixels that are foreground
+          (a direct measure of the imbalance).
+
+        Args:
+            y_pred: Predicted confidence maps.
+            y: Ground-truth confidence maps (Gaussian peaks in ``[0, 1]``), same
+                shape as ``y_pred``.
+            stage: Key prefix, e.g. ``"train"`` or ``"val"``.
+            threshold: Foreground/background split on the target value.
+                *Default*: ``0.5``.
+        """
+        with torch.no_grad():
+            se = (y_pred - y).pow(2)
+            fg = y > threshold
+            bg = y < threshold
+            zero = torch.zeros((), device=y_pred.device)
+            fg_loss = se[fg].mean() if fg.any() else zero
+            bg_loss = se[bg].mean() if bg.any() else zero
+            fg_frac = fg.float().mean()
+        for key, val in (
+            (f"{stage}/confmap_loss_fg", fg_loss),
+            (f"{stage}/confmap_loss_bg", bg_loss),
+            (f"{stage}/confmap_fg_frac", fg_frac),
+        ):
+            self.log(
+                key,
+                val,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+
     def training_step(self, batch, batch_idx):
         """Training step."""
         pass
@@ -958,6 +1016,7 @@ class SingleInstanceLightningModule(LightningModel):
         self._log_negative_split_metrics(
             [("confmaps", y_preds, y, 1.0)], batch, stage="train"
         )
+        self._log_confmap_fg_bg_loss(y_preds, y, stage="train")
 
         if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
@@ -1011,6 +1070,7 @@ class SingleInstanceLightningModule(LightningModel):
         self._log_negative_split_metrics(
             [("confmaps", y_preds, y, 1.0)], batch, stage="val"
         )
+        self._log_confmap_fg_bg_loss(y_preds, y, stage="val")
         if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
                 y_gt=y,
@@ -1227,6 +1287,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
 
         loss = nn.MSELoss()(y_preds, y)
+        self._log_confmap_fg_bg_loss(y_preds, y, stage="train")
 
         if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
@@ -1277,6 +1338,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
+        self._log_confmap_fg_bg_loss(y_preds, y, stage="val")
         if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
                 y_gt=y,
@@ -1506,6 +1568,7 @@ class CentroidLightningModule(LightningModel):
         self._log_negative_split_metrics(
             [("confmaps", y_preds, y, 1.0)], batch, stage="train"
         )
+        self._log_confmap_fg_bg_loss(y_preds, y, stage="train")
         # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
             "loss",
@@ -1533,6 +1596,7 @@ class CentroidLightningModule(LightningModel):
         self._log_negative_split_metrics(
             [("confmaps", y_preds, y, 1.0)], batch, stage="val"
         )
+        self._log_confmap_fg_bg_loss(y_preds, y, stage="val")
         self.log(
             "val/loss",
             val_loss,

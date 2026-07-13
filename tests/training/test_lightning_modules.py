@@ -109,6 +109,9 @@ def test_topdown_centered_instance_model(
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm[0])) < 1e-3
 
+    # exercise the validation-step diagnostic logging path (fg/bg confmap split)
+    model.validation_step(input_, 0)
+
     # check the output shape
     assert preds.shape == (1, 2, 80, 80)
 
@@ -211,6 +214,9 @@ def test_centroid_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
 
+    # exercise the validation-step diagnostic logging path (fg/bg confmap split)
+    model.validation_step(input_, 0)
+
     # torch dataset
     model = LightningModel.get_lightning_model_from_config(config=config)
 
@@ -304,6 +310,9 @@ def test_single_instance_model(config, tmp_path: str, minimal_instance):
     input_["confidence_maps"] = input_["confidence_maps"][:, :, :2, :, :]
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
+
+    # exercise the validation-step diagnostic logging path (fg/bg confmap split)
+    model.validation_step(input_, 0)
 
     # torch dataset
     OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
