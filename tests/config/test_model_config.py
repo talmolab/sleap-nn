@@ -246,3 +246,16 @@ def test_pretrained_backbone_struct_merge():
         == "facebook/convnextv2-nano-22k-224"
     )
     assert merged.backbone_config.pretrained.weights is False
+
+
+def test_get_head_configs_embedding_missing_leaf_raises():
+    """A dict embedding head with no inner `embedding` leaf raises a clear error.
+
+    The dict factory must point the user at the expected structure instead of
+    surfacing a raw KeyError/AttributeError.
+    """
+    from sleap_nn.config.get_config import get_head_configs
+
+    for bad in ({"embedding": {}}, {"embedding": {"embedding": None}}):
+        with pytest.raises(ValueError, match="embedding"):
+            get_head_configs(bad)

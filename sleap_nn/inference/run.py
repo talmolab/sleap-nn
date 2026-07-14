@@ -542,6 +542,32 @@ def predict(
         build_kwargs["tracker_config"] = tracker_config
 
     if model_paths:
+        # `embedding` (re-ID) models emit appearance vectors, not poses, so this
+        # pose-packaging path cannot consume them (a lone embedding model would emit
+        # empty Labels, and a composed centroid+embedding model would crash on the
+        # skeleton-less centroid packaging). Route the user to the dedicated stream.
+        from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
+        from sleap_nn.inference.loaders import _load_training_config
+
+        _model_types = []
+        for _mp in model_paths:
+            try:
+                _cfg, _ = _load_training_config(resolve_model_dir(_mp))
+                _model_types.append(get_model_type_from_cfg(config=_cfg))
+            except Exception:  # noqa: BLE001 - only used to detect the embedding case
+                _model_types.append(None)
+        if "embedding" in _model_types:
+            raise ValueError(
+                "Embedding (re-ID) models emit appearance vectors, not poses, and are "
+                "not supported by `predict` (which packages pose Labels). Use the "
+                "dedicated embeddings stream instead:\n"
+                "  sleap-nn predict --data_path <video|.slp> --model_paths "
+                "<embedding_dir> --embeddings_path <out.h5>\n"
+                "or, from Python:\n"
+                "  from sleap_nn.inference.embedding import predict_embeddings_to_h5\n"
+                "  predict_embeddings_to_h5(model_paths=[embedding_dir], "
+                "data_path=src, output_path='out.h5')"
+            )
         if backbone_ckpt_path is not None:
             build_kwargs["backbone_ckpt_path"] = backbone_ckpt_path
         if head_ckpt_path is not None:

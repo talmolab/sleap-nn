@@ -97,6 +97,11 @@ class Outputs:
     # tensor) so ``slim()`` / the multiprocessing path stay memory-safe.
     pred_masks: Optional[List[List[Dict[str, Any]]]] = None
 
+    # ── Embedding (re-ID) ────────────────────────────────────────────
+    # Per-instance appearance embedding from the `embedding` model type.
+    # Light (not in _HEAVY_FIELDS) but should be streamed for long videos.
+    pred_embeddings: Optional[torch.Tensor] = None  # (B, I, D)
+
     # ── Instance-level metadata ──────────────────────────────────────
     instance_scores: Optional[torch.Tensor] = None  # (B, I)
     instance_valid: Optional[torch.Tensor] = None  # (B, I), bool

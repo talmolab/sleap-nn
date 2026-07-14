@@ -1070,6 +1070,162 @@ class SemanticSegmentationConfig:
     segmentation: Optional[SegmentationHeadConfig] = None
 
 
+# ---------------------------------------------------------------------------
+# Embedding (crop -> vector) head config. The training OBJECTIVE is a pluggable
+# strategy nested INSIDE the leaf head config (3 orthogonal axes:
+# positives x negatives x loss). Adding a new objective therefore touches no
+# dispatch points. See docs/guides (SPEC §4).
+# ---------------------------------------------------------------------------
+@define
+class PositivesConfig:
+    """Positive-pair sampling for the embedding objective.
+
+    Attributes:
+        scope: Which crops are positives of an anchor. One of
+            ``aug_view`` (only the anchor's own augmented views — self-supervised,
+            no identity labels), ``tracklet`` (same ``(video, track)`` — video-local
+            identity; cross-video pairs are UNKNOWN and excluded from the loss), or
+            ``global_id`` (same track name across all videos — requires globally
+            consistent names; gated by ``data_config.identity.track_names_are_global``).
+        aug_views: Number of augmented views of each anchor (always positives).
+            Fixed at 2 (the standard two-view contrastive setup the ``training_step``
+            implements); any other value is unsupported in P1 and raises a
+            ``ValueError`` at model construction rather than being silently ignored.
+    """
+
+    scope: str = "global_id"
+    aug_views: int = 2
+
+
+@define
+class NegativesConfig:
+    """Negative-pair eligibility for the embedding objective.
+
+    A negative must be a KNOWN-different pair, never merely "not known-positive".
+
+    Attributes:
+        sources: List of negative sources. ``in_batch`` = any other crop in the
+            batch; ``same_frame`` = crops in the same frame (hard negatives;
+            asserts ``detections_deduplicated``).
+        exclude_same_track: Drop same-``(video, track)`` pairs from the negatives.
+        restrict_same_video: Restrict negatives to same-video pairs. REQUIRED for
+            ``scope=tracklet`` (video-local ids): cross-video pairs are unknown and
+            must not be used as negatives (avoids false negatives that push the same
+            animal apart across videos).
+        proximity_filter_px: Reserved (P2); unused in P1.
+    """
+
+    sources: Optional[List[str]] = None  # default ["same_frame", "in_batch"]
+    exclude_same_track: bool = True
+    restrict_same_video: bool = False
+    proximity_filter_px: Optional[float] = None
+
+
+@define
+class LossConfig:
+    """Contrastive loss for the embedding objective (the loss axis).
+
+    Attributes:
+        name: One of ``supcon`` | ``infonce`` | ``triplet``.
+        temperature: Softmax temperature for ``supcon`` / ``infonce``.
+        margin: Margin for ``triplet``.
+    """
+
+    name: str = "supcon"
+    temperature: float = 0.1
+    margin: float = 0.2
+
+
+@define
+class SamplerConfig:
+    """Group-aware batch sampler that realizes the objective.
+
+    Attributes:
+        kind: ``pk`` (P groups x K crops) | ``within_video`` (one video per batch, so
+            cross-video pairs never co-occur — the correct video-local sampler) |
+            ``random`` (aug-view-only / self-supervised).
+        groups_per_batch: P — number of groups (identities/tracklets) per batch.
+        samples_per_group: K — crops per group per batch. The effective batch size is
+            ``P x K`` (then doubled by two-view aug).
+    """
+
+    kind: str = "pk"
+    groups_per_batch: int = 8
+    samples_per_group: int = 16
+
+
+@define
+class ObjectiveConfig:
+    """Pluggable training objective = positives x negatives x loss.
+
+    The sampler composes the batch, a mask-builder turns each item's
+    ``(video, frame, group, item_id)`` into ``(pos_mask, neg_mask)``, and the loss
+    consumes ``(embeddings, pos_mask, neg_mask)``.
+
+    Attributes:
+        positives: Positive-pair sampling config.
+        negatives: Negative-pair eligibility config.
+        loss: Contrastive loss config.
+        sampler: Group-aware batch sampler config.
+        use_projection: Add a train-only projection head (discarded at inference)
+            for ``supcon`` / ``infonce``.
+        projection_dim: Width of the projection head.
+    """
+
+    # Nested configs default to None (idiomatic for OmegaConf merge from a plain dict;
+    # `field(factory=...)` defaults break structured-schema instantiation). The string
+    # factory + the LightningModule fill them with defaults when absent.
+    positives: Optional[PositivesConfig] = None
+    negatives: Optional[NegativesConfig] = None
+    loss: Optional[LossConfig] = None
+    sampler: Optional[SamplerConfig] = None
+    use_projection: bool = True
+    projection_dim: int = 128
+
+
+@define
+class EmbeddingHeadConfig:
+    """Configuration for the embedding head (the adapter on a pooled encoder feature).
+
+    Shape mirrors ``ClassVectorsConfig``: ``[pool] -> Flatten -> N x (Linear+ReLU) ->
+    Linear(embedding_dim) -> [L2Norm]``. The training objective is nested here.
+
+    Attributes:
+        embedding_dim: Output embedding dimensionality.
+        num_fc_layers: Number of FC layers before the embedding output.
+        num_fc_units: Units in the pre-embedding FC layers.
+        pool: Pooling over the encoder feature map. One of ``gem`` (generalized-mean,
+            learnable exponent), ``max``, ``avg``.
+        normalize: L2-normalize the embedding (applied identically train + inference).
+        output_stride: Stride of the pooled feature. Should equal the backbone
+            ``max_stride`` so the decoder is empty and the head taps ``middle_output``.
+        loss_weight: Scalar loss weight.
+        objective: The pluggable training objective (positives x negatives x loss).
+    """
+
+    embedding_dim: int = 128
+    num_fc_layers: int = 1
+    num_fc_units: int = 256
+    pool: str = "gem"
+    normalize: bool = True
+    output_stride: int = 32
+    loss_weight: float = 1.0
+    freeze_backbone: bool = False
+    anchor_part: Optional[str] = None
+    objective: Optional[ObjectiveConfig] = None
+
+
+@define
+class EmbeddingConfig:
+    """Head config for the ``embedding`` (crop -> vector, re-ID) model type.
+
+    A single pooled-encoder head producing a per-instance embedding vector. Wraps
+    one leaf head config (mirrors ``CenteredInstanceSegmentationConfig``).
+    """
+
+    embedding: Optional[EmbeddingHeadConfig] = None
+
+
 @oneof
 @define
 class HeadConfig:
@@ -1088,6 +1244,7 @@ class HeadConfig:
         centered_instance_segmentation: An instance of
             `CenteredInstanceSegmentationConfig`.
         semantic_segmentation: An instance of `SemanticSegmentationConfig`.
+        embedding: An instance of `EmbeddingConfig`.
     """
 
     single_instance: Optional[SingleInstanceConfig] = None
@@ -1099,6 +1256,7 @@ class HeadConfig:
     bottomup_segmentation: Optional[BottomUpSegmentationConfig] = None
     centered_instance_segmentation: Optional[CenteredInstanceSegmentationConfig] = None
     semantic_segmentation: Optional[SemanticSegmentationConfig] = None
+    embedding: Optional[EmbeddingConfig] = None
 
 
 @define
