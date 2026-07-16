@@ -164,6 +164,16 @@ class VideoProvider:
         """Total number of frames this provider will yield."""
         return len(self._frame_indices)
 
+    @property
+    def videos(self) -> "list[sio.Video]":
+        """The source ``sio.Video``(s), for packaging the output ``Labels``.
+
+        Lets ``Predictor._make_provider`` attach the real video to predicted
+        frames when a pre-built provider is passed as the source, instead of a
+        ``None`` placeholder that later crashes ``sio.Labels.save`` (#699).
+        """
+        return [self._sio_video] if self._sio_video is not None else []
+
 
 @attrs.define
 class LabelsProvider:
@@ -357,6 +367,18 @@ class LabelsProvider:
         """Total number of frames over the (filtered) labeled-frame list."""
         return len(self._labeled_frames)
 
+    @property
+    def videos(self) -> "list[sio.Video]":
+        """Source videos of the underlying ``Labels``, for output packaging.
+
+        Frame filtering (``only_suggested_frames`` etc.) narrows which frames
+        are yielded, not the video list — predicted frames still reference these
+        real videos. Used by ``Predictor._make_provider`` so a pre-built
+        provider source doesn't yield a ``None``-video ``Labels`` that crashes
+        ``sio.Labels.save`` (#699).
+        """
+        return list(self._sio_labels.videos)
+
 
 @attrs.define
 class MultiVideoProvider:
@@ -421,6 +443,14 @@ class MultiVideoProvider:
                 return -1
             total += n
         return total
+
+    @property
+    def videos(self) -> list:
+        """Merged source videos across sub-providers, in offset order (#699)."""
+        merged: list = []
+        for provider in self.providers:
+            merged.extend(getattr(provider, "videos", None) or [])
+        return merged
 
 
 @attrs.define

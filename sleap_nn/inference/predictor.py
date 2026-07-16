@@ -1425,7 +1425,15 @@ class Predictor:
             )
 
         if hasattr(source, "__iter__"):
-            return source, None
+            # A pre-built Provider. Recover its source videos (when it exposes
+            # them) so predicted frames reference the real Video, matching the
+            # str/sio.Video/sio.Labels branches above (#530). Without this the
+            # output Labels carries a None-placeholder video and sio.Labels.save
+            # crashes walking video.backend — hit whenever the CLI wraps the
+            # input in a LabelsProvider for --only_suggested_frames /
+            # --exclude_user_labeled / --video_index etc. (#699).
+            provider_videos = getattr(source, "videos", None)
+            return source, (list(provider_videos) if provider_videos else None)
 
         raise TypeError(
             f"Unsupported source type: {type(source).__name__}. "

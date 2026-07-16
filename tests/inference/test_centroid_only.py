@@ -398,6 +398,43 @@ def test_centroid_only_predict_collapses_to_single_node():
     not (CENTROID_CKPT.exists() and SLP_FIXTURE.exists()),
     reason="centroid ckpt / slp fixture absent",
 )
+def test_centroid_only_predict_provider_source_is_saveable(tmp_path):
+    """Regression #699: predicting from a pre-built ``Provider`` must attach the
+    real source video to the output ``Labels``.
+
+    The CLI wraps the input in a ``LabelsProvider`` whenever a frame-selection
+    flag is set (``--only_suggested_frames``, ``--exclude_user_labeled``,
+    ``--video_index`` …). Previously ``Predictor._make_provider`` dropped the
+    videos for a pre-built provider (returned ``videos=None``), so the output
+    ``Labels`` got a ``None`` placeholder video and ``sio.Labels.save`` crashed
+    with ``AttributeError: 'NoneType' object has no attribute 'backend'``.
+    """
+    from sleap_nn.inference.providers import LabelsProvider
+
+    labels_in = sio.load_slp(str(SLP_FIXTURE))
+    provider = LabelsProvider(labels=labels_in, batch_size=4)
+    # The provider surfaces its source videos for output packaging.
+    assert provider.videos == list(labels_in.videos)
+    assert provider.videos and all(v is not None for v in provider.videos)
+
+    pred = Predictor.from_model_paths([str(CENTROID_CKPT)], device="cpu")
+    labels = pred.predict(provider, make_labels=True)
+
+    # Output references the real video, not a None placeholder.
+    assert labels.videos and all(v is not None for v in labels.videos)
+
+    # The crash was inside Labels.save (it walks each video's backend); saving
+    # and reloading must now succeed.
+    out = tmp_path / "preds.slp"
+    labels.save(str(out), embed=False)
+    reloaded = sio.load_slp(str(out))
+    assert reloaded.videos and all(v is not None for v in reloaded.videos)
+
+
+@pytest.mark.skipif(
+    not (CENTROID_CKPT.exists() and SLP_FIXTURE.exists()),
+    reason="centroid ckpt / slp fixture absent",
+)
 def test_centroid_only_predict_emit_both():
     pred = Predictor.from_model_paths(
         [str(CENTROID_CKPT)], device="cpu", emit_centroid="both"
