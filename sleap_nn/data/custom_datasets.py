@@ -76,6 +76,88 @@ from sleap_nn.config.get_config import get_aug_config
 MIN_SAMPLES_FOR_PARALLEL_CACHING = 20
 
 
+def _raise_cache_fill_error(
+    errors: List[Tuple[int, int, str]], total_samples: int, cache_type: str
+):
+    """Raise a hard error summarizing frame(s) that failed to cache.
+
+    Args:
+        errors: List of (labels_idx, lf_idx, error_message) tuples for every
+            frame that failed to read/cache.
+        total_samples: Total number of samples that were requested to cache.
+        cache_type: Either "disk" or "memory".
+
+    Raises:
+        RuntimeError: Always raised, listing up to 10 of the failures.
+    """
+    shown = "\n".join(
+        f"  labels_idx={li}, lf_idx={lf}: {err}" for li, lf, err in errors[:10]
+    )
+    more = f"\n  ... and {len(errors) - 10} more" if len(errors) > 10 else ""
+    raise RuntimeError(
+        f"Failed to cache {len(errors)}/{total_samples} frames to {cache_type}. "
+        "This usually means the source video has corrupted or unreadable "
+        "frames. Try re-encoding it, e.g.:\n"
+        "  ffmpeg -i your_video.mp4 -c:v libx264 -preset medium -crf 18 reencoded_video.mp4\n"
+        f"Errors (showing up to 10 of {len(errors)}):\n{shown}{more}"
+    )
+
+
+def _dist_failed_on_any_rank(failed: bool) -> bool:
+    """Broadcast whether any rank hit `failed=True`, so every rank agrees.
+
+    Args:
+        failed: Whether the calling rank itself hit a failure.
+
+    Returns:
+        True if any rank (including this one) reported a failure.
+    """
+    device = "cpu"
+    if dist.get_backend() == "nccl" and torch.cuda.is_available():
+        device = torch.cuda.current_device()
+    flag = torch.tensor([1 if failed else 0], dtype=torch.int64, device=device)
+    dist.all_reduce(flag, op=dist.ReduceOp.MAX)
+    return bool(flag.item())
+
+
+def _run_cache_fill_with_dist_sync(fill_fn):
+    """Run a cache-filling callable, failing every rank together under DDP.
+
+    Without this, a rank whose cache fill raises dies immediately while
+    other ranks that succeeded proceed to the next collective op (e.g. the
+    barrier after cache creation) and hang forever waiting for the now-dead
+    rank. All ranks call this (even ranks that don't do any caching work
+    themselves, via a no-op `fill_fn`) so they all reach the same
+    synchronization point and either all proceed or all raise.
+
+    Args:
+        fill_fn: Zero-argument callable that performs this rank's share of
+            the cache fill (or nothing, for a rank that isn't responsible
+            for filling the cache).
+
+    Raises:
+        The original exception from `fill_fn` (on the rank where it failed),
+        or a RuntimeError (on ranks where it succeeded but another rank
+        failed), or nothing if every rank succeeded.
+    """
+    error = None
+    try:
+        fill_fn()
+    except Exception as e:
+        error = e
+
+    if is_distributed_initialized():
+        if _dist_failed_on_any_rank(error is not None):
+            if error is not None:
+                raise error
+            raise RuntimeError(
+                "Aborting: image caching failed on another rank. See that "
+                "rank's log for the underlying error."
+            )
+    elif error is not None:
+        raise error
+
+
 class ParallelCacheFiller:
     """Parallel implementation of image caching using thread-local video copies.
 
@@ -444,18 +526,29 @@ class BaseDataset(Dataset):
 
         if self.cache_img is not None:
             if self.cache_img == "memory":
-                self._fill_cache(
-                    labels,
-                    parallel=self.parallel_caching,
-                    num_workers=self.cache_workers,
-                )
-            elif self.cache_img == "disk" and not self.use_existing_imgs:
-                if self.rank is None or self.rank == -1 or self.rank == 0:
-                    self._fill_cache(
+                # Every rank fills its own in-memory cache independently; sync
+                # so one rank's failure aborts all ranks instead of leaving
+                # survivors to hang at a later collective op.
+                _run_cache_fill_with_dist_sync(
+                    lambda: self._fill_cache(
                         labels,
                         parallel=self.parallel_caching,
                         num_workers=self.cache_workers,
                     )
+                )
+            elif self.cache_img == "disk" and not self.use_existing_imgs:
+                is_cache_writer = self.rank is None or self.rank == -1 or self.rank == 0
+                _run_cache_fill_with_dist_sync(
+                    (
+                        lambda: self._fill_cache(
+                            labels,
+                            parallel=self.parallel_caching,
+                            num_workers=self.cache_workers,
+                        )
+                    )
+                    if is_cache_writer
+                    else (lambda: None)
+                )
                 # Synchronize all ranks after cache creation
                 if is_distributed_initialized():
                     dist.barrier()
@@ -735,19 +828,28 @@ class BaseDataset(Dataset):
             for sample in self.lf_idx_list:
                 labels_idx = sample["labels_idx"]
                 lf_idx = sample["lf_idx"]
-                if sample.get("is_negative", False):
-                    video_idx = sample["video_idx"]
-                    frame_idx = sample["frame_idx"]
-                    img = labels[labels_idx].videos[video_idx][frame_idx]
-                else:
-                    img = labels[labels_idx][lf_idx].image
-                if img.shape[-1] == 1:
-                    img = np.squeeze(img)
-                if self.cache_img == "disk":
-                    f_name = f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
-                    Image.fromarray(img).save(f_name, format="JPEG")
-                if self.cache_img == "memory":
-                    self.cache[(labels_idx, lf_idx)] = img
+                try:
+                    if sample.get("is_negative", False):
+                        video_idx = sample["video_idx"]
+                        frame_idx = sample["frame_idx"]
+                        img = labels[labels_idx].videos[video_idx][frame_idx]
+                    else:
+                        img = labels[labels_idx][lf_idx].image
+                    if img.shape[-1] == 1:
+                        img = np.squeeze(img)
+                    if self.cache_img == "disk":
+                        f_name = (
+                            f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                        )
+                        Image.fromarray(img).save(f_name, format="JPEG")
+                    if self.cache_img == "memory":
+                        self.cache[(labels_idx, lf_idx)] = img
+                except Exception as e:
+                    _raise_cache_fill_error(
+                        [(labels_idx, lf_idx, f"{type(e).__name__}: {e}")],
+                        total_samples,
+                        cache_type,
+                    )
                 if progress is not None:
                     progress.update(task, advance=1)
 
@@ -829,12 +931,12 @@ class BaseDataset(Dataset):
         if cache_type == "memory":
             self.cache.update(cache)
 
-        # Log any errors
+        # A frame that failed to cache is silently missing from `cache`/disk;
+        # letting training proceed means it surfaces as a confusing
+        # FileNotFoundError/KeyError in a random later DataLoader batch
+        # instead of here, where we know exactly which frame failed and why.
         if errors:
-            logger.warning(
-                f"Parallel caching completed with {len(errors)} errors. "
-                f"First error: {errors[0]}"
-            )
+            _raise_cache_fill_error(errors, total_samples, cache_type)
 
     def _apply_common_preprocessing(self, sample: Dict) -> Dict:
         """Apply common preprocessing steps shared across all dataset types.
@@ -4353,6 +4455,44 @@ class SemanticSegmentationTiledDataset(BaseDataset):
         }
 
 
+def _validate_existing_disk_cache_complete(
+    dataset: "BaseDataset", cache_path: Path, split_name: str
+):
+    """Validate that a reused disk cache actually has every frame it needs.
+
+    `get_train_val_datasets(..., use_existing_imgs=True)` skips re-caching
+    and trusts the on-disk `.jpg` files are already there. If a prior
+    caching run partially failed (see `_raise_cache_fill_error`) or the
+    directory is simply stale/wrong, that gap would otherwise only surface
+    as a `FileNotFoundError` deep in a later `DataLoader` batch.
+
+    Args:
+        dataset: The constructed dataset whose `lf_idx_list` defines exactly
+            which `sample_{labels_idx}_{lf_idx}.jpg` files are required.
+        cache_path: Directory expected to contain the cached `.jpg` files.
+        split_name: Either "train" or "val", used only for the error message.
+
+    Raises:
+        RuntimeError: If any required cached image is missing.
+    """
+    missing = [
+        (labels_idx, lf_idx)
+        for sample in dataset.lf_idx_list
+        for labels_idx, lf_idx in [(sample["labels_idx"], sample["lf_idx"])]
+        if not (cache_path / f"sample_{labels_idx}_{lf_idx}.jpg").exists()
+    ]
+    if missing:
+        shown = ", ".join(f"({li}, {lf})" for li, lf in missing[:10])
+        more = f", ... and {len(missing) - 10} more" if len(missing) > 10 else ""
+        raise RuntimeError(
+            f"use_existing_imgs=True but the {split_name} disk cache at "
+            f"{cache_path} is missing {len(missing)}/{len(dataset.lf_idx_list)} "
+            f"required images (labels_idx, lf_idx): {shown}{more}. The cache is "
+            "incomplete or stale. Set use_existing_imgs=False to regenerate it, "
+            "or check that cache_img_path points at the right directory."
+        )
+
+
 def get_train_val_datasets(
     train_labels: List[sio.Labels],
     val_labels: List[sio.Labels],
@@ -5219,6 +5359,12 @@ def get_train_val_datasets(
                 cache_workers=cache_workers,
                 use_negative_frames=use_negative_frames,
             )
+
+    if cache_imgs == "disk" and use_existing_imgs:
+        _validate_existing_disk_cache_complete(
+            train_dataset, train_cache_img_path, "train"
+        )
+        _validate_existing_disk_cache_complete(val_dataset, val_cache_img_path, "val")
 
     # If using caching, close the videos to prevent `h5py objects can't be pickled error` when num_workers > 0.
     if "cache_img" in config.data_config.data_pipeline_fw:
