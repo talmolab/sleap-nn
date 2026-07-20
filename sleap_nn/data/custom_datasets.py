@@ -606,8 +606,8 @@ class BaseDataset(Dataset):
                 user_centroids = self._extract_user_centroid_xy(lf)
                 # A frame with user centroids but no pose instances is a valid
                 # sample for the centroid model only (pure-centroid seeding).
-                centroid_only_ok = (
-                    self._include_centroid_only_frames and bool(user_centroids)
+                centroid_only_ok = self._include_centroid_only_frames and bool(
+                    user_centroids
                 )
                 # Filter to user instances
                 if self.user_instances_only:

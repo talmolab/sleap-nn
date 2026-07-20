@@ -1218,7 +1218,9 @@ def test_centroid_dataset_user_centroids(minimal_instance):
     )
     sample_fb = next(iter(dataset_fb))
     fb_expected = generate_centroids(sample_fb["instances"], anchor_ind=None)
-    assert torch.allclose(sample_fb["centroids"], fb_expected, atol=1e-4, equal_nan=True)
+    assert torch.allclose(
+        sample_fb["centroids"], fb_expected, atol=1e-4, equal_nan=True
+    )
     # The fallback target differs from the annotated-centroid target.
     assert not torch.allclose(sample_fb["centroids"][0, :2], expected, atol=5.0)
 
