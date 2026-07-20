@@ -378,6 +378,13 @@ class BaseDataset(Dataset):
         labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
     """
 
+    # Subclasses set this True to keep frames that carry user centroid
+    # annotations but no pose instances (pure-centroid seeding). Class-level so
+    # it is resolved during `__init__` -> `_get_lf_idx_list`, before subclass
+    # instance attributes are assigned. Only `CentroidDataset` opts in; every
+    # other dataset keeps requiring a pose instance per frame.
+    _include_centroid_only_frames: bool = False
+
     def __init__(
         self,
         labels: List[sio.Labels],
@@ -593,10 +600,21 @@ class BaseDataset(Dataset):
         lf_idx_list = []
         for labels_idx, label in enumerate(labels):
             for lf_idx, lf in enumerate(label):
+                # User-annotated centroids as plain floats (picklable). Computed
+                # before instance filtering (centroids are independent of pose
+                # instances).
+                user_centroids = self._extract_user_centroid_xy(lf)
+                # A frame with user centroids but no pose instances is a valid
+                # sample for the centroid model only (pure-centroid seeding).
+                centroid_only_ok = (
+                    self._include_centroid_only_frames and bool(user_centroids)
+                )
                 # Filter to user instances
                 if self.user_instances_only:
                     if lf.user_instances is not None and len(lf.user_instances) > 0:
                         lf.instances = lf.user_instances
+                    elif centroid_only_ok:
+                        lf.instances = []
                     else:
                         # Skip frames without user instances
                         continue
@@ -604,7 +622,7 @@ class BaseDataset(Dataset):
                 for _, inst in enumerate(lf.instances):
                     if not inst.is_empty:  # filter all NaN instances.
                         is_empty = False
-                if not is_empty:
+                if (not is_empty) or centroid_only_ok:
                     video_idx = labels[labels_idx].videos.index(lf.video)
                     sample = {
                         "labels_idx": labels_idx,
@@ -615,11 +633,10 @@ class BaseDataset(Dataset):
                         "instances": (
                             lf.instances if self.cache_img is not None else None
                         ),
-                        # User-annotated centroids as plain floats (picklable).
                         # Carried unconditionally: the confmap target prefers
                         # these over instance-keypoint-derived centroids. None
                         # when the frame has no user centroids (fallback path).
-                        "user_centroids": self._extract_user_centroid_xy(lf),
+                        "user_centroids": user_centroids,
                     }
                     lf_idx_list.append(sample)
                     # This is to ensure that the labels are not passed to the multiprocessing pool (h5py objects can't be pickled)
@@ -2488,6 +2505,10 @@ class CentroidDataset(BaseDataset):
         labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
     """
 
+    # Keep frames that have user centroids but no pose instances (the centroid
+    # model can train on a bare centroid; other models can't). See BaseDataset.
+    _include_centroid_only_frames: bool = True
+
     def __init__(
         self,
         labels: List[sio.Labels],
@@ -2545,6 +2566,41 @@ class CentroidDataset(BaseDataset):
                 max_user_centroids = len(uc)
         if max_user_centroids > self.max_instances:
             self.max_instances = max_user_centroids
+
+        # Node count of the pose skeleton, used to shape the all-NaN placeholder
+        # instances tensor for centroid-only frames (frames with user centroids
+        # but no pose instance) so a batch mixing those with normal frames still
+        # collates to a uniform instances shape.
+        self._n_nodes = 1
+        if labels and labels[0].skeletons and labels[0].skeletons[0].nodes:
+            self._n_nodes = len(labels[0].skeletons[0].nodes)
+
+    def _build_imageonly_sample(
+        self, img: np.ndarray, frame_idx: int, video_idx: int
+    ) -> Dict:
+        """Build a sample dict for a centroid-only frame (no pose instances).
+
+        Mirrors ``process_lf``'s output but with an all-NaN placeholder
+        ``instances`` tensor of shape ``(1, max_instances, n_nodes, 2)`` — there
+        are no pose instances, yet the shape must match normal frames so a batch
+        collates uniformly. ``process_lf`` returns ``None`` for zero instances,
+        so this path handles the pure-centroid case; the centroid target itself
+        comes from ``user_centroids`` in ``__getitem__``.
+        """
+        image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+        img_height, img_width = image.shape[-2:]
+        image = np.expand_dims(image, axis=0)  # (n_samples=1, C, H, W)
+        instances = torch.full(
+            (1, self.max_instances, self._n_nodes, 2), torch.nan, dtype=torch.float32
+        )
+        return {
+            "image": torch.from_numpy(image.copy()),
+            "instances": instances,
+            "video_idx": torch.tensor(video_idx, dtype=torch.int32),
+            "frame_idx": torch.tensor(frame_idx, dtype=torch.int32),
+            "orig_size": torch.Tensor([img_height, img_width]).unsqueeze(0),
+            "num_instances": 0,
+        }
 
     def _build_user_centroid_target(
         self, user_centroids: List[List[float]], scale: float, n_slots: int
@@ -2606,6 +2662,13 @@ class CentroidDataset(BaseDataset):
                 max_instances=self.max_instances,
                 user_instances_only=self.user_instances_only,
             )
+            # `process_lf` returns None when the frame has no (user) instances.
+            # For the centroid model that is a valid pure-centroid frame (kept by
+            # `_get_lf_idx_list` because it has user centroids); build an
+            # image-only sample and let the centroid target come from
+            # `user_centroids` below.
+            if sample is None:
+                sample = self._build_imageonly_sample(img, lf_frame_idx, video_idx)
 
         if self.ensure_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
