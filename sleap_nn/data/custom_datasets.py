@@ -378,6 +378,13 @@ class BaseDataset(Dataset):
         labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
     """
 
+    # Subclasses set this True to keep frames that carry user centroid
+    # annotations but no pose instances (pure-centroid seeding). Class-level so
+    # it is resolved during `__init__` -> `_get_lf_idx_list`, before subclass
+    # instance attributes are assigned. Only `CentroidDataset` opts in; every
+    # other dataset keeps requiring a pose instance per frame.
+    _include_centroid_only_frames: bool = False
+
     def __init__(
         self,
         labels: List[sio.Labels],
@@ -553,6 +560,37 @@ class BaseDataset(Dataset):
                 if is_distributed_initialized():
                     dist.barrier()
 
+    @staticmethod
+    def _extract_user_centroid_xy(
+        lf: sio.LabeledFrame,
+    ) -> Optional[List[List[float]]]:
+        """Return a frame's user-annotated centroids as ``[[x, y], ...]`` or None.
+
+        First-class centroid annotations (``sio.UserCentroid`` on
+        ``LabeledFrame.centroids``) are the preferred confmap target for
+        centroid-model training. Predicted centroids (``is_predicted=True``)
+        and entries with NaN coordinates are skipped. Returns None when the
+        frame carries no usable user centroids, or when the installed sleap-io
+        predates first-class centroids (no ``.centroids`` attribute).
+
+        Coordinates are pulled as plain Python floats here (at index-build time)
+        so they pickle cheaply to caching workers, mirroring why ``instances``
+        is only carried when caching (h5py-backed objects don't pickle).
+        """
+        centroids = getattr(lf, "centroids", None)
+        if not centroids:
+            return None
+        xy: List[List[float]] = []
+        for c in centroids:
+            if getattr(c, "is_predicted", False):
+                continue
+            x = float(getattr(c, "x", float("nan")))
+            y = float(getattr(c, "y", float("nan")))
+            if math.isnan(x) or math.isnan(y):
+                continue
+            xy.append([x, y])
+        return xy if xy else None
+
     def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Tuple[int]]:
         """Return list of indices of labelled frames (and optionally negative frames).
 
@@ -562,10 +600,21 @@ class BaseDataset(Dataset):
         lf_idx_list = []
         for labels_idx, label in enumerate(labels):
             for lf_idx, lf in enumerate(label):
+                # User-annotated centroids as plain floats (picklable). Computed
+                # before instance filtering (centroids are independent of pose
+                # instances).
+                user_centroids = self._extract_user_centroid_xy(lf)
+                # A frame with user centroids but no pose instances is a valid
+                # sample for the centroid model only (pure-centroid seeding).
+                centroid_only_ok = self._include_centroid_only_frames and bool(
+                    user_centroids
+                )
                 # Filter to user instances
                 if self.user_instances_only:
                     if lf.user_instances is not None and len(lf.user_instances) > 0:
                         lf.instances = lf.user_instances
+                    elif centroid_only_ok:
+                        lf.instances = []
                     else:
                         # Skip frames without user instances
                         continue
@@ -573,7 +622,7 @@ class BaseDataset(Dataset):
                 for _, inst in enumerate(lf.instances):
                     if not inst.is_empty:  # filter all NaN instances.
                         is_empty = False
-                if not is_empty:
+                if (not is_empty) or centroid_only_ok:
                     video_idx = labels[labels_idx].videos.index(lf.video)
                     sample = {
                         "labels_idx": labels_idx,
@@ -584,6 +633,10 @@ class BaseDataset(Dataset):
                         "instances": (
                             lf.instances if self.cache_img is not None else None
                         ),
+                        # Carried unconditionally: the confmap target prefers
+                        # these over instance-keypoint-derived centroids. None
+                        # when the frame has no user centroids (fallback path).
+                        "user_centroids": user_centroids,
                     }
                     lf_idx_list.append(sample)
                     # This is to ensure that the labels are not passed to the multiprocessing pool (h5py objects can't be pickled)
@@ -2452,6 +2505,10 @@ class CentroidDataset(BaseDataset):
         labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
     """
 
+    # Keep frames that have user centroids but no pose instances (the centroid
+    # model can train on a bare centroid; other models can't). See BaseDataset.
+    _include_centroid_only_frames: bool = True
+
     def __init__(
         self,
         labels: List[sio.Labels],
@@ -2497,6 +2554,75 @@ class CentroidDataset(BaseDataset):
         self.anchor_ind = anchor_ind
         self.confmap_head_config = confmap_head_config
 
+        # First-class centroid annotations may outnumber the pose instances in a
+        # frame. The per-sample centroid target must have a fixed slot count so
+        # the default collate can stack a batch, so grow ``max_instances`` to
+        # cover the largest user-centroid count (cheap: reads the plain-float
+        # lists already stored on ``lf_idx_list``, no h5py access).
+        max_user_centroids = 0
+        for entry in self.lf_idx_list:
+            uc = entry.get("user_centroids")
+            if uc is not None and len(uc) > max_user_centroids:
+                max_user_centroids = len(uc)
+        if max_user_centroids > self.max_instances:
+            self.max_instances = max_user_centroids
+
+        # Node count of the pose skeleton, used to shape the all-NaN placeholder
+        # instances tensor for centroid-only frames (frames with user centroids
+        # but no pose instance) so a batch mixing those with normal frames still
+        # collates to a uniform instances shape.
+        self._n_nodes = 1
+        if labels and labels[0].skeletons and labels[0].skeletons[0].nodes:
+            self._n_nodes = len(labels[0].skeletons[0].nodes)
+
+    def _build_imageonly_sample(
+        self, img: np.ndarray, frame_idx: int, video_idx: int
+    ) -> Dict:
+        """Build a sample dict for a centroid-only frame (no pose instances).
+
+        Mirrors ``process_lf``'s output but with an all-NaN placeholder
+        ``instances`` tensor of shape ``(1, max_instances, n_nodes, 2)`` — there
+        are no pose instances, yet the shape must match normal frames so a batch
+        collates uniformly. ``process_lf`` returns ``None`` for zero instances,
+        so this path handles the pure-centroid case; the centroid target itself
+        comes from ``user_centroids`` in ``__getitem__``.
+        """
+        image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+        img_height, img_width = image.shape[-2:]
+        image = np.expand_dims(image, axis=0)  # (n_samples=1, C, H, W)
+        instances = torch.full(
+            (1, self.max_instances, self._n_nodes, 2), torch.nan, dtype=torch.float32
+        )
+        return {
+            "image": torch.from_numpy(image.copy()),
+            "instances": instances,
+            "video_idx": torch.tensor(video_idx, dtype=torch.int32),
+            "frame_idx": torch.tensor(frame_idx, dtype=torch.int32),
+            "orig_size": torch.Tensor([img_height, img_width]).unsqueeze(0),
+            "num_instances": 0,
+        }
+
+    def _build_user_centroid_target(
+        self, user_centroids: List[List[float]], scale: float, n_slots: int
+    ) -> torch.Tensor:
+        """Build the centroid confmap target from user-annotated centroids.
+
+        Produces a tensor with the same shape/semantics ``generate_centroids``
+        returns and that ``generate_multiconfmaps(..., is_centroids=True)``
+        consumes: ``(n_samples=1, n_slots, 2)``, NaN-padded to ``n_slots`` so
+        batches collate uniformly. ``scale`` maps the raw annotation
+        coordinates into the preprocessed (size-matched + resized) image frame
+        that the instance-derived path already operates in.
+        """
+        uc = torch.tensor(user_centroids, dtype=torch.float32) * scale  # (n_user, 2)
+        n_user = uc.shape[0]
+        if n_user < n_slots:
+            pad = torch.full((n_slots - n_user, 2), torch.nan, dtype=torch.float32)
+            uc = torch.cat([uc, pad], dim=0)
+        elif n_user > n_slots:  # defensive; __init__ grows max_instances to avoid this
+            uc = uc[:n_slots]
+        return uc.unsqueeze(0)  # (1, n_slots, 2)
+
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for centroids for given index."""
         sample = self.lf_idx_list[index]
@@ -2504,6 +2630,8 @@ class CentroidDataset(BaseDataset):
         lf_idx = sample["lf_idx"]
         video_idx = sample["video_idx"]
         lf_frame_idx = sample["frame_idx"]
+        # Captured before ``sample`` is reassigned to the processed-frame dict.
+        user_centroids = sample.get("user_centroids")
 
         if sample.get("is_negative", False):
             sample = self._load_negative_sample(sample)
@@ -2534,6 +2662,13 @@ class CentroidDataset(BaseDataset):
                 max_instances=self.max_instances,
                 user_instances_only=self.user_instances_only,
             )
+            # `process_lf` returns None when the frame has no (user) instances.
+            # For the centroid model that is a valid pure-centroid frame (kept by
+            # `_get_lf_idx_list` because it has user centroids); build an
+            # image-only sample and let the centroid target come from
+            # `user_centroids` below.
+            if sample is None:
+                sample = self._build_imageonly_sample(img, lf_frame_idx, video_idx)
 
         if self.ensure_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
@@ -2556,8 +2691,26 @@ class CentroidDataset(BaseDataset):
             scale=self.scale,
         )
 
-        # get the centroids based on the anchor idx
-        centroids = generate_centroids(sample["instances"], anchor_ind=self.anchor_ind)
+        # Prefer first-class user-annotated centroids as the target. These are
+        # annotated points that need not be pose nodes. Fall back to deriving
+        # the centroid from instance keypoints (anchor node, else mean of
+        # visible nodes) only when the frame has no user centroids.
+        if user_centroids:
+            # Raw annotation coords -> preprocessed frame: instances were scaled
+            # by ``eff_scale`` then by ``self.scale`` (apply_resizer) above.
+            centroids = self._build_user_centroid_target(
+                user_centroids,
+                scale=eff_scale * self.scale,
+                n_slots=sample["instances"].shape[1],
+            )
+            # The confmap generator and validation GT slice ``[:num_instances]``;
+            # align the count with the number of user centroids.
+            sample["num_instances"] = min(len(user_centroids), centroids.shape[1])
+        else:
+            # get the centroids based on the anchor idx
+            centroids = generate_centroids(
+                sample["instances"], anchor_ind=self.anchor_ind
+            )
 
         sample["centroids"] = centroids
 
@@ -4827,7 +4980,16 @@ def get_train_val_datasets(
     elif model_type == "centroid":
         nodes = [x["name"] for x in config.data_config.skeletons[0]["nodes"]]
         anchor_part = config.model_config.head_configs.centroid.confmaps.anchor_part
-        anchor_ind = nodes.index(anchor_part) if anchor_part is not None else None
+        # The anchor/instance-keypoint path is now only a FALLBACK for frames
+        # without user centroids, so an anchor_part that is None OR absent from
+        # the pose skeleton must NOT crash (it did: ``nodes.index`` raised
+        # ValueError). Resolve when possible, else leave ``anchor_ind=None`` and
+        # the fallback derives the centroid from the mean of visible nodes.
+        anchor_ind = (
+            nodes.index(anchor_part)
+            if anchor_part is not None and anchor_part in nodes
+            else None
+        )
         train_dataset = CentroidDataset(
             labels=train_labels,
             confmap_head_config=config.model_config.head_configs.centroid.confmaps,
