@@ -229,14 +229,29 @@ class ModelTrainer:
                 trainer_devices = 1
         return trainer_devices
 
+    def _is_training_frame(self, lf: "sio.LabeledFrame") -> bool:
+        """Whether a frame carries a usable training target.
+
+        Normally that means user instances. The centroid model can additionally
+        train on frames that carry only user centroid annotations
+        (``frame.centroids``) with no pose instance — the pure-centroid seeding
+        case (label a body-center per animal before any keypoints exist).
+        """
+        if lf.has_user_instances:
+            return True
+        if self.model_type == "centroid":
+            return any(not c.is_predicted for c in lf.centroids)
+        return False
+
     def _count_labeled_frames(
         self, labels_list: List[sio.Labels], user_only: bool = True
     ) -> int:
-        """Count labeled frames, optionally filtering to user-labeled only.
+        """Count labeled frames, optionally filtering to trainable frames only.
 
         Args:
             labels_list: List of Labels objects to count frames from.
-            user_only: If True, count only frames with user instances.
+            user_only: If True, count only frames with a training target
+                (user instances, or — for the centroid model — user centroids).
 
         Returns:
             Total count of labeled frames.
@@ -244,24 +259,25 @@ class ModelTrainer:
         total = 0
         for label in labels_list:
             if user_only:
-                total += sum(1 for lf in label if lf.has_user_instances)
+                total += sum(1 for lf in label if self._is_training_frame(lf))
             else:
                 total += len(label)
         return total
 
     def _filter_to_user_labeled(self, labels: sio.Labels) -> sio.Labels:
-        """Filter a Labels object to only include user-labeled frames.
+        """Filter a Labels object to only include trainable frames.
 
         Args:
             labels: Labels object to filter.
 
         Returns:
-            New Labels object containing only frames with user instances.
+            New Labels object containing only frames with a training target
+            (user instances, or user centroids for the centroid model).
         """
-        # Filter labeled frames to only those with user instances
-        user_lfs = [lf for lf in labels if lf.has_user_instances]
+        # Filter labeled frames to only trainable ones
+        user_lfs = [lf for lf in labels if self._is_training_frame(lf)]
 
-        # Set instances to user instances only
+        # Set instances to user instances only (empty for centroid-only frames)
         for lf in user_lfs:
             lf.instances = lf.user_instances
 
@@ -274,6 +290,42 @@ class ModelTrainer:
             suggestions=labels.suggestions,
             provenance=labels.provenance,
         )
+
+    def _split_centroid_labels(
+        self, label: sio.Labels, val_fraction: float, seed: Optional[int]
+    ):
+        """Train/val split for the centroid model that keeps centroid-only frames.
+
+        `sio.Labels.make_training_splits` returns only frames with user
+        instances, so it would drop pure-centroid frames. This reimplements a
+        deterministic fractional split over frames with a centroid training
+        target (user instances OR user centroids).
+        """
+        frames = [lf for lf in label if self._is_training_frame(lf)]
+        for lf in frames:
+            lf.instances = lf.user_instances
+
+        def mk(selected):
+            return sio.Labels(
+                labeled_frames=selected,
+                videos=label.videos,
+                skeletons=label.skeletons,
+                tracks=label.tracks,
+                suggestions=label.suggestions,
+                provenance=label.provenance,
+            )
+
+        n = len(frames)
+        if n <= 1:
+            # Too few to hold out a val frame; use the same frame for both so
+            # training still runs (mirrors small-dataset behavior elsewhere).
+            return mk(list(frames)), mk(list(frames))
+        rng = np.random.default_rng(seed)
+        order = rng.permutation(n)
+        n_val = max(1, int(round(n * val_fraction)))
+        val_sel = [frames[i] for i in order[:n_val]]
+        train_sel = [frames[i] for i in order[n_val:]]
+        return mk(train_sel), mk(val_sel)
 
     def _setup_train_val_labels(
         self,
@@ -355,12 +407,18 @@ class ModelTrainer:
                         f"training run to avoid data leakage."
                     )
             for label in labels:
-                train_split, val_split = label.make_training_splits(
-                    n_train=1 - val_fraction, n_val=val_fraction, seed=seed
-                )
+                if self.model_type == "centroid":
+                    # Centroid-aware split keeps pure-centroid frames that
+                    # make_training_splits would drop (no user instances).
+                    train_split, val_split = self._split_centroid_labels(
+                        label, val_fraction, seed
+                    )
+                else:
+                    train_split, val_split = label.make_training_splits(
+                        n_train=1 - val_fraction, n_val=val_fraction, seed=seed
+                    )
                 self.train_labels.append(train_split)
                 self.val_labels.append(val_split)
-                # make_training_splits returns only user-labeled frames
                 total_train_lfs += len(train_split)
                 total_val_lfs += len(val_split)
         else:
