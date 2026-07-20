@@ -11,6 +11,7 @@ from sleap_nn.data.custom_datasets import (
     InfiniteDataLoader,
     get_steps_per_epoch,
 )
+from sleap_nn.data.instance_centroids import generate_centroids
 
 
 def test_bottomup_dataset(minimal_instance, tmp_path):
@@ -1136,6 +1137,90 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         assert gt_key == key
     assert sample["image"].shape == (1, 1, 384, 384)
     assert sample["centroids_confidence_maps"].shape == (1, 1, 192, 192)
+
+
+def test_centroid_dataset_user_centroids(minimal_instance):
+    """CentroidDataset targets first-class user centroids, else falls back.
+
+    When a frame carries ``sio.UserCentroid`` annotations, the centroid target
+    (and its confidence map) must be built at those *annotated* locations, not
+    at the instance-keypoint-derived centroid. Frames without user centroids
+    must still fall back to the anchor/mean-of-visible-nodes path.
+    """
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})
+
+    # --- Frame WITH user centroids: annotated points far from the pose means.
+    # minimal_instance has 2 instances with keypoint means ~ (122, 180) and
+    # (242, 195); pick centroids clearly distinct from those.
+    user_xy = [[50.0, 60.0], [300.0, 320.0]]
+    labels = sio.load_slp(minimal_instance)
+    labels[0].centroids = [
+        sio.UserCentroid(x=user_xy[0][0], y=user_xy[0][1]),
+        sio.UserCentroid(x=user_xy[1][0], y=user_xy[1][1]),
+    ]
+
+    dataset = CentroidDataset(
+        max_stride=32,
+        ensure_rgb=True,
+        ensure_grayscale=False,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        apply_aug=False,
+        labels=[labels],
+    )
+    sample = next(iter(dataset))
+
+    # No extra keys leak into the sample (parity with test_centroid_dataset).
+    assert set(sample.keys()) == {
+        "image",
+        "instances",
+        "centroids",
+        "video_idx",
+        "frame_idx",
+        "centroids_confidence_maps",
+        "orig_size",
+        "num_instances",
+        "labels_idx",
+        "eff_scale",
+    }
+
+    eff_scale = float(sample["eff_scale"])
+    expected = torch.tensor(user_xy, dtype=torch.float32) * eff_scale
+
+    # num_instances tracks the user-centroid count.
+    assert sample["num_instances"] == 2
+    # Target sits at the ANNOTATED centroids, not the instance-keypoint means.
+    produced = sample["centroids"][0, :2]
+    assert torch.allclose(produced, expected, atol=1e-4)
+    # Sanity: annotated centroids are far from the instance-derived fallback.
+    fallback = generate_centroids(sample["instances"], anchor_ind=None)[0, :2]
+    assert not torch.allclose(produced, fallback, atol=5.0)
+
+    # The confidence map peaks at each annotated centroid (in stride coords).
+    output_stride = confmap_head["output_stride"]
+    cmap = sample["centroids_confidence_maps"][0, 0]
+    for cx, cy in expected.tolist():
+        r = int(round(cy / output_stride))
+        c = int(round(cx / output_stride))
+        assert cmap[r, c] > 0.9
+
+    # --- Frame WITHOUT user centroids: fall back to the anchor/mean path.
+    labels_fallback = sio.load_slp(minimal_instance)
+    assert labels_fallback[0].centroids == []
+    dataset_fb = CentroidDataset(
+        max_stride=32,
+        ensure_rgb=True,
+        ensure_grayscale=False,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        apply_aug=False,
+        labels=[labels_fallback],
+    )
+    sample_fb = next(iter(dataset_fb))
+    fb_expected = generate_centroids(sample_fb["instances"], anchor_ind=None)
+    assert torch.allclose(sample_fb["centroids"], fb_expected, atol=1e-4, equal_nan=True)
+    # The fallback target differs from the annotated-centroid target.
+    assert not torch.allclose(sample_fb["centroids"][0, :2], expected, atol=5.0)
 
 
 def test_single_instance_dataset(minimal_instance, tmp_path):
