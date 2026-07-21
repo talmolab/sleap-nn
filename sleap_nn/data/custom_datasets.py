@@ -637,6 +637,12 @@ class BaseDataset(Dataset):
                         # these over instance-keypoint-derived centroids. None
                         # when the frame has no user centroids (fallback path).
                         "user_centroids": user_centroids,
+                        # Whether the frame has at least one non-empty pose
+                        # instance. Lets CentroidDataset drop pose-less
+                        # (centroid-only) frames when training on computed
+                        # centroids, the mirror of dropping centroid-less frames
+                        # when training on user centroids.
+                        "has_pose_instances": (not is_empty),
                     }
                     lf_idx_list.append(sample)
                     # This is to ensure that the labels are not passed to the multiprocessing pool (h5py objects can't be pickled)
@@ -2469,6 +2475,15 @@ class CentroidDataset(BaseDataset):
             divisible by.
         anchor_ind: Index of the node to use as the anchor point, based on its index in the
             ordered list of skeleton nodes.
+        use_user_centroids: Selects the single dataset-wide centroid source.
+            `True` trains on user-annotated centroids (``UserCentroid``); `False`
+            computes every centroid from instance keypoints (``anchor_ind`` node,
+            else mean of visible nodes). Frames that cannot supply a target in
+            the chosen mode are dropped so the head never sees a per-frame mix of
+            the two sources. If `None`, the mode is inferred from the labels
+            (user centroids present -> `True`) and a warning is emitted; callers
+            that care about train/val consistency should pass it explicitly
+            (``get_train_val_datasets`` does, via ``centroid_source``).
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
             both user labeled and predicted instances would be used.
         ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
@@ -2515,6 +2530,7 @@ class CentroidDataset(BaseDataset):
         confmap_head_config: DictConfig,
         max_stride: int,
         anchor_ind: Optional[int] = None,
+        use_user_centroids: Optional[bool] = None,
         user_instances_only: bool = True,
         ensure_rgb: bool = False,
         ensure_grayscale: bool = False,
@@ -2553,6 +2569,64 @@ class CentroidDataset(BaseDataset):
         )
         self.anchor_ind = anchor_ind
         self.confmap_head_config = confmap_head_config
+
+        # Resolve ONE centroid source for the whole dataset so the head is never
+        # trained against a per-frame mix of user-annotated and computed
+        # centroids. ``get_train_val_datasets`` resolves this (respecting the
+        # ``centroid_source`` config and sharing the decision across splits) and
+        # passes an explicit bool. When constructed directly (e.g. in tests)
+        # without it, infer from this dataset's frames and warn loudly — a
+        # silently-chosen target is a subtle training footgun.
+        if use_user_centroids is None:
+            self.use_user_centroids = any(
+                entry.get("user_centroids") for entry in self.lf_idx_list
+            )
+            src = "user-annotated" if self.use_user_centroids else "computed"
+            logger.warning(
+                "CentroidDataset: centroid source not specified; inferred "
+                "'%s' centroids from the labels for ALL frames. Pass "
+                "use_user_centroids explicitly (or set centroid_source in the "
+                "config) to silence this.",
+                src,
+            )
+        else:
+            self.use_user_centroids = bool(use_user_centroids)
+
+        # Enforce the resolved mode by dropping frames that cannot supply a
+        # target in that mode (keeping them would force the per-frame fallback,
+        # i.e. the mix we are eliminating). The two modes are mirror images:
+        #   - user mode:     keep frames with a user centroid (+ negatives);
+        #                    drop pose-only frames that have no user centroid.
+        #   - computed mode: keep frames with a pose instance (+ negatives);
+        #                    drop centroid-only frames that have no pose.
+        # Negative frames (empty target) are valid in both modes.
+        def _keeps(entry: Dict) -> bool:
+            if entry.get("is_negative"):
+                return True
+            if self.use_user_centroids:
+                return bool(entry.get("user_centroids"))
+            return bool(entry.get("has_pose_instances"))
+
+        n_before = len(self.lf_idx_list)
+        self.lf_idx_list = [e for e in self.lf_idx_list if _keeps(e)]
+        n_dropped = n_before - len(self.lf_idx_list)
+        if n_dropped:
+            if self.use_user_centroids:
+                reason = (
+                    "have pose instances but no UserCentroid annotation; annotate "
+                    "centroids on them or set centroid_source='computed'"
+                )
+            else:
+                reason = (
+                    "have UserCentroid annotations but no pose instance; add pose "
+                    "labels or set centroid_source='user'"
+                )
+            logger.warning(
+                "CentroidDataset: dropped %d/%d frame(s) that %s.",
+                n_dropped,
+                n_before,
+                reason,
+            )
 
         # First-class centroid annotations may outnumber the pose instances in a
         # frame. The per-sample centroid target must have a fixed slot count so
@@ -2691,11 +2765,12 @@ class CentroidDataset(BaseDataset):
             scale=self.scale,
         )
 
-        # Prefer first-class user-annotated centroids as the target. These are
-        # annotated points that need not be pose nodes. Fall back to deriving
-        # the centroid from instance keypoints (anchor node, else mean of
-        # visible nodes) only when the frame has no user centroids.
-        if user_centroids:
+        # Build the centroid target from the single dataset-wide source resolved
+        # in ``__init__`` (``self.use_user_centroids``) — never a per-frame mix.
+        # In user mode every kept non-negative frame carries a user centroid
+        # (frame filtering guarantees it); negative frames have none and fall to
+        # the computed path, which yields an all-NaN (empty) target as intended.
+        if self.use_user_centroids and user_centroids:
             # Raw annotation coords -> preprocessed frame: instances were scaled
             # by ``eff_scale`` then by ``self.scale`` (apply_resizer) above.
             centroids = self._build_user_centroid_target(
@@ -4646,6 +4721,88 @@ def _validate_existing_disk_cache_complete(
         )
 
 
+# Valid values for ``CentroidConfMapsConfig.centroid_source`` and the resolved
+# dataset-wide centroid mode.
+CENTROID_SOURCE_USER = "user"
+CENTROID_SOURCE_COMPUTED = "computed"
+
+
+def labels_have_user_centroids(labels: List[sio.Labels]) -> bool:
+    """Return True if any labeled frame carries a usable ``UserCentroid``.
+
+    Mirrors the per-frame extraction used to build the centroid sample list
+    (``BaseDataset._extract_user_centroid_xy``): predicted centroids and NaN
+    coordinates do not count, and an installed sleap-io without first-class
+    centroids yields False.
+    """
+    for label in labels:
+        for lf in label:
+            if BaseDataset._extract_user_centroid_xy(lf):
+                return True
+    return False
+
+
+def resolve_centroid_source(
+    centroid_source: Optional[str], train_labels: List[sio.Labels]
+) -> bool:
+    """Resolve the centroid target source to one dataset-wide mode.
+
+    Returns ``True`` to train on user-annotated centroids, ``False`` to compute
+    centroids from instance keypoints (the anchor node, else the mean of
+    visible nodes). The centroid model must use ONE source for the whole
+    dataset; mixing the two trains the head against two different definitions of
+    "centroid".
+
+    ``centroid_source`` (from ``CentroidConfMapsConfig``) selects the mode
+    explicitly — ``"user"`` or ``"computed"`` (``"anchor"`` is accepted as an
+    alias for ``"computed"``). When it is ``None`` the mode is INFERRED from the
+    training labels and a loud warning is emitted, because a silently-chosen
+    target is a subtle training footgun.
+
+    Raises:
+        ValueError: if ``centroid_source`` is a non-empty unrecognized string.
+    """
+    if centroid_source is not None:
+        source = str(centroid_source).strip().lower()
+        if source == CENTROID_SOURCE_USER:
+            logger.info(
+                "Centroid target source: user-annotated centroids "
+                "(centroid_source='user')."
+            )
+            return True
+        if source in (CENTROID_SOURCE_COMPUTED, "anchor"):
+            logger.info(
+                "Centroid target source: computed from instance keypoints "
+                "(centroid_source='computed')."
+            )
+            return False
+        raise ValueError(
+            f"Invalid centroid_source={centroid_source!r}. Expected 'user', "
+            f"'computed', or None (infer from the training labels)."
+        )
+
+    has_user = labels_have_user_centroids(train_labels)
+    chosen = (
+        "user-annotated centroids (UserCentroid)"
+        if has_user
+        else "computed centroids (anchor node / mean of visible nodes)"
+    )
+    bar = "=" * 76
+    logger.warning(
+        "\n%s\n"
+        "centroid_source is NOT set: INFERRING the centroid target from the "
+        "training labels.\n"
+        "  -> Training on %s for ALL frames.\n"
+        "Set model_config.head_configs.centroid.confmaps.centroid_source to "
+        "'user' or\n'computed' to make this explicit and silence this warning.\n"
+        "%s",
+        bar,
+        chosen,
+        bar,
+    )
+    return has_user
+
+
 def get_train_val_datasets(
     train_labels: List[sio.Labels],
     val_labels: List[sio.Labels],
@@ -4990,9 +5147,20 @@ def get_train_val_datasets(
             if anchor_part is not None and anchor_part in nodes
             else None
         )
+        # Resolve ONE centroid source for the whole run (no per-frame mix of
+        # user-annotated and computed centroids). Inference (when unset) reads
+        # the TRAIN labels and the same decision is applied to both splits so
+        # train and val can never disagree on the centroid definition.
+        centroid_source = OmegaConf.select(
+            config,
+            "model_config.head_configs.centroid.confmaps.centroid_source",
+            default=None,
+        )
+        use_user_centroids = resolve_centroid_source(centroid_source, train_labels)
         train_dataset = CentroidDataset(
             labels=train_labels,
             confmap_head_config=config.model_config.head_configs.centroid.confmaps,
+            use_user_centroids=use_user_centroids,
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ],
@@ -5027,6 +5195,7 @@ def get_train_val_datasets(
         val_dataset = CentroidDataset(
             labels=val_labels,
             confmap_head_config=config.model_config.head_configs.centroid.confmaps,
+            use_user_centroids=use_user_centroids,
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ],

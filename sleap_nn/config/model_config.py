@@ -694,6 +694,19 @@ class CentroidConfMapsConfig:
             reliable anchor point can significantly improve topdown model
             accuracy as they benefit from a consistent geometry of the body parts
             relative to the center of the image. Default is None.
+        centroid_source: (str) Which centroid the model is trained to predict.
+            The centroid head must use ONE source for the whole dataset —
+            mixing user-annotated and computed centroids trains the head against
+            two conflicting definitions of "centroid". Options:
+            - ``"user"``: train on first-class ``UserCentroid`` annotations;
+              frames with pose instances but no user centroid are dropped.
+            - ``"computed"``: derive every centroid from instance keypoints
+              (the ``anchor_part`` node, else the mean of visible nodes); any
+              ``UserCentroid`` annotations are ignored.
+            - ``None`` (default): infer the source from the training labels
+              (user centroids present -> ``"user"``, else ``"computed"``) and
+              emit a loud warning, since a silently-chosen target is a training
+              footgun. Set this explicitly to silence the warning.
         sigma: (float) Spread of the Gaussian distribution of the confidence maps as a
             scalar float. Smaller values are more precise but may be difficult to learn as
             they have a lower density within the image space. Larger values are easier to
@@ -708,6 +721,7 @@ class CentroidConfMapsConfig:
     """
 
     anchor_part: Optional[str] = None
+    centroid_source: Optional[str] = None
     sigma: float = 5.0
     output_stride: int = 1
 
