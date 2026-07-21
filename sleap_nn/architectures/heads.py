@@ -136,6 +136,12 @@ class CentroidConfmapsHead(Head):
     Attributes:
         anchor_part: Name of the part to use as an anchor node. If not specified, the
             bounding box centroid will be used.
+        centroid_source: Data-pipeline setting for which centroid the model is
+            trained to predict (``"user"`` / ``"computed"`` / ``None`` to infer).
+            The head output is identical regardless; it is stored here only so
+            the head can be built from the confmaps config, which co-locates it
+            with ``anchor_part``. See ``CentroidConfMapsConfig`` and
+            ``resolve_centroid_source``.
         sigma: Spread of the confidence maps.
         output_stride: Stride of the output head tensor. The input tensor is expected to
             be at the same stride.
@@ -145,6 +151,7 @@ class CentroidConfmapsHead(Head):
     def __init__(
         self,
         anchor_part: Optional[Text] = None,
+        centroid_source: Optional[Text] = None,
         sigma: float = 5.0,
         output_stride: int = 1,
         loss_weight: float = 1.0,
@@ -152,6 +159,9 @@ class CentroidConfmapsHead(Head):
         """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.anchor_part = anchor_part
+        # Data-pipeline metadata only (does not affect the head tensor); kept so
+        # the head is constructible from ``**head_config.confmaps``.
+        self.centroid_source = centroid_source
         self.sigma = sigma
 
     @property
@@ -171,6 +181,7 @@ class CentroidConfmapsHead(Head):
         """
         return cls(
             anchor_part=config.anchor_part,
+            centroid_source=config.get("centroid_source", None),
             sigma=config.sigma,
             output_stride=config.output_stride,
             loss_weight=config.loss_weight,

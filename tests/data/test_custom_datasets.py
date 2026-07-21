@@ -1,6 +1,7 @@
 from omegaconf import DictConfig, OmegaConf
 import sleap_io as sio
 import torch
+import pytest
 from sleap_nn.data.custom_datasets import (
     BottomUpDataset,
     BottomUpMultiClassDataset,
@@ -10,6 +11,8 @@ from sleap_nn.data.custom_datasets import (
     SingleInstanceDataset,
     InfiniteDataLoader,
     get_steps_per_epoch,
+    labels_have_user_centroids,
+    resolve_centroid_source,
 )
 from sleap_nn.data.instance_centroids import generate_centroids
 
@@ -1294,6 +1297,128 @@ def test_centroid_dataset_centroid_only_frame(minimal_instance):
         r = int(round(cy / output_stride))
         c = int(round(cx / output_stride))
         assert cmap[r, c] > 0.9
+
+
+def test_resolve_centroid_source(minimal_instance):
+    """The centroid source resolves to ONE dataset-wide mode; unset -> inferred."""
+    labels_plain = sio.load_slp(minimal_instance)  # no user centroids
+    labels_user = sio.load_slp(minimal_instance)
+    labels_user[0].centroids = [sio.UserCentroid(x=10.0, y=20.0)]
+
+    # Explicit config wins regardless of what the labels contain.
+    assert resolve_centroid_source("user", [labels_plain]) is True
+    assert resolve_centroid_source("computed", [labels_user]) is False
+    assert resolve_centroid_source("anchor", [labels_user]) is False  # alias
+    assert resolve_centroid_source(" User ", [labels_plain]) is True  # normalized
+
+    # Unset -> inferred from the (train) labels.
+    assert resolve_centroid_source(None, [labels_user]) is True
+    assert resolve_centroid_source(None, [labels_plain]) is False
+
+    # A non-empty unrecognized value is a hard error, not a silent fallback.
+    with pytest.raises(ValueError):
+        resolve_centroid_source("centroid", [labels_plain])
+
+    # Detection helper agrees.
+    assert labels_have_user_centroids([labels_user]) is True
+    assert labels_have_user_centroids([labels_plain]) is False
+
+
+def test_centroid_dataset_source_overrides_per_frame(minimal_instance):
+    """The dataset-wide source wins over any per-frame user centroid.
+
+    A frame carrying ``UserCentroid`` annotations must still produce the
+    COMPUTED target in computed mode (no per-frame preference) and the user
+    target in user mode.
+    """
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})
+    user_xy = [[50.0, 60.0], [300.0, 320.0]]
+
+    def _labels_with_user_centroids():
+        lbls = sio.load_slp(minimal_instance)
+        lbls[0].centroids = [
+            sio.UserCentroid(x=user_xy[0][0], y=user_xy[0][1]),
+            sio.UserCentroid(x=user_xy[1][0], y=user_xy[1][1]),
+        ]
+        return lbls
+
+    common = dict(
+        max_stride=32,
+        ensure_rgb=True,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        apply_aug=False,
+    )
+
+    # Computed mode ignores the user centroids -> target is the keypoint-derived
+    # centroid, NOT the annotated one.
+    ds_computed = CentroidDataset(
+        labels=[_labels_with_user_centroids()], use_user_centroids=False, **common
+    )
+    assert ds_computed.use_user_centroids is False
+    s = next(iter(ds_computed))
+    fb = generate_centroids(s["instances"], anchor_ind=None)
+    assert torch.allclose(s["centroids"], fb, atol=1e-4, equal_nan=True)
+    user_target = torch.tensor(user_xy, dtype=torch.float32) * float(s["eff_scale"])
+    assert not torch.allclose(s["centroids"][0, :2], user_target, atol=5.0)
+
+    # User mode -> target sits at the annotated centroids.
+    ds_user = CentroidDataset(
+        labels=[_labels_with_user_centroids()], use_user_centroids=True, **common
+    )
+    assert ds_user.use_user_centroids is True
+    s2 = next(iter(ds_user))
+    user_target2 = torch.tensor(user_xy, dtype=torch.float32) * float(s2["eff_scale"])
+    assert torch.allclose(s2["centroids"][0, :2], user_target2, atol=1e-4)
+
+
+def test_centroid_dataset_no_mix_frame_dropping(minimal_instance):
+    """No mix-and-match: frames that can't supply the chosen target are dropped.
+
+    Two single-frame Labels (each an embedded-image copy of the fixture) let us
+    control which frames carry user centroids vs. only pose instances.
+    """
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})
+
+    def _pose_only():
+        return sio.load_slp(minimal_instance)  # 2 pose instances, no centroids
+
+    def _with_centroids():
+        lbls = sio.load_slp(minimal_instance)  # pose instances + a user centroid
+        lbls[0].centroids = [sio.UserCentroid(x=50.0, y=60.0)]
+        return lbls
+
+    def _centroid_only():
+        lbls = sio.load_slp(minimal_instance)  # user centroid, no pose instance
+        for lf in lbls:
+            lf.instances = []
+        lbls[0].centroids = [sio.UserCentroid(x=50.0, y=60.0)]
+        return lbls
+
+    common = dict(
+        max_stride=32,
+        ensure_rgb=True,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        apply_aug=False,
+    )
+
+    # User mode: the pose-only frame (no user centroid) is dropped.
+    ds_user = CentroidDataset(
+        labels=[_with_centroids(), _pose_only()], use_user_centroids=True, **common
+    )
+    assert len(ds_user.lf_idx_list) == 1
+    assert all(e.get("user_centroids") for e in ds_user.lf_idx_list)
+
+    # Computed mode: the centroid-only frame (no pose) is dropped, and the
+    # surviving frame's user centroid is ignored in favor of a computed target.
+    ds_computed = CentroidDataset(
+        labels=[_with_centroids(), _centroid_only()], use_user_centroids=False, **common
+    )
+    assert len(ds_computed.lf_idx_list) == 1
+    assert all(e.get("has_pose_instances") for e in ds_computed.lf_idx_list)
+    s = next(iter(ds_computed))
+    assert not torch.isnan(s["centroids"][0, :2]).all()
 
 
 def test_single_instance_dataset(minimal_instance, tmp_path):
