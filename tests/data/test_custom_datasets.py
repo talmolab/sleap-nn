@@ -1771,3 +1771,32 @@ def test_flip_augmentation_warns_without_symmetries(minimal_instance):
 
     assert dataset.symmetric_inds == []
     assert any("no symmetries" in m for m in messages)
+
+
+def test_empty_dataset_raises_clear_error(minimal_instance):
+    """Building a dataset with no usable samples raises a clear ValueError.
+
+    Regression: a labels file with no user-labeled instances (e.g. only
+    predictions, suggestions, or standalone centroid annotations) produced an
+    empty ``lf_idx_list``. Training then crashed with a cryptic
+    ``IndexError: list index out of range`` the first time ``train_dataset[0]``
+    was accessed (the trainer's "Input image shape" log line). Construction now
+    fails fast with an actionable message instead.
+    """
+    labels = sio.load_slp(minimal_instance)
+    # Drop every user instance so no frame yields a training sample.
+    for lf in labels:
+        lf.instances = []
+
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    pafs_head = DictConfig({"sigma": 4, "output_stride": 4})
+
+    with pytest.raises(ValueError, match="no training samples"):
+        BottomUpDataset(
+            max_stride=32,
+            scale=1.0,
+            confmap_head_config=confmap_head,
+            pafs_head_config=pafs_head,
+            labels=[labels],
+            apply_aug=False,
+        )
