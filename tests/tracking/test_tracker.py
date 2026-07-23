@@ -709,6 +709,21 @@ def test_post_clean_up(
     assert len(tracked_lfs[0].instances) == 1
 
 
+def test_run_tracker_zero_frames_with_clean_instance_count_returns_empty_list():
+    """Regression: an empty ``untracked_frames`` combined with
+    ``tracking_clean_instance_count`` used to reach ``cull_instances([])``,
+    which returned ``None`` instead of ``[]`` -- silently propagated through
+    (no crash, but ``run_tracker`` returned ``None`` instead of a list).
+    ``run_tracker`` should just skip post-processing and return ``[]``."""
+    tracked_lfs = run_tracker(
+        untracked_frames=[],
+        max_tracks=2,
+        candidates_method="local_queues",
+        tracking_clean_instance_count=1,
+    )
+    assert tracked_lfs == []
+
+
 def test_get_scores_robust_quantile_honors_best_instance():
     """`robust_quantile` reduction must use the per-instance `robust_best_instance`.
 

@@ -356,10 +356,10 @@ def cull_instances(
             only use score to determine which instances to remove.
 
     Returns:
-        None; modifies frames in place.
+        The (possibly empty) input `frames`, also modified in place.
     """
     if not frames:
-        return
+        return frames
 
     frames.sort(key=lambda lf: lf.frame_idx)
 

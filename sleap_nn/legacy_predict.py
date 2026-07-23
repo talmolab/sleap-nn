@@ -857,34 +857,33 @@ def run_inference(
 
         if tracking:
             lfs = [x for x in output]
-            if tracking_clean_instance_count > 0:
-                lfs = cull_instances(
-                    lfs, tracking_clean_instance_count, tracking_clean_iou_threshold
-                )
-                if not post_connect_single_breaks:
-                    corrected_lfs = connect_single_breaks(
-                        lfs, tracking_clean_instance_count
-                    )
-            elif post_connect_single_breaks:
-                start_final_pass_time = time()
-                start_fp_timestamp = str(datetime.now())
-                logger.info(
-                    f"Started final-pass (connecting single breaks) at: {start_fp_timestamp}"
-                )
-                corrected_lfs = connect_single_breaks(
-                    lfs, max_instances=tracking_target_instance_count
-                )
-                finish_fp_timestamp = str(datetime.now())
-                total_fp_elapsed = time() - start_final_pass_time
-                logger.info(
-                    f"Finished final-pass (connecting single breaks) at: {finish_fp_timestamp}"
-                )
-                logger.info(f"Total runtime: {total_fp_elapsed} secs")
+            if not lfs:
+                logger.info("0 frames to track; skipping tracking post-processing.")
             else:
-                corrected_lfs = lfs
+                if tracking_clean_instance_count > 0:
+                    lfs = cull_instances(
+                        lfs, tracking_clean_instance_count, tracking_clean_iou_threshold
+                    )
+                    if not post_connect_single_breaks:
+                        lfs = connect_single_breaks(lfs, tracking_clean_instance_count)
+                if post_connect_single_breaks:
+                    start_final_pass_time = time()
+                    start_fp_timestamp = str(datetime.now())
+                    logger.info(
+                        f"Started final-pass (connecting single breaks) at: {start_fp_timestamp}"
+                    )
+                    lfs = connect_single_breaks(
+                        lfs, max_instances=tracking_target_instance_count
+                    )
+                    finish_fp_timestamp = str(datetime.now())
+                    total_fp_elapsed = time() - start_final_pass_time
+                    logger.info(
+                        f"Finished final-pass (connecting single breaks) at: {finish_fp_timestamp}"
+                    )
+                    logger.info(f"Total runtime: {total_fp_elapsed} secs")
 
             output = sio.Labels(
-                labeled_frames=corrected_lfs,
+                labeled_frames=lfs,
                 videos=output.videos,
                 skeletons=output.skeletons,
             )
