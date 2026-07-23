@@ -1247,6 +1247,75 @@ def test_head_config_oneof_validation_error_no_head(config, caplog):
         ModelTrainer.get_model_trainer_from_config(config_no_head)
 
 
+def test_verify_accelerator_config_noop_for_auto_and_cpu(config):
+    """Test that 'auto' and 'cpu' accelerators are always left untouched."""
+    for value in ("auto", "cpu"):
+        cfg = config.copy()
+        OmegaConf.update(cfg, "trainer_config.trainer_accelerator", value)
+        trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+        assert trainer.config.trainer_config.trainer_accelerator == value
+
+
+def test_verify_accelerator_config_keeps_available_accelerator(config, caplog):
+    """Test that a configured accelerator that IS available on this machine is kept."""
+    from unittest.mock import patch
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.trainer_accelerator", "mps")
+
+    with patch("torch.backends.mps.is_available", return_value=True):
+        trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    assert trainer.config.trainer_config.trainer_accelerator == "mps"
+    assert "'mps' is available on this machine and will be used" in caplog.text
+
+
+def test_verify_accelerator_config_falls_back_when_mps_unavailable(config, caplog):
+    """Test that 'mps' falls back to 'auto' when MPS is not available on this machine.
+
+    Reproduces the reported bug: a config trained on a Mac (`trainer_accelerator: mps`)
+    reloaded on a Linux/CUDA (or CPU-only) machine should not crash Lightning's `Trainer`
+    with an unavailable accelerator; it should fall back to `"auto"` instead.
+    """
+    from unittest.mock import patch
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.trainer_accelerator", "mps")
+
+    with patch("torch.backends.mps.is_available", return_value=False):
+        trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    assert trainer.config.trainer_config.trainer_accelerator == "auto"
+    assert "'mps' is not available on this machine" in caplog.text
+    assert "changing it to 'auto'" in caplog.text
+
+
+def test_verify_accelerator_config_falls_back_when_cuda_unavailable(config, caplog):
+    """Test that 'gpu'/'cuda' fall back to 'auto' when CUDA is not available."""
+    from unittest.mock import patch
+
+    for value in ("gpu", "cuda"):
+        cfg = config.copy()
+        OmegaConf.update(cfg, "trainer_config.trainer_accelerator", value)
+
+        with patch("torch.cuda.is_available", return_value=False):
+            trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+        assert trainer.config.trainer_config.trainer_accelerator == "auto"
+        assert f"'{value}' is not available on this machine" in caplog.text
+
+
+def test_verify_accelerator_config_unrecognized_value_falls_back(config, caplog):
+    """Test that an unrecognized accelerator string falls back to 'auto'."""
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.trainer_accelerator", "tpu")
+
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    assert trainer.config.trainer_config.trainer_accelerator == "auto"
+    assert "not a recognized option" in caplog.text
+
+
 @pytest.mark.skipif(
     sys.platform.startswith("li")
     and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test

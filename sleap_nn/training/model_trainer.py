@@ -893,6 +893,48 @@ class ModelTrainer:
                             f"Updating data preprocessing to ensure_rgb to True based on the pretrained model weights."
                         )
 
+    def _verify_accelerator_config(self):
+        """Verify the configured `trainer_accelerator` is available on this machine.
+
+        A saved training config may have been created on a different machine (e.g.
+        `trainer_accelerator: mps` from a Mac, reloaded on a Linux/CUDA box). Passing an
+        unavailable accelerator straight to `lightning.Trainer` raises deep inside
+        `train()`, after dataset/ckpt setup has already run. This check runs early
+        (from `setup_config()`) and falls back to `"auto"` on a mismatch instead,
+        letting the existing device-count resolution logic pick the right backend.
+        """
+        accelerator = self.config.trainer_config.trainer_accelerator
+
+        if accelerator in ("auto", "cpu"):
+            return
+
+        if accelerator in ("gpu", "cuda"):
+            available = torch.cuda.is_available()
+        elif accelerator == "mps":
+            available = (
+                hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+            )
+        else:
+            logger.info(
+                f"Configured accelerator '{accelerator}' is not a recognized option; "
+                "changing it to 'auto' (Lightning will select the best available device)."
+            )
+            self.config.trainer_config.trainer_accelerator = "auto"
+            return
+
+        if available:
+            logger.info(
+                f"Configured accelerator '{accelerator}' is available on this machine "
+                "and will be used."
+            )
+        else:
+            logger.info(
+                f"Configured accelerator '{accelerator}' is not available on this "
+                "machine; changing it to 'auto' (Lightning will select the best "
+                "available device)."
+            )
+            self.config.trainer_config.trainer_accelerator = "auto"
+
     def setup_config(self):
         """Compute config parameters."""
         logger.info("Setting up config...")
@@ -936,6 +978,9 @@ class ModelTrainer:
         # auto-size + validate tiling geometry (no-op unless tiling.enabled)
         self._setup_tiling_config()
         self.config = check_tiling(self.config)
+
+        # verify the configured accelerator is available on this machine
+        self._verify_accelerator_config()
 
         # if trainer_devices is None, set it to "auto"
         if self.config.trainer_config.trainer_devices is None:
