@@ -330,21 +330,24 @@ def apply_tracking(
             progress_callback(i + 1, n_frames)
 
     # Cull/connect cleanups are pose-only (and rejected above for mask mode).
-    if not is_mask_mode and config.tracking_clean_instance_count > 0:
-        tracked_lfs = cull_instances(
-            tracked_lfs,
-            config.tracking_clean_instance_count,
-            config.tracking_clean_iou_threshold,
-        )
-        if not config.post_connect_single_breaks:
-            tracked_lfs = connect_single_breaks(
-                tracked_lfs, config.tracking_clean_instance_count
+    if not tracked_lfs:
+        logger.info("0 frames to track; skipping tracking post-processing.")
+    else:
+        if not is_mask_mode and config.tracking_clean_instance_count > 0:
+            tracked_lfs = cull_instances(
+                tracked_lfs,
+                config.tracking_clean_instance_count,
+                config.tracking_clean_iou_threshold,
             )
+            if not config.post_connect_single_breaks:
+                tracked_lfs = connect_single_breaks(
+                    tracked_lfs, config.tracking_clean_instance_count
+                )
 
-    if not is_mask_mode and config.post_connect_single_breaks:
-        tracked_lfs = connect_single_breaks(
-            tracked_lfs, max_instances=config.tracking_target_instance_count
-        )
+        if not is_mask_mode and config.post_connect_single_breaks:
+            tracked_lfs = connect_single_breaks(
+                tracked_lfs, max_instances=config.tracking_target_instance_count
+            )
 
     return sio.Labels(
         labeled_frames=tracked_lfs,

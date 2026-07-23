@@ -123,6 +123,31 @@ def test_apply_tracking_post_connect_requires_target_count(skeleton, video):
         apply_tracking(labels, cfg)
 
 
+def test_apply_tracking_zero_frames_with_clean_instance_count_does_not_crash(
+    skeleton, video
+):
+    """Regression: an empty ``labels.labeled_frames`` combined with
+    ``tracking_clean_instance_count`` used to reach ``cull_instances([])``,
+    which returned ``None`` instead of ``[]``, propagating into
+    ``sio.Labels(labeled_frames=None, ...)`` and crashing. ``apply_tracking``
+    should just skip post-processing and hand back an empty ``Labels``."""
+    labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[])
+    out = apply_tracking(labels, TrackerConfig(tracking_clean_instance_count=2))
+    assert isinstance(out, sio.Labels)
+    assert len(out.labeled_frames) == 0
+
+
+def test_apply_tracking_zero_frames_post_connect_requires_target_count_still_raises(
+    skeleton, video
+):
+    """Config validation happens before the frame-count check, so it must
+    still fire even when there happen to be 0 frames."""
+    labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[])
+    cfg = TrackerConfig(post_connect_single_breaks=True)
+    with pytest.raises(ValueError, match="tracking_target_instance_count"):
+        apply_tracking(labels, cfg)
+
+
 def test_apply_tracking_preserves_videos_and_skeletons(skeleton, video):
     labels = _make_labels(skeleton, video, frames=2, instances_per_frame=1)
     out = apply_tracking(labels, TrackerConfig())

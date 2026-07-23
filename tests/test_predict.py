@@ -1488,6 +1488,34 @@ def test_tracking_clean_instance_count_with_post_connect_single_breaks(
         assert len(lf.instances) <= 2
 
 
+def test_tracking_zero_frames_with_clean_instance_count_does_not_crash(
+    minimal_instance, tmp_path
+):
+    """Regression: 0 predicted frames reaching the tracking block combined
+    with `tracking_clean_instance_count` used to reach `cull_instances([])`,
+    which returned `None` instead of `[]`, propagating into
+    `sio.Labels(labeled_frames=None, ...)` and raising a `TypeError`.
+    `run_inference` should just skip tracking post-processing and return an
+    empty `sio.Labels`.
+    """
+    base = sio.load_slp(minimal_instance.as_posix())
+    empty_labels = sio.Labels(
+        labeled_frames=[], videos=base.videos, skeletons=base.skeletons
+    )
+
+    out = run_inference(
+        input_labels=empty_labels,
+        tracking=True,
+        tracking_clean_instance_count=1,
+        integral_refinement=None,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
+        make_labels=True,
+        output_path=tmp_path / "test.slp",
+    )
+    assert isinstance(out, sio.Labels)
+    assert len(out) == 0
+
+
 def test_video_index_output_path(
     minimal_instance,
     minimal_instance_centered_instance_ckpt,
