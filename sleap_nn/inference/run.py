@@ -550,6 +550,10 @@ def predict(
             build_kwargs["preprocess_config"] = preprocess_config
         if anchor_part is not None:
             build_kwargs["anchor_part"] = anchor_part
+        if peak_threshold is not None:
+            build_kwargs["peak_threshold"] = peak_threshold
+        if max_instances is not None:
+            build_kwargs["max_instances"] = max_instances
         if centroid_only:
             build_kwargs["centroid_only"] = True
         if emit_centroid != "instance":

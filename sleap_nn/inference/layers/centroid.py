@@ -148,8 +148,13 @@ class CentroidLayer(InferenceLayer):
             torch.ones((B, n_valid), device=device),
         )
 
-        # Honor ``self.max_instances`` cap; pad-with-NaN or truncate to it.
-        max_inst = self.max_instances or n_valid
+        # Honor max_instances cap; pad-with-NaN or truncate to it.
+        # Prefer predict-time override (postprocess_config) over build-time value.
+        max_inst = (
+            getattr(self.postprocess_config, "max_instances", None)
+            or self.max_instances
+            or n_valid
+        )
         if max_inst > n_valid:
             pad_n = max_inst - n_valid
             centroids = torch.cat(
@@ -212,7 +217,11 @@ class CentroidLayer(InferenceLayer):
         # Batch size from confmaps shape (always available on the torch path).
         B = int(confmaps.shape[0])
 
-        max_instances = self.max_instances or self._infer_max_instances(sample_inds)
+        max_instances = (
+            getattr(self.postprocess_config, "max_instances", None)
+            or self.max_instances
+            or self._infer_max_instances(sample_inds)
+        )
         if max_instances == 0:
             max_instances = 1  # always emit at least one slot for shape stability
 
