@@ -84,14 +84,21 @@ def _run_centroid_split_eval(
     if match_threshold is None:
         match_threshold = 50.0
 
-    metrics = run_evaluation(
-        ground_truth_path=path,
-        predicted_path=pred_path.as_posix(),
-        match_method="centroid",
-        anchor_part=anchor_part,
-        match_threshold=match_threshold,
-        save_metrics=metrics_path.as_posix(),
-    )
+    try:
+        metrics = run_evaluation(
+            ground_truth_path=path,
+            predicted_path=pred_path.as_posix(),
+            match_method="centroid",
+            anchor_part=anchor_part,
+            match_threshold=match_threshold,
+            save_metrics=metrics_path.as_posix(),
+        )
+    except Exception as e:  # noqa: BLE001 — eval is best-effort post-training.
+        # e.g. "Empty Frame Pairs" when GT and predictions don't pair (a weak
+        # model, or centroid-only GT the matcher can't align). Don't abort a
+        # training run that already produced a checkpoint.
+        logger.warning(f"Skipping centroid eval on `{d_name}`: {e}")
+        return None
 
     # Centroid metrics: detection_metrics + distance_metrics only. Guard every
     # key access (no oks_voc.* / mOKS / pck / visibility keys exist here).
