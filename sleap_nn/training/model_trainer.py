@@ -519,8 +519,15 @@ class ModelTrainer:
                     if crop_sz > max_crop_size:
                         max_crop_size = crop_sz
 
-        # if preprocessing params were None, replace with computed params
-        if max_height is None or max_width is None:
+        # if preprocessing params were None, replace with computed params.
+        # Crop-based (top-down) models are sized by `crop_size`, not by a
+        # full-frame max_height/max_width; auto-filling those would make the
+        # inference pipeline resize frames before cropping (talmolab/sleap#2748).
+        if (max_height is None or max_width is None) and self.model_type not in (
+            "centered_instance",
+            "multi_class_topdown",
+            "centered_instance_segmentation",
+        ):
             self.config.data_config.preprocessing.max_height = max_h
             self.config.data_config.preprocessing.max_width = max_w
 

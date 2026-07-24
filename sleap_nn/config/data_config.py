@@ -425,20 +425,36 @@ def data_mapper(legacy_config: dict) -> DataConfig:
         preprocessing_args["ensure_grayscale"] = legacy_config_data["preprocessing"][
             "ensure_grayscale"
         ]
-    if (
-        legacy_config_data.get("preprocessing", {}).get("target_height", None)
-        is not None
-    ):
-        preprocessing_args["max_height"] = legacy_config_data["preprocessing"][
-            "target_height"
-        ]
-    if (
-        legacy_config_data.get("preprocessing", {}).get("target_width", None)
-        is not None
-    ):
-        preprocessing_args["max_width"] = legacy_config_data["preprocessing"][
-            "target_width"
-        ]
+    # Centered-instance / top-down models run on fixed-size crops around the
+    # anchor part (governed by ``crop_size``), not on the full frame. They must
+    # therefore NOT inherit a full-frame ``max_height``/``max_width``: a legacy
+    # ``target_height``/``target_width`` (set when ``resize_and_pad_to_target``
+    # was enabled) would downscale the whole frame before cropping, shrinking the
+    # animal inside the crop and clustering predicted nodes near the anchor
+    # (talmolab/sleap#2748). Detect the active legacy head and skip the
+    # target -> max mapping for these crop-based models.
+    legacy_heads = legacy_config.get("model", {}).get("heads", {}) or {}
+    is_crop_based_model = any(
+        legacy_heads.get(head) is not None
+        for head in ("centered_instance", "multi_class_topdown")
+    )
+
+    target_height = legacy_config_data.get("preprocessing", {}).get(
+        "target_height", None
+    )
+    target_width = legacy_config_data.get("preprocessing", {}).get("target_width", None)
+    if is_crop_based_model and (target_height is not None or target_width is not None):
+        logger.info(
+            "Ignoring legacy target_height/target_width "
+            f"({target_height}x{target_width}) for a centered-instance / top-down "
+            "model: crop-based models are sized by crop_size, not a full-frame "
+            "max_height/max_width."
+        )
+    if not is_crop_based_model:
+        if target_height is not None:
+            preprocessing_args["max_height"] = target_height
+        if target_width is not None:
+            preprocessing_args["max_width"] = target_width
     if (
         legacy_config_data.get("preprocessing", {}).get("input_scaling", None)
         is not None
