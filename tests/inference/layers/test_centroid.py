@@ -55,6 +55,7 @@ class _StubBackend:
     def warmup(self, input_shape):
         return None
 
+
 NEUTRAL_PREPROCESS = OmegaConf.create(
     {
         "ensure_rgb": None,
@@ -302,8 +303,6 @@ def test_predict_from_gt_respects_postprocess_config_max_instances():
     # Apply predict-time override to cap at 2.
     import attrs
 
-    layer.postprocess_config = attrs.evolve(
-        layer.postprocess_config, max_instances=2
-    )
+    layer.postprocess_config = attrs.evolve(layer.postprocess_config, max_instances=2)
     out_capped = layer.predict(image, instances=instances)
     assert out_capped.pred_centroids.shape[1] == 2
