@@ -30,9 +30,12 @@ classifiers = [
 ]
 dependencies = [
     # Instance segmentation (SegmentationMask / Labels.get_masks) requires the
-    # sleap-io 0.8.0 annotation architecture. Fenced below 0.9.0 so a future
-    # major bump (with its own breaking changes) is an explicit, audited upgrade.
-    "sleap-io>=0.8.0,<0.9.0",
+    # sleap-io 0.8.0 annotation architecture. Audited through 0.9.2 (re-ID,
+    # Category, Event annotations; the two breaking changes there —
+    # Identity.color removed, .category str->Category — don't touch any API
+    # sleap-nn uses). Fenced below 0.10.0 so a future minor bump is an
+    # explicit, audited upgrade.
+    "sleap-io>=0.9.2,<0.10.0",
     "numpy",
     "torch",
     "torchvision>=0.20.0",
