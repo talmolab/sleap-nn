@@ -521,6 +521,22 @@ class BaseDataset(Dataset):
 
         self.lf_idx_list = self._get_lf_idx_list(labels)
 
+        # Fail fast with an actionable message when no frame yields a training
+        # sample. Otherwise the empty dataset surfaces much later as a cryptic
+        # ``IndexError: list index out of range`` the first time ``dataset[0]``
+        # is accessed (e.g. the trainer's "Input image shape" log line).
+        if not self.lf_idx_list:
+            n_frames = sum(len(label) for label in labels)
+            raise ValueError(
+                f"{type(self).__name__} has no training samples: none of the "
+                f"{n_frames} labeled frame(s) in the provided labels contain "
+                "user-labeled data usable by this model. Predicted instances "
+                "and suggestion frames are not used as training targets (nor "
+                "are standalone centroid annotations, except by centroid "
+                "models). Verify that the .slp file passed for training "
+                "contains user-labeled instances."
+            )
+
         self.labels_list = None
         # this is to ensure that the labels are not passed to the multiprocessing pool when caching is enabled
         # (h5py objects can't be pickled error with num_workers > 0) in mac and windows
