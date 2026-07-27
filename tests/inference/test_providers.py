@@ -251,6 +251,24 @@ def test_labels_provider_filter_priority_matches_legacy_order(
     assert [lf.frame_idx for lf in provider._labeled_frames] == expected_frame_idxs
 
 
+def test_labels_provider_only_labeled_frames_defaults_false_like_legacy():
+    """``only_labeled_frames`` defaults to ``False``, matching legacy ``LabelsReader``.
+
+    Regression test: since ``only_labeled_frames`` is the highest-priority
+    filter, a truthy default would silently override any other flag a caller
+    sets without also passing ``only_labeled_frames=False`` explicitly --
+    e.g. ``LabelsProvider(labels=labels, only_suggested_frames=True)`` would
+    otherwise ignore ``only_suggested_frames`` and yield only user-labeled
+    frames instead. ``Predictor._make_provider`` always passes this flag
+    explicitly, so this only bites direct construction -- exactly the
+    pattern this test exercises.
+    """
+    labels = _build_priority_test_labels()
+    provider = LabelsProvider(labels=labels, only_suggested_frames=True)
+    assert provider.only_labeled_frames is False
+    assert [lf.frame_idx for lf in provider._labeled_frames] == [3]
+
+
 def test_labels_provider_mixed_resolution_batches_by_shape(tmp_path):
     """Frames from videos of different shapes batch without crashing.
 
