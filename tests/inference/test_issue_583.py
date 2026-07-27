@@ -3,7 +3,7 @@
 Library-level coverage (CLI-level tests live in tests/cli/test_infer_command.py):
 
 * Predict-time ``return_*`` intermediate-tensor overrides via
-  ``Predictor._postprocess_overrides``.
+  ``Predictor._scoped_postprocess_layer``.
 * Streaming pool primitives (``PafGroupingPool.__len__`` / ``drain_one``) used
   by the bounded pipelined-streaming path.
 * Streaming writer accumulate-until-finalize contract + provenance persistence.
@@ -43,8 +43,14 @@ class _PostprocStub:
         self.postprocess_config = PostprocessConfig()
 
 
-def test_postprocess_overrides_thread_return_flags():
-    """Each return_* flag flips the layer's PostprocessConfig and restores (#583)."""
+def test_scoped_postprocess_layer_thread_return_flags():
+    """Each return_* flag flips the *scoped copy's* PostprocessConfig (#583).
+
+    The real ``predictor.layer`` is never mutated -- ``_scoped_postprocess_layer``
+    returns an independent copy with the override baked in, so concurrent /
+    interleaved ``predict_streaming()`` calls on the same ``Predictor`` can't
+    clobber each other's overrides.
+    """
     for name in (
         "return_pafs",
         "return_paf_graph",
@@ -53,19 +59,17 @@ def test_postprocess_overrides_thread_return_flags():
     ):
         predictor = Predictor(layer=_PostprocStub())
         assert getattr(predictor.layer.postprocess_config, name) is False
-        with predictor._postprocess_overrides(**{name: True}):
-            assert getattr(predictor.layer.postprocess_config, name) is True
-        # Restored on exit.
+        scoped = predictor._scoped_postprocess_layer(**{name: True})
+        assert getattr(scoped.postprocess_config, name) is True
+        # The real layer is untouched, not just "restored after".
         assert getattr(predictor.layer.postprocess_config, name) is False
 
 
-def test_postprocess_overrides_no_args_is_noop():
-    """With no overrides the config object is untouched (has_any short-circuit)."""
+def test_scoped_postprocess_layer_no_args_returns_same_layer():
+    """With no overrides, the real layer is returned as-is (no copy needed)."""
     predictor = Predictor(layer=_PostprocStub())
-    before = predictor.layer.postprocess_config
-    with predictor._postprocess_overrides():
-        pass
-    assert predictor.layer.postprocess_config is before
+    scoped = predictor._scoped_postprocess_layer()
+    assert scoped is predictor.layer
 
 
 @pytest.mark.skipif(

@@ -21,7 +21,7 @@ Three usage tiers:
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+import copy
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -1598,7 +1598,7 @@ class Predictor:
 
         self._log_inference_start(source, provider, videos)
         _prov_start = datetime.now()
-        with self._postprocess_overrides(
+        layer = self._scoped_postprocess_layer(
             peak_threshold=peak_threshold,
             centroid_threshold=centroid_threshold,
             keypoint_threshold=keypoint_threshold,
@@ -1611,8 +1611,8 @@ class Predictor:
             return_paf_graph=return_paf_graph,
             return_class_maps=return_class_maps,
             return_class_vectors=return_class_vectors,
-        ):
-            outputs_list = list(self._batch_iter(provider, progress_callback))
+        )
+        outputs_list = list(self._batch_iter(provider, progress_callback, layer=layer))
         _prov_end = datetime.now()
 
         if not make_labels:
@@ -1728,7 +1728,7 @@ class Predictor:
                 "full LabeledFrame list; use predict() instead."
             )
         provider, _ = self._make_provider(source, frames=frames)
-        with self._postprocess_overrides(
+        layer = self._scoped_postprocess_layer(
             peak_threshold=peak_threshold,
             centroid_threshold=centroid_threshold,
             keypoint_threshold=keypoint_threshold,
@@ -1741,13 +1741,13 @@ class Predictor:
             return_paf_graph=return_paf_graph,
             return_class_maps=return_class_maps,
             return_class_vectors=return_class_vectors,
-        ):
-            if self.paf_workers > 0 and self._can_pipeline():
-                yield from self._predict_streaming_pipelined(
-                    provider, progress_callback
-                )
-                return
-            yield from self._batch_iter(provider, progress_callback)
+        )
+        if self.paf_workers > 0 and self._can_pipeline():
+            yield from self._predict_streaming_pipelined(
+                provider, progress_callback, layer=layer
+            )
+            return
+        yield from self._batch_iter(provider, progress_callback, layer=layer)
 
     # ──────────────────────────────────────────────────────────────────
     # Disk-streaming: write to a .slp incrementally
@@ -1855,12 +1855,22 @@ class Predictor:
         self,
         provider: Provider,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        layer: Optional[Any] = None,
     ) -> Iterator[Outputs]:
-        """Run ``layer.predict`` + ``FilterPipeline`` per provider batch."""
+        """Run ``layer.predict`` + ``FilterPipeline`` per provider batch.
+
+        ``layer`` defaults to ``self.layer``; callers applying predict-time
+        postprocess overrides pass the scoped copy from
+        ``_scoped_postprocess_layer`` instead so ``self.layer`` is never
+        mutated.
+        """
         import inspect
 
+        if layer is None:
+            layer = self.layer
+
         try:
-            sig = inspect.signature(self.layer.predict)
+            sig = inspect.signature(layer.predict)
             layer_accepts_instances = "instances" in sig.parameters
         except (TypeError, ValueError):  # pragma: no cover — non-introspectable
             layer_accepts_instances = False
@@ -1876,7 +1886,7 @@ class Predictor:
                     if isinstance(batch.instances, torch.Tensor)
                     else torch.from_numpy(batch.instances)
                 )
-            outputs = self.layer.predict(batch.images, **kwargs)
+            outputs = layer.predict(batch.images, **kwargs)
             outputs = pipeline(outputs)
             outputs = self._stamp_metadata(outputs, batch)
             yield outputs
@@ -1898,12 +1908,19 @@ class Predictor:
         self,
         provider: Provider,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        layer: Optional[Any] = None,
     ) -> Iterator[Outputs]:
-        """Stream ``Outputs`` with the CPU grouping stage in a worker pool."""
+        """Stream ``Outputs`` with the CPU grouping stage in a worker pool.
+
+        ``layer`` defaults to ``self.layer``; see ``_batch_iter`` for why a
+        caller applying postprocess overrides passes a scoped copy instead.
+        """
         from sleap_nn.inference.streaming import PafGroupingPool
 
+        if layer is None:
+            layer = self.layer
+
         pipeline = self.filter_pipeline
-        layer = self.layer
         params = layer.grouping_params()
         total = _safe_num_frames(provider)
 
@@ -2127,8 +2144,7 @@ class Predictor:
             targets = []
         return targets
 
-    @contextmanager
-    def _postprocess_overrides(
+    def _scoped_postprocess_layer(
         self,
         peak_threshold: Optional[float] = None,
         centroid_threshold: Optional[float] = None,
@@ -2142,8 +2158,24 @@ class Predictor:
         return_paf_graph: Optional[bool] = None,
         return_class_maps: Optional[bool] = None,
         return_class_vectors: Optional[bool] = None,
-    ):
-        """Context manager that temporarily overrides postprocess configs.
+    ) -> Any:
+        """Return the layer to use for one predict call, with overrides applied.
+
+        Returns ``self.layer`` unchanged when no override is requested (the
+        common case). Otherwise returns a *private*, shallow-copied layer
+        (and shallow-copied sub-layers, for composed layers like
+        :class:`TopDownLayer`) with the overrides baked into the copies'
+        ``postprocess_config`` -- ``self.layer`` and its real sub-layers are
+        never mutated.
+
+        This matters because ``predict_streaming()`` is a generator: an
+        earlier version of this mutated ``self.layer.postprocess_config`` in
+        place and restored it when the generator was exhausted/closed. Two
+        ``predict_streaming()`` calls on the same ``Predictor`` interleaved
+        via alternating ``next()`` shared that same mutable state, so each
+        call's overrides could clobber the other's mid-stream. Returning an
+        independent copy per call makes concurrent/interleaved calls fully
+        isolated from each other, with nothing to restore.
 
         For top-down layers, ``centroid_threshold`` applies to the centroid
         stage and ``keypoint_threshold`` to the centered-instance stage.
@@ -2169,73 +2201,74 @@ class Predictor:
             )
         )
         if not has_any:
-            yield
-            return
+            return self.layer
 
-        saved: list[tuple[Any, PostprocessConfig]] = []
-        saved_return_crops: Optional[bool] = None
+        is_topdown = isinstance(self.layer, TopDownLayer)
 
-        try:
-            targets = self._collect_postprocess_targets(self.layer)
+        def _copy_with_overrides(target: Any) -> Any:
+            old_cfg = target.postprocess_config
+            overrides: dict = {}
 
-            for target in targets:
-                old_cfg = target.postprocess_config
-                saved.append((target, old_cfg))
-
-                overrides: dict = {}
-
-                # Threshold routing for top-down. Use explicit None checks so an
-                # explicit 0.0 override ("accept all peaks") is honored rather
-                # than swallowed by a falsy `or` (#584).
-                if isinstance(self.layer, TopDownLayer):
-                    is_centroid = target is self.layer.centroid_layer
-                    if is_centroid:
-                        t = (
-                            centroid_threshold
-                            if centroid_threshold is not None
-                            else peak_threshold
-                        )
-                    else:
-                        t = (
-                            keypoint_threshold
-                            if keypoint_threshold is not None
-                            else peak_threshold
-                        )
+            # Threshold routing for top-down. Use explicit None checks so an
+            # explicit 0.0 override ("accept all peaks") is honored rather
+            # than swallowed by a falsy `or` (#584).
+            if is_topdown:
+                is_centroid = target is self.layer.centroid_layer
+                if is_centroid:
+                    t = (
+                        centroid_threshold
+                        if centroid_threshold is not None
+                        else peak_threshold
+                    )
                 else:
-                    t = peak_threshold
+                    t = (
+                        keypoint_threshold
+                        if keypoint_threshold is not None
+                        else peak_threshold
+                    )
+            else:
+                t = peak_threshold
 
-                if t is not None:
-                    overrides["peak_threshold"] = t
-                if max_instances is not None and hasattr(old_cfg, "max_instances"):
-                    overrides["max_instances"] = max_instances
-                if integral_refinement is not None:
-                    overrides["refinement"] = integral_refinement
-                if integral_patch_size is not None:
-                    overrides["integral_patch_size"] = integral_patch_size
-                if return_confmaps is not None:
-                    overrides["return_confmaps"] = return_confmaps
-                # The remaining intermediate-tensor toggles all live on
-                # PostprocessConfig; guard with hasattr defensively (#583).
-                for _name, _val in (
-                    ("return_pafs", return_pafs),
-                    ("return_paf_graph", return_paf_graph),
-                    ("return_class_maps", return_class_maps),
-                    ("return_class_vectors", return_class_vectors),
-                ):
-                    if _val is not None and hasattr(old_cfg, _name):
-                        overrides[_name] = _val
+            if t is not None:
+                overrides["peak_threshold"] = t
+            if max_instances is not None and hasattr(old_cfg, "max_instances"):
+                overrides["max_instances"] = max_instances
+            if integral_refinement is not None:
+                overrides["refinement"] = integral_refinement
+            if integral_patch_size is not None:
+                overrides["integral_patch_size"] = integral_patch_size
+            if return_confmaps is not None:
+                overrides["return_confmaps"] = return_confmaps
+            # The remaining intermediate-tensor toggles all live on
+            # PostprocessConfig; guard with hasattr defensively (#583).
+            for _name, _val in (
+                ("return_pafs", return_pafs),
+                ("return_paf_graph", return_paf_graph),
+                ("return_class_maps", return_class_maps),
+                ("return_class_vectors", return_class_vectors),
+            ):
+                if _val is not None and hasattr(old_cfg, _name):
+                    overrides[_name] = _val
 
-                if overrides:
-                    target.postprocess_config = attrs.evolve(old_cfg, **overrides)
+            new_target = copy.copy(target)
+            if overrides:
+                new_target.postprocess_config = attrs.evolve(old_cfg, **overrides)
+            return new_target
 
-            # return_crops lives on TopDownLayer, not on postprocess_config
-            if return_crops is not None and isinstance(self.layer, TopDownLayer):
-                saved_return_crops = self.layer.return_crops
-                self.layer.return_crops = return_crops
+        if is_topdown:
+            new_layer = copy.copy(self.layer)
+            new_layer.centroid_layer = _copy_with_overrides(self.layer.centroid_layer)
+            new_layer.centered_instance_layer = _copy_with_overrides(
+                self.layer.centered_instance_layer
+            )
+            # return_crops lives on TopDownLayer, not on postprocess_config.
+            if return_crops is not None:
+                new_layer.return_crops = return_crops
+            return new_layer
 
-            yield
-        finally:
-            for target, old_cfg in saved:
-                target.postprocess_config = old_cfg
-            if saved_return_crops is not None:
-                self.layer.return_crops = saved_return_crops
+        targets = self._collect_postprocess_targets(self.layer)
+        if not targets:
+            return self.layer
+        # Non-top-down layers with a postprocess_config always have exactly
+        # one target: the layer itself.
+        return _copy_with_overrides(targets[0])

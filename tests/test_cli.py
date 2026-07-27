@@ -498,6 +498,94 @@ class TestPredictSamBackend:
         assert "--overlay_path" in result.output
 
 
+class TestPredictFrameFilterFlagsRequireSlp:
+    """Label-status frame filters are now rejected for a non-`.slp` source.
+
+    Previously silently dropped instead of erroring.
+    """
+
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            "--only_labeled_frames",
+            "--only_suggested_frames",
+            "--exclude_user_labeled",
+            "--only_predicted_frames",
+        ],
+    )
+    def test_in_memory_flow_rejects_filter_flags_for_video(self, flag):
+        """A video --data_path + a label-status filter fails loudly."""
+        runner = CliRunner()
+        with patch("sleap_nn.inference.run.predict") as mock_predict:
+            mock_predict.return_value = MagicMock()
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "-i",
+                    "x.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                    flag,
+                ],
+            )
+        assert result.exit_code != 0
+        assert "require a `.slp`" in _norm_cli_output(result.output)
+        assert not mock_predict.called
+
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            "--only_labeled_frames",
+            "--only_suggested_frames",
+            "--exclude_user_labeled",
+            "--only_predicted_frames",
+        ],
+    )
+    def test_stream_to_file_rejects_filter_flags_for_video(self, flag, tmp_path):
+        """Same rejection for --stream-to-file, before a model is even loaded."""
+        runner = CliRunner()
+        with patch(
+            "sleap_nn.inference.predictor.Predictor.from_model_paths"
+        ) as mock_from_model_paths:
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "-i",
+                    "x.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                    "--stream-to-file",
+                    str(tmp_path / "out.slp"),
+                    flag,
+                ],
+            )
+        assert result.exit_code != 0
+        assert "require a `.slp`" in _norm_cli_output(result.output)
+        # Fails before loading a model, not after.
+        assert not mock_from_model_paths.called
+
+    def test_slp_source_allows_filter_flags(self, minimal_instance):
+        """A `.slp` --data_path still accepts these flags (no regression)."""
+        runner = CliRunner()
+        with patch("sleap_nn.inference.run.predict") as mock_predict:
+            mock_predict.return_value = MagicMock()
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "-i",
+                    str(minimal_instance),
+                    "--model_paths",
+                    "/fake/model",
+                    "--only_predicted_frames",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert mock_predict.called
+
+
 class TestEvalCommand:
     """Tests for eval command using CliRunner."""
 

@@ -204,7 +204,7 @@ class BottomUpLayer(InferenceLayer):
         The result is picklable and can be sent to a worker process.
         """
         # Prefer a predict-time override (set on ``postprocess_config`` by
-        # ``Predictor._postprocess_overrides``) over the build-time value
+        # ``Predictor._scoped_postprocess_layer``) over the build-time value
         # carried on ``self.max_instances`` (#582).
         max_instances = getattr(self.postprocess_config, "max_instances", None)
         if max_instances is None:

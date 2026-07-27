@@ -354,27 +354,33 @@ class LabelsProvider:
                 "mutually exclusive."
             )
 
-        if self.only_suggested_frames:
-            self._labeled_frames = self._collect_suggested_frames(sio)
-        elif self.only_predicted_frames:
-            self._labeled_frames = [
-                lf
-                for lf in self._sio_labels.labeled_frames
-                if lf.has_predicted_instances
-            ]
-        elif self.exclude_user_labeled:
-            self._labeled_frames = [
-                lf
-                for lf in self._sio_labels.labeled_frames
-                if not lf.has_user_instances
-            ]
-        elif self.only_labeled_frames:
+        # Priority order matches legacy LabelsReader exactly (data/providers.py):
+        # only_labeled_frames > only_suggested_frames > exclude_user_labeled >
+        # only_predicted_frames. When more than one flag is set, whichever comes
+        # first here wins -- this order is legacy-parity-load-bearing, not
+        # arbitrary; a previous version of this method used a different
+        # (effectively reversed) order with no test catching the drift.
+        if self.only_labeled_frames:
             # Keep only frames with >=1 USER (ground-truth) instance, and drop
             # predicted-only frames. Legacy LabelsReader restricted GT to user
             # instances; using lf.instances here would feed PredictedInstances
             # into the GT-centroid / GT-peaks paths (#582).
             self._labeled_frames = [
                 lf for lf in self._sio_labels.labeled_frames if lf.has_user_instances
+            ]
+        elif self.only_suggested_frames:
+            self._labeled_frames = self._collect_suggested_frames(sio)
+        elif self.exclude_user_labeled:
+            self._labeled_frames = [
+                lf
+                for lf in self._sio_labels.labeled_frames
+                if not lf.has_user_instances
+            ]
+        elif self.only_predicted_frames:
+            self._labeled_frames = [
+                lf
+                for lf in self._sio_labels.labeled_frames
+                if lf.has_predicted_instances
             ]
         else:
             self._labeled_frames = list(self._sio_labels.labeled_frames)
