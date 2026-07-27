@@ -5,8 +5,40 @@ import copy
 import sys
 import torch
 import pytest
-from sleap_nn.train import train, run_training as main
+from sleap_nn.train import train, run_training as main, _oks_run_evaluation_overrides
 import sleap_io as sio
+
+
+def test_oks_run_evaluation_overrides_forwards_configured_values():
+    """The standard post-training OKS eval forwards the configured OKS params.
+
+    Regression test (#8/#10): must forward trainer_config.eval.oks_stddev/
+    oks_scale (matching what EpochEndEvaluationCallback uses per-epoch), not
+    silently fall back to run_evaluation's hardcoded defaults.
+    match_threshold is deliberately NOT forwarded -- its shared config
+    default (50.0) is a centroid-mode pixel distance, not a valid OKS
+    threshold.
+    """
+    config = OmegaConf.create(
+        {
+            "trainer_config": {
+                "eval": {
+                    "oks_stddev": 0.1,
+                    "oks_scale": 2.5,
+                    "match_threshold": 50.0,
+                }
+            }
+        }
+    )
+    overrides = _oks_run_evaluation_overrides(config)
+    assert overrides == {"oks_stddev": 0.1, "oks_scale": 2.5}
+
+
+def test_oks_run_evaluation_overrides_omits_unset_values():
+    """Missing config keys are omitted (not forwarded as None)."""
+    config = OmegaConf.create({"trainer_config": {"eval": {}}})
+    overrides = _oks_run_evaluation_overrides(config)
+    assert overrides == {}
 
 
 def test_run_centroid_split_eval_routing(monkeypatch, tmp_path):

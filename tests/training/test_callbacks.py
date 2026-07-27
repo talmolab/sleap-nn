@@ -1620,7 +1620,7 @@ class TestEpochEndEvaluationCallback:
         assert len(labels.labeled_frames[0].instances) == 1
 
     def test_log_metrics_no_wandb_logger(self, mock_skeleton, mock_videos):
-        """Does nothing if no wandb logger found."""
+        """Still populates callback_metrics (for ModelCheckpoint) with no wandb logger."""
         callback = EpochEndEvaluationCallback(
             skeleton=mock_skeleton,
             videos=mock_videos,
@@ -1628,17 +1628,23 @@ class TestEpochEndEvaluationCallback:
 
         mock_trainer = MagicMock()
         mock_trainer.loggers = []  # No loggers
+        mock_trainer.callback_metrics = {}
 
         metrics = {
             "mOKS": {"mOKS": 0.85},
             "voc_metrics": {"oks_voc.mAP": 0.75, "oks_voc.mAR": 0.80},
-            "distance_metrics": {"avg": 5.0, "p50": 4.0},
-            "pck_metrics": {"mPCK": 0.90},
+            "distance_metrics": {"avg": 5.0, "p50": 4.0, "p95": 8.0, "p99": 10.0},
+            "pck_metrics": {"mPCK": 0.90, "PCK@5": 0.85, "PCK@10": 0.92},
             "visibility_metrics": {"precision": 0.95, "recall": 0.92},
         }
 
-        # Should not raise
+        # Should not raise, and callback_metrics is populated regardless of
+        # wandb -- ModelCheckpoint needs this even in a non-wandb run.
         callback._log_metrics(mock_trainer, metrics, epoch=5)
+        assert mock_trainer.callback_metrics["eval/val/mOKS"] == pytest.approx(0.85)
+        assert mock_trainer.callback_metrics["eval/val/distance/avg"] == pytest.approx(
+            5.0
+        )
 
     def test_log_metrics_with_wandb_logger(self, mock_skeleton, mock_videos):
         """Logs metrics to wandb when logger present."""
@@ -1721,6 +1727,46 @@ class TestEpochEndEvaluationCallback:
         # Non-NaN values should be present
         assert log_dict["eval/val/mOKS"] == 0.85
         assert log_dict["eval/val/mPCK"] == 0.90
+
+    def test_log_metrics_nan_callback_metrics_use_direction_aware_worst_value(
+        self, mock_skeleton, mock_videos
+    ):
+        """NaN metrics fall back to the worst value for their direction.
+
+        Regression test (#8): callback_metrics must always have a key for
+        every tracked metric, even on an epoch with no valid value -- 0.0 for
+        a higher-is-better score in [0, 1] (mOKS), +inf for a lower-is-better
+        pixel distance (distance/avg). Otherwise ModelCheckpoint crashes the
+        first time it's asked to monitor one of these keys.
+        """
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+        )
+        mock_trainer = MagicMock()
+        mock_trainer.loggers = []
+        mock_trainer.callback_metrics = {}
+
+        metrics = {
+            "mOKS": {"mOKS": np.nan},
+            "voc_metrics": {"oks_voc.mAP": np.nan, "oks_voc.mAR": np.nan},
+            "distance_metrics": {
+                "avg": np.nan,
+                "p50": np.nan,
+                "p95": np.nan,
+                "p99": np.nan,
+            },
+            "pck_metrics": {"mPCK": np.nan, "PCK@5": np.nan, "PCK@10": np.nan},
+            "visibility_metrics": {"precision": np.nan, "recall": np.nan},
+        }
+        callback._log_metrics(mock_trainer, metrics, epoch=5)
+
+        # Higher-is-better metrics -> 0.0 (worst score in [0, 1]).
+        assert mock_trainer.callback_metrics["eval/val/mOKS"] == 0.0
+        assert mock_trainer.callback_metrics["eval/val/mPCK"] == 0.0
+        # Lower-is-better distance metrics -> +inf (worst pixel distance).
+        assert mock_trainer.callback_metrics["eval/val/distance/avg"] == float("inf")
+        assert mock_trainer.callback_metrics["eval/val/distance/p50"] == float("inf")
 
 
 class TestUnifiedVizCallback:
@@ -2571,11 +2617,12 @@ class TestCentroidEvaluationCallback:
         assert metrics["n_total_ground_truth"] == 2
 
     def test_log_metrics_no_wandb_logger(self, mock_videos):
-        """Does nothing if no wandb logger found."""
+        """Still populates callback_metrics (for ModelCheckpoint) with no wandb logger."""
         callback = CentroidEvaluationCallback(videos=mock_videos)
 
         mock_trainer = MagicMock()
         mock_trainer.loggers = []
+        mock_trainer.callback_metrics = {}
 
         metrics = {
             "dist_avg": 5.0,
@@ -2593,8 +2640,53 @@ class TestCentroidEvaluationCallback:
             "n_total_ground_truth": 12,
         }
 
-        # Should not raise
+        # Should not raise, and callback_metrics is populated regardless of
+        # wandb -- ModelCheckpoint needs this even in a non-wandb run.
         callback._log_metrics(mock_trainer, metrics, epoch=5)
+        assert mock_trainer.callback_metrics[
+            "eval/val/centroid_dist_avg"
+        ] == pytest.approx(5.0)
+        assert mock_trainer.callback_metrics[
+            "eval/val/centroid_precision"
+        ] == pytest.approx(0.9)
+
+    def test_log_metrics_nan_distance_callback_metrics_fall_back_to_inf(
+        self, mock_videos
+    ):
+        """A NaN distance metric falls back to +inf in callback_metrics.
+
+        Regression test (#8): monitoring ``eval/val/centroid_dist_avg`` with
+        ``mode="min"`` must not crash ModelCheckpoint on an epoch with no
+        matched instances -- +inf (the worst possible distance) keeps it a
+        valid, never-selected-as-best value instead of an unset key.
+        """
+        callback = CentroidEvaluationCallback(videos=mock_videos)
+        mock_trainer = MagicMock()
+        mock_trainer.loggers = []
+        mock_trainer.callback_metrics = {}
+
+        metrics = {
+            "dist_avg": float("nan"),
+            "dist_median": float("nan"),
+            "dist_p90": float("nan"),
+            "dist_p95": float("nan"),
+            "dist_max": float("nan"),
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "n_true_positives": 0,
+            "n_false_positives": 5,
+            "n_false_negatives": 3,
+            "n_total_predictions": 5,
+            "n_total_ground_truth": 3,
+        }
+        callback._log_metrics(mock_trainer, metrics, epoch=5)
+
+        assert mock_trainer.callback_metrics["eval/val/centroid_dist_avg"] == float(
+            "inf"
+        )
+        # Higher-is-better metrics still fall back to 0.0, not +inf.
+        assert mock_trainer.callback_metrics["eval/val/centroid_precision"] == 0.0
 
     def test_log_metrics_with_wandb_logger(self, mock_videos):
         """Logs metrics to wandb when logger present."""

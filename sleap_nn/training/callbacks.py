@@ -1392,11 +1392,86 @@ class EpochEndEvaluationCallback(Callback):
         )
 
     def _log_metrics(self, trainer, metrics: dict, epoch: int):
-        """Log evaluation metrics to WandB."""
+        """Populate callback_metrics for ModelCheckpoint, then log to WandB."""
         import numpy as np
+        import torch
         from lightning.pytorch.loggers import WandbLogger
 
-        # Get WandB logger
+        # (metrics_to_log name, callback/wandb key, raw value, higher_is_better)
+        candidates = [
+            ("mOKS", "eval/val/mOKS", metrics["mOKS"]["mOKS"], True),
+            (
+                "oks_voc.mAP",
+                "eval/val/oks_voc_mAP",
+                metrics["voc_metrics"]["oks_voc.mAP"],
+                True,
+            ),
+            (
+                "oks_voc.mAR",
+                "eval/val/oks_voc_mAR",
+                metrics["voc_metrics"]["oks_voc.mAR"],
+                True,
+            ),
+            (
+                "distance/avg",
+                "eval/val/distance/avg",
+                metrics["distance_metrics"]["avg"],
+                False,
+            ),
+            (
+                "distance/p50",
+                "eval/val/distance/p50",
+                metrics["distance_metrics"]["p50"],
+                False,
+            ),
+            (
+                "distance/p95",
+                "eval/val/distance/p95",
+                metrics["distance_metrics"]["p95"],
+                False,
+            ),
+            (
+                "distance/p99",
+                "eval/val/distance/p99",
+                metrics["distance_metrics"]["p99"],
+                False,
+            ),
+            ("mPCK", "eval/val/mPCK", metrics["pck_metrics"]["mPCK"], True),
+            ("PCK@5", "eval/val/PCK_5", metrics["pck_metrics"]["PCK@5"], True),
+            ("PCK@10", "eval/val/PCK_10", metrics["pck_metrics"]["PCK@10"], True),
+            (
+                "visibility_precision",
+                "eval/val/visibility_precision",
+                metrics["visibility_metrics"]["precision"],
+                True,
+            ),
+            (
+                "visibility_recall",
+                "eval/val/visibility_recall",
+                metrics["visibility_metrics"]["recall"],
+                True,
+            ),
+        ]
+        tracked = [c for c in candidates if c[0] in self.metrics_to_log]
+
+        # Expose every tracked metric to ModelCheckpoint/EarlyStopping via
+        # callback_metrics (this runs in on_validation_epoch_end, before the
+        # ModelCheckpoint save in on_validation_end, so the value is
+        # available). ALWAYS populate the key -- a NaN/missing value (no
+        # matched instances this epoch) falls back to the worst possible
+        # value for that metric's direction (0.0 for higher-is-better scores
+        # in [0, 1]; +inf for lower-is-better pixel distances) instead of
+        # leaving the key unset, which would crash ModelCheckpoint on the
+        # first epoch a run monitors it.
+        for _name, ck_key, raw_value, higher_is_better in tracked:
+            worst = 0.0 if higher_is_better else float("inf")
+            fv = (
+                worst
+                if (raw_value is None or np.isnan(raw_value))
+                else float(raw_value)
+            )
+            trainer.callback_metrics[ck_key] = torch.as_tensor(fv)
+
         wandb_logger = None
         for log in trainer.loggers:
             if isinstance(log, WandbLogger):
@@ -1407,60 +1482,9 @@ class EpochEndEvaluationCallback(Callback):
             return
 
         log_dict = {"epoch": epoch}
-
-        # Extract key metrics with consistent naming
-        # All eval metrics use eval/val/ prefix since they're computed on validation data
-        if "mOKS" in self.metrics_to_log:
-            log_dict["eval/val/mOKS"] = metrics["mOKS"]["mOKS"]
-
-        if "oks_voc.mAP" in self.metrics_to_log:
-            log_dict["eval/val/oks_voc_mAP"] = metrics["voc_metrics"]["oks_voc.mAP"]
-
-        if "oks_voc.mAR" in self.metrics_to_log:
-            log_dict["eval/val/oks_voc_mAR"] = metrics["voc_metrics"]["oks_voc.mAR"]
-
-        # Distance metrics grouped under eval/val/distance/
-        if "distance/avg" in self.metrics_to_log:
-            val = metrics["distance_metrics"]["avg"]
-            if not np.isnan(val):
-                log_dict["eval/val/distance/avg"] = val
-
-        if "distance/p50" in self.metrics_to_log:
-            val = metrics["distance_metrics"]["p50"]
-            if not np.isnan(val):
-                log_dict["eval/val/distance/p50"] = val
-
-        if "distance/p95" in self.metrics_to_log:
-            val = metrics["distance_metrics"]["p95"]
-            if not np.isnan(val):
-                log_dict["eval/val/distance/p95"] = val
-
-        if "distance/p99" in self.metrics_to_log:
-            val = metrics["distance_metrics"]["p99"]
-            if not np.isnan(val):
-                log_dict["eval/val/distance/p99"] = val
-
-        # PCK metrics
-        if "mPCK" in self.metrics_to_log:
-            log_dict["eval/val/mPCK"] = metrics["pck_metrics"]["mPCK"]
-
-        # PCK at specific thresholds (precomputed in evaluation.py)
-        if "PCK@5" in self.metrics_to_log:
-            log_dict["eval/val/PCK_5"] = metrics["pck_metrics"]["PCK@5"]
-
-        if "PCK@10" in self.metrics_to_log:
-            log_dict["eval/val/PCK_10"] = metrics["pck_metrics"]["PCK@10"]
-
-        # Visibility metrics
-        if "visibility_precision" in self.metrics_to_log:
-            val = metrics["visibility_metrics"]["precision"]
-            if not np.isnan(val):
-                log_dict["eval/val/visibility_precision"] = val
-
-        if "visibility_recall" in self.metrics_to_log:
-            val = metrics["visibility_metrics"]["recall"]
-            if not np.isnan(val):
-                log_dict["eval/val/visibility_recall"] = val
+        for _name, ck_key, raw_value, _higher_is_better in tracked:
+            if not np.isnan(raw_value):
+                log_dict[ck_key] = raw_value
 
         wandb_logger.experiment.log(log_dict, commit=False)
 
@@ -2044,11 +2068,42 @@ class CentroidEvaluationCallback(Callback):
         }
 
     def _log_metrics(self, trainer, metrics: dict, epoch: int):
-        """Log centroid evaluation metrics to WandB."""
+        """Populate callback_metrics for ModelCheckpoint, then log to WandB."""
         import numpy as np
+        import torch
         from lightning.pytorch.loggers import WandbLogger
 
-        # Get WandB logger
+        # (callback/wandb key, raw value, higher_is_better)
+        tracked = [
+            ("eval/val/centroid_dist_avg", metrics["dist_avg"], False),
+            ("eval/val/centroid_dist_median", metrics["dist_median"], False),
+            ("eval/val/centroid_dist_p90", metrics["dist_p90"], False),
+            ("eval/val/centroid_dist_p95", metrics["dist_p95"], False),
+            ("eval/val/centroid_dist_max", metrics["dist_max"], False),
+            ("eval/val/centroid_precision", metrics["precision"], True),
+            ("eval/val/centroid_recall", metrics["recall"], True),
+            ("eval/val/centroid_f1", metrics["f1"], True),
+            ("eval/val/centroid_n_tp", metrics["n_true_positives"], True),
+            ("eval/val/centroid_n_fp", metrics["n_false_positives"], True),
+            ("eval/val/centroid_n_fn", metrics["n_false_negatives"], True),
+        ]
+
+        # Expose every metric to ModelCheckpoint/EarlyStopping via
+        # callback_metrics (mirrors EpochEndEvaluationCallback -- see its
+        # _log_metrics for the full rationale). ALWAYS populate the key: a
+        # NaN/missing distance metric (no matched instances this epoch) falls
+        # back to +inf (the worst value for a lower-is-better pixel distance)
+        # instead of leaving the key unset, which would crash ModelCheckpoint
+        # on the first epoch a run monitors it.
+        for ck_key, raw_value, higher_is_better in tracked:
+            worst = 0.0 if higher_is_better else float("inf")
+            fv = (
+                worst
+                if (raw_value is None or np.isnan(raw_value))
+                else float(raw_value)
+            )
+            trainer.callback_metrics[ck_key] = torch.as_tensor(fv)
+
         wandb_logger = None
         for log in trainer.loggers:
             if isinstance(log, WandbLogger):
@@ -2059,28 +2114,9 @@ class CentroidEvaluationCallback(Callback):
             return
 
         log_dict = {"epoch": epoch}
-
-        # Distance metrics (with NaN handling)
-        if not np.isnan(metrics["dist_avg"]):
-            log_dict["eval/val/centroid_dist_avg"] = metrics["dist_avg"]
-        if not np.isnan(metrics["dist_median"]):
-            log_dict["eval/val/centroid_dist_median"] = metrics["dist_median"]
-        if not np.isnan(metrics["dist_p90"]):
-            log_dict["eval/val/centroid_dist_p90"] = metrics["dist_p90"]
-        if not np.isnan(metrics["dist_p95"]):
-            log_dict["eval/val/centroid_dist_p95"] = metrics["dist_p95"]
-        if not np.isnan(metrics["dist_max"]):
-            log_dict["eval/val/centroid_dist_max"] = metrics["dist_max"]
-
-        # Detection metrics
-        log_dict["eval/val/centroid_precision"] = metrics["precision"]
-        log_dict["eval/val/centroid_recall"] = metrics["recall"]
-        log_dict["eval/val/centroid_f1"] = metrics["f1"]
-
-        # Counts
-        log_dict["eval/val/centroid_n_tp"] = metrics["n_true_positives"]
-        log_dict["eval/val/centroid_n_fp"] = metrics["n_false_positives"]
-        log_dict["eval/val/centroid_n_fn"] = metrics["n_false_negatives"]
+        for ck_key, raw_value, _higher_is_better in tracked:
+            if not np.isnan(raw_value):
+                log_dict[ck_key] = raw_value
 
         wandb_logger.experiment.log(log_dict, commit=False)
 

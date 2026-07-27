@@ -593,10 +593,16 @@ def find_frame_pairs(
         # Find labeled frames in this video.
         labeled_frames_gt = labels_gt.find(video_gt)
         if user_labels_only:
-            for lf in labeled_frames_gt:
-                lf.instances = lf.user_instances
+            # Build fresh LabeledFrame copies restricted to user instances,
+            # rather than mutating `lf.instances` in place -- `labels_gt.find`
+            # returns references into the caller's actual Labels object, so
+            # mutating it here permanently discards PredictedInstances from
+            # ground truth the caller may reuse afterward (e.g. a second
+            # Evaluator call with user_labels_only=False on the same labels_gt).
             labeled_frames_gt = [
-                lf for lf in labeled_frames_gt if len(lf.user_instances) > 0
+                attrs.evolve(lf, instances=lf.user_instances)
+                for lf in labeled_frames_gt
+                if len(lf.user_instances) > 0
             ]
 
         # Attempt to match each labeled frame in the ground truth.

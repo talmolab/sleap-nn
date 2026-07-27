@@ -437,6 +437,51 @@ def test_evaluator_more_predicted_instances(minimal_instance):
     assert len(eval.false_negatives) == 2
 
 
+def test_find_frame_pairs_does_not_mutate_gt_labels():
+    """``user_labels_only=True`` must not mutate the caller's GT ``Labels``.
+
+    Regression test: ``find_frame_pairs`` used to do ``lf.instances =
+    lf.user_instances`` directly on the ``LabeledFrame`` objects returned by
+    ``labels_gt.find(...)``, which are references into the caller's actual
+    ``Labels`` object (not copies) -- permanently discarding any
+    ``PredictedInstance``s from the real ground-truth object. A second
+    ``Evaluator`` built from the same ``labels_gt`` afterward (e.g. with
+    ``user_labels_only=False``) would then silently see fewer instances than
+    it should.
+    """
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="dummy.mp4")
+
+    user_inst = sio.Instance.from_numpy(
+        np.array([[0.0, 0.0], [1.0, 1.0]], dtype=np.float32), skeleton=skel
+    )
+    pred_inst_gt = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[2.0, 2.0], [3.0, 3.0]], dtype=np.float32),
+        skeleton=skel,
+        score=0.9,
+    )
+    lf_gt = sio.LabeledFrame(
+        video=video, frame_idx=0, instances=[user_inst, pred_inst_gt]
+    )
+    labels_gt = sio.Labels(videos=[video], skeletons=[skel], labeled_frames=[lf_gt])
+
+    pred_inst_pr = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[0.1, 0.1], [1.1, 1.1]], dtype=np.float32),
+        skeleton=skel,
+        score=0.95,
+    )
+    lf_pr = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst_pr])
+    labels_pr = sio.Labels(videos=[video], skeletons=[skel], labeled_frames=[lf_pr])
+
+    assert len(labels_gt.labeled_frames[0].instances) == 2
+
+    Evaluator(labels_gt, labels_pr, user_labels_only=True, match_threshold=100.0)
+
+    # The real GT Labels object must be untouched -- both the user and the
+    # predicted instance are still there.
+    assert len(labels_gt.labeled_frames[0].instances) == 2
+
+
 def test_evaluator_metrics(minimal_instance):
     user_labels, pred_labels = create_labels_two_match_one_missed_inst(minimal_instance)
     eval = Evaluator(user_labels, pred_labels)
