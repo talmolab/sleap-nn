@@ -1478,28 +1478,29 @@ _SLP_ONLY_FRAME_FILTER_FLAGS = (
 )
 
 
-def _reject_slp_filters_for_non_slp_source(kwargs: dict, src_suffix: str) -> None:
-    """Raise if any label-status frame filter is set for a non-``.slp`` source.
+def _warn_ignored_slp_filters_for_non_slp_source(kwargs: dict, src_suffix: str) -> None:
+    """Warn (not error) if a label-status frame filter is set for a non-``.slp`` source.
 
     ``--only_labeled_frames`` / ``--only_suggested_frames`` /
     ``--exclude_user_labeled`` / ``--only_predicted_frames`` select frames by
-    annotation status, which only exists for a ``.slp`` source. A raw video has
-    no annotations to filter on, so these flags are meaningless there -- prior
-    to this check they were silently dropped instead of erroring (matching
-    legacy ``legacy_predict.py``, which raises for exactly this case). Shared
-    by both the in-memory and stream-to-file flows so the two call sites can't
-    drift the way ``LabelsProvider`` vs. ``LabelsReader`` did.
+    annotation status, which fundamentally doesn't exist for a raw video --
+    there's no way to know which frames are "predicted" or "user-labeled"
+    without a ``.slp``. These flags are inert for a non-``.slp`` source: the
+    inference dispatch below only reads them when building a source from a
+    ``.slp``, so a video source runs full-video inference either way. This
+    warns so that's not a silent surprise. Shared by both the in-memory and
+    stream-to-file flows so the two call sites can't drift the way
+    ``LabelsProvider`` vs. ``LabelsReader`` did.
     """
     if src_suffix == ".slp":
         return
-    unsupported = [
-        f"--{flag}" for flag in _SLP_ONLY_FRAME_FILTER_FLAGS if kwargs.get(flag)
-    ]
-    if unsupported:
-        raise click.UsageError(
-            f"{', '.join(unsupported)} require a `.slp` --data_path (they filter "
+    ignored = [f"--{flag}" for flag in _SLP_ONLY_FRAME_FILTER_FLAGS if kwargs.get(flag)]
+    if ignored:
+        logger.warning(
+            f"{', '.join(ignored)} require a `.slp` --data_path (they filter "
             "frames by annotation status); the given source has no annotations "
-            "to filter on. Use --frames to subset a video by index instead."
+            "to filter on, so these flags have no effect here. Running on all "
+            "frames. Use --frames to subset a video by index instead."
         )
 
 
@@ -1562,7 +1563,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     # through verbatim (Path() would corrupt scheme://). Remote auth/stream
     # options (--headers/--stream-mode) are forwarded to the URL-aware loaders.
     source_str, src_suffix, src_is_url = _resolve_data_path(kwargs["data_path"])
-    _reject_slp_filters_for_non_slp_source(kwargs, src_suffix)
+    _warn_ignored_slp_filters_for_non_slp_source(kwargs, src_suffix)
     remote_kwargs = _build_remote_kwargs(kwargs)
 
     # Build source: use a provider when CLI-specific filtering or
@@ -2072,10 +2073,10 @@ def _run_stream_to_file(
     data_path = kwargs.get("data_path")
     if not data_path:
         raise click.UsageError("--data_path is required for --stream-to-file.")
-    # Fail fast (before loading a model) if a label-status frame filter is
+    # Warn early (before loading a model) if a label-status frame filter is
     # set for a non-`.slp` source -- same check as the in-memory flow.
     _, _early_src_suffix, _ = _resolve_data_path(data_path)
-    _reject_slp_filters_for_non_slp_source(kwargs, _early_src_suffix)
+    _warn_ignored_slp_filters_for_non_slp_source(kwargs, _early_src_suffix)
 
     from pathlib import Path
 
