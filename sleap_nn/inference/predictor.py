@@ -848,7 +848,8 @@ class Predictor:
             PAF grouping stage. ``0`` (default) runs grouping inline in
             the main process — the parity path. ``>0`` is only honored
             when ``layer`` is a :class:`BottomUpLayer`; for any other
-            layer type the value is ignored.
+            layer type the value is ignored (with a logged warning, since
+            other model types have no equivalent pipelined CPU stage yet).
         tracker_config: Optional :class:`TrackerConfig`. When set,
             :meth:`predict` runs the tracker on the resulting
             ``sio.Labels`` (requires ``make_labels=True``) before
@@ -873,6 +874,24 @@ class Predictor:
     # Centroid-only output representation: "instance" (default; single-node
     # PredictedInstance), "centroid" (sio.PredictedCentroid), or "both".
     emit_centroid: str = "instance"
+
+    def __attrs_post_init__(self) -> None:
+        """Warn (once) if ``paf_workers`` was set on a layer that can't use it.
+
+        ``paf_workers > 0`` only pipelines the CPU-bound grouping stage for
+        plain bottom-up (:class:`BottomUpLayer`); every other layer type
+        (including :class:`BottomUpMultiClassLayer`, which has its own
+        CPU-bound Hungarian-matching identity step) silently ignores the
+        setting today. Without this, that's an easy-to-miss no-op — a user
+        expecting a speedup gets none, with no signal why.
+        """
+        if self.paf_workers > 0 and not self._can_pipeline():
+            logger.warning(
+                f"paf_workers={self.paf_workers} was set, but pipelined CPU "
+                f"grouping is only implemented for plain bottom-up models. "
+                f"layer={type(self.layer).__name__} will run the inline "
+                "(unpipelined) path; paf_workers has no effect here."
+            )
 
     @property
     def filter_pipeline(self) -> FilterPipeline:
