@@ -639,6 +639,48 @@ def test_model_trainer_centroid(config, tmp_path):
     ).exists()
 
 
+def test_centroid_split_keeps_centroid_only_frames(config, minimal_instance, tmp_path):
+    """The centroid model's train/val split must keep frames carrying only user
+    centroids (no pose instance) — the pure-centroid seeding case. Regression:
+    make_training_splits filters to has_user_instances, which dropped them (0
+    training frames); _split_centroid_labels keeps them.
+    """
+    from sleap_io.model.centroid import UserCentroid
+
+    base = sio.load_slp(minimal_instance)
+    video = base.videos[0]
+    skel = base.skeletons[0]
+    # Six frames with ONLY a user centroid each (no pose instance).
+    frames = [
+        sio.LabeledFrame(
+            video=video, frame_idx=i, centroids=[UserCentroid(x=5.0 + i, y=6.0 + i)]
+        )
+        for i in range(6)
+    ]
+    labels = sio.Labels(videos=[video], skeletons=[skel], labeled_frames=frames)
+
+    centroid_config = config.copy()
+    head_config = centroid_config.model_config.head_configs.centered_instance
+    OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)
+    del centroid_config.model_config.head_configs.centered_instance
+    del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
+    OmegaConf.update(centroid_config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(centroid_config, "data_config.validation_fraction", 0.25)
+
+    trainer = ModelTrainer.get_model_trainer_from_config(centroid_config)
+    assert trainer.model_type == "centroid"
+
+    # get_model_trainer_from_config already split the config's labels; reset and
+    # re-split on our pure-centroid labels in isolation.
+    trainer.train_labels = []
+    trainer.val_labels = []
+    trainer._setup_train_val_labels([labels])
+    n_train = sum(len(lb) for lb in trainer.train_labels)
+    n_val = sum(len(lb) for lb in trainer.val_labels)
+    assert n_train + n_val == 6, f"pure-centroid frames were dropped: {n_train}+{n_val}"
+    assert n_train >= 1 and n_val >= 1
+
+
 @pytest.mark.skipif(
     sys.platform.startswith("li")
     and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
