@@ -301,7 +301,14 @@ class LabelsProvider:
             ``sleap_io.Labels`` instance.
         batch_size: Frames per yielded ``Batch``.
         only_labeled_frames: Yield only frames that have at least one
-            user-supplied instance (default ``True``).
+            user-supplied instance (default ``False``, matching legacy
+            ``LabelsReader``). ``Predictor._make_provider`` always passes
+            this explicitly (computed from whether the layer needs GT
+            instances), so the default only matters for a ``LabelsProvider``
+            built directly. Since this is also the highest-priority filter
+            (see below), leaving it at a truthy default would silently
+            override any other ``only_*``/``exclude_*`` flag a direct caller
+            sets without also passing ``only_labeled_frames=False``.
         only_suggested_frames: Yield only frames listed in
             ``labels.suggestions`` that don't already have a user
             instance. Mutually exclusive with the other ``only_*`` /
@@ -324,7 +331,7 @@ class LabelsProvider:
 
     labels: "Union[str, sio.Labels]"
     batch_size: int = 4
-    only_labeled_frames: bool = True
+    only_labeled_frames: bool = False
     only_suggested_frames: bool = False
     exclude_user_labeled: bool = False
     only_predicted_frames: bool = False
@@ -354,27 +361,33 @@ class LabelsProvider:
                 "mutually exclusive."
             )
 
-        if self.only_suggested_frames:
-            self._labeled_frames = self._collect_suggested_frames(sio)
-        elif self.only_predicted_frames:
-            self._labeled_frames = [
-                lf
-                for lf in self._sio_labels.labeled_frames
-                if lf.has_predicted_instances
-            ]
-        elif self.exclude_user_labeled:
-            self._labeled_frames = [
-                lf
-                for lf in self._sio_labels.labeled_frames
-                if not lf.has_user_instances
-            ]
-        elif self.only_labeled_frames:
+        # Priority order matches legacy LabelsReader exactly (data/providers.py):
+        # only_labeled_frames > only_suggested_frames > exclude_user_labeled >
+        # only_predicted_frames. When more than one flag is set, whichever comes
+        # first here wins -- this order is legacy-parity-load-bearing, not
+        # arbitrary; a previous version of this method used a different
+        # (effectively reversed) order with no test catching the drift.
+        if self.only_labeled_frames:
             # Keep only frames with >=1 USER (ground-truth) instance, and drop
             # predicted-only frames. Legacy LabelsReader restricted GT to user
             # instances; using lf.instances here would feed PredictedInstances
             # into the GT-centroid / GT-peaks paths (#582).
             self._labeled_frames = [
                 lf for lf in self._sio_labels.labeled_frames if lf.has_user_instances
+            ]
+        elif self.only_suggested_frames:
+            self._labeled_frames = self._collect_suggested_frames(sio)
+        elif self.exclude_user_labeled:
+            self._labeled_frames = [
+                lf
+                for lf in self._sio_labels.labeled_frames
+                if not lf.has_user_instances
+            ]
+        elif self.only_predicted_frames:
+            self._labeled_frames = [
+                lf
+                for lf in self._sio_labels.labeled_frames
+                if lf.has_predicted_instances
             ]
         else:
             self._labeled_frames = list(self._sio_labels.labeled_frames)

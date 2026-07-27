@@ -165,6 +165,110 @@ def test_labels_provider_only_suggested_frames_yields_unlabeled_suggestions():
     assert len(provider._labeled_frames[0].instances) == 0
 
 
+def _build_priority_test_labels():
+    """Labels fixture exercising every ``only_*``/``exclude_*`` filter mode.
+
+    - frame 0: a user instance only.
+    - frame 1: a predicted instance only.
+    - frame 2: no instances.
+    - suggestions: frame_idx=0 (already user-labeled) and frame_idx=3
+      (unlabeled -- the only one ``only_suggested_frames`` should keep).
+    """
+    import sleap_io as sio
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="dummy.mp4")
+    user_inst = sio.Instance.from_numpy(
+        np.array([[0.0, 0.0], [1.0, 1.0]], dtype=np.float32), skeleton=skel
+    )
+    pred_inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[2.0, 2.0], [3.0, 3.0]], dtype=np.float32),
+        skeleton=skel,
+        score=0.9,
+    )
+    lf_user = sio.LabeledFrame(video=video, frame_idx=0, instances=[user_inst])
+    lf_pred = sio.LabeledFrame(video=video, frame_idx=1, instances=[pred_inst])
+    lf_empty = sio.LabeledFrame(video=video, frame_idx=2, instances=[])
+    return sio.Labels(
+        videos=[video],
+        skeletons=[skel],
+        labeled_frames=[lf_user, lf_pred, lf_empty],
+        suggestions=[
+            sio.SuggestionFrame(video=video, frame_idx=0),  # already user-labeled
+            sio.SuggestionFrame(video=video, frame_idx=3),  # unlabeled
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    "flags, expected_frame_idxs",
+    [
+        # only_labeled_frames wins over every other flag (legacy priority #1).
+        (
+            dict(only_labeled_frames=True, only_suggested_frames=True),
+            [0],
+        ),
+        # only_suggested_frames wins over exclude_user_labeled (priority #2).
+        (
+            dict(
+                only_labeled_frames=False,
+                only_suggested_frames=True,
+                exclude_user_labeled=True,
+            ),
+            [3],
+        ),
+        # only_suggested_frames wins over only_predicted_frames (priority #2).
+        (
+            dict(
+                only_labeled_frames=False,
+                only_suggested_frames=True,
+                only_predicted_frames=True,
+            ),
+            [3],
+        ),
+        # exclude_user_labeled wins over only_predicted_frames (priority #3) --
+        # previously unguarded and silently reversed vs. legacy.
+        (
+            dict(
+                only_labeled_frames=False,
+                exclude_user_labeled=True,
+                only_predicted_frames=True,
+            ),
+            [1, 2],
+        ),
+    ],
+)
+def test_labels_provider_filter_priority_matches_legacy_order(
+    flags, expected_frame_idxs
+):
+    """Multi-flag combinations resolve in the same priority order as legacy.
+
+    Legacy ``LabelsReader`` (data/providers.py) priority: ``only_labeled_frames
+    > only_suggested_frames > exclude_user_labeled > only_predicted_frames``.
+    """
+    labels = _build_priority_test_labels()
+    provider = LabelsProvider(labels=labels, **flags)
+    assert [lf.frame_idx for lf in provider._labeled_frames] == expected_frame_idxs
+
+
+def test_labels_provider_only_labeled_frames_defaults_false_like_legacy():
+    """``only_labeled_frames`` defaults to ``False``, matching legacy ``LabelsReader``.
+
+    Regression test: since ``only_labeled_frames`` is the highest-priority
+    filter, a truthy default would silently override any other flag a caller
+    sets without also passing ``only_labeled_frames=False`` explicitly --
+    e.g. ``LabelsProvider(labels=labels, only_suggested_frames=True)`` would
+    otherwise ignore ``only_suggested_frames`` and yield only user-labeled
+    frames instead. ``Predictor._make_provider`` always passes this flag
+    explicitly, so this only bites direct construction -- exactly the
+    pattern this test exercises.
+    """
+    labels = _build_priority_test_labels()
+    provider = LabelsProvider(labels=labels, only_suggested_frames=True)
+    assert provider.only_labeled_frames is False
+    assert [lf.frame_idx for lf in provider._labeled_frames] == [3]
+
+
 def test_labels_provider_mixed_resolution_batches_by_shape(tmp_path):
     """Frames from videos of different shapes batch without crashing.
 

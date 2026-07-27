@@ -255,7 +255,7 @@ def test_predictor_predict_applies_tracker_after_to_labels(
     monkeypatch.setattr(
         Predictor,
         "_batch_iter",
-        lambda self, provider, progress_callback=None: iter([]),
+        lambda self, provider, progress_callback=None, layer=None: iter([]),
     )
     monkeypatch.setattr(
         Predictor,
@@ -297,7 +297,7 @@ def test_predictor_predict_clean_empty_frames_drops_empty(skeleton, video, monke
     monkeypatch.setattr(
         Predictor,
         "_batch_iter",
-        lambda self, provider, progress_callback=None: iter([]),
+        lambda self, provider, progress_callback=None, layer=None: iter([]),
     )
     monkeypatch.setattr(
         Predictor,

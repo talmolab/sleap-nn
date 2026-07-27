@@ -223,8 +223,9 @@ def test_postprocess_config_max_instances_override():
 
     Regression test for talmolab/sleap#2831: CentroidLayer.postprocess()
     read ``self.max_instances`` (frozen at __init__) instead of
-    ``self.postprocess_config.max_instances`` (set by _postprocess_overrides),
-    so predict-time --max_instances had no effect.
+    ``self.postprocess_config.max_instances`` (set by
+    ``Predictor._scoped_postprocess_layer``), so predict-time --max_instances
+    had no effect.
     """
     layer = CentroidLayer(
         backend=_StubBackend(),
