@@ -20,6 +20,9 @@ Three concrete implementations:
 
 from __future__ import annotations
 
+import queue
+import threading
+from copy import deepcopy
 from typing import TYPE_CHECKING, Iterator, Optional, Protocol, Union
 
 import attrs
@@ -28,6 +31,25 @@ import torch
 
 if TYPE_CHECKING:
     import sleap_io as sio
+
+
+# Sentinel marking end-of-stream on a prefetch queue; a plain `object()` so it
+# can never collide with a real `Batch` or exception payload.
+_SENTINEL = object()
+
+
+class _ProducerError:
+    """Wraps an exception raised on a prefetch thread for queue delivery.
+
+    `queue.Queue` has no notion of an error channel, so an exception raised
+    while decoding on the background thread is boxed and put on the queue
+    like any other item; the consumer unwraps and re-raises it. Without this,
+    a mid-stream decode failure would look identical to a clean end-of-stream
+    (the failure mode the legacy `VideoReader`/`LabelsReader` had).
+    """
+
+    def __init__(self, exc: BaseException) -> None:
+        self.exc = exc
 
 
 @attrs.frozen
@@ -103,6 +125,16 @@ class VideoProvider:
             ``sio.load_video`` when ``video`` is a URL (e.g.
             ``{"headers": {...}, "stream_mode": "..."}``). Ignored for local
             paths and pre-loaded ``sio.Video`` instances.
+        prefetch: If ``True`` (default), decode frames on a background
+            thread into a bounded queue so CPU decode overlaps the GPU
+            forward pass on the consuming (main) thread, instead of
+            blocking on decode between batches. Set ``False`` to fall back
+            to synchronous, in-line reading (e.g. for deterministic
+            single-threaded debugging).
+        queue_maxsize: Bound on how many decoded batches may sit in the
+            prefetch queue ahead of the consumer. Kept small and explicit
+            (like ``paf_workers``' ``max_in_flight``) so a fast decoder
+            can't race far ahead of a slow GPU stage and balloon memory.
 
     Notes:
         Yields raw ``(B, H, W, C)`` frames as ``np.uint8``. The
@@ -116,6 +148,8 @@ class VideoProvider:
     dataset: Optional[str] = None
     input_format: Optional[str] = None
     remote_kwargs: Optional[dict] = None
+    prefetch: bool = True
+    queue_maxsize: int = 4
 
     _sio_video: "Optional[sio.Video]" = attrs.field(
         default=None, init=False, repr=False
@@ -143,17 +177,94 @@ class VideoProvider:
             list(self.frames) if self.frames is not None else list(range(n_frames))
         )
 
-    def __iter__(self) -> Iterator[Batch]:
-        """Read frames in batches of ``batch_size`` and yield them."""
+    def _read_batches(self, video: "sio.Video") -> Iterator[Batch]:
+        """Read frames from ``video`` in batches of ``batch_size``.
+
+        Takes the source video as a parameter (rather than always reading
+        ``self._sio_video``) so the prefetch thread in ``__iter__`` can pass
+        in its own private, thread-local copy instead of sharing a backend
+        handle with the main thread.
+        """
         for start in range(0, len(self._frame_indices), self.batch_size):
             stop = min(start + self.batch_size, len(self._frame_indices))
             chunk_inds = self._frame_indices[start:stop]
-            frames = np.stack([self._sio_video[i] for i in chunk_inds], axis=0)
+            frames = np.stack([video[i] for i in chunk_inds], axis=0)
             yield Batch(
                 images=frames,
                 frame_indices=np.asarray(chunk_inds, dtype=np.int64),
                 video_indices=np.zeros(len(chunk_inds), dtype=np.int64),
             )
+
+    def _thread_local_video(self) -> "sio.Video":
+        """Return a private ``sio.Video`` copy for the prefetch thread.
+
+        Video backends (OpenCV/ffmpeg/HDF5) cache a single stateful reader
+        handle and are not safe for concurrent seek+read from two threads —
+        sharing ``self._sio_video`` with the background thread can silently
+        return the wrong frame. Closing first drops the cached handle so
+        ``deepcopy`` clones cheap (path + config) state rather than a live
+        handle; both the original and the copy lazily reopen independent
+        handles on next access.
+        """
+        self._sio_video.close()
+        return deepcopy(self._sio_video)
+
+    def _prefetch_worker(
+        self, video: "sio.Video", q: "queue.Queue", stop_event: threading.Event
+    ) -> None:
+        """Decode batches from ``video`` onto ``q`` until exhausted or stopped."""
+        try:
+            for batch in self._read_batches(video):
+                while True:
+                    if stop_event.is_set():
+                        return
+                    try:
+                        q.put(batch, timeout=0.5)
+                        break
+                    except queue.Full:
+                        continue
+        except BaseException as exc:  # noqa: BLE001 - forwarded to the consumer
+            q.put(_ProducerError(exc))
+            return
+        q.put(_SENTINEL)
+
+    def __iter__(self) -> Iterator[Batch]:
+        """Read frames in batches of ``batch_size`` and yield them.
+
+        When ``prefetch=True`` (default), decoding happens on a background
+        thread reading from a private video copy, overlapping CPU decode of
+        the next batch with GPU inference on the current one. The thread is
+        started here (not at construction) so multi-source callers like
+        ``MultiVideoProvider`` only ever have one video being decoded ahead
+        of time, matching today's sequential, one-source-at-a-time behavior.
+        """
+        if not self.prefetch:
+            yield from self._read_batches(self._sio_video)
+            return
+
+        thread_video = self._thread_local_video()
+        q: "queue.Queue" = queue.Queue(maxsize=self.queue_maxsize)
+        stop_event = threading.Event()
+        thread = threading.Thread(
+            target=self._prefetch_worker,
+            args=(thread_video, q, stop_event),
+            daemon=True,
+        )
+        thread.start()
+        try:
+            while True:
+                item = q.get()
+                if item is _SENTINEL:
+                    return
+                if isinstance(item, _ProducerError):
+                    raise item.exc
+                yield item
+        finally:
+            # Unblock the worker if the consumer stops early (exception,
+            # break, or GeneratorExit on partial iteration) so it doesn't
+            # hang forever on a full queue with no one draining it.
+            stop_event.set()
+            thread.join(timeout=5.0)
 
     def __len__(self) -> int:
         """Number of batches; ``ceil(len(frames) / batch_size)``."""
@@ -203,6 +314,12 @@ class LabelsProvider:
             ``sio.load_slp`` when ``labels`` is a URL (e.g.
             ``{"headers": {...}, "stream_mode": "..."}``). Ignored for local
             paths and pre-loaded ``sio.Labels`` instances.
+        prefetch: If ``True`` (default), decode frame images on a background
+            thread into a bounded queue so CPU decode overlaps the GPU
+            forward pass, instead of blocking on decode between batches.
+            See :class:`VideoProvider` for the same mechanism.
+        queue_maxsize: Bound on how many decoded batches may sit in the
+            prefetch queue ahead of the consumer.
     """
 
     labels: "Union[str, sio.Labels]"
@@ -212,6 +329,8 @@ class LabelsProvider:
     exclude_user_labeled: bool = False
     only_predicted_frames: bool = False
     remote_kwargs: Optional[dict] = None
+    prefetch: bool = True
+    queue_maxsize: int = 4
 
     _sio_labels: "Optional[sio.Labels]" = attrs.field(
         default=None, init=False, repr=False
@@ -290,7 +409,7 @@ class LabelsProvider:
                 )
         return out
 
-    def __iter__(self) -> Iterator[Batch]:
+    def _read_batches(self, image_fn=None) -> Iterator[Batch]:
         """Yield batches; each ``Batch.instances`` carries GT keypoints.
 
         For frames with no instances (e.g. ``only_suggested_frames``
@@ -298,7 +417,17 @@ class LabelsProvider:
         downstream layers that don't need GT (single-instance,
         top-down with centroid model, bottom-up) skip the GT-shaped
         kwargs entirely.
+
+        Args:
+            image_fn: Optional ``(LabeledFrame) -> np.ndarray`` override for
+                pixel access, used by the prefetch thread to read through a
+                thread-local video copy instead of ``lf.image`` (which would
+                share a backend handle with whatever the main thread touches).
+                Defaults to ``lambda lf: lf.image``.
         """
+        if image_fn is None:
+            image_fn = lambda lf: lf.image  # noqa: E731
+
         # Group frames into chunks bounded by batch_size that ALSO share a
         # common image shape. Frames from different videos can differ in
         # resolution, and np.stack requires uniform shape; same-video frames
@@ -312,7 +441,7 @@ class LabelsProvider:
             first_shape = None
             idx = start
             while idx < n_frames and len(chunk) < self.batch_size:
-                img = self._labeled_frames[idx].image
+                img = image_fn(self._labeled_frames[idx])
                 if first_shape is None:
                     first_shape = img.shape
                 elif img.shape != first_shape:
@@ -357,6 +486,74 @@ class LabelsProvider:
                 video_indices=video_idxs,
                 instances=instances,
             )
+
+    def _thread_local_video_map(self) -> dict:
+        """Map ``id(original video)`` -> private deep copy for the prefetch thread.
+
+        Mirrors :meth:`VideoProvider._thread_local_video`: closing first drops
+        each video's cached backend handle so ``deepcopy`` clones cheap
+        (path + config) state rather than a live, non-thread-safe handle.
+        """
+        mapping = {}
+        for video in self._sio_labels.videos:
+            video.close()
+            mapping[id(video)] = deepcopy(video)
+        return mapping
+
+    def _prefetch_worker(
+        self, video_map: dict, q: "queue.Queue", stop_event: threading.Event
+    ) -> None:
+        """Decode batches via ``video_map`` onto ``q`` until exhausted or stopped."""
+
+        def image_fn(lf):
+            return video_map[id(lf.video)][lf.frame_idx]
+
+        try:
+            for batch in self._read_batches(image_fn):
+                while True:
+                    if stop_event.is_set():
+                        return
+                    try:
+                        q.put(batch, timeout=0.5)
+                        break
+                    except queue.Full:
+                        continue
+        except BaseException as exc:  # noqa: BLE001 - forwarded to the consumer
+            q.put(_ProducerError(exc))
+            return
+        q.put(_SENTINEL)
+
+    def __iter__(self) -> Iterator[Batch]:
+        """Yield batches, prefetching frame decode on a background thread.
+
+        See :meth:`VideoProvider.__iter__` for the rationale and shutdown
+        semantics (lazy thread start, bounded queue, exception propagation,
+        stop-on-early-exit).
+        """
+        if not self.prefetch:
+            yield from self._read_batches()
+            return
+
+        video_map = self._thread_local_video_map()
+        q: "queue.Queue" = queue.Queue(maxsize=self.queue_maxsize)
+        stop_event = threading.Event()
+        thread = threading.Thread(
+            target=self._prefetch_worker,
+            args=(video_map, q, stop_event),
+            daemon=True,
+        )
+        thread.start()
+        try:
+            while True:
+                item = q.get()
+                if item is _SENTINEL:
+                    return
+                if isinstance(item, _ProducerError):
+                    raise item.exc
+                yield item
+        finally:
+            stop_event.set()
+            thread.join(timeout=5.0)
 
     def __len__(self) -> int:
         """Number of batches over the (filtered) labeled-frame list."""
