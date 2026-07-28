@@ -20,6 +20,32 @@ from sleap_nn.config.utils import get_model_type_from_cfg
 from sleap_nn.system_info import get_startup_info_string
 
 
+def _oks_run_evaluation_overrides(config: DictConfig) -> Dict[str, Any]:
+    """Config-driven ``run_evaluation`` overrides for the standard OKS eval path.
+
+    Forwards ``trainer_config.eval.oks_stddev``/``oks_scale`` -- the same
+    values ``EpochEndEvaluationCallback`` uses for the per-epoch OKS eval
+    (``model_trainer.py``) -- so the post-training ``metrics.<split>.npz``
+    isn't silently computed with ``run_evaluation``'s hardcoded defaults
+    (0.025 / ``None``) instead of what the user configured.
+
+    Deliberately does NOT forward ``trainer_config.eval.match_threshold``:
+    that shared config field's own default (50.0) is a centroid-mode PIXEL
+    distance, not a valid OKS threshold, and ``EpochEndEvaluationCallback``
+    doesn't forward it either for this same OKS eval path.
+    """
+    overrides: Dict[str, Any] = {}
+    oks_stddev = OmegaConf.select(
+        config, "trainer_config.eval.oks_stddev", default=None
+    )
+    if oks_stddev is not None:
+        overrides["oks_stddev"] = oks_stddev
+    oks_scale = OmegaConf.select(config, "trainer_config.eval.oks_scale", default=None)
+    if oks_scale is not None:
+        overrides["oks_scale"] = oks_scale
+    return overrides
+
+
 def _run_centroid_split_eval(
     config: DictConfig,
     d_name: str,
@@ -419,11 +445,12 @@ def run_training(
                     )
                     continue  # skip if there are no labeled frames
 
-                # Run evaluation and save metrics
+                # Run evaluation and save metrics.
                 metrics = run_evaluation(
                     ground_truth_path=path,
                     predicted_path=pred_path.as_posix(),
                     save_metrics=metrics_path.as_posix(),
+                    **_oks_run_evaluation_overrides(config),
                 )
 
                 logger.info(f"---------Evaluation on `{d_name}` dataset---------")
