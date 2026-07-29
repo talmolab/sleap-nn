@@ -1630,7 +1630,11 @@ class Predictor:
                 "`skeleton=...` or build the Predictor via Predictor.from_model_paths() "
                 "which sets it automatically from the training config."
             )
-        labels = self.to_labels(outputs_list, videos=videos)
+        labels = self.to_labels(
+            outputs_list,
+            videos=videos,
+            keep_empty_frames=self.tracker_config is not None,
+        )
         if self.tracker_config is not None:
             labels = apply_tracking(
                 labels, self.tracker_config, tracking_progress_callback
@@ -1989,8 +1993,18 @@ class Predictor:
         self,
         outputs_list: List[Outputs],
         videos: Optional[List["sio.Video"]] = None,
+        keep_empty_frames: bool = False,
     ) -> "sio.Labels":
-        """Concatenate per-batch ``Outputs`` into a single ``sio.Labels``."""
+        """Concatenate per-batch ``Outputs`` into a single ``sio.Labels``.
+
+        Args:
+            outputs_list: Per-batch ``Outputs`` to concatenate.
+            videos: List of ``sio.Video`` indexed by ``video_indices``.
+            keep_empty_frames: Forwarded to :meth:`Outputs.to_labels` -- keep
+                zero-detection frames instead of dropping them. Set by
+                :meth:`predict` when tracking is enabled so the tracker sees
+                every processed frame, matching the legacy pipeline (#714).
+        """
         import sleap_io as sio
 
         skeleton = self.skeleton
@@ -2021,6 +2035,7 @@ class Predictor:
                 source=pkg.source,
                 mask_output=mask_output,
                 polygon_epsilon=polygon_epsilon,
+                keep_empty_frames=keep_empty_frames,
             )
             all_lf.extend(sub.labeled_frames)
             for trk in sub.tracks:
