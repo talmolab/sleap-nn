@@ -260,6 +260,25 @@ def test_load_model_assets_unsupported_type(tmp_path):
         load_model_assets([str(tmp_path)], device="cpu")
 
 
+def test_load_model_assets_rejects_duplicate_model_type():
+    """Two ``--model_paths`` of the same type raise instead of silently dropping the second one.
+
+    Bug 4 -- the dispatch below picks the first match via
+    ``model_types.index(...)``, so a duplicate would otherwise be silently
+    ignored with no indication anything was wrong.
+    """
+    if not CENTROID_CKPT.exists():
+        pytest.skip("centroid ckpt absent")
+    with pytest.raises(ValueError, match="Duplicate model type 'centroid'"):
+        load_model_assets([str(CENTROID_CKPT), str(CENTROID_CKPT)], device="cpu")
+
+
+def test_load_model_assets_allows_distinct_types_in_combo(topdown_assets):
+    """Sanity check: a genuine topdown combo (2 different types) is unaffected by the duplicate-type check."""
+    _assets, model_types = topdown_assets
+    assert sorted(model_types) == ["centered_instance", "centroid"]
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # #584 — legacy SLEAP<=1.4 JSON-config loader path (is_legacy=True)
 # ─────────────────────────────────────────────────────────────────────────

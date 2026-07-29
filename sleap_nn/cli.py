@@ -1023,7 +1023,11 @@ def track(**kwargs):
     This command uses the legacy ``run_inference`` pipeline. For the new
     inference pipeline, use ``sleap-nn predict``.
     """
+    from sleap_nn import redirect_logs_to_stderr
     from sleap_nn.legacy_predict import frame_list, run_inference
+
+    if kwargs.get("gui"):
+        redirect_logs_to_stderr()
 
     if "model_paths" in kwargs and kwargs["model_paths"]:
         kwargs["model_paths"] = list(kwargs["model_paths"])
@@ -1087,7 +1091,11 @@ def _run_inference_impl(**kwargs):
     ``--frames`` string into a list of int frame indices, and routes to
     the new :class:`Predictor`-based pipeline.
     """
+    from sleap_nn import redirect_logs_to_stderr
     from sleap_nn.legacy_predict import frame_list
+
+    if kwargs.get("gui"):
+        redirect_logs_to_stderr()
 
     paf_workers = kwargs.pop("paf_workers", 0) or 0
     cpu_workers = kwargs.pop("cpu_workers", None)
@@ -1772,7 +1780,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         predict_kwargs["progress_callback"] = _gui_progress_callback()
         if kwargs.get("tracking"):
             predict_kwargs["tracking_progress_callback"] = _gui_progress_callback()
-        return predict(source, **predict_kwargs)
+        return _run_guarded(lambda: predict(source, **predict_kwargs), gui=True)
 
     # Non-gui: show a Rich progress bar (parity with legacy `track`'s default
     # progress UX; the plumbing was wired but no callback was attached). #583.
@@ -1783,7 +1791,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
             progress, "Tracking..."
         )
     try:
-        return predict(source, **predict_kwargs)
+        return _run_guarded(lambda: predict(source, **predict_kwargs), gui=False)
     finally:
         progress.stop()
 
@@ -1835,15 +1843,19 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
         tracking_cb = _rich_task_callback(_progress, "Tracking...")
 
     _start = datetime.now()
+    _gui = bool(kwargs.get("gui"))
     try:
-        out = predictor_cls.retrack(
-            labels,
-            tracker_config,
-            clean_empty_frames=bool(kwargs.get("no_empty_frames")),
-            progress_callback=tracking_cb,
+        out = _run_guarded(
+            lambda: predictor_cls.retrack(
+                labels,
+                tracker_config,
+                clean_empty_frames=bool(kwargs.get("no_empty_frames")),
+                progress_callback=tracking_cb,
+            ),
+            gui=_gui,
         )
     finally:
-        if not kwargs.get("gui"):
+        if not _gui:
             _progress.stop()
     # Attach tracking-only provenance to the retracked .slp (legacy parity —
     # apply_tracking leaves provenance to the caller, and the legacy track path
@@ -1907,6 +1919,41 @@ def _gui_progress_callback():
         state["last"] = now
 
     return cb
+
+
+def _emit_gui_error(exc: BaseException) -> None:
+    """Emit a structured JSON error line on stdout for a ``--gui`` consumer.
+
+    Mirrors ``_gui_progress_callback``'s JSON-per-line schema (one line,
+    flushed immediately) so a GUI's per-line stdout reader can tell an error
+    line apart from a progress line with the same simple parse -- check for
+    an ``"error"`` key instead of ``"n_processed"``. Without this, a runtime
+    failure (CUDA OOM, corrupt checkpoint, mid-stream decode error, ...) was
+    only ever visible as a raw Python traceback (Bug 2).
+    """
+    import json
+
+    print(
+        json.dumps({"error": True, "type": type(exc).__name__, "message": str(exc)}),
+        flush=True,
+    )
+
+
+def _run_guarded(fn, *, gui: bool):
+    """Call ``fn()``; in ``--gui`` mode, emit a structured error line before re-raising on failure.
+
+    The exception always propagates unchanged (same type, same traceback,
+    same non-zero exit code) -- this only adds a machine-readable signal on
+    stdout ahead of it when ``gui=True``. Non-``--gui`` behavior (a raw
+    traceback via loguru + Python's default handling) is intentionally
+    unchanged; a human at a terminal doesn't need a JSON line.
+    """
+    try:
+        return fn()
+    except Exception as exc:
+        if gui:
+            _emit_gui_error(exc)
+        raise
 
 
 def _make_fps_column(window_s: float = 5.0, time_fn=None):
@@ -2176,21 +2223,27 @@ def _run_stream_to_file(
         )
 
     if kwargs.get("gui"):
-        return predictor.predict_to_file(
-            provider,
-            path=str(stream_to_file),
-            write_interval=write_interval,
-            progress_callback=_gui_progress_callback(),
+        return _run_guarded(
+            lambda: predictor.predict_to_file(
+                provider,
+                path=str(stream_to_file),
+                write_interval=write_interval,
+                progress_callback=_gui_progress_callback(),
+            ),
+            gui=True,
         )
 
     # Non-gui: Rich progress bar, stopped cleanly in finally (#583).
     cb, progress = _rich_progress_callback()
     try:
-        return predictor.predict_to_file(
-            provider,
-            path=str(stream_to_file),
-            write_interval=write_interval,
-            progress_callback=cb,
+        return _run_guarded(
+            lambda: predictor.predict_to_file(
+                provider,
+                path=str(stream_to_file),
+                write_interval=write_interval,
+                progress_callback=cb,
+            ),
+            gui=False,
         )
     finally:
         progress.stop()

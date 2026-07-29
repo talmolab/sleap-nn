@@ -1090,6 +1090,24 @@ def load_model_assets(
         configs.append(cfg)
         model_types.append(get_model_type_from_cfg(config=cfg))
 
+    # Reject duplicate model types up front. The dispatch below picks the
+    # FIRST path of a given type via `model_types.index(...)`, so passing two
+    # paths of the same type (e.g. two centroid dirs) would otherwise
+    # silently use only one and drop the other with no indication anything
+    # was wrong. (Detecting an *unrelated* extra path -- one whose type isn't
+    # consumed by whichever branch below ends up winning -- would need
+    # dispatch-branch-aware validation; that's a separate, bigger follow-up,
+    # not covered here.)
+    _seen_type_paths: dict = {}
+    for mp, mt in zip(model_paths, model_types):
+        if mt in _seen_type_paths:
+            raise ValueError(
+                f"Duplicate model type {mt!r} in --model_paths: got both "
+                f"{_seen_type_paths[mt]!r} and {mp!r}. Pass only one model "
+                "directory per type."
+            )
+        _seen_type_paths[mt] = mp
+
     common_kwargs = dict(
         device=device,
         backbone_ckpt_path=backbone_ckpt_path,

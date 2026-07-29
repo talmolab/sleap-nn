@@ -17,6 +17,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import click
+import pytest
 from click.testing import CliRunner
 
 from sleap_nn.cli import cli
@@ -372,6 +373,83 @@ def test_predict_gui_emits_json_progress(tmp_path):
         assert parsed["n_total"] == 10
 
 
+def test_predict_gui_redirects_logs_to_stderr(tmp_path):
+    """``--gui`` redirects sleap_nn's log sink to stderr so plain-text log
+    lines can't interleave with the JSON progress channel on stdout (#714
+    follow-up: Bug 3)."""
+    import contextlib
+    import io
+
+    from loguru import logger
+
+    import sleap_nn
+
+    marker = "marker-for-gui-stderr-redirect-test"
+    runner = CliRunner()
+    try:
+        with patch("sleap_nn.inference.run.predict", return_value=MagicMock()):
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "--data_path",
+                    "/fake/path.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                    "--gui",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+
+        out_buf, err_buf = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+            logger.info(marker)
+        assert marker not in out_buf.getvalue()
+        assert marker in err_buf.getvalue()
+    finally:
+        # Loguru's sink is process-global state; restore the default stdout
+        # sink so later tests in this session aren't affected.
+        logger.remove()
+        sleap_nn._add_default_sink("stdout")
+
+
+def test_predict_without_gui_keeps_logs_on_stdout(tmp_path):
+    """Without ``--gui``, the log sink stays on stdout (default, unaffected
+    by the Bug 3 fix -- a human running the CLI directly expects to see logs
+    on the terminal)."""
+    import contextlib
+    import io
+
+    from loguru import logger
+
+    import sleap_nn
+
+    marker = "marker-for-no-gui-stdout-test"
+    runner = CliRunner()
+    try:
+        with patch("sleap_nn.inference.run.predict", return_value=MagicMock()):
+            result = runner.invoke(
+                cli,
+                [
+                    "predict",
+                    "--data_path",
+                    "/fake/path.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+
+        out_buf, err_buf = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+            logger.info(marker)
+        assert marker in out_buf.getvalue()
+        assert marker not in err_buf.getvalue()
+    finally:
+        logger.remove()
+        sleap_nn._add_default_sink("stdout")
+
+
 def test_predict_without_gui_attaches_rich_progress_callback(tmp_path):
     """No ``--gui`` => ``predict()`` gets a (non-JSON) Rich progress callback (#583)."""
     import io
@@ -469,6 +547,41 @@ def test_predict_retrack_only_dispatches_to_predictor_retrack(tmp_path):
         cfg = mock_retrack.call_args[0][1]
         assert cfg.window_size == 9
         # The result was saved.
+        tracked.save.assert_called_once()
+
+
+def test_predict_retrack_only_gui_uses_run_guarded(tmp_path):
+    """Retrack-only ``--gui`` mode also routes through ``_run_guarded`` (the
+    ``_gui=True`` branch skips the Rich-progress ``.stop()`` call, which only
+    applies to the non-gui path)."""
+    runner = CliRunner()
+    fake_labels = MagicMock()
+    fake_labels.videos = []
+    fake_labels.skeletons = []
+    fake_labels.labeled_frames = []
+    tracked = MagicMock()
+    with (
+        patch("sleap_io.load_slp", return_value=fake_labels),
+        patch(
+            "sleap_nn.inference.predictor.Predictor.retrack", return_value=tracked
+        ) as mock_retrack,
+        patch("sleap_nn.legacy_predict.run_inference") as mock_legacy,
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "predict",
+                "--data_path",
+                "/fake/path.slp",
+                "--tracking",
+                "--gui",
+                "--output_path",
+                str(tmp_path / "out.slp"),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_retrack.called
+        assert not mock_legacy.called
         tracked.save.assert_called_once()
 
 
@@ -659,6 +772,153 @@ def test_track_no_gui_defaults_false():
         )
         assert result.exit_code == 0, result.output
         assert mock_run.call_args[1]["gui"] is False
+
+
+def test_track_gui_redirects_logs_to_stderr():
+    """``track --gui`` also redirects logs to stderr (Bug 3 fix covers the
+    legacy pipeline's ``--gui`` mode too, not just ``predict``)."""
+    import contextlib
+    import io
+
+    from loguru import logger
+
+    import sleap_nn
+
+    marker = "marker-for-track-gui-stderr-redirect-test"
+    runner = CliRunner()
+    try:
+        with patch("sleap_nn.legacy_predict.run_inference", return_value=MagicMock()):
+            result = runner.invoke(
+                cli,
+                [
+                    "track",
+                    "--data_path",
+                    "/fake/path.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                    "--gui",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+
+        out_buf, err_buf = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+            logger.info(marker)
+        assert marker not in out_buf.getvalue()
+        assert marker in err_buf.getvalue()
+    finally:
+        logger.remove()
+        sleap_nn._add_default_sink("stdout")
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Bug 2 -- structured error channel for --gui mode runtime failures
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_run_guarded_gui_emits_error_and_reraises(capsys):
+    """``_run_guarded(..., gui=True)`` prints a JSON error line matching the
+    progress schema's style, then re-raises the original exception unchanged."""
+    import json
+
+    from sleap_nn.cli import _run_guarded
+
+    def boom():
+        raise ValueError("oops")
+
+    with pytest.raises(ValueError, match="oops"):
+        _run_guarded(boom, gui=True)
+
+    parsed = json.loads(capsys.readouterr().out.strip())
+    assert parsed == {"error": True, "type": "ValueError", "message": "oops"}
+
+
+def test_run_guarded_non_gui_reraises_without_emitting(capsys):
+    """``_run_guarded(..., gui=False)`` re-raises but prints nothing -- the
+    default (non-``--gui``) raw-traceback behavior is unchanged."""
+    from sleap_nn.cli import _run_guarded
+
+    def boom():
+        raise ValueError("oops")
+
+    with pytest.raises(ValueError, match="oops"):
+        _run_guarded(boom, gui=False)
+
+    assert capsys.readouterr().out == ""
+
+
+def test_run_guarded_success_passes_through():
+    """``_run_guarded`` returns ``fn()``'s result unchanged on success,
+    regardless of ``gui``."""
+    from sleap_nn.cli import _run_guarded
+
+    assert _run_guarded(lambda: 42, gui=True) == 42
+    assert _run_guarded(lambda: 42, gui=False) == 42
+
+
+def test_predict_gui_emits_json_error_on_failure():
+    """End-to-end: ``predict --gui`` wires ``_run_guarded`` so a runtime
+    failure in ``predict()`` emits a JSON error line on stdout before the
+    CLI exits non-zero (Bug 2)."""
+    import json
+
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.inference.run.predict",
+        side_effect=RuntimeError("boom"),
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "predict",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--gui",
+            ],
+        )
+    assert result.exit_code != 0
+    error_lines = [
+        json.loads(line)
+        for line in result.output.splitlines()
+        if line.strip().startswith("{")
+    ]
+    matches = [line for line in error_lines if line.get("error") is True]
+    assert len(matches) == 1
+    assert matches[0]["type"] == "RuntimeError"
+    assert matches[0]["message"] == "boom"
+
+
+def test_predict_without_gui_does_not_emit_json_error_on_failure():
+    """Without ``--gui``, a runtime failure still raises (non-zero exit) but
+    prints no JSON error line -- the machine-readable channel is ``--gui``-only."""
+    import json
+
+    runner = CliRunner()
+    with patch(
+        "sleap_nn.inference.run.predict",
+        side_effect=RuntimeError("boom"),
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "predict",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+            ],
+        )
+    assert result.exit_code != 0
+    error_lines = []
+    for line in result.output.splitlines():
+        if line.strip().startswith("{"):
+            try:
+                error_lines.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    assert not any(line.get("error") for line in error_lines)
 
 
 def test_predict_paf_knobs_thread_to_predict():
@@ -893,6 +1153,35 @@ def test_predict_stream_to_file_rejects_non_slp_format(tmp_path):
     )
     assert isinstance(result.exception, click.UsageError)
     assert "only supports --output_format slp" in result.exception.message
+
+
+def test_predict_stream_to_file_gui_uses_run_guarded(tmp_path):
+    """``--stream-to-file --gui`` routes ``predict_to_file`` through
+    ``_run_guarded`` (Bug 2 covers this dispatch path too, not just the
+    in-memory and retrack-only ones)."""
+    out = tmp_path / "out.slp"
+    runner = CliRunner()
+    mock_predictor = MagicMock()
+    with patch(
+        "sleap_nn.inference.predictor.Predictor.from_model_paths",
+        return_value=mock_predictor,
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "predict",
+                "--data_path",
+                "/fake/path.mp4",
+                "--model_paths",
+                "/fake/model",
+                "--stream-to-file",
+                str(out),
+                "--gui",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_predictor.predict_to_file.called
+        assert mock_predictor.predict_to_file.call_args[1]["path"] == str(out)
 
 
 def test_predict_forwards_embed_and_restore(tmp_path):
