@@ -621,6 +621,7 @@ class Outputs:
         source: str = "center_of_mass",
         mask_output: str = "mask",
         polygon_epsilon: float = 0.01,
+        keep_empty_frames: bool = False,
     ) -> "sio.Labels":
         """Convert this ``Outputs`` to a ``sleap_io.Labels``.
 
@@ -649,10 +650,17 @@ class Outputs:
                 only), or ``"both"`` (exact mask + simplified ROI).
             polygon_epsilon: Douglas-Peucker tolerance (fraction of perimeter)
                 for the polygon/both ROIs.
+            keep_empty_frames: When ``True``, emit a ``LabeledFrame`` (with no
+                instances/centroids/masks/rois) for batch slots with zero
+                detections instead of skipping them. Needed so a downstream
+                tracker sees every processed frame in order -- including
+                detection gaps -- matching the legacy pipeline's per-frame
+                ``tracker.track()`` cadence (#714).
 
         Returns:
-            A ``sleap_io.Labels`` containing one ``LabeledFrame`` per
-            non-empty batch slot.
+            A ``sleap_io.Labels`` containing one ``LabeledFrame`` per batch
+            slot (``keep_empty_frames=True``), or one per non-empty batch
+            slot (default).
 
         Notes:
             For full multi-video / per-frame metadata handling, use
@@ -704,7 +712,13 @@ class Outputs:
                     )
                     if roi is not None:
                         rois.append(roi)
-            if not instances and not centroids and not masks and not rois:
+            if (
+                not keep_empty_frames
+                and not instances
+                and not centroids
+                and not masks
+                and not rois
+            ):
                 continue
             for inst in instances:
                 trk = getattr(inst, "track", None)

@@ -7,8 +7,10 @@ import pickle
 import numpy as np
 import pytest
 import sleap_io as sio
+import torch
 
 from sleap_nn.inference.filters import FilterConfig
+from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.predictor import Predictor
 from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
 
@@ -260,7 +262,7 @@ def test_predictor_predict_applies_tracker_after_to_labels(
     monkeypatch.setattr(
         Predictor,
         "to_labels",
-        lambda self, outputs_list, videos=None: untracked,
+        lambda self, outputs_list, videos=None, keep_empty_frames=False: untracked,
     )
 
     result = pred.predict(
@@ -302,7 +304,7 @@ def test_predictor_predict_clean_empty_frames_drops_empty(skeleton, video, monke
     monkeypatch.setattr(
         Predictor,
         "to_labels",
-        lambda self, outputs_list, videos=None: raw_labels,
+        lambda self, outputs_list, videos=None, keep_empty_frames=False: raw_labels,
     )
 
     result = pred.predict(
@@ -314,6 +316,94 @@ def test_predictor_predict_clean_empty_frames_drops_empty(skeleton, video, monke
     )
     # Frame 1 (with the instance) survives; frames 0 and 2 are dropped.
     assert [lf.frame_idx for lf in result.labeled_frames] == [1]
+
+
+def _frame_outputs(frame_idx, has_instances, video_idx=0):
+    """One-frame ``Outputs`` (batch_size=1): 2 fixed-position instances, or
+    none. Used to build synthetic sequences with detection gaps for the
+    window-flush regression tests below."""
+    base = [[[0.0, 0.0], [10.0, 0.0]], [[100.0, 0.0], [110.0, 0.0]]]
+    if not has_instances:
+        return Outputs(
+            frame_indices=torch.tensor([frame_idx], dtype=torch.int64),
+            video_indices=torch.tensor([video_idx], dtype=torch.int64),
+        )
+    pts = torch.tensor(base, dtype=torch.float32).unsqueeze(0)  # (1, 2, 2, 2)
+    return Outputs(
+        pred_keypoints=pts,
+        pred_peak_values=torch.ones(1, 2, 2),
+        instance_scores=torch.full((1, 2), 0.9),
+        frame_indices=torch.tensor([frame_idx], dtype=torch.int64),
+        video_indices=torch.tensor([video_idx], dtype=torch.int64),
+    )
+
+
+def _predict_with_gap(skeleton, video, monkeypatch, gap_frames):
+    """Run ``predict()`` with tracking over frames 0, 1, <gap>, N, N+1 where
+    <gap> is ``gap_frames`` consecutive zero-detection frames, and the 2
+    instances at the start/end are at identical positions. Returns the sorted
+    track names at the first and last non-empty frames."""
+    n_before = 2
+    frame_specs = [(i, True) for i in range(n_before)]
+    frame_specs += [(n_before + i, False) for i in range(gap_frames)]
+    last_start = n_before + gap_frames
+    frame_specs += [(last_start + i, True) for i in range(2)]
+    outputs_list = [_frame_outputs(i, has) for i, has in frame_specs]
+
+    pred = Predictor(
+        layer=_StubLayer(),
+        tracker_config=TrackerConfig(window_size=5, candidates_method="fixed_window"),
+    )
+
+    class _Provider:
+        def __iter__(self):
+            return iter([])
+
+    monkeypatch.setattr(
+        Predictor,
+        "_batch_iter",
+        lambda self, provider, progress_callback=None, layer=None: iter(outputs_list),
+    )
+
+    result = pred.predict(
+        _Provider(), make_labels=True, skeleton=skeleton, videos=[video]
+    )
+    by_frame = {lf.frame_idx: lf for lf in result.labeled_frames}
+    tracks_before = sorted(inst.track.name for inst in by_frame[0].instances)
+    tracks_after = sorted(inst.track.name for inst in by_frame[last_start].instances)
+    return tracks_before, tracks_after
+
+
+def test_predictor_predict_tracking_flushes_window_across_long_empty_gap(
+    skeleton, video, monkeypatch
+):
+    """Regression (#714): a run of zero-detection frames >= ``window_size``
+    must flush the fixed-window candidate deque, spawning fresh track ids
+    after the gap -- matching the legacy pipeline, which calls
+    ``tracker.track()`` on every frame (including empty ones) and so
+    naturally flushes its window across such a gap.
+
+    Before the fix, ``Outputs.to_labels()`` unconditionally dropped
+    zero-detection frames before tracking, so ``apply_tracking`` only ever
+    saw the 4 non-empty frames -- well within ``window_size=5`` -- and
+    incorrectly reused the pre-gap track ids after the gap.
+    """
+    tracks_before, tracks_after = _predict_with_gap(
+        skeleton, video, monkeypatch, gap_frames=5
+    )
+    assert tracks_before != tracks_after
+
+
+def test_predictor_predict_tracking_preserves_identity_across_short_gap(
+    skeleton, video, monkeypatch
+):
+    """Sanity check for the fix above: a gap *shorter* than ``window_size``
+    must NOT flush the window -- identity is preserved across short gaps,
+    exactly as it was (correctly) before and after the #714 fix."""
+    tracks_before, tracks_after = _predict_with_gap(
+        skeleton, video, monkeypatch, gap_frames=2
+    )
+    assert tracks_before == tracks_after
 
 
 def test_predictor_with_tracker_picklable_round_trip():

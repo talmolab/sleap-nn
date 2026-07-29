@@ -428,6 +428,24 @@ def test_to_labels_builds_one_frame_per_nonempty_batch():
     assert labels.labeled_frames[0].frame_idx == 10
 
 
+def test_to_labels_keep_empty_frames_retains_zero_detection_batches():
+    """``keep_empty_frames=True`` emits an (instances=[]) frame instead of
+    dropping it -- needed so a downstream tracker sees every processed frame,
+    including detection gaps, matching the legacy pipeline (#714)."""
+    skel = _toy_skeleton(n_nodes=2)
+    kpts = torch.zeros(2, 1, 2, 2)
+    kpts[1] = float("nan")  # second batch slot is empty
+    o = Outputs(
+        pred_keypoints=kpts,
+        pred_peak_values=torch.ones(2, 1, 2),
+        frame_indices=torch.tensor([10, 11], dtype=torch.int64),
+        video_indices=torch.zeros(2, dtype=torch.int64),
+    )
+    labels = o.to_labels(skeleton=skel, keep_empty_frames=True)
+    assert [lf.frame_idx for lf in labels.labeled_frames] == [10, 11]
+    assert labels.labeled_frames[1].instances == []
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Type-hint sanity (catches accidental Optional → required regressions)
 # ─────────────────────────────────────────────────────────────────────────
