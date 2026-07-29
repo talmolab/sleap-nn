@@ -48,29 +48,62 @@ def _should_log(record):
 logger.remove()
 
 
-def _safe_print(msg):
-    """Print with fallback for encoding errors."""
+def _safe_print(msg, stream_name="stdout"):
+    """Print with fallback for encoding errors.
+
+    ``stream_name`` (``"stdout"`` or ``"stderr"``) is looked up on ``sys`` at
+    call time rather than bound once at sink-creation time, so this respects
+    later redirection of ``sys.stdout``/``sys.stderr`` (e.g.
+    ``contextlib.redirect_stdout``, pytest's output capture).
+    """
+    stream = getattr(sys, stream_name)
     try:
-        print(msg, end="")
+        print(msg, end="", file=stream)
     except UnicodeEncodeError:
         # Fallback: replace unencodable characters with '?'
+        encoding = getattr(stream, "encoding", None) or "utf-8"
         print(
-            msg.encode(sys.stdout.encoding, errors="replace").decode(
-                sys.stdout.encoding
-            ),
+            msg.encode(encoding, errors="replace").decode(encoding),
             end="",
+            file=stream,
         )
+
+
+def _add_default_sink(stream_name="stdout"):
+    """(Re)install the standard sleap_nn log sink, targeting ``stream_name``.
+
+    Centralizes the sink config (level/filter/format) so callers only choose
+    *where* logs go, not how they're formatted -- used both for the default
+    stdout setup below and for :func:`redirect_logs_to_stderr`.
+    """
+    logger.add(
+        lambda msg: _safe_print(msg, stream_name=stream_name),
+        level="DEBUG",
+        filter=_should_log,
+        format="{time:YYYY-MM-DD HH:mm:ss} | {message}",
+        colorize=False,
+    )
 
 
 # Add logger with the custom filter
 # Disable colorization to avoid ANSI codes in captured output
-logger.add(
-    _safe_print,
-    level="DEBUG",
-    filter=_should_log,
-    format="{time:YYYY-MM-DD HH:mm:ss} | {message}",
-    colorize=False,
-)
+_add_default_sink("stdout")
+
+
+def redirect_logs_to_stderr() -> None:
+    """Redirect sleap_nn's log sink to stderr.
+
+    Call this once, early, whenever stdout must be reserved for a
+    machine-readable channel -- e.g. the CLI's ``--gui`` mode, which emits one
+    JSON progress line per batch on stdout for a GUI subprocess reader to
+    parse (see ``sleap_nn.cli._gui_progress_callback``). Without this, a
+    plain-text log line (e.g. "Loaded inference model | ...") can interleave
+    with the JSON lines on the same fd and break a naive per-line
+    ``json.loads()`` reader. Idempotent -- safe to call more than once.
+    """
+    logger.remove()
+    _add_default_sink("stderr")
+
 
 __version__ = "0.3.1"
 

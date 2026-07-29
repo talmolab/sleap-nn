@@ -81,7 +81,22 @@ uv run black sleap_nn tests
 uv run ruff check sleap_nn/ --fix
 ```
 
-## Step 6: Run Tests with Coverage
+## Step 6: Check Spelling
+
+This repo runs `codespell` in CI (`.github/workflows/codespell.yml`) against the whole tree
+(config in `pyproject.toml`'s `[tool.codespell]`), and it blocks merge on any hit — including in
+test docstrings/comments, not just source. Check it locally before pushing so it isn't caught only
+after CI runs:
+
+```bash
+uvx codespell sleap_nn tests docs *.md pyproject.toml
+```
+
+Fix any reported typos (codespell prints `word ==> suggestion`) and re-run until clean. Don't run
+bare `uvx codespell .` — it will also scan `.venv`/`scratch` if present locally and drown real hits
+in unrelated noise from vendored/third-party files that CI never sees.
+
+## Step 7: Run Tests with Coverage
 
 Run the full test suite with coverage:
 ```bash
@@ -106,7 +121,7 @@ Review the `,cover` files for your changed modules to ensure adequate coverage.
 | ! | Line was NOT executed (needs test coverage) |
 | - | Line is not executable (comments, blank lines) |
 
-## Step 7: Commit Changes
+## Step 8: Commit Changes
 
 ### Commit structure
 Make well-structured, atomic commits:
@@ -125,13 +140,13 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 
 Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
 
-## Step 8: Push to GitHub
+## Step 9: Push to GitHub
 
 ```bash
 git push -u origin <branch-name>
 ```
 
-## Step 9: Create Pull Request
+## Step 10: Create Pull Request
 
 ### Create the PR
 ```bash
@@ -212,6 +227,9 @@ git checkout -b feature/my-feature
 # Format and lint
 uv run black sleap_nn tests
 uv run ruff check sleap_nn/ --fix
+
+# Spelling (CI runs this on the whole tree, incl. tests/docs -- scope it locally to match)
+uvx codespell sleap_nn tests docs *.md pyproject.toml
 
 # Test with coverage
 uv run pytest -q --maxfail=1 --cov --cov-branch && rm -f .coverage.* && uv run coverage annotate
