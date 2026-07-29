@@ -386,7 +386,7 @@ def test_predictor_predict_tracking_flushes_window_across_long_empty_gap(
     Before the fix, ``Outputs.to_labels()`` unconditionally dropped
     zero-detection frames before tracking, so ``apply_tracking`` only ever
     saw the 4 non-empty frames -- well within ``window_size=5`` -- and
-    incorrectly re-used the pre-gap track ids after the gap.
+    incorrectly reused the pre-gap track ids after the gap.
     """
     tracks_before, tracks_after = _predict_with_gap(
         skeleton, video, monkeypatch, gap_frames=5
