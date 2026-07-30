@@ -30,14 +30,13 @@ What this does NOT cover:
 
 from __future__ import annotations
 
-import logging
+from datetime import datetime
 from typing import Callable, Optional
 
 import attrs
+from loguru import logger
 
 import sleap_io as sio
-
-logger = logging.getLogger(__name__)
 
 # Default candidate window. Mask tracking uses a larger default than the
 # pose/centroid default because bottom-up segmentation is over-segmented (a
@@ -138,6 +137,9 @@ def apply_tracking(
         connect_single_breaks,
     )
     from sleap_nn.tracking.utils import cull_instances
+
+    start_time = datetime.now()
+    logger.info(f"Started tracking at: {start_time}")
 
     # Both post_connect_single_breaks and a non-zero pre-cull target require an
     # explicit tracking_target_instance_count (legacy parity — max_tracks was
@@ -348,6 +350,10 @@ def apply_tracking(
             tracked_lfs = connect_single_breaks(
                 tracked_lfs, max_instances=config.tracking_target_instance_count
             )
+
+    finish_time = datetime.now()
+    logger.info(f"Finished tracking at: {finish_time}")
+    logger.info(f"Total runtime: {(finish_time - start_time).total_seconds()} secs")
 
     return sio.Labels(
         labeled_frames=tracked_lfs,

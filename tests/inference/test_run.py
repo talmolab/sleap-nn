@@ -13,6 +13,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import sleap_io as sio
+from _pytest.logging import LogCaptureFixture
+from loguru import logger
 
 from sleap_nn.inference.run import (
     _resolve_embed,
@@ -21,6 +23,20 @@ from sleap_nn.inference.run import (
     save_analysis_h5_files,
     save_predictions,
 )
+
+
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    """Route loguru records into pytest's ``caplog`` (project convention)."""
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,
+    )
+    yield caplog
+    logger.remove(handler_id)
 
 
 def _mock_predictor():
@@ -215,6 +231,31 @@ def test_save_predictions_both_writes_slp_and_h5(minimal_instance, tmp_path):
     # Both files round-trip back to Labels.
     assert isinstance(sio.load_slp(out.as_posix()), sio.Labels)
     assert isinstance(sio.load_analysis_h5(h5_written[0].as_posix()), sio.Labels)
+
+
+def test_save_predictions_logs_output_path_and_saved_confirmation(
+    minimal_instance, tmp_path, caplog
+):
+    """Regression: legacy ``run_inference`` logs 'Predictions output path: ...'
+    and 'Saved file at: ...' after writing -- the new pipeline's
+    ``save_predictions`` previously logged nothing for the primary ``.slp``
+    write (only the optional ``analysis_h5`` export got a log line)."""
+    labels = sio.load_slp(minimal_instance.as_posix())
+    out = tmp_path / "preds.slp"
+    save_predictions(labels, out)
+    assert f"Predictions output path: {out}" in caplog.text
+    assert "Saved file at:" in caplog.text
+
+
+def test_save_predictions_analysis_h5_only_does_not_log_slp_confirmation(
+    minimal_instance, tmp_path, caplog
+):
+    """No .slp write -> no 'Predictions output path' / 'Saved file at' lines."""
+    labels = sio.load_slp(minimal_instance.as_posix())
+    out = tmp_path / "preds.slp"
+    save_predictions(labels, out, output_format="analysis_h5")
+    assert "Predictions output path:" not in caplog.text
+    assert "Saved file at:" not in caplog.text
 
 
 def test_save_predictions_analysis_h5_only_skips_slp(minimal_instance, tmp_path):

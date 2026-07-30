@@ -25,6 +25,7 @@ import sleap_io as sio
 from _pytest.logging import LogCaptureFixture
 from loguru import logger
 
+from sleap_nn.inference.filters import FilterConfig
 from sleap_nn.inference.predictor import Predictor
 from sleap_nn.inference.providers import NumpyProvider
 
@@ -156,6 +157,68 @@ def test_log_inference_summary_masks_label(caplog):
         n_frames=2, elapsed_s=1.0, n_objects=6, object_label="masks"
     )
     assert "masks=6 (3.00/frame)" in caplog.text
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# _log_filter_config -- matches legacy run_inference's per-filter confirmation
+# messages (#717). Silent no-ops in this exact area (--input_scale, single-
+# instance --filter_min_instance_score) have bitten us before, so confirming
+# a filter flag actually took effect is worth the log line.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_log_filter_config_default_is_silent(caplog):
+    """A no-op ``FilterConfig`` (all thresholds 0 / False) logs nothing."""
+    predictor = Predictor(layer=_FakeLayer())
+    predictor._log_filter_config()
+    assert caplog.text == ""
+
+
+def test_log_filter_config_node_count(caplog):
+    predictor = Predictor(
+        layer=_FakeLayer(),
+        filter_config=FilterConfig(min_visible_nodes=3, min_visible_node_fraction=0.5),
+    )
+    predictor._log_filter_config()
+    assert "Filtered instances by node count" in caplog.text
+    assert "min_visible_nodes=3" in caplog.text
+    assert "min_visible_node_fraction=0.5" in caplog.text
+
+
+def test_log_filter_config_confidence(caplog):
+    predictor = Predictor(
+        layer=_FakeLayer(),
+        filter_config=FilterConfig(min_mean_node_score=0.4, min_instance_score=0.6),
+    )
+    predictor._log_filter_config()
+    assert "Filtered instances by confidence" in caplog.text
+    assert "min_mean_node_score=0.4" in caplog.text
+    assert "min_instance_score=0.6" in caplog.text
+
+
+def test_log_filter_config_overlapping(caplog):
+    predictor = Predictor(
+        layer=_FakeLayer(),
+        filter_config=FilterConfig(
+            overlapping=True, overlapping_method="oks", overlapping_threshold=0.75
+        ),
+    )
+    predictor._log_filter_config()
+    assert "Filtered overlapping instances with OKS threshold: 0.75" in caplog.text
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Startup info line (#717) -- matches legacy run_inference / train.py, which
+# both log sleap-nn/Python/PyTorch/device versions at the start of a run.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.skipif(not SI_CKPT.exists(), reason="missing single-instance fixture")
+def test_from_model_paths_logs_startup_info(caplog):
+    Predictor.from_model_paths([str(SI_CKPT)], device="cpu", batch_size=4)
+    assert "sleap-nn" in caplog.text
+    assert "Python" in caplog.text
+    assert "PyTorch" in caplog.text
 
 
 # ─────────────────────────────────────────────────────────────────────────

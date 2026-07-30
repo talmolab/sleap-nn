@@ -8,11 +8,28 @@ import numpy as np
 import pytest
 import sleap_io as sio
 import torch
+from _pytest.logging import LogCaptureFixture
+from loguru import logger
 
 from sleap_nn.inference.filters import FilterConfig
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.predictor import Predictor
 from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
+
+
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    """Route loguru records into pytest's ``caplog`` (project convention)."""
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,
+    )
+    yield caplog
+    logger.remove(handler_id)
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Fixtures
@@ -137,6 +154,57 @@ def test_apply_tracking_zero_frames_with_clean_instance_count_does_not_crash(
     out = apply_tracking(labels, TrackerConfig(tracking_clean_instance_count=2))
     assert isinstance(out, sio.Labels)
     assert len(out.labeled_frames) == 0
+
+
+def test_apply_tracking_zero_frames_log_message_actually_emits(skeleton, video, caplog):
+    """Regression: ``tracking.py`` used Python's stdlib ``logging.getLogger``
+    instead of the project's ``loguru`` logger, with no handler attached
+    anywhere -- so every message it logged (this one, and the two
+    auto-resolution notices below) was silently swallowed, in every mode
+    (CLI, ``--gui``, Python API). Fixed by switching to ``from loguru import
+    logger``, matching every other module in the pipeline.
+    """
+    labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[])
+    apply_tracking(labels, TrackerConfig())
+    assert "0 frames to track; skipping tracking post-processing." in caplog.text
+
+
+def test_apply_tracking_logs_start_finish_and_runtime(skeleton, video, caplog):
+    """``apply_tracking`` logs 'Started tracking at' / 'Finished tracking at' /
+    'Total runtime' -- matching legacy ``run_inference``'s separate
+    tracking-phase timing lines (previously absent; the new pipeline only
+    reported one end-of-run summary line covering the whole inference run,
+    not tracking specifically)."""
+    labels = _make_labels(skeleton, video, frames=3, instances_per_frame=2)
+    apply_tracking(
+        labels, TrackerConfig(window_size=5, candidates_method="fixed_window")
+    )
+    assert "Started tracking at:" in caplog.text
+    assert "Finished tracking at:" in caplog.text
+    assert "Total runtime:" in caplog.text
+    assert "secs" in caplog.text
+
+
+def test_apply_tracking_single_node_default_resolution_log_actually_emits(
+    video, caplog
+):
+    """Same regression as above, for the single-node auto-resolution notice."""
+    single_node_skeleton = sio.Skeleton(nodes=["centroid"])
+    inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[0.0, 0.0]], dtype=np.float32),
+        skeleton=single_node_skeleton,
+        score=0.9,
+    )
+    labels = sio.Labels(
+        videos=[video],
+        skeletons=[single_node_skeleton],
+        labeled_frames=[sio.LabeledFrame(video=video, frame_idx=0, instances=[inst])],
+    )
+    apply_tracking(
+        labels,
+        TrackerConfig(scoring_method_explicit=False, features_explicit=False),
+    )
+    assert "Single-node skeleton detected" in caplog.text
 
 
 def test_apply_tracking_zero_frames_post_connect_requires_target_count_still_raises(
@@ -316,6 +384,80 @@ def test_predictor_predict_clean_empty_frames_drops_empty(skeleton, video, monke
     )
     # Frame 1 (with the instance) survives; frames 0 and 2 are dropped.
     assert [lf.frame_idx for lf in result.labeled_frames] == [1]
+
+
+def test_predictor_predict_keeps_empty_frames_by_default_without_tracking(
+    skeleton, video, monkeypatch
+):
+    """Regression: zero-detection frames must survive to the output even when
+    ``--tracking`` is off, matching the legacy pipeline's default of keeping
+    every processed frame.
+
+    Before this fix, ``predict()`` only passed ``keep_empty_frames=True`` to
+    ``to_labels()`` when a ``tracker_config`` was set (the #714 fix, scoped
+    narrowly to the tracking-ID divergence bug) -- so the much more common
+    non-tracking case still silently dropped every empty frame from the
+    output, unlike ``sleap-nn track``'s default.
+    """
+    outputs_list = [
+        _frame_outputs(0, True),
+        _frame_outputs(1, False),
+        _frame_outputs(2, False),
+        _frame_outputs(3, True),
+    ]
+    pred = Predictor(layer=_StubLayer())  # no tracker_config -- not tracking
+
+    class _Provider:
+        def __iter__(self):
+            return iter([])
+
+    monkeypatch.setattr(
+        Predictor,
+        "_batch_iter",
+        lambda self, provider, progress_callback=None, layer=None: iter(outputs_list),
+    )
+
+    result = pred.predict(
+        _Provider(), make_labels=True, skeleton=skeleton, videos=[video]
+    )
+    # All 4 processed frames survive, including the two empty ones.
+    assert [lf.frame_idx for lf in result.labeled_frames] == [0, 1, 2, 3]
+    assert result.labeled_frames[1].instances == []
+    assert result.labeled_frames[2].instances == []
+
+
+def test_predictor_predict_clean_empty_frames_still_drops_them_without_tracking(
+    skeleton, video, monkeypatch
+):
+    """``clean_empty_frames=True`` (``--no_empty_frames``) still removes empty
+    frames in the non-tracking case -- the existing opt-out is unaffected by
+    always keeping them by default now."""
+    outputs_list = [
+        _frame_outputs(0, True),
+        _frame_outputs(1, False),
+        _frame_outputs(2, False),
+        _frame_outputs(3, True),
+    ]
+    pred = Predictor(layer=_StubLayer())
+
+    class _Provider:
+        def __iter__(self):
+            return iter([])
+
+    monkeypatch.setattr(
+        Predictor,
+        "_batch_iter",
+        lambda self, provider, progress_callback=None, layer=None: iter(outputs_list),
+    )
+
+    result = pred.predict(
+        _Provider(),
+        make_labels=True,
+        skeleton=skeleton,
+        videos=[video],
+        clean_empty_frames=True,
+    )
+    assert [lf.frame_idx for lf in result.labeled_frames] == [0, 3]
 
 
 def _frame_outputs(frame_idx, has_instances, video_idx=0):
