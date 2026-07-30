@@ -1020,6 +1020,9 @@ class Predictor:
                 for ``mask_output`` polygon/both (bottom-up segmentation only).
         """
         from sleap_nn.inference.loaders import load_model_assets
+        from sleap_nn.system_info import get_startup_info_string
+
+        logger.info(get_startup_info_string())
 
         loaded, model_types = load_model_assets(
             model_paths,
@@ -1299,6 +1302,33 @@ class Predictor:
                 parts.append(f"fps={fps}")
         parts.append(f"tracking={self.tracker_config is not None}")
         logger.info("Starting inference | " + " | ".join(parts))
+
+    def _log_filter_config(self) -> None:
+        """Log which post-inference filters are active, with their values.
+
+        Matches legacy ``run_inference``'s per-filter confirmation messages
+        -- useful for confirming a filter flag actually took effect (silent
+        no-ops here have bitten us before, see #715/#716/#717).
+        """
+        cfg = self.filter_config
+        if cfg.min_visible_nodes > 0 or cfg.min_visible_node_fraction > 0.0:
+            logger.info(
+                f"Filtered instances by node count: "
+                f"min_visible_nodes={cfg.min_visible_nodes}, "
+                f"min_visible_node_fraction={cfg.min_visible_node_fraction}"
+            )
+        if cfg.min_mean_node_score > 0.0 or cfg.min_instance_score > 0.0:
+            logger.info(
+                f"Filtered instances by confidence: "
+                f"min_mean_node_score={cfg.min_mean_node_score}, "
+                f"min_instance_score={cfg.min_instance_score}"
+            )
+        if cfg.overlapping:
+            logger.info(
+                f"Filtered overlapping instances with "
+                f"{cfg.overlapping_method.upper()} threshold: "
+                f"{cfg.overlapping_threshold}"
+            )
 
     def _log_inference_summary(
         self,
@@ -1597,6 +1627,7 @@ class Predictor:
             videos = auto_videos
 
         self._log_inference_start(source, provider, videos)
+        self._log_filter_config()
         _prov_start = datetime.now()
         layer = self._scoped_postprocess_layer(
             peak_threshold=peak_threshold,
@@ -1813,6 +1844,7 @@ class Predictor:
         if videos is None:
             videos = derived
         self._log_inference_start(source, provider, derived)
+        self._log_filter_config()
         pkg = self._resolve_centroid_packaging()
         writer = IncrementalLabelsWriter(
             path=path,

@@ -27,6 +27,7 @@ Usage::
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Sequence, Union
 
@@ -250,6 +251,8 @@ def save_predictions(
             embed=_resolve_embed(embed, labels),
             restore_original_videos=restore_source_videos,
         )
+        logger.info(f"Predictions output path: {output_path}")
+        logger.info(f"Saved file at: {datetime.now()}")
 
     h5_paths: List[Path] = []
     if "analysis_h5" in formats:

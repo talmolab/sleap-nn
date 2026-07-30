@@ -169,6 +169,22 @@ def test_apply_tracking_zero_frames_log_message_actually_emits(skeleton, video, 
     assert "0 frames to track; skipping tracking post-processing." in caplog.text
 
 
+def test_apply_tracking_logs_start_finish_and_runtime(skeleton, video, caplog):
+    """``apply_tracking`` logs 'Started tracking at' / 'Finished tracking at' /
+    'Total runtime' -- matching legacy ``run_inference``'s separate
+    tracking-phase timing lines (previously absent; the new pipeline only
+    reported one end-of-run summary line covering the whole inference run,
+    not tracking specifically)."""
+    labels = _make_labels(skeleton, video, frames=3, instances_per_frame=2)
+    apply_tracking(
+        labels, TrackerConfig(window_size=5, candidates_method="fixed_window")
+    )
+    assert "Started tracking at:" in caplog.text
+    assert "Finished tracking at:" in caplog.text
+    assert "Total runtime:" in caplog.text
+    assert "secs" in caplog.text
+
+
 def test_apply_tracking_single_node_default_resolution_log_actually_emits(
     video, caplog
 ):
