@@ -871,6 +871,7 @@ def test_bottomup_predictor(
         "crop_size": None,
         "max_width": None,
         "max_height": None,
+        "scale": None,
     }
 
     # load only backbone and head ckpt as None
@@ -943,6 +944,7 @@ def test_multi_class_bottomup_predictor(
         "crop_size": None,
         "max_width": None,
         "max_height": None,
+        "scale": None,
     }
 
     # load only backbone and head ckpt as None
@@ -977,6 +979,117 @@ def test_multi_class_bottomup_predictor(
     )
 
     assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
+
+
+def _scale_only_preprocess_config(scale):
+    """A ``preprocess_config`` overriding only ``scale`` (rest ``None``)."""
+    return OmegaConf.create(
+        {
+            "ensure_rgb": None,
+            "ensure_grayscale": None,
+            "crop_size": None,
+            "max_width": None,
+            "max_height": None,
+            "scale": scale,
+        }
+    )
+
+
+def test_single_instance_predictor_input_scale_override_reaches_inference_model(
+    minimal_instance_single_instance_ckpt,
+):
+    """A ``preprocess_config.scale`` override must reach the inference model.
+
+    Regression test: every legacy ``*Predictor._initialize_inference_model``
+    used to build its ``input_scale=`` kwarg from the *training config's*
+    baked-in scale (e.g. ``self.confmap_config.data_config.preprocessing.scale``)
+    instead of the already-resolved ``self.preprocess_config.scale`` -- so an
+    explicit override was applied to the forward image resize (via
+    ``self.preprocess_config["scale"]`` elsewhere) but NOT to the coordinate
+    rescale-back step, corrupting output coordinates. Fixed to read
+    ``self.preprocess_config.scale`` uniformly.
+    """
+    override = 0.37
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_single_instance_ckpt],
+        preprocess_config=_scale_only_preprocess_config(override),
+    )
+    assert predictor.inference_model.input_scale == override
+
+
+def test_bottomup_predictor_input_scale_override_reaches_inference_model(
+    minimal_instance_bottomup_ckpt,
+):
+    override = 0.37
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_bottomup_ckpt],
+        preprocess_config=_scale_only_preprocess_config(override),
+    )
+    assert predictor.inference_model.input_scale == override
+
+
+def test_topdown_predictor_input_scale_override_reaches_both_stages(
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+):
+    """Both the centroid-crop and centered-instance stages must see the override."""
+    override = 0.37
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_centroid_ckpt, minimal_instance_centered_instance_ckpt],
+        preprocess_config=_scale_only_preprocess_config(override),
+    )
+    assert predictor.inference_model.centroid_crop.input_scale == override
+    assert predictor.inference_model.instance_peaks.input_scale == override
+
+
+def test_single_instance_predictor_input_scale_override_end_to_end_coords_in_bounds(
+    small_robot_minimal_video,
+    minimal_instance_single_instance_ckpt,
+):
+    """End-to-end: an ``--input_scale`` override must not corrupt output coordinates.
+
+    Before the fix, overriding ``scale`` away from the training config's value
+    applied the override to the forward image resize but NOT to the
+    coordinate rescale-back step (still using the stale training-config
+    scale), producing physically-impossible out-of-frame coordinates (e.g.
+    x > frame_width). Predicted keypoints must always land within the source
+    frame's bounds, regardless of ``--input_scale``.
+    """
+    import sleap_io as sio
+
+    video = sio.load_video(small_robot_minimal_video.as_posix())
+    height, width = video.shape[1], video.shape[2]
+
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_single_instance_ckpt],
+        peak_threshold=0.3,
+        preprocess_config=_scale_only_preprocess_config(1.5),
+    )
+    predictor.make_pipeline(
+        small_robot_minimal_video.as_posix(),
+        frames=[x for x in range(20)],
+    )
+    output = predictor.predict(make_labels=True)
+    assert isinstance(output, sio.Labels)
+
+    saw_instance = False
+    for lf in output:
+        for inst in lf.instances:
+            pts = inst.numpy()
+            valid = ~np.isnan(pts).any(axis=1)
+            if not valid.any():
+                continue
+            saw_instance = True
+            xs, ys = pts[valid, 0], pts[valid, 1]
+            assert np.all(
+                (xs >= 0) & (xs <= width)
+            ), f"x coords out of [0, {width}] bounds: {xs[(xs < 0) | (xs > width)]}"
+            assert np.all(
+                (ys >= 0) & (ys <= height)
+            ), f"y coords out of [0, {height}] bounds: {ys[(ys < 0) | (ys > height)]}"
+    assert (
+        saw_instance
+    ), "test produced no instances to check -- fixture/threshold issue"
 
 
 def test_filter_user_labeled_frames(tmp_path):
