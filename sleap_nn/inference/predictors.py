@@ -923,7 +923,7 @@ class TopDownPredictor(Predictor):
                 return_crops=return_crops,
                 max_instances=self.max_instances,
                 max_stride=max_stride,
-                input_scale=self.centroid_config.data_config.preprocessing.scale,
+                input_scale=self.preprocess_config.scale,
                 crop_hw=(
                     self.preprocess_config.crop_size,
                     self.preprocess_config.crop_size,
@@ -947,7 +947,7 @@ class TopDownPredictor(Predictor):
                 integral_patch_size=self.integral_patch_size,
                 return_confmaps=self.return_confmaps,
                 max_stride=max_stride,
-                input_scale=self.confmap_config.data_config.preprocessing.scale,
+                input_scale=self.preprocess_config.scale,
             )
 
         if self.centroid_config is None and self.confmap_config is not None:
@@ -1685,7 +1685,7 @@ class SingleInstancePredictor(Predictor):
             refinement=self.integral_refinement,
             integral_patch_size=self.integral_patch_size,
             return_confmaps=self.return_confmaps,
-            input_scale=self.confmap_config.data_config.preprocessing.scale,
+            input_scale=self.preprocess_config.scale,
         )
 
     @classmethod
@@ -2141,7 +2141,7 @@ class BottomUpPredictor(Predictor):
             refinement=self.integral_refinement,
             integral_patch_size=self.integral_patch_size,
             return_confmaps=self.return_confmaps,
-            input_scale=self.bottomup_config.data_config.preprocessing.scale,
+            input_scale=self.preprocess_config.scale,
         )
 
     @classmethod
@@ -2695,7 +2695,7 @@ class BottomUpMultiClassPredictor(Predictor):
             refinement=self.integral_refinement,
             integral_patch_size=self.integral_patch_size,
             return_confmaps=self.return_confmaps,
-            input_scale=self.bottomup_config.data_config.preprocessing.scale,
+            input_scale=self.preprocess_config.scale,
         )
 
     @classmethod
@@ -3311,7 +3311,7 @@ class TopDownMultiClassPredictor(Predictor):
                 return_crops=return_crops,
                 max_instances=self.max_instances,
                 max_stride=max_stride,
-                input_scale=self.centroid_config.data_config.preprocessing.scale,
+                input_scale=self.preprocess_config.scale,
                 crop_hw=(
                     self.preprocess_config.crop_size,
                     self.preprocess_config.crop_size,
@@ -3330,7 +3330,7 @@ class TopDownMultiClassPredictor(Predictor):
             integral_patch_size=self.integral_patch_size,
             return_confmaps=self.return_confmaps,
             max_stride=max_stride,
-            input_scale=self.confmap_config.data_config.preprocessing.scale,
+            input_scale=self.preprocess_config.scale,
         )
 
         if self.centroid_config is None:

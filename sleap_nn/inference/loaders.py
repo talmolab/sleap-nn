@@ -272,7 +272,7 @@ def _build_single_instance(
         refinement=integral_refinement,
         integral_patch_size=integral_patch_size,
         return_confmaps=return_confmaps,
-        input_scale=config.data_config.preprocessing.scale,
+        input_scale=preprocess_config.scale,
     )
     return LoadedAssets(
         inference_model=inference_model,
@@ -340,7 +340,7 @@ def _build_bottomup(
         refinement=integral_refinement,
         integral_patch_size=integral_patch_size,
         return_confmaps=return_confmaps,
-        input_scale=config.data_config.preprocessing.scale,
+        input_scale=preprocess_config.scale,
     )
     return LoadedAssets(
         inference_model=inference_model,
@@ -385,7 +385,7 @@ def _build_bottomup_multiclass(
         refinement=integral_refinement,
         integral_patch_size=integral_patch_size,
         return_confmaps=return_confmaps,
-        input_scale=config.data_config.preprocessing.scale,
+        input_scale=preprocess_config.scale,
     )
     return LoadedAssets(
         inference_model=inference_model,
@@ -460,7 +460,7 @@ def _build_bottomup_segmentation(
         fg_threshold=fg_threshold,
         peak_threshold=peak_threshold,
         output_stride=output_stride,
-        input_scale=config.data_config.preprocessing.scale,
+        input_scale=preprocess_config.scale,
         min_mask_area=min_mask_area,
         max_instances=max_instances,
         center_nms_kernel=center_nms_kernel,
@@ -545,7 +545,7 @@ def _build_semantic_segmentation(
         torch_model=module,
         fg_threshold=fg_threshold,
         output_stride=output_stride,
-        input_scale=config.data_config.preprocessing.scale,
+        input_scale=preprocess_config.scale,
         min_mask_area=min_mask_area,
         full_res_masks=full_res_masks,
         mask_output=mask_output,
@@ -679,7 +679,7 @@ def _build_topdown(
             return_crops=return_crops,
             max_instances=max_instances,
             max_stride=max_stride_centroid,
-            input_scale=centroid_config.data_config.preprocessing.scale,
+            input_scale=preprocess_config.scale,
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
@@ -700,7 +700,7 @@ def _build_topdown(
             integral_patch_size=integral_patch_size,
             return_confmaps=return_confmaps,
             max_stride=max_stride_inst,
-            input_scale=confmap_config.data_config.preprocessing.scale,
+            input_scale=preprocess_config.scale,
         )
 
     inference_model = TopDownInferenceModel(
@@ -833,7 +833,7 @@ def _build_topdown_segmentation(
             return_crops=True,
             max_instances=max_instances,
             max_stride=max_stride_centroid,
-            input_scale=centroid_config.data_config.preprocessing.scale,
+            input_scale=preprocess_config.scale,
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
@@ -842,7 +842,7 @@ def _build_topdown_segmentation(
     instance_masks = CenteredInstanceMaskInferenceModel(
         torch_model=seg_model,
         output_stride=output_stride,
-        input_scale=seg_config.data_config.preprocessing.scale,
+        input_scale=preprocess_config.scale,
         max_stride=max_stride_seg,
         fg_threshold=fg_threshold,
         mask_output=mask_output,
@@ -976,7 +976,7 @@ def _build_topdown_multiclass(
             return_crops=return_crops,
             max_instances=max_instances,
             max_stride=max_stride_centroid,
-            input_scale=centroid_config.data_config.preprocessing.scale,
+            input_scale=preprocess_config.scale,
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
@@ -993,7 +993,7 @@ def _build_topdown_multiclass(
         integral_patch_size=integral_patch_size,
         return_confmaps=return_confmaps,
         max_stride=max_stride_inst,
-        input_scale=confmap_config.data_config.preprocessing.scale,
+        input_scale=preprocess_config.scale,
     )
 
     inference_model = TopDownInferenceModel(

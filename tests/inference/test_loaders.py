@@ -10,6 +10,7 @@ import gc
 from pathlib import Path
 
 import pytest
+from omegaconf import OmegaConf
 
 from sleap_nn.inference.loaders import (
     LoadedAssets,
@@ -144,6 +145,67 @@ def test_load_topdown_crop_size_resolved(topdown_assets):
     assets, _ = topdown_assets
     assert assets.preprocess_config.crop_size is not None
     assert assets.preprocess_config.crop_size > 0
+
+
+def _scale_only_preprocess_config(scale: float):
+    """A ``preprocess_config`` overriding only ``scale`` (rest ``None``)."""
+    return OmegaConf.create(
+        {
+            "ensure_rgb": None,
+            "ensure_grayscale": None,
+            "crop_size": None,
+            "max_width": None,
+            "max_height": None,
+            "scale": scale,
+        }
+    )
+
+
+def test_load_single_instance_input_scale_override_reaches_inference_model():
+    """A CLI/API ``--input_scale`` override must reach the inference model.
+
+    Regression test: ``load_model_assets`` used to build every
+    ``input_scale=`` kwarg from the *training config's* baked-in scale
+    (``config.data_config.preprocessing.scale``) instead of the resolved
+    ``preprocess_config.scale`` that reflects the caller's override -- so an
+    explicit override was silently dropped everywhere. Fixed to read the
+    already-resolved ``preprocess_config.scale`` local variable.
+    """
+    if not SINGLE_CKPT.exists():
+        pytest.skip("single-instance ckpt absent")
+    override = 0.37
+    assets, _ = load_model_assets(
+        [str(SINGLE_CKPT)],
+        device="cpu",
+        preprocess_config=_scale_only_preprocess_config(override),
+    )
+    assert assets.inference_model.input_scale == override
+
+
+def test_load_bottomup_input_scale_override_reaches_inference_model():
+    if not BOTTOMUP_CKPT.exists():
+        pytest.skip("bottomup ckpt absent")
+    override = 0.37
+    assets, _ = load_model_assets(
+        [str(BOTTOMUP_CKPT)],
+        device="cpu",
+        preprocess_config=_scale_only_preprocess_config(override),
+    )
+    assert assets.inference_model.input_scale == override
+
+
+def test_load_topdown_input_scale_override_reaches_both_stages():
+    """Both the centroid-crop and centered-instance stages must see the override."""
+    if not (CENTROID_CKPT.exists() and CENTERED_CKPT.exists()):
+        pytest.skip("topdown ckpts absent")
+    override = 0.37
+    assets, _ = load_model_assets(
+        [str(CENTROID_CKPT), str(CENTERED_CKPT)],
+        device="cpu",
+        preprocess_config=_scale_only_preprocess_config(override),
+    )
+    assert assets.inference_model.centroid_crop.input_scale == override
+    assert assets.inference_model.instance_peaks.input_scale == override
 
 
 def test_load_topdown_multiclass(topdown_multiclass_assets):
