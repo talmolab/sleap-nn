@@ -1633,7 +1633,7 @@ class Predictor:
         labels = self.to_labels(
             outputs_list,
             videos=videos,
-            keep_empty_frames=self.tracker_config is not None,
+            keep_empty_frames=True,
         )
         if self.tracker_config is not None:
             labels = apply_tracking(
@@ -2001,9 +2001,13 @@ class Predictor:
             outputs_list: Per-batch ``Outputs`` to concatenate.
             videos: List of ``sio.Video`` indexed by ``video_indices``.
             keep_empty_frames: Forwarded to :meth:`Outputs.to_labels` -- keep
-                zero-detection frames instead of dropping them. Set by
-                :meth:`predict` when tracking is enabled so the tracker sees
-                every processed frame, matching the legacy pipeline (#714).
+                zero-detection frames instead of dropping them.
+                :meth:`predict` always passes ``True`` here (matching the
+                legacy pipeline's default of keeping every processed frame,
+                tracking or not -- #714 fixed this for the tracking case,
+                #717 for the non-tracking default); ``clean_empty_frames``
+                (``--no_empty_frames`` on the CLI) is the opt-in way to drop
+                them afterward, applied uniformly regardless of tracking.
         """
         import sleap_io as sio
 

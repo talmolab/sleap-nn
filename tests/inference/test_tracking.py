@@ -318,6 +318,80 @@ def test_predictor_predict_clean_empty_frames_drops_empty(skeleton, video, monke
     assert [lf.frame_idx for lf in result.labeled_frames] == [1]
 
 
+def test_predictor_predict_keeps_empty_frames_by_default_without_tracking(
+    skeleton, video, monkeypatch
+):
+    """Regression: zero-detection frames must survive to the output even when
+    ``--tracking`` is off, matching the legacy pipeline's default of keeping
+    every processed frame.
+
+    Before this fix, ``predict()`` only passed ``keep_empty_frames=True`` to
+    ``to_labels()`` when a ``tracker_config`` was set (the #714 fix, scoped
+    narrowly to the tracking-ID divergence bug) -- so the much more common
+    non-tracking case still silently dropped every empty frame from the
+    output, unlike ``sleap-nn track``'s default.
+    """
+    outputs_list = [
+        _frame_outputs(0, True),
+        _frame_outputs(1, False),
+        _frame_outputs(2, False),
+        _frame_outputs(3, True),
+    ]
+    pred = Predictor(layer=_StubLayer())  # no tracker_config -- not tracking
+
+    class _Provider:
+        def __iter__(self):
+            return iter([])
+
+    monkeypatch.setattr(
+        Predictor,
+        "_batch_iter",
+        lambda self, provider, progress_callback=None, layer=None: iter(outputs_list),
+    )
+
+    result = pred.predict(
+        _Provider(), make_labels=True, skeleton=skeleton, videos=[video]
+    )
+    # All 4 processed frames survive, including the two empty ones.
+    assert [lf.frame_idx for lf in result.labeled_frames] == [0, 1, 2, 3]
+    assert result.labeled_frames[1].instances == []
+    assert result.labeled_frames[2].instances == []
+
+
+def test_predictor_predict_clean_empty_frames_still_drops_them_without_tracking(
+    skeleton, video, monkeypatch
+):
+    """``clean_empty_frames=True`` (``--no_empty_frames``) still removes empty
+    frames in the non-tracking case -- the existing opt-out is unaffected by
+    always keeping them by default now."""
+    outputs_list = [
+        _frame_outputs(0, True),
+        _frame_outputs(1, False),
+        _frame_outputs(2, False),
+        _frame_outputs(3, True),
+    ]
+    pred = Predictor(layer=_StubLayer())
+
+    class _Provider:
+        def __iter__(self):
+            return iter([])
+
+    monkeypatch.setattr(
+        Predictor,
+        "_batch_iter",
+        lambda self, provider, progress_callback=None, layer=None: iter(outputs_list),
+    )
+
+    result = pred.predict(
+        _Provider(),
+        make_labels=True,
+        skeleton=skeleton,
+        videos=[video],
+        clean_empty_frames=True,
+    )
+    assert [lf.frame_idx for lf in result.labeled_frames] == [0, 3]
+
+
 def _frame_outputs(frame_idx, has_instances, video_idx=0):
     """One-frame ``Outputs`` (batch_size=1): 2 fixed-position instances, or
     none. Used to build synthetic sequences with detection gaps for the
