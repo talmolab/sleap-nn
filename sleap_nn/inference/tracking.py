@@ -30,14 +30,12 @@ What this does NOT cover:
 
 from __future__ import annotations
 
-import logging
 from typing import Callable, Optional
 
 import attrs
+from loguru import logger
 
 import sleap_io as sio
-
-logger = logging.getLogger(__name__)
 
 # Default candidate window. Mask tracking uses a larger default than the
 # pose/centroid default because bottom-up segmentation is over-segmented (a

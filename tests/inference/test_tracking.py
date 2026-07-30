@@ -8,11 +8,28 @@ import numpy as np
 import pytest
 import sleap_io as sio
 import torch
+from _pytest.logging import LogCaptureFixture
+from loguru import logger
 
 from sleap_nn.inference.filters import FilterConfig
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.predictor import Predictor
 from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
+
+
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    """Route loguru records into pytest's ``caplog`` (project convention)."""
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,
+    )
+    yield caplog
+    logger.remove(handler_id)
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Fixtures
@@ -137,6 +154,41 @@ def test_apply_tracking_zero_frames_with_clean_instance_count_does_not_crash(
     out = apply_tracking(labels, TrackerConfig(tracking_clean_instance_count=2))
     assert isinstance(out, sio.Labels)
     assert len(out.labeled_frames) == 0
+
+
+def test_apply_tracking_zero_frames_log_message_actually_emits(skeleton, video, caplog):
+    """Regression: ``tracking.py`` used Python's stdlib ``logging.getLogger``
+    instead of the project's ``loguru`` logger, with no handler attached
+    anywhere -- so every message it logged (this one, and the two
+    auto-resolution notices below) was silently swallowed, in every mode
+    (CLI, ``--gui``, Python API). Fixed by switching to ``from loguru import
+    logger``, matching every other module in the pipeline.
+    """
+    labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[])
+    apply_tracking(labels, TrackerConfig())
+    assert "0 frames to track; skipping tracking post-processing." in caplog.text
+
+
+def test_apply_tracking_single_node_default_resolution_log_actually_emits(
+    video, caplog
+):
+    """Same regression as above, for the single-node auto-resolution notice."""
+    single_node_skeleton = sio.Skeleton(nodes=["centroid"])
+    inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[0.0, 0.0]], dtype=np.float32),
+        skeleton=single_node_skeleton,
+        score=0.9,
+    )
+    labels = sio.Labels(
+        videos=[video],
+        skeletons=[single_node_skeleton],
+        labeled_frames=[sio.LabeledFrame(video=video, frame_idx=0, instances=[inst])],
+    )
+    apply_tracking(
+        labels,
+        TrackerConfig(scoring_method_explicit=False, features_explicit=False),
+    )
+    assert "Single-node skeleton detected" in caplog.text
 
 
 def test_apply_tracking_zero_frames_post_connect_requires_target_count_still_raises(
