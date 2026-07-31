@@ -214,6 +214,63 @@ def test_run_centroid_split_eval_defaults_and_empty(monkeypatch, tmp_path):
     assert captured["eval_kwargs"]["anchor_part"] is None
 
 
+def test_train_skips_eval_when_zero_predicted_instances(
+    minimal_instance, tmp_path, monkeypatch
+):
+    """Main eval loop skips run_evaluation when predictions have 0 instances.
+
+    Covers frames-present-but-zero-instances-anywhere, not just
+    pred_labels itself having zero frames.
+
+    Regression test: a fully collapsed model (#718/#719) keeps every
+    processed frame (empty ones included) via the new inference pipeline, so
+    `not len(pred_labels)` alone never catches this case. The loop's guard
+    must also check for zero predicted instances across all frames.
+    """
+    import sleap_nn.inference.run as run_mod
+    import sleap_nn.train as train_mod
+
+    def fake_predict(source, *, output_path=None, **kwargs):
+        gt = sio.load_slp(source)
+        empty_lfs = [
+            sio.LabeledFrame(video=lf.video, frame_idx=lf.frame_idx, instances=[])
+            for lf in gt.labeled_frames
+        ]
+        labels = sio.Labels(
+            videos=gt.videos, skeletons=gt.skeletons, labeled_frames=empty_lfs
+        )
+        if output_path is not None:
+            labels.save(str(output_path))
+        return labels
+
+    monkeypatch.setattr(run_mod, "predict", fake_predict)
+
+    def fail_eval(*a, **k):  # pragma: no cover - should not be called
+        raise AssertionError(
+            "run_evaluation should not run when 0 instances were predicted"
+        )
+
+    monkeypatch.setattr(train_mod, "run_evaluation", fail_eval)
+
+    train(
+        train_labels_path=[minimal_instance],
+        val_labels_path=[minimal_instance],
+        max_epochs=1,
+        trainer_num_devices=1,
+        trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+        head_configs="centered_instance",
+        save_ckpt=True,
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_skip_zero_instances",
+        min_train_steps_per_epoch=1,
+    )
+
+    run_path = Path(tmp_path) / "test_skip_zero_instances"
+    assert (run_path / "labels_pr.val.0.slp").exists()
+    assert not (run_path / "metrics.val.0.npz").exists()
+    assert not (run_path / "metrics.train.0.npz").exists()
+
+
 @pytest.fixture
 def sample_cfg(minimal_instance, tmp_path):
     config = DictConfig(
