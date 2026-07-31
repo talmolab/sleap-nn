@@ -9,7 +9,6 @@ from typing import Any, Dict, Optional, List, Tuple, Union
 import sleap_io as sio
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.training.model_trainer import ModelTrainer
-from sleap_nn.legacy_predict import run_inference as predict
 from sleap_nn.evaluation import run_evaluation
 from sleap_nn.config.get_config import (
     get_trainer_config,
@@ -428,22 +427,31 @@ def run_training(
                     )
                     continue
 
-                pred_labels = predict(
-                    data_path=path,
+                # single_instance / centered_instance / bottomup (+ their
+                # multi_class_bottomup / multi_class_topdown ID variants) all
+                # route through the NEW inference flow here too (matching
+                # centroid-only/segmentation above) -- legacy_predict.run_inference
+                # is deprecated. ensure_rgb/ensure_grayscale are picked up
+                # automatically from the trained model's own training config,
+                # so they don't need to be forwarded explicitly.
+                from sleap_nn.inference.run import predict as predict_new
+
+                pred_labels = predict_new(
+                    path,
                     model_paths=[run_path],
                     peak_threshold=0.2,
-                    make_labels=True,
                     device=str(trainer.trainer.strategy.root_device),
                     output_path=pred_path,
-                    ensure_rgb=config.data_config.preprocessing.ensure_rgb,
-                    ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
                 )
 
-                if not len(pred_labels):
+                if not len(pred_labels) or not any(
+                    len(lf.instances) for lf in pred_labels
+                ):
                     logger.info(
-                        f"Skipping eval on `{d_name}` dataset as there are no labeled frames..."
+                        f"Skipping eval on `{d_name}` dataset as there are no "
+                        "predicted instances..."
                     )
-                    continue  # skip if there are no labeled frames
+                    continue  # skip if there are no predicted instances
 
                 # Run evaluation and save metrics.
                 metrics = run_evaluation(

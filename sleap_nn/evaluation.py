@@ -1271,9 +1271,15 @@ class Evaluator:
             match_scores = np.array([oks for _, _, oks in self.positive_pairs])
             name = "oks_voc"
         elif match_score_by == "pck":
-            pck_metrics = self.pck_metrics()
-            match_scores = pck_metrics["pcks"].mean(axis=-1).mean(axis=-1)
             name = "pck_voc"
+            if not self.positive_pairs:
+                # Guard the empty-match case: the (n_pairs, n_nodes, n_thresholds)
+                # ``pcks`` array is empty along the pairs axis, so reducing it with
+                # nested .mean() calls would hit "Mean of empty slice".
+                match_scores = np.array([])
+            else:
+                pck_metrics = self.pck_metrics()
+                match_scores = pck_metrics["pcks"].mean(axis=-1).mean(axis=-1)
         else:
             message = "Invalid Option for match_score_by. Choose either `oks` or `pck`"
             logger.error(message)
@@ -1356,7 +1362,7 @@ class Evaluator:
     def mOKS(self):
         """Return the meanOKS value."""
         pair_oks = np.array([oks for _, _, oks in self.positive_pairs])
-        return {"mOKS": pair_oks.mean()}
+        return {"mOKS": float(pair_oks.mean()) if pair_oks.size else np.nan}
 
     def distance_metrics(self):
         """Compute the Euclidean distance error at different percentiles using the pairwise distances.
@@ -1826,14 +1832,23 @@ class Evaluator:
         dists = np.copy(dists)
         dists[np.isnan(dists)] = np.inf
         pcks = np.expand_dims(dists, -1) < np.reshape(thresholds, (1, 1, -1))
-        mPCK_parts = pcks.mean(axis=0).mean(axis=-1)
-        mPCK = mPCK_parts.mean()
 
-        # Precompute PCK at common thresholds
-        idx_5 = np.argmin(np.abs(thresholds - 5))
-        idx_10 = np.argmin(np.abs(thresholds - 10))
-        pck5 = pcks[:, :, idx_5].mean()
-        pck10 = pcks[:, :, idx_10].mean()
+        # Guard the empty-match case (0 positive pairs for the whole split) so
+        # the nested .mean() reductions below don't hit "Mean of empty slice".
+        if dists.size == 0:
+            mPCK_parts = np.array([])
+            mPCK = np.nan
+            pck5 = np.nan
+            pck10 = np.nan
+        else:
+            mPCK_parts = pcks.mean(axis=0).mean(axis=-1)
+            mPCK = float(mPCK_parts.mean())
+
+            # Precompute PCK at common thresholds
+            idx_5 = np.argmin(np.abs(thresholds - 5))
+            idx_10 = np.argmin(np.abs(thresholds - 10))
+            pck5 = float(pcks[:, :, idx_5].mean())
+            pck10 = float(pcks[:, :, idx_10].mean())
 
         return {
             "thresholds": thresholds,
@@ -1900,6 +1915,18 @@ class Evaluator:
             # Whole-frame binary foreground segmentation: no instances to match, so
             # report only matching-free foreground IoU / clDice / boundary-IoU.
             return {"semantic_metrics": self.semantic_metrics()}
+
+        if not self.positive_pairs:
+            # 0 matched instances for the whole split (e.g. a collapsed model
+            # predicting nothing, or predictions that never clear the OKS
+            # threshold) -- every metric below is undefined by construction.
+            # The individual methods already guard their own NaN/empty-array
+            # math, so this is just one clear line instead of relying on the
+            # reader to infer "collapsed model" from a wall of NaNs.
+            logger.info(
+                "0 matched instances: metrics undefined (model predicted "
+                "nothing usable, or training likely collapsed)."
+            )
 
         metrics = {}
         metrics["voc_metrics"] = self.voc_metrics(match_score_by="oks")
@@ -2092,6 +2119,13 @@ def run_evaluation(
         anchor_part: Name of the GT skeleton node used to compute GT centroids
             (centroid mode). Resolved against the GT skeleton; ``None`` (or an
             absent name) falls back to the mean of visible nodes (#586).
+
+    Returns:
+        The metrics dict, or ``None`` if the predicted labels have zero
+        frames or contain nothing usable (no instances for ``"oks"``/
+        ``"centroid"``/``"auto"``, no masks for ``"mask"``/``"semantic"``) --
+        metric computation is skipped entirely in that case, and no
+        ``save_metrics`` file is written.
     """
     logger.info("Loading ground truth labels...")
     ground_truth_instances = sio.load_slp(ground_truth_path)
@@ -2106,6 +2140,23 @@ def run_evaluation(
         f"  Predictions: {len(predicted_instances.videos)} videos, "
         f"{len(predicted_instances.labeled_frames)} frames"
     )
+
+    # Detect a fully collapsed prediction set up front and skip the metric
+    # math entirely (#719) -- frames may still be present (both predictor
+    # pipelines retain empty-detection frames by default), but nothing usable
+    # was predicted in any of them, so matching would only produce an
+    # all-NaN/all-zero result. ``mask``/``semantic`` predictions live on
+    # ``LabeledFrame.masks``, not ``.instances``.
+    if match_method in ("mask", "semantic"):
+        has_predictions = any(len(lf.masks) for lf in predicted_instances)
+    else:
+        has_predictions = any(len(lf.instances) for lf in predicted_instances)
+    if not len(predicted_instances) or not has_predictions:
+        logger.info(
+            "0 predicted instances: skipping metric computation (model "
+            "likely predicted nothing usable, or training collapsed)."
+        )
+        return None
 
     # Auto-detect centroid mode from the PREDICTION skeleton.
     pred_skeleton = (
@@ -2281,8 +2332,11 @@ def run_evaluation(
     dists = metrics["distance_metrics"]["dists"]
     dists_clean = np.copy(dists)
     dists_clean[np.isnan(dists_clean)] = np.inf
-    pck_5 = (dists_clean < 5).mean()
-    pck_10 = (dists_clean < 10).mean()
+    # Guard the empty-match case (0 matched instances for the whole split) so
+    # this doesn't hit "Mean of empty slice" on top of the evaluate()-level
+    # log line already emitted for it.
+    pck_5 = float((dists_clean < 5).mean()) if dists_clean.size else np.nan
+    pck_10 = float((dists_clean < 10).mean()) if dists_clean.size else np.nan
 
     # Print key metrics
     logger.info("Evaluation Results:")
