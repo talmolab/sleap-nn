@@ -2119,6 +2119,13 @@ def run_evaluation(
         anchor_part: Name of the GT skeleton node used to compute GT centroids
             (centroid mode). Resolved against the GT skeleton; ``None`` (or an
             absent name) falls back to the mean of visible nodes (#586).
+
+    Returns:
+        The metrics dict, or ``None`` if the predicted labels have zero
+        frames or contain nothing usable (no instances for ``"oks"``/
+        ``"centroid"``/``"auto"``, no masks for ``"mask"``/``"semantic"``) --
+        metric computation is skipped entirely in that case, and no
+        ``save_metrics`` file is written.
     """
     logger.info("Loading ground truth labels...")
     ground_truth_instances = sio.load_slp(ground_truth_path)
@@ -2133,6 +2140,23 @@ def run_evaluation(
         f"  Predictions: {len(predicted_instances.videos)} videos, "
         f"{len(predicted_instances.labeled_frames)} frames"
     )
+
+    # Detect a fully collapsed prediction set up front and skip the metric
+    # math entirely (#719) -- frames may still be present (both predictor
+    # pipelines retain empty-detection frames by default), but nothing usable
+    # was predicted in any of them, so matching would only produce an
+    # all-NaN/all-zero result. ``mask``/``semantic`` predictions live on
+    # ``LabeledFrame.masks``, not ``.instances``.
+    if match_method in ("mask", "semantic"):
+        has_predictions = any(len(lf.masks) for lf in predicted_instances)
+    else:
+        has_predictions = any(len(lf.instances) for lf in predicted_instances)
+    if not len(predicted_instances) or not has_predictions:
+        logger.info(
+            "0 predicted instances: skipping metric computation (model "
+            "likely predicted nothing usable, or training collapsed)."
+        )
+        return None
 
     # Auto-detect centroid mode from the PREDICTION skeleton.
     pred_skeleton = (
