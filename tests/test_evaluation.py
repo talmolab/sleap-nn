@@ -5,6 +5,7 @@ import pytest
 from pathlib import Path
 import copy
 import torch
+import warnings
 from sleap_nn.legacy_predict import run_inference
 from sleap_nn.evaluation import (
     compute_instance_area,
@@ -435,6 +436,38 @@ def test_evaluator_more_predicted_instances(minimal_instance):
     assert len(eval.frame_pairs) == 1
     assert len(eval.positive_pairs) == 0
     assert len(eval.false_negatives) == 2
+
+
+def test_evaluator_zero_matched_instances_no_warnings(caplog, minimal_instance):
+    """Evaluator.evaluate() with 0 positive pairs must not warn (#719).
+
+    Regression test: a collapsed model (or here, a match_threshold strict
+    enough that nothing clears it) produces 0 positive pairs but non-empty
+    frame_pairs/false_negatives. mOKS()/pck_metrics()/voc_metrics(pck) used to
+    call .mean() on empty arrays unguarded, spamming "Mean of empty slice"
+    RuntimeWarnings. This checks the fix: no warnings, one clear log line, and
+    well-defined NaN/0 metrics.
+    """
+    user_labels, pred_labels = create_labels_more_predicted_instances(minimal_instance)
+    eval = Evaluator(user_labels, pred_labels, match_threshold=1)
+    assert len(eval.positive_pairs) == 0
+    assert len(eval.false_negatives) == 2
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with caplog.at_level("INFO"):
+            metrics = eval.evaluate()
+
+    runtime_warnings = [w for w in caught if issubclass(w.category, RuntimeWarning)]
+    assert not runtime_warnings, [str(w.message) for w in runtime_warnings]
+    assert "0 matched instances" in caplog.text
+
+    assert np.isnan(metrics["mOKS"]["mOKS"])
+    assert np.isnan(metrics["distance_metrics"]["avg"])
+    assert np.isnan(metrics["pck_metrics"]["mPCK"])
+    assert np.isnan(metrics["pck_metrics"]["PCK@5"])
+    assert metrics["voc_metrics"]["oks_voc.mAP"] == 0
+    assert metrics["voc_metrics"]["pck_voc.mAP"] == 0
 
 
 def test_find_frame_pairs_does_not_mutate_gt_labels():
@@ -887,7 +920,8 @@ def test_evaluator_centroid_match(minimal_instance):
 def test_evaluator_centroid_handles_fully_occluded_gt(minimal_instance):
     """Regression: a fully-occluded (all-NaN) GT instance must NOT crash
     centroid matching (scipy cdist/linear_sum_assignment reject NaN). It is
-    counted as a false negative."""
+    counted as a false negative.
+    """
     gt_skeleton = sio.Skeleton(
         nodes=["head", "thorax", "abdomen"],
         edges=[("head", "thorax"), ("thorax", "abdomen")],
@@ -935,7 +969,8 @@ def test_evaluator_centroid_handles_fully_occluded_gt(minimal_instance):
 
 def test_evaluator_centroid_middle_occluded_fn_attribution(minimal_instance):
     """An occluded GT between two matched GTs: the NaN-filter index map must
-    keep TP/FN attribution and matched distances correct."""
+    keep TP/FN attribution and matched distances correct.
+    """
     gt_skeleton = sio.Skeleton(nodes=["a", "b"], edges=[("a", "b")])
     centroid_skeleton = sio.get_centroid_skeleton()
     video = sio.load_slp(minimal_instance).videos[0]
