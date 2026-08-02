@@ -1,5 +1,7 @@
 """This module is to compute evaluation metrics for trained models."""
 
+import json
+import math
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import attrs
@@ -2078,6 +2080,64 @@ def _is_single_node_skeleton(skeleton: "sio.Skeleton") -> bool:
     return len(node_names) == 1
 
 
+def _metrics_to_json_safe(obj: Any) -> Any:
+    """Recursively convert a metrics object into a JSON-serializable form.
+
+    Used to write the ``.json`` sibling of the pickled ``.npz`` metrics file so
+    non-Python consumers (e.g. the sleap-app metrics UI) can read the metrics
+    without unpickling a numpy object array. Conversions:
+
+    - numpy scalar (``np.generic``) -> python ``int`` / ``float`` / ``bool``
+    - numpy ``ndarray`` -> nested python lists
+    - non-finite float (``NaN`` / ``+-Inf``) -> ``None`` (JSON ``null``)
+    - ``dict`` -> element-wise converted dict (keys coerced to ``str``)
+    - ``list`` / ``tuple`` -> element-wise converted list
+    - ``str`` and native JSON scalars pass through unchanged
+
+    Emitting ``null`` (not the string ``"NaN"``) for non-finite values keeps the
+    output valid JSON and lets the app treat missing-node distances as gaps.
+    """
+    if obj is None:
+        return None
+    if isinstance(obj, np.ndarray):
+        # ``.tolist()`` yields nested python lists with python floats/ints;
+        # recurse so NaN/Inf inside the array become ``None``.
+        return _metrics_to_json_safe(obj.tolist())
+    if isinstance(obj, np.generic):
+        # numpy scalar -> python scalar, then fall through to the checks below.
+        obj = obj.item()
+    if isinstance(obj, bool):  # must precede int (bool is a subclass of int)
+        return obj
+    if isinstance(obj, int):
+        return obj
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, str):
+        return obj
+    if isinstance(obj, dict):
+        return {str(k): _metrics_to_json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_metrics_to_json_safe(v) for v in obj]
+    return obj
+
+
+def _write_metrics(save_path: Path, metrics: dict) -> None:
+    """Write ``metrics`` to ``save_path`` (``.npz``) plus a ``.json`` sibling.
+
+    The ``.npz`` is the SLEAP 1.4 format (a single pickled 0-d ``metrics``
+    object array, read back by :func:`load_metrics`) and is kept for
+    back-compat. The ``.json`` sibling shares the same stem
+    (``metrics.{split}.{idx}.json``) and holds the same metrics dict serialized
+    JSON-safely via :func:`_metrics_to_json_safe` so it can be read directly by
+    JavaScript (the sleap-app metrics UI).
+    """
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(save_path, **{"metrics": metrics})
+    json_path = save_path.with_suffix(".json")
+    with open(json_path, "w") as f:
+        json.dump(_metrics_to_json_safe(metrics), f)
+
+
 def run_evaluation(
     ground_truth_path: str,
     predicted_path: str,
@@ -2252,8 +2312,9 @@ def run_evaluation(
         if save_metrics:
             logger.info(f"Saving metrics to {save_metrics}...")
             save_path = Path(save_metrics)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            np.savez_compressed(save_path, **{"metrics": metrics})
+            # Writes the pickled ``.npz`` (back-compat) plus a JSON sibling
+            # with the same stem so the app can read metrics without unpickling.
+            _write_metrics(save_path, metrics)
             logger.info(f"Metrics saved successfully to {save_path}")
 
         return metrics
@@ -2303,8 +2364,9 @@ def run_evaluation(
         if save_metrics:
             logger.info(f"Saving metrics to {save_metrics}...")
             save_path = Path(save_metrics)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            np.savez_compressed(save_path, **{"metrics": metrics})
+            # Writes the pickled ``.npz`` (back-compat) plus a JSON sibling
+            # with the same stem so the app can read metrics without unpickling.
+            _write_metrics(save_path, metrics)
             logger.info(f"Metrics saved successfully to {save_path}")
 
         return metrics
@@ -2322,8 +2384,9 @@ def run_evaluation(
         if save_metrics:
             logger.info(f"Saving metrics to {save_metrics}...")
             save_path = Path(save_metrics)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            np.savez_compressed(save_path, **{"metrics": metrics})
+            # Writes the pickled ``.npz`` (back-compat) plus a JSON sibling
+            # with the same stem so the app can read metrics without unpickling.
+            _write_metrics(save_path, metrics)
             logger.info(f"Metrics saved successfully to {save_path}")
 
         return metrics
@@ -2359,10 +2422,11 @@ def run_evaluation(
     if save_metrics:
         logger.info(f"Saving metrics to {save_metrics}...")
         save_path = Path(save_metrics)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Save metrics in SLEAP 1.4 format (single "metrics" key)
-        np.savez_compressed(save_path, **{"metrics": metrics})
+        # Save metrics in SLEAP 1.4 format (single "metrics" key) plus a JSON
+        # sibling (same stem) that the app metrics UI can read without
+        # unpickling the numpy object array.
+        _write_metrics(save_path, metrics)
         logger.info(f"Metrics saved successfully to {save_path}")
 
     return metrics
