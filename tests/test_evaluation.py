@@ -878,6 +878,13 @@ def test_write_metrics_emits_json_sibling(tmp_path):
         npz_metrics["visibility_metrics"]["tp"]
     )
 
+    # `pcks` (a large n_pairs x n_nodes x n_thresholds boolean array) is pruned
+    # from the JSON view to avoid bloat, but retained in the pickled .npz.
+    assert "pcks" not in loaded["pck_metrics"]
+    assert "pcks" in npz_metrics["pck_metrics"]
+    # The small, useful PCK scalars survive the prune.
+    assert loaded["pck_metrics"]["mPCK"] == pytest.approx(0.5)
+
     # App-loader key shapes: precisions is number[][], AP/recalls are number[].
     assert isinstance(loaded["voc_metrics"]["oks_voc.precisions"], list)
     assert isinstance(loaded["voc_metrics"]["oks_voc.precisions"][0], list)

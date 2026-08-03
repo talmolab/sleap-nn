@@ -2121,6 +2121,29 @@ def _metrics_to_json_safe(obj: Any) -> Any:
     return obj
 
 
+# Large per-pair arrays that are useful only for offline analysis, not for the
+# sleap-app metrics UI, and are dropped from the JSON sibling to keep it lean
+# (they remain in the pickled ``.npz``). ``pck_metrics.pcks`` is an
+# ``n_pairs x n_nodes x n_thresholds`` boolean array that otherwise dominates the
+# JSON file size.
+_JSON_PRUNE_KEYS: dict = {"pck_metrics": ("pcks",)}
+
+
+def _prune_json_bloat(json_safe: Any) -> None:
+    """Drop large, UI-unused arrays from a JSON-safe metrics dict, in place.
+
+    Args:
+        json_safe: A JSON-safe metrics dict (from :func:`_metrics_to_json_safe`).
+    """
+    if not isinstance(json_safe, dict):
+        return
+    for section, keys in _JSON_PRUNE_KEYS.items():
+        sub = json_safe.get(section)
+        if isinstance(sub, dict):
+            for key in keys:
+                sub.pop(key, None)
+
+
 def _write_metrics(save_path: Path, metrics: dict) -> None:
     """Write ``metrics`` to ``save_path`` (``.npz``) plus a ``.json`` sibling.
 
@@ -2128,14 +2151,17 @@ def _write_metrics(save_path: Path, metrics: dict) -> None:
     object array, read back by :func:`load_metrics`) and is kept for
     back-compat. The ``.json`` sibling shares the same stem
     (``metrics.{split}.{idx}.json``) and holds the same metrics dict serialized
-    JSON-safely via :func:`_metrics_to_json_safe` so it can be read directly by
+    JSON-safely via :func:`_metrics_to_json_safe` (minus a few large, UI-unused
+    arrays, see :func:`_prune_json_bloat`) so it can be read directly by
     JavaScript (the sleap-app metrics UI).
     """
     save_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(save_path, **{"metrics": metrics})
     json_path = save_path.with_suffix(".json")
+    json_safe = _metrics_to_json_safe(metrics)
+    _prune_json_bloat(json_safe)
     with open(json_path, "w") as f:
-        json.dump(_metrics_to_json_safe(metrics), f)
+        json.dump(json_safe, f)
 
 
 def run_evaluation(
