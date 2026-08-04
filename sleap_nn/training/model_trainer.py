@@ -1372,6 +1372,71 @@ class ModelTrainer:
                         "val/fg_iou",
                     ]
                 )
+            # Eval-callback keys (only when trainer_config.eval.enabled, mirroring
+            # the callback branching below). These are only computed every
+            # eval.frequency epochs; CSVLoggerCallback NaN-resets them at the
+            # start of each validation epoch so non-eval epochs show NaN instead
+            # of silently repeating the last-computed eval value.
+            if self.config.trainer_config.eval.enabled:
+                if self.model_type == "centroid":
+                    csv_log_keys.extend(
+                        [
+                            "eval/val/centroid_dist_avg",
+                            "eval/val/centroid_dist_median",
+                            "eval/val/centroid_dist_p90",
+                            "eval/val/centroid_dist_p95",
+                            "eval/val/centroid_dist_max",
+                            "eval/val/centroid_precision",
+                            "eval/val/centroid_recall",
+                            "eval/val/centroid_f1",
+                            "eval/val/centroid_n_tp",
+                            "eval/val/centroid_n_fp",
+                            "eval/val/centroid_n_fn",
+                        ]
+                    )
+                elif self.model_type == "semantic_segmentation":
+                    csv_log_keys.extend(
+                        [
+                            "eval/val/fg_mean_iou",
+                            "eval/val/fg_mean_cldice",
+                            "eval/val/fg_mean_boundary_iou",
+                            "eval/val/fg_frame_recall",
+                        ]
+                    )
+                elif self.model_type in (
+                    "bottomup_segmentation",
+                    "centered_instance_segmentation",
+                ):
+                    csv_log_keys.extend(
+                        [
+                            "eval/val/mask_mean_iou",
+                            "eval/val/mask_mean_iou_all_gt",
+                            "eval/val/mask_mean_cldice",
+                            "eval/val/mask_precision",
+                            "eval/val/mask_recall",
+                            "eval/val/mask_f1",
+                            "eval/val/mask_n_tp",
+                            "eval/val/mask_n_fp",
+                            "eval/val/mask_n_fn",
+                        ]
+                    )
+                else:
+                    csv_log_keys.extend(
+                        [
+                            "eval/val/mOKS",
+                            "eval/val/oks_voc_mAP",
+                            "eval/val/oks_voc_mAR",
+                            "eval/val/distance/avg",
+                            "eval/val/distance/p50",
+                            "eval/val/distance/p95",
+                            "eval/val/distance/p99",
+                            "eval/val/mPCK",
+                            "eval/val/PCK_5",
+                            "eval/val/PCK_10",
+                            "eval/val/visibility_precision",
+                            "eval/val/visibility_recall",
+                        ]
+                    )
             csv_logger = CSVLoggerCallback(
                 filepath=Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name

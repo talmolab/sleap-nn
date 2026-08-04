@@ -894,13 +894,14 @@ class TestCSVLoggerCallbackFileOps:
                 assert "epoch" in header
                 assert "train_loss" in header
 
-    def test_on_validation_epoch_end_logs_metrics(self):
-        """Logs metrics to CSV at end of validation epoch."""
+    def test_on_validation_end_logs_metrics(self):
+        """Logs metrics to CSV at end of validation."""
         with tempfile.TemporaryDirectory() as tmpdir:
             filepath = Path(tmpdir) / "metrics.csv"
             callback = CSVLoggerCallback(filepath=filepath)
 
             mock_trainer = MagicMock()
+            mock_trainer.sanity_checking = False
             mock_trainer.is_global_zero = True
             mock_trainer.current_epoch = 5
             mock_trainer.callback_metrics = {
@@ -911,7 +912,7 @@ class TestCSVLoggerCallbackFileOps:
             mock_pl_module = MagicMock()
 
             with patch("sleap_nn.training.callbacks.RANK", 0):
-                callback.on_validation_epoch_end(mock_trainer, mock_pl_module)
+                callback.on_validation_end(mock_trainer, mock_pl_module)
 
             assert filepath.exists()
 
@@ -921,13 +922,14 @@ class TestCSVLoggerCallbackFileOps:
                 assert len(lines) == 2  # Header + data row
                 assert "5" in lines[1]  # Epoch
 
-    def test_on_validation_epoch_end_logs_train_lr_format(self):
+    def test_on_validation_end_logs_train_lr_format(self):
         """Logs learning rate from train/lr key (current format)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             filepath = Path(tmpdir) / "metrics.csv"
             callback = CSVLoggerCallback(filepath=filepath)
 
             mock_trainer = MagicMock()
+            mock_trainer.sanity_checking = False
             mock_trainer.is_global_zero = True
             mock_trainer.current_epoch = 3
             mock_trainer.callback_metrics = {
@@ -940,7 +942,7 @@ class TestCSVLoggerCallbackFileOps:
             mock_pl_module = MagicMock()
 
             with patch("sleap_nn.training.callbacks.RANK", 0):
-                callback.on_validation_epoch_end(mock_trainer, mock_pl_module)
+                callback.on_validation_end(mock_trainer, mock_pl_module)
 
             assert filepath.exists()
 
@@ -953,19 +955,63 @@ class TestCSVLoggerCallbackFileOps:
                 assert row["epoch"] == "3"
                 assert row["learning_rate"].startswith("0.0005")
 
-    def test_on_validation_epoch_end_skips_if_not_global_zero(self):
+    def test_on_validation_end_skips_if_not_global_zero(self):
         """Skips logging if not global rank zero."""
         with tempfile.TemporaryDirectory() as tmpdir:
             filepath = Path(tmpdir) / "metrics.csv"
             callback = CSVLoggerCallback(filepath=filepath)
 
             mock_trainer = MagicMock()
+            mock_trainer.sanity_checking = False
             mock_trainer.is_global_zero = False
             mock_pl_module = MagicMock()
 
-            callback.on_validation_epoch_end(mock_trainer, mock_pl_module)
+            callback.on_validation_end(mock_trainer, mock_pl_module)
 
             assert not filepath.exists()
+
+    def test_on_validation_epoch_start_resets_eval_keys_to_nan(self):
+        """Resets eval/* keys to NaN so non-eval epochs don't carry stale values."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = Path(tmpdir) / "metrics.csv"
+            callback = CSVLoggerCallback(
+                filepath=filepath,
+                keys=["epoch", "train_loss", "eval/val/mOKS"],
+            )
+
+            mock_trainer = MagicMock()
+            mock_trainer.sanity_checking = False
+            mock_trainer.callback_metrics = {
+                "train_loss": torch.tensor(0.5),
+                "eval/val/mOKS": torch.tensor(
+                    0.9
+                ),  # stale value from a prior eval epoch
+            }
+            mock_pl_module = MagicMock()
+
+            callback.on_validation_epoch_start(mock_trainer, mock_pl_module)
+
+            assert torch.isnan(mock_trainer.callback_metrics["eval/val/mOKS"])
+            assert mock_trainer.callback_metrics["train_loss"].item() == 0.5
+
+    def test_on_validation_epoch_start_skips_during_sanity_check(self):
+        """Does not touch callback_metrics during the sanity-check validation run."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = Path(tmpdir) / "metrics.csv"
+            callback = CSVLoggerCallback(
+                filepath=filepath, keys=["epoch", "eval/val/mOKS"]
+            )
+
+            mock_trainer = MagicMock()
+            mock_trainer.sanity_checking = True
+            mock_trainer.callback_metrics = {"eval/val/mOKS": torch.tensor(0.9)}
+            mock_pl_module = MagicMock()
+
+            callback.on_validation_epoch_start(mock_trainer, mock_pl_module)
+
+            assert mock_trainer.callback_metrics[
+                "eval/val/mOKS"
+            ].item() == pytest.approx(0.9)
 
 
 class TestWandBPredImageLogger:
