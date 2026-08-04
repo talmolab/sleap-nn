@@ -741,6 +741,165 @@ def test_load_metrics(single_instance_with_metrics_ckpt, tmp_path):
     assert loaded_old["voc_metrics"]["oks_voc.mAP"] == 0.6
 
 
+def _representative_metrics():
+    """A metrics dict mirroring ``Evaluator.evaluate()`` (OKS mode) output.
+
+    Uses numpy scalars/arrays and embedded NaNs to exercise the JSON-safe
+    conversion the same way a real ``run_evaluation`` result would.
+    """
+    return {
+        "voc_metrics": {
+            "oks_voc.match_score_thresholds": np.linspace(0.5, 0.95, 10),
+            "oks_voc.recall_thresholds": np.linspace(0, 1, 101),
+            "oks_voc.match_scores": np.array([0.9, 0.7, 0.3]),
+            "oks_voc.precisions": np.ones((10, 101)),
+            "oks_voc.recalls": np.array([0.8, 0.6, 0.4, 0.2, 0.1, 0.05, 0.0, 0, 0, 0]),
+            "oks_voc.AP": np.array([0.5, 0.4, 0.3, 0.2, 0.1, 0.05, 0, 0, 0, 0]),
+            "oks_voc.AR": np.array([0.8, 0.6, 0.4, 0.2, 0.1, 0.05, 0, 0, 0, 0]),
+            "oks_voc.mAP": np.float64(0.235),
+            "oks_voc.mAR": np.float64(0.32),
+            "pck_voc.match_score_thresholds": np.linspace(0.5, 0.95, 10),
+            "pck_voc.recall_thresholds": np.linspace(0, 1, 101),
+            "pck_voc.match_scores": np.array([0.95, 0.75, 0.35]),
+            "pck_voc.precisions": np.ones((10, 101)),
+            "pck_voc.recalls": np.array([0.9, 0.7, 0.5, 0.3, 0.2, 0.1, 0, 0, 0, 0]),
+            "pck_voc.AP": np.array([0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0, 0, 0, 0]),
+            "pck_voc.AR": np.array([0.9, 0.7, 0.5, 0.3, 0.2, 0.1, 0, 0, 0, 0]),
+            "pck_voc.mAP": np.float64(0.28),
+            "pck_voc.mAR": np.float64(0.38),
+        },
+        "mOKS": {"mOKS": np.float64(0.6543)},
+        "distance_metrics": {
+            "frame_idxs": [0, 1],
+            "video_paths": ["/data/vid.mp4", "/data/vid.mp4"],
+            # (n_pairs, n_nodes) with a missing node (NaN) -> must become null.
+            "dists": np.array([[1.5, np.nan], [2.0, 3.0]]),
+            "avg": np.float64(2.1667),
+            "p50": np.float64(2.0),
+            "p75": np.float64(2.5),
+            "p90": np.float64(2.8),
+            "p95": np.float64(2.9),
+            "p99": np.float64(2.99),
+        },
+        "pck_metrics": {
+            "thresholds": np.linspace(1, 10, 10),
+            "pcks": np.ones((2, 2, 10), dtype=bool),
+            "mPCK_parts": np.array([0.5, 0.5]),
+            "mPCK": np.float64(0.5),
+            "PCK@5": np.float64(0.75),
+            "PCK@10": np.float64(0.9),
+        },
+        "visibility_metrics": {
+            "tp": np.int64(3),
+            "fp": np.int64(1),
+            "tn": np.int64(0),
+            "fn": np.int64(1),
+            "precision": np.float64(0.75),
+            "recall": np.float64(0.75),
+        },
+    }
+
+
+def test_metrics_to_json_safe_conversions():
+    """``_metrics_to_json_safe`` maps numpy -> python and NaN/Inf -> None."""
+    from sleap_nn.evaluation import _metrics_to_json_safe
+
+    # numpy scalars -> python scalars
+    assert _metrics_to_json_safe(np.float64(1.5)) == 1.5
+    assert isinstance(_metrics_to_json_safe(np.float64(1.5)), float)
+    assert _metrics_to_json_safe(np.int64(3)) == 3
+    assert isinstance(_metrics_to_json_safe(np.int64(3)), int)
+    assert _metrics_to_json_safe(np.bool_(True)) is True
+
+    # non-finite floats -> None (JSON null), never the string "NaN"
+    assert _metrics_to_json_safe(np.float64("nan")) is None
+    assert _metrics_to_json_safe(float("nan")) is None
+    assert _metrics_to_json_safe(float("inf")) is None
+    assert _metrics_to_json_safe(float("-inf")) is None
+
+    # ndarray -> nested lists, NaN inside -> None
+    out = _metrics_to_json_safe(np.array([[1.0, np.nan], [2.0, 3.0]]))
+    assert out == [[1.0, None], [2.0, 3.0]]
+
+    # passthrough for native types
+    assert _metrics_to_json_safe("train") == "train"
+    assert _metrics_to_json_safe({"a": [np.int64(1), np.float64(2.0)]}) == {
+        "a": [1, 2.0]
+    }
+
+
+def test_write_metrics_emits_json_sibling(tmp_path):
+    """``_write_metrics`` writes the .npz AND a JSON sibling matching it.
+
+    Mirrors the existing metrics-write test but exercises the writer directly
+    on a representative metrics dict (no heavy inference/subprocess needed):
+    the JSON sibling exists, ``json.load`` parses it, NaN is serialized as
+    ``null`` (JSON ``None``), and scalar values match the pickled ``.npz``.
+    """
+    import json
+
+    from sleap_nn.evaluation import _write_metrics
+
+    metrics = _representative_metrics()
+    save_path = tmp_path / "metrics.val.0.npz"
+    _write_metrics(save_path, metrics)
+
+    json_path = tmp_path / "metrics.val.0.json"
+    assert save_path.exists()
+    assert json_path.exists()
+
+    # JSON must be valid and parseable (strict=True rejects bare NaN/Infinity).
+    with open(json_path) as f:
+        loaded = json.load(f, parse_constant=_reject_non_json_constant)
+
+    # Same nested structure the app loader expects.
+    assert set(loaded.keys()) == {
+        "voc_metrics",
+        "mOKS",
+        "distance_metrics",
+        "pck_metrics",
+        "visibility_metrics",
+    }
+
+    # NaN in the dists matrix serialized as null (None), not "NaN".
+    assert loaded["distance_metrics"]["dists"] == [[1.5, None], [2.0, 3.0]]
+
+    # Scalar values match the npz round-trip.
+    npz = np.load(save_path, allow_pickle=True)
+    npz_metrics = npz["metrics"].item()
+    assert loaded["mOKS"]["mOKS"] == pytest.approx(float(npz_metrics["mOKS"]["mOKS"]))
+    assert loaded["voc_metrics"]["oks_voc.mAP"] == pytest.approx(
+        float(npz_metrics["voc_metrics"]["oks_voc.mAP"])
+    )
+    assert loaded["pck_metrics"]["PCK@5"] == pytest.approx(
+        float(npz_metrics["pck_metrics"]["PCK@5"])
+    )
+    assert loaded["visibility_metrics"]["tp"] == int(
+        npz_metrics["visibility_metrics"]["tp"]
+    )
+
+    # `pcks` (a large n_pairs x n_nodes x n_thresholds boolean array) is pruned
+    # from the JSON view to avoid bloat, but retained in the pickled .npz.
+    assert "pcks" not in loaded["pck_metrics"]
+    assert "pcks" in npz_metrics["pck_metrics"]
+    # The small, useful PCK scalars survive the prune.
+    assert loaded["pck_metrics"]["mPCK"] == pytest.approx(0.5)
+
+    # App-loader key shapes: precisions is number[][], AP/recalls are number[].
+    assert isinstance(loaded["voc_metrics"]["oks_voc.precisions"], list)
+    assert isinstance(loaded["voc_metrics"]["oks_voc.precisions"][0], list)
+    assert isinstance(loaded["voc_metrics"]["oks_voc.AP"], list)
+    assert isinstance(loaded["distance_metrics"]["frame_idxs"], list)
+    assert loaded["distance_metrics"]["video_paths"] == [
+        "/data/vid.mp4",
+        "/data/vid.mp4",
+    ]
+
+
+def _reject_non_json_constant(name):  # pragma: no cover - only fires on bad JSON
+    raise AssertionError(f"non-JSON constant {name!r} present in output")
+
+
 # ---------------------------------------------------------------------------
 # Centroid-only / single-node distance evaluation
 # ---------------------------------------------------------------------------
