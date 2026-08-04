@@ -73,8 +73,36 @@ class CSVLoggerCallback(Callback):
                 writer.writeheader()
         self.initialized = True
 
-    def on_validation_epoch_end(self, trainer, pl_module):
-        """Log metrics to csv at the end of validation epoch."""
+    def on_validation_epoch_start(self, trainer, pl_module):
+        """Reset eval-callback keys to NaN before this epoch's eval callback runs.
+
+        EpochEndEvaluationCallback / SegmentationEvaluationCallback /
+        CentroidEvaluationCallback only write their ``eval/val/*`` keys into
+        ``trainer.callback_metrics`` on epochs gated by ``eval_frequency``, and
+        Lightning never clears ``callback_metrics`` between epochs (it's reset
+        once at the start of ``fit()``, not per-epoch). Without this reset, a
+        non-eval epoch's CSV row would silently repeat the last-computed eval
+        value instead of showing that eval did not run this epoch.
+        """
+        if trainer.sanity_checking:
+            return
+        import torch
+
+        for key in self.keys:
+            if key.startswith("eval/"):
+                trainer.callback_metrics[key] = torch.tensor(float("nan"))
+
+    def on_validation_end(self, trainer, pl_module):
+        """Log metrics to csv at the end of validation.
+
+        Runs on ``on_validation_end`` (not ``on_validation_epoch_end``) so
+        that it reads ``trainer.callback_metrics`` *after* every callback's
+        ``on_validation_epoch_end`` hook -- including the eval callbacks --
+        has already run this epoch, regardless of callback registration
+        order.
+        """
+        if trainer.sanity_checking:
+            return
         # Access callback_metrics BEFORE the is_global_zero guard so all
         # ranks participate in the implicit all_reduce that fires when
         # sync_dist=True metrics are first read.  Only rank 0 does I/O.

@@ -1659,3 +1659,121 @@ def test_multi_gpu_no_cache_auto_generates_run_name(config, tmp_path, minimal_in
 
         assert trainer.config.trainer_config.run_name is not None
         assert re.match(r"\d{6}_\d{6}\.", trainer.config.trainer_config.run_name)
+
+
+class TestCsvLogKeysEvalMetrics:
+    """`csv_log_keys` (built in `_setup_loggers_callbacks`) must include the
+    `eval/val/*` columns appropriate to `model_type` whenever
+    `trainer_config.eval.enabled` -- otherwise CSVLoggerCallback never has a
+    column to write eval-callback metrics into, regardless of eval frequency.
+    """
+
+    def _csv_logger_keys(self, config, tmp_path, minimal_instance, model_type=None):
+        from sleap_nn.training.callbacks import CSVLoggerCallback
+
+        cfg = config.copy()
+        OmegaConf.update(cfg, "trainer_config.save_ckpt", True)
+        OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+        OmegaConf.update(cfg, "trainer_config.run_name", "csv_log_keys_test")
+        OmegaConf.update(cfg, "trainer_config.eval.enabled", True)
+
+        labels = sio.load_slp(minimal_instance)
+        trainer = ModelTrainer.get_model_trainer_from_config(
+            cfg, train_labels=[labels], val_labels=[labels]
+        )
+        if model_type is not None:
+            trainer.model_type = model_type
+
+        _, callbacks = trainer._setup_loggers_callbacks(
+            viz_train_dataset=None, viz_val_dataset=None
+        )
+        csv_logger = next(c for c in callbacks if isinstance(c, CSVLoggerCallback))
+        return csv_logger.keys
+
+    def test_pose_model_gets_oks_pck_keys(self, config, tmp_path, minimal_instance):
+        """Default `config` fixture model_type is `centered_instance` (pose)."""
+        keys = self._csv_logger_keys(config, tmp_path, minimal_instance)
+        for key in [
+            "eval/val/mOKS",
+            "eval/val/oks_voc_mAP",
+            "eval/val/oks_voc_mAR",
+            "eval/val/distance/avg",
+            "eval/val/mPCK",
+            "eval/val/PCK_5",
+            "eval/val/visibility_precision",
+        ]:
+            assert key in keys
+        # Not present: keys from the other model-type branches.
+        assert "eval/val/centroid_dist_avg" not in keys
+        assert "eval/val/mask_mean_iou" not in keys
+
+    def test_centroid_model_gets_centroid_keys(
+        self, config, tmp_path, minimal_instance
+    ):
+        keys = self._csv_logger_keys(
+            config, tmp_path, minimal_instance, model_type="centroid"
+        )
+        for key in [
+            "eval/val/centroid_dist_avg",
+            "eval/val/centroid_precision",
+            "eval/val/centroid_recall",
+            "eval/val/centroid_f1",
+        ]:
+            assert key in keys
+        assert "eval/val/mOKS" not in keys
+
+    def test_semantic_segmentation_gets_fg_keys(
+        self, config, tmp_path, minimal_instance
+    ):
+        keys = self._csv_logger_keys(
+            config, tmp_path, minimal_instance, model_type="semantic_segmentation"
+        )
+        for key in [
+            "eval/val/fg_mean_iou",
+            "eval/val/fg_mean_cldice",
+            "eval/val/fg_mean_boundary_iou",
+            "eval/val/fg_frame_recall",
+        ]:
+            assert key in keys
+        assert "eval/val/mask_mean_iou" not in keys
+
+    def test_instance_segmentation_gets_mask_keys(
+        self, config, tmp_path, minimal_instance
+    ):
+        keys = self._csv_logger_keys(
+            config, tmp_path, minimal_instance, model_type="bottomup_segmentation"
+        )
+        for key in [
+            "eval/val/mask_mean_iou",
+            "eval/val/mask_mean_iou_all_gt",
+            "eval/val/mask_precision",
+            "eval/val/mask_recall",
+            "eval/val/mask_f1",
+        ]:
+            assert key in keys
+        assert "eval/val/fg_mean_iou" not in keys
+
+    def test_eval_disabled_omits_all_eval_keys(
+        self, config, tmp_path, minimal_instance
+    ):
+        """When `eval.enabled` is False (the default), no `eval/val/*` column is
+        added regardless of model_type -- CSVLoggerCallback keeps its existing
+        loss/throughput-only column set.
+        """
+        from sleap_nn.training.callbacks import CSVLoggerCallback
+
+        cfg = config.copy()
+        OmegaConf.update(cfg, "trainer_config.save_ckpt", True)
+        OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+        OmegaConf.update(cfg, "trainer_config.run_name", "csv_log_keys_disabled_test")
+        OmegaConf.update(cfg, "trainer_config.eval.enabled", False)
+
+        labels = sio.load_slp(minimal_instance)
+        trainer = ModelTrainer.get_model_trainer_from_config(
+            cfg, train_labels=[labels], val_labels=[labels]
+        )
+        _, callbacks = trainer._setup_loggers_callbacks(
+            viz_train_dataset=None, viz_val_dataset=None
+        )
+        csv_logger = next(c for c in callbacks if isinstance(c, CSVLoggerCallback))
+        assert not any(key.startswith("eval/") for key in csv_logger.keys)
