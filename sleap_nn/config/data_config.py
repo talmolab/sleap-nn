@@ -620,6 +620,19 @@ def data_mapper(legacy_config: dict) -> DataConfig:
             "scale_max"
         ]
 
+    if legacy_config_optimization.get("augmentation_config", {}).get(
+        "random_flip", False
+    ):
+        if legacy_config_optimization["augmentation_config"].get(
+            "flip_horizontal", True
+        ):
+            geometric_args["flip_p"] = 0.5
+        else:
+            logger.warning(
+                "Legacy config has vertical flip (flip_horizontal=False) enabled; "
+                "vertical flip is not supported in sleap-nn and will be dropped."
+            )
+
     geometric_args["affine_p"] = (
         1.0
         if any(
