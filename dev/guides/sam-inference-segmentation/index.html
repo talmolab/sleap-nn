@@ -7326,25 +7326,28 @@ batched call) is unit-tested against a mocked SAM3.</p>
 as a pose file and masks are produced from its existing instances — there is <strong>no
 trained segmentation model</strong>, so <code>--mask_backend</code> is <strong>mutually exclusive with
 <code>--model_paths</code></strong> (do not pass it). The <code>.slp</code> output is saved like the regular
-prediction path — by default images are <strong>not</strong> re-embedded; the output
-backreferences the input's source media via provenance (small output; a
-<code>.pkg.slp</code> input stays matchable to its source videos), and the masks always
-serialize into the <code>.slp</code>. Only <code>--output_format slp</code> is supported (the SLEAP
-Analysis HDF5 format stores poses/tracks, not segmentation masks).</p>
+prediction path — by default images are <strong>not</strong> re-embedded, and the output
+backreferences the input file itself (small output; a <code>.pkg.slp</code> input stays
+matchable to itself, not to a pre-embedding source video that's often not on
+disk), and the masks always serialize into the <code>.slp</code>. Only <code>--output_format slp</code>
+is supported (the SLEAP Analysis HDF5 format stores poses/tracks, not
+segmentation masks).</p>
 <h3 id="controlling-image-embedding-embed-restore_source_videos">Controlling image embedding (<code>--embed</code> / <code>--restore_source_videos</code>)<a class="headerlink" href="#controlling-image-embedding-embed-restore_source_videos" title="Permanent link">&para;</a></h3>
 <p>Two independent flags (also <code>embed</code> / <code>restore_source_videos</code> API kwargs on
 <code>predict</code> and <code>run_sam_segmentation</code>) control how the output <code>.slp</code> references
-image data. The defaults preserve today's behavior exactly.</p>
+image data.</p>
 <ul>
 <li><code>--embed</code> (<code>auto</code> | <code>true</code> | <code>false</code>, default <code>false</code>): the embedding policy.
-  <code>false</code> never embeds and backreferences the source media (today's behavior);
+  <code>false</code> never embeds and backreferences the input file (default behavior);
   <code>true</code> embeds images into a self-contained <code>.pkg.slp</code>-style output; <code>auto</code>
   embeds only when the input was itself an embedded <code>.pkg.slp</code>.</li>
 <li><code>--restore_source_videos</code> / <code>--no-restore_source_videos</code> (default
-  <code>--restore_source_videos</code>): on a non-embedding save, restore references to the
-  original source video files (provenance), or use <code>--no-restore_source_videos</code>
-  to keep references to the input <code>.pkg.slp</code> file(s) instead. Ignored when
-  embedding. Maps to sleap-io's <code>restore_original_videos</code>.</li>
+  <code>--no-restore_source_videos</code>): on a non-embedding save, keep references to the
+  input <code>.pkg.slp</code> file(s) (default) — the pixels are already there, and the
+  pre-embedding source video is often unavailable — or use
+  <code>--restore_source_videos</code> to instead restore references to the original
+  pre-embedding source video files, when recorded. Ignored when embedding. Maps
+  to sleap-io's <code>restore_original_videos</code>.</li>
 </ul>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Embed images into a self-contained output .pkg.slp:</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>poses.pkg.slp<span class="w"> </span>--mask_backend<span class="w"> </span>sam<span class="w"> </span><span class="se">\</span>
