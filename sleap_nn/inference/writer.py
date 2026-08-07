@@ -209,6 +209,9 @@ class IncrementalLabelsWriter:
         tmp.parent.mkdir(parents=True, exist_ok=True)
         # Pass the format explicitly: ``sio.Labels.save`` infers from the
         # filename suffix, but our ``.tmp`` suffix isn't recognized.
-        labels.save(str(tmp), format="slp")
+        # restore_original_videos=False matches the non-streaming path's
+        # default (PRESERVE_SOURCE): a .pkg.slp input backreferences itself,
+        # not a pre-embedding source video that's often not on disk.
+        labels.save(str(tmp), format="slp", restore_original_videos=False)
         # Atomic rename — no half-written file on the destination path.
         tmp.replace(self.path)

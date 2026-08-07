@@ -1751,14 +1751,30 @@ class ModelTrainer:
             ):
                 # TRAIN decouple: the tiling knob overrides the tile-count length.
                 train_steps_per_epoch = tiling.steps_per_epoch
+                logger.info(
+                    f"train_steps_per_epoch not set; using tiling.steps_per_epoch={train_steps_per_epoch}"
+                )
             else:
                 train_steps_per_epoch = get_steps_per_epoch(
                     dataset=train_dataset,
                     batch_size=self.config.trainer_config.train_data_loader.batch_size,
                 )
-        if self.config.trainer_config.min_train_steps_per_epoch > train_steps_per_epoch:
-            train_steps_per_epoch = self.config.trainer_config.min_train_steps_per_epoch
+                logger.info(
+                    f"train_steps_per_epoch not set; computed {train_steps_per_epoch} from training dataset"
+                )
+        else:
+            logger.info(
+                f"Using configured train_steps_per_epoch={train_steps_per_epoch}"
+            )
+        min_train_steps_per_epoch = self.config.trainer_config.min_train_steps_per_epoch
+        if min_train_steps_per_epoch > train_steps_per_epoch:
+            logger.info(
+                f"train_steps_per_epoch={train_steps_per_epoch} is below "
+                f"min_train_steps_per_epoch={min_train_steps_per_epoch}; using the minimum"
+            )
+            train_steps_per_epoch = min_train_steps_per_epoch
         self.config.trainer_config.train_steps_per_epoch = train_steps_per_epoch
+        logger.info(f"Final train_steps_per_epoch={train_steps_per_epoch}")
 
         # VAL: always full-coverage (every grid tile visited once), NOT decoupled.
         val_steps_per_epoch = get_steps_per_epoch(

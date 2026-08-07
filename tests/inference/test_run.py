@@ -432,13 +432,13 @@ def test_save_predictions_forwards_embed_and_restore_to_labels_save():
     assert labels.save.call_args.kwargs["restore_original_videos"] is False
 
 
-def test_save_predictions_default_embed_false_restore_true():
-    """Defaults preserve today's behavior: embed=False, restore=True."""
+def test_save_predictions_default_embed_false_restore_false():
+    """Defaults: embed=False, restore_source_videos=False (PRESERVE_SOURCE)."""
     labels = MagicMock()
     labels.videos = []
     save_predictions(labels, "out.slp", output_format="slp")
     assert labels.save.call_args.kwargs["embed"] is False
-    assert labels.save.call_args.kwargs["restore_original_videos"] is True
+    assert labels.save.call_args.kwargs["restore_original_videos"] is False
 
 
 def test_save_predictions_embed_true_writes_self_contained_slp(
@@ -500,4 +500,38 @@ def test_predict_default_embed_restore_forwarded(tmp_path):
             output_path=str(out),
         )
     assert mock_save.call_args.kwargs["embed"] == "false"
-    assert mock_save.call_args.kwargs["restore_source_videos"] is True
+    assert mock_save.call_args.kwargs["restore_source_videos"] is False
+
+
+def test_predict_on_pkg_slp_default_references_pkg_slp_not_source_video(
+    minimal_instance, tmp_path
+):
+    """Real end-to-end regression: a ``.pkg.slp`` input keeps referencing itself.
+
+    ``VideoProvider``/``LabelsProvider`` close the shared ``sio.Video`` to make
+    a cheap deepcopy for the prefetch thread (see
+    ``providers._reopen_after_thread_local_copy``); left closed, the video's
+    ``backend`` is ``None`` at save time, sleap-io's embedded-image detection
+    in ``write_videos`` silently misses it, and the output re-serializes stale
+    backend metadata whose ``filename: "."`` self-reference convention only
+    holds inside the *original* file -- producing an output that (on reload)
+    references itself instead of the ``.pkg.slp``. Locks that this is fixed:
+    the backend is reopened before saving, so the output backreferences the
+    input ``.pkg.slp`` (default ``restore_source_videos=False``), and its
+    embedded image still loads.
+    """
+    ckpt_root = Path(__file__).resolve().parents[1] / "assets" / "model_ckpts"
+    out_path = tmp_path / "out.predictions.slp"
+
+    result = predict(
+        str(minimal_instance),
+        model_paths=[str(ckpt_root / "minimal_instance_single_instance")],
+        device="cpu",
+        output_path=str(out_path),
+    )
+    assert result.videos[0].backend is not None
+
+    reloaded = sio.load_slp(out_path.as_posix())
+    assert Path(reloaded.videos[0].filename).name == "minimal_instance.pkg.slp"
+    # The embedded image must still be readable from the reloaded reference.
+    assert reloaded[0].image is not None

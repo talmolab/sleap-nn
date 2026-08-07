@@ -1683,7 +1683,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         ),
         "output_format": kwargs.get("output_format") or ("slp",),
         "embed": kwargs.get("embed") or "false",
-        "restore_source_videos": kwargs.get("restore_source_videos", True),
+        "restore_source_videos": kwargs.get("restore_source_videos", False),
         # Bottom-up PAF grouping knobs (inert for non-bottom-up models). #583.
         "max_edge_length_ratio": kwargs.get("max_edge_length_ratio", 0.25),
         "dist_penalty_weight": kwargs.get("dist_penalty_weight", 1.0),
@@ -1878,7 +1878,7 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
         output_path,
         output_format=kwargs.get("output_format") or ("slp",),
         embed=kwargs.get("embed") or "false",
-        restore_source_videos=kwargs.get("restore_source_videos", True),
+        restore_source_videos=kwargs.get("restore_source_videos", False),
     )
     return out
 
@@ -2107,12 +2107,12 @@ def _run_stream_to_file(
             "--stream-to-file to write analysis HDF5 via the in-memory path."
         )
     if (kwargs.get("embed") or "false") != "false" or (
-        kwargs.get("restore_source_videos", True) is False
+        kwargs.get("restore_source_videos", False) is True
     ):
         raise click.UsageError(
             "--embed / --restore_source_videos are not supported with "
-            "--stream-to-file: the incremental writer saves with sleap-io "
-            "defaults (no embedding, original-video refs restored). Drop "
+            "--stream-to-file: the incremental writer always saves with "
+            "no embedding and .pkg.slp references preserved. Drop "
             "--stream-to-file to control embedding."
         )
     if not kwargs.get("model_paths"):
@@ -2319,11 +2319,13 @@ def _common_inference_options(f):
         click.option(
             "--restore_source_videos/--no-restore_source_videos",
             "restore_source_videos",
-            default=True,
-            help="On a non-embedding .slp save, restore references to the "
-            "original source video files (default). Use "
-            "--no-restore_source_videos to keep references to the input "
-            ".pkg.slp file(s) instead. Ignored when embedding.",
+            default=False,
+            help="On a non-embedding .slp save, keep references to the input "
+            ".pkg.slp file(s) (default) -- the pixels are already there, and "
+            "the pre-embedding source video is often unavailable. Use "
+            "--restore_source_videos to instead restore references to the "
+            "original pre-embedding source video files, when recorded. "
+            "Ignored when embedding.",
         ),
         click.option(
             "--device",
