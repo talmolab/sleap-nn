@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Iterator, Optional, Protocol, Union
 import attrs
 import numpy as np
 import torch
+from loguru import logger
 
 if TYPE_CHECKING:
     import sleap_io as sio
@@ -36,6 +37,28 @@ if TYPE_CHECKING:
 # Sentinel marking end-of-stream on a prefetch queue; a plain `object()` so it
 # can never collide with a real `Batch` or exception payload.
 _SENTINEL = object()
+
+
+def _reopen_after_thread_local_copy(video: "sio.Video") -> None:
+    """Re-materialize ``video.backend`` after it was closed to make a cheap copy.
+
+    ``_thread_local_video``/``_thread_local_video_map`` close the *shared*
+    video (so ``deepcopy`` clones cheap path/config state, not a live handle)
+    before handing a private copy to the prefetch thread. Left closed, the
+    shared video — which is what ends up in the final output ``Labels`` for
+    saving — has ``backend=None``; sleap-io's embedded-image detection in
+    ``write_videos`` requires an actually-materialized ``HDF5Video`` instance,
+    so a closed embedded video silently falls back to re-serializing stale
+    backend metadata (whose ``filename: "."`` self-reference convention is
+    only valid inside its *original* file) into the new output file. Reopening
+    here restores a live backend on the shared video so save-time embedded
+    detection works. Best-effort: if the source is genuinely no longer
+    reachable, leave it closed rather than raising out of a prefetch setup path.
+    """
+    try:
+        video.open()
+    except Exception as e:
+        logger.debug(f"Could not reopen video backend after thread-local copy: {e}")
 
 
 class _ProducerError:
@@ -203,11 +226,15 @@ class VideoProvider:
         sharing ``self._sio_video`` with the background thread can silently
         return the wrong frame. Closing first drops the cached handle so
         ``deepcopy`` clones cheap (path + config) state rather than a live
-        handle; both the original and the copy lazily reopen independent
-        handles on next access.
+        handle. The copy lazily reopens its own handle on next access; the
+        shared original does not reopen on its own (``backend`` is a plain
+        attribute, not a lazy property), so it is explicitly reopened here —
+        it is also what ends up in the final output ``Labels`` for saving.
         """
         self._sio_video.close()
-        return deepcopy(self._sio_video)
+        thread_local = deepcopy(self._sio_video)
+        _reopen_after_thread_local_copy(self._sio_video)
+        return thread_local
 
     def _prefetch_worker(
         self, video: "sio.Video", q: "queue.Queue", stop_event: threading.Event
@@ -505,12 +532,16 @@ class LabelsProvider:
 
         Mirrors :meth:`VideoProvider._thread_local_video`: closing first drops
         each video's cached backend handle so ``deepcopy`` clones cheap
-        (path + config) state rather than a live, non-thread-safe handle.
+        (path + config) state rather than a live, non-thread-safe handle. Each
+        shared original is reopened afterward (see
+        ``_reopen_after_thread_local_copy``) since it is also what ends up in
+        ``self._sio_labels.videos`` / the final output ``Labels`` for saving.
         """
         mapping = {}
         for video in self._sio_labels.videos:
             video.close()
             mapping[id(video)] = deepcopy(video)
+            _reopen_after_thread_local_copy(video)
         return mapping
 
     def _prefetch_worker(

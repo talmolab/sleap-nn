@@ -1215,7 +1215,7 @@ def test_predict_forwards_embed_and_restore(tmp_path):
 
 
 def test_predict_embed_restore_defaults(tmp_path):
-    """Without the new flags, predict() gets the byte-for-byte defaults (#652)."""
+    """Without the new flags, predict() gets the byte-for-byte defaults."""
     out = tmp_path / "out.slp"
     runner = CliRunner()
     with patch(
@@ -1238,11 +1238,11 @@ def test_predict_embed_restore_defaults(tmp_path):
     assert mock_predict.called
     call_kwargs = mock_predict.call_args[1]
     assert call_kwargs["embed"] == "false"
-    assert call_kwargs["restore_source_videos"] is True
+    assert call_kwargs["restore_source_videos"] is False
 
 
-def test_predict_embed_restore_explicit_defaults_accepted(tmp_path):
-    """Explicit default values for the new flags parse and forward (#652).
+def test_predict_embed_restore_explicit_nondefault_accepted(tmp_path):
+    """Explicitly requesting the non-default ``--restore_source_videos`` works.
 
     Unlike the bare-default test above (which would still pass if the options
     were deleted, because the kwargs fall back to the same defaults), this
