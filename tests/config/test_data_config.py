@@ -231,6 +231,44 @@ def test_data_mapper():
     assert config.skeletons == None
 
 
+def test_data_mapper_flip(caplog):
+    """Test that legacy random_flip/flip_horizontal map to the new flip_p field."""
+    base_legacy_config = {
+        "data": {
+            "labels": {
+                "training_labels": "notMISSING",
+                "validation_labels": "notMISSING",
+            },
+        },
+        "optimization": {"augmentation_config": {}},
+    }
+
+    # random_flip disabled -> flip_p stays at default (0.0)
+    config = data_mapper(base_legacy_config)
+    assert config.augmentation_config.geometric.flip_p == 0.0
+
+    # random_flip enabled + horizontal -> flip_p is set
+    horizontal_config = {
+        "data": base_legacy_config["data"],
+        "optimization": {
+            "augmentation_config": {"random_flip": True, "flip_horizontal": True}
+        },
+    }
+    config = data_mapper(horizontal_config)
+    assert config.augmentation_config.geometric.flip_p == 0.5
+
+    # random_flip enabled + vertical -> unsupported, flip_p stays at default and warns
+    vertical_config = {
+        "data": base_legacy_config["data"],
+        "optimization": {
+            "augmentation_config": {"random_flip": True, "flip_horizontal": False}
+        },
+    }
+    config = data_mapper(vertical_config)
+    assert config.augmentation_config.geometric.flip_p == 0.0
+    assert "vertical flip" in caplog.text
+
+
 def test_validate_test_file_path():
     """Test the validate_test_file_path validator function."""
     # Test with None (should pass)
