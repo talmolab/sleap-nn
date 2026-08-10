@@ -7,6 +7,7 @@ supported model type and return correct ``LoadedAssets``.
 from __future__ import annotations
 
 import gc
+import shutil
 from pathlib import Path
 
 import pytest
@@ -206,6 +207,54 @@ def test_load_topdown_input_scale_override_reaches_both_stages():
     )
     assert assets.inference_model.centroid_crop.input_scale == override
     assert assets.inference_model.instance_peaks.input_scale == override
+
+
+def _copy_ckpt_with_scale(src: Path, dst: Path, scale: float) -> Path:
+    """Copy a checkpoint dir to *dst*, overriding ``data_config.preprocessing.scale``."""
+    shutil.copytree(src, dst)
+    cfg = OmegaConf.load(str(dst / "training_config.yaml"))
+    cfg.data_config.preprocessing.scale = scale
+    OmegaConf.save(cfg, str(dst / "training_config.yaml"))
+    return dst
+
+
+def test_load_topdown_default_scale_is_per_stage_not_shared(tmp_path):
+    """Each stage must default to ITS OWN trained scale, not a shared value.
+
+    Regression test for #725: ``crop_size`` gets an explicit "force from the
+    confmap config" override in ``_build_topdown``, but ``scale`` did not, so
+    the *first* ``_resolve_preprocess_config`` call (centroid) filled the
+    shared ``preprocess_config.scale`` and the second call (confmap) silently
+    left it untouched -- the centered-instance stage inherited the centroid
+    model's scale. Both fixture checkpoints train at scale=1.0 by default,
+    which never exercises this path, so the scales are patched apart here.
+    """
+    if not (CENTROID_CKPT.exists() and CENTERED_CKPT.exists()):
+        pytest.skip("topdown ckpts absent")
+    centroid_dir = _copy_ckpt_with_scale(
+        CENTROID_CKPT, tmp_path / "centroid", scale=0.5
+    )
+    centered_dir = _copy_ckpt_with_scale(
+        CENTERED_CKPT, tmp_path / "centered_instance", scale=1.0
+    )
+    assets, _ = load_model_assets([str(centroid_dir), str(centered_dir)], device="cpu")
+    assert assets.inference_model.centroid_crop.input_scale == 0.5
+    assert assets.inference_model.instance_peaks.input_scale == 1.0
+
+
+def test_load_topdown_multiclass_default_scale_is_per_stage_not_shared(tmp_path):
+    """Same regression as above (#725), for the multiclass top-down builder."""
+    if not (CENTROID_CKPT.exists() and MULTICLASS_TD_CKPT.exists()):
+        pytest.skip("topdown-multiclass ckpts absent")
+    centroid_dir = _copy_ckpt_with_scale(
+        CENTROID_CKPT, tmp_path / "centroid", scale=0.5
+    )
+    confmap_dir = _copy_ckpt_with_scale(
+        MULTICLASS_TD_CKPT, tmp_path / "multiclass_centered_instance", scale=1.0
+    )
+    assets, _ = load_model_assets([str(centroid_dir), str(confmap_dir)], device="cpu")
+    assert assets.inference_model.centroid_crop.input_scale == 0.5
+    assert assets.inference_model.instance_peaks.input_scale == 1.0
 
 
 def test_load_topdown_multiclass(topdown_multiclass_assets):

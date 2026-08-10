@@ -1,3 +1,4 @@
+import shutil
 import sleap_io as sio
 from pathlib import Path
 import numpy as np
@@ -1040,6 +1041,73 @@ def test_topdown_predictor_input_scale_override_reaches_both_stages(
     )
     assert predictor.inference_model.centroid_crop.input_scale == override
     assert predictor.inference_model.instance_peaks.input_scale == override
+
+
+def _copy_ckpt_with_scale(src: Path, dst: Path, scale: float) -> Path:
+    """Copy a checkpoint dir to *dst*, overriding ``data_config.preprocessing.scale``."""
+    shutil.copytree(src, dst)
+    cfg = OmegaConf.load(str(dst / "training_config.yaml"))
+    cfg.data_config.preprocessing.scale = scale
+    OmegaConf.save(cfg, str(dst / "training_config.yaml"))
+    return dst
+
+
+def test_topdown_predictor_default_scale_is_per_stage_not_shared(
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    tmp_path,
+):
+    """Each stage must default to ITS OWN trained scale, not a shared value.
+
+    Regression test for the `track`-side half of #725: `TopDownPredictor`
+    used to build both `centroid_crop_layer.input_scale` and
+    `instance_peaks_layer.input_scale` from the same shared
+    `self.preprocess_config.scale`, resolved from whichever config
+    (`centroid_config` or `confmap_config`) happened to fill it first. Both
+    fixture checkpoints train at scale=1.0 by default, which never exercises
+    this path, so the scales are patched apart here. `Predictor.from_model_paths`
+    also used to call `TopDownPredictor.from_trained_models` twice (a discarded
+    centroid-only call, then the real call), mutating the shared
+    `preprocess_config` object in place on the first call and corrupting the
+    second -- covered here too since this test goes through `from_model_paths`,
+    not `TopDownPredictor.from_trained_models` directly.
+    """
+    centroid_dir = _copy_ckpt_with_scale(
+        minimal_instance_centroid_ckpt, tmp_path / "centroid", scale=0.5
+    )
+    centered_dir = _copy_ckpt_with_scale(
+        minimal_instance_centered_instance_ckpt,
+        tmp_path / "centered_instance",
+        scale=1.0,
+    )
+    predictor = Predictor.from_model_paths(
+        [str(centroid_dir), str(centered_dir)],
+        preprocess_config=_scale_only_preprocess_config(None),
+    )
+    assert predictor.inference_model.centroid_crop.input_scale == 0.5
+    assert predictor.inference_model.instance_peaks.input_scale == 1.0
+
+
+def test_multiclass_topdown_predictor_default_scale_is_per_stage_not_shared(
+    minimal_instance_centroid_ckpt,
+    minimal_instance_multi_class_topdown_ckpt,
+    tmp_path,
+):
+    """Same regression as above, for `TopDownMultiClassPredictor`."""
+    centroid_dir = _copy_ckpt_with_scale(
+        minimal_instance_centroid_ckpt, tmp_path / "centroid", scale=0.5
+    )
+    confmap_dir = _copy_ckpt_with_scale(
+        minimal_instance_multi_class_topdown_ckpt,
+        tmp_path / "multiclass_centered_instance",
+        scale=1.0,
+    )
+    predictor = Predictor.from_model_paths(
+        [str(centroid_dir), str(confmap_dir)],
+        preprocess_config=_scale_only_preprocess_config(None),
+    )
+    assert predictor.inference_model.centroid_crop.input_scale == 0.5
+    assert predictor.inference_model.instance_peaks.input_scale == 1.0
 
 
 def test_single_instance_predictor_input_scale_override_end_to_end_coords_in_bounds(
