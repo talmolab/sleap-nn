@@ -1459,6 +1459,7 @@ class Predictor:
                 provider = LabelsProvider(
                     labels=labels,
                     batch_size=self.batch_size,
+                    frames=frames,
                     **provider_kwargs,
                 )
                 return provider, (list(labels.videos) if labels.videos else None)
@@ -1487,6 +1488,7 @@ class Predictor:
             provider = LabelsProvider(
                 labels=source,
                 batch_size=self.batch_size,
+                frames=frames,
                 **provider_kwargs,
             )
             videos = list(source.videos) if source.videos else None

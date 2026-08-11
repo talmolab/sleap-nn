@@ -1438,6 +1438,7 @@ class TopDownPredictor(Predictor):
                 only_suggested_frames=only_suggested_frames,
                 exclude_user_labeled=exclude_user_labeled,
                 only_predicted_frames=only_predicted_frames,
+                frames=frames,
             )
             self.videos = self.pipeline.labels.videos
 
@@ -1937,6 +1938,7 @@ class SingleInstancePredictor(Predictor):
                 only_suggested_frames=only_suggested_frames,
                 exclude_user_labeled=exclude_user_labeled,
                 only_predicted_frames=only_predicted_frames,
+                frames=frames,
             )
             self.videos = self.pipeline.labels.videos
 
@@ -2423,6 +2425,7 @@ class BottomUpPredictor(Predictor):
                 only_suggested_frames=only_suggested_frames,
                 exclude_user_labeled=exclude_user_labeled,
                 only_predicted_frames=only_predicted_frames,
+                frames=frames,
             )
 
             self.videos = self.pipeline.labels.videos
@@ -2987,6 +2990,7 @@ class BottomUpMultiClassPredictor(Predictor):
                 only_suggested_frames=only_suggested_frames,
                 exclude_user_labeled=exclude_user_labeled,
                 only_predicted_frames=only_predicted_frames,
+                frames=frames,
             )
 
             self.videos = self.pipeline.labels.videos
@@ -3866,6 +3870,7 @@ class TopDownMultiClassPredictor(Predictor):
                 only_suggested_frames=only_suggested_frames,
                 exclude_user_labeled=exclude_user_labeled,
                 only_predicted_frames=only_predicted_frames,
+                frames=frames,
             )
             self.videos = self.pipeline.labels.videos
 
