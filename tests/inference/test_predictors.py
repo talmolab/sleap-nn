@@ -1110,13 +1110,13 @@ def test_multiclass_topdown_predictor_default_scale_is_per_stage_not_shared(
     assert predictor.inference_model.instance_peaks.input_scale == 1.0
 
 
-def test_topdown_predictor_mismatched_scale_coords_pinned(
+def test_topdown_predictor_mismatched_scale_coords_differ_from_shared_scale_bug(
     minimal_instance_centroid_ckpt,
     minimal_instance_centered_instance_ckpt,
     centered_instance_video,
     tmp_path,
 ):
-    """Golden/snapshot guard: pins exact predicted coordinates end to end.
+    """End-to-end guard: pins that fixed per-stage scale changes predicted coords.
 
     The attribute-level tests above check that each stage keeps its own
     `input_scale`, but don't exercise the actual forward pass. This one does,
@@ -1126,12 +1126,19 @@ def test_topdown_predictor_mismatched_scale_coords_pinned(
     produces the SAME instance count across a 0.15x-3x scale range -- the
     models are too small/robust for lost detections to show up in a count.
     Predicted *coordinates* do shift measurably (confirmed up to ~67px on a
-    96x96 crop), so this test pins those instead. If topdown scale-sharing
-    regresses again, this will catch it even if it doesn't collapse detections
-    the way it did on a real, larger model.
+    96x96 crop), so this test compares those instead.
 
-    Golden values recorded from a single deterministic run of the current
-    (fixed) pipeline -- confirmed byte-identical across repeated runs.
+    Deliberately NOT a golden/snapshot test pinning a literal recorded array:
+    an earlier version of this test did that and was flaky across CI
+    platforms (mac/ubuntu/windows CPU backends produce measurably different
+    conv/pooling reduction order, enough to shift which pixel wins an
+    argmax-based peak -- tens of px apart on some elements, not just
+    sub-pixel float noise). Instead, this reconstructs the pre-fix bug
+    in-process (forcing the confmap stage to share the centroid stage's
+    scale, exactly what the bug did) and asserts the two coordinate sets
+    differ substantially -- a comparison that's robust to whatever a given
+    CI platform's own numerics look like, since both sides run on the same
+    platform in the same process.
     """
     centroid_dir = _copy_ckpt_with_scale(
         minimal_instance_centroid_ckpt, tmp_path / "centroid", scale=1.0
@@ -1141,41 +1148,30 @@ def test_topdown_predictor_mismatched_scale_coords_pinned(
         tmp_path / "centered_instance",
         scale=0.5,
     )
-    predictor = Predictor.from_model_paths(
-        [str(centroid_dir), str(centered_dir)],
-        peak_threshold=0.03,
-        max_instances=6,
-        preprocess_config=_scale_only_preprocess_config(None),
-    )
-    predictor.make_pipeline(centered_instance_video.as_posix(), frames=list(range(5)))
-    output = predictor.predict(make_labels=True)
-    coords = np.concatenate([inst.numpy() for lf in output for inst in lf.instances])
 
-    golden = np.array(
-        [
-            [95.950279, 201.836700],
-            [146.684677, 161.575989],
-            [211.206467, 189.888184],
-            [212.050568, 190.249908],
-            [96.069702, 201.522675],
-            [147.012451, 161.808167],
-            [211.269058, 189.270691],
-            [212.148224, 189.673065],
-            [96.311562, 202.784027],
-            [147.091812, 163.930878],
-            [210.216873, 189.312256],
-            [211.247314, 189.817810],
-            [97.070450, 202.523865],
-            [147.734528, 163.942291],
-            [209.834549, 189.232178],
-            [210.711349, 190.128693],
-            [97.703575, 203.105042],
-            [145.604309, 167.835220],
-            [209.265564, 189.009277],
-            [256.112091, 180.818771],
-        ]
-    )
-    np.testing.assert_allclose(coords, golden, atol=0.5)
+    def _predict_coords(force_shared_scale: bool) -> np.ndarray:
+        predictor = Predictor.from_model_paths(
+            [str(centroid_dir), str(centered_dir)],
+            peak_threshold=0.03,
+            max_instances=6,
+            preprocess_config=_scale_only_preprocess_config(None),
+        )
+        if force_shared_scale:
+            # Reconstruct the pre-fix bug: both stages share one scale.
+            predictor.inference_model.instance_peaks.input_scale = (
+                predictor.inference_model.centroid_crop.input_scale
+            )
+        predictor.make_pipeline(
+            centered_instance_video.as_posix(), frames=list(range(5))
+        )
+        output = predictor.predict(make_labels=True)
+        return np.concatenate([inst.numpy() for lf in output for inst in lf.instances])
+
+    fixed_coords = _predict_coords(force_shared_scale=False)
+    buggy_coords = _predict_coords(force_shared_scale=True)
+
+    assert fixed_coords.shape == buggy_coords.shape
+    assert np.nanmax(np.abs(fixed_coords - buggy_coords)) > 5.0
 
 
 def test_single_instance_predictor_input_scale_override_end_to_end_coords_in_bounds(
