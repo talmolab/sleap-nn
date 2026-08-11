@@ -734,12 +734,34 @@ class ModelTrainer:
         """Setup node, edge and class names in head config."""
         # if edges and part names aren't set in head configs, get it from labels object.
         head_config = self.config.model_config.head_configs[self.model_type]
+        skeleton_node_names = list(self.skeletons[0].node_names)
         for key in head_config:
             if "part_names" in head_config[key].keys():
                 if head_config[key]["part_names"] is None:
                     self.config.model_config.head_configs[self.model_type][key][
                         "part_names"
                     ] = self.skeletons[0].node_names
+                elif list(head_config[key]["part_names"]) != skeleton_node_names:
+                    # GT confidence-map generation always produces one channel
+                    # per node in the skeleton (custom_datasets.py's
+                    # generate_confmaps has no part_names/subset parameter), while
+                    # the head's own output channel count is len(part_names). An
+                    # explicit part_names that's shorter, longer, or reordered
+                    # relative to the skeleton silently mismatches those two
+                    # channel counts (a confusing tensor-shape error deep in the
+                    # loss) or silently mislabels channels (if the same length
+                    # but reordered). Catch it here, fail-fast, before any data
+                    # loading/model construction.
+                    message = (
+                        f"model_config.head_configs.{self.model_type}.{key}"
+                        f".part_names must exactly match the skeleton's node "
+                        f"names (in order) -- partial/reordered subsets are not "
+                        f"supported. Got {list(head_config[key]['part_names'])!r}, "
+                        f"skeleton has {skeleton_node_names!r}. Set part_names to "
+                        f"null to use the full skeleton automatically."
+                    )
+                    logger.error(message)
+                    raise ValueError(message)
 
             if "edges" in head_config[key].keys():
                 if head_config[key]["edges"] is None:
