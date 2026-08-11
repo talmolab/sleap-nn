@@ -659,12 +659,31 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
             centered_instance_layer=inst_layer,
             crop_size=(crop_h, crop_w),
         )
+    if has_multi_centered:
+        # GT-centroid fallback for a solo multi_class_topdown model (no paired
+        # centroid model) -- mirrors the has_centered branch above. Without
+        # this, `sleap-nn train`'s automatic post-training eval step (which
+        # always calls predict_new on the just-trained run dir alone) crashes
+        # every standalone multiclass/ID topdown training run.
+        inst_layer = _build_centered_instance_multiclass_layer(
+            assets.inference_model.instance_peaks,
+            device,
+            class_names=_multiclass_class_names(assets, "multi_class_topdown"),
+        )
+        centroid_layer = _build_centroid_layer_gt_only(assets, inst_layer.backend)
+        crop_h, crop_w = assets.inference_model.centroid_crop.crop_hw
+        return TopDownMultiClassLayer(
+            centroid_layer=centroid_layer,
+            centered_instance_layer=inst_layer,
+            crop_size=(crop_h, crop_w),
+        )
     raise ValueError(
         f"Unsupported model_paths combination: detected types {model_types}. "
         f"Predictor.from_model_paths supports: single_instance, "
         f"bottomup, multi_class_bottomup, top-down (centroid + centered_instance), "
         f"top-down multiclass (centroid + multi_class_topdown), centroid-only, "
-        f"or centered-instance-only (requires a .slp source for GT centroids)."
+        f"centered-instance-only, or multi_class_topdown-only (the latter two "
+        f"require a .slp source for GT centroids)."
     )
 
 

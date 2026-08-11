@@ -202,6 +202,29 @@ def test_factory_centered_instance_only_uses_gt_centroids():
     assert p.layer.centroid_layer.use_gt_centroids is True
 
 
+@pytest.mark.skipif(
+    not MULTICLASS_TD_CKPT.exists(), reason="multiclass centered_instance ckpt absent"
+)
+def test_factory_multiclass_centered_instance_only_uses_gt_centroids():
+    """Standalone multi_class_topdown -> ``TopDownMultiClassLayer`` with GT centroids.
+
+    Regression: `_select_layer` had a GT-centroid fallback branch for a lone
+    plain `centered_instance` model (see the test above) but no equivalent
+    for its multiclass/ID sibling, so a solo `multi_class_topdown` model fell
+    through to the "Unsupported model_paths combination" `ValueError`.
+    `sleap-nn train`'s automatic post-training eval step always calls
+    `predict_new(path, model_paths=[run_path], ...)` on the just-trained run
+    dir alone, so this crashed at the end of EVERY standalone multiclass/ID
+    topdown training run (checkpoint saved fine; the CLI process still
+    exited non-zero). Confirmed via real training on real data before this
+    fix landed.
+    """
+    p = Predictor.from_model_paths([str(MULTICLASS_TD_CKPT)], device="cpu")
+    assert isinstance(p.layer, TopDownMultiClassLayer)
+    assert p.layer.centroid_layer.use_gt_centroids is True
+    assert p.layer.centered_instance_layer.class_names
+
+
 def test_factory_rejects_unrecognized_model_type():
     """Truly unrecognized model type → clear ``ValueError`` from ``_select_layer``."""
     from sleap_nn.inference.predictor import _select_layer
