@@ -1240,6 +1240,39 @@ class Predictor:
             for c in candidates
         )
 
+    def _preprocess_provenance_params(self) -> dict:
+        """The scale/crop_size actually used for this run, for provenance.
+
+        Best-effort and defensive -- provenance must never break inference, so
+        every lookup falls back to omitting the field rather than raising.
+        Topdown-family layers (``TopDownLayer`` and its ``TopDownSegmentation``/
+        ``TopDownMultiClass`` subclasses) have two independently-scaled stages,
+        so both are recorded distinctly rather than collapsing to one shared
+        "scale" the way the training-config's own baked-in value might suggest.
+        """
+        layer = getattr(self.layer, "inner", self.layer)  # unwrap Tiled* wrappers
+        centroid_layer = getattr(layer, "centroid_layer", None)
+        instance_layer = getattr(layer, "centered_instance_layer", None)
+        if centroid_layer is None and instance_layer is None:
+            return {
+                "scale": getattr(
+                    getattr(layer, "preprocess_config", None), "scale", None
+                )
+            }
+        params: dict = {}
+        if centroid_layer is not None:
+            params["centroid_scale"] = getattr(
+                getattr(centroid_layer, "preprocess_config", None), "scale", None
+            )
+        if instance_layer is not None:
+            params["instance_scale"] = getattr(
+                getattr(instance_layer, "preprocess_config", None), "scale", None
+            )
+        crop_size = getattr(layer, "crop_size", None)
+        if crop_size is not None:
+            params["crop_size"] = crop_size
+        return params
+
     def _build_inference_provenance(
         self,
         *,
@@ -1685,6 +1718,7 @@ class Predictor:
                 "integral_refinement": integral_refinement,
                 "integral_patch_size": integral_patch_size,
                 "batch_size": self.batch_size,
+                **self._preprocess_provenance_params(),
             },
         )
 
@@ -1872,7 +1906,10 @@ class Predictor:
                 start_time=_prov_start,
                 end_time=_prov_end,
                 n_frames=writer.frame_count,
-                inference_params={"batch_size": self.batch_size},
+                inference_params={
+                    "batch_size": self.batch_size,
+                    **self._preprocess_provenance_params(),
+                },
             )
         # Post-run summary (#610). The streaming path drops per-frame objects to
         # keep memory O(window), so report frames / throughput only.
