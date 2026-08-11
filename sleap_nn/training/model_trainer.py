@@ -763,6 +763,31 @@ class ModelTrainer:
                     logger.error(message)
                     raise ValueError(message)
 
+            if (
+                "anchor_part" in head_config[key].keys()
+                and head_config[key]["anchor_part"] is not None
+                and self.model_type != "centroid"
+            ):
+                # `centroid`'s anchor_part deliberately falls back to None (mean
+                # of visible nodes) when absent from the skeleton -- see the
+                # comment at custom_datasets.py's centroid branch ("must NOT
+                # crash"). Every other head type that consumes anchor_part
+                # (centered_instance, multi_class_topdown,
+                # centered_instance_segmentation) does `nodes.index(anchor_part)`
+                # with no such guard, so a typo'd/nonexistent anchor_part
+                # currently passes setup cleanly and only fails deep inside
+                # dataset construction -- with an error message that
+                # misleadingly blames `part_names`, not the actual offending
+                # `anchor_part` field. Catch it here instead.
+                if head_config[key]["anchor_part"] not in skeleton_node_names:
+                    message = (
+                        f"model_config.head_configs.{self.model_type}.{key}"
+                        f".anchor_part {head_config[key]['anchor_part']!r} is not "
+                        f"a node in the skeleton {skeleton_node_names!r}."
+                    )
+                    logger.error(message)
+                    raise ValueError(message)
+
             if "edges" in head_config[key].keys():
                 if head_config[key]["edges"] is None:
                     edges = [

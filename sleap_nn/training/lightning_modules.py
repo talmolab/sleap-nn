@@ -784,59 +784,65 @@ class LightningModel(L.LightningModule):
         elif isinstance(self.lr_scheduler, dict):
             lr_scheduler_cfg = self.lr_scheduler
 
-        for k, v in self.lr_scheduler.items():
-            if v is not None:
-                if k == "cosine_annealing_warmup":
-                    cfg = self.lr_scheduler.cosine_annealing_warmup
-                    # Use trainer's max_epochs if not specified in config
-                    max_epochs = (
-                        cfg.max_epochs
-                        if cfg.max_epochs is not None
-                        else self.trainer.max_epochs
-                    )
-                    scheduler = LinearWarmupCosineAnnealingLR(
-                        optimizer=optimizer,
-                        warmup_epochs=cfg.warmup_epochs,
-                        max_epochs=max_epochs,
-                        warmup_start_lr=cfg.warmup_start_lr,
-                        eta_min=cfg.eta_min,
-                    )
-                    break
-                elif k == "linear_warmup_linear_decay":
-                    cfg = self.lr_scheduler.linear_warmup_linear_decay
-                    # Use trainer's max_epochs if not specified in config
-                    max_epochs = (
-                        cfg.max_epochs
-                        if cfg.max_epochs is not None
-                        else self.trainer.max_epochs
-                    )
-                    scheduler = LinearWarmupLinearDecayLR(
-                        optimizer=optimizer,
-                        warmup_epochs=cfg.warmup_epochs,
-                        max_epochs=max_epochs,
-                        warmup_start_lr=cfg.warmup_start_lr,
-                        end_lr=cfg.end_lr,
-                    )
-                    break
-                elif k == "step_lr":
-                    scheduler = torch.optim.lr_scheduler.StepLR(
-                        optimizer=optimizer,
-                        step_size=self.lr_scheduler.step_lr.step_size,
-                        gamma=self.lr_scheduler.step_lr.gamma,
-                    )
-                    break
-                elif k == "reduce_lr_on_plateau":
-                    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                        optimizer,
-                        mode="min",
-                        threshold=self.lr_scheduler.reduce_lr_on_plateau.threshold,
-                        threshold_mode=self.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
-                        cooldown=self.lr_scheduler.reduce_lr_on_plateau.cooldown,
-                        patience=self.lr_scheduler.reduce_lr_on_plateau.patience,
-                        factor=self.lr_scheduler.reduce_lr_on_plateau.factor,
-                        min_lr=self.lr_scheduler.reduce_lr_on_plateau.min_lr,
-                    )
-                    break
+        # Explicit priority order per LRSchedulerConfig's own docstring:
+        # cosine_annealing_warmup > linear_warmup_linear_decay > step_lr >
+        # reduce_lr_on_plateau. `reduce_lr_on_plateau` defaults to a populated
+        # (non-None) config while the other three default to None, so a plain
+        # `for k, v in self.lr_scheduler.items(): if v is not None: ... break`
+        # (the previous implementation) picked whichever scheduler happened to
+        # be first in the dataclass's FIELD DECLARATION order among the
+        # non-None ones -- silently ignoring this documented priority and
+        # defaulting to ReduceLROnPlateau for any user who set
+        # cosine_annealing_warmup/linear_warmup_linear_decay without also
+        # explicitly nulling reduce_lr_on_plateau. No error, no warning --
+        # training just ran with the wrong LR schedule indefinitely.
+        if self.lr_scheduler.cosine_annealing_warmup is not None:
+            cfg = self.lr_scheduler.cosine_annealing_warmup
+            # Use trainer's max_epochs if not specified in config
+            max_epochs = (
+                cfg.max_epochs
+                if cfg.max_epochs is not None
+                else self.trainer.max_epochs
+            )
+            scheduler = LinearWarmupCosineAnnealingLR(
+                optimizer=optimizer,
+                warmup_epochs=cfg.warmup_epochs,
+                max_epochs=max_epochs,
+                warmup_start_lr=cfg.warmup_start_lr,
+                eta_min=cfg.eta_min,
+            )
+        elif self.lr_scheduler.linear_warmup_linear_decay is not None:
+            cfg = self.lr_scheduler.linear_warmup_linear_decay
+            # Use trainer's max_epochs if not specified in config
+            max_epochs = (
+                cfg.max_epochs
+                if cfg.max_epochs is not None
+                else self.trainer.max_epochs
+            )
+            scheduler = LinearWarmupLinearDecayLR(
+                optimizer=optimizer,
+                warmup_epochs=cfg.warmup_epochs,
+                max_epochs=max_epochs,
+                warmup_start_lr=cfg.warmup_start_lr,
+                end_lr=cfg.end_lr,
+            )
+        elif self.lr_scheduler.step_lr is not None:
+            scheduler = torch.optim.lr_scheduler.StepLR(
+                optimizer=optimizer,
+                step_size=self.lr_scheduler.step_lr.step_size,
+                gamma=self.lr_scheduler.step_lr.gamma,
+            )
+        elif self.lr_scheduler.reduce_lr_on_plateau is not None:
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer,
+                mode="min",
+                threshold=self.lr_scheduler.reduce_lr_on_plateau.threshold,
+                threshold_mode=self.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
+                cooldown=self.lr_scheduler.reduce_lr_on_plateau.cooldown,
+                patience=self.lr_scheduler.reduce_lr_on_plateau.patience,
+                factor=self.lr_scheduler.reduce_lr_on_plateau.factor,
+                min_lr=self.lr_scheduler.reduce_lr_on_plateau.min_lr,
+            )
         if scheduler is None:
             return {
                 "optimizer": optimizer,
