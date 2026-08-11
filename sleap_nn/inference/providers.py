@@ -354,6 +354,18 @@ class LabelsProvider:
             See :class:`VideoProvider` for the same mechanism.
         queue_maxsize: Bound on how many decoded batches may sit in the
             prefetch queue ahead of the consumer.
+        frames: Optional 0-indexed *positions* to keep from the (possibly
+            already `only_*`/`exclude_*`-filtered) labeled-frames list, in
+            file order -- e.g. ``[0, 1, 2]`` keeps the first three labeled
+            frames. NOT a filter on ``LabeledFrame.frame_idx`` values: for a
+            `.pkg.slp` with embedded, non-contiguously-sampled frames,
+            `frame_idx` is typically NOT sequential (e.g. a cluster-sampled
+            training package), so a `frame_idx`-range filter would silently
+            match the wrong (often near-empty) subset. Positional selection
+            gives a well-defined "first N labeled frames" preview regardless
+            of the source video's backing (embedded vs. external). Positions
+            beyond the list's length are dropped with a logged warning
+            rather than silently ignored.
     """
 
     labels: "Union[str, sio.Labels]"
@@ -365,6 +377,7 @@ class LabelsProvider:
     remote_kwargs: Optional[dict] = None
     prefetch: bool = True
     queue_maxsize: int = 4
+    frames: Optional[list] = None
 
     _sio_labels: "Optional[sio.Labels]" = attrs.field(
         default=None, init=False, repr=False
@@ -418,6 +431,21 @@ class LabelsProvider:
             ]
         else:
             self._labeled_frames = list(self._sio_labels.labeled_frames)
+
+        if self.frames is not None:
+            n = len(self._labeled_frames)
+            positions = set(self.frames)
+            out_of_range = sorted(p for p in positions if p < 0 or p >= n)
+            if out_of_range:
+                logger.warning(
+                    f"LabelsProvider: {len(out_of_range)} requested frame "
+                    f"position(s) out of range for {n} labeled frame(s) "
+                    f"(after any only_*/exclude_* filtering) and will be "
+                    f"skipped: {out_of_range}"
+                )
+            self._labeled_frames = [
+                lf for i, lf in enumerate(self._labeled_frames) if i in positions
+            ]
 
     def _frame_instances(self, lf) -> list:
         """Instances to expose as GT for a frame.

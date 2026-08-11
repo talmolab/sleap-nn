@@ -659,12 +659,31 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
             centered_instance_layer=inst_layer,
             crop_size=(crop_h, crop_w),
         )
+    if has_multi_centered:
+        # GT-centroid fallback for a solo multi_class_topdown model (no paired
+        # centroid model) -- mirrors the has_centered branch above. Without
+        # this, `sleap-nn train`'s automatic post-training eval step (which
+        # always calls predict_new on the just-trained run dir alone) crashes
+        # every standalone multiclass/ID topdown training run.
+        inst_layer = _build_centered_instance_multiclass_layer(
+            assets.inference_model.instance_peaks,
+            device,
+            class_names=_multiclass_class_names(assets, "multi_class_topdown"),
+        )
+        centroid_layer = _build_centroid_layer_gt_only(assets, inst_layer.backend)
+        crop_h, crop_w = assets.inference_model.centroid_crop.crop_hw
+        return TopDownMultiClassLayer(
+            centroid_layer=centroid_layer,
+            centered_instance_layer=inst_layer,
+            crop_size=(crop_h, crop_w),
+        )
     raise ValueError(
         f"Unsupported model_paths combination: detected types {model_types}. "
         f"Predictor.from_model_paths supports: single_instance, "
         f"bottomup, multi_class_bottomup, top-down (centroid + centered_instance), "
         f"top-down multiclass (centroid + multi_class_topdown), centroid-only, "
-        f"or centered-instance-only (requires a .slp source for GT centroids)."
+        f"centered-instance-only, or multi_class_topdown-only (the latter two "
+        f"require a .slp source for GT centroids)."
     )
 
 
@@ -1240,6 +1259,39 @@ class Predictor:
             for c in candidates
         )
 
+    def _preprocess_provenance_params(self) -> dict:
+        """The scale/crop_size actually used for this run, for provenance.
+
+        Best-effort and defensive -- provenance must never break inference, so
+        every lookup falls back to omitting the field rather than raising.
+        Topdown-family layers (``TopDownLayer`` and its ``TopDownSegmentation``/
+        ``TopDownMultiClass`` subclasses) have two independently-scaled stages,
+        so both are recorded distinctly rather than collapsing to one shared
+        "scale" the way the training-config's own baked-in value might suggest.
+        """
+        layer = getattr(self.layer, "inner", self.layer)  # unwrap Tiled* wrappers
+        centroid_layer = getattr(layer, "centroid_layer", None)
+        instance_layer = getattr(layer, "centered_instance_layer", None)
+        if centroid_layer is None and instance_layer is None:
+            return {
+                "scale": getattr(
+                    getattr(layer, "preprocess_config", None), "scale", None
+                )
+            }
+        params: dict = {}
+        if centroid_layer is not None:
+            params["centroid_scale"] = getattr(
+                getattr(centroid_layer, "preprocess_config", None), "scale", None
+            )
+        if instance_layer is not None:
+            params["instance_scale"] = getattr(
+                getattr(instance_layer, "preprocess_config", None), "scale", None
+            )
+        crop_size = getattr(layer, "crop_size", None)
+        if crop_size is not None:
+            params["crop_size"] = crop_size
+        return params
+
     def _build_inference_provenance(
         self,
         *,
@@ -1407,6 +1459,7 @@ class Predictor:
                 provider = LabelsProvider(
                     labels=labels,
                     batch_size=self.batch_size,
+                    frames=frames,
                     **provider_kwargs,
                 )
                 return provider, (list(labels.videos) if labels.videos else None)
@@ -1435,6 +1488,7 @@ class Predictor:
             provider = LabelsProvider(
                 labels=source,
                 batch_size=self.batch_size,
+                frames=frames,
                 **provider_kwargs,
             )
             videos = list(source.videos) if source.videos else None
@@ -1685,6 +1739,7 @@ class Predictor:
                 "integral_refinement": integral_refinement,
                 "integral_patch_size": integral_patch_size,
                 "batch_size": self.batch_size,
+                **self._preprocess_provenance_params(),
             },
         )
 
@@ -1872,7 +1927,10 @@ class Predictor:
                 start_time=_prov_start,
                 end_time=_prov_end,
                 n_frames=writer.frame_count,
-                inference_params={"batch_size": self.batch_size},
+                inference_params={
+                    "batch_size": self.batch_size,
+                    **self._preprocess_provenance_params(),
+                },
             )
         # Post-run summary (#610). The streaming path drops per-frame objects to
         # keep memory O(window), so report frames / throughput only.
@@ -2184,11 +2242,20 @@ class Predictor:
 
     @staticmethod
     def _collect_postprocess_targets(layer: Any) -> list:
-        """Return all sub-layers that own a ``postprocess_config``."""
+        """Return all sub-layers that own a ``postprocess_config``.
+
+        ``Tiled*`` wrappers (``TiledLayer``/``TiledSegmentationLayer``/
+        ``TiledSemanticSegmentationLayer``) hold their wrapped layer's
+        ``postprocess_config`` on ``.inner``, not on themselves -- unwrap so
+        callers see the real owner instead of concluding (via the `hasattr`
+        check below) that there's nothing to override (#712 follow-up).
+        """
         from sleap_nn.inference.layers.topdown import TopDownLayer
 
         if isinstance(layer, TopDownLayer):
             targets = [layer.centroid_layer, layer.centered_instance_layer]
+        elif hasattr(layer, "inner"):
+            targets = [layer.inner]
         elif hasattr(layer, "postprocess_config"):
             targets = [layer]
         else:
@@ -2321,5 +2388,12 @@ class Predictor:
         if not targets:
             return self.layer
         # Non-top-down layers with a postprocess_config always have exactly
-        # one target: the layer itself.
-        return _copy_with_overrides(targets[0])
+        # one target: the layer itself, or (for a Tiled* wrapper) its .inner.
+        new_target = _copy_with_overrides(targets[0])
+        if hasattr(self.layer, "inner"):
+            # Rewrap: the caller needs a layer that still tiles, not the bare
+            # overridden inner layer on its own.
+            new_layer = copy.copy(self.layer)
+            new_layer.inner = new_target
+            return new_layer
+        return new_target

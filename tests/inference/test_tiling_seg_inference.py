@@ -108,6 +108,27 @@ def test_single_tile_equals_whole_frame():
 
 
 # ---------------------------------------------------------------------------
+# 1b. mask_output/polygon_epsilon are re-exposed on the tiled wrapper
+# ---------------------------------------------------------------------------
+def test_tiled_segmentation_layer_reexposes_mask_output():
+    """``TiledSegmentationLayer`` must re-expose the inner layer's mask-packaging knobs.
+
+    Regression (#712 follow-up): only the ``TiledSemanticSegmentationLayer``
+    subclass copied ``mask_output``/``polygon_epsilon`` from the inner layer
+    onto itself; the base ``TiledSegmentationLayer`` (used for
+    ``bottomup_segmentation``) didn't, so ``Predictor``'s
+    ``getattr(self.layer, "mask_output", "mask")`` silently fell back to the
+    hardcoded default instead of the model's actual configured value.
+    """
+    inner = _make_inner(stride=2, tile_max_stride=8)
+    inner.mask_output = "polygon"
+    inner.polygon_epsilon = 0.05
+    tiled = TiledSegmentationLayer(inner, tile_size=16, overlap=8)
+    assert tiled.mask_output == "polygon"
+    assert tiled.polygon_epsilon == 0.05
+
+
+# ---------------------------------------------------------------------------
 # 2. A synthetic 2-tile stitch reconstructs a known fg/center/offset field
 # ---------------------------------------------------------------------------
 def test_two_tile_stitch_reconstructs_field():

@@ -136,6 +136,59 @@ def test_labels_provider_only_predicted_frames_keeps_only_predicted():
     assert [lf.frame_idx for lf in provider._labeled_frames] == [1]
 
 
+def _scattered_frame_idx_labels():
+    """3 labeled frames with non-sequential ``frame_idx`` values.
+
+    Mirrors a real cluster-sampled `.pkg.slp` training package (e.g.
+    berman_flies' `train.pkg.slp`, whose embedded frames' `frame_idx` values
+    are scattered like `[8, 1064, 1198, ...]`, not `0, 1, 2, ...`).
+    """
+    import sleap_io as sio
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="dummy.mp4")
+    lfs = [
+        sio.LabeledFrame(video=video, frame_idx=fidx, instances=[])
+        for fidx in (50, 5, 900)
+    ]
+    return sio.Labels(videos=[video], skeletons=[skel], labeled_frames=lfs)
+
+
+def test_labels_provider_frames_selects_positionally_not_by_frame_idx_value():
+    """``frames`` keeps list *positions*, not matching `LabeledFrame.frame_idx`.
+
+    Regression: `--frames` used to be silently ignored entirely for `.slp`
+    sources. The fix must NOT filter by `frame_idx` value -- for a
+    `.pkg.slp` with non-contiguously-sampled embedded frames, `frame_idx`
+    is typically scattered (not sequential), so a value-based filter would
+    silently match the wrong (often near-empty) subset. `frames=[0, 2]`
+    must keep the 1st and 3rd labeled frames in file order (`frame_idx`
+    50 and 900), NOT frames whose `frame_idx` equals 0 or 2 (neither of
+    which exist here).
+    """
+    labels = _scattered_frame_idx_labels()
+    provider = LabelsProvider(labels=labels, frames=[0, 2])
+    assert [lf.frame_idx for lf in provider._labeled_frames] == [50, 900]
+
+
+def test_labels_provider_frames_out_of_range_warns():
+    """Out-of-range ``frames`` positions are dropped with a logged warning."""
+    from loguru import logger
+
+    labels = _scattered_frame_idx_labels()
+    messages = []
+    sink_id = logger.add(messages.append, level="WARNING")
+    try:
+        provider = LabelsProvider(labels=labels, frames=[0, 5, 6])
+    finally:
+        logger.remove(sink_id)
+
+    assert [lf.frame_idx for lf in provider._labeled_frames] == [50]
+    assert len(messages) == 1
+    assert "out of range" in messages[0]
+    assert "[5, 6]" in messages[0]
+
+
 def test_labels_provider_only_suggested_frames_yields_unlabeled_suggestions():
     """``only_suggested_frames=True`` yields unlabeled suggestions only."""
     import sleap_io as sio
