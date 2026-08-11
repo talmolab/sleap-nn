@@ -2242,11 +2242,20 @@ class Predictor:
 
     @staticmethod
     def _collect_postprocess_targets(layer: Any) -> list:
-        """Return all sub-layers that own a ``postprocess_config``."""
+        """Return all sub-layers that own a ``postprocess_config``.
+
+        ``Tiled*`` wrappers (``TiledLayer``/``TiledSegmentationLayer``/
+        ``TiledSemanticSegmentationLayer``) hold their wrapped layer's
+        ``postprocess_config`` on ``.inner``, not on themselves -- unwrap so
+        callers see the real owner instead of concluding (via the `hasattr`
+        check below) that there's nothing to override (#712 follow-up).
+        """
         from sleap_nn.inference.layers.topdown import TopDownLayer
 
         if isinstance(layer, TopDownLayer):
             targets = [layer.centroid_layer, layer.centered_instance_layer]
+        elif hasattr(layer, "inner"):
+            targets = [layer.inner]
         elif hasattr(layer, "postprocess_config"):
             targets = [layer]
         else:
@@ -2379,5 +2388,12 @@ class Predictor:
         if not targets:
             return self.layer
         # Non-top-down layers with a postprocess_config always have exactly
-        # one target: the layer itself.
-        return _copy_with_overrides(targets[0])
+        # one target: the layer itself, or (for a Tiled* wrapper) its .inner.
+        new_target = _copy_with_overrides(targets[0])
+        if hasattr(self.layer, "inner"):
+            # Rewrap: the caller needs a layer that still tiles, not the bare
+            # overridden inner layer on its own.
+            new_layer = copy.copy(self.layer)
+            new_layer.inner = new_target
+            return new_layer
+        return new_target
