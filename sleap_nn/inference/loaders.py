@@ -620,9 +620,10 @@ def _build_topdown(
     # Resolve preprocess_config from both training configs. The confmap
     # config supplies crop_size (absent from centroid training configs),
     # so resolve centroid first, then confmap to fill remaining Nones.
-    # Capture whether the caller explicitly supplied a crop_size so the confmap
-    # default below does not override an intentional user value.
+    # Capture whether the caller explicitly supplied a crop_size/scale so the
+    # confmap default below does not override an intentional user value.
     user_crop_size = preprocess_config.crop_size
+    user_scale = preprocess_config.scale
     if centroid_config is not None:
         preprocess_config = _resolve_preprocess_config(
             preprocess_config, centroid_config
@@ -638,6 +639,18 @@ def _build_topdown(
         confmap_crop = confmap_config.data_config.preprocessing.crop_size
         if user_crop_size is None and confmap_crop is not None:
             preprocess_config.crop_size = confmap_crop
+
+    # scale is per-stage like crop_size: an explicit --input_scale override
+    # (user_scale) applies to both stages, but absent one, each stage must use
+    # its OWN trained scale rather than inheriting the other stage's value
+    # through the shared preprocess_config (the two models' training scales
+    # commonly differ — e.g. a lower-res centroid model).
+    centroid_scale = user_scale
+    if centroid_scale is None and centroid_config is not None:
+        centroid_scale = centroid_config.data_config.preprocessing.scale
+    confmap_scale = user_scale
+    if confmap_scale is None and confmap_config is not None:
+        confmap_scale = confmap_config.data_config.preprocessing.scale
 
     # Resolve anchor_ind
     if anchor_part is not None:
@@ -679,7 +692,7 @@ def _build_topdown(
             return_crops=return_crops,
             max_instances=max_instances,
             max_stride=max_stride_centroid,
-            input_scale=preprocess_config.scale,
+            input_scale=centroid_scale,
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
@@ -700,7 +713,7 @@ def _build_topdown(
             integral_patch_size=integral_patch_size,
             return_confmaps=return_confmaps,
             max_stride=max_stride_inst,
-            input_scale=preprocess_config.scale,
+            input_scale=confmap_scale,
         )
 
     inference_model = TopDownInferenceModel(
@@ -785,6 +798,7 @@ def _build_topdown_segmentation(
     # carries the crop_size — a centered-instance property), without clobbering an
     # explicit user crop_size.
     user_crop_size = preprocess_config.crop_size
+    user_scale = preprocess_config.scale
     if centroid_config is not None:
         preprocess_config = _resolve_preprocess_config(
             preprocess_config, centroid_config
@@ -793,6 +807,17 @@ def _build_topdown_segmentation(
     seg_crop = seg_config.data_config.preprocessing.crop_size
     if user_crop_size is None and seg_crop is not None:
         preprocess_config.crop_size = seg_crop
+
+    # scale is per-stage like crop_size: an explicit --input_scale override
+    # (user_scale) applies to both stages, but absent one, each stage must use
+    # its OWN trained scale rather than inheriting the other stage's value
+    # through the shared preprocess_config.
+    centroid_scale = user_scale
+    if centroid_scale is None and centroid_config is not None:
+        centroid_scale = centroid_config.data_config.preprocessing.scale
+    seg_scale = user_scale
+    if seg_scale is None:
+        seg_scale = seg_config.data_config.preprocessing.scale
 
     # Resolve anchor_ind (only used by the GT-centroid crop path; the real
     # centroid model supplies crop centers directly).
@@ -833,7 +858,7 @@ def _build_topdown_segmentation(
             return_crops=True,
             max_instances=max_instances,
             max_stride=max_stride_centroid,
-            input_scale=preprocess_config.scale,
+            input_scale=centroid_scale,
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
@@ -842,7 +867,7 @@ def _build_topdown_segmentation(
     instance_masks = CenteredInstanceMaskInferenceModel(
         torch_model=seg_model,
         output_stride=output_stride,
-        input_scale=preprocess_config.scale,
+        input_scale=seg_scale,
         max_stride=max_stride_seg,
         fg_threshold=fg_threshold,
         mask_output=mask_output,
@@ -918,9 +943,10 @@ def _build_topdown_multiclass(
         )
         skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
 
-    # Capture whether the caller explicitly supplied a crop_size so the confmap
-    # default below does not override an intentional user value.
+    # Capture whether the caller explicitly supplied a crop_size/scale so the
+    # confmap default below does not override an intentional user value.
     user_crop_size = preprocess_config.crop_size
+    user_scale = preprocess_config.scale
     if centroid_config is not None:
         preprocess_config = _resolve_preprocess_config(
             preprocess_config, centroid_config
@@ -936,6 +962,17 @@ def _build_topdown_multiclass(
         confmap_crop = confmap_config.data_config.preprocessing.crop_size
         if user_crop_size is None and confmap_crop is not None:
             preprocess_config.crop_size = confmap_crop
+
+    # scale is per-stage like crop_size: an explicit --input_scale override
+    # (user_scale) applies to both stages, but absent one, each stage must use
+    # its OWN trained scale rather than inheriting the other stage's value
+    # through the shared preprocess_config.
+    centroid_scale = user_scale
+    if centroid_scale is None and centroid_config is not None:
+        centroid_scale = centroid_config.data_config.preprocessing.scale
+    confmap_scale = user_scale
+    if confmap_scale is None and confmap_config is not None:
+        confmap_scale = confmap_config.data_config.preprocessing.scale
 
     # Resolve anchor_ind
     if anchor_part is not None:
@@ -976,7 +1013,7 @@ def _build_topdown_multiclass(
             return_crops=return_crops,
             max_instances=max_instances,
             max_stride=max_stride_centroid,
-            input_scale=preprocess_config.scale,
+            input_scale=centroid_scale,
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
@@ -993,7 +1030,7 @@ def _build_topdown_multiclass(
         integral_patch_size=integral_patch_size,
         return_confmaps=return_confmaps,
         max_stride=max_stride_inst,
-        input_scale=preprocess_config.scale,
+        input_scale=confmap_scale,
     )
 
     inference_model = TopDownInferenceModel(

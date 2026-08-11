@@ -349,59 +349,45 @@ class Predictor(ABC):
             confmap_ckpt_path = None
             if "centroid" in model_names:
                 centroid_ckpt_path = model_paths[model_names.index("centroid")]
-                predictor = TopDownPredictor.from_trained_models(
-                    centroid_ckpt_path=centroid_ckpt_path,
-                    confmap_ckpt_path=confmap_ckpt_path,
-                    backbone_ckpt_path=backbone_ckpt_path,
-                    head_ckpt_path=head_ckpt_path,
-                    peak_threshold=peak_threshold,
-                    integral_refinement=integral_refinement,
-                    integral_patch_size=integral_patch_size,
-                    batch_size=batch_size,
-                    max_instances=max_instances,
-                    return_confmaps=return_confmaps,
-                    device=device,
-                    preprocess_config=preprocess_config,
-                    anchor_part=anchor_part,
-                    filter_overlapping=filter_overlapping,
-                    filter_overlapping_threshold=filter_overlapping_threshold,
-                    filter_overlapping_method=filter_overlapping_method,
-                    filter_min_visible_nodes=filter_min_visible_nodes,
-                    filter_min_visible_node_fraction=filter_min_visible_node_fraction,
-                    filter_min_mean_node_score=filter_min_mean_node_score,
-                    filter_min_instance_score=filter_min_instance_score,
-                )
             if "centered_instance" in model_names:
                 confmap_ckpt_path = model_paths[model_names.index("centered_instance")]
-                # create an instance of the TopDown predictor class
-                predictor = TopDownPredictor.from_trained_models(
-                    centroid_ckpt_path=centroid_ckpt_path,
-                    confmap_ckpt_path=confmap_ckpt_path,
-                    backbone_ckpt_path=backbone_ckpt_path,
-                    head_ckpt_path=head_ckpt_path,
-                    peak_threshold=peak_threshold,
-                    integral_refinement=integral_refinement,
-                    integral_patch_size=integral_patch_size,
-                    batch_size=batch_size,
-                    max_instances=max_instances,
-                    return_confmaps=return_confmaps,
-                    device=device,
-                    preprocess_config=preprocess_config,
-                    anchor_part=anchor_part,
-                    filter_overlapping=filter_overlapping,
-                    filter_overlapping_threshold=filter_overlapping_threshold,
-                    filter_overlapping_method=filter_overlapping_method,
-                    filter_min_visible_nodes=filter_min_visible_nodes,
-                    filter_min_visible_node_fraction=filter_min_visible_node_fraction,
-                    filter_min_mean_node_score=filter_min_mean_node_score,
-                    filter_min_instance_score=filter_min_instance_score,
-                )
             elif "multi_class_topdown" in model_names:
                 confmap_ckpt_path = model_paths[
                     model_names.index("multi_class_topdown")
                 ]
-                # create an instance of the TopDown predictor class
+
+            # Build the predictor with a SINGLE `from_trained_models` call, now
+            # that both ckpt paths are fully resolved. Calling it once per
+            # branch (as this used to do) mutates the shared `preprocess_config`
+            # in place on the first, discarded, centroid-only call -- corrupting
+            # the second, real call's per-stage `scale` resolution (#725-follow-up).
+            if "multi_class_topdown" in model_names:
+                # create an instance of the TopDown multiclass predictor class
                 predictor = TopDownMultiClassPredictor.from_trained_models(
+                    centroid_ckpt_path=centroid_ckpt_path,
+                    confmap_ckpt_path=confmap_ckpt_path,
+                    backbone_ckpt_path=backbone_ckpt_path,
+                    head_ckpt_path=head_ckpt_path,
+                    peak_threshold=peak_threshold,
+                    integral_refinement=integral_refinement,
+                    integral_patch_size=integral_patch_size,
+                    batch_size=batch_size,
+                    max_instances=max_instances,
+                    return_confmaps=return_confmaps,
+                    device=device,
+                    preprocess_config=preprocess_config,
+                    anchor_part=anchor_part,
+                    filter_overlapping=filter_overlapping,
+                    filter_overlapping_threshold=filter_overlapping_threshold,
+                    filter_overlapping_method=filter_overlapping_method,
+                    filter_min_visible_nodes=filter_min_visible_nodes,
+                    filter_min_visible_node_fraction=filter_min_visible_node_fraction,
+                    filter_min_mean_node_score=filter_min_mean_node_score,
+                    filter_min_instance_score=filter_min_instance_score,
+                )
+            else:
+                # create an instance of the TopDown predictor class
+                predictor = TopDownPredictor.from_trained_models(
                     centroid_ckpt_path=centroid_ckpt_path,
                     confmap_ckpt_path=confmap_ckpt_path,
                     backbone_ckpt_path=backbone_ckpt_path,
@@ -854,6 +840,8 @@ class TopDownPredictor(Predictor):
     return_confmaps: bool = False
     device: str = "cpu"
     preprocess_config: Optional[OmegaConf] = None
+    centroid_scale: Optional[float] = None
+    confmap_scale: Optional[float] = None
     tracker: Optional[Tracker] = None
     anchor_part: Optional[str] = None
     max_stride: int = 16
@@ -923,7 +911,7 @@ class TopDownPredictor(Predictor):
                 return_crops=return_crops,
                 max_instances=self.max_instances,
                 max_stride=max_stride,
-                input_scale=self.preprocess_config.scale,
+                input_scale=self.centroid_scale,
                 crop_hw=(
                     self.preprocess_config.crop_size,
                     self.preprocess_config.crop_size,
@@ -947,7 +935,7 @@ class TopDownPredictor(Predictor):
                 integral_patch_size=self.integral_patch_size,
                 return_confmaps=self.return_confmaps,
                 max_stride=max_stride,
-                input_scale=self.preprocess_config.scale,
+                input_scale=self.confmap_scale,
             )
 
         if self.centroid_config is None and self.confmap_config is not None:
@@ -1273,6 +1261,11 @@ class TopDownPredictor(Predictor):
             confmap_config = None
             confmap_model = None
 
+        # Capture the caller's explicit --input_scale override (if any) before
+        # the fill-in below resolves `scale` from a single config, so each
+        # stage can still fall back to ITS OWN trained scale afterward.
+        user_scale = preprocess_config["scale"]
+
         if centroid_config is not None:
             preprocess_config["scale"] = (
                 centroid_config.data_config.preprocessing.scale
@@ -1333,6 +1326,18 @@ class TopDownPredictor(Predictor):
             else preprocess_config["crop_size"]
         )
 
+        # scale is per-stage like crop_size: an explicit --input_scale override
+        # (user_scale) applies to both stages, but absent one, each stage must
+        # use its OWN trained scale rather than inheriting the other stage's
+        # value through the shared preprocess_config (the two models' training
+        # scales commonly differ -- e.g. a lower-res centroid model).
+        centroid_scale = user_scale
+        if centroid_scale is None and centroid_config is not None:
+            centroid_scale = centroid_config.data_config.preprocessing.scale
+        confmap_scale = user_scale
+        if confmap_scale is None and confmap_config is not None:
+            confmap_scale = confmap_config.data_config.preprocessing.scale
+
         # create an instance of TopDownPredictor class
         obj = cls(
             centroid_config=centroid_config,
@@ -1350,6 +1355,8 @@ class TopDownPredictor(Predictor):
             return_confmaps=return_confmaps,
             device=device,
             preprocess_config=preprocess_config,
+            centroid_scale=centroid_scale,
+            confmap_scale=confmap_scale,
             anchor_part=anchor_part,
             max_stride=(
                 centroid_config.model_config.backbone_config[
@@ -3243,6 +3250,8 @@ class TopDownMultiClassPredictor(Predictor):
     return_confmaps: bool = False
     device: str = "cpu"
     preprocess_config: Optional[OmegaConf] = None
+    centroid_scale: Optional[float] = None
+    confmap_scale: Optional[float] = None
     anchor_part: Optional[str] = None
     max_stride: int = 16
     filter_overlapping: bool = False
@@ -3311,7 +3320,7 @@ class TopDownMultiClassPredictor(Predictor):
                 return_crops=return_crops,
                 max_instances=self.max_instances,
                 max_stride=max_stride,
-                input_scale=self.preprocess_config.scale,
+                input_scale=self.centroid_scale,
                 crop_hw=(
                     self.preprocess_config.crop_size,
                     self.preprocess_config.crop_size,
@@ -3330,7 +3339,7 @@ class TopDownMultiClassPredictor(Predictor):
             integral_patch_size=self.integral_patch_size,
             return_confmaps=self.return_confmaps,
             max_stride=max_stride,
-            input_scale=self.preprocess_config.scale,
+            input_scale=self.confmap_scale,
         )
 
         if self.centroid_config is None:
@@ -3681,6 +3690,11 @@ class TopDownMultiClassPredictor(Predictor):
             logger.error(message)
             raise ValueError(message)
 
+        # Capture the caller's explicit --input_scale override (if any) before
+        # the fill-in below resolves `scale` from a single config, so each
+        # stage can still fall back to ITS OWN trained scale afterward.
+        user_scale = preprocess_config["scale"]
+
         if centroid_config is not None:
             preprocess_config["scale"] = (
                 centroid_config.data_config.preprocessing.scale
@@ -3741,6 +3755,17 @@ class TopDownMultiClassPredictor(Predictor):
             else preprocess_config["crop_size"]
         )
 
+        # scale is per-stage like crop_size: an explicit --input_scale override
+        # (user_scale) applies to both stages, but absent one, each stage must
+        # use its OWN trained scale rather than inheriting the other stage's
+        # value through the shared preprocess_config.
+        centroid_scale = user_scale
+        if centroid_scale is None and centroid_config is not None:
+            centroid_scale = centroid_config.data_config.preprocessing.scale
+        confmap_scale = user_scale
+        if confmap_scale is None and confmap_config is not None:
+            confmap_scale = confmap_config.data_config.preprocessing.scale
+
         # create an instance of TopDownPredictor class
         obj = cls(
             centroid_config=centroid_config,
@@ -3758,6 +3783,8 @@ class TopDownMultiClassPredictor(Predictor):
             return_confmaps=return_confmaps,
             device=device,
             preprocess_config=preprocess_config,
+            centroid_scale=centroid_scale,
+            confmap_scale=confmap_scale,
             anchor_part=anchor_part,
             max_stride=(
                 centroid_config.model_config.backbone_config[
