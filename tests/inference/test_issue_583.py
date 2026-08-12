@@ -249,3 +249,40 @@ def test_scope_labels_to_video_out_of_range_raises():
     )
     with __import__("pytest").raises(click.UsageError):
         _scope_labels_to_video(labels, 5)
+
+
+def test_scope_labels_to_video_creates_placeholders_for_unlabeled_video():
+    """First inference on a never-labeled video produces placeholder frames.
+
+    Regression test for sleap#2844: ``_scope_labels_to_video`` called
+    ``labels.find(video=target)`` which only returns pre-existing
+    ``LabeledFrame``s. For a video with zero prior labels, this yielded an
+    empty list, so inference silently processed zero frames.
+    """
+    from sleap_nn.cli import _scope_labels_to_video
+
+    skel = sio.Skeleton(nodes=["a"])
+    video = sio.Video(filename="unlabeled.mp4")
+    labels = sio.Labels(videos=[video], skeletons=[skel], labeled_frames=[])
+
+    # Simulate the GUI's "Entire video" target: --frames 0-4 (5 frames).
+    scoped, target = _scope_labels_to_video(labels, 0, frames=[0, 1, 2, 3, 4])
+    assert target is video
+    assert len(scoped.labeled_frames) == 5
+    assert {lf.frame_idx for lf in scoped.labeled_frames} == {0, 1, 2, 3, 4}
+
+
+def test_scope_labels_to_video_preserves_existing_labels_with_frames():
+    """When some frames already have labels, those are kept alongside new ones."""
+    from sleap_nn.cli import _scope_labels_to_video
+
+    skel = sio.Skeleton(nodes=["a"])
+    video = sio.Video(filename="partial.mp4")
+    existing_lf = sio.LabeledFrame(video=video, frame_idx=2)
+    labels = sio.Labels(videos=[video], skeletons=[skel], labeled_frames=[existing_lf])
+
+    scoped, _ = _scope_labels_to_video(labels, 0, frames=[0, 1, 2, 3])
+    assert len(scoped.labeled_frames) == 4
+    # Frame 2 should be the original (with any instances), not a new empty one.
+    frame_2 = [lf for lf in scoped.labeled_frames if lf.frame_idx == 2]
+    assert len(frame_2) == 1

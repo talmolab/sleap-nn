@@ -1359,11 +1359,24 @@ def _scope_labels_to_video(labels, video_index: int, frames=None):
         )
     target = labels.videos[video_index]
     wanted = set(frames) if frames else None
-    lfs = [
-        lf
-        for lf in labels.find(video=target)
-        if wanted is None or lf.frame_idx in wanted
-    ]
+    if wanted is not None:
+        # Use return_new=True so frames without existing labels get placeholder
+        # LabeledFrames — otherwise first-inference on a never-labeled video
+        # silently yields zero frames (sleap#2844).
+        lfs = labels.find(video=target, frame_idx=sorted(wanted), return_new=True)
+    else:
+        lfs = labels.find(video=target)
+        if not lfs:
+            try:
+                n = len(target)
+                if n > 0:
+                    lfs = labels.find(
+                        video=target,
+                        frame_idx=list(range(n)),
+                        return_new=True,
+                    )
+            except Exception:
+                pass
     suggestions = [
         s
         for s in (getattr(labels, "suggestions", None) or [])
