@@ -718,12 +718,20 @@ class CentroidConfMapsConfig:
             stride of 2 results in confidence maps that are 0.5x the size of the input.
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
+        use_sigmoid_activation: (bool) If `True`, applies a sigmoid activation to the
+            head's output so it is a calibrated `(0, 1)` probability rather than
+            raw/unbounded regression output. Required when training with
+            `DataConfig.centroid_focal_loss_alpha` (a focal-style loss needs `Ŷ ∈ (0, 1)`
+            for its log terms, and `peak_threshold`-based inference stays meaningful only
+            if the raw output is already a probability). Default `False` -- no change
+            from existing behavior for plain MSE training.
     """
 
     anchor_part: Optional[str] = None
     centroid_source: Optional[str] = None
     sigma: float = 5.0
     output_stride: int = 1
+    use_sigmoid_activation: bool = False
 
 
 @define
