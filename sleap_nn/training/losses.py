@@ -131,3 +131,70 @@ def compute_masked_smooth_l1(
         y_pred * mask_expanded, y_gt * mask_expanded, reduction="sum"
     )
     return loss / n_valid
+
+
+def compute_centroid_focal_loss(
+    y_preds: torch.Tensor,
+    y: torch.Tensor,
+    alpha: float = 2.0,
+    beta: float = 4.0,
+    pos_threshold: float = 0.5,
+    eps: float = 1e-4,
+    reduction: str = "mean",
+) -> torch.Tensor:
+    """CenterNet/CornerNet-style penalty-reduced pixelwise focal loss.
+
+    Adapted for sleap-nn's continuous (sub-pixel) Gaussian confmap targets --
+    see `sleap_nn.data.confidence_maps.make_confmaps`, which evaluates the
+    Gaussian at the true keypoint location on a fixed grid, so the peak
+    pixel's target value is generally close to but not exactly 1.0 (unlike
+    the original CenterNet formulation, which snaps the peak to an exact
+    grid cell with target 1.0). Positive pixels are therefore defined as
+    `y >= pos_threshold` rather than `y == 1`.
+
+    For positive pixels: ``-(1 - y_preds)^alpha * log(y_preds)``.
+    For the rest: ``-(1 - y)^beta * y_preds^alpha * log(1 - y_preds)``.
+
+    Requires `y_preds` to be a calibrated `(0, 1)` probability (e.g. from a
+    head with a sigmoid output activation -- see
+    `CentroidConfmapsHead.use_sigmoid_activation`), not raw/unbounded
+    regression output.
+
+    Args:
+        y_preds: Predicted confidence maps, expected in `(0, 1)` (values
+            outside this range are clamped). Any shape.
+        y: Ground-truth confidence maps (continuous Gaussian targets), same
+            shape as `y_preds`.
+        alpha: Focal exponent applied to both branches -- down-weights
+            already-confident (easy) pixels on both the positive and
+            negative side. Default 2.0 (standard CenterNet value).
+        beta: Penalty-reduction exponent for negative pixels near a true
+            peak (`y` close to but below `pos_threshold` counts less against
+            the model). Default 4.0 (standard CenterNet value).
+        pos_threshold: Minimum target value for a pixel to count as
+            "positive" (near a true peak). Default 0.5 (~1.18 sigma from the
+            true peak).
+        eps: Clamp margin to keep `log` finite.
+        reduction: ``"mean"`` (default, same convention as plain
+            ``nn.MSELoss()``) or ``"none"`` to return the elementwise loss
+            tensor unreduced (same shape as ``y_preds``) -- used by
+            ``CentroidLightningModule._compute_loss`` to take a per-sample
+            mean before applying the existing negative-frame weighting on
+            top.
+
+    Returns:
+        Mean-reduced scalar loss tensor, or the elementwise loss tensor if
+        ``reduction="none"``.
+    """
+    y_preds = torch.clamp(y_preds, eps, 1.0 - eps)
+    pos_mask = (y >= pos_threshold).to(y_preds.dtype)
+    neg_mask = 1.0 - pos_mask
+
+    pos_loss = -torch.pow(1.0 - y_preds, alpha) * torch.log(y_preds) * pos_mask
+    neg_loss = (
+        -torch.pow(1.0 - y, beta) * torch.pow(y_preds, alpha) * torch.log(1.0 - y_preds)
+        * neg_mask
+    )
+
+    elementwise = pos_loss + neg_loss
+    return elementwise if reduction == "none" else elementwise.mean()
