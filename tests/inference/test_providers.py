@@ -189,6 +189,44 @@ def test_labels_provider_frames_out_of_range_warns():
     assert "[5, 6]" in messages[0]
 
 
+@pytest.mark.skipif(not VIDEO.exists(), reason="test video not present")
+def test_labels_provider_skips_unreadable_frame_and_warns():
+    """A frame that can't be read (``IndexError``) is skipped, not fatal.
+
+    Regression: the legacy ``VideoReader``/``LabelsReader`` threads have no
+    per-frame guard around pixel reads, so a single unreadable frame (e.g. a
+    placeholder synthesized by ``_scope_labels_to_video`` for a ``--frames``
+    index that isn't actually in the video) would abort the entire remaining
+    stream. ``LabelsProvider`` must instead skip just that frame, keep
+    reading the rest, and warn once with the skipped index/indices.
+    """
+    import sleap_io as sio
+    from loguru import logger
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.load_video(str(VIDEO))
+    lfs = [
+        sio.LabeledFrame(video=video, frame_idx=0, instances=[]),
+        sio.LabeledFrame(video=video, frame_idx=999_999, instances=[]),
+        sio.LabeledFrame(video=video, frame_idx=1, instances=[]),
+    ]
+    labels = sio.Labels(videos=[video], skeletons=[skel], labeled_frames=lfs)
+
+    messages = []
+    sink_id = logger.add(messages.append, level="WARNING")
+    try:
+        batches = list(LabelsProvider(labels=labels, batch_size=4))
+    finally:
+        logger.remove(sink_id)
+
+    read_frame_idxs = sorted(int(i) for b in batches for i in b.frame_indices)
+    assert read_frame_idxs == [0, 1]
+
+    assert len(messages) == 1
+    assert "could not be read" in messages[0]
+    assert "999999" in messages[0]
+
+
 def test_labels_provider_only_suggested_frames_yields_unlabeled_suggestions():
     """``only_suggested_frames=True`` yields unlabeled suggestions only."""
     import sleap_io as sio
