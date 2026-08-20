@@ -1987,6 +1987,14 @@ class Predictor:
             if progress_callback is not None:
                 frames_done += int(batch.images.shape[0])
                 progress_callback(frames_done, total)
+        if progress_callback is not None and frames_done != total:
+            # The provider can yield fewer frames than its upfront `total`
+            # estimate (e.g. LabelsProvider skips a synthesized placeholder
+            # whose pixels turn out unreadable) -- without this, a caller
+            # gating "done" on `processed >= total` (the GUI's JSON progress
+            # consumer) never sees a completion signal even though inference
+            # succeeded.
+            progress_callback(frames_done, frames_done)
 
     # ──────────────────────────────────────────────────────────────────
     # Pipelined bottom-up: GPU stage in main proc, CPU grouping in pool
@@ -2058,6 +2066,11 @@ class Predictor:
                 if progress_callback is not None:
                     frames_done += int(done_batch.images.shape[0])
                     progress_callback(frames_done, total)
+        if progress_callback is not None and frames_done != total:
+            # See the matching comment in `_batch_iter`: the provider's
+            # upfront `total` can overcount frames that are later skipped
+            # as unreadable, so force a final completion signal.
+            progress_callback(frames_done, frames_done)
 
     @staticmethod
     def _stamp_metadata(outputs: Outputs, batch: Any) -> Outputs:

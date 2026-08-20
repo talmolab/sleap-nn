@@ -73,6 +73,60 @@ def test_scoped_postprocess_layer_no_args_returns_same_layer():
     assert scoped is predictor.layer
 
 
+class _FakeCountLayer:
+    """Minimal layer stub: ``predict`` returns an empty ``Outputs``."""
+
+    def predict(self, images, **kwargs):
+        return Outputs()
+
+
+class _FakeUndercountingProvider:
+    """Yields fewer frames than its own ``num_frames()`` reports.
+
+    Mirrors ``LabelsProvider`` skipping a synthesized placeholder whose
+    pixels turn out unreadable: ``num_frames()`` is a static pre-read
+    estimate, not the actual count that ends up yielded.
+    """
+
+    def __init__(self, n_batches: int, reported_total: int):
+        self._n_batches = n_batches
+        self._reported_total = reported_total
+
+    def __iter__(self):
+        from sleap_nn.inference.providers import Batch
+
+        for _ in range(self._n_batches):
+            yield Batch(images=np.zeros((1, 2, 2, 1), dtype=np.uint8))
+
+    def num_frames(self) -> int:
+        return self._reported_total
+
+
+def test_batch_iter_forces_completion_when_provider_undercounts():
+    """``_batch_iter`` must still signal "done" when actual yield < num_frames().
+
+    Regression: a caller gating "done" on ``processed >= total`` (e.g. the
+    GUI's JSON progress callback) never saw a completion signal when
+    ``LabelsProvider`` skipped a synthesized placeholder as unreadable,
+    because ``total`` was fixed at the pre-read ``num_frames()`` estimate and
+    ``frames_done`` never caught up to it.
+    """
+    predictor = Predictor(layer=_FakeCountLayer())
+    provider = _FakeUndercountingProvider(n_batches=3, reported_total=5)
+
+    calls = []
+    list(
+        predictor._batch_iter(
+            provider, progress_callback=lambda p, t: calls.append((p, t))
+        )
+    )
+
+    # The last real-batch call still reports the stale (over-)estimate...
+    assert calls[-2] == (3, 5)
+    # ...but a forced final call corrects `total` so `processed >= total`.
+    assert calls[-1] == (3, 3)
+
+
 @pytest.mark.skipif(
     not (all(p.exists() for p in MC_TOPDOWN_CKPTS) and MC_TOPDOWN_VIDEO.exists()),
     reason="multiclass top-down checkpoints / video not present",
