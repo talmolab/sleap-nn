@@ -590,6 +590,46 @@ def test_single_instance_single_instance_ok(config, tmp_path, minimal_instance):
     assert trainer.model_type == "single_instance"
 
 
+def test_no_labeled_frames_train_raises(config, tmp_path, minimal_instance):
+    """Training should fail fast with a clear error when the train split is empty."""
+    labels = sio.load_slp(minimal_instance)
+    empty_labels = sio.Labels(
+        labeled_frames=[],
+        videos=labels.videos,
+        skeletons=labels.skeletons,
+        tracks=labels.tracks,
+    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(
+        config, "trainer_config.run_name", "test_no_labeled_frames_train_raises"
+    )
+
+    with pytest.raises(ValueError, match="No labeled frames available for train"):
+        ModelTrainer.get_model_trainer_from_config(
+            config, train_labels=[empty_labels], val_labels=[labels]
+        )
+
+
+def test_no_labeled_frames_val_raises(config, tmp_path, minimal_instance):
+    """Training should fail fast with a clear error when the val split is empty."""
+    labels = sio.load_slp(minimal_instance)
+    empty_labels = sio.Labels(
+        labeled_frames=[],
+        videos=labels.videos,
+        skeletons=labels.skeletons,
+        tracks=labels.tracks,
+    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(
+        config, "trainer_config.run_name", "test_no_labeled_frames_val_raises"
+    )
+
+    with pytest.raises(ValueError, match="No labeled frames available for validation"):
+        ModelTrainer.get_model_trainer_from_config(
+            config, train_labels=[labels], val_labels=[empty_labels]
+        )
+
+
 @pytest.mark.skipif(
     sys.platform.startswith("li")
     and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
