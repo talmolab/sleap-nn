@@ -317,6 +317,31 @@ def test_scope_labels_to_video_no_warning_when_all_frames_found():
     assert messages == []
 
 
+def test_scope_labels_to_video_orders_by_frame_idx_regardless_of_file_order():
+    """Output is ordered by frame_idx, not by the source .slp's storage order.
+
+    Regression: the synthesize_missing=True branch always emitted
+    sorted(wanted), while the False branch preserved target_lfs's (possibly
+    non-monotonic) storage order -- --stream-to-file's incremental write
+    order would silently depend on synthesize_missing. Both branches must
+    agree.
+    """
+    from sleap_nn.cli import _scope_labels_to_video
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="a.mp4")
+    # Stored out of frame_idx order (e.g. frames added out of sequence).
+    labels = _labels_with_frames(video, skel, [2, 0, 1])
+
+    scoped, _ = _scope_labels_to_video(labels, 0, frames=[0, 1, 2])
+    assert [lf.frame_idx for lf in scoped.labeled_frames] == [0, 1, 2]
+
+    scoped_synth, _ = _scope_labels_to_video(
+        labels, 0, frames=[0, 1, 2, 3], synthesize_missing=True
+    )
+    assert [lf.frame_idx for lf in scoped_synth.labeled_frames] == [0, 1, 2, 3]
+
+
 def test_scope_labels_to_video_synthesizes_missing_when_requested():
     """``synthesize_missing=True`` keeps every requested index, not just labeled ones.
 

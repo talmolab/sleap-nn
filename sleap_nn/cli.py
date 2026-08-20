@@ -1382,7 +1382,15 @@ def _scope_labels_to_video(
         existing_by_idx = {lf.frame_idx: lf for lf in target_lfs}
         missing = sorted(wanted - existing_by_idx.keys())
         if not synthesize_missing:
-            lfs = [lf for lf in target_lfs if lf.frame_idx in wanted]
+            # Ordered by frame_idx (matching the synthesize_missing branch
+            # below), not by `target_lfs`'s original order -- a .slp's
+            # labeled_frames are not guaranteed to already be frame_idx-sorted
+            # (e.g. frames added out of sequence via the GUI), and the two
+            # branches must agree so --stream-to-file's incremental write
+            # order doesn't silently depend on synthesize_missing.
+            lfs = [
+                existing_by_idx[idx] for idx in sorted(wanted) if idx in existing_by_idx
+            ]
         else:
             lfs = [
                 (
