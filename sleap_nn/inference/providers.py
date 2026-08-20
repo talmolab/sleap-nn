@@ -196,9 +196,17 @@ class VideoProvider:
             self._sio_video = sio.load_video(str(self.video), **kwargs)
 
         n_frames = len(self._sio_video)
-        self._frame_indices = (
-            list(self.frames) if self.frames is not None else list(range(n_frames))
-        )
+        if self.frames is not None:
+            out_of_range = sorted(i for i in self.frames if i < 0 or i >= n_frames)
+            if out_of_range:
+                logger.warning(
+                    f"VideoProvider: {len(out_of_range)} requested frame "
+                    f"index/indices out of range for a video with {n_frames} "
+                    f"frame(s) and will be skipped: {out_of_range}"
+                )
+            self._frame_indices = [i for i in self.frames if 0 <= i < n_frames]
+        else:
+            self._frame_indices = list(range(n_frames))
 
     def _read_batches(self, video: "sio.Video") -> Iterator[Batch]:
         """Read frames from ``video`` in batches of ``batch_size``.
