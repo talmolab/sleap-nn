@@ -430,11 +430,45 @@ class ModelTrainer:
         logger.info(f"# Train Labeled frames: {total_train_lfs}")
         logger.info(f"# Val Labeled frames: {total_val_lfs}")
 
+        # Fail fast on an empty split instead of letting training run for several
+        # minutes of setup only to crash with a cryptic IndexError the first time
+        # something indexes into an empty Labels (e.g. `_verify_model_input_channels`
+        # accessing `self.train_labels[0][0]`).
+        self._validate_nonempty_labels(total_train_lfs, "train")
+        self._validate_nonempty_labels(total_val_lfs, "validation")
+
         # Single-instance models assume exactly one instance per frame; fail fast
         # with a clear error if any frame has more than one.
         if self.model_type == "single_instance":
             self._validate_single_instance_labels(self.train_labels, "train")
             self._validate_single_instance_labels(self.val_labels, "validation")
+
+    def _validate_nonempty_labels(self, n_labeled_frames: int, split_name: str):
+        """Ensure a split has at least one trainable labeled frame.
+
+        Args:
+            n_labeled_frames: Count of labeled frames usable as training targets
+                for this split (user instances, or user centroids for the
+                centroid model).
+            split_name: Name of the split (e.g. "train", "validation") for the
+                error message.
+
+        Raises:
+            ValueError: If `n_labeled_frames` is zero.
+        """
+        if n_labeled_frames == 0:
+            message = (
+                f"No labeled frames available for {split_name}: none of the "
+                f"labeled frame(s) in the provided {split_name} labels contain "
+                "user-labeled data usable by this model. Predicted instances "
+                "and suggestion frames are not used as training targets (nor "
+                "are standalone centroid annotations, except by centroid "
+                "models). Verify that the .slp file(s) passed for training "
+                "contain user-labeled instances, and that `validation_fraction` "
+                "and `use_same_data_for_val` are set as intended."
+            )
+            logger.error(message)
+            raise ValueError(message)
 
     def _validate_single_instance_labels(
         self, labels: List[sio.Labels], split_name: str

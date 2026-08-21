@@ -1341,7 +1341,9 @@ def _build_tracker_config(kwargs: dict) -> "object":
     )
 
 
-def _scope_labels_to_video(labels, video_index: int, frames=None):
+def _scope_labels_to_video(
+    labels, video_index: int, frames=None, synthesize_missing: bool = False
+):
     """Scope a ``Labels`` to one video (re-indexed to slot 0), optionally + frames.
 
     Returns ``(scoped_labels, target_video)``. Raises ``click.UsageError`` for an
@@ -1349,6 +1351,20 @@ def _scope_labels_to_video(labels, video_index: int, frames=None):
     source ``provenance`` so ``--video_index`` composes with
     ``--only_suggested_frames`` / ``--frames`` and preserves input lineage
     (legacy parity, #583).
+
+    A requested ``--frames`` index with no existing ``LabeledFrame`` is, by
+    default, simply dropped (with a warning) -- ``labels.find()`` can only
+    narrow, never add frames. When ``synthesize_missing=True``, such indices
+    instead get an empty placeholder ``LabeledFrame`` (no instances, mirroring
+    how ``LabelsProvider`` already synthesizes frames for
+    ``--only_suggested_frames``) so real pixel-based inference can read that
+    frame directly from ``target``'s backing video -- ``sio.Video`` already
+    resolves an original ``frame_idx`` correctly for both a plain video and an
+    embedded ``.pkg.slp`` (via its ``frame_map``), raising a clean
+    ``IndexError`` if that particular frame was never embedded.
+    ``synthesize_missing`` should stay ``False`` for annotation-based flows
+    (retrack-only, ``--mask_backend``) where a frame with no instances is
+    meaningless, not merely "not yet predicted".
     """
     import sleap_io as sio
 
@@ -1359,11 +1375,57 @@ def _scope_labels_to_video(labels, video_index: int, frames=None):
         )
     target = labels.videos[video_index]
     wanted = set(frames) if frames else None
-    lfs = [
-        lf
-        for lf in labels.find(video=target)
-        if wanted is None or lf.frame_idx in wanted
-    ]
+    target_lfs = labels.find(video=target)
+    if wanted is None:
+        lfs = list(target_lfs)
+    else:
+        existing_by_idx = {lf.frame_idx: lf for lf in target_lfs}
+        missing = sorted(wanted - existing_by_idx.keys())
+        if not synthesize_missing:
+            # Ordered by frame_idx (matching the synthesize_missing branch
+            # below), not by `target_lfs`'s original order -- a .slp's
+            # labeled_frames are not guaranteed to already be frame_idx-sorted
+            # (e.g. frames added out of sequence via the GUI), and the two
+            # branches must agree so --stream-to-file's incremental write
+            # order doesn't silently depend on synthesize_missing.
+            lfs = [
+                existing_by_idx[idx] for idx in sorted(wanted) if idx in existing_by_idx
+            ]
+        else:
+            lfs = [
+                (
+                    existing_by_idx[idx]
+                    if idx in existing_by_idx
+                    else sio.LabeledFrame(video=target, frame_idx=idx, instances=[])
+                )
+                for idx in sorted(wanted)
+            ]
+        if missing:
+            if synthesize_missing:
+                logger.warning(
+                    f"--frames requested {len(wanted)} frame index/indices for "
+                    f"video {video_index}, but only "
+                    f"{len(wanted) - len(missing)} already exist as labeled "
+                    f"frames in the .slp; {len(missing)} will be read directly "
+                    f"from the source video instead: {missing[:20]}"
+                    f"{', ...' if len(missing) > 20 else ''}. A frame that "
+                    f"isn't actually available in the video (e.g. a .pkg.slp "
+                    f"missing that embedded frame) will be skipped with its "
+                    f"own warning when read."
+                )
+            else:
+                logger.warning(
+                    f"--frames requested {len(wanted)} frame index/indices for "
+                    f"video {video_index}, but only "
+                    f"{len(wanted) - len(missing)} exist as labeled frames in "
+                    f"the .slp; {len(missing)} requested index/indices have no "
+                    f"matching labeled frame and will be skipped: "
+                    f"{missing[:20]}{', ...' if len(missing) > 20 else ''}. "
+                    f"--video_index/--frames on a .slp source can only select "
+                    f"among already-labeled frames -- point --data_path at "
+                    f"the video file directly to run inference on frames "
+                    f"that aren't yet labeled."
+                )
     suggestions = [
         s
         for s in (getattr(labels, "suggestions", None) or [])
@@ -1598,10 +1660,17 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         # frames pass through a pre-built LabelsProvider, so the real Video is not
         # re-attached on output (same as the has_slp_filters path); the output is
         # video-name-suffixed instead. Carries suggestions + the --frames filter.
+        # For real pixel-based inference (not --mask_backend, which masks
+        # existing poses and has nothing to do with un-annotated frames),
+        # synthesize placeholder frames for --frames indices that aren't
+        # already labeled so they're read straight from the video instead of
+        # silently dropped (matches what `sleap-nn track` does when given a
+        # model, minus its all-or-nothing failure mode -- see LabelsProvider).
         scoped, target_video = _scope_labels_to_video(
             sio.load_slp(source_str, **remote_kwargs),
             video_index,
             frames=kwargs.get("frames"),
+            synthesize_missing=not bool(kwargs.get("mask_backend")),
         )
         if kwargs.get("mask_backend"):
             # run_sam_segmentation accepts a sio.Labels directly; pass the scoped
@@ -2186,13 +2255,17 @@ def _run_stream_to_file(
     if src_suffix == ".slp" and video_index is not None:
         # Scope streaming inference to the requested video of a multi-video .slp
         # (re-indexed to videos[0] so frames map correctly). Carries suggestions
-        # + the --frames filter. #583.
+        # + the --frames filter. #583. --stream-to-file always runs real model
+        # inference (--model_paths is required above), so synthesize
+        # placeholders for --frames indices that aren't already labeled --
+        # they're read straight from the video instead of silently dropped.
         import sleap_io as sio
 
         scoped, _target_video = _scope_labels_to_video(
             sio.load_slp(source_str, **remote_kwargs),
             video_index,
             frames=kwargs.get("frames"),
+            synthesize_missing=True,
         )
         provider = LabelsProvider(
             labels=scoped,

@@ -196,9 +196,17 @@ class VideoProvider:
             self._sio_video = sio.load_video(str(self.video), **kwargs)
 
         n_frames = len(self._sio_video)
-        self._frame_indices = (
-            list(self.frames) if self.frames is not None else list(range(n_frames))
-        )
+        if self.frames is not None:
+            out_of_range = sorted(i for i in self.frames if i < 0 or i >= n_frames)
+            if out_of_range:
+                logger.warning(
+                    f"VideoProvider: {len(out_of_range)} requested frame "
+                    f"index/indices out of range for a video with {n_frames} "
+                    f"frame(s) and will be skipped: {out_of_range}"
+                )
+            self._frame_indices = [i for i in self.frames if 0 <= i < n_frames]
+        else:
+            self._frame_indices = list(range(n_frames))
 
     def _read_batches(self, video: "sio.Video") -> Iterator[Batch]:
         """Read frames from ``video`` in batches of ``batch_size``.
@@ -486,6 +494,14 @@ class LabelsProvider:
         top-down with centroid model, bottom-up) skip the GT-shaped
         kwargs entirely.
 
+        A frame whose pixels can't actually be read (``IndexError`` -- e.g. a
+        placeholder ``LabeledFrame`` synthesized by ``_scope_labels_to_video``
+        for a ``--frames`` index that turns out not to be embedded in a
+        ``.pkg.slp``) is skipped rather than aborting the whole read: the
+        legacy ``VideoReader``/``LabelsReader`` threads have no equivalent
+        per-frame guard, so a single unreadable frame there silently drops
+        every frame requested after it, not just the bad one.
+
         Args:
             image_fn: Optional ``(LabeledFrame) -> np.ndarray`` override for
                 pixel access, used by the prefetch thread to read through a
@@ -503,21 +519,30 @@ class LabelsProvider:
         # boundary instead of crashing on np.stack (#mixed-resolution .slp).
         n_frames = len(self._labeled_frames)
         start = 0
+        unreadable: list = []
         while start < n_frames:
             chunk = []
             chunk_imgs = []
             first_shape = None
             idx = start
             while idx < n_frames and len(chunk) < self.batch_size:
-                img = image_fn(self._labeled_frames[idx])
+                lf = self._labeled_frames[idx]
+                try:
+                    img = image_fn(lf)
+                except IndexError as exc:
+                    unreadable.append((lf.frame_idx, exc))
+                    idx += 1
+                    continue
                 if first_shape is None:
                     first_shape = img.shape
                 elif img.shape != first_shape:
                     break
-                chunk.append(self._labeled_frames[idx])
+                chunk.append(lf)
                 chunk_imgs.append(img)
                 idx += 1
             start = idx
+            if not chunk:
+                continue
             frames = np.stack(chunk_imgs, axis=0)
 
             inst_lists = [self._frame_instances(lf) for lf in chunk]
@@ -553,6 +578,15 @@ class LabelsProvider:
                 frame_indices=frame_idxs,
                 video_indices=video_idxs,
                 instances=instances,
+            )
+
+        if unreadable:
+            missing_idxs = [fi for fi, _ in unreadable]
+            logger.warning(
+                f"LabelsProvider: {len(unreadable)} requested frame(s) could "
+                f"not be read from the source video and were skipped: "
+                f"{missing_idxs[:20]}{', ...' if len(missing_idxs) > 20 else ''} "
+                f"(first error: {unreadable[0][1]})"
             )
 
     def _thread_local_video_map(self) -> dict:

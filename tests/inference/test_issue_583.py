@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 import sleap_io as sio
 import torch
@@ -70,6 +71,60 @@ def test_scoped_postprocess_layer_no_args_returns_same_layer():
     predictor = Predictor(layer=_PostprocStub())
     scoped = predictor._scoped_postprocess_layer()
     assert scoped is predictor.layer
+
+
+class _FakeCountLayer:
+    """Minimal layer stub: ``predict`` returns an empty ``Outputs``."""
+
+    def predict(self, images, **kwargs):
+        return Outputs()
+
+
+class _FakeUndercountingProvider:
+    """Yields fewer frames than its own ``num_frames()`` reports.
+
+    Mirrors ``LabelsProvider`` skipping a synthesized placeholder whose
+    pixels turn out unreadable: ``num_frames()`` is a static pre-read
+    estimate, not the actual count that ends up yielded.
+    """
+
+    def __init__(self, n_batches: int, reported_total: int):
+        self._n_batches = n_batches
+        self._reported_total = reported_total
+
+    def __iter__(self):
+        from sleap_nn.inference.providers import Batch
+
+        for _ in range(self._n_batches):
+            yield Batch(images=np.zeros((1, 2, 2, 1), dtype=np.uint8))
+
+    def num_frames(self) -> int:
+        return self._reported_total
+
+
+def test_batch_iter_forces_completion_when_provider_undercounts():
+    """``_batch_iter`` must still signal "done" when actual yield < num_frames().
+
+    Regression: a caller gating "done" on ``processed >= total`` (e.g. the
+    GUI's JSON progress callback) never saw a completion signal when
+    ``LabelsProvider`` skipped a synthesized placeholder as unreadable,
+    because ``total`` was fixed at the pre-read ``num_frames()`` estimate and
+    ``frames_done`` never caught up to it.
+    """
+    predictor = Predictor(layer=_FakeCountLayer())
+    provider = _FakeUndercountingProvider(n_batches=3, reported_total=5)
+
+    calls = []
+    list(
+        predictor._batch_iter(
+            provider, progress_callback=lambda p, t: calls.append((p, t))
+        )
+    )
+
+    # The last real-batch call still reports the stale (over-)estimate...
+    assert calls[-2] == (3, 5)
+    # ...but a forced final call corrects `total` so `processed >= total`.
+    assert calls[-1] == (3, 3)
 
 
 @pytest.mark.skipif(
@@ -249,3 +304,196 @@ def test_scope_labels_to_video_out_of_range_raises():
     )
     with __import__("pytest").raises(click.UsageError):
         _scope_labels_to_video(labels, 5)
+
+
+def _labels_with_frames(video, skel, frame_idxs):
+    return sio.Labels(
+        videos=[video],
+        skeletons=[skel],
+        labeled_frames=[
+            sio.LabeledFrame(video=video, frame_idx=i, instances=[]) for i in frame_idxs
+        ],
+    )
+
+
+def test_scope_labels_to_video_warns_on_missing_frame_idxs():
+    """--frames indices with no matching LabeledFrame are dropped AND warned on.
+
+    Regression: a .slp + --video_index/--frames request used to silently
+    return fewer frames than requested whenever some requested indices had no
+    labeled frame for that video, with no way to distinguish "truncated" from
+    "fully satisfied" from the output alone.
+    """
+    from loguru import logger
+
+    from sleap_nn.cli import _scope_labels_to_video
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="a.mp4")
+    labels = _labels_with_frames(video, skel, [0, 1, 2])
+
+    messages = []
+    sink_id = logger.add(messages.append, level="WARNING")
+    try:
+        scoped, target = _scope_labels_to_video(labels, 0, frames=[0, 2, 5, 6])
+    finally:
+        logger.remove(sink_id)
+
+    # Unchanged existing behavior: only the frames that actually exist are kept.
+    assert [lf.frame_idx for lf in scoped.labeled_frames] == [0, 2]
+    assert target is video
+
+    assert len(messages) == 1
+    assert "requested 4 frame index/indices" in messages[0]
+    assert "only 2" in messages[0]
+    assert "2 requested index/indices have no matching labeled frame" in messages[0]
+    assert "[5, 6]" in messages[0]
+
+
+def test_scope_labels_to_video_no_warning_when_all_frames_found():
+    """No warning fires when every requested index matches a labeled frame."""
+    from loguru import logger
+
+    from sleap_nn.cli import _scope_labels_to_video
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="a.mp4")
+    labels = _labels_with_frames(video, skel, [0, 1, 2])
+
+    messages = []
+    sink_id = logger.add(messages.append, level="WARNING")
+    try:
+        scoped, _ = _scope_labels_to_video(labels, 0, frames=[0, 2])
+    finally:
+        logger.remove(sink_id)
+
+    assert [lf.frame_idx for lf in scoped.labeled_frames] == [0, 2]
+    assert messages == []
+
+
+def test_scope_labels_to_video_orders_by_frame_idx_regardless_of_file_order():
+    """Output is ordered by frame_idx, not by the source .slp's storage order.
+
+    Regression: the synthesize_missing=True branch always emitted
+    sorted(wanted), while the False branch preserved target_lfs's (possibly
+    non-monotonic) storage order -- --stream-to-file's incremental write
+    order would silently depend on synthesize_missing. Both branches must
+    agree.
+    """
+    from sleap_nn.cli import _scope_labels_to_video
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="a.mp4")
+    # Stored out of frame_idx order (e.g. frames added out of sequence).
+    labels = _labels_with_frames(video, skel, [2, 0, 1])
+
+    scoped, _ = _scope_labels_to_video(labels, 0, frames=[0, 1, 2])
+    assert [lf.frame_idx for lf in scoped.labeled_frames] == [0, 1, 2]
+
+    scoped_synth, _ = _scope_labels_to_video(
+        labels, 0, frames=[0, 1, 2, 3], synthesize_missing=True
+    )
+    assert [lf.frame_idx for lf in scoped_synth.labeled_frames] == [0, 1, 2, 3]
+
+
+def test_scope_labels_to_video_synthesizes_missing_when_requested():
+    """``synthesize_missing=True`` keeps every requested index, not just labeled ones.
+
+    Real-inference call sites (predict, --stream-to-file) pass
+    ``synthesize_missing=True`` so a ``--frames`` index with no existing
+    ``LabeledFrame`` gets an empty placeholder instead of being dropped --
+    ``LabelsProvider`` then reads its pixels straight from the video. Existing
+    labeled frames (with their real instances) must survive unchanged.
+    """
+    from loguru import logger
+
+    from sleap_nn.cli import _scope_labels_to_video
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="a.mp4")
+    inst = sio.Instance.from_numpy(
+        np.array([[1.0, 1.0], [2.0, 2.0]], dtype=np.float32), skeleton=skel
+    )
+    existing = sio.LabeledFrame(video=video, frame_idx=2, instances=[inst])
+    labels = sio.Labels(videos=[video], skeletons=[skel], labeled_frames=[existing])
+
+    messages = []
+    sink_id = logger.add(messages.append, level="WARNING")
+    try:
+        scoped, target = _scope_labels_to_video(
+            labels, 0, frames=[0, 2, 4], synthesize_missing=True
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert target is video
+    assert [lf.frame_idx for lf in scoped.labeled_frames] == [0, 2, 4]
+    # Frame 2 is the ORIGINAL LabeledFrame object, instances intact.
+    assert scoped.labeled_frames[1] is existing
+    assert list(scoped.labeled_frames[1].instances) == [inst]
+    # Frames 0 and 4 are synthesized placeholders with no instances.
+    assert scoped.labeled_frames[0].instances == []
+    assert scoped.labeled_frames[2].instances == []
+
+    assert len(messages) == 1
+    assert "will be read directly from the source video" in messages[0]
+    assert "[0, 4]" in messages[0]
+
+
+def test_scope_labels_to_video_synthesize_missing_no_warning_when_all_found():
+    """``synthesize_missing=True`` + a fully-satisfied request emits no warning."""
+    from loguru import logger
+
+    from sleap_nn.cli import _scope_labels_to_video
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="a.mp4")
+    labels = _labels_with_frames(video, skel, [0, 1, 2])
+
+    messages = []
+    sink_id = logger.add(messages.append, level="WARNING")
+    try:
+        scoped, _ = _scope_labels_to_video(
+            labels, 0, frames=[0, 2], synthesize_missing=True
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert [lf.frame_idx for lf in scoped.labeled_frames] == [0, 2]
+    assert messages == []
+
+
+@pytest.mark.skipif(not MC_TOPDOWN_VIDEO.exists(), reason="test video not present")
+def test_scope_labels_to_video_synthesize_missing_reads_real_pixels():
+    """End-to-end: a synthesized placeholder's pixels are actually readable.
+
+    This is the concrete GUI-repro scenario: a .slp with few labeled frames
+    but a --frames range covering many more of the video. With
+    synthesize_missing=True, LabelsProvider must yield a real image for the
+    un-labeled-but-in-range frame, not just an empty placeholder.
+    """
+    from sleap_nn.cli import _scope_labels_to_video
+    from sleap_nn.inference.providers import LabelsProvider
+
+    video = sio.load_video(str(MC_TOPDOWN_VIDEO))
+    skel = sio.Skeleton(nodes=["a", "b"])
+    inst = sio.Instance.from_numpy(
+        np.array([[1.0, 1.0], [2.0, 2.0]], dtype=np.float32), skeleton=skel
+    )
+    labels = sio.Labels(
+        videos=[video],
+        skeletons=[skel],
+        labeled_frames=[sio.LabeledFrame(video=video, frame_idx=0, instances=[inst])],
+    )
+
+    scoped, _ = _scope_labels_to_video(
+        labels, 0, frames=[0, 1, 2], synthesize_missing=True
+    )
+    provider = LabelsProvider(labels=scoped, batch_size=4)
+    batches = list(provider)
+
+    frame_idxs = sorted(int(i) for b in batches for i in b.frame_indices)
+    assert frame_idxs == [0, 1, 2]
+    # Every frame's pixels came through, including the two never-labeled ones.
+    for b in batches:
+        assert b.images.shape[0] == len(b.frame_indices)
