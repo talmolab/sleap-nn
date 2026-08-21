@@ -6919,6 +6919,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v033" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.3
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v032" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -7178,6 +7189,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v033" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.3.3
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v032" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -7393,6 +7415,45 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h2 id="v033"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.3.3">v0.3.3</a><a class="headerlink" href="#v033" title="Permanent link">&para;</a></h2>
+<h1>sleap-nn v0.3.3 Release Notes</h1>
+<h2>Summary</h2>
+<p>SLEAP-NN v0.3.3 is a small correctness-focused follow-up to v0.3.2, fixing a <strong>top-down inference scale-sharing regression</strong> where the centered-instance stage silently inherited the centroid stage's <code>scale</code> instead of its own, closing an <strong>observability gap</strong> where <code>predict</code>'s output provenance never recorded the scale/crop_size that actually ran, and fixing two <strong>training-config validation gaps</strong> — an unvalidated <code>anchor_part</code> that crashed confusingly deep, and an LR scheduler priority order that silently ignored its own documented precedence. 3 PRs since v0.3.2.</p>
+<h2>Installation</h2>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="# Install / upgrade the CLI tool (auto-selects the right torch backend)
+uv tool install sleap-nn --torch-backend auto --upgrade
+
+# Verify
+sleap-nn --version
+# Expected output: sleap-nn 0.3.3"><pre><span class="pl-c"><span class="pl-c">#</span> Install / upgrade the CLI tool (auto-selects the right torch backend)</span>
+uv tool install sleap-nn --torch-backend auto --upgrade
+
+<span class="pl-c"><span class="pl-c">#</span> Verify</span>
+sleap-nn --version
+<span class="pl-c"><span class="pl-c">#</span> Expected output: sleap-nn 0.3.3</span></pre></div>
+<hr>
+<h2>Fixes</h2>
+<ul>
+<li>Fixed a regression where the top-down inference pipeline's centered-instance stage silently inherited the centroid stage's <code>preprocessing.scale</code> instead of using its own trained value, whenever the two models were trained at different scales (a common setup — centroid models are often trained at lower resolution for speed; this is literally the GUI's own default training-profile pairing). This corrupted confidence-map peak-finding badly enough to drop detections almost entirely: on a real 2560-frame project with mismatched scales (centroid=0.5, centered_instance=1.0), <code>sleap-nn predict</code> went from 5120 correct instances (v0.3.1) to 0, and <code>sleap-nn track</code> dropped from 5120 to 11. Both pipelines now correctly resolve and apply each stage's own scale by default, while still honoring an explicit <code>--input_scale</code> override applied uniformly to both stages (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="5114883755" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/725" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/725/hovercard" href="https://github.com/talmolab/sleap-nn/pull/725">#725</a>).</li>
+<li>Fixed <code>sleap-nn predict</code> never recording <code>scale</code>/<code>crop_size</code> in its output provenance metadata at all, unlike the legacy <code>track</code> pipeline (which recorded only the raw CLI override, not necessarily the resolved value that actually ran). Provenance now reads the actual resolved scale off each stage's built inference layer; for top-down models it records <code>centroid_scale</code>/<code>instance_scale</code>/<code>crop_size</code> distinctly rather than collapsing to one shared value (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="5117393733" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/728" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/728/hovercard" href="https://github.com/talmolab/sleap-nn/pull/728">#728</a>).</li>
+<li>Fixed <code>anchor_part</code> having no upfront validation for <code>centered_instance</code>/<code>multi_class_topdown</code>/<code>centered_instance_segmentation</code> models: a typo'd or nonexistent <code>anchor_part</code> passed config setup cleanly and only failed deep inside dataset construction, with an error message that misleadingly blamed <code>part_names</code> instead of the actual offending field. A clear, correctly-attributed error is now raised upfront. (<code>centroid</code> models are intentionally exempt — an unmatched <code>anchor_part</code> there is a documented fallback case, not an error.) (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="5117521326" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/729" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/729/hovercard" href="https://github.com/talmolab/sleap-nn/pull/729">#729</a>)</li>
+<li>Fixed <code>configure_optimizers()</code>'s LR scheduler selection ignoring its own documented priority (<code>cosine_annealing_warmup &gt; linear_warmup_linear_decay &gt; step_lr &gt; reduce_lr_on_plateau</code>): it iterated scheduler fields in declaration order instead, so any user who set <code>cosine_annealing_warmup</code>/<code>linear_warmup_linear_decay</code> without also explicitly nulling the always-populated-by-default <code>reduce_lr_on_plateau</code> silently got <code>ReduceLROnPlateau</code> instead — no error, no warning, training just ran with the wrong LR schedule indefinitely. The scheduler is now selected in the documented priority order (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="5117521326" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/729" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/729/hovercard" href="https://github.com/talmolab/sleap-nn/pull/729">#729</a>).</li>
+</ul>
+<hr>
+<h2>Dependencies &amp; Build</h2>
+<ul>
+<li><strong>sleap-io</strong> pin unchanged at <code>&gt;=0.9.2,&lt;0.10.0</code> — 0.9.2 remains the latest release on both PyPI and GitHub, so no upper-bound audit was needed this cycle.</li>
+</ul>
+<hr>
+<h2>Changelog</h2>
+<ul>
+<li><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="5114883755" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/725" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/725/hovercard" href="https://github.com/talmolab/sleap-nn/pull/725">#725</a>: fix(infer): topdown centered-instance stage silently inherits centroid's scale (<a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a>)</li>
+<li><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="5117393733" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/728" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/728/hovercard" href="https://github.com/talmolab/sleap-nn/pull/728">#728</a>: fix(infer): predict never recorded input_scale/crop_size in provenance (<a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a>)</li>
+<li><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="5117521326" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/729" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/729/hovercard" href="https://github.com/talmolab/sleap-nn/pull/729">#729</a>: fix(train): anchor_part crashes confusingly deep; LR scheduler priority ignored (<a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a>)</li>
+<li><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="5122017486" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/730" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/730/hovercard" href="https://github.com/talmolab/sleap-nn/pull/730">#730</a>: chore: bump version to 0.3.3 (<a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a>)</li>
+</ul>
+<p><strong>Contributors:</strong> <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a></p>
+<p><strong>Full Changelog</strong>: <a class="commit-link" href="https://github.com/talmolab/sleap-nn/compare/v0.3.2...v0.3.3"><tt>v0.3.2...v0.3.3</tt></a></p>
 <h2 id="v032"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.3.2">v0.3.2</a><a class="headerlink" href="#v032" title="Permanent link">&para;</a></h2>
 <h1>sleap-nn v0.3.2 Release Notes</h1>
 <h2>Summary</h2>
