@@ -760,12 +760,70 @@ def compute_oks(
     return oks
 
 
+# OKS's normalization scale (the bounding-box area of a GT instance's visible
+# keypoints) collapses to exactly 0 when that bbox has zero width or height -- most
+# commonly with a single visible keypoint, but also with 2+ keypoints that happen to
+# be collinear on an axis. That drives the normalization factor to ~1e-18, which turns
+# OKS into a strict bit-for-bit equality test (see scratch/2026-08-21-oks-single-
+# keypoint-fn). `match_instances` routes those GT instances through
+# `compute_distance_match_score` instead.
+_DEGENERATE_AREA_EPS = 1e-9
+
+
+def compute_distance_match_score(
+    points_gt: np.ndarray,
+    points_pr: np.ndarray,
+    pixel_threshold: float = 50.0,
+) -> np.ndarray:
+    """Compute a pixel-distance-based match score for degenerate-scale GT instances.
+
+    Used as a fallback for GT instances whose visible-keypoint bounding box has zero
+    area (see `_DEGENERATE_AREA_EPS`), where `compute_oks` degenerates into a strict
+    equality test. Mirrors the pixel-distance matching already used for centroid-only
+    models (`match_method="centroid"`), but restricted to the nodes that are visible
+    in both the ground truth and predicted instance.
+
+    Args:
+        points_gt: Ground truth instances of shape (n_gt, n_nodes, n_ed).
+        points_pr: Predicted instances of shape (n_pr, n_nodes, n_ed).
+        pixel_threshold: Distance (in pixels) at which the score reaches 0.
+
+    Returns:
+        Match scores of shape (n_gt, n_pr) in the range [0, 1], with 1.0 denoting a
+        perfect match and 0.0 denoting no jointly-visible nodes or a mean distance at
+        or beyond `pixel_threshold`. Comparable in scale to `compute_oks`'s output, so
+        the two can be combined and thresholded uniformly.
+    """
+    if points_gt.ndim == 2:
+        points_gt = np.expand_dims(points_gt, axis=0)
+    if points_pr.ndim == 2:
+        points_pr = np.expand_dims(points_pr, axis=0)
+
+    n_gt = points_gt.shape[0]
+    n_pr = points_pr.shape[0]
+    scores = np.zeros((n_gt, n_pr))
+    for i in range(n_gt):
+        for j in range(n_pr):
+            jointly_visible = ~np.isnan(points_gt[i]).any(axis=-1) & ~np.isnan(
+                points_pr[j]
+            ).any(axis=-1)
+            if not jointly_visible.any():
+                continue
+            dists = np.linalg.norm(
+                points_gt[i, jointly_visible] - points_pr[j, jointly_visible], axis=-1
+            )
+            mean_dist = float(np.mean(dists))
+            scores[i, j] = max(0.0, 1.0 - mean_dist / pixel_threshold)
+    return scores
+
+
 def match_instances(
     frame_gt: sio.LabeledFrame,
     frame_pr: sio.LabeledFrame,
     stddev: float = 0.025,
     scale: Optional[float] = None,
     threshold: float = 0,
+    degenerate_pixel_threshold: float = 50.0,
 ) -> Tuple[List[Tuple[sio.Instance, sio.PredictedInstance, float]], List[sio.Instance]]:
     """Match pairs of instances between ground truth and predictions in a frame.
 
@@ -777,6 +835,9 @@ def match_instances(
             be used.
         threshold: The minimum OKS between a candidate pair of instances to be
             considered a match.
+        degenerate_pixel_threshold: Pixel distance threshold used to score GT
+            instances whose visible-keypoint bounding box has zero area (see
+            `compute_distance_match_score`), in place of OKS.
 
     Returns:
         A tuple of (`positive_pairs`, `false_negatives`).
@@ -831,6 +892,18 @@ def match_instances(
         oks = compute_oks(points_gt, points_pr, stddev=stddev, scale=scale)
         oks = np.squeeze(oks, axis=1)
         assert oks.shape == (len(points_gt),)
+
+        # GT instances with a zero-area visible-keypoint bbox make OKS collapse into a
+        # strict equality test (see `_DEGENERATE_AREA_EPS`). Score those against this
+        # prediction by pixel distance instead.
+        degenerate = compute_instance_area(points_gt) < _DEGENERATE_AREA_EPS
+        if degenerate.any():
+            distance_scores = compute_distance_match_score(
+                points_gt[degenerate],
+                points_pr,
+                pixel_threshold=degenerate_pixel_threshold,
+            )
+            oks[degenerate] = np.squeeze(distance_scores, axis=1)
 
         oks[oks <= threshold] = np.nan
         best_match_gt_idx = np.argsort(-oks, kind="mergesort")[0]
