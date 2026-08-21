@@ -1987,7 +1987,7 @@ class Predictor:
             if progress_callback is not None:
                 frames_done += int(batch.images.shape[0])
                 progress_callback(frames_done, total)
-        if progress_callback is not None and frames_done != total:
+        if progress_callback is not None and total >= 0 and frames_done != total:
             # The provider can yield fewer frames than its upfront `total`
             # estimate (e.g. LabelsProvider skips a synthesized placeholder
             # whose pixels turn out unreadable) -- without this, a caller
@@ -2066,7 +2066,7 @@ class Predictor:
                 if progress_callback is not None:
                     frames_done += int(done_batch.images.shape[0])
                     progress_callback(frames_done, total)
-        if progress_callback is not None and frames_done != total:
+        if progress_callback is not None and total >= 0 and frames_done != total:
             # See the matching comment in `_batch_iter`: the provider's
             # upfront `total` can overcount frames that are later skipped
             # as unreadable, so force a final completion signal.
