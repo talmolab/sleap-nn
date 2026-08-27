@@ -1275,7 +1275,12 @@ class ModelTrainer:
                 self.config.data_config.data_pipeline_fw = (
                     "torch_dataset_cache_img_disk"
                 )
-                base_cache_img_path = Path("./")
+                base_cache_img_path = (
+                    Path(self.config.data_config.cache_img_path)
+                    if self.config.data_config.cache_img_path is not None
+                    else Path(self.config.trainer_config.ckpt_dir)
+                    / self.config.trainer_config.run_name
+                )
                 logger.info(
                     f"Insufficient memory for in-memory caching. `jpg` files will be created for disk-caching."
                 )

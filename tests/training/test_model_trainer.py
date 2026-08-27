@@ -1701,6 +1701,47 @@ def test_multi_gpu_no_cache_auto_generates_run_name(config, tmp_path, minimal_in
         assert re.match(r"\d{6}_\d{6}\.", trainer.config.trainer_config.run_name)
 
 
+def test_memory_cache_fallback_to_disk_uses_ckpt_dir(
+    config, tmp_path, minimal_instance
+):
+    """Test that the memory->disk cache fallback defaults to ckpt_dir/run_name.
+
+    When `torch_dataset_cache_img_memory` falls back to disk caching because of
+    insufficient RAM and no explicit `cache_img_path` is set, the cache dir must
+    default to `ckpt_dir/run_name` (matching the explicit
+    `torch_dataset_cache_img_disk` pipeline's default) instead of the current
+    working directory, which may not be writable.
+    """
+    from unittest.mock import patch
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(cfg, "trainer_config.run_name", "mem_fallback_run")
+    OmegaConf.update(
+        cfg, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
+    )
+    OmegaConf.update(cfg, "data_config.cache_img_path", None)
+    OmegaConf.update(cfg, "trainer_config.trainer_devices", 1)
+    if torch.mps.is_available():
+        cfg.trainer_config.trainer_accelerator = "cpu"
+
+    labels = sio.load_slp(minimal_instance)
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        cfg, train_labels=[labels], val_labels=[labels]
+    )
+
+    with patch(
+        "sleap_nn.training.model_trainer.check_cache_memory", return_value=False
+    ):
+        trainer.train()
+
+    # Cache dir must resolve under ckpt_dir/run_name, not the current working
+    # directory (`./train_imgs`), which may be on a read-only filesystem.
+    expected_cache_path = Path(tmp_path) / "mem_fallback_run"
+    assert Path(trainer.config.data_config.cache_img_path) == expected_cache_path
+    assert trainer.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_disk"
+
+
 class TestCsvLogKeysEvalMetrics:
     """`csv_log_keys` (built in `_setup_loggers_callbacks`) must include the
     `eval/val/*` columns appropriate to `model_type` whenever
