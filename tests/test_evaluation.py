@@ -10,6 +10,7 @@ from sleap_nn.legacy_predict import run_inference
 from sleap_nn.evaluation import (
     compute_instance_area,
     compute_oks,
+    compute_distance_match_score,
 )
 from sleap_nn.evaluation import Evaluator, load_metrics
 from loguru import logger
@@ -220,6 +221,129 @@ def test_evaluator_two_match_one_missed_inst(minimal_instance):
         ]
     )
     assert (gt_3.instance.numpy() == points).all()
+
+
+def test_compute_distance_match_score():
+    # Single jointly-visible node, close prediction -> high score.
+    inst_gt = np.array([[np.nan, np.nan], [100.0, 100.0], [np.nan, np.nan]])
+    inst_pr_close = np.array([[np.nan, np.nan], [102.0, 101.0], [np.nan, np.nan]])
+    score = compute_distance_match_score(inst_gt, inst_pr_close)
+    np.testing.assert_allclose(score, 1 - (5**0.5) / 50.0)
+
+    # Same, but beyond the pixel threshold -> score clipped to 0.
+    inst_pr_far = np.array([[np.nan, np.nan], [160.0, 100.0], [np.nan, np.nan]])
+    score = compute_distance_match_score(inst_gt, inst_pr_far)
+    np.testing.assert_allclose(score, 0.0)
+
+    # Exact match -> score of 1.
+    score = compute_distance_match_score(inst_gt, inst_gt)
+    np.testing.assert_allclose(score, 1.0)
+
+    # No jointly-visible nodes -> score of 0 (no basis for comparison).
+    inst_pr_no_overlap = np.array([[1.0, 1.0], [np.nan, np.nan], [2.0, 2.0]])
+    score = compute_distance_match_score(inst_gt, inst_pr_no_overlap)
+    np.testing.assert_allclose(score, 0.0)
+
+
+def create_labels_single_visible_keypoint(minimal_instance, pred_offset):
+    """One GT instance with a single visible node, and a prediction offset from it."""
+    skeleton = sio.Skeleton(
+        nodes=["head", "thorax", "abdomen"],
+        edges=[("head", "thorax"), ("thorax", "abdomen")],
+    )
+    min_labels = sio.load_slp(minimal_instance)
+    video = min_labels.videos[0]
+
+    user_inst = sio.Instance.from_numpy(
+        points_data=np.array([[np.nan, np.nan], [100.0, 100.0], [np.nan, np.nan]]),
+        skeleton=skeleton,
+    )
+    pred_inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array(
+            [[np.nan, np.nan], [100.0 + pred_offset, 100.0], [np.nan, np.nan]]
+        ),
+        skeleton=skeleton,
+        point_scores=np.array([np.nan, 0.9, np.nan]),
+        score=0.9,
+    )
+
+    user_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[user_inst])
+    user_labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[user_lf]
+    )
+
+    pred_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst])
+    pred_labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[pred_lf]
+    )
+
+    return user_labels, pred_labels
+
+
+def test_evaluator_single_visible_keypoint_close_prediction_matches(minimal_instance):
+    # A single visible GT keypoint with a small (non-pixel-exact) prediction error
+    # should match via the distance fallback rather than falling through to a false
+    # negative purely because OKS's bbox-area scale collapsed to zero.
+    user_labels, pred_labels = create_labels_single_visible_keypoint(
+        minimal_instance, pred_offset=2.0
+    )
+    eval = Evaluator(user_labels, pred_labels)
+
+    assert len(eval.positive_pairs) == 1
+    assert len(eval.false_negatives) == 0
+
+
+def test_evaluator_single_visible_keypoint_far_prediction_still_missed(
+    minimal_instance,
+):
+    # A prediction far enough away (beyond the distance-fallback's pixel threshold)
+    # should still be a false negative -- the fallback isn't a rubber stamp.
+    user_labels, pred_labels = create_labels_single_visible_keypoint(
+        minimal_instance, pred_offset=60.0
+    )
+    eval = Evaluator(user_labels, pred_labels)
+
+    assert len(eval.positive_pairs) == 0
+    assert len(eval.false_negatives) == 1
+
+
+def test_evaluator_collinear_keypoints_use_distance_fallback(minimal_instance):
+    # Two visible GT keypoints that happen to be collinear on an axis also degenerate
+    # to a zero-area bbox (see compute_instance_area), and should be routed through
+    # the same distance fallback as the single-keypoint case.
+    skeleton = sio.Skeleton(
+        nodes=["head", "thorax", "abdomen"],
+        edges=[("head", "thorax"), ("thorax", "abdomen")],
+    )
+    min_labels = sio.load_slp(minimal_instance)
+    video = min_labels.videos[0]
+
+    user_inst = sio.Instance.from_numpy(
+        points_data=np.array([[100.0, 100.0], [160.0, 100.0], [np.nan, np.nan]]),
+        skeleton=skeleton,
+    )
+    assert compute_instance_area(user_inst.numpy())[0] == 0.0
+
+    pred_inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[101.0, 101.0], [161.0, 101.0], [np.nan, np.nan]]),
+        skeleton=skeleton,
+        point_scores=np.array([0.9, 0.9, np.nan]),
+        score=0.9,
+    )
+
+    user_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[user_inst])
+    user_labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[user_lf]
+    )
+    pred_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst])
+    pred_labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[pred_lf]
+    )
+
+    eval = Evaluator(user_labels, pred_labels)
+
+    assert len(eval.positive_pairs) == 1
+    assert len(eval.false_negatives) == 0
 
 
 def create_labels_no_match_frame_pairs(minimal_instance):
