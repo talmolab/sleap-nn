@@ -460,9 +460,10 @@ def data_mapper(legacy_config: dict) -> DataConfig:
         )
         is not None
     ):
-        intensity_args["uniform_noise_min"] = legacy_config_optimization[
-            "augmentation_config"
-        ]["uniform_noise_min_val"]
+        intensity_args["uniform_noise_min"] = max(
+            legacy_config_optimization["augmentation_config"]["uniform_noise_min_val"],
+            0.0,
+        )
 
     if (
         legacy_config_optimization.get("augmentation_config", {}).get(
@@ -521,9 +522,10 @@ def data_mapper(legacy_config: dict) -> DataConfig:
         )
         is not None
     ):
-        intensity_args["contrast_min"] = legacy_config_optimization[
-            "augmentation_config"
-        ]["contrast_min_gamma"]
+        intensity_args["contrast_min"] = max(
+            legacy_config_optimization["augmentation_config"]["contrast_min_gamma"],
+            0.0,
+        )
 
     if (
         legacy_config_optimization.get("augmentation_config", {}).get(
@@ -531,9 +533,10 @@ def data_mapper(legacy_config: dict) -> DataConfig:
         )
         is not None
     ):
-        intensity_args["contrast_max"] = legacy_config_optimization[
-            "augmentation_config"
-        ]["contrast_max_gamma"]
+        intensity_args["contrast_max"] = max(
+            legacy_config_optimization["augmentation_config"]["contrast_max_gamma"],
+            0.0,
+        )
 
     if (
         legacy_config_optimization.get("augmentation_config", {}).get("contrast", None)
@@ -550,7 +553,11 @@ def data_mapper(legacy_config: dict) -> DataConfig:
         is not None
     ):
         intensity_args["brightness_min"] = min(
-            legacy_config_optimization["augmentation_config"]["brightness_min_val"], 2.0
+            max(
+                legacy_config_optimization["augmentation_config"]["brightness_min_val"],
+                0.0,
+            ),
+            2.0,
         )
 
     if (
