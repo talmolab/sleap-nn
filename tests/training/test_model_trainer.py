@@ -1841,6 +1841,34 @@ class TestCsvLogKeysEvalMetrics:
             assert key in keys
         assert "eval/val/mOKS" not in keys
 
+    def test_centroid_model_gets_confmap_fg_bg_keys(
+        self, config, tmp_path, minimal_instance
+    ):
+        """Fg/bg confmap MSE split should always reach the CSV for centroid.
+
+        `LightningModel._log_confmap_fg_bg_loss` computes this unconditionally
+        for `centroid` -- not gated on `centroid_focal_loss_alpha`.
+        """
+        keys = self._csv_logger_keys(
+            config, tmp_path, minimal_instance, model_type="centroid"
+        )
+        for key in [
+            "train/confmap_loss_fg",
+            "train/confmap_loss_bg",
+            "train/confmap_fg_frac",
+            "val/confmap_loss_fg",
+            "val/confmap_loss_bg",
+            "val/confmap_fg_frac",
+        ]:
+            assert key in keys
+
+    def test_pose_model_omits_confmap_fg_bg_keys(
+        self, config, tmp_path, minimal_instance
+    ):
+        """Other model types don't get the centroid-only fg/bg key set."""
+        keys = self._csv_logger_keys(config, tmp_path, minimal_instance)
+        assert "train/confmap_loss_fg" not in keys
+
     def test_semantic_segmentation_gets_fg_keys(
         self, config, tmp_path, minimal_instance
     ):
