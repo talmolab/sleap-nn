@@ -1398,6 +1398,44 @@ def test_verify_accelerator_config_unrecognized_value_falls_back(config, caplog)
     assert "not a recognized option" in caplog.text
 
 
+def test_verify_model_input_channels_warns_on_mismatch(config, caplog):
+    """Test that an image/model channel mismatch logs a warning before auto-correcting."""
+    cfg = config.copy()
+    OmegaConf.update(cfg, "data_config.preprocessing.ensure_rgb", True)
+    OmegaConf.update(cfg, "model_config.backbone_config.unet.in_channels", 1)
+
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    assert "Image has 3 channel(s) but model has 1 input channel(s)" in caplog.text
+    assert (
+        "Images will be converted to grayscale to fit the model architecture"
+        in caplog.text
+    )
+    assert trainer.config.model_config.backbone_config.unet.in_channels == 3
+
+
+def test_verify_model_input_channels_warns_on_pretrained_backbone_override(
+    config, caplog
+):
+    """Test that forcing in_channels=3 for an ImageNet-pretrained convnext backbone warns."""
+    cfg = config.copy()
+    OmegaConf.update(cfg, "model_config.backbone_config.unet", None)
+    OmegaConf.update(
+        cfg,
+        "model_config.backbone_config.convnext",
+        ConvNextConfig(pre_trained_weights="ConvNeXt_Tiny_Weights"),
+    )
+
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    assert "Image has 1 channel(s) but the pretrained convnext backbone" in caplog.text
+    assert (
+        "Images will be converted to rgb to fit the model architecture" in caplog.text
+    )
+    assert trainer.config.model_config.backbone_config.convnext.in_channels == 3
+    assert trainer.config.data_config.preprocessing.ensure_rgb is True
+
+
 @pytest.mark.skipif(
     sys.platform.startswith("li")
     and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
