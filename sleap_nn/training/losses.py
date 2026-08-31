@@ -192,7 +192,9 @@ def compute_centroid_focal_loss(
 
     pos_loss = -torch.pow(1.0 - y_preds, alpha) * torch.log(y_preds) * pos_mask
     neg_loss = (
-        -torch.pow(1.0 - y, beta) * torch.pow(y_preds, alpha) * torch.log(1.0 - y_preds)
+        -torch.pow(1.0 - y, beta)
+        * torch.pow(y_preds, alpha)
+        * torch.log(1.0 - y_preds)
         * neg_mask
     )
 
