@@ -4,7 +4,7 @@ These configuration classes are intended to specify all
 the parameters required to initialize the model config.
 """
 
-from attrs import define, field
+from attrs import define, field, validators
 from sleap_nn.config.utils import oneof
 from typing import Optional, List
 from loguru import logger
@@ -721,10 +721,28 @@ class CentroidConfMapsConfig:
         use_sigmoid_activation: (bool) If `True`, applies a sigmoid activation to the
             head's output so it is a calibrated `(0, 1)` probability rather than
             raw/unbounded regression output. Required when training with
-            `DataConfig.centroid_focal_loss_alpha` (a focal-style loss needs `Ŷ ∈ (0, 1)`
-            for its log terms, and `peak_threshold`-based inference stays meaningful only
-            if the raw output is already a probability). Default `False` -- no change
-            from existing behavior for plain MSE training.
+            `focal_loss_alpha` (a focal-style loss needs `Ŷ ∈ (0, 1)` for its log
+            terms, and `peak_threshold`-based inference stays meaningful only if the
+            raw output is already a probability). Default `False` -- no change from
+            existing behavior for plain MSE training.
+        focal_loss_alpha: (float) If nonzero, replaces the plain MSE train loss with a
+            CenterNet/CornerNet-style penalty-reduced pixelwise focal loss (see
+            `sleap_nn.training.losses.compute_centroid_focal_loss`) -- down-weights
+            already-confident pixels on both the positive (near a true peak) and
+            negative side, focusing training on ambiguous pixels (e.g. where two
+            animals' peaks are close together). Requires `use_sigmoid_activation:
+            true` so the head's output is a calibrated `(0, 1)` probability. `0`
+            disables this (plain MSE, matching every other config). *Default*: `0.0`.
+        focal_loss_beta: (float) Penalty-reduction exponent for negative pixels near a
+            true peak. Only has an effect when `focal_loss_alpha != 0`. *Default*:
+            `4.0` (standard CenterNet value).
+        focal_loss_pos_threshold: (float) Minimum target confmap value for a pixel to
+            count as "positive" (near a true peak) in the focal loss. sleap-nn's
+            Gaussian confmap targets are continuous (sub-pixel), so the peak pixel's
+            value is rarely exactly `1.0` -- unlike the original CenterNet
+            formulation's integer-snapped peaks -- hence a threshold rather than exact
+            equality. Only has an effect when `focal_loss_alpha != 0`. *Default*:
+            `0.5`.
     """
 
     anchor_part: Optional[str] = None
@@ -732,6 +750,9 @@ class CentroidConfMapsConfig:
     sigma: float = 5.0
     output_stride: int = 1
     use_sigmoid_activation: bool = False
+    focal_loss_alpha: float = field(default=0.0, validator=validators.ge(0))
+    focal_loss_beta: float = field(default=4.0, validator=validators.ge(0))
+    focal_loss_pos_threshold: float = field(default=0.5, validator=validators.ge(0))
 
 
 @define

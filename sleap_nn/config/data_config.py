@@ -336,22 +336,6 @@ class DataConfig:
         negative_loss_weight: (float) Relative weight applied to the loss for negative samples. Must be > 0.
             Values < 1 down-weight negatives; values > 1 up-weight them. Only has effect when
             ``use_negative_frames`` is ``True``. *Default*: `1.0`.
-        centroid_focal_loss_alpha: (float) `centroid`-only. If nonzero, replaces the plain MSE train
-            loss with a CenterNet/CornerNet-style penalty-reduced pixelwise focal loss (see
-            `sleap_nn.training.losses.compute_centroid_focal_loss`) -- down-weights already-confident
-            pixels on both the positive (near a true peak) and negative side, focusing training on
-            ambiguous pixels (e.g. where two animals' peaks are close together). Requires
-            `model_config.head_configs.centroid.confmaps.use_sigmoid_activation: true` so the head's
-            output is a calibrated `(0, 1)` probability. `0` disables this (plain MSE, matching every
-            other config). *Default*: `0.0`.
-        centroid_focal_loss_beta: (float) Penalty-reduction exponent for negative pixels near a true
-            peak. Only has an effect when `centroid_focal_loss_alpha != 0`. *Default*: `4.0` (standard
-            CenterNet value).
-        centroid_focal_loss_pos_threshold: (float) Minimum target confmap value for a pixel to count as
-            "positive" (near a true peak) in the focal loss. sleap-nn's Gaussian confmap targets are
-            continuous (sub-pixel), so the peak pixel's value is rarely exactly `1.0` -- unlike the
-            original CenterNet formulation's integer-snapped peaks -- hence a threshold rather than
-            exact equality. Only has an effect when `centroid_focal_loss_alpha != 0`. *Default*: `0.5`.
         skeletons: skeleton configuration for the `.slp` file. This will be pulled from the train dataset and saved to the `training_config.yaml`
     """
 
@@ -377,11 +361,6 @@ class DataConfig:
     )
     use_negative_frames: bool = False
     negative_loss_weight: float = field(default=1.0, validator=validators.gt(0))
-    centroid_focal_loss_alpha: float = field(default=0.0, validator=validators.ge(0))
-    centroid_focal_loss_beta: float = field(default=4.0, validator=validators.ge(0))
-    centroid_focal_loss_pos_threshold: float = field(
-        default=0.5, validator=validators.ge(0)
-    )
     skeletons: Optional[list] = None
 
 

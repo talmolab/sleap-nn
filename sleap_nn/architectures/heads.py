@@ -149,11 +149,17 @@ class CentroidConfmapsHead(Head):
         use_sigmoid_activation: If `True`, applies a sigmoid activation to the head's
             output so it is a calibrated `(0, 1)` probability rather than raw/unbounded
             regression output -- required when training with a focal-style loss (see
-            `DataConfig.centroid_focal_loss_alpha`), which needs `Ŷ ∈ (0, 1)` for its
+            `CentroidConfMapsConfig.focal_loss_alpha`), which needs `Ŷ ∈ (0, 1)` for its
             `log(Ŷ)`/`log(1-Ŷ)` terms, and so that `peak_threshold`-based inference
             (which compares raw confmap values against a fixed cutoff) stays meaningful.
             Default `False` (plain "identity" activation, i.e. no change from existing
             behavior) -- same opt-in pattern already used by `SegmentationHead`.
+        focal_loss_alpha: Training-loss metadata only (does not affect the head
+            tensor); kept so the head is constructible from
+            ``**head_config.confmaps``. See ``CentroidConfMapsConfig.focal_loss_alpha``
+            -- actually consumed by ``CentroidLightningModule``, not this head.
+        focal_loss_beta: Same as ``focal_loss_alpha`` -- passthrough only.
+        focal_loss_pos_threshold: Same as ``focal_loss_alpha`` -- passthrough only.
     """
 
     def __init__(
@@ -164,6 +170,9 @@ class CentroidConfmapsHead(Head):
         output_stride: int = 1,
         loss_weight: float = 1.0,
         use_sigmoid_activation: bool = False,
+        focal_loss_alpha: float = 0.0,
+        focal_loss_beta: float = 4.0,
+        focal_loss_pos_threshold: float = 0.5,
     ) -> None:
         """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
@@ -173,6 +182,12 @@ class CentroidConfmapsHead(Head):
         self.centroid_source = centroid_source
         self.sigma = sigma
         self.use_sigmoid_activation = use_sigmoid_activation
+        # Training-loss metadata only (consumed by `CentroidLightningModule`, not
+        # this head) -- kept here purely so the head is constructible from
+        # `**head_config.confmaps`, which co-locates them with `use_sigmoid_activation`.
+        self.focal_loss_alpha = focal_loss_alpha
+        self.focal_loss_beta = focal_loss_beta
+        self.focal_loss_pos_threshold = focal_loss_pos_threshold
 
     @property
     def channels(self) -> int:
@@ -201,6 +216,9 @@ class CentroidConfmapsHead(Head):
             output_stride=config.output_stride,
             loss_weight=config.loss_weight,
             use_sigmoid_activation=getattr(config, "use_sigmoid_activation", False),
+            focal_loss_alpha=getattr(config, "focal_loss_alpha", 0.0),
+            focal_loss_beta=getattr(config, "focal_loss_beta", 4.0),
+            focal_loss_pos_threshold=getattr(config, "focal_loss_pos_threshold", 0.5),
         )
 
 

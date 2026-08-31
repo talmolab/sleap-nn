@@ -324,17 +324,20 @@ class LightningModel(L.LightningModule):
 
         negative_loss_weight = getattr(config.data_config, "negative_loss_weight", 1.0)
 
-        # See DataConfig.centroid_focal_loss_alpha -- centroid-only.
+        # See CentroidConfMapsConfig.focal_loss_alpha -- centroid-only.
         extra_kwargs = {}
         if model_type == "centroid":
+            centroid_confmaps_config = (
+                config.model_config.head_configs.centroid.confmaps
+            )
             extra_kwargs["centroid_focal_loss_alpha"] = getattr(
-                config.data_config, "centroid_focal_loss_alpha", 0.0
+                centroid_confmaps_config, "focal_loss_alpha", 0.0
             )
             extra_kwargs["centroid_focal_loss_beta"] = getattr(
-                config.data_config, "centroid_focal_loss_beta", 4.0
+                centroid_confmaps_config, "focal_loss_beta", 4.0
             )
             extra_kwargs["centroid_focal_loss_pos_threshold"] = getattr(
-                config.data_config, "centroid_focal_loss_pos_threshold", 0.5
+                centroid_confmaps_config, "focal_loss_pos_threshold", 0.5
             )
 
         lightning_model = lightning_models[model_type](
@@ -1526,7 +1529,7 @@ class CentroidLightningModule(LightningModel):
         )
         # Centroid-only knobs, not threaded through the base `LightningModel`
         # since no other model type implements this loss -- see
-        # `DataConfig.centroid_focal_loss_alpha`.
+        # `CentroidConfMapsConfig.focal_loss_alpha`.
         self.centroid_focal_loss_alpha = centroid_focal_loss_alpha
         self.centroid_focal_loss_beta = centroid_focal_loss_beta
         self.centroid_focal_loss_pos_threshold = centroid_focal_loss_pos_threshold
@@ -1545,7 +1548,9 @@ class CentroidLightningModule(LightningModel):
             bias_value = -math.log((1.0 - prior_prob) / prior_prob)
             for head, head_layer in zip(self.model.heads, self.model.head_layers):
                 if head.name == "CentroidConfmapsHead":
-                    nn.init.constant_(getattr(head_layer, head.name)[0].bias, bias_value)
+                    nn.init.constant_(
+                        getattr(head_layer, head.name)[0].bias, bias_value
+                    )
 
         self.centroid_inf_layer = CentroidCrop(
             torch_model=self.forward,
@@ -1613,7 +1618,7 @@ class CentroidLightningModule(LightningModel):
         per-pixel MSE with
         :func:`sleap_nn.training.losses.compute_centroid_focal_loss` before
         applying the same negative-frame weighting on top -- see
-        `DataConfig.centroid_focal_loss_alpha`. Requires the head's output to
+        `CentroidConfMapsConfig.focal_loss_alpha`. Requires the head's output to
         be a calibrated ``(0, 1)`` probability (see
         ``CentroidConfmapsHead.use_sigmoid_activation``). ``val``/eval always
         uses plain unweighted MSE (matching
