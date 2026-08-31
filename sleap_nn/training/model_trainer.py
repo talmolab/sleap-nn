@@ -921,12 +921,16 @@ class ModelTrainer:
                 img_channels = 3
             if self.config.data_config.preprocessing.ensure_grayscale:
                 img_channels = 1
-            if (
-                self.config.model_config.backbone_config[
-                    f"{self.backbone_type}"
-                ].in_channels
-                != img_channels
-            ):
+            model_in_channels = self.config.model_config.backbone_config[
+                f"{self.backbone_type}"
+            ].in_channels
+            if model_in_channels != img_channels:
+                target_format = "grayscale" if model_in_channels == 1 else "rgb"
+                logger.warning(
+                    f"Image has {img_channels} channel(s) but model has "
+                    f"{model_in_channels} input channel(s). Images will be "
+                    f"converted to {target_format} to fit the model architecture."
+                )
                 self.config.model_config.backbone_config[
                     f"{self.backbone_type}"
                 ].in_channels = img_channels
@@ -940,12 +944,16 @@ class ModelTrainer:
         ) and self.config.model_config.backbone_config[
             f"{self.backbone_type}"
         ].pre_trained_weights is not None:
-            if (
-                self.config.model_config.backbone_config[
-                    f"{self.backbone_type}"
-                ].in_channels
-                != 3
-            ):
+            current_in_channels = self.config.model_config.backbone_config[
+                f"{self.backbone_type}"
+            ].in_channels
+            if current_in_channels != 3:
+                logger.warning(
+                    f"Image has {current_in_channels} channel(s) but the "
+                    f"pretrained {self.backbone_type} backbone requires 3 "
+                    "(ImageNet RGB) input channels. Images will be converted "
+                    "to rgb to fit the model architecture."
+                )
                 self.config.model_config.backbone_config[
                     f"{self.backbone_type}"
                 ].in_channels = 3
@@ -1275,7 +1283,12 @@ class ModelTrainer:
                 self.config.data_config.data_pipeline_fw = (
                     "torch_dataset_cache_img_disk"
                 )
-                base_cache_img_path = Path("./")
+                base_cache_img_path = (
+                    Path(self.config.data_config.cache_img_path)
+                    if self.config.data_config.cache_img_path is not None
+                    else Path(self.config.trainer_config.ckpt_dir)
+                    / self.config.trainer_config.run_name
+                )
                 logger.info(
                     f"Insufficient memory for in-memory caching. `jpg` files will be created for disk-caching."
                 )

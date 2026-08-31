@@ -1398,6 +1398,44 @@ def test_verify_accelerator_config_unrecognized_value_falls_back(config, caplog)
     assert "not a recognized option" in caplog.text
 
 
+def test_verify_model_input_channels_warns_on_mismatch(config, caplog):
+    """Test that an image/model channel mismatch logs a warning before auto-correcting."""
+    cfg = config.copy()
+    OmegaConf.update(cfg, "data_config.preprocessing.ensure_rgb", True)
+    OmegaConf.update(cfg, "model_config.backbone_config.unet.in_channels", 1)
+
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    assert "Image has 3 channel(s) but model has 1 input channel(s)" in caplog.text
+    assert (
+        "Images will be converted to grayscale to fit the model architecture"
+        in caplog.text
+    )
+    assert trainer.config.model_config.backbone_config.unet.in_channels == 3
+
+
+def test_verify_model_input_channels_warns_on_pretrained_backbone_override(
+    config, caplog
+):
+    """Test that forcing in_channels=3 for an ImageNet-pretrained convnext backbone warns."""
+    cfg = config.copy()
+    OmegaConf.update(cfg, "model_config.backbone_config.unet", None)
+    OmegaConf.update(
+        cfg,
+        "model_config.backbone_config.convnext",
+        ConvNextConfig(pre_trained_weights="ConvNeXt_Tiny_Weights"),
+    )
+
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    assert "Image has 1 channel(s) but the pretrained convnext backbone" in caplog.text
+    assert (
+        "Images will be converted to rgb to fit the model architecture" in caplog.text
+    )
+    assert trainer.config.model_config.backbone_config.convnext.in_channels == 3
+    assert trainer.config.data_config.preprocessing.ensure_rgb is True
+
+
 @pytest.mark.skipif(
     sys.platform.startswith("li")
     and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
@@ -1699,6 +1737,47 @@ def test_multi_gpu_no_cache_auto_generates_run_name(config, tmp_path, minimal_in
 
         assert trainer.config.trainer_config.run_name is not None
         assert re.match(r"\d{6}_\d{6}\.", trainer.config.trainer_config.run_name)
+
+
+def test_memory_cache_fallback_to_disk_uses_ckpt_dir(
+    config, tmp_path, minimal_instance
+):
+    """Test that the memory->disk cache fallback defaults to ckpt_dir/run_name.
+
+    When `torch_dataset_cache_img_memory` falls back to disk caching because of
+    insufficient RAM and no explicit `cache_img_path` is set, the cache dir must
+    default to `ckpt_dir/run_name` (matching the explicit
+    `torch_dataset_cache_img_disk` pipeline's default) instead of the current
+    working directory, which may not be writable.
+    """
+    from unittest.mock import patch
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(cfg, "trainer_config.run_name", "mem_fallback_run")
+    OmegaConf.update(
+        cfg, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
+    )
+    OmegaConf.update(cfg, "data_config.cache_img_path", None)
+    OmegaConf.update(cfg, "trainer_config.trainer_devices", 1)
+    if torch.mps.is_available():
+        cfg.trainer_config.trainer_accelerator = "cpu"
+
+    labels = sio.load_slp(minimal_instance)
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        cfg, train_labels=[labels], val_labels=[labels]
+    )
+
+    with patch(
+        "sleap_nn.training.model_trainer.check_cache_memory", return_value=False
+    ):
+        trainer.train()
+
+    # Cache dir must resolve under ckpt_dir/run_name, not the current working
+    # directory (`./train_imgs`), which may be on a read-only filesystem.
+    expected_cache_path = Path(tmp_path) / "mem_fallback_run"
+    assert Path(trainer.config.data_config.cache_img_path) == expected_cache_path
+    assert trainer.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_disk"
 
 
 class TestCsvLogKeysEvalMetrics:
