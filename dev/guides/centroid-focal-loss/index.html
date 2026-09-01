@@ -8,13 +8,13 @@
       
       
       
-        <link rel="canonical" href="https://nn.sleap.ai/dev/guides/supervised-id/">
+        <link rel="canonical" href="https://nn.sleap.ai/dev/guides/centroid-focal-loss/">
       
       
-        <link rel="prev" href="../resume-finetune/">
+        <link rel="prev" href="../negative-frames/">
       
       
-        <link rel="next" href="../tiling/">
+        <link rel="next" href="../monitoring/">
       
       
         
@@ -25,7 +25,7 @@
     
     
       
-        <title>Supervised ID - sleap-nn documentation</title>
+        <title>Centroid Focal Loss - sleap-nn documentation</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#supervised-id-models" class="md-skip">
+        <a href="#centroid-focal-loss" class="md-skip">
           Skip to content
         </a>
       
@@ -119,7 +119,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Supervised ID
+              Centroid Focal Loss
             
           </span>
         </div>
@@ -939,10 +939,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../centroid-focal-loss/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Centroid Focal Loss
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -958,6 +985,181 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-problem-does-this-solve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Problem Does This Solve?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-math" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Math
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#enabling-in-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enabling in Config
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Enabling in Config">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#disabling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Disabling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#python-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python API
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-model-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Model Types
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How It Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#head-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Head Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bias-initialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bias Initialization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#loss-computation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loss Computation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-gating" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Gating
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Monitoring
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#practical-tips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Practical Tips
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1051,37 +1253,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Supervised ID
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../supervised-id/" class="md-nav__link">
         
   
   
@@ -1097,81 +1272,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#1-label-identities-as-tracks" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. Label identities as tracks
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#2-configure-the-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. Configure the model
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3-train" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. Train
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4-run-inference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. Run inference
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        See also
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -7078,10 +7178,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-label-identities-as-tracks" class="md-nav__link">
+  <a href="#what-problem-does-this-solve" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Label identities as tracks
+        What Problem Does This Solve?
       
     </span>
   </a>
@@ -7089,10 +7189,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-configure-the-model" class="md-nav__link">
+  <a href="#the-math" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Configure the model
+        The Math
       
     </span>
   </a>
@@ -7100,10 +7200,49 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-train" class="md-nav__link">
+  <a href="#enabling-in-config" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Train
+        Enabling in Config
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Enabling in Config">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#disabling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Disabling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#python-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python API
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-model-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Model Types
       
     </span>
   </a>
@@ -7111,10 +7250,71 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-run-inference" class="md-nav__link">
+  <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Run inference
+        How It Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How It Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#head-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Head Output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bias-initialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bias Initialization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#loss-computation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loss Computation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-gating" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Gating
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Monitoring
       
     </span>
   </a>
@@ -7122,10 +7322,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
+  <a href="#practical-tips" class="md-nav__link">
     <span class="md-ellipsis">
       
-        See also
+        Practical Tips
       
     </span>
   </a>
@@ -7152,70 +7352,174 @@
   
 
 
-<h1 id="supervised-id-models">Supervised ID models<a class="headerlink" href="#supervised-id-models" title="Permanent link">&para;</a></h1>
-<p>Supervised ID models (<code>multi_class_topdown</code> and <code>multi_class_bottomup</code>) predict
-pose <strong>and</strong> a persistent identity for each animal — so identities come straight
-from the model and you don't need a separate <a href="../tracking/">tracking</a> step.</p>
-<p>Use them when your animals have <strong>distinct, consistent appearances</strong> (visual
-markers, fur color, ear-clips, dye spots). If the animals look too similar to
-tell apart, or you don't need fixed identities, use a standard pose model plus
-<a href="../tracking/">tracking</a> instead. These models can be a bit finicky to train,
-since you're optimizing for pose and identity at the same time — but for animals
-with clearly distinct appearances they can essentially eliminate ID
-proofreading.</p>
-<h2 id="1-label-identities-as-tracks">1. Label identities as tracks<a class="headerlink" href="#1-label-identities-as-tracks" title="Permanent link">&para;</a></h2>
-<p>Each track <em>name</em> becomes an identity <em>class</em>. In the
-<a href="https://github.com/talmolab/sleap">SLEAP GUI</a>, assign a track to every labeled
-instance:</p>
-<ol>
-<li>Select an instance (it should show <strong>Track: none</strong>).</li>
-<li><strong>Tracks → Set Instance Track → New Track</strong>.</li>
-<li>In the <strong>Instances</strong> panel, double-click the track and rename it to the
-   identity class — e.g. <code>male</code>, <code>female</code>, <code>dark_fur</code>. Any consistent scheme
-   works (even <code>A</code>/<code>B</code>, or names based on the marker pattern or location).</li>
-<li>For the rest of your frames, select each instance and assign it with the
-   <strong>Ctrl+1 – Ctrl+9</strong> shortcuts (hold <strong>Ctrl</strong> to see which shortcut maps to
-   which track).</li>
-</ol>
-<p>Only user instances <strong>with a track assigned</strong> are used for training, so give
-every labeled instance a track and keep the names consistent across the project.
-The class list is inferred from those names (leave <code>classes: null</code> in the
-config).</p>
-<h2 id="2-configure-the-model">2. Configure the model<a class="headerlink" href="#2-configure-the-model" title="Permanent link">&para;</a></h2>
-<p>Take your existing top-down (<code>centered_instance</code>) or bottom-up (<code>bottomup</code>)
-config and swap in the ID head, keeping the backbone and pose parameters the
-same. Starter configs:
-<a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_multi_class_centered_instance_unet.yaml"><code>config_topdown_multi_class_centered_instance_unet.yaml</code></a>
-and
-<a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_multi_class_bottomup_unet.yaml"><code>config_multi_class_bottomup_unet.yaml</code></a>.</p>
-<p><code>multi_class_topdown</code> is a top-down model, so it still pairs with a centroid
-model. <code>multi_class_bottomup</code> is a single model.</p>
-<p>The one knob to tune is the <strong><code>loss_weight</code> on the classification head</strong>
-(<code>class_vectors</code> for top-down, <code>class_maps</code> for bottom-up). Start around <code>0.001</code>;
-<strong>decrease</strong> toward <code>0.0001</code> if poses get worse, or <strong>increase</strong> toward <code>0.01</code>
-if identities don't separate.</p>
-<h2 id="3-train">3. Train<a class="headerlink" href="#3-train" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Bottom-up ID: one model</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config_multi_class_bottomup_unet.yaml
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Top-down ID: centroid model + multi-class centered-instance model</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config_centroid_unet.yaml
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config_topdown_multi_class_centered_instance_unet.yaml
-</span></code></pre></div>
-<h2 id="4-run-inference">4. Run inference<a class="headerlink" href="#4-run-inference" title="Permanent link">&para;</a></h2>
-<p>No tracking arguments needed — the model assigns identities:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Bottom-up ID</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/multi_class_bottomup/<span class="w"> </span>-o<span class="w"> </span>predictions.slp
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Top-down ID: centroid + multi-class centered-instance</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/centroid/<span class="w"> </span>-m<span class="w"> </span>models/multi_class_topdown/<span class="w"> </span>-o<span class="w"> </span>predictions.slp
-</span></code></pre></div>
-<p>Each predicted instance carries its identity as a track in the output <code>.slp</code>.</p>
-<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<h1 id="centroid-focal-loss">Centroid Focal Loss<a class="headerlink" href="#centroid-focal-loss" title="Permanent link">&para;</a></h1>
+<p>An opt-in alternative to plain MSE for the centroid confidence-map head, aimed at dense-animal scenes where nearby instances can blur together.</p>
+<hr />
+<h2 id="what-problem-does-this-solve">What Problem Does This Solve?<a class="headerlink" href="#what-problem-does-this-solve" title="Permanent link">&para;</a></h2>
+<p>Centroid confidence maps are dominated by background: a single sparse Gaussian peak per instance spread across an otherwise-empty (often downsampled) frame. Plain <code>MSELoss</code> treats every pixel equally, so the loss signal is mostly driven by the huge number of easy background pixels rather than the handful of foreground pixels that actually matter.</p>
+<p>In scenes with multiple animals close together (dense tracking, small enclosures, swarms), this can produce a specific failure mode: <strong>confmap collapse</strong>, where two nearby instances' peaks blur into a single merged blob under MSE's smooth quadratic penalty, causing duplicate/missed detections at inference time.</p>
+<p>Centroid focal loss is a CenterNet/CornerNet-style penalty-reduced pixelwise focal loss (<a href="https://arxiv.org/abs/1708.02002">Lin et al. 2017</a>, <a href="https://arxiv.org/abs/1904.07850">Zhou et al. 2019</a>) that down-weights already-confident (easy) pixels on both the foreground and background side, concentrating gradient signal on ambiguous pixels — including where two peaks sit close together.</p>
+<div class="admonition warning">
+<p class="admonition-title">Not a universal upgrade</p>
+<p>Results are dataset-dependent: a clear win on some dense-instance datasets, roughly neutral-to-slightly-worse on others. Treat this as an experimental tool to try when you suspect confmap collapse, not a default recommendation.</p>
+</div>
+<hr />
+<h2 id="the-math">The Math<a class="headerlink" href="#the-math" title="Permanent link">&para;</a></h2>
+<p>For a pixel with predicted probability <span class="arithmatex">\(\hat y \in (0,1)\)</span> and ground-truth confmap value <span class="arithmatex">\(y \in [0,1]\)</span> (continuous Gaussian target), and a positive-pixel threshold <span class="arithmatex">\(\tau\)</span> (<code>focal_loss_pos_threshold</code>):</p>
+<div class="arithmatex">\[
+\ell(\hat y, y) =
+\begin{cases}
+-(1-\hat y)^{\alpha}\,\log(\hat y) &amp; \text{if } y \ge \tau \quad \text{(positive pixel)}\\[6pt]
+-(1-y)^{\beta}\,\hat y^{\alpha}\,\log(1-\hat y) &amp; \text{if } y &lt; \tau \quad \text{(negative pixel)}
+\end{cases}
+\]</div>
 <ul>
-<li><a href="../../reference/models/#choosing-a-model">Choosing a Model</a></li>
-<li><a href="../../configuration/model/">Model config reference</a> — full <code>multi_class_*</code> head schemas</li>
-<li><a href="https://www.nature.com/articles/s41592-022-01426-1">SLEAP paper</a> — supervised-identity background</li>
+<li><strong><span class="arithmatex">\((1-\hat y)^\alpha\)</span> / <span class="arithmatex">\(\hat y^\alpha\)</span></strong> (the focusing terms) shrink toward 0 for pixels the model already predicts confidently and correctly, so training concentrates on pixels still being learned.</li>
+<li><strong><span class="arithmatex">\((1-y)^\beta\)</span></strong> (the penalty-reduction term) softens the penalty for background pixels that sit close to — but just below — a true peak, since they're not really "wrong," just imprecise.</li>
+</ul>
+<p>sleap-nn's targets are continuous sub-pixel Gaussians (unlike the original CenterNet formulation's integer-snapped peaks), so "positive" is defined as <code>y &gt;= pos_threshold</code> rather than exact equality.</p>
+<hr />
+<h2 id="enabling-in-config">Enabling in Config<a class="headerlink" href="#enabling-in-config" title="Permanent link">&para;</a></h2>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">model_config</span><span class="p">:</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">head_configs</span><span class="p">:</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">centroid</span><span class="p">:</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">      </span><span class="nt">confmaps</span><span class="p">:</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">        </span><span class="nt">use_sigmoid_activation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">    </span><span class="c1"># required: calibrates head output to (0, 1)</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">        </span><span class="nt">focal_loss_alpha</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0</span><span class="w">           </span><span class="c1"># 0.0 disables (default); 2.0 is the standard CenterNet value</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">        </span><span class="nt">focal_loss_beta</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4.0</span><span class="w">            </span><span class="c1"># default</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">        </span><span class="nt">focal_loss_pos_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span><span class="w">   </span><span class="c1"># default</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>use_sigmoid_activation</code></td>
+<td><code>bool</code></td>
+<td><code>false</code></td>
+<td>Applies a sigmoid to the head's raw output, producing a calibrated <code>(0, 1)</code> probability. <strong>Required</strong> for focal loss — its <code>log(ŷ)</code>/<code>log(1-ŷ)</code> terms need bounded input.</td>
+</tr>
+<tr>
+<td><code>focal_loss_alpha</code></td>
+<td><code>float</code></td>
+<td><code>0.0</code></td>
+<td>Focal exponent. <code>0.0</code> disables focal loss entirely (plain MSE, byte-identical to every existing config). Nonzero enables it.</td>
+</tr>
+<tr>
+<td><code>focal_loss_beta</code></td>
+<td><code>float</code></td>
+<td><code>4.0</code></td>
+<td>Penalty-reduction exponent for negative pixels near a true peak. Only has an effect when <code>focal_loss_alpha != 0</code>.</td>
+</tr>
+<tr>
+<td><code>focal_loss_pos_threshold</code></td>
+<td><code>float</code></td>
+<td><code>0.5</code></td>
+<td>Minimum target confmap value for a pixel to count as "positive." Only has an effect when <code>focal_loss_alpha != 0</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>All four fields live together on the centroid head's confmaps config (<code>CentroidConfMapsConfig</code>), not on <code>data_config</code> — this is loss/architecture configuration specific to the centroid head, not a data-pipeline setting.</p>
+<h3 id="disabling">Disabling<a class="headerlink" href="#disabling" title="Permanent link">&para;</a></h3>
+<p>Set <code>focal_loss_alpha: 0.0</code> (or omit it). <code>CentroidLightningModule._compute_loss</code> checks this first and falls straight back to the original plain-MSE path, ignoring <code>beta</code>/<code>pos_threshold</code>.</p>
+<p>For a fully byte-identical revert to pre-feature behavior, also set <code>use_sigmoid_activation: false</code> — leaving it <code>true</code> with <code>alpha: 0.0</code> is a valid but <em>different</em> config (plain MSE trained against a sigmoid-bounded head output, not the original unbounded regression output).</p>
+<h3 id="python-api">Python API<a class="headerlink" href="#python-api" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">omegaconf</span><span class="w"> </span><span class="kn">import</span> <span class="n">OmegaConf</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">config</span> <span class="o">=</span> <span class="n">OmegaConf</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;config.yaml&quot;</span><span class="p">)</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">config</span><span class="o">.</span><span class="n">model_config</span><span class="o">.</span><span class="n">head_configs</span><span class="o">.</span><span class="n">centroid</span><span class="o">.</span><span class="n">confmaps</span><span class="o">.</span><span class="n">use_sigmoid_activation</span> <span class="o">=</span> <span class="kc">True</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">config</span><span class="o">.</span><span class="n">model_config</span><span class="o">.</span><span class="n">head_configs</span><span class="o">.</span><span class="n">centroid</span><span class="o">.</span><span class="n">confmaps</span><span class="o">.</span><span class="n">focal_loss_alpha</span> <span class="o">=</span> <span class="mf">2.0</span>
+</span></code></pre></div>
+<hr />
+<h2 id="supported-model-types">Supported Model Types<a class="headerlink" href="#supported-model-types" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Model Type</th>
+<th>Supported</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Centroid</td>
+<td>Yes</td>
+<td></td>
+</tr>
+<tr>
+<td>Single Instance</td>
+<td>No</td>
+<td>Not yet implemented — see <a href="https://github.com/talmolab/sleap-nn/issues/736">issue #736</a></td>
+</tr>
+<tr>
+<td>Centered Instance (Top-Down)</td>
+<td>No</td>
+<td>Not yet implemented — see <a href="https://github.com/talmolab/sleap-nn/issues/736">issue #736</a></td>
+</tr>
+<tr>
+<td>Bottom-Up</td>
+<td>No</td>
+<td>Not yet implemented — see <a href="https://github.com/talmolab/sleap-nn/issues/736">issue #736</a></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="how-it-works">How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
+<h3 id="head-output">Head Output<a class="headerlink" href="#head-output" title="Permanent link">&para;</a></h3>
+<p><code>CentroidConfmapsHead.use_sigmoid_activation</code> swaps the head's output activation from <code>identity</code> to <code>sigmoid</code>, baked into the model graph at <strong>train time</strong>. Because the activation lives in the model itself (not applied only during loss computation), a checkpoint trained with this flag on works with the existing inference path (<code>predict()</code>, <code>peak_threshold</code>) with <strong>no changes needed</strong> — the raw confmap output is already a calibrated probability.</p>
+<h3 id="bias-initialization">Bias Initialization<a class="headerlink" href="#bias-initialization" title="Permanent link">&para;</a></h3>
+<p>A freshly initialized sigmoid head starts at ~0.5 everywhere. Against a target that's &gt;99% background, that start point gives weak, roughly-symmetric gradients that can leave training stuck for many epochs. To fix this, when <code>focal_loss_alpha != 0</code>, the head's first-conv-layer bias is initialized to a large negative logit (RetinaNet/CenterNet "prior probability" bias init, Lin et al. 2017 §4.1) so the head starts predicting near-0 everywhere, giving the loss a much stronger initial gradient toward learning the sparse foreground.</p>
+<h3 id="loss-computation">Loss Computation<a class="headerlink" href="#loss-computation" title="Permanent link">&para;</a></h3>
+<p><code>CentroidLightningModule._compute_loss</code> (in <code>sleap_nn/training/lightning_modules.py</code>):</p>
+<ul>
+<li><strong><code>train</code>, <code>alpha == 0</code>:</strong> identical to the pre-existing plain-MSE path (optionally negative-frame-weighted).</li>
+<li><strong><code>train</code>, <code>alpha != 0</code>:</strong> uses <code>compute_centroid_focal_loss</code> in place of MSE, then applies the same negative-frame weighting on top.</li>
+<li><strong><code>val</code>/<code>eval</code>, always:</strong> plain unweighted MSE regardless of <code>alpha</code>, so <code>ModelCheckpoint</code>/<code>EarlyStopping</code> and cross-experiment comparisons remain meaningful even as you vary <code>alpha</code>.</li>
+</ul>
+<h3 id="feature-gating">Feature Gating<a class="headerlink" href="#feature-gating" title="Permanent link">&para;</a></h3>
+<p>When <code>focal_loss_alpha == 0.0</code> (default), no code paths change: the loss computation is the exact same call as before this feature existed.</p>
+<hr />
+<h2 id="monitoring">Monitoring<a class="headerlink" href="#monitoring" title="Permanent link">&para;</a></h2>
+<p>A diagnostic foreground/background confmap MSE split is logged <strong>regardless of whether focal loss is enabled</strong> — it's useful both to decide if you <em>should</em> try focal loss, and to check whether it's helping once enabled. These reach WandB and <code>training_log.csv</code> identically:</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>What to Look For</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>train/confmap_loss_fg</code> / <code>val/confmap_loss_fg</code></td>
+<td>MSE over pixels where <code>y &gt; 0.5</code> (near a true peak). Should decrease as training progresses.</td>
+</tr>
+<tr>
+<td><code>train/confmap_loss_bg</code> / <code>val/confmap_loss_bg</code></td>
+<td>MSE over pixels where <code>y &lt; 0.5</code>. Typically small relative to <code>_fg</code> given the pixel-count imbalance.</td>
+</tr>
+<tr>
+<td><code>train/confmap_fg_frac</code> / <code>val/confmap_fg_frac</code></td>
+<td>Fraction of pixels that are foreground — a direct measure of how imbalanced your data is. A very small fraction is exactly the scenario focal loss targets.</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition tip">
+<p class="admonition-title">Is It Helping?</p>
+<p>Compare <code>confmap_loss_fg</code> between an <code>alpha=0</code> (MSE) run and an <code>alpha=2</code> (focal) run on the same data. If dense/close-together instances are your problem, also inspect predicted confmaps visually (via the training viz callback) for merged vs. separated peaks — the diagnostic loss values alone won't show peak-collapse directly.</p>
+</div>
+<hr />
+<h2 id="practical-tips">Practical Tips<a class="headerlink" href="#practical-tips" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Try this only if you suspect confmap collapse.</strong> Symptoms: duplicate or missed centroid detections specifically in frames where instances are close together, while isolated instances are detected fine.</li>
+<li><strong>Start with the CenterNet defaults</strong> (<code>alpha=2.0</code>, <code>beta=4.0</code>, <code>pos_threshold=0.5</code>) before tuning — these are well-studied values from the object-detection literature.</li>
+<li><strong>Watch <code>val/loss</code> for model selection, not the focal training loss.</strong> Since val always uses plain MSE, <code>val/loss</code> stays comparable across <code>alpha</code> settings — use it (not the focal-loss-influenced train loss) to judge whether a given <code>alpha</code> actually improved the model.</li>
+<li><strong>Expect dataset-dependent results.</strong> This isn't a guaranteed win — evaluate empirically on your own held-out data (e.g. centroid distance/precision/recall via <code>--match_method centroid</code>) rather than assuming it helps.</li>
 </ul>
 
 
