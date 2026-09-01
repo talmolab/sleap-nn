@@ -1,6 +1,7 @@
 """This module has the LightningModule classes for all model types."""
 
 from typing import Optional, Union, Dict, Any, List, Tuple
+import math
 import time
 from torch import nn
 import torch.nn.functional as F
@@ -40,6 +41,7 @@ from sleap_nn.training.losses import (
     compute_ohkm_loss,
     compute_bce_dice_loss,
     compute_masked_smooth_l1,
+    compute_centroid_focal_loss,
 )
 from loguru import logger
 from sleap_nn.training.utils import (
@@ -322,6 +324,22 @@ class LightningModel(L.LightningModule):
 
         negative_loss_weight = getattr(config.data_config, "negative_loss_weight", 1.0)
 
+        # See CentroidConfMapsConfig.focal_loss_alpha -- centroid-only.
+        extra_kwargs = {}
+        if model_type == "centroid":
+            centroid_confmaps_config = (
+                config.model_config.head_configs.centroid.confmaps
+            )
+            extra_kwargs["centroid_focal_loss_alpha"] = getattr(
+                centroid_confmaps_config, "focal_loss_alpha", 0.0
+            )
+            extra_kwargs["centroid_focal_loss_beta"] = getattr(
+                centroid_confmaps_config, "focal_loss_beta", 4.0
+            )
+            extra_kwargs["centroid_focal_loss_pos_threshold"] = getattr(
+                centroid_confmaps_config, "focal_loss_pos_threshold", 0.5
+            )
+
         lightning_model = lightning_models[model_type](
             model_type=model_type,
             backbone_type=backbone_type,
@@ -340,6 +358,7 @@ class LightningModel(L.LightningModule):
             learning_rate=config.trainer_config.optimizer.lr,
             amsgrad=config.trainer_config.optimizer.amsgrad,
             negative_loss_weight=negative_loss_weight,
+            **extra_kwargs,
         )
 
         return lightning_model
@@ -1484,6 +1503,9 @@ class CentroidLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        centroid_focal_loss_alpha: Optional[float] = 0.0,
+        centroid_focal_loss_beta: Optional[float] = 4.0,
+        centroid_focal_loss_pos_threshold: Optional[float] = 0.5,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -1505,6 +1527,30 @@ class CentroidLightningModule(LightningModel):
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
         )
+        # Centroid-only knobs, not threaded through the base `LightningModel`
+        # since no other model type implements this loss -- see
+        # `CentroidConfMapsConfig.focal_loss_alpha`.
+        self.centroid_focal_loss_alpha = centroid_focal_loss_alpha
+        self.centroid_focal_loss_beta = centroid_focal_loss_beta
+        self.centroid_focal_loss_pos_threshold = centroid_focal_loss_pos_threshold
+
+        # RetinaNet/CenterNet "prior probability" bias init (Lin et al. 2017,
+        # Focal Loss for Dense Object Detection, sec 4.1). Without this, a
+        # freshly-initialized sigmoid head starts at ~0.5 everywhere; with a
+        # focal loss and a target that's >99% background pixels, that start
+        # point gives weak, roughly-symmetric gradients that can leave
+        # training stuck near its initial value for many epochs. Biasing the
+        # pre-sigmoid logit so the head starts near a low constant
+        # probability (matching the true class balance) gives the loss a much
+        # stronger initial gradient toward learning the sparse foreground.
+        if self.centroid_focal_loss_alpha != 0.0:
+            prior_prob = 0.01
+            bias_value = -math.log((1.0 - prior_prob) / prior_prob)
+            for head, head_layer in zip(self.model.heads, self.model.head_layers):
+                if head.name == "CentroidConfmapsHead":
+                    nn.init.constant_(
+                        getattr(head_layer, head.name)[0].bias, bias_value
+                    )
 
         self.centroid_inf_layer = CentroidCrop(
             torch_model=self.forward,
@@ -1561,6 +1607,53 @@ class CentroidLightningModule(LightningModel):
         img = normalize_on_gpu(img)
         return self.model(img)["CentroidConfmapsHead"]
 
+    def _compute_loss(
+        self, y_preds: torch.Tensor, y: torch.Tensor, batch: Dict, stage: str = "train"
+    ) -> torch.Tensor:
+        """Negative-weighted MSE, or a focal loss in place of MSE.
+
+        When ``centroid_focal_loss_alpha == 0`` this is exactly
+        :meth:`_compute_negative_weighted_loss` (plain MSE, optionally
+        negative-frame-weighted on train). When nonzero, replaces the base
+        per-pixel MSE with
+        :func:`sleap_nn.training.losses.compute_centroid_focal_loss` before
+        applying the same negative-frame weighting on top -- see
+        `CentroidConfMapsConfig.focal_loss_alpha`. Requires the head's output to
+        be a calibrated ``(0, 1)`` probability (see
+        ``CentroidConfmapsHead.use_sigmoid_activation``). ``val``/eval always
+        uses plain unweighted MSE (matching
+        ``_compute_negative_weighted_loss``'s own val-stage behavior), so
+        ``ModelCheckpoint``/``EarlyStopping`` stay comparable across every
+        experiment in this family.
+        """
+        focal_alpha = self.centroid_focal_loss_alpha
+        if focal_alpha == 0.0:
+            return self._compute_negative_weighted_loss(y_preds, y, batch, stage=stage)
+
+        if stage != "train":
+            return nn.MSELoss()(y_preds, y)
+
+        per_sample = compute_centroid_focal_loss(
+            y_preds,
+            y,
+            alpha=focal_alpha,
+            beta=self.centroid_focal_loss_beta,
+            pos_threshold=self.centroid_focal_loss_pos_threshold,
+            reduction="none",
+        ).mean(dim=list(range(1, y_preds.ndim)))
+
+        is_negative = batch.get("is_negative", None)
+        if is_negative is None or self.negative_loss_weight == 1.0:
+            return per_sample.mean()
+
+        is_neg = is_negative.to(y_preds.device)
+        weights = torch.where(
+            is_neg,
+            torch.tensor(self.negative_loss_weight, device=y_preds.device),
+            torch.tensor(1.0, device=y_preds.device),
+        )
+        return (per_sample * weights).mean()
+
     def training_step(self, batch, batch_idx):
         """Training step."""
         X, y = (
@@ -1570,7 +1663,7 @@ class CentroidLightningModule(LightningModel):
         X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
-        loss = self._compute_negative_weighted_loss(y_preds, y, batch)
+        loss = self._compute_loss(y_preds, y, batch, stage="train")
         self._log_negative_split_metrics(
             [("confmaps", y_preds, y, 1.0)], batch, stage="train"
         )
@@ -1598,7 +1691,7 @@ class CentroidLightningModule(LightningModel):
         X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
-        val_loss = self._compute_negative_weighted_loss(y_preds, y, batch, stage="val")
+        val_loss = self._compute_loss(y_preds, y, batch, stage="val")
         self._log_negative_split_metrics(
             [("confmaps", y_preds, y, 1.0)], batch, stage="val"
         )

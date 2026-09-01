@@ -1407,6 +1407,22 @@ class ModelTrainer:
                 csv_log_keys.extend(
                     [f"train/confmaps/{name}" for name in self.skeletons[0].node_names]
                 )
+            if self.model_type == "centroid":
+                # Foreground/background confmap MSE split -- see
+                # `LightningModel._log_confmap_fg_bg_loss`. Always computed for
+                # this model type (not gated on `centroid_focal_loss_alpha`),
+                # since it's also the diagnostic that motivates whether a
+                # focal-style loss would help.
+                csv_log_keys.extend(
+                    [
+                        "train/confmap_loss_fg",
+                        "train/confmap_loss_bg",
+                        "train/confmap_fg_frac",
+                        "val/confmap_loss_fg",
+                        "val/confmap_loss_bg",
+                        "val/confmap_fg_frac",
+                    ]
+                )
             if self.model_type == "bottomup":
                 csv_log_keys.extend(
                     [
