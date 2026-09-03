@@ -106,6 +106,75 @@ print(metrics.keys())
 
 ---
 
+## Plotting Metrics
+
+`sleap_nn.evaluation_plots.plot_metrics` draws the saved metrics. Point it at a
+model directory and it reads the metrics `.npz`, the node names from
+`training_config.yaml`, and the loss curve from `training_log.csv`:
+
+```python
+from sleap_nn.evaluation_plots import plot_metrics
+
+plot_metrics("models/my_model", kind="dashboard", save_path="eval.png")
+```
+
+The `dashboard` default draws every panel the metrics support. Ask for a single
+one with `kind`:
+
+| `kind` | Shows |
+|---|---|
+| `error_distribution` | Histogram of localization error with p50/p90/p99 marks, clipped at p99 so one outlier does not flatten the bulk |
+| `error_by_node` | Per-node error box plot, worst node first |
+| `pck_curve` | PCK against distance threshold |
+| `pck_by_node` | Mean PCK per node |
+| `precision_recall` | Precision-recall curves at each OKS threshold |
+| `visibility` | Node-visibility confusion matrix |
+| `training_curve` | Train and validation loss per epoch |
+| `dashboard` | All of the above in one figure |
+
+Every panel is also a standalone function taking an `ax`, so they compose into
+your own figures:
+
+```python
+import matplotlib.pyplot as plt
+from sleap_nn.evaluation import load_metrics
+from sleap_nn.evaluation_plots import plot_error_by_node, load_node_names
+
+metrics = load_metrics("models/my_model", split="val")
+names = load_node_names("models/my_model")
+
+fig, ax = plt.subplots(figsize=(7, 4))
+plot_error_by_node(metrics, ax=ax, node_names=names)
+```
+
+!!! note "Keypoint plots need keypoint metrics"
+
+    Only `match_method="oks"` produces `pck_metrics` and `visibility_metrics`.
+    Centroid, mask, semantic, and bbox evaluations report a different set, and
+    asking for a plot they cannot support raises `MetricsNotAvailable` naming
+    what the file actually contains.
+
+### Finding the Worst Frames
+
+The metrics file records a video path and frame index alongside every distance,
+so the largest errors can be traced back to specific frames and looked at:
+
+```python
+from sleap_nn.evaluation_plots import worst_instances
+
+for row in worst_instances(metrics, n=5):
+    print(f"frame {row['frame_idx']}: {row['error']:.1f} px mean, "
+          f"{row['max_error']:.1f} px worst node")
+```
+
+Feed those frame indices to
+[`sleap_io.render_image`](https://io.sleap.ai/latest/rendering/) to see the
+prediction overlaid on the frame. A mean error of 1 px with a p99 of 11 px means
+the model is fine and a handful of frames are not — and this is how you find
+which ones.
+
+---
+
 ## Next Steps
 
 - [:octicons-arrow-right-24: Evaluation Metrics Reference](../reference/evaluation_metrics.md) - Deep dive into OKS, PCK, and other metrics
