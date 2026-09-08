@@ -1995,6 +1995,9 @@ class TestEmbeddingMemoryFallback:
                     "train_data_loader": {"num_workers": 0},
                     "val_data_loader": {"num_workers": 0},
                     "run_name": "expt",
+                    # `ckpt_dir` is required since #735 made the low-memory disk-cache
+                    # fallback write to `<ckpt_dir>/<run_name>` instead of `./`.
+                    "ckpt_dir": ".",
                 },
             }
         )

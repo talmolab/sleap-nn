@@ -816,7 +816,15 @@ class LightningModel(L.LightningModule):
                     LinearWarmupLinearDecayConfig()
                 )
 
-        elif isinstance(self.lr_scheduler, dict):
+        elif isinstance(self.lr_scheduler, dict) or OmegaConf.is_config(
+            self.lr_scheduler
+        ):
+            # `isinstance(x, dict)` is False for an OmegaConf DictConfig, which is what
+            # the trainer and every YAML config actually produce -- so a DictConfig fell
+            # through to the default LRSchedulerConfig here. That went unnoticed only
+            # because the checks below used to dereference `self.lr_scheduler` directly,
+            # bypassing this branch entirely; routing them through `lr_scheduler_cfg`
+            # (correct, and required for the string form) exposes it.
             lr_scheduler_cfg = self.lr_scheduler
 
         # Explicit priority order per LRSchedulerConfig's own docstring:
@@ -831,8 +839,23 @@ class LightningModel(L.LightningModule):
         # cosine_annealing_warmup/linear_warmup_linear_decay without also
         # explicitly nulling reduce_lr_on_plateau. No error, no warning --
         # training just ran with the wrong LR schedule indefinitely.
-        if self.lr_scheduler.cosine_annealing_warmup is not None:
-            cfg = self.lr_scheduler.cosine_annealing_warmup
+        # Read the LOCAL `lr_scheduler_cfg`, not the raw ctor arg. The string branch
+        # above populates `lr_scheduler_cfg` and the dict branch aliases it, but the
+        # checks below previously dereferenced `self.lr_scheduler` directly -- so the
+        # documented string shorthand (`lr_scheduler="step_lr"`) raised
+        # `AttributeError: 'str' object has no attribute 'cosine_annealing_warmup'`,
+        # and a PARTIAL dict (a user setting just one scheduler) raised
+        # `ConfigAttributeError: Missing key cosine_annealing_warmup`. Only a dict with
+        # all four keys present worked. `train()` normalizes the string upstream, which
+        # is why the CLI path never hit this; direct LightningModule construction did.
+        def _sched(name):
+            """Scheduler sub-config by name, tolerating a partial dict."""
+            if OmegaConf.is_config(lr_scheduler_cfg):
+                return OmegaConf.select(lr_scheduler_cfg, name, default=None)
+            return getattr(lr_scheduler_cfg, name, None)
+
+        if _sched("cosine_annealing_warmup") is not None:
+            cfg = _sched("cosine_annealing_warmup")
             # Use trainer's max_epochs if not specified in config
             max_epochs = (
                 cfg.max_epochs
@@ -846,8 +869,8 @@ class LightningModel(L.LightningModule):
                 warmup_start_lr=cfg.warmup_start_lr,
                 eta_min=cfg.eta_min,
             )
-        elif self.lr_scheduler.linear_warmup_linear_decay is not None:
-            cfg = self.lr_scheduler.linear_warmup_linear_decay
+        elif _sched("linear_warmup_linear_decay") is not None:
+            cfg = _sched("linear_warmup_linear_decay")
             # Use trainer's max_epochs if not specified in config
             max_epochs = (
                 cfg.max_epochs
@@ -861,22 +884,22 @@ class LightningModel(L.LightningModule):
                 warmup_start_lr=cfg.warmup_start_lr,
                 end_lr=cfg.end_lr,
             )
-        elif self.lr_scheduler.step_lr is not None:
+        elif _sched("step_lr") is not None:
             scheduler = torch.optim.lr_scheduler.StepLR(
                 optimizer=optimizer,
-                step_size=self.lr_scheduler.step_lr.step_size,
-                gamma=self.lr_scheduler.step_lr.gamma,
+                step_size=_sched("step_lr").step_size,
+                gamma=_sched("step_lr").gamma,
             )
-        elif self.lr_scheduler.reduce_lr_on_plateau is not None:
+        elif _sched("reduce_lr_on_plateau") is not None:
             scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 optimizer,
                 mode="min",
-                threshold=self.lr_scheduler.reduce_lr_on_plateau.threshold,
-                threshold_mode=self.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
-                cooldown=self.lr_scheduler.reduce_lr_on_plateau.cooldown,
-                patience=self.lr_scheduler.reduce_lr_on_plateau.patience,
-                factor=self.lr_scheduler.reduce_lr_on_plateau.factor,
-                min_lr=self.lr_scheduler.reduce_lr_on_plateau.min_lr,
+                threshold=_sched("reduce_lr_on_plateau").threshold,
+                threshold_mode=_sched("reduce_lr_on_plateau").threshold_mode,
+                cooldown=_sched("reduce_lr_on_plateau").cooldown,
+                patience=_sched("reduce_lr_on_plateau").patience,
+                factor=_sched("reduce_lr_on_plateau").factor,
+                min_lr=_sched("reduce_lr_on_plateau").min_lr,
             )
         if scheduler is None:
             return {
