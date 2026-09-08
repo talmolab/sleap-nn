@@ -7,9 +7,11 @@ supported model type and return correct ``LoadedAssets``.
 from __future__ import annotations
 
 import gc
+import shutil
 from pathlib import Path
 
 import pytest
+from omegaconf import OmegaConf
 
 from sleap_nn.inference.loaders import (
     LoadedAssets,
@@ -146,6 +148,115 @@ def test_load_topdown_crop_size_resolved(topdown_assets):
     assert assets.preprocess_config.crop_size > 0
 
 
+def _scale_only_preprocess_config(scale: float):
+    """A ``preprocess_config`` overriding only ``scale`` (rest ``None``)."""
+    return OmegaConf.create(
+        {
+            "ensure_rgb": None,
+            "ensure_grayscale": None,
+            "crop_size": None,
+            "max_width": None,
+            "max_height": None,
+            "scale": scale,
+        }
+    )
+
+
+def test_load_single_instance_input_scale_override_reaches_inference_model():
+    """A CLI/API ``--input_scale`` override must reach the inference model.
+
+    Regression test: ``load_model_assets`` used to build every
+    ``input_scale=`` kwarg from the *training config's* baked-in scale
+    (``config.data_config.preprocessing.scale``) instead of the resolved
+    ``preprocess_config.scale`` that reflects the caller's override -- so an
+    explicit override was silently dropped everywhere. Fixed to read the
+    already-resolved ``preprocess_config.scale`` local variable.
+    """
+    if not SINGLE_CKPT.exists():
+        pytest.skip("single-instance ckpt absent")
+    override = 0.37
+    assets, _ = load_model_assets(
+        [str(SINGLE_CKPT)],
+        device="cpu",
+        preprocess_config=_scale_only_preprocess_config(override),
+    )
+    assert assets.inference_model.input_scale == override
+
+
+def test_load_bottomup_input_scale_override_reaches_inference_model():
+    if not BOTTOMUP_CKPT.exists():
+        pytest.skip("bottomup ckpt absent")
+    override = 0.37
+    assets, _ = load_model_assets(
+        [str(BOTTOMUP_CKPT)],
+        device="cpu",
+        preprocess_config=_scale_only_preprocess_config(override),
+    )
+    assert assets.inference_model.input_scale == override
+
+
+def test_load_topdown_input_scale_override_reaches_both_stages():
+    """Both the centroid-crop and centered-instance stages must see the override."""
+    if not (CENTROID_CKPT.exists() and CENTERED_CKPT.exists()):
+        pytest.skip("topdown ckpts absent")
+    override = 0.37
+    assets, _ = load_model_assets(
+        [str(CENTROID_CKPT), str(CENTERED_CKPT)],
+        device="cpu",
+        preprocess_config=_scale_only_preprocess_config(override),
+    )
+    assert assets.inference_model.centroid_crop.input_scale == override
+    assert assets.inference_model.instance_peaks.input_scale == override
+
+
+def _copy_ckpt_with_scale(src: Path, dst: Path, scale: float) -> Path:
+    """Copy a checkpoint dir to *dst*, overriding ``data_config.preprocessing.scale``."""
+    shutil.copytree(src, dst)
+    cfg = OmegaConf.load(str(dst / "training_config.yaml"))
+    cfg.data_config.preprocessing.scale = scale
+    OmegaConf.save(cfg, str(dst / "training_config.yaml"))
+    return dst
+
+
+def test_load_topdown_default_scale_is_per_stage_not_shared(tmp_path):
+    """Each stage must default to ITS OWN trained scale, not a shared value.
+
+    Regression test for #725: ``crop_size`` gets an explicit "force from the
+    confmap config" override in ``_build_topdown``, but ``scale`` did not, so
+    the *first* ``_resolve_preprocess_config`` call (centroid) filled the
+    shared ``preprocess_config.scale`` and the second call (confmap) silently
+    left it untouched -- the centered-instance stage inherited the centroid
+    model's scale. Both fixture checkpoints train at scale=1.0 by default,
+    which never exercises this path, so the scales are patched apart here.
+    """
+    if not (CENTROID_CKPT.exists() and CENTERED_CKPT.exists()):
+        pytest.skip("topdown ckpts absent")
+    centroid_dir = _copy_ckpt_with_scale(
+        CENTROID_CKPT, tmp_path / "centroid", scale=0.5
+    )
+    centered_dir = _copy_ckpt_with_scale(
+        CENTERED_CKPT, tmp_path / "centered_instance", scale=1.0
+    )
+    assets, _ = load_model_assets([str(centroid_dir), str(centered_dir)], device="cpu")
+    assert assets.inference_model.centroid_crop.input_scale == 0.5
+    assert assets.inference_model.instance_peaks.input_scale == 1.0
+
+
+def test_load_topdown_multiclass_default_scale_is_per_stage_not_shared(tmp_path):
+    """Same regression as above (#725), for the multiclass top-down builder."""
+    if not (CENTROID_CKPT.exists() and MULTICLASS_TD_CKPT.exists()):
+        pytest.skip("topdown-multiclass ckpts absent")
+    centroid_dir = _copy_ckpt_with_scale(
+        CENTROID_CKPT, tmp_path / "centroid", scale=0.5
+    )
+    confmap_dir = _copy_ckpt_with_scale(
+        MULTICLASS_TD_CKPT, tmp_path / "multiclass_centered_instance", scale=1.0
+    )
+    assets, _ = load_model_assets([str(centroid_dir), str(confmap_dir)], device="cpu")
+    assert assets.inference_model.centroid_crop.input_scale == 0.5
+    assert assets.inference_model.instance_peaks.input_scale == 1.0
+
+
 def test_load_topdown_multiclass(topdown_multiclass_assets):
     assets, types = topdown_multiclass_assets
     assert "centroid" in types
@@ -258,6 +369,25 @@ def test_load_model_assets_unsupported_type(tmp_path):
     OmegaConf.save(fake_config, str(tmp_path / "training_config.yaml"))
     with pytest.raises((ValueError, KeyError)):
         load_model_assets([str(tmp_path)], device="cpu")
+
+
+def test_load_model_assets_rejects_duplicate_model_type():
+    """Two ``--model_paths`` of the same type raise instead of silently dropping the second one.
+
+    Bug 4 -- the dispatch below picks the first match via
+    ``model_types.index(...)``, so a duplicate would otherwise be silently
+    ignored with no indication anything was wrong.
+    """
+    if not CENTROID_CKPT.exists():
+        pytest.skip("centroid ckpt absent")
+    with pytest.raises(ValueError, match="Duplicate model type 'centroid'"):
+        load_model_assets([str(CENTROID_CKPT), str(CENTROID_CKPT)], device="cpu")
+
+
+def test_load_model_assets_allows_distinct_types_in_combo(topdown_assets):
+    """Sanity check: a genuine topdown combo (2 different types) is unaffected by the duplicate-type check."""
+    _assets, model_types = topdown_assets
+    assert sorted(model_types) == ["centered_instance", "centroid"]
 
 
 # ─────────────────────────────────────────────────────────────────────────

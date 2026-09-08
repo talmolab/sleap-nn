@@ -309,6 +309,15 @@ class LabelsReader(Thread):
         instances_key: If `True`, then instances are appended to the output dictionary.
         only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
         only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
+        frames: Optional 0-indexed *positions* to keep from the (possibly
+            already `only_*`/`exclude_*`-filtered) labeled-frames list, in
+            file order -- e.g. `[0, 1, 2]` keeps the first three labeled
+            frames. NOT a filter on `LabeledFrame.frame_idx` values: for a
+            `.pkg.slp` with embedded, non-contiguously-sampled frames,
+            `frame_idx` is typically NOT sequential, so a `frame_idx`-range
+            filter would silently match the wrong (often near-empty)
+            subset. Positions beyond the list's length are dropped with a
+            logged warning rather than silently ignored.
     """
 
     def __init__(
@@ -320,6 +329,7 @@ class LabelsReader(Thread):
         only_suggested_frames: bool = False,
         exclude_user_labeled: bool = False,
         only_predicted_frames: bool = False,
+        frames: Optional[List[int]] = None,
     ):
         """Initialize attribute of the class."""
         super().__init__()
@@ -370,6 +380,21 @@ class LabelsReader(Thread):
 
         else:
             self.filtered_lfs = [lf for lf in self.labels]
+
+        if frames is not None:
+            n = len(self.filtered_lfs)
+            positions = set(frames)
+            out_of_range = sorted(p for p in positions if p < 0 or p >= n)
+            if out_of_range:
+                logger.warning(
+                    f"LabelsReader: {len(out_of_range)} requested frame "
+                    f"position(s) out of range for {n} labeled frame(s) "
+                    f"(after any only_*/exclude_* filtering) and will be "
+                    f"skipped: {out_of_range}"
+                )
+            self.filtered_lfs = [
+                lf for i, lf in enumerate(self.filtered_lfs) if i in positions
+            ]
 
         # Close the backend
         self.local_video_copy = []

@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import sleap_io as sio
 import torch
 
 from sleap_nn.inference.outputs import Outputs
@@ -50,6 +51,39 @@ def test_video_provider_uneven_last_batch():
     provider = VideoProvider(video=str(VIDEO), batch_size=3, frames=list(range(5)))
     sizes = [b.images.shape[0] for b in provider]
     assert sizes == [3, 2]
+
+
+@pytest.mark.skipif(not VIDEO.exists(), reason="test video not present")
+def test_video_provider_frames_out_of_range_warns():
+    """Out-of-range ``--frames`` indices are dropped with a logged warning.
+
+    Regression: a raw video source (unlike a `.slp`) has an exactly known
+    frame count, so an out-of-range index used to reach ``video[i]`` inside
+    the read loop and abort the entire remaining stream with a bare
+    ``IndexError`` -- not just the requested frames after the bad one, but
+    every batch, since the eager prefetch thread propagates the exception as
+    a fatal producer error. This must instead behave like
+    ``LabelsProvider``: warn once and skip only the bad indices.
+    """
+    from loguru import logger
+
+    n_frames = len(sio.Video(str(VIDEO)))
+    out_of_range = [n_frames, n_frames + 5]
+    messages = []
+    sink_id = logger.add(messages.append, level="WARNING")
+    try:
+        provider = VideoProvider(
+            video=str(VIDEO), batch_size=4, frames=[0, 1, *out_of_range, 2]
+        )
+        batches = list(provider)
+    finally:
+        logger.remove(sink_id)
+
+    assert len(messages) == 1
+    assert "out of range" in messages[0]
+    assert str(out_of_range) in messages[0]
+    frame_indices = np.concatenate([b.frame_indices for b in batches])
+    np.testing.assert_array_equal(frame_indices, [0, 1, 2])
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -136,6 +170,97 @@ def test_labels_provider_only_predicted_frames_keeps_only_predicted():
     assert [lf.frame_idx for lf in provider._labeled_frames] == [1]
 
 
+def _scattered_frame_idx_labels():
+    """3 labeled frames with non-sequential ``frame_idx`` values.
+
+    Mirrors a real cluster-sampled `.pkg.slp` training package (e.g.
+    berman_flies' `train.pkg.slp`, whose embedded frames' `frame_idx` values
+    are scattered like `[8, 1064, 1198, ...]`, not `0, 1, 2, ...`).
+    """
+    import sleap_io as sio
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="dummy.mp4")
+    lfs = [
+        sio.LabeledFrame(video=video, frame_idx=fidx, instances=[])
+        for fidx in (50, 5, 900)
+    ]
+    return sio.Labels(videos=[video], skeletons=[skel], labeled_frames=lfs)
+
+
+def test_labels_provider_frames_selects_positionally_not_by_frame_idx_value():
+    """``frames`` keeps list *positions*, not matching `LabeledFrame.frame_idx`.
+
+    Regression: `--frames` used to be silently ignored entirely for `.slp`
+    sources. The fix must NOT filter by `frame_idx` value -- for a
+    `.pkg.slp` with non-contiguously-sampled embedded frames, `frame_idx`
+    is typically scattered (not sequential), so a value-based filter would
+    silently match the wrong (often near-empty) subset. `frames=[0, 2]`
+    must keep the 1st and 3rd labeled frames in file order (`frame_idx`
+    50 and 900), NOT frames whose `frame_idx` equals 0 or 2 (neither of
+    which exist here).
+    """
+    labels = _scattered_frame_idx_labels()
+    provider = LabelsProvider(labels=labels, frames=[0, 2])
+    assert [lf.frame_idx for lf in provider._labeled_frames] == [50, 900]
+
+
+def test_labels_provider_frames_out_of_range_warns():
+    """Out-of-range ``frames`` positions are dropped with a logged warning."""
+    from loguru import logger
+
+    labels = _scattered_frame_idx_labels()
+    messages = []
+    sink_id = logger.add(messages.append, level="WARNING")
+    try:
+        provider = LabelsProvider(labels=labels, frames=[0, 5, 6])
+    finally:
+        logger.remove(sink_id)
+
+    assert [lf.frame_idx for lf in provider._labeled_frames] == [50]
+    assert len(messages) == 1
+    assert "out of range" in messages[0]
+    assert "[5, 6]" in messages[0]
+
+
+@pytest.mark.skipif(not VIDEO.exists(), reason="test video not present")
+def test_labels_provider_skips_unreadable_frame_and_warns():
+    """A frame that can't be read (``IndexError``) is skipped, not fatal.
+
+    Regression: the legacy ``VideoReader``/``LabelsReader`` threads have no
+    per-frame guard around pixel reads, so a single unreadable frame (e.g. a
+    placeholder synthesized by ``_scope_labels_to_video`` for a ``--frames``
+    index that isn't actually in the video) would abort the entire remaining
+    stream. ``LabelsProvider`` must instead skip just that frame, keep
+    reading the rest, and warn once with the skipped index/indices.
+    """
+    import sleap_io as sio
+    from loguru import logger
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.load_video(str(VIDEO))
+    lfs = [
+        sio.LabeledFrame(video=video, frame_idx=0, instances=[]),
+        sio.LabeledFrame(video=video, frame_idx=999_999, instances=[]),
+        sio.LabeledFrame(video=video, frame_idx=1, instances=[]),
+    ]
+    labels = sio.Labels(videos=[video], skeletons=[skel], labeled_frames=lfs)
+
+    messages = []
+    sink_id = logger.add(messages.append, level="WARNING")
+    try:
+        batches = list(LabelsProvider(labels=labels, batch_size=4))
+    finally:
+        logger.remove(sink_id)
+
+    read_frame_idxs = sorted(int(i) for b in batches for i in b.frame_indices)
+    assert read_frame_idxs == [0, 1]
+
+    assert len(messages) == 1
+    assert "could not be read" in messages[0]
+    assert "999999" in messages[0]
+
+
 def test_labels_provider_only_suggested_frames_yields_unlabeled_suggestions():
     """``only_suggested_frames=True`` yields unlabeled suggestions only."""
     import sleap_io as sio
@@ -163,6 +288,110 @@ def test_labels_provider_only_suggested_frames_yields_unlabeled_suggestions():
     assert [lf.frame_idx for lf in provider._labeled_frames] == [5]
     # The yielded LabeledFrame is fresh + empty.
     assert len(provider._labeled_frames[0].instances) == 0
+
+
+def _build_priority_test_labels():
+    """Labels fixture exercising every ``only_*``/``exclude_*`` filter mode.
+
+    - frame 0: a user instance only.
+    - frame 1: a predicted instance only.
+    - frame 2: no instances.
+    - suggestions: frame_idx=0 (already user-labeled) and frame_idx=3
+      (unlabeled -- the only one ``only_suggested_frames`` should keep).
+    """
+    import sleap_io as sio
+
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="dummy.mp4")
+    user_inst = sio.Instance.from_numpy(
+        np.array([[0.0, 0.0], [1.0, 1.0]], dtype=np.float32), skeleton=skel
+    )
+    pred_inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[2.0, 2.0], [3.0, 3.0]], dtype=np.float32),
+        skeleton=skel,
+        score=0.9,
+    )
+    lf_user = sio.LabeledFrame(video=video, frame_idx=0, instances=[user_inst])
+    lf_pred = sio.LabeledFrame(video=video, frame_idx=1, instances=[pred_inst])
+    lf_empty = sio.LabeledFrame(video=video, frame_idx=2, instances=[])
+    return sio.Labels(
+        videos=[video],
+        skeletons=[skel],
+        labeled_frames=[lf_user, lf_pred, lf_empty],
+        suggestions=[
+            sio.SuggestionFrame(video=video, frame_idx=0),  # already user-labeled
+            sio.SuggestionFrame(video=video, frame_idx=3),  # unlabeled
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    "flags, expected_frame_idxs",
+    [
+        # only_labeled_frames wins over every other flag (legacy priority #1).
+        (
+            dict(only_labeled_frames=True, only_suggested_frames=True),
+            [0],
+        ),
+        # only_suggested_frames wins over exclude_user_labeled (priority #2).
+        (
+            dict(
+                only_labeled_frames=False,
+                only_suggested_frames=True,
+                exclude_user_labeled=True,
+            ),
+            [3],
+        ),
+        # only_suggested_frames wins over only_predicted_frames (priority #2).
+        (
+            dict(
+                only_labeled_frames=False,
+                only_suggested_frames=True,
+                only_predicted_frames=True,
+            ),
+            [3],
+        ),
+        # exclude_user_labeled wins over only_predicted_frames (priority #3) --
+        # previously unguarded and silently reversed vs. legacy.
+        (
+            dict(
+                only_labeled_frames=False,
+                exclude_user_labeled=True,
+                only_predicted_frames=True,
+            ),
+            [1, 2],
+        ),
+    ],
+)
+def test_labels_provider_filter_priority_matches_legacy_order(
+    flags, expected_frame_idxs
+):
+    """Multi-flag combinations resolve in the same priority order as legacy.
+
+    Legacy ``LabelsReader`` (data/providers.py) priority: ``only_labeled_frames
+    > only_suggested_frames > exclude_user_labeled > only_predicted_frames``.
+    """
+    labels = _build_priority_test_labels()
+    provider = LabelsProvider(labels=labels, **flags)
+    assert [lf.frame_idx for lf in provider._labeled_frames] == expected_frame_idxs
+
+
+def test_labels_provider_only_labeled_frames_defaults_false_like_legacy():
+    """``only_labeled_frames`` defaults to ``False``, matching legacy ``LabelsReader``.
+
+    Regression test: since ``only_labeled_frames`` is the highest-priority
+    filter, a truthy default would silently override any other flag a caller
+    sets without also passing ``only_labeled_frames=False`` explicitly --
+    e.g. ``LabelsProvider(labels=labels, only_suggested_frames=True)`` would
+    otherwise ignore ``only_suggested_frames`` and yield only user-labeled
+    frames instead. ``Predictor._make_provider`` always passes this flag
+    explicitly, so this only bites direct construction -- exactly the
+    pattern this test exercises.
+    """
+    labels = _build_priority_test_labels()
+    provider = LabelsProvider(labels=labels, only_suggested_frames=True)
+    assert provider.only_labeled_frames is False
+    assert [lf.frame_idx for lf in provider._labeled_frames] == [3]
 
 
 def test_labels_provider_mixed_resolution_batches_by_shape(tmp_path):

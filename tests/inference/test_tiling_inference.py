@@ -395,3 +395,64 @@ def test_select_layer_routes_to_tiled_when_enabled(
     assert layer.tile_size == 128
     assert layer.overlap == 32
     assert layer.tile_batch_size == 8  # None -> conservative default
+
+
+def test_scoped_postprocess_layer_overrides_reach_tiled_inner(
+    minimal_instance_single_instance_ckpt,
+):
+    """Predict-time postprocess overrides must reach a ``TiledLayer``'s inner layer.
+
+    Regression (#712 follow-up): ``Predictor._collect_postprocess_targets``
+    only recognized a bare layer with its own ``postprocess_config`` (via
+    ``hasattr``) or a ``TopDownLayer``'s two named sub-layers -- a
+    ``TiledLayer`` exposes its wrapped layer's ``postprocess_config`` only on
+    ``.inner``, so every override (``--peak_threshold``, ``--max_instances``,
+    etc.) was a silent no-op for every tiled model. Also checks the returned
+    layer is still a ``TiledLayer`` (not the bare unwrapped inner layer) and
+    that the original layer's config is untouched (no in-place mutation).
+    """
+    from sleap_nn.inference.loaders import load_model_assets
+    from sleap_nn.inference.predictor import Predictor
+
+    loaded, model_types = load_model_assets(
+        [str(minimal_instance_single_instance_ckpt)],
+        device="cpu",
+        preprocess_config=OmegaConf.create(
+            {
+                "ensure_rgb": None,
+                "ensure_grayscale": None,
+                "crop_size": None,
+                "max_width": None,
+                "max_height": None,
+                "scale": None,
+            }
+        ),
+    )
+    OmegaConf.update(
+        loaded.confmap_config,
+        "data_config.preprocessing.tiling",
+        {
+            "enabled": True,
+            "tile_size": 128,
+            "overlap": 32,
+            "blend": "gaussian",
+            "sigma_scale": 0.125,
+            "min_overlap_fraction": 0.25,
+            "tile_batch_size": None,
+            "accumulator_device": "auto",
+            "cpu_thresh": 0.4,
+        },
+        force_add=True,
+    )
+    layer = _select_layer(loaded, model_types, "cpu")
+    assert isinstance(layer, TiledLayer)
+    original_threshold = layer.inner.postprocess_config.peak_threshold
+
+    predictor = Predictor(layer=layer)
+    new_layer = predictor._scoped_postprocess_layer(peak_threshold=0.9, max_instances=3)
+
+    assert isinstance(new_layer, TiledLayer)
+    assert new_layer.inner.postprocess_config.peak_threshold == 0.9
+    assert new_layer.inner.postprocess_config.max_instances == 3
+    # Original layer must be untouched.
+    assert layer.inner.postprocess_config.peak_threshold == original_threshold

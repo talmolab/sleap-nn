@@ -233,14 +233,29 @@ class ModelTrainer:
                 trainer_devices = 1
         return trainer_devices
 
+    def _is_training_frame(self, lf: "sio.LabeledFrame") -> bool:
+        """Whether a frame carries a usable training target.
+
+        Normally that means user instances. The centroid model can additionally
+        train on frames that carry only user centroid annotations
+        (``frame.centroids``) with no pose instance — the pure-centroid seeding
+        case (label a body-center per animal before any keypoints exist).
+        """
+        if lf.has_user_instances:
+            return True
+        if self.model_type == "centroid":
+            return any(not c.is_predicted for c in lf.centroids)
+        return False
+
     def _count_labeled_frames(
         self, labels_list: List[sio.Labels], user_only: bool = True
     ) -> int:
-        """Count labeled frames, optionally filtering to user-labeled only.
+        """Count labeled frames, optionally filtering to trainable frames only.
 
         Args:
             labels_list: List of Labels objects to count frames from.
-            user_only: If True, count only frames with user instances.
+            user_only: If True, count only frames with a training target
+                (user instances, or — for the centroid model — user centroids).
 
         Returns:
             Total count of labeled frames.
@@ -248,24 +263,25 @@ class ModelTrainer:
         total = 0
         for label in labels_list:
             if user_only:
-                total += sum(1 for lf in label if lf.has_user_instances)
+                total += sum(1 for lf in label if self._is_training_frame(lf))
             else:
                 total += len(label)
         return total
 
     def _filter_to_user_labeled(self, labels: sio.Labels) -> sio.Labels:
-        """Filter a Labels object to only include user-labeled frames.
+        """Filter a Labels object to only include trainable frames.
 
         Args:
             labels: Labels object to filter.
 
         Returns:
-            New Labels object containing only frames with user instances.
+            New Labels object containing only frames with a training target
+            (user instances, or user centroids for the centroid model).
         """
-        # Filter labeled frames to only those with user instances
-        user_lfs = [lf for lf in labels if lf.has_user_instances]
+        # Filter labeled frames to only trainable ones
+        user_lfs = [lf for lf in labels if self._is_training_frame(lf)]
 
-        # Set instances to user instances only
+        # Set instances to user instances only (empty for centroid-only frames)
         for lf in user_lfs:
             lf.instances = lf.user_instances
 
@@ -278,6 +294,42 @@ class ModelTrainer:
             suggestions=labels.suggestions,
             provenance=labels.provenance,
         )
+
+    def _split_centroid_labels(
+        self, label: sio.Labels, val_fraction: float, seed: Optional[int]
+    ):
+        """Train/val split for the centroid model that keeps centroid-only frames.
+
+        `sio.Labels.make_training_splits` returns only frames with user
+        instances, so it would drop pure-centroid frames. This reimplements a
+        deterministic fractional split over frames with a centroid training
+        target (user instances OR user centroids).
+        """
+        frames = [lf for lf in label if self._is_training_frame(lf)]
+        for lf in frames:
+            lf.instances = lf.user_instances
+
+        def mk(selected):
+            return sio.Labels(
+                labeled_frames=selected,
+                videos=label.videos,
+                skeletons=label.skeletons,
+                tracks=label.tracks,
+                suggestions=label.suggestions,
+                provenance=label.provenance,
+            )
+
+        n = len(frames)
+        if n <= 1:
+            # Too few to hold out a val frame; use the same frame for both so
+            # training still runs (mirrors small-dataset behavior elsewhere).
+            return mk(list(frames)), mk(list(frames))
+        rng = np.random.default_rng(seed)
+        order = rng.permutation(n)
+        n_val = max(1, int(round(n * val_fraction)))
+        val_sel = [frames[i] for i in order[:n_val]]
+        train_sel = [frames[i] for i in order[n_val:]]
+        return mk(train_sel), mk(val_sel)
 
     def _setup_train_val_labels(
         self,
@@ -385,12 +437,18 @@ class ModelTrainer:
                         f"training run to avoid data leakage."
                     )
             for label in labels:
-                train_split, val_split = label.make_training_splits(
-                    n_train=1 - val_fraction, n_val=val_fraction, seed=seed
-                )
+                if self.model_type == "centroid":
+                    # Centroid-aware split keeps pure-centroid frames that
+                    # make_training_splits would drop (no user instances).
+                    train_split, val_split = self._split_centroid_labels(
+                        label, val_fraction, seed
+                    )
+                else:
+                    train_split, val_split = label.make_training_splits(
+                        n_train=1 - val_fraction, n_val=val_fraction, seed=seed
+                    )
                 self.train_labels.append(train_split)
                 self.val_labels.append(val_split)
-                # make_training_splits returns only user-labeled frames
                 total_train_lfs += len(train_split)
                 total_val_lfs += len(val_split)
         else:
@@ -402,11 +460,45 @@ class ModelTrainer:
         logger.info(f"# Train Labeled frames: {total_train_lfs}")
         logger.info(f"# Val Labeled frames: {total_val_lfs}")
 
+        # Fail fast on an empty split instead of letting training run for several
+        # minutes of setup only to crash with a cryptic IndexError the first time
+        # something indexes into an empty Labels (e.g. `_verify_model_input_channels`
+        # accessing `self.train_labels[0][0]`).
+        self._validate_nonempty_labels(total_train_lfs, "train")
+        self._validate_nonempty_labels(total_val_lfs, "validation")
+
         # Single-instance models assume exactly one instance per frame; fail fast
         # with a clear error if any frame has more than one.
         if self.model_type == "single_instance":
             self._validate_single_instance_labels(self.train_labels, "train")
             self._validate_single_instance_labels(self.val_labels, "validation")
+
+    def _validate_nonempty_labels(self, n_labeled_frames: int, split_name: str):
+        """Ensure a split has at least one trainable labeled frame.
+
+        Args:
+            n_labeled_frames: Count of labeled frames usable as training targets
+                for this split (user instances, or user centroids for the
+                centroid model).
+            split_name: Name of the split (e.g. "train", "validation") for the
+                error message.
+
+        Raises:
+            ValueError: If `n_labeled_frames` is zero.
+        """
+        if n_labeled_frames == 0:
+            message = (
+                f"No labeled frames available for {split_name}: none of the "
+                f"labeled frame(s) in the provided {split_name} labels contain "
+                "user-labeled data usable by this model. Predicted instances "
+                "and suggestion frames are not used as training targets (nor "
+                "are standalone centroid annotations, except by centroid "
+                "models). Verify that the .slp file(s) passed for training "
+                "contain user-labeled instances, and that `validation_fraction` "
+                "and `use_same_data_for_val` are set as intended."
+            )
+            logger.error(message)
+            raise ValueError(message)
 
     def _validate_single_instance_labels(
         self, labels: List[sio.Labels], split_name: str
@@ -709,12 +801,59 @@ class ModelTrainer:
         """Setup node, edge and class names in head config."""
         # if edges and part names aren't set in head configs, get it from labels object.
         head_config = self.config.model_config.head_configs[self.model_type]
+        skeleton_node_names = list(self.skeletons[0].node_names)
         for key in head_config:
             if "part_names" in head_config[key].keys():
                 if head_config[key]["part_names"] is None:
                     self.config.model_config.head_configs[self.model_type][key][
                         "part_names"
                     ] = self.skeletons[0].node_names
+                elif list(head_config[key]["part_names"]) != skeleton_node_names:
+                    # GT confidence-map generation always produces one channel
+                    # per node in the skeleton (custom_datasets.py's
+                    # generate_confmaps has no part_names/subset parameter), while
+                    # the head's own output channel count is len(part_names). An
+                    # explicit part_names that's shorter, longer, or reordered
+                    # relative to the skeleton silently mismatches those two
+                    # channel counts (a confusing tensor-shape error deep in the
+                    # loss) or silently mislabels channels (if the same length
+                    # but reordered). Catch it here, fail-fast, before any data
+                    # loading/model construction.
+                    message = (
+                        f"model_config.head_configs.{self.model_type}.{key}"
+                        f".part_names must exactly match the skeleton's node "
+                        f"names (in order) -- partial/reordered subsets are not "
+                        f"supported. Got {list(head_config[key]['part_names'])!r}, "
+                        f"skeleton has {skeleton_node_names!r}. Set part_names to "
+                        f"null to use the full skeleton automatically."
+                    )
+                    logger.error(message)
+                    raise ValueError(message)
+
+            if (
+                "anchor_part" in head_config[key].keys()
+                and head_config[key]["anchor_part"] is not None
+                and self.model_type != "centroid"
+            ):
+                # `centroid`'s anchor_part deliberately falls back to None (mean
+                # of visible nodes) when absent from the skeleton -- see the
+                # comment at custom_datasets.py's centroid branch ("must NOT
+                # crash"). Every other head type that consumes anchor_part
+                # (centered_instance, multi_class_topdown,
+                # centered_instance_segmentation) does `nodes.index(anchor_part)`
+                # with no such guard, so a typo'd/nonexistent anchor_part
+                # currently passes setup cleanly and only fails deep inside
+                # dataset construction -- with an error message that
+                # misleadingly blames `part_names`, not the actual offending
+                # `anchor_part` field. Catch it here instead.
+                if head_config[key]["anchor_part"] not in skeleton_node_names:
+                    message = (
+                        f"model_config.head_configs.{self.model_type}.{key}"
+                        f".anchor_part {head_config[key]['anchor_part']!r} is not "
+                        f"a node in the skeleton {skeleton_node_names!r}."
+                    )
+                    logger.error(message)
+                    raise ValueError(message)
 
             if "edges" in head_config[key].keys():
                 if head_config[key]["edges"] is None:
@@ -815,12 +954,16 @@ class ModelTrainer:
                 img_channels = 3
             if self.config.data_config.preprocessing.ensure_grayscale:
                 img_channels = 1
-            if (
-                self.config.model_config.backbone_config[
-                    f"{self.backbone_type}"
-                ].in_channels
-                != img_channels
-            ):
+            model_in_channels = self.config.model_config.backbone_config[
+                f"{self.backbone_type}"
+            ].in_channels
+            if model_in_channels != img_channels:
+                target_format = "grayscale" if model_in_channels == 1 else "rgb"
+                logger.warning(
+                    f"Image has {img_channels} channel(s) but model has "
+                    f"{model_in_channels} input channel(s). Images will be "
+                    f"converted to {target_format} to fit the model architecture."
+                )
                 self.config.model_config.backbone_config[
                     f"{self.backbone_type}"
                 ].in_channels = img_channels
@@ -834,12 +977,16 @@ class ModelTrainer:
         ) and self.config.model_config.backbone_config[
             f"{self.backbone_type}"
         ].pre_trained_weights is not None:
-            if (
-                self.config.model_config.backbone_config[
-                    f"{self.backbone_type}"
-                ].in_channels
-                != 3
-            ):
+            current_in_channels = self.config.model_config.backbone_config[
+                f"{self.backbone_type}"
+            ].in_channels
+            if current_in_channels != 3:
+                logger.warning(
+                    f"Image has {current_in_channels} channel(s) but the "
+                    f"pretrained {self.backbone_type} backbone requires 3 "
+                    "(ImageNet RGB) input channels. Images will be converted "
+                    "to rgb to fit the model architecture."
+                )
                 self.config.model_config.backbone_config[
                     f"{self.backbone_type}"
                 ].in_channels = 3
@@ -935,6 +1082,48 @@ class ModelTrainer:
                             f"Updating data preprocessing to ensure_rgb to True based on the pretrained model weights."
                         )
 
+    def _verify_accelerator_config(self):
+        """Verify the configured `trainer_accelerator` is available on this machine.
+
+        A saved training config may have been created on a different machine (e.g.
+        `trainer_accelerator: mps` from a Mac, reloaded on a Linux/CUDA box). Passing an
+        unavailable accelerator straight to `lightning.Trainer` raises deep inside
+        `train()`, after dataset/ckpt setup has already run. This check runs early
+        (from `setup_config()`) and falls back to `"auto"` on a mismatch instead,
+        letting the existing device-count resolution logic pick the right backend.
+        """
+        accelerator = self.config.trainer_config.trainer_accelerator
+
+        if accelerator in ("auto", "cpu"):
+            return
+
+        if accelerator in ("gpu", "cuda"):
+            available = torch.cuda.is_available()
+        elif accelerator == "mps":
+            available = (
+                hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
+            )
+        else:
+            logger.info(
+                f"Configured accelerator '{accelerator}' is not a recognized option; "
+                "changing it to 'auto' (Lightning will select the best available device)."
+            )
+            self.config.trainer_config.trainer_accelerator = "auto"
+            return
+
+        if available:
+            logger.info(
+                f"Configured accelerator '{accelerator}' is available on this machine "
+                "and will be used."
+            )
+        else:
+            logger.info(
+                f"Configured accelerator '{accelerator}' is not available on this "
+                "machine; changing it to 'auto' (Lightning will select the best "
+                "available device)."
+            )
+            self.config.trainer_config.trainer_accelerator = "auto"
+
     def setup_config(self):
         """Compute config parameters."""
         logger.info("Setting up config...")
@@ -1001,6 +1190,9 @@ class ModelTrainer:
         # auto-size + validate tiling geometry (no-op unless tiling.enabled)
         self._setup_tiling_config()
         self.config = check_tiling(self.config)
+
+        # verify the configured accelerator is available on this machine
+        self._verify_accelerator_config()
 
         # if trainer_devices is None, set it to "auto"
         if self.config.trainer_config.trainer_devices is None:
@@ -1168,7 +1360,12 @@ class ModelTrainer:
                 self.config.data_config.data_pipeline_fw = (
                     "torch_dataset_cache_img_disk"
                 )
-                base_cache_img_path = Path("./")
+                base_cache_img_path = (
+                    Path(self.config.data_config.cache_img_path)
+                    if self.config.data_config.cache_img_path is not None
+                    else Path(self.config.trainer_config.ckpt_dir)
+                    / self.config.trainer_config.run_name
+                )
                 logger.info(
                     f"Insufficient memory for in-memory caching. `jpg` files will be created for disk-caching."
                 )
@@ -1335,6 +1532,22 @@ class ModelTrainer:
                 csv_log_keys.extend(
                     [f"train/confmaps/{name}" for name in self.skeletons[0].node_names]
                 )
+            if self.model_type == "centroid":
+                # Foreground/background confmap MSE split -- see
+                # `LightningModel._log_confmap_fg_bg_loss`. Always computed for
+                # this model type (not gated on `centroid_focal_loss_alpha`),
+                # since it's also the diagnostic that motivates whether a
+                # focal-style loss would help.
+                csv_log_keys.extend(
+                    [
+                        "train/confmap_loss_fg",
+                        "train/confmap_loss_bg",
+                        "train/confmap_fg_frac",
+                        "val/confmap_loss_fg",
+                        "val/confmap_loss_bg",
+                        "val/confmap_fg_frac",
+                    ]
+                )
             if self.model_type == "bottomup":
                 csv_log_keys.extend(
                     [
@@ -1394,6 +1607,11 @@ class ModelTrainer:
                         "val/fg_iou",
                     ]
                 )
+            # The embedding model's retrieval callback is NOT gated on eval.enabled
+            # (ModelCheckpoint selects on its metric, so it always runs -- see the
+            # callback branching below). Its keys therefore must NOT sit inside the
+            # eval.enabled gate, or the columns would vanish while the callback kept
+            # logging them. `train/pos_per_anchor` is a per-epoch training metric.
             if self.model_type == "embedding":
                 csv_log_keys.extend(
                     [
@@ -1405,6 +1623,71 @@ class ModelTrainer:
                         "eval/val/knn_acc",
                     ]
                 )
+            # Eval-callback keys (only when trainer_config.eval.enabled, mirroring
+            # the callback branching below). These are only computed every
+            # eval.frequency epochs; CSVLoggerCallback NaN-resets them at the
+            # start of each validation epoch so non-eval epochs show NaN instead
+            # of silently repeating the last-computed eval value.
+            elif self.config.trainer_config.eval.enabled:
+                if self.model_type == "centroid":
+                    csv_log_keys.extend(
+                        [
+                            "eval/val/centroid_dist_avg",
+                            "eval/val/centroid_dist_median",
+                            "eval/val/centroid_dist_p90",
+                            "eval/val/centroid_dist_p95",
+                            "eval/val/centroid_dist_max",
+                            "eval/val/centroid_precision",
+                            "eval/val/centroid_recall",
+                            "eval/val/centroid_f1",
+                            "eval/val/centroid_n_tp",
+                            "eval/val/centroid_n_fp",
+                            "eval/val/centroid_n_fn",
+                        ]
+                    )
+                elif self.model_type == "semantic_segmentation":
+                    csv_log_keys.extend(
+                        [
+                            "eval/val/fg_mean_iou",
+                            "eval/val/fg_mean_cldice",
+                            "eval/val/fg_mean_boundary_iou",
+                            "eval/val/fg_frame_recall",
+                        ]
+                    )
+                elif self.model_type in (
+                    "bottomup_segmentation",
+                    "centered_instance_segmentation",
+                ):
+                    csv_log_keys.extend(
+                        [
+                            "eval/val/mask_mean_iou",
+                            "eval/val/mask_mean_iou_all_gt",
+                            "eval/val/mask_mean_cldice",
+                            "eval/val/mask_precision",
+                            "eval/val/mask_recall",
+                            "eval/val/mask_f1",
+                            "eval/val/mask_n_tp",
+                            "eval/val/mask_n_fp",
+                            "eval/val/mask_n_fn",
+                        ]
+                    )
+                else:
+                    csv_log_keys.extend(
+                        [
+                            "eval/val/mOKS",
+                            "eval/val/oks_voc_mAP",
+                            "eval/val/oks_voc_mAR",
+                            "eval/val/distance/avg",
+                            "eval/val/distance/p50",
+                            "eval/val/distance/p95",
+                            "eval/val/distance/p99",
+                            "eval/val/mPCK",
+                            "eval/val/PCK_5",
+                            "eval/val/PCK_10",
+                            "eval/val/visibility_precision",
+                            "eval/val/visibility_recall",
+                        ]
+                    )
             csv_logger = CSVLoggerCallback(
                 filepath=Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name
@@ -1752,14 +2035,30 @@ class ModelTrainer:
             ):
                 # TRAIN decouple: the tiling knob overrides the tile-count length.
                 train_steps_per_epoch = tiling.steps_per_epoch
+                logger.info(
+                    f"train_steps_per_epoch not set; using tiling.steps_per_epoch={train_steps_per_epoch}"
+                )
             else:
                 train_steps_per_epoch = get_steps_per_epoch(
                     dataset=train_dataset,
                     batch_size=self.config.trainer_config.train_data_loader.batch_size,
                 )
-        if self.config.trainer_config.min_train_steps_per_epoch > train_steps_per_epoch:
-            train_steps_per_epoch = self.config.trainer_config.min_train_steps_per_epoch
+                logger.info(
+                    f"train_steps_per_epoch not set; computed {train_steps_per_epoch} from training dataset"
+                )
+        else:
+            logger.info(
+                f"Using configured train_steps_per_epoch={train_steps_per_epoch}"
+            )
+        min_train_steps_per_epoch = self.config.trainer_config.min_train_steps_per_epoch
+        if min_train_steps_per_epoch > train_steps_per_epoch:
+            logger.info(
+                f"train_steps_per_epoch={train_steps_per_epoch} is below "
+                f"min_train_steps_per_epoch={min_train_steps_per_epoch}; using the minimum"
+            )
+            train_steps_per_epoch = min_train_steps_per_epoch
         self.config.trainer_config.train_steps_per_epoch = train_steps_per_epoch
+        logger.info(f"Final train_steps_per_epoch={train_steps_per_epoch}")
 
         # VAL: always full-coverage (every grid tile visited once), NOT decoupled.
         val_steps_per_epoch = get_steps_per_epoch(

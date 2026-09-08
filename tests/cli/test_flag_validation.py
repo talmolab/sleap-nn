@@ -93,8 +93,35 @@ def test_stream_to_file_with_embed_raises_usage_error():
     assert "stream-to-file" in result.output
 
 
-def test_stream_to_file_with_no_restore_source_videos_raises_usage_error():
-    """``--stream-to-file`` + ``--no-restore_source_videos`` is rejected (#652)."""
+def test_stream_to_file_with_restore_source_videos_raises_usage_error():
+    """``--stream-to-file`` + ``--restore_source_videos`` is rejected.
+
+    The incremental writer always saves with ``restore_original_videos=False``
+    (PRESERVE_SOURCE), matching the non-streaming default; requesting the
+    non-default ``True`` (restore the pre-embedding source video) can't be
+    honored there.
+    """
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "predict",
+            "--data_path",
+            "/fake/path.mp4",
+            "--model_paths",
+            "/fake/model",
+            "--stream-to-file",
+            "/tmp/out.slp",
+            "--restore_source_videos",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "restore_source_videos" in result.output.lower()
+    assert "stream-to-file" in result.output
+
+
+def test_stream_to_file_with_no_restore_source_videos_is_allowed():
+    """``--stream-to-file`` + ``--no-restore_source_videos`` (the default) is fine."""
     runner = CliRunner()
     result = runner.invoke(
         cli,
@@ -109,9 +136,9 @@ def test_stream_to_file_with_no_restore_source_videos_raises_usage_error():
             "--no-restore_source_videos",
         ],
     )
-    assert result.exit_code != 0
-    assert "restore_source_videos" in result.output.lower()
-    assert "stream-to-file" in result.output
+    # Should get past the flag-validation guard (may still fail later for
+    # unrelated reasons, e.g. the fake model/data paths not existing).
+    assert "restore_source_videos" not in result.output.lower()
 
 
 def test_write_interval_without_stream_to_file_errors():

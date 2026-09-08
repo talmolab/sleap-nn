@@ -414,6 +414,13 @@ class TiledSegmentationLayer:
         # Exposed so the Predictor's pipelined / metadata helpers can read the
         # backend off a tiled layer the same way they read it off a plain one.
         self.backend = inner_layer.backend
+        # Same for the mask-packaging knobs (#712 follow-up): `predictor.py`
+        # reads these via `getattr(self.layer, "mask_output", "mask")` etc.
+        # directly off the top-level layer, so a bare `TiledSegmentationLayer`
+        # (bottomup_segmentation) previously fell back to the hardcoded
+        # defaults instead of the inner layer's actual configured values.
+        self.mask_output = getattr(inner_layer, "mask_output", "mask")
+        self.polygon_epsilon = getattr(inner_layer, "polygon_epsilon", 0.01)
         self.tile_batch_size = int(tile_batch_size)
         self.accumulator_device = accumulator_device
         self.cpu_thresh = cpu_thresh
@@ -562,20 +569,11 @@ class TiledSemanticSegmentationLayer(TiledSegmentationLayer):
     blend (identical to the ``foreground`` channel of the bottom-up path); with no
     offset field there is no translation-invariance subtlety.
 
-    Reuses :class:`TiledSegmentationLayer`'s ``__init__`` / window cache /
-    ``__call__`` / ``backend`` exposure verbatim; overrides only :meth:`predict`
-    to stitch one channel instead of four. Also re-exposes the inner layer's
-    ``mask_output`` / ``polygon_epsilon`` so the Predictor reads them off the
-    tiled layer (the base ``TiledSegmentationLayer`` omits these).
+    Reuses :class:`TiledSegmentationLayer`'s ``__init__`` (including its
+    ``mask_output``/``polygon_epsilon`` re-exposure) / window cache /
+    ``__call__`` / ``backend`` exposure verbatim; overrides only
+    :meth:`predict` to stitch one channel instead of four.
     """
-
-    def __init__(self, inner_layer, tile_size, overlap, **kwargs) -> None:
-        """Stash the inner layer + tiling knobs, re-exposing packaging knobs."""
-        super().__init__(inner_layer, tile_size, overlap, **kwargs)
-        # Re-expose the packaging knobs so ``predictor`` reads them off the tiled
-        # layer (via getattr) exactly as it does off the plain ``SegmentationLayer``.
-        self.mask_output = getattr(inner_layer, "mask_output", "mask")
-        self.polygon_epsilon = getattr(inner_layer, "polygon_epsilon", 0.01)
 
     def predict(self, image: ImageInput) -> Outputs:
         """Tile -> forward -> stitch fg -> threshold to one mask, per frame."""

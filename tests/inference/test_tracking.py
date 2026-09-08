@@ -7,10 +7,29 @@ import pickle
 import numpy as np
 import pytest
 import sleap_io as sio
+import torch
+from _pytest.logging import LogCaptureFixture
+from loguru import logger
 
 from sleap_nn.inference.filters import FilterConfig
+from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.predictor import Predictor
 from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
+
+
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    """Route loguru records into pytest's ``caplog`` (project convention)."""
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,
+    )
+    yield caplog
+    logger.remove(handler_id)
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Fixtures
@@ -123,6 +142,82 @@ def test_apply_tracking_post_connect_requires_target_count(skeleton, video):
         apply_tracking(labels, cfg)
 
 
+def test_apply_tracking_zero_frames_with_clean_instance_count_does_not_crash(
+    skeleton, video
+):
+    """Regression: an empty ``labels.labeled_frames`` combined with
+    ``tracking_clean_instance_count`` used to reach ``cull_instances([])``,
+    which returned ``None`` instead of ``[]``, propagating into
+    ``sio.Labels(labeled_frames=None, ...)`` and crashing. ``apply_tracking``
+    should just skip post-processing and hand back an empty ``Labels``."""
+    labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[])
+    out = apply_tracking(labels, TrackerConfig(tracking_clean_instance_count=2))
+    assert isinstance(out, sio.Labels)
+    assert len(out.labeled_frames) == 0
+
+
+def test_apply_tracking_zero_frames_log_message_actually_emits(skeleton, video, caplog):
+    """Regression: ``tracking.py`` used Python's stdlib ``logging.getLogger``
+    instead of the project's ``loguru`` logger, with no handler attached
+    anywhere -- so every message it logged (this one, and the two
+    auto-resolution notices below) was silently swallowed, in every mode
+    (CLI, ``--gui``, Python API). Fixed by switching to ``from loguru import
+    logger``, matching every other module in the pipeline.
+    """
+    labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[])
+    apply_tracking(labels, TrackerConfig())
+    assert "0 frames to track; skipping tracking post-processing." in caplog.text
+
+
+def test_apply_tracking_logs_start_finish_and_runtime(skeleton, video, caplog):
+    """``apply_tracking`` logs 'Started tracking at' / 'Finished tracking at' /
+    'Total runtime' -- matching legacy ``run_inference``'s separate
+    tracking-phase timing lines (previously absent; the new pipeline only
+    reported one end-of-run summary line covering the whole inference run,
+    not tracking specifically)."""
+    labels = _make_labels(skeleton, video, frames=3, instances_per_frame=2)
+    apply_tracking(
+        labels, TrackerConfig(window_size=5, candidates_method="fixed_window")
+    )
+    assert "Started tracking at:" in caplog.text
+    assert "Finished tracking at:" in caplog.text
+    assert "Total runtime:" in caplog.text
+    assert "secs" in caplog.text
+
+
+def test_apply_tracking_single_node_default_resolution_log_actually_emits(
+    video, caplog
+):
+    """Same regression as above, for the single-node auto-resolution notice."""
+    single_node_skeleton = sio.Skeleton(nodes=["centroid"])
+    inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[0.0, 0.0]], dtype=np.float32),
+        skeleton=single_node_skeleton,
+        score=0.9,
+    )
+    labels = sio.Labels(
+        videos=[video],
+        skeletons=[single_node_skeleton],
+        labeled_frames=[sio.LabeledFrame(video=video, frame_idx=0, instances=[inst])],
+    )
+    apply_tracking(
+        labels,
+        TrackerConfig(scoring_method_explicit=False, features_explicit=False),
+    )
+    assert "Single-node skeleton detected" in caplog.text
+
+
+def test_apply_tracking_zero_frames_post_connect_requires_target_count_still_raises(
+    skeleton, video
+):
+    """Config validation happens before the frame-count check, so it must
+    still fire even when there happen to be 0 frames."""
+    labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[])
+    cfg = TrackerConfig(post_connect_single_breaks=True)
+    with pytest.raises(ValueError, match="tracking_target_instance_count"):
+        apply_tracking(labels, cfg)
+
+
 def test_apply_tracking_preserves_videos_and_skeletons(skeleton, video):
     labels = _make_labels(skeleton, video, frames=2, instances_per_frame=1)
     out = apply_tracking(labels, TrackerConfig())
@@ -230,12 +325,12 @@ def test_predictor_predict_applies_tracker_after_to_labels(
     monkeypatch.setattr(
         Predictor,
         "_batch_iter",
-        lambda self, provider, progress_callback=None: iter([]),
+        lambda self, provider, progress_callback=None, layer=None: iter([]),
     )
     monkeypatch.setattr(
         Predictor,
         "to_labels",
-        lambda self, outputs_list, videos=None: untracked,
+        lambda self, outputs_list, videos=None, keep_empty_frames=False: untracked,
     )
 
     result = pred.predict(
@@ -272,12 +367,12 @@ def test_predictor_predict_clean_empty_frames_drops_empty(skeleton, video, monke
     monkeypatch.setattr(
         Predictor,
         "_batch_iter",
-        lambda self, provider, progress_callback=None: iter([]),
+        lambda self, provider, progress_callback=None, layer=None: iter([]),
     )
     monkeypatch.setattr(
         Predictor,
         "to_labels",
-        lambda self, outputs_list, videos=None: raw_labels,
+        lambda self, outputs_list, videos=None, keep_empty_frames=False: raw_labels,
     )
 
     result = pred.predict(
@@ -289,6 +384,168 @@ def test_predictor_predict_clean_empty_frames_drops_empty(skeleton, video, monke
     )
     # Frame 1 (with the instance) survives; frames 0 and 2 are dropped.
     assert [lf.frame_idx for lf in result.labeled_frames] == [1]
+
+
+def test_predictor_predict_keeps_empty_frames_by_default_without_tracking(
+    skeleton, video, monkeypatch
+):
+    """Regression: zero-detection frames must survive to the output even when
+    ``--tracking`` is off, matching the legacy pipeline's default of keeping
+    every processed frame.
+
+    Before this fix, ``predict()`` only passed ``keep_empty_frames=True`` to
+    ``to_labels()`` when a ``tracker_config`` was set (the #714 fix, scoped
+    narrowly to the tracking-ID divergence bug) -- so the much more common
+    non-tracking case still silently dropped every empty frame from the
+    output, unlike ``sleap-nn track``'s default.
+    """
+    outputs_list = [
+        _frame_outputs(0, True),
+        _frame_outputs(1, False),
+        _frame_outputs(2, False),
+        _frame_outputs(3, True),
+    ]
+    pred = Predictor(layer=_StubLayer())  # no tracker_config -- not tracking
+
+    class _Provider:
+        def __iter__(self):
+            return iter([])
+
+    monkeypatch.setattr(
+        Predictor,
+        "_batch_iter",
+        lambda self, provider, progress_callback=None, layer=None: iter(outputs_list),
+    )
+
+    result = pred.predict(
+        _Provider(), make_labels=True, skeleton=skeleton, videos=[video]
+    )
+    # All 4 processed frames survive, including the two empty ones.
+    assert [lf.frame_idx for lf in result.labeled_frames] == [0, 1, 2, 3]
+    assert result.labeled_frames[1].instances == []
+    assert result.labeled_frames[2].instances == []
+
+
+def test_predictor_predict_clean_empty_frames_still_drops_them_without_tracking(
+    skeleton, video, monkeypatch
+):
+    """``clean_empty_frames=True`` (``--no_empty_frames``) still removes empty
+    frames in the non-tracking case -- the existing opt-out is unaffected by
+    always keeping them by default now."""
+    outputs_list = [
+        _frame_outputs(0, True),
+        _frame_outputs(1, False),
+        _frame_outputs(2, False),
+        _frame_outputs(3, True),
+    ]
+    pred = Predictor(layer=_StubLayer())
+
+    class _Provider:
+        def __iter__(self):
+            return iter([])
+
+    monkeypatch.setattr(
+        Predictor,
+        "_batch_iter",
+        lambda self, provider, progress_callback=None, layer=None: iter(outputs_list),
+    )
+
+    result = pred.predict(
+        _Provider(),
+        make_labels=True,
+        skeleton=skeleton,
+        videos=[video],
+        clean_empty_frames=True,
+    )
+    assert [lf.frame_idx for lf in result.labeled_frames] == [0, 3]
+
+
+def _frame_outputs(frame_idx, has_instances, video_idx=0):
+    """One-frame ``Outputs`` (batch_size=1): 2 fixed-position instances, or
+    none. Used to build synthetic sequences with detection gaps for the
+    window-flush regression tests below."""
+    base = [[[0.0, 0.0], [10.0, 0.0]], [[100.0, 0.0], [110.0, 0.0]]]
+    if not has_instances:
+        return Outputs(
+            frame_indices=torch.tensor([frame_idx], dtype=torch.int64),
+            video_indices=torch.tensor([video_idx], dtype=torch.int64),
+        )
+    pts = torch.tensor(base, dtype=torch.float32).unsqueeze(0)  # (1, 2, 2, 2)
+    return Outputs(
+        pred_keypoints=pts,
+        pred_peak_values=torch.ones(1, 2, 2),
+        instance_scores=torch.full((1, 2), 0.9),
+        frame_indices=torch.tensor([frame_idx], dtype=torch.int64),
+        video_indices=torch.tensor([video_idx], dtype=torch.int64),
+    )
+
+
+def _predict_with_gap(skeleton, video, monkeypatch, gap_frames):
+    """Run ``predict()`` with tracking over frames 0, 1, <gap>, N, N+1 where
+    <gap> is ``gap_frames`` consecutive zero-detection frames, and the 2
+    instances at the start/end are at identical positions. Returns the sorted
+    track names at the first and last non-empty frames."""
+    n_before = 2
+    frame_specs = [(i, True) for i in range(n_before)]
+    frame_specs += [(n_before + i, False) for i in range(gap_frames)]
+    last_start = n_before + gap_frames
+    frame_specs += [(last_start + i, True) for i in range(2)]
+    outputs_list = [_frame_outputs(i, has) for i, has in frame_specs]
+
+    pred = Predictor(
+        layer=_StubLayer(),
+        tracker_config=TrackerConfig(window_size=5, candidates_method="fixed_window"),
+    )
+
+    class _Provider:
+        def __iter__(self):
+            return iter([])
+
+    monkeypatch.setattr(
+        Predictor,
+        "_batch_iter",
+        lambda self, provider, progress_callback=None, layer=None: iter(outputs_list),
+    )
+
+    result = pred.predict(
+        _Provider(), make_labels=True, skeleton=skeleton, videos=[video]
+    )
+    by_frame = {lf.frame_idx: lf for lf in result.labeled_frames}
+    tracks_before = sorted(inst.track.name for inst in by_frame[0].instances)
+    tracks_after = sorted(inst.track.name for inst in by_frame[last_start].instances)
+    return tracks_before, tracks_after
+
+
+def test_predictor_predict_tracking_flushes_window_across_long_empty_gap(
+    skeleton, video, monkeypatch
+):
+    """Regression (#714): a run of zero-detection frames >= ``window_size``
+    must flush the fixed-window candidate deque, spawning fresh track ids
+    after the gap -- matching the legacy pipeline, which calls
+    ``tracker.track()`` on every frame (including empty ones) and so
+    naturally flushes its window across such a gap.
+
+    Before the fix, ``Outputs.to_labels()`` unconditionally dropped
+    zero-detection frames before tracking, so ``apply_tracking`` only ever
+    saw the 4 non-empty frames -- well within ``window_size=5`` -- and
+    incorrectly reused the pre-gap track ids after the gap.
+    """
+    tracks_before, tracks_after = _predict_with_gap(
+        skeleton, video, monkeypatch, gap_frames=5
+    )
+    assert tracks_before != tracks_after
+
+
+def test_predictor_predict_tracking_preserves_identity_across_short_gap(
+    skeleton, video, monkeypatch
+):
+    """Sanity check for the fix above: a gap *shorter* than ``window_size``
+    must NOT flush the window -- identity is preserved across short gaps,
+    exactly as it was (correctly) before and after the #714 fix."""
+    tracks_before, tracks_after = _predict_with_gap(
+        skeleton, video, monkeypatch, gap_frames=2
+    )
+    assert tracks_before == tracks_after
 
 
 def test_predictor_with_tracker_picklable_round_trip():

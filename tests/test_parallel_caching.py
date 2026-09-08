@@ -15,6 +15,9 @@ from sleap_nn.data.custom_datasets import (
     ParallelCacheFiller,
     BaseDataset,
     SingleInstanceDataset,
+    _dist_failed_on_any_rank,
+    _run_cache_fill_with_dist_sync,
+    _validate_existing_disk_cache_complete,
 )
 
 
@@ -345,3 +348,245 @@ class TestMinSamplesThreshold:
     def test_min_samples_reasonable_value(self):
         """Test that threshold is reasonable (between 10 and 100)."""
         assert 10 <= MIN_SAMPLES_FOR_PARALLEL_CACHING <= 100
+
+
+def _confmap_config(labels):
+    """Build a minimal confmap head config for SingleInstanceDataset tests."""
+    from omegaconf import DictConfig
+
+    return DictConfig(
+        {
+            "sigma": 1.5,
+            "output_stride": 2,
+            "part_names": [n.name for n in labels.skeletons[0].nodes],
+        }
+    )
+
+
+class TestCacheFillHardRaise:
+    """Regression tests for talmolab/sleap#2777: a frame that fails to cache
+    must raise instead of only being logged, so training can't silently
+    proceed with a missing/incomplete cache.
+    """
+
+    def test_fill_cache_parallel_raises_on_error(self, minimal_labels):
+        """`_fill_cache_parallel` raises when `ParallelCacheFiller` reports errors."""
+        dataset = SingleInstanceDataset(
+            labels=[minimal_labels],
+            confmap_head_config=_confmap_config(minimal_labels),
+            max_stride=32,
+            cache_img=None,
+        )
+        fake_errors = [(0, 0, "IndexError: Failed to read frame index 5.")]
+        with patch(
+            "sleap_nn.data.custom_datasets.ParallelCacheFiller.fill_cache",
+            return_value=({}, fake_errors),
+        ):
+            with pytest.raises(RuntimeError, match=r"Failed to cache 1/1 frames"):
+                dataset._fill_cache_parallel(
+                    labels=[minimal_labels],
+                    total_samples=1,
+                    cache_type="memory",
+                    use_progress=False,
+                )
+
+    def test_fill_cache_parallel_no_errors_does_not_raise(self, minimal_labels):
+        """Sanity check: the happy path is untouched by the raise."""
+        dataset = SingleInstanceDataset(
+            labels=[minimal_labels],
+            confmap_head_config=_confmap_config(minimal_labels),
+            max_stride=32,
+            cache_img=None,
+        )
+        with patch(
+            "sleap_nn.data.custom_datasets.ParallelCacheFiller.fill_cache",
+            return_value=({(0, 0): np.zeros((2, 2))}, []),
+        ):
+            dataset._fill_cache_parallel(
+                labels=[minimal_labels],
+                total_samples=1,
+                cache_type="memory",
+                use_progress=False,
+            )
+        assert (0, 0) in dataset.cache
+
+    def test_disk_cache_parallel_write_failure_raises(self, minimal_labels):
+        """End-to-end: a real disk-write failure during parallel caching raises."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch(
+                "sleap_nn.data.custom_datasets.Image.fromarray",
+                side_effect=OSError("disk full"),
+            ):
+                with pytest.raises(RuntimeError, match="Failed to cache"):
+                    SingleInstanceDataset(
+                        labels=[minimal_labels],
+                        confmap_head_config=_confmap_config(minimal_labels),
+                        max_stride=32,
+                        cache_img="disk",
+                        cache_img_path=tmpdir,
+                        parallel_caching=True,
+                        cache_workers=2,
+                    )
+
+    def test_disk_cache_sequential_write_failure_raises(self, minimal_labels):
+        """End-to-end: a real disk-write failure during sequential caching raises."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch(
+                "sleap_nn.data.custom_datasets.Image.fromarray",
+                side_effect=OSError("disk full"),
+            ):
+                with pytest.raises(RuntimeError, match="Failed to cache"):
+                    SingleInstanceDataset(
+                        labels=[minimal_labels],
+                        confmap_head_config=_confmap_config(minimal_labels),
+                        max_stride=32,
+                        cache_img="disk",
+                        cache_img_path=tmpdir,
+                        parallel_caching=False,
+                    )
+
+
+class TestDistSyncCacheFill:
+    """Tests for the DDP failure-broadcast helper around cache filling.
+
+    Without this broadcast, a rank whose cache fill fails would raise and
+    die immediately while surviving ranks proceed to the next collective op
+    (e.g. `dist.barrier()` right after cache creation in `BaseDataset.__init__`)
+    and hang forever waiting for the now-dead rank.
+    """
+
+    @staticmethod
+    def _raise_boom():
+        raise ValueError("boom")
+
+    def test_no_distributed_propagates_local_error(self):
+        with patch(
+            "sleap_nn.data.custom_datasets.is_distributed_initialized",
+            return_value=False,
+        ):
+            with pytest.raises(ValueError, match="boom"):
+                _run_cache_fill_with_dist_sync(self._raise_boom)
+
+    def test_no_distributed_success_is_noop(self):
+        called = []
+        with patch(
+            "sleap_nn.data.custom_datasets.is_distributed_initialized",
+            return_value=False,
+        ):
+            _run_cache_fill_with_dist_sync(lambda: called.append(True))
+        assert called == [True]
+
+    def test_distributed_local_failure_raises_original_error(self):
+        def fake_all_reduce(tensor, op=None):
+            tensor.fill_(1)  # simulate: this rank's failure is seen by the group
+
+        with (
+            patch(
+                "sleap_nn.data.custom_datasets.is_distributed_initialized",
+                return_value=True,
+            ),
+            patch(
+                "sleap_nn.data.custom_datasets.dist.get_backend", return_value="gloo"
+            ),
+            patch(
+                "sleap_nn.data.custom_datasets.dist.all_reduce",
+                side_effect=fake_all_reduce,
+            ),
+        ):
+            with pytest.raises(ValueError, match="boom"):
+                _run_cache_fill_with_dist_sync(self._raise_boom)
+
+    def test_distributed_remote_failure_raises_generic_error(self):
+        def fake_all_reduce(tensor, op=None):
+            tensor.fill_(1)  # simulate: another rank failed, we succeeded locally
+
+        called = []
+        with (
+            patch(
+                "sleap_nn.data.custom_datasets.is_distributed_initialized",
+                return_value=True,
+            ),
+            patch(
+                "sleap_nn.data.custom_datasets.dist.get_backend", return_value="gloo"
+            ),
+            patch(
+                "sleap_nn.data.custom_datasets.dist.all_reduce",
+                side_effect=fake_all_reduce,
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="failed on another rank"):
+                _run_cache_fill_with_dist_sync(lambda: called.append(True))
+        assert called == [True]
+
+    def test_distributed_all_succeed_is_noop(self):
+        def fake_all_reduce(tensor, op=None):
+            pass  # simulate: nobody failed, flag stays 0
+
+        called = []
+        with (
+            patch(
+                "sleap_nn.data.custom_datasets.is_distributed_initialized",
+                return_value=True,
+            ),
+            patch(
+                "sleap_nn.data.custom_datasets.dist.get_backend", return_value="gloo"
+            ),
+            patch(
+                "sleap_nn.data.custom_datasets.dist.all_reduce",
+                side_effect=fake_all_reduce,
+            ),
+        ):
+            _run_cache_fill_with_dist_sync(lambda: called.append(True))
+        assert called == [True]
+
+    def test_dist_failed_on_any_rank_uses_cpu_when_no_cuda(self):
+        """nccl backend without CUDA available must not try to allocate a CUDA tensor."""
+        with (
+            patch(
+                "sleap_nn.data.custom_datasets.dist.get_backend", return_value="nccl"
+            ),
+            patch(
+                "sleap_nn.data.custom_datasets.torch.cuda.is_available",
+                return_value=False,
+            ),
+            patch("sleap_nn.data.custom_datasets.dist.all_reduce") as mock_all_reduce,
+        ):
+            result = _dist_failed_on_any_rank(True)
+
+        assert result is True
+        tensor_arg = mock_all_reduce.call_args[0][0]
+        assert tensor_arg.device.type == "cpu"
+
+
+class TestValidateExistingDiskCache:
+    """Tests for the use_existing_imgs=True disk cache completeness check."""
+
+    def test_raises_when_files_missing(self, minimal_labels, tmp_path):
+        cache_dir = tmp_path / "train_imgs"
+        cache_dir.mkdir()
+
+        dataset = SingleInstanceDataset(
+            labels=[minimal_labels],
+            confmap_head_config=_confmap_config(minimal_labels),
+            max_stride=32,
+            cache_img=None,
+        )
+
+        with pytest.raises(RuntimeError, match="missing"):
+            _validate_existing_disk_cache_complete(dataset, cache_dir, "train")
+
+    def test_passes_when_all_files_present(self, minimal_labels, tmp_path):
+        cache_dir = tmp_path / "train_imgs"
+        cache_dir.mkdir()
+
+        dataset = SingleInstanceDataset(
+            labels=[minimal_labels],
+            confmap_head_config=_confmap_config(minimal_labels),
+            max_stride=32,
+            cache_img=None,
+        )
+        for sample in dataset.lf_idx_list:
+            fname = f"sample_{sample['labels_idx']}_{sample['lf_idx']}.jpg"
+            (cache_dir / fname).touch()
+
+        _validate_existing_disk_cache_complete(dataset, cache_dir, "train")

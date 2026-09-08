@@ -13,6 +13,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import sleap_io as sio
+from _pytest.logging import LogCaptureFixture
+from loguru import logger
 
 from sleap_nn.inference.run import (
     _resolve_embed,
@@ -21,6 +23,20 @@ from sleap_nn.inference.run import (
     save_analysis_h5_files,
     save_predictions,
 )
+
+
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    """Route loguru records into pytest's ``caplog`` (project convention)."""
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,
+    )
+    yield caplog
+    logger.remove(handler_id)
 
 
 def _mock_predictor():
@@ -217,6 +233,31 @@ def test_save_predictions_both_writes_slp_and_h5(minimal_instance, tmp_path):
     assert isinstance(sio.load_analysis_h5(h5_written[0].as_posix()), sio.Labels)
 
 
+def test_save_predictions_logs_output_path_and_saved_confirmation(
+    minimal_instance, tmp_path, caplog
+):
+    """Regression: legacy ``run_inference`` logs 'Predictions output path: ...'
+    and 'Saved file at: ...' after writing -- the new pipeline's
+    ``save_predictions`` previously logged nothing for the primary ``.slp``
+    write (only the optional ``analysis_h5`` export got a log line)."""
+    labels = sio.load_slp(minimal_instance.as_posix())
+    out = tmp_path / "preds.slp"
+    save_predictions(labels, out)
+    assert f"Predictions output path: {out}" in caplog.text
+    assert "Saved file at:" in caplog.text
+
+
+def test_save_predictions_analysis_h5_only_does_not_log_slp_confirmation(
+    minimal_instance, tmp_path, caplog
+):
+    """No .slp write -> no 'Predictions output path' / 'Saved file at' lines."""
+    labels = sio.load_slp(minimal_instance.as_posix())
+    out = tmp_path / "preds.slp"
+    save_predictions(labels, out, output_format="analysis_h5")
+    assert "Predictions output path:" not in caplog.text
+    assert "Saved file at:" not in caplog.text
+
+
 def test_save_predictions_analysis_h5_only_skips_slp(minimal_instance, tmp_path):
     """output_format='analysis_h5' writes only the .h5 (no .slp)."""
     labels = sio.load_slp(minimal_instance.as_posix())
@@ -391,13 +432,13 @@ def test_save_predictions_forwards_embed_and_restore_to_labels_save():
     assert labels.save.call_args.kwargs["restore_original_videos"] is False
 
 
-def test_save_predictions_default_embed_false_restore_true():
-    """Defaults preserve today's behavior: embed=False, restore=True."""
+def test_save_predictions_default_embed_false_restore_false():
+    """Defaults: embed=False, restore_source_videos=False (PRESERVE_SOURCE)."""
     labels = MagicMock()
     labels.videos = []
     save_predictions(labels, "out.slp", output_format="slp")
     assert labels.save.call_args.kwargs["embed"] is False
-    assert labels.save.call_args.kwargs["restore_original_videos"] is True
+    assert labels.save.call_args.kwargs["restore_original_videos"] is False
 
 
 def test_save_predictions_embed_true_writes_self_contained_slp(
@@ -459,4 +500,38 @@ def test_predict_default_embed_restore_forwarded(tmp_path):
             output_path=str(out),
         )
     assert mock_save.call_args.kwargs["embed"] == "false"
-    assert mock_save.call_args.kwargs["restore_source_videos"] is True
+    assert mock_save.call_args.kwargs["restore_source_videos"] is False
+
+
+def test_predict_on_pkg_slp_default_references_pkg_slp_not_source_video(
+    minimal_instance, tmp_path
+):
+    """Real end-to-end regression: a ``.pkg.slp`` input keeps referencing itself.
+
+    ``VideoProvider``/``LabelsProvider`` close the shared ``sio.Video`` to make
+    a cheap deepcopy for the prefetch thread (see
+    ``providers._reopen_after_thread_local_copy``); left closed, the video's
+    ``backend`` is ``None`` at save time, sleap-io's embedded-image detection
+    in ``write_videos`` silently misses it, and the output re-serializes stale
+    backend metadata whose ``filename: "."`` self-reference convention only
+    holds inside the *original* file -- producing an output that (on reload)
+    references itself instead of the ``.pkg.slp``. Locks that this is fixed:
+    the backend is reopened before saving, so the output backreferences the
+    input ``.pkg.slp`` (default ``restore_source_videos=False``), and its
+    embedded image still loads.
+    """
+    ckpt_root = Path(__file__).resolve().parents[1] / "assets" / "model_ckpts"
+    out_path = tmp_path / "out.predictions.slp"
+
+    result = predict(
+        str(minimal_instance),
+        model_paths=[str(ckpt_root / "minimal_instance_single_instance")],
+        device="cpu",
+        output_path=str(out_path),
+    )
+    assert result.videos[0].backend is not None
+
+    reloaded = sio.load_slp(out_path.as_posix())
+    assert Path(reloaded.videos[0].filename).name == "minimal_instance.pkg.slp"
+    # The embedded image must still be readable from the reloaded reference.
+    assert reloaded[0].image is not None

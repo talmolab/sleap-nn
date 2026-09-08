@@ -1023,7 +1023,11 @@ def track(**kwargs):
     This command uses the legacy ``run_inference`` pipeline. For the new
     inference pipeline, use ``sleap-nn predict``.
     """
+    from sleap_nn import redirect_logs_to_stderr
     from sleap_nn.legacy_predict import frame_list, run_inference
+
+    if kwargs.get("gui"):
+        redirect_logs_to_stderr()
 
     if "model_paths" in kwargs and kwargs["model_paths"]:
         kwargs["model_paths"] = list(kwargs["model_paths"])
@@ -1087,7 +1091,11 @@ def _run_inference_impl(**kwargs):
     ``--frames`` string into a list of int frame indices, and routes to
     the new :class:`Predictor`-based pipeline.
     """
+    from sleap_nn import redirect_logs_to_stderr
     from sleap_nn.legacy_predict import frame_list
+
+    if kwargs.get("gui"):
+        redirect_logs_to_stderr()
 
     paf_workers = kwargs.pop("paf_workers", 0) or 0
     cpu_workers = kwargs.pop("cpu_workers", None)
@@ -1352,7 +1360,9 @@ def _build_tracker_config(kwargs: dict) -> "object":
     )
 
 
-def _scope_labels_to_video(labels, video_index: int, frames=None):
+def _scope_labels_to_video(
+    labels, video_index: int, frames=None, synthesize_missing: bool = False
+):
     """Scope a ``Labels`` to one video (re-indexed to slot 0), optionally + frames.
 
     Returns ``(scoped_labels, target_video)``. Raises ``click.UsageError`` for an
@@ -1360,6 +1370,20 @@ def _scope_labels_to_video(labels, video_index: int, frames=None):
     source ``provenance`` so ``--video_index`` composes with
     ``--only_suggested_frames`` / ``--frames`` and preserves input lineage
     (legacy parity, #583).
+
+    A requested ``--frames`` index with no existing ``LabeledFrame`` is, by
+    default, simply dropped (with a warning) -- ``labels.find()`` can only
+    narrow, never add frames. When ``synthesize_missing=True``, such indices
+    instead get an empty placeholder ``LabeledFrame`` (no instances, mirroring
+    how ``LabelsProvider`` already synthesizes frames for
+    ``--only_suggested_frames``) so real pixel-based inference can read that
+    frame directly from ``target``'s backing video -- ``sio.Video`` already
+    resolves an original ``frame_idx`` correctly for both a plain video and an
+    embedded ``.pkg.slp`` (via its ``frame_map``), raising a clean
+    ``IndexError`` if that particular frame was never embedded.
+    ``synthesize_missing`` should stay ``False`` for annotation-based flows
+    (retrack-only, ``--mask_backend``) where a frame with no instances is
+    meaningless, not merely "not yet predicted".
     """
     import sleap_io as sio
 
@@ -1370,11 +1394,57 @@ def _scope_labels_to_video(labels, video_index: int, frames=None):
         )
     target = labels.videos[video_index]
     wanted = set(frames) if frames else None
-    lfs = [
-        lf
-        for lf in labels.find(video=target)
-        if wanted is None or lf.frame_idx in wanted
-    ]
+    target_lfs = labels.find(video=target)
+    if wanted is None:
+        lfs = list(target_lfs)
+    else:
+        existing_by_idx = {lf.frame_idx: lf for lf in target_lfs}
+        missing = sorted(wanted - existing_by_idx.keys())
+        if not synthesize_missing:
+            # Ordered by frame_idx (matching the synthesize_missing branch
+            # below), not by `target_lfs`'s original order -- a .slp's
+            # labeled_frames are not guaranteed to already be frame_idx-sorted
+            # (e.g. frames added out of sequence via the GUI), and the two
+            # branches must agree so --stream-to-file's incremental write
+            # order doesn't silently depend on synthesize_missing.
+            lfs = [
+                existing_by_idx[idx] for idx in sorted(wanted) if idx in existing_by_idx
+            ]
+        else:
+            lfs = [
+                (
+                    existing_by_idx[idx]
+                    if idx in existing_by_idx
+                    else sio.LabeledFrame(video=target, frame_idx=idx, instances=[])
+                )
+                for idx in sorted(wanted)
+            ]
+        if missing:
+            if synthesize_missing:
+                logger.warning(
+                    f"--frames requested {len(wanted)} frame index/indices for "
+                    f"video {video_index}, but only "
+                    f"{len(wanted) - len(missing)} already exist as labeled "
+                    f"frames in the .slp; {len(missing)} will be read directly "
+                    f"from the source video instead: {missing[:20]}"
+                    f"{', ...' if len(missing) > 20 else ''}. A frame that "
+                    f"isn't actually available in the video (e.g. a .pkg.slp "
+                    f"missing that embedded frame) will be skipped with its "
+                    f"own warning when read."
+                )
+            else:
+                logger.warning(
+                    f"--frames requested {len(wanted)} frame index/indices for "
+                    f"video {video_index}, but only "
+                    f"{len(wanted) - len(missing)} exist as labeled frames in "
+                    f"the .slp; {len(missing)} requested index/indices have no "
+                    f"matching labeled frame and will be skipped: "
+                    f"{missing[:20]}{', ...' if len(missing) > 20 else ''}. "
+                    f"--video_index/--frames on a .slp source can only select "
+                    f"among already-labeled frames -- point --data_path at "
+                    f"the video file directly to run inference on frames "
+                    f"that aren't yet labeled."
+                )
     suggestions = [
         s
         for s in (getattr(labels, "suggestions", None) or [])
@@ -1530,6 +1600,40 @@ def _build_remote_kwargs(kwargs: dict) -> dict:
     return remote
 
 
+_SLP_ONLY_FRAME_FILTER_FLAGS = (
+    "only_labeled_frames",
+    "only_suggested_frames",
+    "exclude_user_labeled",
+    "only_predicted_frames",
+)
+
+
+def _warn_ignored_slp_filters_for_non_slp_source(kwargs: dict, src_suffix: str) -> None:
+    """Warn (not error) if a label-status frame filter is set for a non-``.slp`` source.
+
+    ``--only_labeled_frames`` / ``--only_suggested_frames`` /
+    ``--exclude_user_labeled`` / ``--only_predicted_frames`` select frames by
+    annotation status, which fundamentally doesn't exist for a raw video --
+    there's no way to know which frames are "predicted" or "user-labeled"
+    without a ``.slp``. These flags are inert for a non-``.slp`` source: the
+    inference dispatch below only reads them when building a source from a
+    ``.slp``, so a video source runs full-video inference either way. This
+    warns so that's not a silent surprise. Shared by both the in-memory and
+    stream-to-file flows so the two call sites can't drift the way
+    ``LabelsProvider`` vs. ``LabelsReader`` did.
+    """
+    if src_suffix == ".slp":
+        return
+    ignored = [f"--{flag}" for flag in _SLP_ONLY_FRAME_FILTER_FLAGS if kwargs.get(flag)]
+    if ignored:
+        logger.warning(
+            f"{', '.join(ignored)} require a `.slp` --data_path (they filter "
+            "frames by annotation status); the given source has no annotations "
+            "to filter on, so these flags have no effect here. Running on all "
+            "frames. Use --frames to subset a video by index instead."
+        )
+
+
 def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     """Run the new ``predict()`` flow synchronously and save the resulting Labels.
 
@@ -1589,6 +1693,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
     # through verbatim (Path() would corrupt scheme://). Remote auth/stream
     # options (--headers/--stream-mode) are forwarded to the URL-aware loaders.
     source_str, src_suffix, src_is_url = _resolve_data_path(kwargs["data_path"])
+    _warn_ignored_slp_filters_for_non_slp_source(kwargs, src_suffix)
     remote_kwargs = _build_remote_kwargs(kwargs)
 
     # Build source: use a provider when CLI-specific filtering or
@@ -1615,10 +1720,17 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         # frames pass through a pre-built LabelsProvider, so the real Video is not
         # re-attached on output (same as the has_slp_filters path); the output is
         # video-name-suffixed instead. Carries suggestions + the --frames filter.
+        # For real pixel-based inference (not --mask_backend, which masks
+        # existing poses and has nothing to do with un-annotated frames),
+        # synthesize placeholder frames for --frames indices that aren't
+        # already labeled so they're read straight from the video instead of
+        # silently dropped (matches what `sleap-nn track` does when given a
+        # model, minus its all-or-nothing failure mode -- see LabelsProvider).
         scoped, target_video = _scope_labels_to_video(
             sio.load_slp(source_str, **remote_kwargs),
             video_index,
             frames=kwargs.get("frames"),
+            synthesize_missing=not bool(kwargs.get("mask_backend")),
         )
         if kwargs.get("mask_backend"):
             # run_sam_segmentation accepts a sio.Labels directly; pass the scoped
@@ -1700,7 +1812,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         ),
         "output_format": kwargs.get("output_format") or ("slp",),
         "embed": kwargs.get("embed") or "false",
-        "restore_source_videos": kwargs.get("restore_source_videos", True),
+        "restore_source_videos": kwargs.get("restore_source_videos", False),
         # Bottom-up PAF grouping knobs (inert for non-bottom-up models). #583.
         "max_edge_length_ratio": kwargs.get("max_edge_length_ratio", 0.25),
         "dist_penalty_weight": kwargs.get("dist_penalty_weight", 1.0),
@@ -1797,7 +1909,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
         predict_kwargs["progress_callback"] = _gui_progress_callback()
         if kwargs.get("tracking"):
             predict_kwargs["tracking_progress_callback"] = _gui_progress_callback()
-        return predict(source, **predict_kwargs)
+        return _run_guarded(lambda: predict(source, **predict_kwargs), gui=True)
 
     # Non-gui: show a Rich progress bar (parity with legacy `track`'s default
     # progress UX; the plumbing was wired but no callback was attached). #583.
@@ -1808,7 +1920,7 @@ def _run_in_memory_new_flow(kwargs: dict, paf_workers: int) -> "object":
             progress, "Tracking..."
         )
     try:
-        return predict(source, **predict_kwargs)
+        return _run_guarded(lambda: predict(source, **predict_kwargs), gui=False)
     finally:
         progress.stop()
 
@@ -1860,15 +1972,19 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
         tracking_cb = _rich_task_callback(_progress, "Tracking...")
 
     _start = datetime.now()
+    _gui = bool(kwargs.get("gui"))
     try:
-        out = predictor_cls.retrack(
-            labels,
-            tracker_config,
-            clean_empty_frames=bool(kwargs.get("no_empty_frames")),
-            progress_callback=tracking_cb,
+        out = _run_guarded(
+            lambda: predictor_cls.retrack(
+                labels,
+                tracker_config,
+                clean_empty_frames=bool(kwargs.get("no_empty_frames")),
+                progress_callback=tracking_cb,
+            ),
+            gui=_gui,
         )
     finally:
-        if not kwargs.get("gui"):
+        if not _gui:
             _progress.stop()
     # Attach tracking-only provenance to the retracked .slp (legacy parity —
     # apply_tracking leaves provenance to the caller, and the legacy track path
@@ -1891,7 +2007,7 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
         output_path,
         output_format=kwargs.get("output_format") or ("slp",),
         embed=kwargs.get("embed") or "false",
-        restore_source_videos=kwargs.get("restore_source_videos", True),
+        restore_source_videos=kwargs.get("restore_source_videos", False),
     )
     return out
 
@@ -1932,6 +2048,41 @@ def _gui_progress_callback():
         state["last"] = now
 
     return cb
+
+
+def _emit_gui_error(exc: BaseException) -> None:
+    """Emit a structured JSON error line on stdout for a ``--gui`` consumer.
+
+    Mirrors ``_gui_progress_callback``'s JSON-per-line schema (one line,
+    flushed immediately) so a GUI's per-line stdout reader can tell an error
+    line apart from a progress line with the same simple parse -- check for
+    an ``"error"`` key instead of ``"n_processed"``. Without this, a runtime
+    failure (CUDA OOM, corrupt checkpoint, mid-stream decode error, ...) was
+    only ever visible as a raw Python traceback (Bug 2).
+    """
+    import json
+
+    print(
+        json.dumps({"error": True, "type": type(exc).__name__, "message": str(exc)}),
+        flush=True,
+    )
+
+
+def _run_guarded(fn, *, gui: bool):
+    """Call ``fn()``; in ``--gui`` mode, emit a structured error line before re-raising on failure.
+
+    The exception always propagates unchanged (same type, same traceback,
+    same non-zero exit code) -- this only adds a machine-readable signal on
+    stdout ahead of it when ``gui=True``. Non-``--gui`` behavior (a raw
+    traceback via loguru + Python's default handling) is intentionally
+    unchanged; a human at a terminal doesn't need a JSON line.
+    """
+    try:
+        return fn()
+    except Exception as exc:
+        if gui:
+            _emit_gui_error(exc)
+        raise
 
 
 def _make_fps_column(window_s: float = 5.0, time_fn=None):
@@ -2085,12 +2236,12 @@ def _run_stream_to_file(
             "--stream-to-file to write analysis HDF5 via the in-memory path."
         )
     if (kwargs.get("embed") or "false") != "false" or (
-        kwargs.get("restore_source_videos", True) is False
+        kwargs.get("restore_source_videos", False) is True
     ):
         raise click.UsageError(
             "--embed / --restore_source_videos are not supported with "
-            "--stream-to-file: the incremental writer saves with sleap-io "
-            "defaults (no embedding, original-video refs restored). Drop "
+            "--stream-to-file: the incremental writer always saves with "
+            "no embedding and .pkg.slp references preserved. Drop "
             "--stream-to-file to control embedding."
         )
     if not kwargs.get("model_paths"):
@@ -2098,6 +2249,10 @@ def _run_stream_to_file(
     data_path = kwargs.get("data_path")
     if not data_path:
         raise click.UsageError("--data_path is required for --stream-to-file.")
+    # Warn early (before loading a model) if a label-status frame filter is
+    # set for a non-`.slp` source -- same check as the in-memory flow.
+    _, _early_src_suffix, _ = _resolve_data_path(data_path)
+    _warn_ignored_slp_filters_for_non_slp_source(kwargs, _early_src_suffix)
 
     from pathlib import Path
 
@@ -2160,13 +2315,17 @@ def _run_stream_to_file(
     if src_suffix == ".slp" and video_index is not None:
         # Scope streaming inference to the requested video of a multi-video .slp
         # (re-indexed to videos[0] so frames map correctly). Carries suggestions
-        # + the --frames filter. #583.
+        # + the --frames filter. #583. --stream-to-file always runs real model
+        # inference (--model_paths is required above), so synthesize
+        # placeholders for --frames indices that aren't already labeled --
+        # they're read straight from the video instead of silently dropped.
         import sleap_io as sio
 
         scoped, _target_video = _scope_labels_to_video(
             sio.load_slp(source_str, **remote_kwargs),
             video_index,
             frames=kwargs.get("frames"),
+            synthesize_missing=True,
         )
         provider = LabelsProvider(
             labels=scoped,
@@ -2197,21 +2356,27 @@ def _run_stream_to_file(
         )
 
     if kwargs.get("gui"):
-        return predictor.predict_to_file(
-            provider,
-            path=str(stream_to_file),
-            write_interval=write_interval,
-            progress_callback=_gui_progress_callback(),
+        return _run_guarded(
+            lambda: predictor.predict_to_file(
+                provider,
+                path=str(stream_to_file),
+                write_interval=write_interval,
+                progress_callback=_gui_progress_callback(),
+            ),
+            gui=True,
         )
 
     # Non-gui: Rich progress bar, stopped cleanly in finally (#583).
     cb, progress = _rich_progress_callback()
     try:
-        return predictor.predict_to_file(
-            provider,
-            path=str(stream_to_file),
-            write_interval=write_interval,
-            progress_callback=cb,
+        return _run_guarded(
+            lambda: predictor.predict_to_file(
+                provider,
+                path=str(stream_to_file),
+                write_interval=write_interval,
+                progress_callback=cb,
+            ),
+            gui=False,
         )
     finally:
         progress.stop()
@@ -2287,11 +2452,13 @@ def _common_inference_options(f):
         click.option(
             "--restore_source_videos/--no-restore_source_videos",
             "restore_source_videos",
-            default=True,
-            help="On a non-embedding .slp save, restore references to the "
-            "original source video files (default). Use "
-            "--no-restore_source_videos to keep references to the input "
-            ".pkg.slp file(s) instead. Ignored when embedding.",
+            default=False,
+            help="On a non-embedding .slp save, keep references to the input "
+            ".pkg.slp file(s) (default) -- the pixels are already there, and "
+            "the pre-embedding source video is often unavailable. Use "
+            "--restore_source_videos to instead restore references to the "
+            "original pre-embedding source video files, when recorded. "
+            "Ignored when embedding.",
         ),
         click.option(
             "--embeddings_path",

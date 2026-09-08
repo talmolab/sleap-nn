@@ -238,8 +238,9 @@ def test_run_sam_segmentation_restore_source_videos_controls_refs(
 ):
     """``restore_source_videos`` toggles the reloaded video filename reference.
 
-    #652: on a non-embedding save, default ``True`` restores the original source
-    video reference (the .mp4); ``False`` keeps the input ``.pkg.slp`` reference.
+    On a non-embedding save, ``True`` restores the original pre-embedding source
+    video reference (the .mp4); ``False`` (the default) keeps the input
+    ``.pkg.slp`` reference.
     """
     src = sio.load_slp(str(minimal_instance))
     source_name = Path(src.videos[0].source_video.filename).name
@@ -267,9 +268,9 @@ def test_run_sam_segmentation_restore_source_videos_controls_refs(
 
     restored = sio.load_slp(out_restore.as_posix())
     kept = sio.load_slp(out_keep.as_posix())
-    # Default True -> the original source .mp4 reference.
+    # True -> the original pre-embedding source .mp4 reference.
     assert Path(restored.videos[0].filename).name == source_name
-    # False -> the input .pkg.slp reference is kept.
+    # False (the default) -> the input .pkg.slp reference is kept.
     assert Path(kept.videos[0].filename).name == input_name
 
 
@@ -608,7 +609,7 @@ def test_predict_sam_default_embed_restore_forwarded(
         output_path=tmp_path / "e.slp",
     )
     assert captured["embed"] == "false"
-    assert captured["restore_source_videos"] is True
+    assert captured["restore_source_videos"] is False
 
 
 # --------------------------------------------------------------------------- save_mask_overlay

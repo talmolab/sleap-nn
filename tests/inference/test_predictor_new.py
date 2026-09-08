@@ -100,6 +100,68 @@ def test_predict_streaming_yields_outputs():
     assert len(rest) == 2  # 5 frames / batch=2 → 3 batches total
 
 
+class _EchoThresholdLayer:
+    """Layer whose output encodes its *current* ``postprocess_config.peak_threshold``.
+
+    Used to detect whether two ``predict_streaming()`` calls interleaved via
+    alternating ``next()`` calls leak each other's postprocess overrides.
+    """
+
+    def __init__(self):
+        from sleap_nn.inference.layers.configs import PostprocessConfig
+
+        self.postprocess_config = PostprocessConfig()
+
+    def predict(self, image, **kwargs) -> Outputs:
+        """Return instance_scores filled with the current peak_threshold."""
+        b = image.shape[0]
+        t = self.postprocess_config.peak_threshold
+        return Outputs(
+            pred_keypoints=torch.zeros(b, 1, 4, 2),
+            pred_peak_values=torch.full((b, 1, 4), t),
+            instance_scores=torch.full((b, 1), t),
+        )
+
+
+def test_predict_streaming_interleaved_calls_do_not_clobber_overrides():
+    """Interleaved ``predict_streaming()`` calls must not leak overrides.
+
+    Regression test: an earlier implementation applied predict-time
+    postprocess overrides by mutating ``layer.postprocess_config`` in place
+    and restoring it when the generator exhausted/closed. Interleaving two
+    ``predict_streaming()`` calls on the same ``Predictor`` via alternating
+    ``next()`` shared that mutable state, so each call's override could
+    clobber the other's mid-stream.
+    """
+    predictor = Predictor(layer=_EchoThresholdLayer())
+    images_a = np.zeros((4, 1, 8, 8), dtype=np.float32)
+    images_b = np.zeros((4, 1, 8, 8), dtype=np.float32)
+    gen_a = predictor.predict_streaming(
+        NumpyProvider(images=images_a, batch_size=2), peak_threshold=0.9
+    )
+    gen_b = predictor.predict_streaming(
+        NumpyProvider(images=images_b, batch_size=2), peak_threshold=0.1
+    )
+
+    # Interleave: a, b, a, b -- each call's override must survive regardless
+    # of what the other call requested in between.
+    out_a1 = next(gen_a)
+    out_b1 = next(gen_b)
+    out_a2 = next(gen_a)
+    out_b2 = next(gen_b)
+
+    assert out_a1.instance_scores.flatten()[0].item() == pytest.approx(0.9)
+    assert out_a2.instance_scores.flatten()[0].item() == pytest.approx(0.9)
+    assert out_b1.instance_scores.flatten()[0].item() == pytest.approx(0.1)
+    assert out_b2.instance_scores.flatten()[0].item() == pytest.approx(0.1)
+
+    list(gen_a)
+    list(gen_b)
+
+    # The real (shared) layer was never mutated by either call.
+    assert predictor.layer.postprocess_config.peak_threshold == 0.2
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # 4. FilterPipeline propagation
 # ─────────────────────────────────────────────────────────────────────────

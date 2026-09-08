@@ -1,6 +1,7 @@
 """This module has the LightningModule classes for all model types."""
 
 from typing import Optional, Union, Dict, Any, List, Tuple
+import math
 import time
 from torch import nn
 import torch.nn.functional as F
@@ -41,6 +42,7 @@ from sleap_nn.training.losses import (
     compute_bce_dice_loss,
     compute_masked_smooth_l1,
     build_contrastive_masks,
+    compute_centroid_focal_loss,
     get_contrastive_loss,
 )
 from loguru import logger
@@ -325,6 +327,22 @@ class LightningModel(L.LightningModule):
 
         negative_loss_weight = getattr(config.data_config, "negative_loss_weight", 1.0)
 
+        # See CentroidConfMapsConfig.focal_loss_alpha -- centroid-only.
+        extra_kwargs = {}
+        if model_type == "centroid":
+            centroid_confmaps_config = (
+                config.model_config.head_configs.centroid.confmaps
+            )
+            extra_kwargs["centroid_focal_loss_alpha"] = getattr(
+                centroid_confmaps_config, "focal_loss_alpha", 0.0
+            )
+            extra_kwargs["centroid_focal_loss_beta"] = getattr(
+                centroid_confmaps_config, "focal_loss_beta", 4.0
+            )
+            extra_kwargs["centroid_focal_loss_pos_threshold"] = getattr(
+                centroid_confmaps_config, "focal_loss_pos_threshold", 0.5
+            )
+
         lightning_model = lightning_models[model_type](
             model_type=model_type,
             backbone_type=backbone_type,
@@ -343,6 +361,7 @@ class LightningModel(L.LightningModule):
             learning_rate=config.trainer_config.optimizer.lr,
             amsgrad=config.trainer_config.optimizer.amsgrad,
             negative_loss_weight=negative_loss_weight,
+            **extra_kwargs,
         )
 
         if model_type == "embedding":
@@ -688,6 +707,64 @@ class LightningModel(L.LightningModule):
                 sync_dist=True,
             )
 
+    def _log_confmap_fg_bg_loss(
+        self,
+        y_pred: torch.Tensor,
+        y: torch.Tensor,
+        stage: str = "train",
+        threshold: float = 0.5,
+    ) -> None:
+        """Log the confmap MSE split into foreground vs background pixels.
+
+        DIAGNOSTIC / LOGGING ONLY -- these values are **not** added to the
+        optimized loss. Gaussian confidence-map targets are dominated by
+        near-zero background pixels (the foreground blob is typically ~1-2% of
+        the map), so plain ``MSELoss`` is mostly the background term. Splitting
+        the squared error by the GROUND-TRUTH confmap value lets us watch the
+        foreground/background imbalance evolve over training and informs whether
+        a weighted (or focal-style) confmap loss would help.
+
+        Pixels are split by target value: foreground = ``y > threshold``,
+        background = ``y < threshold`` (pixels exactly at ``threshold`` are
+        ignored). Metrics are epoch-averaged and DDP-synced.
+
+        Logged keys:
+
+        * ``{stage}/confmap_loss_fg`` -- mean squared error over foreground pixels.
+        * ``{stage}/confmap_loss_bg`` -- mean squared error over background pixels.
+        * ``{stage}/confmap_fg_frac`` -- fraction of pixels that are foreground
+          (a direct measure of the imbalance).
+
+        Args:
+            y_pred: Predicted confidence maps.
+            y: Ground-truth confidence maps (Gaussian peaks in ``[0, 1]``), same
+                shape as ``y_pred``.
+            stage: Key prefix, e.g. ``"train"`` or ``"val"``.
+            threshold: Foreground/background split on the target value.
+                *Default*: ``0.5``.
+        """
+        with torch.no_grad():
+            se = (y_pred - y).pow(2)
+            fg = y > threshold
+            bg = y < threshold
+            zero = torch.zeros((), device=y_pred.device)
+            fg_loss = se[fg].mean() if fg.any() else zero
+            bg_loss = se[bg].mean() if bg.any() else zero
+            fg_frac = fg.float().mean()
+        for key, val in (
+            (f"{stage}/confmap_loss_fg", fg_loss),
+            (f"{stage}/confmap_loss_bg", bg_loss),
+            (f"{stage}/confmap_fg_frac", fg_frac),
+        ):
+            self.log(
+                key,
+                val,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+
     def training_step(self, batch, batch_idx):
         """Training step."""
         pass
@@ -742,59 +819,65 @@ class LightningModel(L.LightningModule):
         elif isinstance(self.lr_scheduler, dict):
             lr_scheduler_cfg = self.lr_scheduler
 
-        for k, v in self.lr_scheduler.items():
-            if v is not None:
-                if k == "cosine_annealing_warmup":
-                    cfg = self.lr_scheduler.cosine_annealing_warmup
-                    # Use trainer's max_epochs if not specified in config
-                    max_epochs = (
-                        cfg.max_epochs
-                        if cfg.max_epochs is not None
-                        else self.trainer.max_epochs
-                    )
-                    scheduler = LinearWarmupCosineAnnealingLR(
-                        optimizer=optimizer,
-                        warmup_epochs=cfg.warmup_epochs,
-                        max_epochs=max_epochs,
-                        warmup_start_lr=cfg.warmup_start_lr,
-                        eta_min=cfg.eta_min,
-                    )
-                    break
-                elif k == "linear_warmup_linear_decay":
-                    cfg = self.lr_scheduler.linear_warmup_linear_decay
-                    # Use trainer's max_epochs if not specified in config
-                    max_epochs = (
-                        cfg.max_epochs
-                        if cfg.max_epochs is not None
-                        else self.trainer.max_epochs
-                    )
-                    scheduler = LinearWarmupLinearDecayLR(
-                        optimizer=optimizer,
-                        warmup_epochs=cfg.warmup_epochs,
-                        max_epochs=max_epochs,
-                        warmup_start_lr=cfg.warmup_start_lr,
-                        end_lr=cfg.end_lr,
-                    )
-                    break
-                elif k == "step_lr":
-                    scheduler = torch.optim.lr_scheduler.StepLR(
-                        optimizer=optimizer,
-                        step_size=self.lr_scheduler.step_lr.step_size,
-                        gamma=self.lr_scheduler.step_lr.gamma,
-                    )
-                    break
-                elif k == "reduce_lr_on_plateau":
-                    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                        optimizer,
-                        mode="min",
-                        threshold=self.lr_scheduler.reduce_lr_on_plateau.threshold,
-                        threshold_mode=self.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
-                        cooldown=self.lr_scheduler.reduce_lr_on_plateau.cooldown,
-                        patience=self.lr_scheduler.reduce_lr_on_plateau.patience,
-                        factor=self.lr_scheduler.reduce_lr_on_plateau.factor,
-                        min_lr=self.lr_scheduler.reduce_lr_on_plateau.min_lr,
-                    )
-                    break
+        # Explicit priority order per LRSchedulerConfig's own docstring:
+        # cosine_annealing_warmup > linear_warmup_linear_decay > step_lr >
+        # reduce_lr_on_plateau. `reduce_lr_on_plateau` defaults to a populated
+        # (non-None) config while the other three default to None, so a plain
+        # `for k, v in self.lr_scheduler.items(): if v is not None: ... break`
+        # (the previous implementation) picked whichever scheduler happened to
+        # be first in the dataclass's FIELD DECLARATION order among the
+        # non-None ones -- silently ignoring this documented priority and
+        # defaulting to ReduceLROnPlateau for any user who set
+        # cosine_annealing_warmup/linear_warmup_linear_decay without also
+        # explicitly nulling reduce_lr_on_plateau. No error, no warning --
+        # training just ran with the wrong LR schedule indefinitely.
+        if self.lr_scheduler.cosine_annealing_warmup is not None:
+            cfg = self.lr_scheduler.cosine_annealing_warmup
+            # Use trainer's max_epochs if not specified in config
+            max_epochs = (
+                cfg.max_epochs
+                if cfg.max_epochs is not None
+                else self.trainer.max_epochs
+            )
+            scheduler = LinearWarmupCosineAnnealingLR(
+                optimizer=optimizer,
+                warmup_epochs=cfg.warmup_epochs,
+                max_epochs=max_epochs,
+                warmup_start_lr=cfg.warmup_start_lr,
+                eta_min=cfg.eta_min,
+            )
+        elif self.lr_scheduler.linear_warmup_linear_decay is not None:
+            cfg = self.lr_scheduler.linear_warmup_linear_decay
+            # Use trainer's max_epochs if not specified in config
+            max_epochs = (
+                cfg.max_epochs
+                if cfg.max_epochs is not None
+                else self.trainer.max_epochs
+            )
+            scheduler = LinearWarmupLinearDecayLR(
+                optimizer=optimizer,
+                warmup_epochs=cfg.warmup_epochs,
+                max_epochs=max_epochs,
+                warmup_start_lr=cfg.warmup_start_lr,
+                end_lr=cfg.end_lr,
+            )
+        elif self.lr_scheduler.step_lr is not None:
+            scheduler = torch.optim.lr_scheduler.StepLR(
+                optimizer=optimizer,
+                step_size=self.lr_scheduler.step_lr.step_size,
+                gamma=self.lr_scheduler.step_lr.gamma,
+            )
+        elif self.lr_scheduler.reduce_lr_on_plateau is not None:
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer,
+                mode="min",
+                threshold=self.lr_scheduler.reduce_lr_on_plateau.threshold,
+                threshold_mode=self.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
+                cooldown=self.lr_scheduler.reduce_lr_on_plateau.cooldown,
+                patience=self.lr_scheduler.reduce_lr_on_plateau.patience,
+                factor=self.lr_scheduler.reduce_lr_on_plateau.factor,
+                min_lr=self.lr_scheduler.reduce_lr_on_plateau.min_lr,
+            )
         if scheduler is None:
             return {
                 "optimizer": optimizer,
@@ -974,6 +1057,7 @@ class SingleInstanceLightningModule(LightningModel):
         self._log_negative_split_metrics(
             [("confmaps", y_preds, y, 1.0)], batch, stage="train"
         )
+        self._log_confmap_fg_bg_loss(y_preds, y, stage="train")
 
         if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
@@ -1027,6 +1111,7 @@ class SingleInstanceLightningModule(LightningModel):
         self._log_negative_split_metrics(
             [("confmaps", y_preds, y, 1.0)], batch, stage="val"
         )
+        self._log_confmap_fg_bg_loss(y_preds, y, stage="val")
         if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
                 y_gt=y,
@@ -1243,6 +1328,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
 
         loss = nn.MSELoss()(y_preds, y)
+        self._log_confmap_fg_bg_loss(y_preds, y, stage="train")
 
         if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
@@ -1293,6 +1379,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
+        self._log_confmap_fg_bg_loss(y_preds, y, stage="val")
         if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
                 y_gt=y,
@@ -1432,6 +1519,9 @@ class CentroidLightningModule(LightningModel):
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
         negative_loss_weight: Optional[float] = 1.0,
+        centroid_focal_loss_alpha: Optional[float] = 0.0,
+        centroid_focal_loss_beta: Optional[float] = 4.0,
+        centroid_focal_loss_pos_threshold: Optional[float] = 0.5,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -1453,6 +1543,30 @@ class CentroidLightningModule(LightningModel):
             amsgrad=amsgrad,
             negative_loss_weight=negative_loss_weight,
         )
+        # Centroid-only knobs, not threaded through the base `LightningModel`
+        # since no other model type implements this loss -- see
+        # `CentroidConfMapsConfig.focal_loss_alpha`.
+        self.centroid_focal_loss_alpha = centroid_focal_loss_alpha
+        self.centroid_focal_loss_beta = centroid_focal_loss_beta
+        self.centroid_focal_loss_pos_threshold = centroid_focal_loss_pos_threshold
+
+        # RetinaNet/CenterNet "prior probability" bias init (Lin et al. 2017,
+        # Focal Loss for Dense Object Detection, sec 4.1). Without this, a
+        # freshly-initialized sigmoid head starts at ~0.5 everywhere; with a
+        # focal loss and a target that's >99% background pixels, that start
+        # point gives weak, roughly-symmetric gradients that can leave
+        # training stuck near its initial value for many epochs. Biasing the
+        # pre-sigmoid logit so the head starts near a low constant
+        # probability (matching the true class balance) gives the loss a much
+        # stronger initial gradient toward learning the sparse foreground.
+        if self.centroid_focal_loss_alpha != 0.0:
+            prior_prob = 0.01
+            bias_value = -math.log((1.0 - prior_prob) / prior_prob)
+            for head, head_layer in zip(self.model.heads, self.model.head_layers):
+                if head.name == "CentroidConfmapsHead":
+                    nn.init.constant_(
+                        getattr(head_layer, head.name)[0].bias, bias_value
+                    )
 
         self.centroid_inf_layer = CentroidCrop(
             torch_model=self.forward,
@@ -1509,6 +1623,53 @@ class CentroidLightningModule(LightningModel):
         img = normalize_on_gpu(img)
         return self.model(img)["CentroidConfmapsHead"]
 
+    def _compute_loss(
+        self, y_preds: torch.Tensor, y: torch.Tensor, batch: Dict, stage: str = "train"
+    ) -> torch.Tensor:
+        """Negative-weighted MSE, or a focal loss in place of MSE.
+
+        When ``centroid_focal_loss_alpha == 0`` this is exactly
+        :meth:`_compute_negative_weighted_loss` (plain MSE, optionally
+        negative-frame-weighted on train). When nonzero, replaces the base
+        per-pixel MSE with
+        :func:`sleap_nn.training.losses.compute_centroid_focal_loss` before
+        applying the same negative-frame weighting on top -- see
+        `CentroidConfMapsConfig.focal_loss_alpha`. Requires the head's output to
+        be a calibrated ``(0, 1)`` probability (see
+        ``CentroidConfmapsHead.use_sigmoid_activation``). ``val``/eval always
+        uses plain unweighted MSE (matching
+        ``_compute_negative_weighted_loss``'s own val-stage behavior), so
+        ``ModelCheckpoint``/``EarlyStopping`` stay comparable across every
+        experiment in this family.
+        """
+        focal_alpha = self.centroid_focal_loss_alpha
+        if focal_alpha == 0.0:
+            return self._compute_negative_weighted_loss(y_preds, y, batch, stage=stage)
+
+        if stage != "train":
+            return nn.MSELoss()(y_preds, y)
+
+        per_sample = compute_centroid_focal_loss(
+            y_preds,
+            y,
+            alpha=focal_alpha,
+            beta=self.centroid_focal_loss_beta,
+            pos_threshold=self.centroid_focal_loss_pos_threshold,
+            reduction="none",
+        ).mean(dim=list(range(1, y_preds.ndim)))
+
+        is_negative = batch.get("is_negative", None)
+        if is_negative is None or self.negative_loss_weight == 1.0:
+            return per_sample.mean()
+
+        is_neg = is_negative.to(y_preds.device)
+        weights = torch.where(
+            is_neg,
+            torch.tensor(self.negative_loss_weight, device=y_preds.device),
+            torch.tensor(1.0, device=y_preds.device),
+        )
+        return (per_sample * weights).mean()
+
     def training_step(self, batch, batch_idx):
         """Training step."""
         X, y = (
@@ -1518,10 +1679,11 @@ class CentroidLightningModule(LightningModel):
         X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
-        loss = self._compute_negative_weighted_loss(y_preds, y, batch)
+        loss = self._compute_loss(y_preds, y, batch, stage="train")
         self._log_negative_split_metrics(
             [("confmaps", y_preds, y, 1.0)], batch, stage="train"
         )
+        self._log_confmap_fg_bg_loss(y_preds, y, stage="train")
         # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
             "loss",
@@ -1545,10 +1707,11 @@ class CentroidLightningModule(LightningModel):
         X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
-        val_loss = self._compute_negative_weighted_loss(y_preds, y, batch, stage="val")
+        val_loss = self._compute_loss(y_preds, y, batch, stage="val")
         self._log_negative_split_metrics(
             [("confmaps", y_preds, y, 1.0)], batch, stage="val"
         )
+        self._log_confmap_fg_bg_loss(y_preds, y, stage="val")
         self.log(
             "val/loss",
             val_loss,

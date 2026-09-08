@@ -231,6 +231,90 @@ def test_data_mapper():
     assert config.skeletons == None
 
 
+def test_data_mapper_negative_legacy_min_values():
+    """Test that negative legacy min values are clamped instead of failing validation.
+
+    Classic SLEAP's additive/imgaug augmentation could hold negative or inert
+    placeholder values (e.g. `brightness_min_val: -10.0`) for fields that map into
+    new `IntensityConfig` fields validated `>= 0` (multiplicative factors centered
+    on 1.0). This must not raise, even when the corresponding augmentation is
+    disabled. Regression test for #684.
+    """
+    legacy_config = {
+        "data": {
+            "labels": {
+                "training_labels": "notMISSING",
+                "validation_labels": "notMISSING",
+            },
+            "preprocessing": {
+                "ensure_rgb": True,
+                "target_height": 256,
+                "target_width": 256,
+                "input_scaling": 0.5,
+            },
+        },
+        "optimization": {
+            "augmentation_config": {
+                "uniform_noise_min_val": -5.0,
+                "uniform_noise": False,
+                "contrast_min_gamma": -0.5,
+                "contrast_max_gamma": -0.2,
+                "contrast": False,
+                "brightness_min_val": -10.0,
+                "brightness_max_val": 1.2,
+                "brightness": False,
+            },
+        },
+    }
+
+    config = data_mapper(legacy_config)
+
+    intensity = config.augmentation_config.intensity
+    assert intensity.uniform_noise_min == 0.0
+    assert intensity.contrast_min == 0.0
+    assert intensity.contrast_max == 0.0
+    assert intensity.brightness_min == 0.0
+    assert intensity.brightness_max == 1.2
+
+
+def test_data_mapper_flip(caplog):
+    """Test that legacy random_flip/flip_horizontal map to the new flip_p field."""
+    base_legacy_config = {
+        "data": {
+            "labels": {
+                "training_labels": "notMISSING",
+                "validation_labels": "notMISSING",
+            },
+        },
+        "optimization": {"augmentation_config": {}},
+    }
+
+    # random_flip disabled -> flip_p stays at default (0.0)
+    config = data_mapper(base_legacy_config)
+    assert config.augmentation_config.geometric.flip_p == 0.0
+
+    # random_flip enabled + horizontal -> flip_p is set
+    horizontal_config = {
+        "data": base_legacy_config["data"],
+        "optimization": {
+            "augmentation_config": {"random_flip": True, "flip_horizontal": True}
+        },
+    }
+    config = data_mapper(horizontal_config)
+    assert config.augmentation_config.geometric.flip_p == 0.5
+
+    # random_flip enabled + vertical -> unsupported, flip_p stays at default and warns
+    vertical_config = {
+        "data": base_legacy_config["data"],
+        "optimization": {
+            "augmentation_config": {"random_flip": True, "flip_horizontal": False}
+        },
+    }
+    config = data_mapper(vertical_config)
+    assert config.augmentation_config.geometric.flip_p == 0.0
+    assert "vertical flip" in caplog.text
+
+
 def test_validate_test_file_path():
     """Test the validate_test_file_path validator function."""
     # Test with None (should pass)

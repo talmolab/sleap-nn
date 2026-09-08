@@ -87,9 +87,7 @@ model_config:
     multi_class_topdown:
       confmaps:
         part_names:
-        - head
-        - thorax
-        anchor_part: thorax
+        anchor_part: null
         sigma: 1.5
         output_stride: 2
         loss_weight: 1.0

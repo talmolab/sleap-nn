@@ -21,7 +21,7 @@ Three usage tiers:
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+import copy
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -717,12 +717,31 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
             centered_instance_layer=inst_layer,
             crop_size=(crop_h, crop_w),
         )
+    if has_multi_centered:
+        # GT-centroid fallback for a solo multi_class_topdown model (no paired
+        # centroid model) -- mirrors the has_centered branch above. Without
+        # this, `sleap-nn train`'s automatic post-training eval step (which
+        # always calls predict_new on the just-trained run dir alone) crashes
+        # every standalone multiclass/ID topdown training run.
+        inst_layer = _build_centered_instance_multiclass_layer(
+            assets.inference_model.instance_peaks,
+            device,
+            class_names=_multiclass_class_names(assets, "multi_class_topdown"),
+        )
+        centroid_layer = _build_centroid_layer_gt_only(assets, inst_layer.backend)
+        crop_h, crop_w = assets.inference_model.centroid_crop.crop_hw
+        return TopDownMultiClassLayer(
+            centroid_layer=centroid_layer,
+            centered_instance_layer=inst_layer,
+            crop_size=(crop_h, crop_w),
+        )
     raise ValueError(
         f"Unsupported model_paths combination: detected types {model_types}. "
         f"Predictor.from_model_paths supports: single_instance, "
         f"bottomup, multi_class_bottomup, top-down (centroid + centered_instance), "
         f"top-down multiclass (centroid + multi_class_topdown), centroid-only, "
-        f"or centered-instance-only (requires a .slp source for GT centroids)."
+        f"centered-instance-only, or multi_class_topdown-only (the latter two "
+        f"require a .slp source for GT centroids)."
     )
 
 
@@ -906,7 +925,8 @@ class Predictor:
             PAF grouping stage. ``0`` (default) runs grouping inline in
             the main process — the parity path. ``>0`` is only honored
             when ``layer`` is a :class:`BottomUpLayer`; for any other
-            layer type the value is ignored.
+            layer type the value is ignored (with a logged warning, since
+            other model types have no equivalent pipelined CPU stage yet).
         tracker_config: Optional :class:`TrackerConfig`. When set,
             :meth:`predict` runs the tracker on the resulting
             ``sio.Labels`` (requires ``make_labels=True``) before
@@ -931,6 +951,24 @@ class Predictor:
     # Centroid-only output representation: "instance" (default; single-node
     # PredictedInstance), "centroid" (sio.PredictedCentroid), or "both".
     emit_centroid: str = "instance"
+
+    def __attrs_post_init__(self) -> None:
+        """Warn (once) if ``paf_workers`` was set on a layer that can't use it.
+
+        ``paf_workers > 0`` only pipelines the CPU-bound grouping stage for
+        plain bottom-up (:class:`BottomUpLayer`); every other layer type
+        (including :class:`BottomUpMultiClassLayer`, which has its own
+        CPU-bound Hungarian-matching identity step) silently ignores the
+        setting today. Without this, that's an easy-to-miss no-op — a user
+        expecting a speedup gets none, with no signal why.
+        """
+        if self.paf_workers > 0 and not self._can_pipeline():
+            logger.warning(
+                f"paf_workers={self.paf_workers} was set, but pipelined CPU "
+                f"grouping is only implemented for plain bottom-up models. "
+                f"layer={type(self.layer).__name__} will run the inline "
+                "(unpipelined) path; paf_workers has no effect here."
+            )
 
     @property
     def filter_pipeline(self) -> FilterPipeline:
@@ -1059,6 +1097,9 @@ class Predictor:
                 for ``mask_output`` polygon/both (bottom-up segmentation only).
         """
         from sleap_nn.inference.loaders import load_model_assets
+        from sleap_nn.system_info import get_startup_info_string
+
+        logger.info(get_startup_info_string())
 
         loaded, model_types = load_model_assets(
             model_paths,
@@ -1276,6 +1317,39 @@ class Predictor:
             for c in candidates
         )
 
+    def _preprocess_provenance_params(self) -> dict:
+        """The scale/crop_size actually used for this run, for provenance.
+
+        Best-effort and defensive -- provenance must never break inference, so
+        every lookup falls back to omitting the field rather than raising.
+        Topdown-family layers (``TopDownLayer`` and its ``TopDownSegmentation``/
+        ``TopDownMultiClass`` subclasses) have two independently-scaled stages,
+        so both are recorded distinctly rather than collapsing to one shared
+        "scale" the way the training-config's own baked-in value might suggest.
+        """
+        layer = getattr(self.layer, "inner", self.layer)  # unwrap Tiled* wrappers
+        centroid_layer = getattr(layer, "centroid_layer", None)
+        instance_layer = getattr(layer, "centered_instance_layer", None)
+        if centroid_layer is None and instance_layer is None:
+            return {
+                "scale": getattr(
+                    getattr(layer, "preprocess_config", None), "scale", None
+                )
+            }
+        params: dict = {}
+        if centroid_layer is not None:
+            params["centroid_scale"] = getattr(
+                getattr(centroid_layer, "preprocess_config", None), "scale", None
+            )
+        if instance_layer is not None:
+            params["instance_scale"] = getattr(
+                getattr(instance_layer, "preprocess_config", None), "scale", None
+            )
+        crop_size = getattr(layer, "crop_size", None)
+        if crop_size is not None:
+            params["crop_size"] = crop_size
+        return params
+
     def _build_inference_provenance(
         self,
         *,
@@ -1338,6 +1412,33 @@ class Predictor:
                 parts.append(f"fps={fps}")
         parts.append(f"tracking={self.tracker_config is not None}")
         logger.info("Starting inference | " + " | ".join(parts))
+
+    def _log_filter_config(self) -> None:
+        """Log which post-inference filters are active, with their values.
+
+        Matches legacy ``run_inference``'s per-filter confirmation messages
+        -- useful for confirming a filter flag actually took effect (silent
+        no-ops here have bitten us before, see #715/#716/#717).
+        """
+        cfg = self.filter_config
+        if cfg.min_visible_nodes > 0 or cfg.min_visible_node_fraction > 0.0:
+            logger.info(
+                f"Filtered instances by node count: "
+                f"min_visible_nodes={cfg.min_visible_nodes}, "
+                f"min_visible_node_fraction={cfg.min_visible_node_fraction}"
+            )
+        if cfg.min_mean_node_score > 0.0 or cfg.min_instance_score > 0.0:
+            logger.info(
+                f"Filtered instances by confidence: "
+                f"min_mean_node_score={cfg.min_mean_node_score}, "
+                f"min_instance_score={cfg.min_instance_score}"
+            )
+        if cfg.overlapping:
+            logger.info(
+                f"Filtered overlapping instances with "
+                f"{cfg.overlapping_method.upper()} threshold: "
+                f"{cfg.overlapping_threshold}"
+            )
 
     def _log_inference_summary(
         self,
@@ -1416,6 +1517,7 @@ class Predictor:
                 provider = LabelsProvider(
                     labels=labels,
                     batch_size=self.batch_size,
+                    frames=frames,
                     **provider_kwargs,
                 )
                 return provider, (list(labels.videos) if labels.videos else None)
@@ -1444,6 +1546,7 @@ class Predictor:
             provider = LabelsProvider(
                 labels=source,
                 batch_size=self.batch_size,
+                frames=frames,
                 **provider_kwargs,
             )
             videos = list(source.videos) if source.videos else None
@@ -1483,7 +1586,15 @@ class Predictor:
             )
 
         if hasattr(source, "__iter__"):
-            return source, None
+            # A pre-built Provider. Recover its source videos (when it exposes
+            # them) so predicted frames reference the real Video, matching the
+            # str/sio.Video/sio.Labels branches above (#530). Without this the
+            # output Labels carries a None-placeholder video and sio.Labels.save
+            # crashes walking video.backend — hit whenever the CLI wraps the
+            # input in a LabelsProvider for --only_suggested_frames /
+            # --exclude_user_labeled / --video_index etc. (#699).
+            provider_videos = getattr(source, "videos", None)
+            return source, (list(provider_videos) if provider_videos else None)
 
         raise TypeError(
             f"Unsupported source type: {type(source).__name__}. "
@@ -1628,8 +1739,9 @@ class Predictor:
             videos = auto_videos
 
         self._log_inference_start(source, provider, videos)
+        self._log_filter_config()
         _prov_start = datetime.now()
-        with self._postprocess_overrides(
+        layer = self._scoped_postprocess_layer(
             peak_threshold=peak_threshold,
             centroid_threshold=centroid_threshold,
             keypoint_threshold=keypoint_threshold,
@@ -1642,8 +1754,8 @@ class Predictor:
             return_paf_graph=return_paf_graph,
             return_class_maps=return_class_maps,
             return_class_vectors=return_class_vectors,
-        ):
-            outputs_list = list(self._batch_iter(provider, progress_callback))
+        )
+        outputs_list = list(self._batch_iter(provider, progress_callback, layer=layer))
         _prov_end = datetime.now()
 
         if not make_labels:
@@ -1665,7 +1777,11 @@ class Predictor:
                 "`skeleton=...` or build the Predictor via Predictor.from_model_paths() "
                 "which sets it automatically from the training config."
             )
-        labels = self.to_labels(outputs_list, videos=videos)
+        labels = self.to_labels(
+            outputs_list,
+            videos=videos,
+            keep_empty_frames=True,
+        )
         if self.tracker_config is not None:
             labels = apply_tracking(
                 labels, self.tracker_config, tracking_progress_callback
@@ -1685,6 +1801,7 @@ class Predictor:
                 "integral_refinement": integral_refinement,
                 "integral_patch_size": integral_patch_size,
                 "batch_size": self.batch_size,
+                **self._preprocess_provenance_params(),
             },
         )
 
@@ -1763,7 +1880,7 @@ class Predictor:
                 "full LabeledFrame list; use predict() instead."
             )
         provider, _ = self._make_provider(source, frames=frames)
-        with self._postprocess_overrides(
+        layer = self._scoped_postprocess_layer(
             peak_threshold=peak_threshold,
             centroid_threshold=centroid_threshold,
             keypoint_threshold=keypoint_threshold,
@@ -1776,13 +1893,13 @@ class Predictor:
             return_paf_graph=return_paf_graph,
             return_class_maps=return_class_maps,
             return_class_vectors=return_class_vectors,
-        ):
-            if self.paf_workers > 0 and self._can_pipeline():
-                yield from self._predict_streaming_pipelined(
-                    provider, progress_callback
-                )
-                return
-            yield from self._batch_iter(provider, progress_callback)
+        )
+        if self.paf_workers > 0 and self._can_pipeline():
+            yield from self._predict_streaming_pipelined(
+                provider, progress_callback, layer=layer
+            )
+            return
+        yield from self._batch_iter(provider, progress_callback, layer=layer)
 
     # ──────────────────────────────────────────────────────────────────
     # Disk-streaming: write to a .slp incrementally
@@ -1848,6 +1965,7 @@ class Predictor:
         if videos is None:
             videos = derived
         self._log_inference_start(source, provider, derived)
+        self._log_filter_config()
         pkg = self._resolve_centroid_packaging()
         writer = IncrementalLabelsWriter(
             path=path,
@@ -1875,7 +1993,10 @@ class Predictor:
                 start_time=_prov_start,
                 end_time=_prov_end,
                 n_frames=writer.frame_count,
-                inference_params={"batch_size": self.batch_size},
+                inference_params={
+                    "batch_size": self.batch_size,
+                    **self._preprocess_provenance_params(),
+                },
             )
         # Post-run summary (#610). The streaming path drops per-frame objects to
         # keep memory O(window), so report frames / throughput only.
@@ -1894,12 +2015,22 @@ class Predictor:
         self,
         provider: Provider,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        layer: Optional[Any] = None,
     ) -> Iterator[Outputs]:
-        """Run ``layer.predict`` + ``FilterPipeline`` per provider batch."""
+        """Run ``layer.predict`` + ``FilterPipeline`` per provider batch.
+
+        ``layer`` defaults to ``self.layer``; callers applying predict-time
+        postprocess overrides pass the scoped copy from
+        ``_scoped_postprocess_layer`` instead so ``self.layer`` is never
+        mutated.
+        """
         import inspect
 
+        if layer is None:
+            layer = self.layer
+
         try:
-            sig = inspect.signature(self.layer.predict)
+            sig = inspect.signature(layer.predict)
             layer_accepts_instances = "instances" in sig.parameters
         except (TypeError, ValueError):  # pragma: no cover — non-introspectable
             layer_accepts_instances = False
@@ -1915,13 +2046,21 @@ class Predictor:
                     if isinstance(batch.instances, torch.Tensor)
                     else torch.from_numpy(batch.instances)
                 )
-            outputs = self.layer.predict(batch.images, **kwargs)
+            outputs = layer.predict(batch.images, **kwargs)
             outputs = pipeline(outputs)
             outputs = self._stamp_metadata(outputs, batch)
             yield outputs
             if progress_callback is not None:
                 frames_done += int(batch.images.shape[0])
                 progress_callback(frames_done, total)
+        if progress_callback is not None and total >= 0 and frames_done != total:
+            # The provider can yield fewer frames than its upfront `total`
+            # estimate (e.g. LabelsProvider skips a synthesized placeholder
+            # whose pixels turn out unreadable) -- without this, a caller
+            # gating "done" on `processed >= total` (the GUI's JSON progress
+            # consumer) never sees a completion signal even though inference
+            # succeeded.
+            progress_callback(frames_done, frames_done)
 
     # ──────────────────────────────────────────────────────────────────
     # Pipelined bottom-up: GPU stage in main proc, CPU grouping in pool
@@ -1937,12 +2076,19 @@ class Predictor:
         self,
         provider: Provider,
         progress_callback: Optional[Callable[[int, int], None]] = None,
+        layer: Optional[Any] = None,
     ) -> Iterator[Outputs]:
-        """Stream ``Outputs`` with the CPU grouping stage in a worker pool."""
+        """Stream ``Outputs`` with the CPU grouping stage in a worker pool.
+
+        ``layer`` defaults to ``self.layer``; see ``_batch_iter`` for why a
+        caller applying postprocess overrides passes a scoped copy instead.
+        """
         from sleap_nn.inference.streaming import PafGroupingPool
 
+        if layer is None:
+            layer = self.layer
+
         pipeline = self.filter_pipeline
-        layer = self.layer
         params = layer.grouping_params()
         total = _safe_num_frames(provider)
 
@@ -1986,6 +2132,11 @@ class Predictor:
                 if progress_callback is not None:
                     frames_done += int(done_batch.images.shape[0])
                     progress_callback(frames_done, total)
+        if progress_callback is not None and total >= 0 and frames_done != total:
+            # See the matching comment in `_batch_iter`: the provider's
+            # upfront `total` can overcount frames that are later skipped
+            # as unreadable, so force a final completion signal.
+            progress_callback(frames_done, frames_done)
 
     @staticmethod
     def _stamp_metadata(outputs: Outputs, batch: Any) -> Outputs:
@@ -2011,8 +2162,22 @@ class Predictor:
         self,
         outputs_list: List[Outputs],
         videos: Optional[List["sio.Video"]] = None,
+        keep_empty_frames: bool = False,
     ) -> "sio.Labels":
-        """Concatenate per-batch ``Outputs`` into a single ``sio.Labels``."""
+        """Concatenate per-batch ``Outputs`` into a single ``sio.Labels``.
+
+        Args:
+            outputs_list: Per-batch ``Outputs`` to concatenate.
+            videos: List of ``sio.Video`` indexed by ``video_indices``.
+            keep_empty_frames: Forwarded to :meth:`Outputs.to_labels` -- keep
+                zero-detection frames instead of dropping them.
+                :meth:`predict` always passes ``True`` here (matching the
+                legacy pipeline's default of keeping every processed frame,
+                tracking or not -- #714 fixed this for the tracking case,
+                #717 for the non-tracking default); ``clean_empty_frames``
+                (``--no_empty_frames`` on the CLI) is the opt-in way to drop
+                them afterward, applied uniformly regardless of tracking.
+        """
         import sleap_io as sio
 
         skeleton = self.skeleton
@@ -2043,6 +2208,7 @@ class Predictor:
                 source=pkg.source,
                 mask_output=mask_output,
                 polygon_epsilon=polygon_epsilon,
+                keep_empty_frames=keep_empty_frames,
             )
             all_lf.extend(sub.labeled_frames)
             for trk in sub.tracks:
@@ -2166,19 +2332,27 @@ class Predictor:
 
     @staticmethod
     def _collect_postprocess_targets(layer: Any) -> list:
-        """Return all sub-layers that own a ``postprocess_config``."""
+        """Return all sub-layers that own a ``postprocess_config``.
+
+        ``Tiled*`` wrappers (``TiledLayer``/``TiledSegmentationLayer``/
+        ``TiledSemanticSegmentationLayer``) hold their wrapped layer's
+        ``postprocess_config`` on ``.inner``, not on themselves -- unwrap so
+        callers see the real owner instead of concluding (via the `hasattr`
+        check below) that there's nothing to override (#712 follow-up).
+        """
         from sleap_nn.inference.layers.topdown import TopDownLayer
 
         if isinstance(layer, TopDownLayer):
             targets = [layer.centroid_layer, layer.centered_instance_layer]
+        elif hasattr(layer, "inner"):
+            targets = [layer.inner]
         elif hasattr(layer, "postprocess_config"):
             targets = [layer]
         else:
             targets = []
         return targets
 
-    @contextmanager
-    def _postprocess_overrides(
+    def _scoped_postprocess_layer(
         self,
         peak_threshold: Optional[float] = None,
         centroid_threshold: Optional[float] = None,
@@ -2192,8 +2366,24 @@ class Predictor:
         return_paf_graph: Optional[bool] = None,
         return_class_maps: Optional[bool] = None,
         return_class_vectors: Optional[bool] = None,
-    ):
-        """Context manager that temporarily overrides postprocess configs.
+    ) -> Any:
+        """Return the layer to use for one predict call, with overrides applied.
+
+        Returns ``self.layer`` unchanged when no override is requested (the
+        common case). Otherwise returns a *private*, shallow-copied layer
+        (and shallow-copied sub-layers, for composed layers like
+        :class:`TopDownLayer`) with the overrides baked into the copies'
+        ``postprocess_config`` -- ``self.layer`` and its real sub-layers are
+        never mutated.
+
+        This matters because ``predict_streaming()`` is a generator: an
+        earlier version of this mutated ``self.layer.postprocess_config`` in
+        place and restored it when the generator was exhausted/closed. Two
+        ``predict_streaming()`` calls on the same ``Predictor`` interleaved
+        via alternating ``next()`` shared that same mutable state, so each
+        call's overrides could clobber the other's mid-stream. Returning an
+        independent copy per call makes concurrent/interleaved calls fully
+        isolated from each other, with nothing to restore.
 
         For top-down layers, ``centroid_threshold`` applies to the centroid
         stage and ``keypoint_threshold`` to the centered-instance stage.
@@ -2219,73 +2409,81 @@ class Predictor:
             )
         )
         if not has_any:
-            yield
-            return
+            return self.layer
 
-        saved: list[tuple[Any, PostprocessConfig]] = []
-        saved_return_crops: Optional[bool] = None
+        is_topdown = isinstance(self.layer, TopDownLayer)
 
-        try:
-            targets = self._collect_postprocess_targets(self.layer)
+        def _copy_with_overrides(target: Any) -> Any:
+            old_cfg = target.postprocess_config
+            overrides: dict = {}
 
-            for target in targets:
-                old_cfg = target.postprocess_config
-                saved.append((target, old_cfg))
-
-                overrides: dict = {}
-
-                # Threshold routing for top-down. Use explicit None checks so an
-                # explicit 0.0 override ("accept all peaks") is honored rather
-                # than swallowed by a falsy `or` (#584).
-                if isinstance(self.layer, TopDownLayer):
-                    is_centroid = target is self.layer.centroid_layer
-                    if is_centroid:
-                        t = (
-                            centroid_threshold
-                            if centroid_threshold is not None
-                            else peak_threshold
-                        )
-                    else:
-                        t = (
-                            keypoint_threshold
-                            if keypoint_threshold is not None
-                            else peak_threshold
-                        )
+            # Threshold routing for top-down. Use explicit None checks so an
+            # explicit 0.0 override ("accept all peaks") is honored rather
+            # than swallowed by a falsy `or` (#584).
+            if is_topdown:
+                is_centroid = target is self.layer.centroid_layer
+                if is_centroid:
+                    t = (
+                        centroid_threshold
+                        if centroid_threshold is not None
+                        else peak_threshold
+                    )
                 else:
-                    t = peak_threshold
+                    t = (
+                        keypoint_threshold
+                        if keypoint_threshold is not None
+                        else peak_threshold
+                    )
+            else:
+                t = peak_threshold
 
-                if t is not None:
-                    overrides["peak_threshold"] = t
-                if max_instances is not None and hasattr(old_cfg, "max_instances"):
-                    overrides["max_instances"] = max_instances
-                if integral_refinement is not None:
-                    overrides["refinement"] = integral_refinement
-                if integral_patch_size is not None:
-                    overrides["integral_patch_size"] = integral_patch_size
-                if return_confmaps is not None:
-                    overrides["return_confmaps"] = return_confmaps
-                # The remaining intermediate-tensor toggles all live on
-                # PostprocessConfig; guard with hasattr defensively (#583).
-                for _name, _val in (
-                    ("return_pafs", return_pafs),
-                    ("return_paf_graph", return_paf_graph),
-                    ("return_class_maps", return_class_maps),
-                    ("return_class_vectors", return_class_vectors),
-                ):
-                    if _val is not None and hasattr(old_cfg, _name):
-                        overrides[_name] = _val
+            if t is not None:
+                overrides["peak_threshold"] = t
+            if max_instances is not None and hasattr(old_cfg, "max_instances"):
+                overrides["max_instances"] = max_instances
+            if integral_refinement is not None:
+                overrides["refinement"] = integral_refinement
+            if integral_patch_size is not None:
+                overrides["integral_patch_size"] = integral_patch_size
+            if return_confmaps is not None:
+                overrides["return_confmaps"] = return_confmaps
+            # The remaining intermediate-tensor toggles all live on
+            # PostprocessConfig; guard with hasattr defensively (#583).
+            for _name, _val in (
+                ("return_pafs", return_pafs),
+                ("return_paf_graph", return_paf_graph),
+                ("return_class_maps", return_class_maps),
+                ("return_class_vectors", return_class_vectors),
+            ):
+                if _val is not None and hasattr(old_cfg, _name):
+                    overrides[_name] = _val
 
-                if overrides:
-                    target.postprocess_config = attrs.evolve(old_cfg, **overrides)
+            new_target = copy.copy(target)
+            if overrides:
+                new_target.postprocess_config = attrs.evolve(old_cfg, **overrides)
+            return new_target
 
-            # return_crops lives on TopDownLayer, not on postprocess_config
-            if return_crops is not None and isinstance(self.layer, TopDownLayer):
-                saved_return_crops = self.layer.return_crops
-                self.layer.return_crops = return_crops
+        if is_topdown:
+            new_layer = copy.copy(self.layer)
+            new_layer.centroid_layer = _copy_with_overrides(self.layer.centroid_layer)
+            new_layer.centered_instance_layer = _copy_with_overrides(
+                self.layer.centered_instance_layer
+            )
+            # return_crops lives on TopDownLayer, not on postprocess_config.
+            if return_crops is not None:
+                new_layer.return_crops = return_crops
+            return new_layer
 
-            yield
-        finally:
-            for target, old_cfg in saved:
-                target.postprocess_config = old_cfg
-            if saved_return_crops is not None:
-                self.layer.return_crops = saved_return_crops
+        targets = self._collect_postprocess_targets(self.layer)
+        if not targets:
+            return self.layer
+        # Non-top-down layers with a postprocess_config always have exactly
+        # one target: the layer itself, or (for a Tiled* wrapper) its .inner.
+        new_target = _copy_with_overrides(targets[0])
+        if hasattr(self.layer, "inner"):
+            # Rewrap: the caller needs a layer that still tiles, not the bare
+            # overridden inner layer on its own.
+            new_layer = copy.copy(self.layer)
+            new_layer.inner = new_target
+            return new_layer
+        return new_target

@@ -1,5 +1,7 @@
 """This module is to compute evaluation metrics for trained models."""
 
+import json
+import math
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import attrs
@@ -593,10 +595,16 @@ def find_frame_pairs(
         # Find labeled frames in this video.
         labeled_frames_gt = labels_gt.find(video_gt)
         if user_labels_only:
-            for lf in labeled_frames_gt:
-                lf.instances = lf.user_instances
+            # Build fresh LabeledFrame copies restricted to user instances,
+            # rather than mutating `lf.instances` in place -- `labels_gt.find`
+            # returns references into the caller's actual Labels object, so
+            # mutating it here permanently discards PredictedInstances from
+            # ground truth the caller may reuse afterward (e.g. a second
+            # Evaluator call with user_labels_only=False on the same labels_gt).
             labeled_frames_gt = [
-                lf for lf in labeled_frames_gt if len(lf.user_instances) > 0
+                attrs.evolve(lf, instances=lf.user_instances)
+                for lf in labeled_frames_gt
+                if len(lf.user_instances) > 0
             ]
 
         # Attempt to match each labeled frame in the ground truth.
@@ -752,12 +760,70 @@ def compute_oks(
     return oks
 
 
+# OKS's normalization scale (the bounding-box area of a GT instance's visible
+# keypoints) collapses to exactly 0 when that bbox has zero width or height -- most
+# commonly with a single visible keypoint, but also with 2+ keypoints that happen to
+# be collinear on an axis. That drives the normalization factor to ~1e-18, which turns
+# OKS into a strict bit-for-bit equality test (see scratch/2026-08-21-oks-single-
+# keypoint-fn). `match_instances` routes those GT instances through
+# `compute_distance_match_score` instead.
+_DEGENERATE_AREA_EPS = 1e-9
+
+
+def compute_distance_match_score(
+    points_gt: np.ndarray,
+    points_pr: np.ndarray,
+    pixel_threshold: float = 50.0,
+) -> np.ndarray:
+    """Compute a pixel-distance-based match score for degenerate-scale GT instances.
+
+    Used as a fallback for GT instances whose visible-keypoint bounding box has zero
+    area (see `_DEGENERATE_AREA_EPS`), where `compute_oks` degenerates into a strict
+    equality test. Mirrors the pixel-distance matching already used for centroid-only
+    models (`match_method="centroid"`), but restricted to the nodes that are visible
+    in both the ground truth and predicted instance.
+
+    Args:
+        points_gt: Ground truth instances of shape (n_gt, n_nodes, n_ed).
+        points_pr: Predicted instances of shape (n_pr, n_nodes, n_ed).
+        pixel_threshold: Distance (in pixels) at which the score reaches 0.
+
+    Returns:
+        Match scores of shape (n_gt, n_pr) in the range [0, 1], with 1.0 denoting a
+        perfect match and 0.0 denoting no jointly-visible nodes or a mean distance at
+        or beyond `pixel_threshold`. Comparable in scale to `compute_oks`'s output, so
+        the two can be combined and thresholded uniformly.
+    """
+    if points_gt.ndim == 2:
+        points_gt = np.expand_dims(points_gt, axis=0)
+    if points_pr.ndim == 2:
+        points_pr = np.expand_dims(points_pr, axis=0)
+
+    n_gt = points_gt.shape[0]
+    n_pr = points_pr.shape[0]
+    scores = np.zeros((n_gt, n_pr))
+    for i in range(n_gt):
+        for j in range(n_pr):
+            jointly_visible = ~np.isnan(points_gt[i]).any(axis=-1) & ~np.isnan(
+                points_pr[j]
+            ).any(axis=-1)
+            if not jointly_visible.any():
+                continue
+            dists = np.linalg.norm(
+                points_gt[i, jointly_visible] - points_pr[j, jointly_visible], axis=-1
+            )
+            mean_dist = float(np.mean(dists))
+            scores[i, j] = max(0.0, 1.0 - mean_dist / pixel_threshold)
+    return scores
+
+
 def match_instances(
     frame_gt: sio.LabeledFrame,
     frame_pr: sio.LabeledFrame,
     stddev: float = 0.025,
     scale: Optional[float] = None,
     threshold: float = 0,
+    degenerate_pixel_threshold: float = 50.0,
 ) -> Tuple[List[Tuple[sio.Instance, sio.PredictedInstance, float]], List[sio.Instance]]:
     """Match pairs of instances between ground truth and predictions in a frame.
 
@@ -769,6 +835,9 @@ def match_instances(
             be used.
         threshold: The minimum OKS between a candidate pair of instances to be
             considered a match.
+        degenerate_pixel_threshold: Pixel distance threshold used to score GT
+            instances whose visible-keypoint bounding box has zero area (see
+            `compute_distance_match_score`), in place of OKS.
 
     Returns:
         A tuple of (`positive_pairs`, `false_negatives`).
@@ -823,6 +892,18 @@ def match_instances(
         oks = compute_oks(points_gt, points_pr, stddev=stddev, scale=scale)
         oks = np.squeeze(oks, axis=1)
         assert oks.shape == (len(points_gt),)
+
+        # GT instances with a zero-area visible-keypoint bbox make OKS collapse into a
+        # strict equality test (see `_DEGENERATE_AREA_EPS`). Score those against this
+        # prediction by pixel distance instead.
+        degenerate = compute_instance_area(points_gt) < _DEGENERATE_AREA_EPS
+        if degenerate.any():
+            distance_scores = compute_distance_match_score(
+                points_gt[degenerate],
+                points_pr,
+                pixel_threshold=degenerate_pixel_threshold,
+            )
+            oks[degenerate] = np.squeeze(distance_scores, axis=1)
 
         oks[oks <= threshold] = np.nan
         best_match_gt_idx = np.argsort(-oks, kind="mergesort")[0]
@@ -1265,9 +1346,15 @@ class Evaluator:
             match_scores = np.array([oks for _, _, oks in self.positive_pairs])
             name = "oks_voc"
         elif match_score_by == "pck":
-            pck_metrics = self.pck_metrics()
-            match_scores = pck_metrics["pcks"].mean(axis=-1).mean(axis=-1)
             name = "pck_voc"
+            if not self.positive_pairs:
+                # Guard the empty-match case: the (n_pairs, n_nodes, n_thresholds)
+                # ``pcks`` array is empty along the pairs axis, so reducing it with
+                # nested .mean() calls would hit "Mean of empty slice".
+                match_scores = np.array([])
+            else:
+                pck_metrics = self.pck_metrics()
+                match_scores = pck_metrics["pcks"].mean(axis=-1).mean(axis=-1)
         else:
             message = "Invalid Option for match_score_by. Choose either `oks` or `pck`"
             logger.error(message)
@@ -1350,7 +1437,7 @@ class Evaluator:
     def mOKS(self):
         """Return the meanOKS value."""
         pair_oks = np.array([oks for _, _, oks in self.positive_pairs])
-        return {"mOKS": pair_oks.mean()}
+        return {"mOKS": float(pair_oks.mean()) if pair_oks.size else np.nan}
 
     def distance_metrics(self):
         """Compute the Euclidean distance error at different percentiles using the pairwise distances.
@@ -1820,14 +1907,23 @@ class Evaluator:
         dists = np.copy(dists)
         dists[np.isnan(dists)] = np.inf
         pcks = np.expand_dims(dists, -1) < np.reshape(thresholds, (1, 1, -1))
-        mPCK_parts = pcks.mean(axis=0).mean(axis=-1)
-        mPCK = mPCK_parts.mean()
 
-        # Precompute PCK at common thresholds
-        idx_5 = np.argmin(np.abs(thresholds - 5))
-        idx_10 = np.argmin(np.abs(thresholds - 10))
-        pck5 = pcks[:, :, idx_5].mean()
-        pck10 = pcks[:, :, idx_10].mean()
+        # Guard the empty-match case (0 positive pairs for the whole split) so
+        # the nested .mean() reductions below don't hit "Mean of empty slice".
+        if dists.size == 0:
+            mPCK_parts = np.array([])
+            mPCK = np.nan
+            pck5 = np.nan
+            pck10 = np.nan
+        else:
+            mPCK_parts = pcks.mean(axis=0).mean(axis=-1)
+            mPCK = float(mPCK_parts.mean())
+
+            # Precompute PCK at common thresholds
+            idx_5 = np.argmin(np.abs(thresholds - 5))
+            idx_10 = np.argmin(np.abs(thresholds - 10))
+            pck5 = float(pcks[:, :, idx_5].mean())
+            pck10 = float(pcks[:, :, idx_10].mean())
 
         return {
             "thresholds": thresholds,
@@ -1894,6 +1990,18 @@ class Evaluator:
             # Whole-frame binary foreground segmentation: no instances to match, so
             # report only matching-free foreground IoU / clDice / boundary-IoU.
             return {"semantic_metrics": self.semantic_metrics()}
+
+        if not self.positive_pairs:
+            # 0 matched instances for the whole split (e.g. a collapsed model
+            # predicting nothing, or predictions that never clear the OKS
+            # threshold) -- every metric below is undefined by construction.
+            # The individual methods already guard their own NaN/empty-array
+            # math, so this is just one clear line instead of relying on the
+            # reader to infer "collapsed model" from a wall of NaNs.
+            logger.info(
+                "0 matched instances: metrics undefined (model predicted "
+                "nothing usable, or training likely collapsed)."
+            )
 
         metrics = {}
         metrics["voc_metrics"] = self.voc_metrics(match_score_by="oks")
@@ -2045,6 +2153,90 @@ def _is_single_node_skeleton(skeleton: "sio.Skeleton") -> bool:
     return len(node_names) == 1
 
 
+def _metrics_to_json_safe(obj: Any) -> Any:
+    """Recursively convert a metrics object into a JSON-serializable form.
+
+    Used to write the ``.json`` sibling of the pickled ``.npz`` metrics file so
+    non-Python consumers (e.g. the sleap-app metrics UI) can read the metrics
+    without unpickling a numpy object array. Conversions:
+
+    - numpy scalar (``np.generic``) -> python ``int`` / ``float`` / ``bool``
+    - numpy ``ndarray`` -> nested python lists
+    - non-finite float (``NaN`` / ``+-Inf``) -> ``None`` (JSON ``null``)
+    - ``dict`` -> element-wise converted dict (keys coerced to ``str``)
+    - ``list`` / ``tuple`` -> element-wise converted list
+    - ``str`` and native JSON scalars pass through unchanged
+
+    Emitting ``null`` (not the string ``"NaN"``) for non-finite values keeps the
+    output valid JSON and lets the app treat missing-node distances as gaps.
+    """
+    if obj is None:
+        return None
+    if isinstance(obj, np.ndarray):
+        # ``.tolist()`` yields nested python lists with python floats/ints;
+        # recurse so NaN/Inf inside the array become ``None``.
+        return _metrics_to_json_safe(obj.tolist())
+    if isinstance(obj, np.generic):
+        # numpy scalar -> python scalar, then fall through to the checks below.
+        obj = obj.item()
+    if isinstance(obj, bool):  # must precede int (bool is a subclass of int)
+        return obj
+    if isinstance(obj, int):
+        return obj
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, str):
+        return obj
+    if isinstance(obj, dict):
+        return {str(k): _metrics_to_json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_metrics_to_json_safe(v) for v in obj]
+    return obj
+
+
+# Large per-pair arrays that are useful only for offline analysis, not for the
+# sleap-app metrics UI, and are dropped from the JSON sibling to keep it lean
+# (they remain in the pickled ``.npz``). ``pck_metrics.pcks`` is an
+# ``n_pairs x n_nodes x n_thresholds`` boolean array that otherwise dominates the
+# JSON file size.
+_JSON_PRUNE_KEYS: dict = {"pck_metrics": ("pcks",)}
+
+
+def _prune_json_bloat(json_safe: Any) -> None:
+    """Drop large, UI-unused arrays from a JSON-safe metrics dict, in place.
+
+    Args:
+        json_safe: A JSON-safe metrics dict (from :func:`_metrics_to_json_safe`).
+    """
+    if not isinstance(json_safe, dict):
+        return
+    for section, keys in _JSON_PRUNE_KEYS.items():
+        sub = json_safe.get(section)
+        if isinstance(sub, dict):
+            for key in keys:
+                sub.pop(key, None)
+
+
+def _write_metrics(save_path: Path, metrics: dict) -> None:
+    """Write ``metrics`` to ``save_path`` (``.npz``) plus a ``.json`` sibling.
+
+    The ``.npz`` is the SLEAP 1.4 format (a single pickled 0-d ``metrics``
+    object array, read back by :func:`load_metrics`) and is kept for
+    back-compat. The ``.json`` sibling shares the same stem
+    (``metrics.{split}.{idx}.json``) and holds the same metrics dict serialized
+    JSON-safely via :func:`_metrics_to_json_safe` (minus a few large, UI-unused
+    arrays, see :func:`_prune_json_bloat`) so it can be read directly by
+    JavaScript (the sleap-app metrics UI).
+    """
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(save_path, **{"metrics": metrics})
+    json_path = save_path.with_suffix(".json")
+    json_safe = _metrics_to_json_safe(metrics)
+    _prune_json_bloat(json_safe)
+    with open(json_path, "w") as f:
+        json.dump(json_safe, f)
+
+
 def run_evaluation(
     ground_truth_path: str,
     predicted_path: str,
@@ -2086,6 +2278,13 @@ def run_evaluation(
         anchor_part: Name of the GT skeleton node used to compute GT centroids
             (centroid mode). Resolved against the GT skeleton; ``None`` (or an
             absent name) falls back to the mean of visible nodes (#586).
+
+    Returns:
+        The metrics dict, or ``None`` if the predicted labels have zero
+        frames or contain nothing usable (no instances for ``"oks"``/
+        ``"centroid"``/``"auto"``, no masks for ``"mask"``/``"semantic"``) --
+        metric computation is skipped entirely in that case, and no
+        ``save_metrics`` file is written.
     """
     logger.info("Loading ground truth labels...")
     ground_truth_instances = sio.load_slp(ground_truth_path)
@@ -2100,6 +2299,23 @@ def run_evaluation(
         f"  Predictions: {len(predicted_instances.videos)} videos, "
         f"{len(predicted_instances.labeled_frames)} frames"
     )
+
+    # Detect a fully collapsed prediction set up front and skip the metric
+    # math entirely (#719) -- frames may still be present (both predictor
+    # pipelines retain empty-detection frames by default), but nothing usable
+    # was predicted in any of them, so matching would only produce an
+    # all-NaN/all-zero result. ``mask``/``semantic`` predictions live on
+    # ``LabeledFrame.masks``, not ``.instances``.
+    if match_method in ("mask", "semantic"):
+        has_predictions = any(len(lf.masks) for lf in predicted_instances)
+    else:
+        has_predictions = any(len(lf.instances) for lf in predicted_instances)
+    if not len(predicted_instances) or not has_predictions:
+        logger.info(
+            "0 predicted instances: skipping metric computation (model "
+            "likely predicted nothing usable, or training collapsed)."
+        )
+        return None
 
     # Auto-detect centroid mode from the PREDICTION skeleton.
     pred_skeleton = (
@@ -2195,8 +2411,9 @@ def run_evaluation(
         if save_metrics:
             logger.info(f"Saving metrics to {save_metrics}...")
             save_path = Path(save_metrics)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            np.savez_compressed(save_path, **{"metrics": metrics})
+            # Writes the pickled ``.npz`` (back-compat) plus a JSON sibling
+            # with the same stem so the app can read metrics without unpickling.
+            _write_metrics(save_path, metrics)
             logger.info(f"Metrics saved successfully to {save_path}")
 
         return metrics
@@ -2246,8 +2463,9 @@ def run_evaluation(
         if save_metrics:
             logger.info(f"Saving metrics to {save_metrics}...")
             save_path = Path(save_metrics)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            np.savez_compressed(save_path, **{"metrics": metrics})
+            # Writes the pickled ``.npz`` (back-compat) plus a JSON sibling
+            # with the same stem so the app can read metrics without unpickling.
+            _write_metrics(save_path, metrics)
             logger.info(f"Metrics saved successfully to {save_path}")
 
         return metrics
@@ -2265,8 +2483,9 @@ def run_evaluation(
         if save_metrics:
             logger.info(f"Saving metrics to {save_metrics}...")
             save_path = Path(save_metrics)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            np.savez_compressed(save_path, **{"metrics": metrics})
+            # Writes the pickled ``.npz`` (back-compat) plus a JSON sibling
+            # with the same stem so the app can read metrics without unpickling.
+            _write_metrics(save_path, metrics)
             logger.info(f"Metrics saved successfully to {save_path}")
 
         return metrics
@@ -2275,8 +2494,11 @@ def run_evaluation(
     dists = metrics["distance_metrics"]["dists"]
     dists_clean = np.copy(dists)
     dists_clean[np.isnan(dists_clean)] = np.inf
-    pck_5 = (dists_clean < 5).mean()
-    pck_10 = (dists_clean < 10).mean()
+    # Guard the empty-match case (0 matched instances for the whole split) so
+    # this doesn't hit "Mean of empty slice" on top of the evaluate()-level
+    # log line already emitted for it.
+    pck_5 = float((dists_clean < 5).mean()) if dists_clean.size else np.nan
+    pck_10 = float((dists_clean < 10).mean()) if dists_clean.size else np.nan
 
     # Print key metrics
     logger.info("Evaluation Results:")
@@ -2299,10 +2521,11 @@ def run_evaluation(
     if save_metrics:
         logger.info(f"Saving metrics to {save_metrics}...")
         save_path = Path(save_metrics)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Save metrics in SLEAP 1.4 format (single "metrics" key)
-        np.savez_compressed(save_path, **{"metrics": metrics})
+        # Save metrics in SLEAP 1.4 format (single "metrics" key) plus a JSON
+        # sibling (same stem) that the app metrics UI can read without
+        # unpickling the numpy object array.
+        _write_metrics(save_path, metrics)
         logger.info(f"Metrics saved successfully to {save_path}")
 
     return metrics

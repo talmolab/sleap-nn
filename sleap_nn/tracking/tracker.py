@@ -1757,6 +1757,10 @@ def run_tracker(
         logger.info("Tracking interrupted by user")
         raise KeyboardInterrupt
 
+    if not tracked_lfs:
+        logger.info("0 frames to track; skipping tracking post-processing.")
+        return tracked_lfs
+
     if tracking_clean_instance_count > 0:
         logger.info("Post-processing: Culling instances...")
         tracked_lfs = cull_instances(

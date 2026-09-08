@@ -1,3 +1,4 @@
+import shutil
 import sleap_io as sio
 from pathlib import Path
 import numpy as np
@@ -871,6 +872,7 @@ def test_bottomup_predictor(
         "crop_size": None,
         "max_width": None,
         "max_height": None,
+        "scale": None,
     }
 
     # load only backbone and head ckpt as None
@@ -943,6 +945,7 @@ def test_multi_class_bottomup_predictor(
         "crop_size": None,
         "max_width": None,
         "max_height": None,
+        "scale": None,
     }
 
     # load only backbone and head ckpt as None
@@ -977,6 +980,248 @@ def test_multi_class_bottomup_predictor(
     )
 
     assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
+
+
+def _scale_only_preprocess_config(scale):
+    """A ``preprocess_config`` overriding only ``scale`` (rest ``None``)."""
+    return OmegaConf.create(
+        {
+            "ensure_rgb": None,
+            "ensure_grayscale": None,
+            "crop_size": None,
+            "max_width": None,
+            "max_height": None,
+            "scale": scale,
+        }
+    )
+
+
+def test_single_instance_predictor_input_scale_override_reaches_inference_model(
+    minimal_instance_single_instance_ckpt,
+):
+    """A ``preprocess_config.scale`` override must reach the inference model.
+
+    Regression test: every legacy ``*Predictor._initialize_inference_model``
+    used to build its ``input_scale=`` kwarg from the *training config's*
+    baked-in scale (e.g. ``self.confmap_config.data_config.preprocessing.scale``)
+    instead of the already-resolved ``self.preprocess_config.scale`` -- so an
+    explicit override was applied to the forward image resize (via
+    ``self.preprocess_config["scale"]`` elsewhere) but NOT to the coordinate
+    rescale-back step, corrupting output coordinates. Fixed to read
+    ``self.preprocess_config.scale`` uniformly.
+    """
+    override = 0.37
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_single_instance_ckpt],
+        preprocess_config=_scale_only_preprocess_config(override),
+    )
+    assert predictor.inference_model.input_scale == override
+
+
+def test_bottomup_predictor_input_scale_override_reaches_inference_model(
+    minimal_instance_bottomup_ckpt,
+):
+    override = 0.37
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_bottomup_ckpt],
+        preprocess_config=_scale_only_preprocess_config(override),
+    )
+    assert predictor.inference_model.input_scale == override
+
+
+def test_topdown_predictor_input_scale_override_reaches_both_stages(
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+):
+    """Both the centroid-crop and centered-instance stages must see the override."""
+    override = 0.37
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_centroid_ckpt, minimal_instance_centered_instance_ckpt],
+        preprocess_config=_scale_only_preprocess_config(override),
+    )
+    assert predictor.inference_model.centroid_crop.input_scale == override
+    assert predictor.inference_model.instance_peaks.input_scale == override
+
+
+def _copy_ckpt_with_scale(src: Path, dst: Path, scale: float) -> Path:
+    """Copy a checkpoint dir to *dst*, overriding ``data_config.preprocessing.scale``."""
+    shutil.copytree(src, dst)
+    cfg = OmegaConf.load(str(dst / "training_config.yaml"))
+    cfg.data_config.preprocessing.scale = scale
+    OmegaConf.save(cfg, str(dst / "training_config.yaml"))
+    return dst
+
+
+def test_topdown_predictor_default_scale_is_per_stage_not_shared(
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    tmp_path,
+):
+    """Each stage must default to ITS OWN trained scale, not a shared value.
+
+    Regression test for the `track`-side half of #725: `TopDownPredictor`
+    used to build both `centroid_crop_layer.input_scale` and
+    `instance_peaks_layer.input_scale` from the same shared
+    `self.preprocess_config.scale`, resolved from whichever config
+    (`centroid_config` or `confmap_config`) happened to fill it first. Both
+    fixture checkpoints train at scale=1.0 by default, which never exercises
+    this path, so the scales are patched apart here. `Predictor.from_model_paths`
+    also used to call `TopDownPredictor.from_trained_models` twice (a discarded
+    centroid-only call, then the real call), mutating the shared
+    `preprocess_config` object in place on the first call and corrupting the
+    second -- covered here too since this test goes through `from_model_paths`,
+    not `TopDownPredictor.from_trained_models` directly.
+    """
+    centroid_dir = _copy_ckpt_with_scale(
+        minimal_instance_centroid_ckpt, tmp_path / "centroid", scale=0.5
+    )
+    centered_dir = _copy_ckpt_with_scale(
+        minimal_instance_centered_instance_ckpt,
+        tmp_path / "centered_instance",
+        scale=1.0,
+    )
+    predictor = Predictor.from_model_paths(
+        [str(centroid_dir), str(centered_dir)],
+        preprocess_config=_scale_only_preprocess_config(None),
+    )
+    assert predictor.inference_model.centroid_crop.input_scale == 0.5
+    assert predictor.inference_model.instance_peaks.input_scale == 1.0
+
+
+def test_multiclass_topdown_predictor_default_scale_is_per_stage_not_shared(
+    minimal_instance_centroid_ckpt,
+    minimal_instance_multi_class_topdown_ckpt,
+    tmp_path,
+):
+    """Same regression as above, for `TopDownMultiClassPredictor`."""
+    centroid_dir = _copy_ckpt_with_scale(
+        minimal_instance_centroid_ckpt, tmp_path / "centroid", scale=0.5
+    )
+    confmap_dir = _copy_ckpt_with_scale(
+        minimal_instance_multi_class_topdown_ckpt,
+        tmp_path / "multiclass_centered_instance",
+        scale=1.0,
+    )
+    predictor = Predictor.from_model_paths(
+        [str(centroid_dir), str(confmap_dir)],
+        preprocess_config=_scale_only_preprocess_config(None),
+    )
+    assert predictor.inference_model.centroid_crop.input_scale == 0.5
+    assert predictor.inference_model.instance_peaks.input_scale == 1.0
+
+
+def test_topdown_predictor_mismatched_scale_coords_differ_from_shared_scale_bug(
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    centered_instance_video,
+    tmp_path,
+):
+    """End-to-end guard: pins that fixed per-stage scale changes predicted coords.
+
+    The attribute-level tests above check that each stage keeps its own
+    `input_scale`, but don't exercise the actual forward pass. This one does,
+    on a real video with a real (deliberately mismatched-scale) checkpoint
+    pair. Instance *count* alone is not a reliable target here: forcing the
+    pre-fix bug (both stages sharing one scale) on these tiny fixture models
+    produces the SAME instance count across a 0.15x-3x scale range -- the
+    models are too small/robust for lost detections to show up in a count.
+    Predicted *coordinates* do shift measurably (confirmed up to ~67px on a
+    96x96 crop), so this test compares those instead.
+
+    Deliberately NOT a golden/snapshot test pinning a literal recorded array:
+    an earlier version of this test did that and was flaky across CI
+    platforms (mac/ubuntu/windows CPU backends produce measurably different
+    conv/pooling reduction order, enough to shift which pixel wins an
+    argmax-based peak -- tens of px apart on some elements, not just
+    sub-pixel float noise). Instead, this reconstructs the pre-fix bug
+    in-process (forcing the confmap stage to share the centroid stage's
+    scale, exactly what the bug did) and asserts the two coordinate sets
+    differ substantially -- a comparison that's robust to whatever a given
+    CI platform's own numerics look like, since both sides run on the same
+    platform in the same process.
+    """
+    centroid_dir = _copy_ckpt_with_scale(
+        minimal_instance_centroid_ckpt, tmp_path / "centroid", scale=1.0
+    )
+    centered_dir = _copy_ckpt_with_scale(
+        minimal_instance_centered_instance_ckpt,
+        tmp_path / "centered_instance",
+        scale=0.5,
+    )
+
+    def _predict_coords(force_shared_scale: bool) -> np.ndarray:
+        predictor = Predictor.from_model_paths(
+            [str(centroid_dir), str(centered_dir)],
+            peak_threshold=0.03,
+            max_instances=6,
+            preprocess_config=_scale_only_preprocess_config(None),
+        )
+        if force_shared_scale:
+            # Reconstruct the pre-fix bug: both stages share one scale.
+            predictor.inference_model.instance_peaks.input_scale = (
+                predictor.inference_model.centroid_crop.input_scale
+            )
+        predictor.make_pipeline(
+            centered_instance_video.as_posix(), frames=list(range(5))
+        )
+        output = predictor.predict(make_labels=True)
+        return np.concatenate([inst.numpy() for lf in output for inst in lf.instances])
+
+    fixed_coords = _predict_coords(force_shared_scale=False)
+    buggy_coords = _predict_coords(force_shared_scale=True)
+
+    assert fixed_coords.shape == buggy_coords.shape
+    assert np.nanmax(np.abs(fixed_coords - buggy_coords)) > 5.0
+
+
+def test_single_instance_predictor_input_scale_override_end_to_end_coords_in_bounds(
+    small_robot_minimal_video,
+    minimal_instance_single_instance_ckpt,
+):
+    """End-to-end: an ``--input_scale`` override must not corrupt output coordinates.
+
+    Before the fix, overriding ``scale`` away from the training config's value
+    applied the override to the forward image resize but NOT to the
+    coordinate rescale-back step (still using the stale training-config
+    scale), producing physically-impossible out-of-frame coordinates (e.g.
+    x > frame_width). Predicted keypoints must always land within the source
+    frame's bounds, regardless of ``--input_scale``.
+    """
+    import sleap_io as sio
+
+    video = sio.load_video(small_robot_minimal_video.as_posix())
+    height, width = video.shape[1], video.shape[2]
+
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_single_instance_ckpt],
+        peak_threshold=0.3,
+        preprocess_config=_scale_only_preprocess_config(1.5),
+    )
+    predictor.make_pipeline(
+        small_robot_minimal_video.as_posix(),
+        frames=[x for x in range(20)],
+    )
+    output = predictor.predict(make_labels=True)
+    assert isinstance(output, sio.Labels)
+
+    saw_instance = False
+    for lf in output:
+        for inst in lf.instances:
+            pts = inst.numpy()
+            valid = ~np.isnan(pts).any(axis=1)
+            if not valid.any():
+                continue
+            saw_instance = True
+            xs, ys = pts[valid, 0], pts[valid, 1]
+            assert np.all(
+                (xs >= 0) & (xs <= width)
+            ), f"x coords out of [0, {width}] bounds: {xs[(xs < 0) | (xs > width)]}"
+            assert np.all(
+                (ys >= 0) & (ys <= height)
+            ), f"y coords out of [0, {height}] bounds: {ys[(ys < 0) | (ys > height)]}"
+    assert (
+        saw_instance
+    ), "test produced no instances to check -- fixture/threshold issue"
 
 
 def test_filter_user_labeled_frames(tmp_path):

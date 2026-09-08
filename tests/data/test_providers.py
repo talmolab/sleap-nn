@@ -480,3 +480,63 @@ def test_only_predicted_frames_with_both_types(minimal_instance):
     # Frame with both types should be included
     assert reader.total_len() == 1
     assert reader.filtered_lfs[0].frame_idx == 0
+
+
+def _scattered_frame_idx_labels(minimal_instance):
+    """3 labeled frames with non-sequential ``frame_idx`` values.
+
+    Mirrors a real cluster-sampled `.pkg.slp` training package (e.g.
+    berman_flies' `train.pkg.slp`, whose embedded frames' `frame_idx` values
+    are scattered like `[8, 1064, 1198, ...]`, not `0, 1, 2, ...`).
+    """
+    labels = sio.load_slp(minimal_instance)
+    video = labels.videos[0]
+    labels.labeled_frames[0].frame_idx = 50
+    for fidx in (5, 900):
+        labels.labeled_frames.append(
+            sio.LabeledFrame(video=video, frame_idx=fidx, instances=[])
+        )
+    return labels
+
+
+def test_labels_reader_frames_selects_positionally_not_by_frame_idx_value(
+    minimal_instance,
+):
+    """``frames`` keeps list *positions*, not matching `LabeledFrame.frame_idx`.
+
+    Regression: `--frames` used to be silently ignored entirely for `.slp`
+    sources in the legacy `track` pipeline. The fix must NOT filter by
+    `frame_idx` value -- for a `.pkg.slp` with non-contiguously-sampled
+    embedded frames, `frame_idx` is typically scattered (not sequential),
+    so a value-based filter would silently match the wrong (often
+    near-empty) subset. `frames=[0, 2]` must keep the 1st and 3rd labeled
+    frames in file order (`frame_idx` 50 and 900), NOT frames whose
+    `frame_idx` equals 0 or 2 (neither of which exist here).
+    """
+    labels = _scattered_frame_idx_labels(minimal_instance)
+    queue = Queue(maxsize=4)
+    reader = LabelsReader(
+        labels=labels, frame_buffer=queue, instances_key=False, frames=[0, 2]
+    )
+    assert [lf.frame_idx for lf in reader.filtered_lfs] == [50, 900]
+
+
+def test_labels_reader_frames_out_of_range_warns(minimal_instance):
+    """Out-of-range ``frames`` positions are dropped with a logged warning."""
+    from loguru import logger
+
+    labels = _scattered_frame_idx_labels(minimal_instance)
+    queue = Queue(maxsize=4)
+    messages = []
+    sink_id = logger.add(messages.append, level="WARNING")
+    try:
+        reader = LabelsReader(
+            labels=labels, frame_buffer=queue, instances_key=False, frames=[0, 5, 6]
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert [lf.frame_idx for lf in reader.filtered_lfs] == [50]
+    assert len(messages) == 1
+    assert "out of range" in messages[0]
+    assert "[5, 6]" in messages[0]

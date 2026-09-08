@@ -1,14 +1,12 @@
 """Inference modules for BottomUp models."""
 
-import logging
 from typing import Dict, List, Optional
 import torch
 import lightning as L
+from loguru import logger
 from sleap_nn.inference.peak_finding import find_local_peaks
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.inference.identity import classify_peaks_from_maps
-
-logger = logging.getLogger(__name__)
 
 
 class BottomUpInferenceModel(L.LightningModule):

@@ -157,7 +157,7 @@ def run_sam_segmentation(
     frames: Optional[Sequence[int]] = None,
     clean_empty_frames: bool = False,
     embed: Union[str, bool] = "false",
-    restore_source_videos: bool = True,
+    restore_source_videos: bool = False,
 ):
     """Predict per-instance masks for a pose ``.slp`` with a SAM backend.
 
@@ -185,9 +185,10 @@ def run_sam_segmentation(
         output_path: Optional ``.slp`` path to save the result to. Saved like the
             regular prediction path (``labels.save``): the embedding policy is
             **configurable** via ``embed`` and defaults to ``"false"`` — images
-            are not re-embedded and the output backreferences the source media
-            via provenance, so a ``.pkg.slp`` input stays matchable to its
-            source videos without bloating the output.
+            are not re-embedded, and (with ``restore_source_videos`` also
+            defaulting to ``False``) the output backreferences the input file
+            itself, so a ``.pkg.slp`` input stays matchable without depending
+            on a pre-embedding source video that's often not on disk.
         overlay_path: Optional path to write a review overlay PNG of the first
             frame.
         frames: Optional frame indices (matched against ``lf.frame_idx``) to
@@ -203,9 +204,11 @@ def run_sam_segmentation(
             ``"true"`` (embed images into a self-contained ``.pkg.slp``-style
             file), or ``"auto"`` (embed iff the input was itself an embedded
             ``.pkg.slp``). A bool passes through unchanged.
-        restore_source_videos: On a non-embedding save, ``True`` (the default)
-            restores references to the original source video files; ``False``
-            keeps references to the input ``.pkg.slp`` file(s). Maps to
+        restore_source_videos: On a non-embedding save, ``False`` (the default)
+            keeps references to the input ``.pkg.slp`` file(s) — the pixels are
+            already there, and the pre-embedding source video is often
+            unavailable. ``True`` instead restores references to the original
+            pre-embedding source video files, when recorded. Maps to
             sleap-io's ``restore_original_videos`` and is ignored when embedding.
 
     Returns:
@@ -287,13 +290,12 @@ def run_sam_segmentation(
         # Save like the regular prediction path (``labels.save(path)``). The
         # embedding policy is configurable and defaults to ``embed="false"``: do
         # NOT re-embed images — that is large and wasteful. By default the output
-        # backreferences the source media via provenance (sleap-io's default
-        # ``embed=False``). A ``.pkg.slp`` input is typically aggregated training
-        # data; its frames stay matchable to the source videos (by comparing
-        # source-video provenance) without copying pixels into the output, even
-        # if those videos are no longer on disk. The masks always serialize into
-        # the ``.slp`` regardless. ``out.videos`` are the input videos, so
-        # ``source_video`` provenance is intact for ``embed="auto"`` detection.
+        # backreferences the input file itself (``restore_source_videos=False``,
+        # PRESERVE_SOURCE): a ``.pkg.slp`` input's frames stay matchable to that
+        # same ``.pkg.slp``, not to a pre-embedding source video that's often not
+        # on disk. The masks always serialize into the ``.slp`` regardless.
+        # ``out.videos`` are the input videos, so ``source_video`` provenance is
+        # intact for ``embed="auto"`` detection.
         from sleap_nn.inference.run import _resolve_embed
 
         out.save(

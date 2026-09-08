@@ -203,8 +203,9 @@ def test_topdown_centroid_threshold_zero_override_is_honored():
     predictor = Predictor.from_model_paths(
         [str(CENTROID_CKPT), str(CENTERED_CKPT)], device="cpu", peak_threshold=0.2
     )
-    centroid_layer = predictor.layer.centroid_layer
-    with predictor._postprocess_overrides(centroid_threshold=0.0):
-        assert centroid_layer.postprocess_config.peak_threshold == 0.0
-    # Restored afterwards.
-    assert centroid_layer.postprocess_config.peak_threshold == 0.2
+    scoped_layer = predictor._scoped_postprocess_layer(centroid_threshold=0.0)
+    assert scoped_layer.centroid_layer.postprocess_config.peak_threshold == 0.0
+    # The real (unscoped) layer is never mutated -- the override is baked
+    # into a private copy so concurrent/interleaved predict_streaming() calls
+    # can't clobber each other's overrides (see _scoped_postprocess_layer).
+    assert predictor.layer.centroid_layer.postprocess_config.peak_threshold == 0.2

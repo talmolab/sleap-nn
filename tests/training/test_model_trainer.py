@@ -590,6 +590,46 @@ def test_single_instance_single_instance_ok(config, tmp_path, minimal_instance):
     assert trainer.model_type == "single_instance"
 
 
+def test_no_labeled_frames_train_raises(config, tmp_path, minimal_instance):
+    """Training should fail fast with a clear error when the train split is empty."""
+    labels = sio.load_slp(minimal_instance)
+    empty_labels = sio.Labels(
+        labeled_frames=[],
+        videos=labels.videos,
+        skeletons=labels.skeletons,
+        tracks=labels.tracks,
+    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(
+        config, "trainer_config.run_name", "test_no_labeled_frames_train_raises"
+    )
+
+    with pytest.raises(ValueError, match="No labeled frames available for train"):
+        ModelTrainer.get_model_trainer_from_config(
+            config, train_labels=[empty_labels], val_labels=[labels]
+        )
+
+
+def test_no_labeled_frames_val_raises(config, tmp_path, minimal_instance):
+    """Training should fail fast with a clear error when the val split is empty."""
+    labels = sio.load_slp(minimal_instance)
+    empty_labels = sio.Labels(
+        labeled_frames=[],
+        videos=labels.videos,
+        skeletons=labels.skeletons,
+        tracks=labels.tracks,
+    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(
+        config, "trainer_config.run_name", "test_no_labeled_frames_val_raises"
+    )
+
+    with pytest.raises(ValueError, match="No labeled frames available for validation"):
+        ModelTrainer.get_model_trainer_from_config(
+            config, train_labels=[labels], val_labels=[empty_labels]
+        )
+
+
 @pytest.mark.skipif(
     sys.platform.startswith("li")
     and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
@@ -637,6 +677,48 @@ def test_model_trainer_centroid(config, tmp_path):
         / trainer.config.trainer_config.run_name
         / "best.ckpt"
     ).exists()
+
+
+def test_centroid_split_keeps_centroid_only_frames(config, minimal_instance, tmp_path):
+    """The centroid model's train/val split must keep frames carrying only user
+    centroids (no pose instance) — the pure-centroid seeding case. Regression:
+    make_training_splits filters to has_user_instances, which dropped them (0
+    training frames); _split_centroid_labels keeps them.
+    """
+    from sleap_io.model.centroid import UserCentroid
+
+    base = sio.load_slp(minimal_instance)
+    video = base.videos[0]
+    skel = base.skeletons[0]
+    # Six frames with ONLY a user centroid each (no pose instance).
+    frames = [
+        sio.LabeledFrame(
+            video=video, frame_idx=i, centroids=[UserCentroid(x=5.0 + i, y=6.0 + i)]
+        )
+        for i in range(6)
+    ]
+    labels = sio.Labels(videos=[video], skeletons=[skel], labeled_frames=frames)
+
+    centroid_config = config.copy()
+    head_config = centroid_config.model_config.head_configs.centered_instance
+    OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)
+    del centroid_config.model_config.head_configs.centered_instance
+    del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
+    OmegaConf.update(centroid_config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(centroid_config, "data_config.validation_fraction", 0.25)
+
+    trainer = ModelTrainer.get_model_trainer_from_config(centroid_config)
+    assert trainer.model_type == "centroid"
+
+    # get_model_trainer_from_config already split the config's labels; reset and
+    # re-split on our pure-centroid labels in isolation.
+    trainer.train_labels = []
+    trainer.val_labels = []
+    trainer._setup_train_val_labels([labels])
+    n_train = sum(len(lb) for lb in trainer.train_labels)
+    n_val = sum(len(lb) for lb in trainer.val_labels)
+    assert n_train + n_val == 6, f"pure-centroid frames were dropped: {n_train}+{n_val}"
+    assert n_train >= 1 and n_val >= 1
 
 
 @pytest.mark.skipif(
@@ -1247,6 +1329,113 @@ def test_head_config_oneof_validation_error_no_head(config, caplog):
         ModelTrainer.get_model_trainer_from_config(config_no_head)
 
 
+def test_verify_accelerator_config_noop_for_auto_and_cpu(config):
+    """Test that 'auto' and 'cpu' accelerators are always left untouched."""
+    for value in ("auto", "cpu"):
+        cfg = config.copy()
+        OmegaConf.update(cfg, "trainer_config.trainer_accelerator", value)
+        trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+        assert trainer.config.trainer_config.trainer_accelerator == value
+
+
+def test_verify_accelerator_config_keeps_available_accelerator(config, caplog):
+    """Test that a configured accelerator that IS available on this machine is kept."""
+    from unittest.mock import patch
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.trainer_accelerator", "mps")
+
+    with patch("torch.backends.mps.is_available", return_value=True):
+        trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    assert trainer.config.trainer_config.trainer_accelerator == "mps"
+    assert "'mps' is available on this machine and will be used" in caplog.text
+
+
+def test_verify_accelerator_config_falls_back_when_mps_unavailable(config, caplog):
+    """Test that 'mps' falls back to 'auto' when MPS is not available on this machine.
+
+    Reproduces the reported bug: a config trained on a Mac (`trainer_accelerator: mps`)
+    reloaded on a Linux/CUDA (or CPU-only) machine should not crash Lightning's `Trainer`
+    with an unavailable accelerator; it should fall back to `"auto"` instead.
+    """
+    from unittest.mock import patch
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.trainer_accelerator", "mps")
+
+    with patch("torch.backends.mps.is_available", return_value=False):
+        trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    assert trainer.config.trainer_config.trainer_accelerator == "auto"
+    assert "'mps' is not available on this machine" in caplog.text
+    assert "changing it to 'auto'" in caplog.text
+
+
+def test_verify_accelerator_config_falls_back_when_cuda_unavailable(config, caplog):
+    """Test that 'gpu'/'cuda' fall back to 'auto' when CUDA is not available."""
+    from unittest.mock import patch
+
+    for value in ("gpu", "cuda"):
+        cfg = config.copy()
+        OmegaConf.update(cfg, "trainer_config.trainer_accelerator", value)
+
+        with patch("torch.cuda.is_available", return_value=False):
+            trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+        assert trainer.config.trainer_config.trainer_accelerator == "auto"
+        assert f"'{value}' is not available on this machine" in caplog.text
+
+
+def test_verify_accelerator_config_unrecognized_value_falls_back(config, caplog):
+    """Test that an unrecognized accelerator string falls back to 'auto'."""
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.trainer_accelerator", "tpu")
+
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    assert trainer.config.trainer_config.trainer_accelerator == "auto"
+    assert "not a recognized option" in caplog.text
+
+
+def test_verify_model_input_channels_warns_on_mismatch(config, caplog):
+    """Test that an image/model channel mismatch logs a warning before auto-correcting."""
+    cfg = config.copy()
+    OmegaConf.update(cfg, "data_config.preprocessing.ensure_rgb", True)
+    OmegaConf.update(cfg, "model_config.backbone_config.unet.in_channels", 1)
+
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    assert "Image has 3 channel(s) but model has 1 input channel(s)" in caplog.text
+    assert (
+        "Images will be converted to grayscale to fit the model architecture"
+        in caplog.text
+    )
+    assert trainer.config.model_config.backbone_config.unet.in_channels == 3
+
+
+def test_verify_model_input_channels_warns_on_pretrained_backbone_override(
+    config, caplog
+):
+    """Test that forcing in_channels=3 for an ImageNet-pretrained convnext backbone warns."""
+    cfg = config.copy()
+    OmegaConf.update(cfg, "model_config.backbone_config.unet", None)
+    OmegaConf.update(
+        cfg,
+        "model_config.backbone_config.convnext",
+        ConvNextConfig(pre_trained_weights="ConvNeXt_Tiny_Weights"),
+    )
+
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    assert "Image has 1 channel(s) but the pretrained convnext backbone" in caplog.text
+    assert (
+        "Images will be converted to rgb to fit the model architecture" in caplog.text
+    )
+    assert trainer.config.model_config.backbone_config.convnext.in_channels == 3
+    assert trainer.config.data_config.preprocessing.ensure_rgb is True
+
+
 @pytest.mark.skipif(
     sys.platform.startswith("li")
     and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
@@ -1548,6 +1737,193 @@ def test_multi_gpu_no_cache_auto_generates_run_name(config, tmp_path, minimal_in
 
         assert trainer.config.trainer_config.run_name is not None
         assert re.match(r"\d{6}_\d{6}\.", trainer.config.trainer_config.run_name)
+
+
+def test_memory_cache_fallback_to_disk_uses_ckpt_dir(
+    config, tmp_path, minimal_instance
+):
+    """Test that the memory->disk cache fallback defaults to ckpt_dir/run_name.
+
+    When `torch_dataset_cache_img_memory` falls back to disk caching because of
+    insufficient RAM and no explicit `cache_img_path` is set, the cache dir must
+    default to `ckpt_dir/run_name` (matching the explicit
+    `torch_dataset_cache_img_disk` pipeline's default) instead of the current
+    working directory, which may not be writable.
+    """
+    from unittest.mock import patch
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(cfg, "trainer_config.run_name", "mem_fallback_run")
+    OmegaConf.update(
+        cfg, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
+    )
+    OmegaConf.update(cfg, "data_config.cache_img_path", None)
+    OmegaConf.update(cfg, "trainer_config.trainer_devices", 1)
+    if torch.mps.is_available():
+        cfg.trainer_config.trainer_accelerator = "cpu"
+
+    labels = sio.load_slp(minimal_instance)
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        cfg, train_labels=[labels], val_labels=[labels]
+    )
+
+    with patch(
+        "sleap_nn.training.model_trainer.check_cache_memory", return_value=False
+    ):
+        trainer.train()
+
+    # Cache dir must resolve under ckpt_dir/run_name, not the current working
+    # directory (`./train_imgs`), which may be on a read-only filesystem.
+    expected_cache_path = Path(tmp_path) / "mem_fallback_run"
+    assert Path(trainer.config.data_config.cache_img_path) == expected_cache_path
+    assert trainer.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_disk"
+
+
+class TestCsvLogKeysEvalMetrics:
+    """`csv_log_keys` (built in `_setup_loggers_callbacks`) must include the
+    `eval/val/*` columns appropriate to `model_type` whenever
+    `trainer_config.eval.enabled` -- otherwise CSVLoggerCallback never has a
+    column to write eval-callback metrics into, regardless of eval frequency.
+    """
+
+    def _csv_logger_keys(self, config, tmp_path, minimal_instance, model_type=None):
+        from sleap_nn.training.callbacks import CSVLoggerCallback
+
+        cfg = config.copy()
+        OmegaConf.update(cfg, "trainer_config.save_ckpt", True)
+        OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+        OmegaConf.update(cfg, "trainer_config.run_name", "csv_log_keys_test")
+        OmegaConf.update(cfg, "trainer_config.eval.enabled", True)
+
+        labels = sio.load_slp(minimal_instance)
+        trainer = ModelTrainer.get_model_trainer_from_config(
+            cfg, train_labels=[labels], val_labels=[labels]
+        )
+        if model_type is not None:
+            trainer.model_type = model_type
+
+        _, callbacks = trainer._setup_loggers_callbacks(
+            viz_train_dataset=None, viz_val_dataset=None
+        )
+        csv_logger = next(c for c in callbacks if isinstance(c, CSVLoggerCallback))
+        return csv_logger.keys
+
+    def test_pose_model_gets_oks_pck_keys(self, config, tmp_path, minimal_instance):
+        """Default `config` fixture model_type is `centered_instance` (pose)."""
+        keys = self._csv_logger_keys(config, tmp_path, minimal_instance)
+        for key in [
+            "eval/val/mOKS",
+            "eval/val/oks_voc_mAP",
+            "eval/val/oks_voc_mAR",
+            "eval/val/distance/avg",
+            "eval/val/mPCK",
+            "eval/val/PCK_5",
+            "eval/val/visibility_precision",
+        ]:
+            assert key in keys
+        # Not present: keys from the other model-type branches.
+        assert "eval/val/centroid_dist_avg" not in keys
+        assert "eval/val/mask_mean_iou" not in keys
+
+    def test_centroid_model_gets_centroid_keys(
+        self, config, tmp_path, minimal_instance
+    ):
+        keys = self._csv_logger_keys(
+            config, tmp_path, minimal_instance, model_type="centroid"
+        )
+        for key in [
+            "eval/val/centroid_dist_avg",
+            "eval/val/centroid_precision",
+            "eval/val/centroid_recall",
+            "eval/val/centroid_f1",
+        ]:
+            assert key in keys
+        assert "eval/val/mOKS" not in keys
+
+    def test_centroid_model_gets_confmap_fg_bg_keys(
+        self, config, tmp_path, minimal_instance
+    ):
+        """Fg/bg confmap MSE split should always reach the CSV for centroid.
+
+        `LightningModel._log_confmap_fg_bg_loss` computes this unconditionally
+        for `centroid` -- not gated on `centroid_focal_loss_alpha`.
+        """
+        keys = self._csv_logger_keys(
+            config, tmp_path, minimal_instance, model_type="centroid"
+        )
+        for key in [
+            "train/confmap_loss_fg",
+            "train/confmap_loss_bg",
+            "train/confmap_fg_frac",
+            "val/confmap_loss_fg",
+            "val/confmap_loss_bg",
+            "val/confmap_fg_frac",
+        ]:
+            assert key in keys
+
+    def test_pose_model_omits_confmap_fg_bg_keys(
+        self, config, tmp_path, minimal_instance
+    ):
+        """Other model types don't get the centroid-only fg/bg key set."""
+        keys = self._csv_logger_keys(config, tmp_path, minimal_instance)
+        assert "train/confmap_loss_fg" not in keys
+
+    def test_semantic_segmentation_gets_fg_keys(
+        self, config, tmp_path, minimal_instance
+    ):
+        keys = self._csv_logger_keys(
+            config, tmp_path, minimal_instance, model_type="semantic_segmentation"
+        )
+        for key in [
+            "eval/val/fg_mean_iou",
+            "eval/val/fg_mean_cldice",
+            "eval/val/fg_mean_boundary_iou",
+            "eval/val/fg_frame_recall",
+        ]:
+            assert key in keys
+        assert "eval/val/mask_mean_iou" not in keys
+
+    def test_instance_segmentation_gets_mask_keys(
+        self, config, tmp_path, minimal_instance
+    ):
+        keys = self._csv_logger_keys(
+            config, tmp_path, minimal_instance, model_type="bottomup_segmentation"
+        )
+        for key in [
+            "eval/val/mask_mean_iou",
+            "eval/val/mask_mean_iou_all_gt",
+            "eval/val/mask_precision",
+            "eval/val/mask_recall",
+            "eval/val/mask_f1",
+        ]:
+            assert key in keys
+        assert "eval/val/fg_mean_iou" not in keys
+
+    def test_eval_disabled_omits_all_eval_keys(
+        self, config, tmp_path, minimal_instance
+    ):
+        """When `eval.enabled` is False (the default), no `eval/val/*` column is
+        added regardless of model_type -- CSVLoggerCallback keeps its existing
+        loss/throughput-only column set.
+        """
+        from sleap_nn.training.callbacks import CSVLoggerCallback
+
+        cfg = config.copy()
+        OmegaConf.update(cfg, "trainer_config.save_ckpt", True)
+        OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+        OmegaConf.update(cfg, "trainer_config.run_name", "csv_log_keys_disabled_test")
+        OmegaConf.update(cfg, "trainer_config.eval.enabled", False)
+
+        labels = sio.load_slp(minimal_instance)
+        trainer = ModelTrainer.get_model_trainer_from_config(
+            cfg, train_labels=[labels], val_labels=[labels]
+        )
+        _, callbacks = trainer._setup_loggers_callbacks(
+            viz_train_dataset=None, viz_val_dataset=None
+        )
+        csv_logger = next(c for c in callbacks if isinstance(c, CSVLoggerCallback))
+        assert not any(key.startswith("eval/") for key in csv_logger.keys)
 
 
 class TestEmbeddingChannelAutoSync:

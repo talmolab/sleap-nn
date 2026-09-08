@@ -1433,6 +1433,89 @@ def test_topdown_predictor_with_tracking_cleaning(
     assert len(labels) < 10
 
 
+def test_tracking_clean_instance_count_with_post_connect_single_breaks(
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    centered_instance_video,
+    tmp_path,
+):
+    """Regression test for corrected_lfs UnboundLocalError (sleap discussion #2820).
+
+    Combining `tracking_clean_instance_count` with `post_connect_single_breaks`
+    previously left `corrected_lfs` unassigned in `run_inference`'s tracking
+    cleanup block (the `elif post_connect_single_breaks` branch was never
+    reached because the outer `if tracking_clean_instance_count > 0` had
+    already matched), raising an UnboundLocalError. Both flags are meant to
+    compose (cull to target count, then repair single-frame track breaks).
+    """
+    # Both flags combined in a single inference + tracking call (the exact
+    # combination reported as crashing).
+    labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        output_path=tmp_path / "test.slp",
+        max_instances=2,
+        peak_threshold=0.1,
+        frames=[x for x in range(0, 10)],
+        integral_refinement="integral",
+        tracking=True,
+        tracking_clean_instance_count=2,
+        post_connect_single_breaks=True,
+        tracking_target_instance_count=2,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
+    )
+    for lf in labels:
+        assert len(lf.instances) <= 2
+
+    # Same combination in the track-only (retrack an existing .slp) path.
+    labels.save(f"{tmp_path}/preds.slp")
+    tracked_labels = run_inference(
+        data_path=f"{tmp_path}/preds.slp",
+        tracking=True,
+        tracking_clean_instance_count=2,
+        post_connect_single_breaks=True,
+        tracking_target_instance_count=2,
+        max_instances=2,
+        integral_refinement=None,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
+    )
+    assert len(tracked_labels) == 10
+    for lf in tracked_labels:
+        assert len(lf.instances) <= 2
+
+
+def test_tracking_zero_frames_with_clean_instance_count_does_not_crash(
+    minimal_instance, tmp_path
+):
+    """Regression: 0 predicted frames reaching the tracking block combined
+    with `tracking_clean_instance_count` used to reach `cull_instances([])`,
+    which returned `None` instead of `[]`, propagating into
+    `sio.Labels(labeled_frames=None, ...)` and raising a `TypeError`.
+    `run_inference` should just skip tracking post-processing and return an
+    empty `sio.Labels`.
+    """
+    base = sio.load_slp(minimal_instance.as_posix())
+    empty_labels = sio.Labels(
+        labeled_frames=[], videos=base.videos, skeletons=base.skeletons
+    )
+
+    out = run_inference(
+        input_labels=empty_labels,
+        tracking=True,
+        tracking_clean_instance_count=1,
+        integral_refinement=None,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
+        make_labels=True,
+        output_path=tmp_path / "test.slp",
+    )
+    assert isinstance(out, sio.Labels)
+    assert len(out) == 0
+
+
 def test_video_index_output_path(
     minimal_instance,
     minimal_instance_centered_instance_ckpt,

@@ -5,10 +5,12 @@ import pytest
 from pathlib import Path
 import copy
 import torch
+import warnings
 from sleap_nn.legacy_predict import run_inference
 from sleap_nn.evaluation import (
     compute_instance_area,
     compute_oks,
+    compute_distance_match_score,
 )
 from sleap_nn.evaluation import Evaluator, load_metrics
 from loguru import logger
@@ -219,6 +221,129 @@ def test_evaluator_two_match_one_missed_inst(minimal_instance):
         ]
     )
     assert (gt_3.instance.numpy() == points).all()
+
+
+def test_compute_distance_match_score():
+    # Single jointly-visible node, close prediction -> high score.
+    inst_gt = np.array([[np.nan, np.nan], [100.0, 100.0], [np.nan, np.nan]])
+    inst_pr_close = np.array([[np.nan, np.nan], [102.0, 101.0], [np.nan, np.nan]])
+    score = compute_distance_match_score(inst_gt, inst_pr_close)
+    np.testing.assert_allclose(score, 1 - (5**0.5) / 50.0)
+
+    # Same, but beyond the pixel threshold -> score clipped to 0.
+    inst_pr_far = np.array([[np.nan, np.nan], [160.0, 100.0], [np.nan, np.nan]])
+    score = compute_distance_match_score(inst_gt, inst_pr_far)
+    np.testing.assert_allclose(score, 0.0)
+
+    # Exact match -> score of 1.
+    score = compute_distance_match_score(inst_gt, inst_gt)
+    np.testing.assert_allclose(score, 1.0)
+
+    # No jointly-visible nodes -> score of 0 (no basis for comparison).
+    inst_pr_no_overlap = np.array([[1.0, 1.0], [np.nan, np.nan], [2.0, 2.0]])
+    score = compute_distance_match_score(inst_gt, inst_pr_no_overlap)
+    np.testing.assert_allclose(score, 0.0)
+
+
+def create_labels_single_visible_keypoint(minimal_instance, pred_offset):
+    """One GT instance with a single visible node, and a prediction offset from it."""
+    skeleton = sio.Skeleton(
+        nodes=["head", "thorax", "abdomen"],
+        edges=[("head", "thorax"), ("thorax", "abdomen")],
+    )
+    min_labels = sio.load_slp(minimal_instance)
+    video = min_labels.videos[0]
+
+    user_inst = sio.Instance.from_numpy(
+        points_data=np.array([[np.nan, np.nan], [100.0, 100.0], [np.nan, np.nan]]),
+        skeleton=skeleton,
+    )
+    pred_inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array(
+            [[np.nan, np.nan], [100.0 + pred_offset, 100.0], [np.nan, np.nan]]
+        ),
+        skeleton=skeleton,
+        point_scores=np.array([np.nan, 0.9, np.nan]),
+        score=0.9,
+    )
+
+    user_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[user_inst])
+    user_labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[user_lf]
+    )
+
+    pred_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst])
+    pred_labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[pred_lf]
+    )
+
+    return user_labels, pred_labels
+
+
+def test_evaluator_single_visible_keypoint_close_prediction_matches(minimal_instance):
+    # A single visible GT keypoint with a small (non-pixel-exact) prediction error
+    # should match via the distance fallback rather than falling through to a false
+    # negative purely because OKS's bbox-area scale collapsed to zero.
+    user_labels, pred_labels = create_labels_single_visible_keypoint(
+        minimal_instance, pred_offset=2.0
+    )
+    eval = Evaluator(user_labels, pred_labels)
+
+    assert len(eval.positive_pairs) == 1
+    assert len(eval.false_negatives) == 0
+
+
+def test_evaluator_single_visible_keypoint_far_prediction_still_missed(
+    minimal_instance,
+):
+    # A prediction far enough away (beyond the distance-fallback's pixel threshold)
+    # should still be a false negative -- the fallback isn't a rubber stamp.
+    user_labels, pred_labels = create_labels_single_visible_keypoint(
+        minimal_instance, pred_offset=60.0
+    )
+    eval = Evaluator(user_labels, pred_labels)
+
+    assert len(eval.positive_pairs) == 0
+    assert len(eval.false_negatives) == 1
+
+
+def test_evaluator_collinear_keypoints_use_distance_fallback(minimal_instance):
+    # Two visible GT keypoints that happen to be collinear on an axis also degenerate
+    # to a zero-area bbox (see compute_instance_area), and should be routed through
+    # the same distance fallback as the single-keypoint case.
+    skeleton = sio.Skeleton(
+        nodes=["head", "thorax", "abdomen"],
+        edges=[("head", "thorax"), ("thorax", "abdomen")],
+    )
+    min_labels = sio.load_slp(minimal_instance)
+    video = min_labels.videos[0]
+
+    user_inst = sio.Instance.from_numpy(
+        points_data=np.array([[100.0, 100.0], [160.0, 100.0], [np.nan, np.nan]]),
+        skeleton=skeleton,
+    )
+    assert compute_instance_area(user_inst.numpy())[0] == 0.0
+
+    pred_inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[101.0, 101.0], [161.0, 101.0], [np.nan, np.nan]]),
+        skeleton=skeleton,
+        point_scores=np.array([0.9, 0.9, np.nan]),
+        score=0.9,
+    )
+
+    user_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[user_inst])
+    user_labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[user_lf]
+    )
+    pred_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst])
+    pred_labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[pred_lf]
+    )
+
+    eval = Evaluator(user_labels, pred_labels)
+
+    assert len(eval.positive_pairs) == 1
+    assert len(eval.false_negatives) == 0
 
 
 def create_labels_no_match_frame_pairs(minimal_instance):
@@ -435,6 +560,83 @@ def test_evaluator_more_predicted_instances(minimal_instance):
     assert len(eval.frame_pairs) == 1
     assert len(eval.positive_pairs) == 0
     assert len(eval.false_negatives) == 2
+
+
+def test_evaluator_zero_matched_instances_no_warnings(caplog, minimal_instance):
+    """Evaluator.evaluate() with 0 positive pairs must not warn (#719).
+
+    Regression test: a collapsed model (or here, a match_threshold strict
+    enough that nothing clears it) produces 0 positive pairs but non-empty
+    frame_pairs/false_negatives. mOKS()/pck_metrics()/voc_metrics(pck) used to
+    call .mean() on empty arrays unguarded, spamming "Mean of empty slice"
+    RuntimeWarnings. This checks the fix: no warnings, one clear log line, and
+    well-defined NaN/0 metrics.
+    """
+    user_labels, pred_labels = create_labels_more_predicted_instances(minimal_instance)
+    eval = Evaluator(user_labels, pred_labels, match_threshold=1)
+    assert len(eval.positive_pairs) == 0
+    assert len(eval.false_negatives) == 2
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with caplog.at_level("INFO"):
+            metrics = eval.evaluate()
+
+    runtime_warnings = [w for w in caught if issubclass(w.category, RuntimeWarning)]
+    assert not runtime_warnings, [str(w.message) for w in runtime_warnings]
+    assert "0 matched instances" in caplog.text
+
+    assert np.isnan(metrics["mOKS"]["mOKS"])
+    assert np.isnan(metrics["distance_metrics"]["avg"])
+    assert np.isnan(metrics["pck_metrics"]["mPCK"])
+    assert np.isnan(metrics["pck_metrics"]["PCK@5"])
+    assert metrics["voc_metrics"]["oks_voc.mAP"] == 0
+    assert metrics["voc_metrics"]["pck_voc.mAP"] == 0
+
+
+def test_find_frame_pairs_does_not_mutate_gt_labels():
+    """``user_labels_only=True`` must not mutate the caller's GT ``Labels``.
+
+    Regression test: ``find_frame_pairs`` used to do ``lf.instances =
+    lf.user_instances`` directly on the ``LabeledFrame`` objects returned by
+    ``labels_gt.find(...)``, which are references into the caller's actual
+    ``Labels`` object (not copies) -- permanently discarding any
+    ``PredictedInstance``s from the real ground-truth object. A second
+    ``Evaluator`` built from the same ``labels_gt`` afterward (e.g. with
+    ``user_labels_only=False``) would then silently see fewer instances than
+    it should.
+    """
+    skel = sio.Skeleton(nodes=["a", "b"])
+    video = sio.Video(filename="dummy.mp4")
+
+    user_inst = sio.Instance.from_numpy(
+        np.array([[0.0, 0.0], [1.0, 1.0]], dtype=np.float32), skeleton=skel
+    )
+    pred_inst_gt = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[2.0, 2.0], [3.0, 3.0]], dtype=np.float32),
+        skeleton=skel,
+        score=0.9,
+    )
+    lf_gt = sio.LabeledFrame(
+        video=video, frame_idx=0, instances=[user_inst, pred_inst_gt]
+    )
+    labels_gt = sio.Labels(videos=[video], skeletons=[skel], labeled_frames=[lf_gt])
+
+    pred_inst_pr = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[0.1, 0.1], [1.1, 1.1]], dtype=np.float32),
+        skeleton=skel,
+        score=0.95,
+    )
+    lf_pr = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst_pr])
+    labels_pr = sio.Labels(videos=[video], skeletons=[skel], labeled_frames=[lf_pr])
+
+    assert len(labels_gt.labeled_frames[0].instances) == 2
+
+    Evaluator(labels_gt, labels_pr, user_labels_only=True, match_threshold=100.0)
+
+    # The real GT Labels object must be untouched -- both the user and the
+    # predicted instance are still there.
+    assert len(labels_gt.labeled_frames[0].instances) == 2
 
 
 def test_evaluator_metrics(minimal_instance):
@@ -663,6 +865,165 @@ def test_load_metrics(single_instance_with_metrics_ckpt, tmp_path):
     assert loaded_old["voc_metrics"]["oks_voc.mAP"] == 0.6
 
 
+def _representative_metrics():
+    """A metrics dict mirroring ``Evaluator.evaluate()`` (OKS mode) output.
+
+    Uses numpy scalars/arrays and embedded NaNs to exercise the JSON-safe
+    conversion the same way a real ``run_evaluation`` result would.
+    """
+    return {
+        "voc_metrics": {
+            "oks_voc.match_score_thresholds": np.linspace(0.5, 0.95, 10),
+            "oks_voc.recall_thresholds": np.linspace(0, 1, 101),
+            "oks_voc.match_scores": np.array([0.9, 0.7, 0.3]),
+            "oks_voc.precisions": np.ones((10, 101)),
+            "oks_voc.recalls": np.array([0.8, 0.6, 0.4, 0.2, 0.1, 0.05, 0.0, 0, 0, 0]),
+            "oks_voc.AP": np.array([0.5, 0.4, 0.3, 0.2, 0.1, 0.05, 0, 0, 0, 0]),
+            "oks_voc.AR": np.array([0.8, 0.6, 0.4, 0.2, 0.1, 0.05, 0, 0, 0, 0]),
+            "oks_voc.mAP": np.float64(0.235),
+            "oks_voc.mAR": np.float64(0.32),
+            "pck_voc.match_score_thresholds": np.linspace(0.5, 0.95, 10),
+            "pck_voc.recall_thresholds": np.linspace(0, 1, 101),
+            "pck_voc.match_scores": np.array([0.95, 0.75, 0.35]),
+            "pck_voc.precisions": np.ones((10, 101)),
+            "pck_voc.recalls": np.array([0.9, 0.7, 0.5, 0.3, 0.2, 0.1, 0, 0, 0, 0]),
+            "pck_voc.AP": np.array([0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0, 0, 0, 0]),
+            "pck_voc.AR": np.array([0.9, 0.7, 0.5, 0.3, 0.2, 0.1, 0, 0, 0, 0]),
+            "pck_voc.mAP": np.float64(0.28),
+            "pck_voc.mAR": np.float64(0.38),
+        },
+        "mOKS": {"mOKS": np.float64(0.6543)},
+        "distance_metrics": {
+            "frame_idxs": [0, 1],
+            "video_paths": ["/data/vid.mp4", "/data/vid.mp4"],
+            # (n_pairs, n_nodes) with a missing node (NaN) -> must become null.
+            "dists": np.array([[1.5, np.nan], [2.0, 3.0]]),
+            "avg": np.float64(2.1667),
+            "p50": np.float64(2.0),
+            "p75": np.float64(2.5),
+            "p90": np.float64(2.8),
+            "p95": np.float64(2.9),
+            "p99": np.float64(2.99),
+        },
+        "pck_metrics": {
+            "thresholds": np.linspace(1, 10, 10),
+            "pcks": np.ones((2, 2, 10), dtype=bool),
+            "mPCK_parts": np.array([0.5, 0.5]),
+            "mPCK": np.float64(0.5),
+            "PCK@5": np.float64(0.75),
+            "PCK@10": np.float64(0.9),
+        },
+        "visibility_metrics": {
+            "tp": np.int64(3),
+            "fp": np.int64(1),
+            "tn": np.int64(0),
+            "fn": np.int64(1),
+            "precision": np.float64(0.75),
+            "recall": np.float64(0.75),
+        },
+    }
+
+
+def test_metrics_to_json_safe_conversions():
+    """``_metrics_to_json_safe`` maps numpy -> python and NaN/Inf -> None."""
+    from sleap_nn.evaluation import _metrics_to_json_safe
+
+    # numpy scalars -> python scalars
+    assert _metrics_to_json_safe(np.float64(1.5)) == 1.5
+    assert isinstance(_metrics_to_json_safe(np.float64(1.5)), float)
+    assert _metrics_to_json_safe(np.int64(3)) == 3
+    assert isinstance(_metrics_to_json_safe(np.int64(3)), int)
+    assert _metrics_to_json_safe(np.bool_(True)) is True
+
+    # non-finite floats -> None (JSON null), never the string "NaN"
+    assert _metrics_to_json_safe(np.float64("nan")) is None
+    assert _metrics_to_json_safe(float("nan")) is None
+    assert _metrics_to_json_safe(float("inf")) is None
+    assert _metrics_to_json_safe(float("-inf")) is None
+
+    # ndarray -> nested lists, NaN inside -> None
+    out = _metrics_to_json_safe(np.array([[1.0, np.nan], [2.0, 3.0]]))
+    assert out == [[1.0, None], [2.0, 3.0]]
+
+    # passthrough for native types
+    assert _metrics_to_json_safe("train") == "train"
+    assert _metrics_to_json_safe({"a": [np.int64(1), np.float64(2.0)]}) == {
+        "a": [1, 2.0]
+    }
+
+
+def test_write_metrics_emits_json_sibling(tmp_path):
+    """``_write_metrics`` writes the .npz AND a JSON sibling matching it.
+
+    Mirrors the existing metrics-write test but exercises the writer directly
+    on a representative metrics dict (no heavy inference/subprocess needed):
+    the JSON sibling exists, ``json.load`` parses it, NaN is serialized as
+    ``null`` (JSON ``None``), and scalar values match the pickled ``.npz``.
+    """
+    import json
+
+    from sleap_nn.evaluation import _write_metrics
+
+    metrics = _representative_metrics()
+    save_path = tmp_path / "metrics.val.0.npz"
+    _write_metrics(save_path, metrics)
+
+    json_path = tmp_path / "metrics.val.0.json"
+    assert save_path.exists()
+    assert json_path.exists()
+
+    # JSON must be valid and parseable (strict=True rejects bare NaN/Infinity).
+    with open(json_path) as f:
+        loaded = json.load(f, parse_constant=_reject_non_json_constant)
+
+    # Same nested structure the app loader expects.
+    assert set(loaded.keys()) == {
+        "voc_metrics",
+        "mOKS",
+        "distance_metrics",
+        "pck_metrics",
+        "visibility_metrics",
+    }
+
+    # NaN in the dists matrix serialized as null (None), not "NaN".
+    assert loaded["distance_metrics"]["dists"] == [[1.5, None], [2.0, 3.0]]
+
+    # Scalar values match the npz round-trip.
+    npz = np.load(save_path, allow_pickle=True)
+    npz_metrics = npz["metrics"].item()
+    assert loaded["mOKS"]["mOKS"] == pytest.approx(float(npz_metrics["mOKS"]["mOKS"]))
+    assert loaded["voc_metrics"]["oks_voc.mAP"] == pytest.approx(
+        float(npz_metrics["voc_metrics"]["oks_voc.mAP"])
+    )
+    assert loaded["pck_metrics"]["PCK@5"] == pytest.approx(
+        float(npz_metrics["pck_metrics"]["PCK@5"])
+    )
+    assert loaded["visibility_metrics"]["tp"] == int(
+        npz_metrics["visibility_metrics"]["tp"]
+    )
+
+    # `pcks` (a large n_pairs x n_nodes x n_thresholds boolean array) is pruned
+    # from the JSON view to avoid bloat, but retained in the pickled .npz.
+    assert "pcks" not in loaded["pck_metrics"]
+    assert "pcks" in npz_metrics["pck_metrics"]
+    # The small, useful PCK scalars survive the prune.
+    assert loaded["pck_metrics"]["mPCK"] == pytest.approx(0.5)
+
+    # App-loader key shapes: precisions is number[][], AP/recalls are number[].
+    assert isinstance(loaded["voc_metrics"]["oks_voc.precisions"], list)
+    assert isinstance(loaded["voc_metrics"]["oks_voc.precisions"][0], list)
+    assert isinstance(loaded["voc_metrics"]["oks_voc.AP"], list)
+    assert isinstance(loaded["distance_metrics"]["frame_idxs"], list)
+    assert loaded["distance_metrics"]["video_paths"] == [
+        "/data/vid.mp4",
+        "/data/vid.mp4",
+    ]
+
+
+def _reject_non_json_constant(name):  # pragma: no cover - only fires on bad JSON
+    raise AssertionError(f"non-JSON constant {name!r} present in output")
+
+
 # ---------------------------------------------------------------------------
 # Centroid-only / single-node distance evaluation
 # ---------------------------------------------------------------------------
@@ -842,7 +1203,8 @@ def test_evaluator_centroid_match(minimal_instance):
 def test_evaluator_centroid_handles_fully_occluded_gt(minimal_instance):
     """Regression: a fully-occluded (all-NaN) GT instance must NOT crash
     centroid matching (scipy cdist/linear_sum_assignment reject NaN). It is
-    counted as a false negative."""
+    counted as a false negative.
+    """
     gt_skeleton = sio.Skeleton(
         nodes=["head", "thorax", "abdomen"],
         edges=[("head", "thorax"), ("thorax", "abdomen")],
@@ -890,7 +1252,8 @@ def test_evaluator_centroid_handles_fully_occluded_gt(minimal_instance):
 
 def test_evaluator_centroid_middle_occluded_fn_attribution(minimal_instance):
     """An occluded GT between two matched GTs: the NaN-filter index map must
-    keep TP/FN attribution and matched distances correct."""
+    keep TP/FN attribution and matched distances correct.
+    """
     gt_skeleton = sio.Skeleton(nodes=["a", "b"], edges=[("a", "b")])
     centroid_skeleton = sio.get_centroid_skeleton()
     video = sio.load_slp(minimal_instance).videos[0]
@@ -1019,6 +1382,47 @@ def test_run_evaluation_auto_detects_centroid(minimal_instance, tmp_path):
     assert det["n_tp"] == 2
     assert det["n_fp"] == 1
     assert det["n_fn"] == 1
+
+
+def test_run_evaluation_skips_on_zero_predicted_instances(minimal_instance, tmp_path):
+    """run_evaluation() returns None and skips metric computation entirely
+    when predictions have frames but zero usable instances anywhere (#719) --
+    not just when the predicted file has zero frames. No metrics file is
+    written either.
+    """
+    user_labels, pred_labels = create_labels_more_predicted_instances(minimal_instance)
+
+    # Strip all instances from the predicted frame but keep it -- both
+    # predictor pipelines retain empty-detection frames by default.
+    pred_lf = pred_labels[0]
+    empty_pred_labels = sio.Labels(
+        videos=pred_labels.videos,
+        skeletons=pred_labels.skeletons,
+        labeled_frames=[
+            sio.LabeledFrame(
+                video=pred_lf.video, frame_idx=pred_lf.frame_idx, instances=[]
+            )
+        ],
+    )
+
+    gt_path = tmp_path / "gt.slp"
+    pred_path = tmp_path / "pred.slp"
+    metrics_path = tmp_path / "metrics.npz"
+    sio.save_slp(user_labels, gt_path.as_posix())
+    sio.save_slp(empty_pred_labels, pred_path.as_posix())
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        metrics = run_evaluation(
+            ground_truth_path=gt_path.as_posix(),
+            predicted_path=pred_path.as_posix(),
+            save_metrics=metrics_path.as_posix(),
+        )
+
+    runtime_warnings = [w for w in caught if issubclass(w.category, RuntimeWarning)]
+    assert not runtime_warnings, [str(w.message) for w in runtime_warnings]
+    assert metrics is None
+    assert not metrics_path.exists()
 
 
 class TestEmbeddingRetrievalMetrics:

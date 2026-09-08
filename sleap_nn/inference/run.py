@@ -27,6 +27,7 @@ Usage::
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Sequence, Union
 
@@ -210,7 +211,7 @@ def save_predictions(
     output_format: Union[str, Sequence[str]] = "slp",
     video_index: Optional[int] = None,
     embed: Union[str, bool] = "false",
-    restore_source_videos: bool = True,
+    restore_source_videos: bool = False,
 ) -> List[Path]:
     """Save predicted ``Labels`` to disk in the requested format(s).
 
@@ -229,10 +230,12 @@ def save_predictions(
             ``.pkg.slp``-style file), or ``"auto"`` (embed iff the input was
             itself an embedded ``.pkg.slp``). A bool passes through unchanged.
             Only applies to ``.slp`` output.
-        restore_source_videos: On a non-embedding ``.slp`` save, ``True`` (the
-            default) restores references to the original source video files;
-            ``False`` keeps references to the input ``.pkg.slp`` file(s). Maps
-            to sleap-io's ``restore_original_videos`` and is ignored when
+        restore_source_videos: On a non-embedding ``.slp`` save, ``False`` (the
+            default) keeps references to the input ``.pkg.slp`` file(s) — the
+            pixels are already there, and the pre-embedding source video is
+            often unavailable. ``True`` instead restores references to the
+            original pre-embedding source video files, when recorded. Maps to
+            sleap-io's ``restore_original_videos`` and is ignored when
             embedding.
 
     Returns:
@@ -250,6 +253,8 @@ def save_predictions(
             embed=_resolve_embed(embed, labels),
             restore_original_videos=restore_source_videos,
         )
+        logger.info(f"Predictions output path: {output_path}")
+        logger.info(f"Saved file at: {datetime.now()}")
 
     h5_paths: List[Path] = []
     if "analysis_h5" in formats:
@@ -327,7 +332,7 @@ def predict(
     output_path: Optional[str] = None,
     output_format: Union[str, Sequence[str]] = "slp",
     embed: Union[str, bool] = "false",
-    restore_source_videos: bool = True,
+    restore_source_videos: bool = False,
     clean_empty_frames: bool = False,
     progress_callback: Optional[Callable[[int, int], None]] = None,
     tracking_progress_callback: Optional[Callable[[int, int], None]] = None,
@@ -441,9 +446,11 @@ def predict(
             behavior), ``"true"`` (embed images into a self-contained
             ``.pkg.slp``-style file), or ``"auto"`` (embed iff the input was
             itself an embedded ``.pkg.slp``). Only applies to ``.slp`` output.
-        restore_source_videos: On a non-embedding ``.slp`` save, ``True`` (the
-            default) restores references to the original source video files;
-            ``False`` keeps references to the input ``.pkg.slp`` file(s).
+        restore_source_videos: On a non-embedding ``.slp`` save, ``False`` (the
+            default) keeps references to the input ``.pkg.slp`` file(s) — the
+            pixels are already there, and the pre-embedding source video is
+            often unavailable. ``True`` instead restores references to the
+            original pre-embedding source video files, when recorded.
             Ignored when embedding.
         clean_empty_frames: Drop frames with no instances.
         progress_callback: ``(processed_frames, total_frames)`` callback
@@ -576,6 +583,10 @@ def predict(
             build_kwargs["preprocess_config"] = preprocess_config
         if anchor_part is not None:
             build_kwargs["anchor_part"] = anchor_part
+        if peak_threshold is not None:
+            build_kwargs["peak_threshold"] = peak_threshold
+        if max_instances is not None:
+            build_kwargs["max_instances"] = max_instances
         if centroid_only:
             build_kwargs["centroid_only"] = True
         if emit_centroid != "instance":

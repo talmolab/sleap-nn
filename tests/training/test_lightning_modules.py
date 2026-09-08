@@ -110,6 +110,9 @@ def test_topdown_centered_instance_model(
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm[0])) < 1e-3
 
+    # exercise the validation-step diagnostic logging path (fg/bg confmap split)
+    model.validation_step(input_, 0)
+
     # check the output shape
     assert preds.shape == (1, 2, 80, 80)
 
@@ -212,6 +215,9 @@ def test_centroid_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
 
+    # exercise the validation-step diagnostic logging path (fg/bg confmap split)
+    model.validation_step(input_, 0)
+
     # torch dataset
     model = LightningModel.get_lightning_model_from_config(config=config)
 
@@ -305,6 +311,9 @@ def test_single_instance_model(config, tmp_path: str, minimal_instance):
     input_["confidence_maps"] = input_["confidence_maps"][:, :, :2, :, :]
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
+
+    # exercise the validation-step diagnostic logging path (fg/bg confmap split)
+    model.validation_step(input_, 0)
 
     # torch dataset
     OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
@@ -729,6 +738,89 @@ def test_single_instance_forward_handles_4d_and_5d_inputs(config, tmp_path: str)
 
     # Both should produce consistent output shapes
     assert output_5d.shape == output_4d.shape
+
+
+@pytest.mark.parametrize(
+    "scheduler_kwarg,expected_type",
+    [
+        ("cosine_annealing_warmup", "LinearWarmupCosineAnnealingLR"),
+        ("linear_warmup_linear_decay", "LinearWarmupLinearDecayLR"),
+        ("step_lr", "StepLR"),
+    ],
+)
+def test_configure_optimizers_respects_documented_scheduler_priority(
+    scheduler_kwarg, expected_type
+):
+    """Setting a non-default scheduler must win over the populated-by-default
+    ``reduce_lr_on_plateau``, per ``LRSchedulerConfig``'s own documented
+    priority (cosine_annealing_warmup > linear_warmup_linear_decay > step_lr >
+    reduce_lr_on_plateau).
+
+    Regression: `configure_optimizers` used to iterate
+    `self.lr_scheduler.items()` in dataclass FIELD DECLARATION order (step_lr,
+    reduce_lr_on_plateau, cosine_annealing_warmup, linear_warmup_linear_decay)
+    and take the first non-None entry -- since `reduce_lr_on_plateau` defaults
+    to a populated (non-None) config while the other three default to `None`,
+    any user who set one of the other three WITHOUT ALSO explicitly nulling
+    `reduce_lr_on_plateau` silently got `ReduceLROnPlateau` instead, with no
+    error or warning.
+    """
+    from sleap_nn.config.trainer_config import (
+        CosineAnnealingWarmupConfig,
+        LinearWarmupLinearDecayConfig,
+        LRSchedulerConfig,
+        StepLRConfig,
+    )
+    from sleap_nn.training.schedulers import (
+        LinearWarmupCosineAnnealingLR,
+        LinearWarmupLinearDecayLR,
+    )
+
+    scheduler_cfg_cls = {
+        "cosine_annealing_warmup": CosineAnnealingWarmupConfig,
+        "linear_warmup_linear_decay": LinearWarmupLinearDecayConfig,
+        "step_lr": StepLRConfig,
+    }[scheduler_kwarg]
+    scheduler_cfg = (
+        scheduler_cfg_cls(max_epochs=10)
+        if scheduler_kwarg != "step_lr"
+        else scheduler_cfg_cls()
+    )
+
+    model = SingleInstanceLightningModule(
+        model_type="single_instance",
+        backbone_config="unet_medium_rf",
+        backbone_type="unet",
+        head_configs=OmegaConf.create(
+            {
+                "single_instance": {
+                    "confmaps": {
+                        "part_names": ["a", "b"],
+                        "sigma": 1.5,
+                        "output_stride": 2,
+                        "loss_weight": 1.0,
+                    }
+                }
+            }
+        ),
+        # reduce_lr_on_plateau left at its populated-by-default value on
+        # purpose -- exactly the scenario that used to silently win. Wrapped
+        # in OmegaConf.structured to match real usage: model_trainer.py always
+        # passes `config.trainer_config.lr_scheduler`, an OmegaConf DictConfig,
+        # never a raw attrs instance.
+        lr_scheduler=OmegaConf.structured(
+            LRSchedulerConfig(**{scheduler_kwarg: scheduler_cfg})
+        ),
+    )
+    result = model.configure_optimizers()
+    scheduler_types = {
+        "LinearWarmupCosineAnnealingLR": LinearWarmupCosineAnnealingLR,
+        "LinearWarmupLinearDecayLR": LinearWarmupLinearDecayLR,
+        "StepLR": torch.optim.lr_scheduler.StepLR,
+    }
+    assert isinstance(
+        result["lr_scheduler"]["scheduler"], scheduler_types[expected_type]
+    )
 
 
 # ── Embedding objective: identity-equality gates (SPEC §4.4) ─────────────────
