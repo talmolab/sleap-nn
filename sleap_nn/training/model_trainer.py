@@ -233,18 +233,40 @@ class ModelTrainer:
                 trainer_devices = 1
         return trainer_devices
 
+    # Model types whose training targets are segmentation masks (``lf.masks``)
+    # rather than keypoint instances. Mask-only labels — no pose skeleton at all —
+    # are a normal input for these, so a frame with user masks and zero instances
+    # is a perfectly good training frame.
+    _MASK_TARGET_MODEL_TYPES = (
+        "bottomup_segmentation",
+        "centered_instance_segmentation",
+        "semantic_segmentation",
+        "embedding",
+    )
+
     def _is_training_frame(self, lf: "sio.LabeledFrame") -> bool:
         """Whether a frame carries a usable training target.
 
-        Normally that means user instances. The centroid model can additionally
-        train on frames that carry only user centroid annotations
-        (``frame.centroids``) with no pose instance — the pure-centroid seeding
-        case (label a body-center per animal before any keypoints exist).
+        Normally that means user instances. Two model families read something else:
+
+        - The centroid model can train on frames carrying only user centroid
+          annotations (``frame.centroids``) with no pose instance — the
+          pure-centroid seeding case (label a body-center per animal before any
+          keypoints exist).
+        - Mask-target models (see ``_MASK_TARGET_MODEL_TYPES``) train on
+          ``lf.masks``. Mask-only datasets carry **zero** instances, so counting
+          only user instances rejected them outright: every split came back empty
+          and ``_validate_nonempty_labels`` raised "No labeled frames available
+          for train" before setup finished. That made the `embedding` model
+          untrainable on its primary dataset, and would do the same to
+          `semantic_segmentation` on mask-only labels.
         """
         if lf.has_user_instances:
             return True
         if self.model_type == "centroid":
             return any(not c.is_predicted for c in lf.centroids)
+        if self.model_type in self._MASK_TARGET_MODEL_TYPES:
+            return any(not m.is_predicted for m in (getattr(lf, "masks", None) or []))
         return False
 
     def _count_labeled_frames(
@@ -801,7 +823,15 @@ class ModelTrainer:
         """Setup node, edge and class names in head config."""
         # if edges and part names aren't set in head configs, get it from labels object.
         head_config = self.config.model_config.head_configs[self.model_type]
-        skeleton_node_names = list(self.skeletons[0].node_names)
+        # Skeleton-less model types have no skeleton at all: `embedding` trained on
+        # mask-only labels, and the segmentation heads. Every consumer of this list
+        # below sits inside a `part_names` / `anchor_part` / `edges` branch that only a
+        # pose head enters, so an empty list is correct there -- but computing it
+        # UNCONDITIONALLY raised `IndexError: list index out of range` before any of
+        # those branches was reached, making a skeleton-less model type unconfigurable.
+        skeleton_node_names = (
+            list(self.skeletons[0].node_names) if self.skeletons else []
+        )
         for key in head_config:
             if "part_names" in head_config[key].keys():
                 if head_config[key]["part_names"] is None:
