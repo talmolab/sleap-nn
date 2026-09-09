@@ -160,6 +160,34 @@ def test_dataset_include_untracked_detects_mask_mode(untracked_mask_slp):
     assert len(ds) == 8
 
 
+def test_detect_mode_prefers_the_dominant_carrier(untracked_pose_slp, tmp_path):
+    """A single stray mask must NOT flip a pose-dominant .slp into mask mode.
+
+    `_detect_mode` returned "mask" whenever `include_untracked` and ANY mask
+    existed. So one user-GT mask on one frame of a pose .slp routed the whole run
+    to the mask carrier: the vectors landed on that one mask, every pose went
+    unembedded, and `apply_tracking` then tracked the masks and dropped the poses.
+    """
+    labels = sio.load_slp(untracked_pose_slp)
+    yy, xx = np.ogrid[:64, :64]
+    disk = ((yy - 30) ** 2 + (xx - 30) ** 2) <= 5**2
+    labels.labeled_frames[0].masks = [
+        sio.PredictedSegmentationMask.from_numpy(disk, score=0.9)
+    ]
+    cfg = _build_embedding_config()
+    ds = EmbeddingDataset(
+        labels=[labels],
+        crop_size=32,
+        class_names=[],
+        embedding_head_config=_emb_head(cfg),
+        max_stride=16,
+        include_untracked=True,
+        cache_img=None,
+    )
+    assert ds.detection_mode == "pose"  # 8 poses beat 1 mask
+    assert len(ds) == 8
+
+
 # ── predict_embeddings_to_slp + tracker_config (the WF2 entry point) ──────────────
 
 
@@ -358,18 +386,21 @@ def test_cli_embedding_rejects_stream_and_mask_backend(monkeypatch, flag):
 def _patch_fused(monkeypatch, emb_dir, detections_slp):
     """Classify ``emb_dir`` as the embedding model and stub the detection pass.
 
-    The fused path runs the detection stack to ``det_kwargs["output_path"]``; the stub
-    drops a known UNTRACKED ``.slp`` there so the (real) embedding step has fresh,
-    track-less detections to embed — exactly what a centroid/CI detector produces.
+    The fused path hands the detections over IN MEMORY: the stub returns the
+    ``sio.Labels`` of a known UNTRACKED ``.slp``, the way ``predict()`` does, so the
+    (real) embedding step has fresh, track-less detections to embed — exactly what a
+    centroid/CI detector produces. It also asserts the detection stage is told NOT
+    to write (``output_path=None``): writing a temp .slp is what coupled the fused
+    route to ``--output_format`` and cost a serialize/parse round-trip.
     """
-    import shutil
-
     import sleap_nn.cli as cli
 
     monkeypatch.setattr(cli, "_is_embedding_model", lambda m: m == emb_dir)
 
-    def _fake_detect(det_kwargs, paf_workers=0):
-        shutil.copy(detections_slp, det_kwargs["output_path"])
+    def _fake_detect(det_kwargs, paf_workers=0, save_output=True):
+        assert save_output is False, "the detection stage must not write anything"
+        assert det_kwargs["tracking"] is False
+        return sio.load_slp(detections_slp)
 
     monkeypatch.setattr(cli, "_run_in_memory_new_flow", _fake_detect)
 
@@ -436,3 +467,121 @@ def test_cli_fused_no_tracking_persists_vectors(
     insts = [i for lf in embedded.labeled_frames for i in lf.instances]
     assert len(insts) == 8
     assert all(i.identity_embedding is not None for i in insts)
+
+
+# ── WF3 end-to-end, with a REAL detection stage (review finding [7]) ────────────
+
+# Where the fused route's detection stage USED to drop an unrequested .slp: the
+# auto-derived default output path for the `.pkg.slp` input asset below.
+STRAY_DETECTIONS_PATH = "tests/assets/datasets/minimal_instance.pkg.slp.slp"
+
+
+def test_fused_detect_embed_track_end_to_end(embedding_model_dir, tmp_path):
+    """The real fused route: a trained centroid model detects, then we embed+track.
+
+    The stubbed WF3 tests above assert the handover contract; this one actually
+    runs the detection stage, so the in-memory `sio.Labels` handover is exercised
+    for real. The previous version serialized the detections to a temp `.slp` and
+    re-parsed them, which broke outright under `--output_format analysis_h5`.
+    """
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+
+    centroid_ckpt = "tests/assets/model_ckpts/minimal_instance_centroid"
+    if not os.path.isdir(centroid_ckpt):
+        pytest.skip("centroid checkpoint fixture not present")
+
+    out = tmp_path / "fused_real.tracked.slp"
+    result = CliRunner().invoke(
+        cli,
+        [
+            "predict",
+            "-m",
+            centroid_ckpt,
+            "-m",
+            embedding_model_dir,
+            "-i",
+            "tests/assets/datasets/minimal_instance.pkg.slp",
+            "-t",
+            "--save_embeddings",
+            "slp",
+            "--device",
+            "cpu",
+            "--batch_size",
+            "2",
+            "--peak_threshold",
+            "0.1",
+            "-o",
+            out.as_posix(),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    tracked = sio.load_slp(out.as_posix())
+    insts = [i for lf in tracked.labeled_frames for i in lf.instances]
+    assert insts, "the fused route produced no detections"
+    assert all(i.track is not None for i in insts)
+    assert all(i.identity_embedding is not None for i in insts)
+    # The `.pkg.slp` input's pixels must still be reachable from the output.
+    assert str(tracked.videos[0].filename).endswith(".pkg.slp")
+    # ...and the intermediate detections wrote NOTHING. `output_path=None` alone
+    # cannot say this: it is also how "the user passed no -o" arrives, which falls
+    # back to the auto-derived path -- so the detection stage was dropping a stray
+    # `<input>.slp` next to the (read-only) input asset.
+    assert not os.path.exists(STRAY_DETECTIONS_PATH)
+
+
+def test_fused_topdown_blend_end_to_end(embedding_model_dir, tmp_path):
+    """The GUIDE'S RECOMMENDED command must actually run.
+
+    `-m centroid -m centered_instance -m embedding -t --appearance_weight 0.3`
+    used to be rejected by `apply_tracking` -- `features`/`scoring_method` were
+    injected as `embeddings`/`cosine_sim` regardless of the weight, and the blend
+    refuses `features='embeddings'` -- *after* the full detection stack and
+    embedding pass had run.
+    """
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+
+    centroid_ckpt = "tests/assets/model_ckpts/minimal_instance_centroid"
+    ci_ckpt = "tests/assets/model_ckpts/minimal_instance_centered_instance"
+    if not (os.path.isdir(centroid_ckpt) and os.path.isdir(ci_ckpt)):
+        pytest.skip("top-down checkpoint fixtures not present")
+
+    out = tmp_path / "fused_blend.tracked.slp"
+    result = CliRunner().invoke(
+        cli,
+        [
+            "predict",
+            "-m",
+            centroid_ckpt,
+            "-m",
+            ci_ckpt,
+            "-m",
+            embedding_model_dir,
+            "-i",
+            "tests/assets/datasets/minimal_instance.pkg.slp",
+            "-t",
+            "--appearance_weight",
+            "0.3",
+            "--save_embeddings",
+            "slp",
+            "--device",
+            "cpu",
+            "--batch_size",
+            "2",
+            "--peak_threshold",
+            "0.1",
+            "-o",
+            out.as_posix(),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    tracked = sio.load_slp(out.as_posix())
+    insts = [i for lf in tracked.labeled_frames for i in lf.instances]
+    assert insts and all(i.track is not None for i in insts)
+    # The blend keeps a real (finite) tracking score; the appearance-only route on
+    # embedding-less pairs is what wrote -inf.
+    assert all(i.tracking_score is None or np.isfinite(i.tracking_score) for i in insts)
+    assert not os.path.exists(STRAY_DETECTIONS_PATH)

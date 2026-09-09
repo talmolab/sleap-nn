@@ -184,9 +184,57 @@ def test_identity_names_stable_across_runs(tmp_path):
 
     names1 = _run("a")
     names2 = _run("b")
-    if not names1 or not names2:
-        pytest.skip("model detected 0 tracked instances on this platform")
+    # Do NOT skip on an empty result: "no identities emitted" is exactly the bug
+    # this file exists to catch (the sibling test correctly gates its skip on
+    # `tracked` instead). A run that detects nothing is a fixture problem, and a
+    # run that detects instances but emits no identity is a regression.
+    assert names1, "no identities emitted -- class_output was not honored"
     assert names1 == names2
+
+
+def test_solo_multiclass_topdown_still_emits_identities(tmp_path):
+    """A LONE `multi_class_topdown` model must emit identities too.
+
+    The GT-centroid-fallback builder (the branch `sleap-nn train`'s post-training
+    eval takes, predicting on the run dir alone) forwarded `class_names` but not
+    `class_output`, so the layer kept the "track" default and
+    `_multiclass_identities()` returned None: `Predictor.from_model_paths([topdown_dir])`
+    gave `class_output='track', identities=None`, while the PAIRED
+    `[centroid_dir, topdown_dir]` build gave `identity, [female, male]`.
+    """
+    from sleap_nn.inference.predictor import Predictor
+
+    fx = FIXTURES["multiclass_topdown"]
+    if not _have(*fx["models"]):
+        pytest.skip("multiclass_topdown checkpoints not present")
+    models = _prep_models(tmp_path, fx, class_output="identity")
+    solo = [p for p in models if p.name == fx["class_head_dir"]]
+
+    predictor = Predictor.from_model_paths([str(solo[0])], device="cpu")
+    assert predictor.layer.class_output == "identity"
+    identities = predictor._multiclass_identities()
+    assert identities, "solo build emitted no identities"
+    assert all(isinstance(i, sio.Identity) for i in identities)
+
+    # Same identities as the paired build, so the two routes agree.
+    paired = Predictor.from_model_paths([str(p) for p in models], device="cpu")
+    assert [i.name for i in identities] == [
+        i.name for i in paired._multiclass_identities()
+    ]
+
+
+def test_class_output_typo_fails_at_config_load():
+    """A misspelled `class_output` silently degraded to track-only via
+    `!= "identity"`, and `"category"` raised only after a full inference run."""
+    from sleap_nn.config.model_config import ClassMapConfig, ClassVectorsConfig
+
+    misspelled = "identity".replace("it", "i")  # what a user actually types
+    for cls in (ClassMapConfig, ClassVectorsConfig):
+        for bad in (misspelled, "category", "Identity"):
+            with pytest.raises(ValueError):
+                cls(class_output=bad)
+        assert cls(class_output="identity").class_output == "identity"
+        assert cls().class_output == "track"
 
 
 @pytest.mark.parametrize("fixture", list(FIXTURES))

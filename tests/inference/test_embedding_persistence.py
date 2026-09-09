@@ -402,11 +402,312 @@ def test_cli_embedding_model_off_requires_save_embeddings(monkeypatch):
 
 
 def test_cli_save_embeddings_rejected_for_non_embedding(monkeypatch):
-    """``--save_embeddings`` on a non-embedding model is a UsageError."""
+    """``--save_embeddings`` needs a model that computes vectors, or a .slp input.
+
+    A video input carries no appearance vectors and there is no embedding model to
+    compute them, so the flag can only be a mistake -> UsageError.
+    """
     import click
 
     import sleap_nn.cli as cli
 
     monkeypatch.setattr(cli, "_has_embedding_model", lambda *_: False)
-    with pytest.raises(click.UsageError):
-        cli._run_inference_impl(**_impl_kwargs(save_embeddings="slp"))
+    with pytest.raises(click.UsageError, match="already carries them"):
+        cli._run_inference_impl(
+            **_impl_kwargs(save_embeddings="slp", data_path="video.mp4")
+        )
+
+
+def test_cli_save_embeddings_allowed_on_slp_input(monkeypatch):
+    """``--save_embeddings`` IS allowed on a .slp input with no embedding model.
+
+    The input may already carry vectors (an earlier ``--save_embeddings slp`` run),
+    which is what the guide's retrack-at-several-weights sweep chains off. Asserts
+    the choice reaches the save layer as ``save_embedding_vectors``.
+    """
+    import sleap_nn.cli as cli
+
+    monkeypatch.setattr(cli, "_has_embedding_model", lambda *_: False)
+    seen = {}
+
+    def _fake_flow(kwargs, paf_workers=0):
+        seen["save_embedding_vectors"] = kwargs.get("save_embedding_vectors")
+        return None
+
+    monkeypatch.setattr(cli, "_run_in_memory_new_flow", _fake_flow)
+    cli._run_inference_impl(**_impl_kwargs(save_embeddings="slp", data_path="dets.slp"))
+    assert seen["save_embedding_vectors"] is True
+
+
+def test_cli_save_embeddings_default_preserves_existing_vectors(monkeypatch):
+    """Leaving ``--save_embeddings`` unset resolves to "preserve if present".
+
+    sleap-io's own ``save_embedding_vectors`` default is ``False``, so before this a
+    plain ``predict``/retrack of an embedded .slp silently dropped every vector and
+    its output could not be retracked by appearance again.
+    """
+    import sleap_nn.cli as cli
+
+    monkeypatch.setattr(cli, "_has_embedding_model", lambda *_: False)
+    seen = {}
+
+    def _fake_flow(kwargs, paf_workers=0):
+        seen["save_embedding_vectors"] = kwargs.get("save_embedding_vectors")
+        return None
+
+    monkeypatch.setattr(cli, "_run_in_memory_new_flow", _fake_flow)
+    cli._run_inference_impl(**_impl_kwargs(data_path="dets.slp"))
+    assert seen["save_embedding_vectors"] is None
+
+
+# ── The output must be readable: don't restore an absent source video ─────────
+
+
+def test_pkg_slp_input_output_keeps_the_package(embedding_model_dir, tmp_path):
+    """A `.pkg.slp` input must not yield an output pointing at the source video.
+
+    sleap-io's `save_slp` defaults `restore_original_videos=True`, which every
+    other writer in the repo overrides (`save_predictions`;
+    `--restore_source_videos` defaults False, "the pre-embedding source video is
+    often unavailable"). Here it was left at the default, so `lf.image` on the
+    output raised FileNotFoundError for the standard SLEAP training-package input.
+    """
+    from sleap_nn.inference.embedding import predict_embeddings_to_slp
+
+    src = "tests/assets/datasets/minimal_instance.pkg.slp"
+    out = predict_embeddings_to_slp(
+        [embedding_model_dir],
+        src,
+        output_path=str(tmp_path / "pkg.embeddings.slp"),
+        device="cpu",
+        batch_size=2,
+        save_embeddings="slp",
+        include_untracked=True,
+    )
+    labels = sio.load_slp(out)
+    assert os.path.basename(str(labels.videos[0].filename)).endswith(".pkg.slp")
+    assert labels.labeled_frames[0].image is not None  # pixels still readable
+
+
+def test_restore_source_videos_true_is_still_available(embedding_model_dir, tmp_path):
+    """The flag is threaded, not hard-coded: True restores the source reference."""
+    from sleap_nn.inference.embedding import predict_embeddings_to_slp
+
+    out = predict_embeddings_to_slp(
+        [embedding_model_dir],
+        "tests/assets/datasets/minimal_instance.pkg.slp",
+        output_path=str(tmp_path / "restored.slp"),
+        device="cpu",
+        batch_size=2,
+        save_embeddings="slp",
+        include_untracked=True,
+        restore_source_videos=True,
+    )
+    labels = sio.load_slp(out)
+    assert not str(labels.videos[0].filename).endswith(".pkg.slp")
+
+
+# ── Burn-in divergence must not be silent (review finding [9]) ────────────────
+
+
+def test_burn_in_pose_mode_warns(embedding_model_dir, pose_slp, tmp_path, caplog):
+    """A mask-trained (`burn_in=True`) model embedding MASKLESS crops diverges.
+
+    Pose mode hands the module an all-ones mask, so `_standardize` degrades to a
+    whole-crop standardize with the background left in. Every fused
+    `detect -> embed` run is pose mode, so this is the common case. `origin/main`
+    warned; the rewritten kernel dropped the warning entirely.
+    """
+    import logging
+
+    from loguru import logger as _loguru
+
+    from unittest.mock import patch
+
+    from sleap_nn.inference.embedding import predict_embeddings_to_slp
+    from sleap_nn.inference.predictor import Predictor
+
+    real_from_model_paths = Predictor.from_model_paths.__func__
+
+    def _burn_in_predictor(cls, *args, **kwargs):
+        predictor = real_from_model_paths(cls, *args, **kwargs)
+        predictor.layer.embedding_module.burn_in = True
+        return predictor
+
+    handler_id = _loguru.add(lambda m: logging.getLogger("loguru").warning(m))
+    try:
+        with patch.object(
+            Predictor, "from_model_paths", classmethod(_burn_in_predictor)
+        ):
+            with caplog.at_level(logging.WARNING, logger="loguru"):
+                predict_embeddings_to_slp(
+                    [embedding_model_dir],
+                    pose_slp,
+                    output_path=str(tmp_path / "burn_in.slp"),
+                    device="cpu",
+                    batch_size=2,
+                    save_embeddings="slp",
+                )
+        assert "trained with mask burn-in" in caplog.text
+    finally:
+        _loguru.remove(handler_id)
+
+
+def test_no_burn_in_warning_when_off(embedding_model_dir, pose_slp, tmp_path, caplog):
+    """The warning must not fire for the ordinary (burn_in=False) model."""
+    import logging
+
+    from loguru import logger as _loguru
+
+    from sleap_nn.inference.embedding import predict_embeddings_to_slp
+
+    handler_id = _loguru.add(lambda m: logging.getLogger("loguru").warning(m))
+    try:
+        with caplog.at_level(logging.WARNING, logger="loguru"):
+            predict_embeddings_to_slp(
+                [embedding_model_dir],
+                pose_slp,
+                output_path=str(tmp_path / "plain.slp"),
+                device="cpu",
+                batch_size=2,
+                save_embeddings="slp",
+            )
+        assert "mask burn-in" not in caplog.text
+    finally:
+        _loguru.remove(handler_id)
+
+
+# ── Clear diagnostics instead of opaque HDF5 / training-flavored errors ───────
+
+
+def test_video_data_path_is_rejected_clearly(embedding_model_dir, tmp_path):
+    """A lone embedding model embeds EXISTING detections, so its input is a .slp.
+
+    A video path hit `sio.load_slp` unconditionally and died with h5py's
+    "file signature not found" OSError.
+    """
+    from sleap_nn.inference.embedding import predict_embeddings_to_slp
+
+    video = tmp_path / "clip.mp4"
+    _write_video(video)
+    with pytest.raises(ValueError, match="must be a .slp of detections"):
+        predict_embeddings_to_slp(
+            [embedding_model_dir], str(video), device="cpu", save_embeddings="slp"
+        )
+
+
+def test_no_detections_says_so(embedding_model_dir, tmp_path):
+    """An empty (detector-found-nothing) input must not surface the training-flavored
+    "none of the labeled frames contain user-labeled data" from BaseDataset."""
+    from sleap_nn.inference.embedding import predict_embeddings_to_slp
+
+    vid = _write_video(tmp_path / "empty.mp4")
+    labels = sio.Labels(
+        videos=[vid],
+        labeled_frames=[sio.LabeledFrame(video=vid, frame_idx=i) for i in range(3)],
+    )
+    empty = str(tmp_path / "empty.slp")
+    sio.save_slp(labels, empty, embed=False)
+    with pytest.raises(ValueError, match="No detections to embed"):
+        predict_embeddings_to_slp(
+            [embedding_model_dir],
+            empty,
+            device="cpu",
+            save_embeddings="slp",
+            include_untracked=True,
+        )
+
+
+# ── Retracking must not destroy the vectors it tracked on (finding [5]) ───────
+
+
+@pytest.fixture
+def embedded_pose_slp(tmp_path):
+    """A pose ``.slp`` whose instances already carry appearance vectors."""
+    vid = _write_video(tmp_path / "evid.mp4")
+    skel = sio.Skeleton(nodes=["a", "b"])
+    lfs = []
+    for fi in range(3):
+        insts = []
+        for x, vec in ((18.0, (1.0, 0.0)), (44.0, (0.0, 1.0))):
+            inst = sio.PredictedInstance.from_numpy(
+                np.array([[x + fi, 20.0], [x + fi + 6, 28.0]]),
+                skeleton=skel,
+                score=0.9,
+                point_scores=np.ones(2),
+            )
+            inst.identity_embedding = sio.Embedding(np.asarray(vec, np.float32))
+            insts.append(inst)
+        lfs.append(sio.LabeledFrame(video=vid, frame_idx=fi, instances=insts))
+    labels = sio.Labels(labeled_frames=lfs, videos=[vid], skeletons=[skel])
+    sp = str(tmp_path / "embedded.slp")
+    sio.save_slp(labels, sp, embed=False, save_embedding_vectors=True)
+    return sp
+
+
+def test_save_predictions_preserves_existing_vectors(embedded_pose_slp, tmp_path):
+    """`save_predictions` defaults to "preserve if present".
+
+    sleap-io's own `save_embedding_vectors` default is False, so the WF1 retrack
+    route (`labels.save(...)` via `save_predictions`) silently dropped every
+    vector -- and retracking its output then raised "no detection ... carries an
+    appearance embedding".
+    """
+    from sleap_nn.inference.run import save_predictions
+
+    labels = sio.load_slp(embedded_pose_slp)
+    out = str(tmp_path / "resaved.slp")
+    save_predictions(labels, out)
+    reloaded = sio.load_slp(out)
+    insts = [i for lf in reloaded.labeled_frames for i in lf.instances]
+    assert len(insts) == 6
+    assert all(i.identity_embedding is not None for i in insts)
+
+
+def test_save_predictions_can_strip_vectors_explicitly(embedded_pose_slp, tmp_path):
+    """`--save_embeddings none` on the command line still means "strip"."""
+    from sleap_nn.inference.run import save_predictions
+
+    labels = sio.load_slp(embedded_pose_slp)
+    out = str(tmp_path / "stripped.slp")
+    save_predictions(labels, out, save_embedding_vectors=False)
+    reloaded = sio.load_slp(out)
+    insts = [i for lf in reloaded.labeled_frames for i in lf.instances]
+    assert insts and all(i.identity_embedding is None for i in insts)
+
+
+def test_wf1_retrack_output_can_be_retracked(embedded_pose_slp, tmp_path):
+    """End-to-end: the guide's weight sweep chains off its own outputs.
+
+    Retrack an embedded .slp by appearance, then retrack the RESULT again. The
+    second call used to raise because the first had stripped the vectors.
+    """
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+
+    first = str(tmp_path / "tracked1.slp")
+    res = CliRunner().invoke(
+        cli,
+        [
+            "predict",
+            "-i",
+            embedded_pose_slp,
+            "-t",
+            "--features",
+            "embeddings",
+            "-o",
+            first,
+        ],
+    )
+    assert res.exit_code == 0, res.output
+    insts = [i for lf in sio.load_slp(first).labeled_frames for i in lf.instances]
+    assert insts and all(i.track is not None for i in insts)
+    assert all(i.identity_embedding is not None for i in insts)
+
+    second = str(tmp_path / "tracked2.slp")
+    res = CliRunner().invoke(
+        cli,
+        ["predict", "-i", first, "-t", "--features", "embeddings", "-o", second],
+    )
+    assert res.exit_code == 0, res.output

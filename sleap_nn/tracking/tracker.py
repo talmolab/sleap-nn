@@ -46,6 +46,181 @@ from sleap_nn.tracking.utils import (
     cull_frame_instances,
 )
 
+# Metrics that produce a vector-valued similarity, i.e. the only ones that can score
+# a 1-D appearance embedding. `oks` / `iou` / `mask_iou` are keypoint-, box- and
+# mask-shaped and crash on an embedding vector.
+VECTOR_SCORING_METHODS = ("cosine_sim", "euclidean_dist")
+
+# Metrics whose output is already BOUNDED, so blending them with a cosine
+# similarity in [-1, 1] is meaningful as-is.
+BOUNDED_SCORING_METHODS = ("oks", "iou", "mask_iou", "cosine_sim")
+
+# Metrics that are UNBOUNDED but can be blended once mapped through a bounded
+# kernel with an explicit length scale. `euclidean_dist` returns negative PIXELS:
+# at pixel magnitudes the appearance term is numerically inert no matter what
+# weight it is given, so blending it requires `euclidean_scale` (see
+# :func:`distance_to_similarity`). It is the metric `apply_tracking` auto-selects
+# for single-node/centroid detections, which is why the blend has to reach it.
+DISTANCE_SCORING_METHODS = ("euclidean_dist",)
+
+
+def distance_to_similarity(scores: np.ndarray, scale: float) -> np.ndarray:
+    """Map negative-pixel distance scores to a bounded ``(0, 1]`` similarity.
+
+    ``exp(-d / scale)`` where ``d`` is the pixel distance (``scores`` are negative
+    distances, per :func:`~sleap_nn.tracking.utils.compute_euclidean_distance`).
+    The transform is strictly monotone decreasing in ``d``, so the geometric
+    ORDERING of candidates is preserved exactly -- a geometry-only run's
+    assignments are unchanged by it -- while the range becomes the same
+    "higher-is-better, bounded above by 1" shape as ``oks`` / ``iou`` /
+    ``mask_iou``, which is what :meth:`Tracker._blend_appearance` needs to combine
+    it with a cosine similarity.
+
+    ``scale`` is a length in PIXELS with no universal default: it is the distance
+    at which the geometric similarity falls to ``1/e`` (~0.37), so a sensible value
+    is the typical inter-frame displacement of one animal in your data. It must be
+    passed explicitly (``euclidean_scale``); nothing here guesses it.
+
+    Applied ONLY when blending. A geometry-only ``euclidean_dist`` run never
+    reaches this, so its scores stay raw negative pixels and its behavior is
+    byte-identical to before this existed.
+
+    Args:
+        scores: Score matrix of negative distances; ``NaN`` (no valid candidate)
+            passes through as ``NaN``.
+        scale: Positive length scale in pixels.
+
+    Returns:
+        Similarities in ``(0, 1]``, ``NaN`` preserved.
+    """
+    with np.errstate(over="ignore"):
+        return np.exp(scores / float(scale))
+
+
+def validate_appearance_config(
+    features: str,
+    scoring_method: str,
+    appearance_weight: float = 0.0,
+    use_flow: bool = False,
+    use_kalman: bool = False,
+    euclidean_scale: Optional[float] = None,
+) -> None:
+    """Validate the appearance (re-ID) tracking options against each other.
+
+    The SINGLE choke point for every appearance rule that does not need the labels
+    themselves, called by both :meth:`Tracker.from_config` (so direct API and legacy
+    ``sleap-nn track`` callers are covered) and
+    :func:`sleap_nn.inference.tracking.apply_tracking` (on its RESOLVED effective
+    values, so it fails before any inference runs). Rules that need the labels --
+    "do any detections actually carry a vector?", mask-vs-pose carrier routing --
+    stay in ``apply_tracking``.
+
+    Args:
+        features: Resolved feature representation.
+        scoring_method: Resolved association metric.
+        appearance_weight: Weight on the appearance term of the blend.
+        use_flow: Whether the optical-flow motion model is requested.
+        use_kalman: Whether the Kalman motion model is requested.
+        euclidean_scale: Length scale (px) for the distance->similarity kernel,
+            required to blend appearance into ``euclidean_dist``.
+
+    Raises:
+        ValueError: For any incoherent combination, each with the reason and the
+            way out.
+    """
+    if not 0.0 <= appearance_weight <= 1.0:
+        message = (
+            f"appearance_weight must be in [0.0, 1.0], got {appearance_weight}. "
+            "It is the weight given to appearance (re-ID embedding cosine "
+            "similarity) when blended with the geometric score: 0.0 (default) is "
+            "geometry only, 1.0 is appearance only."
+        )
+        logger.error(message)
+        raise ValueError(message)
+
+    if appearance_weight > 0.0 and features == "embeddings":
+        message = (
+            "appearance_weight blends appearance INTO a geometric score, but "
+            "features='embeddings' is already appearance-only -- the blend would "
+            "mix appearance with itself. Pair appearance_weight with a geometric "
+            "feature (e.g. features='keypoints'), or drop it and keep "
+            "features='embeddings' for the appearance-only regime."
+        )
+        logger.error(message)
+        raise ValueError(message)
+
+    if features == "embeddings":
+        # cosine_sim / euclidean_dist are the only vector-valued metrics; oks / iou /
+        # mask_iou are keypoint/box/mask shaped and crash on a 1-D embedding vector
+        # (`compute_oks` raises AxisError on a (D,) array).
+        if scoring_method not in VECTOR_SCORING_METHODS:
+            message = (
+                "features='embeddings' requires scoring_method='cosine_sim' (or "
+                f"'euclidean_dist'); got {scoring_method!r}. Leave "
+                "--scoring_method unset to auto-select cosine_sim."
+            )
+            logger.error(message)
+            raise ValueError(message)
+        # Appearance matching is image-free; the motion models shift KEYPOINTS and
+        # would feed the shifted pose in as the "embedding" (get_embedding passes an
+        # ndarray through unchanged), scoring finite garbage.
+        if use_flow or use_kalman:
+            message = (
+                "Embedding (appearance) tracking does not support motion models "
+                "(--use_flow / --use_kalman)."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+    if appearance_weight > 0.0:
+        if use_flow or use_kalman:
+            message = (
+                "appearance_weight does not support motion models (--use_flow / "
+                "--use_kalman): the motion models score SHIFTED keypoints, which "
+                "the appearance blend has no counterpart for. Track without a "
+                "motion model, or drop appearance_weight."
+            )
+            logger.error(message)
+            raise ValueError(message)
+        # Blending requires the two terms to live on comparable scales. Cosine
+        # similarity is in [-1, 1]; `euclidean_dist` is negative PIXELS, so at any
+        # realistic image scale the geometric term would dominate by two orders of
+        # magnitude and the weight would be silently inert. `distance_to_similarity`
+        # fixes that, but only with a length scale, and there is no universal
+        # default -- so require it rather than guess.
+        if scoring_method in DISTANCE_SCORING_METHODS:
+            if euclidean_scale is None:
+                message = (
+                    f"appearance_weight with scoring_method={scoring_method!r} "
+                    "requires euclidean_scale (--euclidean_scale): that score is "
+                    "negative PIXELS, so it must be mapped through a bounded "
+                    "kernel before appearance can be blended into it, and the "
+                    "kernel needs a length scale. Pass the typical inter-frame "
+                    "displacement of one animal, in pixels (the distance at which "
+                    "the geometric similarity falls to ~0.37); `motion_diagnostic` "
+                    "reports it for your data. Alternatively track by appearance "
+                    "alone with features='embeddings', which is measured best "
+                    "where geometry is weak."
+                )
+                logger.error(message)
+                raise ValueError(message)
+            if not euclidean_scale > 0:
+                message = (
+                    f"euclidean_scale must be a positive number of pixels, got "
+                    f"{euclidean_scale}."
+                )
+                logger.error(message)
+                raise ValueError(message)
+        elif scoring_method not in BOUNDED_SCORING_METHODS:
+            message = (
+                f"appearance_weight requires a geometric score that is bounded, or "
+                f"mappable to one; scoring_method={scoring_method!r} is neither. "
+                "Use 'oks' (poses), 'iou' (boxes), 'mask_iou' (masks), or "
+                "'euclidean_dist' with --euclidean_scale."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
 
 @attrs.define
 class Tracker:
@@ -82,6 +257,12 @@ class Tracker:
             (excluded), use a robust quantile similarity score for the
             track. If the value is 1, use the max similarity (non-robust).
             For selecting a robust score, 0.95 is a good value.
+        euclidean_scale: Length scale in PIXELS used to map a `euclidean_dist`
+            score to a bounded similarity when blending appearance into it
+            (`exp(-d / euclidean_scale)`; see `distance_to_similarity`). Read only
+            when `appearance_weight > 0` and `scoring_method="euclidean_dist"`, and
+            required there. `None` (default) elsewhere; a geometry-only distance
+            run is unaffected. Default: `None`.
         use_flow: If True, `FlowShiftTracker` is used, where the poses are matched using
             optical flow shifts. Default: `False`.
         is_local_queue: `True` if `LocalQueueCandidates` is used else `False`.
@@ -99,6 +280,7 @@ class Tracker:
     robust_best_instance: float = 1.0
     oks_stddev: float = 0.025
     appearance_weight: float = 0.0
+    euclidean_scale: Optional[float] = None
     use_flow: bool = False
     is_local_queue: bool = False
     tracking_target_instance_count: Optional[int] = None
@@ -144,6 +326,7 @@ class Tracker:
         scoring_reduction: str = "mean",
         robust_best_instance: float = 1.0,
         oks_stddev: Optional[float] = None,
+        euclidean_scale: Optional[float] = None,
         appearance_weight: float = 0.0,
         track_matching_method: str = "hungarian",
         max_tracks: Optional[int] = None,
@@ -224,6 +407,14 @@ class Tracker:
                 `features='embeddings'` is already appearance-only and is
                 rejected. Pairs with no appearance evidence keep their geometric
                 score rather than blending toward NaN. Default: `0.0`.
+            Blending into `scoring_method="euclidean_dist"` additionally requires
+            `euclidean_scale`, since that score is unbounded pixels.
+            euclidean_scale: Length scale in PIXELS for the distance->similarity
+                kernel used when blending appearance into `euclidean_dist`
+                (`exp(-d / euclidean_scale)`). Pass the typical inter-frame
+                displacement of one animal; there is no universal default, so it
+                is required for that combination and ignored otherwise.
+                Default: `None`.
             use_kalman: If True, `KalmanShiftTracker` is used, where poses are predicted
                 with a per-track constant-velocity Kalman filter. Requires
                 `tracking_target_instance_count` (or `max_tracks`) and is mutually
@@ -265,10 +456,9 @@ class Tracker:
         # API use) flows through `from_config` (sleap#2720, #582).
         if max_tracks is not None and candidates_method == "fixed_window":
             logger.info(
-                "max_tracks=%s was set with candidates_method='fixed_window', which "
-                "ignores it; switching to candidates_method='local_queues' to honor "
-                "the track cap.",
-                max_tracks,
+                f"max_tracks={max_tracks} was set with "
+                "candidates_method='fixed_window', which ignores it; switching to "
+                "candidates_method='local_queues' to honor the track cap."
             )
             candidates_method = "local_queues"
 
@@ -292,26 +482,18 @@ class Tracker:
             logger.error(message)
             raise ValueError(message)
 
-        if not 0.0 <= appearance_weight <= 1.0:
-            message = (
-                f"appearance_weight must be in [0.0, 1.0], got {appearance_weight}. "
-                "It is the weight given to appearance (re-ID embedding cosine "
-                "similarity) when blended with the geometric score: 0.0 (default) is "
-                "geometry only, 1.0 is appearance only."
-            )
-            logger.error(message)
-            raise ValueError(message)
-
-        if appearance_weight > 0.0 and features == "embeddings":
-            message = (
-                "appearance_weight blends appearance INTO a geometric score, but "
-                "features='embeddings' is already appearance-only -- the blend would "
-                "mix appearance with itself. Pair appearance_weight with a geometric "
-                "feature (e.g. features='keypoints'), or drop it and keep "
-                "features='embeddings' for the appearance-only regime."
-            )
-            logger.error(message)
-            raise ValueError(message)
+        # Every appearance rule that does not need the labels, in one place, so the
+        # legacy `sleap-nn track` command and direct API callers are guarded too --
+        # not just `apply_tracking` (which validates its RESOLVED values through the
+        # same function, before any inference runs).
+        validate_appearance_config(
+            features=features,
+            scoring_method=scoring_method,
+            appearance_weight=appearance_weight,
+            use_flow=use_flow,
+            use_kalman=use_kalman,
+            euclidean_scale=euclidean_scale,
+        )
 
         if features == "embeddings" and appearance_weight == 0.0:
             # The G4 result: appearance-only association LOSES to geometry on dense
@@ -411,6 +593,7 @@ class Tracker:
             robust_best_instance=robust_best_instance,
             oks_stddev=oks_stddev,
             appearance_weight=appearance_weight,
+            euclidean_scale=euclidean_scale,
             track_matching_method=track_matching_method,
             use_flow=use_flow,
             is_local_queue=is_local_queue,
@@ -644,6 +827,30 @@ class Tracker:
 
         return scores
 
+    def _source_detections(
+        self, current_instances: Union[TrackInstances, List[TrackInstanceLocalQueue]]
+    ) -> list:
+        """The frame's SOURCE detections, in row order of the score matrix.
+
+        The one place that knows how the two candidate layouts store them
+        (`TrackInstanceLocalQueue.src_instance` per row vs. `TrackInstances.src_instances`),
+        so the appearance cue and the spawn-feasibility check below read the same list.
+        """
+        if self.is_local_queue:
+            return [x.src_instance for x in current_instances]
+        return list(current_instances.src_instances)
+
+    def _source_detection(
+        self,
+        current_instances: Union[TrackInstances, List[TrackInstanceLocalQueue]],
+        row: int,
+    ):
+        """The source detection for score-matrix row ``row``, or ``None`` if absent."""
+        sources = self._source_detections(current_instances)
+        if 0 <= row < len(sources):
+            return sources[row]
+        return None
+
     def _appearance_scores(
         self,
         current_instances: Union[TrackInstances, List[TrackInstanceLocalQueue]],
@@ -659,6 +866,17 @@ class Tracker:
         :meth:`_blend_appearance` reads as "no appearance evidence" and falls back
         to geometry for.
 
+        Candidates are filtered by ``min_match_points`` exactly as the geometric
+        loop in :meth:`get_scores` filters them, so both matrices reduce over the
+        SAME candidate set and are comparable before blending.
+
+        Computed as one matmul over stacked query ``(F, D)`` and gallery
+        ``(sum(W), D)`` matrices rather than a Python loop per pair -- ~90x faster
+        at realistic sizes, and each gallery vector is converted once instead of
+        once per query. Vectors whose dimensionality differs from the first query's
+        are skipped: :func:`compute_cosine_sim` maps a shape mismatch to NaN, i.e.
+        "no appearance evidence", so skipping them is the same outcome.
+
         Args:
             current_instances: The frame's untracked detections.
             candidates_feature_dict: Track ID -> candidate features.
@@ -669,29 +887,73 @@ class Tracker:
             ``(num_new_instances, num_existing_tracks)`` similarities in ``[-1, 1]``,
             NaN where either side carries no embedding.
         """
-        if self.is_local_queue:
-            current_sources = [x.src_instance for x in current_instances]
-        else:
-            current_sources = list(current_instances.src_instances)
+        current_sources = self._source_detections(current_instances)
+        track_ids = list(self.candidate.current_tracks)
+        appearance = np.full((len(current_sources), len(track_ids)), np.nan)
+        if not current_sources or not track_ids:
+            return appearance
 
-        appearance = np.full(
-            (len(current_sources), len(self.candidate.current_tracks)), np.nan
-        )
+        # Queries: one row per detection that carries a usable vector.
+        query_rows, query_vecs = [], []
         for f_idx, source in enumerate(current_sources):
-            query = get_embedding(source)
-            if query is None:
+            vec = get_embedding(source)
+            if vec is None:
                 continue
-            for t_idx, track_id in enumerate(self.candidate.current_tracks):
-                sims = []
-                for candidate in candidates_feature_dict[track_id]:
-                    gallery = get_embedding(candidate.src_predicted_instance)
-                    if gallery is None:
-                        continue
-                    sim = compute_cosine_sim(query, gallery)
-                    if not np.isnan(sim):
-                        sims.append(sim)
-                if sims:
-                    appearance[f_idx][t_idx] = scoring_reduction(sims)
+            vec = np.asarray(vec, dtype=np.float64).ravel()
+            if vec.size == 0:
+                continue
+            query_rows.append(f_idx)
+            query_vecs.append(vec)
+        if not query_vecs:
+            return appearance
+        dim = query_vecs[0].size
+        keep = [i for i, v in enumerate(query_vecs) if v.size == dim]
+        query_rows = np.asarray([query_rows[i] for i in keep])
+        queries = np.stack([query_vecs[i] for i in keep])  # (F, D)
+
+        # Gallery: every candidate that passes `min_match_points` and carries a
+        # same-dimension vector, flattened across tracks with its column recorded.
+        gallery_vecs, gallery_cols = [], []
+        for t_idx, track_id in enumerate(track_ids):
+            for candidate in candidates_feature_dict[track_id]:
+                if (
+                    count_valid_points(candidate.src_predicted_instance)
+                    <= self.min_match_points
+                ):
+                    continue
+                vec = get_embedding(candidate.src_predicted_instance)
+                if vec is None:
+                    continue
+                vec = np.asarray(vec, dtype=np.float64).ravel()
+                if vec.size != dim:
+                    continue
+                gallery_vecs.append(vec)
+                gallery_cols.append(t_idx)
+        if not gallery_vecs:
+            return appearance
+        gallery = np.stack(gallery_vecs)  # (M, D)
+        gallery_cols = np.asarray(gallery_cols)
+
+        # Cosine similarity, matching `compute_cosine_sim`'s contract: a zero-norm
+        # or non-finite pair reduces to NaN rather than raising or warning.
+        q_norm = np.linalg.norm(queries, axis=1)
+        g_norm = np.linalg.norm(gallery, axis=1)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            sims = (queries @ gallery.T) / (q_norm[:, None] * g_norm[None, :])
+        sims[~np.isfinite(sims)] = np.nan
+
+        for t_idx in range(len(track_ids)):
+            cols = gallery_cols == t_idx
+            if not cols.any():
+                continue
+            block = sims[:, cols]
+            # Reduce only the rows with at least one non-NaN similarity; an all-NaN
+            # slice makes `nanmean`/`nanmax`/`nanquantile` warn (and `nanmax` on an
+            # empty list raise), and those rows must stay NaN anyway.
+            rows = np.flatnonzero(np.isfinite(block).any(axis=1))
+            if rows.size == 0:
+                continue
+            appearance[query_rows[rows], t_idx] = scoring_reduction(block[rows], axis=1)
         return appearance
 
     def _blend_appearance(
@@ -713,11 +975,23 @@ class Tracker:
         Geometry is likewise preserved where IT is NaN (no candidate passed
         ``min_match_points``), so the blend can never invent a match that geometry
         rejected outright.
+
+        An unbounded ``euclidean_dist`` geometry is first mapped through
+        :func:`distance_to_similarity` -- a strictly monotone kernel, so the
+        candidate ORDERING geometry alone would have produced is unchanged; only
+        the scale is. This is the only place that mapping happens, so a
+        geometry-only distance run (which never calls this) keeps its raw negative
+        pixels. Its consequence for the OUTPUT is that a blended distance run's
+        ``tracking_score`` is a ``(0, 1]`` similarity rather than negative pixels.
         """
         appearance = self._appearance_scores(
             current_instances, candidates_feature_dict, scoring_reduction
         )
         weight = self.appearance_weight
+        if self.scoring_method in DISTANCE_SCORING_METHODS:
+            # `from_config` / `validate_appearance_config` guarantee a positive
+            # scale for this combination.
+            scores = distance_to_similarity(scores, self.euclidean_scale)
         both = np.isfinite(scores) & np.isfinite(appearance)
         blended = np.where(both, (1.0 - weight) * scores + weight * appearance, scores)
         n_blended = int(both.sum())
@@ -761,20 +1035,67 @@ class Tracker:
         # Drop INFEASIBLE assignments before they persist. A non-finite original cost
         # means the detection had no valid candidate for that track (every score was
         # NaN -> inf cost): e.g. an empty candidate list, or an embedding-less
-        # detection whose cosine/euclidean similarity is NaN. `hungarian_matching`
-        # fills inf with a large finite value internally so it still returns a
-        # pairing, but persisting it would steal an arbitrary identity and write a
-        # `-inf` tracking_score. Dropping it leaves the row unmatched, so it spawns a
-        # fresh track in `update_tracks` -- the documented contract (and the
-        # similarity-floor / admission gate the appearance path needs).
-        feasible = [
-            (int(row), int(col))
-            for row, col in zip(row_inds, col_inds)
-            if np.isfinite(cost_matrix[row, col])
-        ]
-        row_inds = [row for row, _ in feasible]
-        col_inds = [col for _, col in feasible]
-        tracking_scores = [-cost_matrix[row, col] for row, col in feasible]
+        # detection whose cosine/euclidean similarity is NaN. Both matchers still
+        # return such a pairing -- `hungarian_matching` fills inf with a large finite
+        # value internally, and `greedy_matching` sorts every edge -- but persisting
+        # it would steal an arbitrary identity and write a `-inf` tracking_score.
+        # Dropping it leaves the row unmatched so it spawns a fresh track in
+        # `update_tracks`: the documented contract, and the admission gate the
+        # appearance path needs.
+        #
+        # A drop is only safe when the detection CAN spawn that fresh track. If it
+        # cannot -- no headroom under `max_tracks`, or too little support for
+        # `min_new_track_points` -- `update_tracks` filters it out and the detection
+        # VANISHES from the tracked output. That would be a regression on the
+        # geometry-only path (NaN scores arise there too: a track whose candidates
+        # all fail `min_match_points`, or an all-NaN detection making `compute_oks`
+        # 0/0), so keep the forced match in that case, exactly as before this gate
+        # existed. No detection is ever deleted by the drop.
+        pairs = [(int(row), int(col)) for row, col in zip(row_inds, col_inds)]
+        infeasible = [p for p in pairs if not np.isfinite(cost_matrix[p[0], p[1]])]
+        if infeasible:
+            slots = self.candidate.available_new_tracks()
+            min_new = self.candidate.min_new_track_points
+            sources = self._source_detections(current_instances)
+
+            def _has_support(row: int) -> bool:
+                src = sources[row] if 0 <= row < len(sources) else None
+                return src is None or count_valid_points(src) > min_new
+
+            if slots is not None:
+                # Rows the matcher never paired at all (more detections than
+                # tracks) also spawn inside `update_tracks`, from the same
+                # headroom. Reserve their slots so a drop cannot take the slot an
+                # unpaired detection needed and delete IT instead.
+                paired = {row for row, _ in pairs}
+                slots = max(
+                    0,
+                    slots
+                    - sum(
+                        1
+                        for row in range(len(sources))
+                        if row not in paired and _has_support(row)
+                    ),
+                )
+            spawnable = 0
+            forced = []
+            for row, col in infeasible:
+                if _has_support(row) and (slots is None or spawnable < slots):
+                    spawnable += 1  # will become a fresh track; safe to drop
+                else:
+                    forced.append((row, col))
+            if forced:
+                logger.debug(
+                    f"Kept {len(forced)} forced (infeasible) pairing(s): the "
+                    "detection could not spawn a fresh track, and dropping the "
+                    "pairing would delete it from the output."
+                )
+            keep = set(p for p in pairs if np.isfinite(cost_matrix[p[0], p[1]]))
+            keep.update(forced)
+            pairs = [p for p in pairs if p in keep]
+        row_inds = [row for row, _ in pairs]
+        col_inds = [col for _, col in pairs]
+        tracking_scores = [-cost_matrix[row, col] for row, col in pairs]
 
         # update the candidates tracker queue with the newly tracked instances and assign
         # track IDs to `current_instances`.

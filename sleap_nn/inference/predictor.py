@@ -133,91 +133,67 @@ def _pp_field(assets: Any, name: str, default: Any = None) -> Any:
     return val if val is not None else default
 
 
+_MULTICLASS_HEAD_SUBKEY = {
+    "multi_class_topdown": "class_vectors",
+    "multi_class_bottomup": "class_maps",
+}
+
+
+def _multiclass_head_field(
+    assets: Any, head_type: str, field: str, default: Any
+) -> Any:
+    """Read one field off a multi-class head's saved training config.
+
+    The single reader behind :func:`_multiclass_class_names` and
+    :func:`_multiclass_class_output`, mirroring legacy ``predictors.py`` track
+    construction:
+
+    * ``multi_class_topdown`` →
+      ``confmap_config.model_config.head_configs.multi_class_topdown.class_vectors.*``
+      (TopDownMultiClass, predictors.py:3808-3811).
+    * ``multi_class_bottomup`` →
+      ``bottomup_config.model_config.head_configs.multi_class_bottomup.class_maps.*``
+      (BottomUpMultiClass, predictors.py:2966-2969).
+
+    Returns ``default`` for an unknown head type, a missing config, a missing
+    field (a checkpoint trained before it existed), or an explicit ``None``.
+    """
+    sub_key = _MULTICLASS_HEAD_SUBKEY.get(head_type)
+    if sub_key is None:
+        return default
+    cfg = getattr(
+        assets,
+        "confmap_config" if head_type == "multi_class_topdown" else "bottomup_config",
+        None,
+    )
+    if cfg is None:
+        return default
+    try:
+        value = cfg.model_config.head_configs[head_type][sub_key][field]
+    except (KeyError, AttributeError, TypeError):
+        return default
+    return default if value is None else value
+
+
 def _multiclass_class_names(assets: Any, head_type: str) -> Optional[List[str]]:
     """Ordered class names for a multi-class head from the training config.
 
-    Mirrors legacy ``predictors.py`` track construction:
-
-    * ``multi_class_topdown`` →
-      ``confmap_config.model_config.head_configs.multi_class_topdown.class_vectors.classes``
-      (TopDownMultiClass, predictors.py:3808-3811).
-    * ``multi_class_bottomup`` →
-      ``bottomup_config.model_config.head_configs.multi_class_bottomup.class_maps.classes``
-      (BottomUpMultiClass, predictors.py:2966-2969).
-
     Returns ``None`` when the config or class list is unavailable.
     """
-    if head_type == "multi_class_topdown":
-        cfg = getattr(assets, "confmap_config", None)
-        sub_key = "class_vectors"
-    elif head_type == "multi_class_bottomup":
-        cfg = getattr(assets, "bottomup_config", None)
-        sub_key = "class_maps"
-    else:
-        return None
-    if cfg is None:
-        return None
-    try:
-        classes = cfg.model_config.head_configs[head_type][sub_key]["classes"]
-    except (KeyError, AttributeError, TypeError):
-        return None
-    if classes is None:
-        return None
-    return [str(c) for c in classes]
-
-
-def _multiclass_class_uuids(assets: Any, head_type: str) -> Optional[List[str]]:
-    """Ordered per-class ``class_uuids`` for a multi-class head (VESTIGIAL).
-
-    The simplified sleap-io ``Identity`` (sleap-io #535) matches by name, so the
-    train->inference uuid bridge is obsolete and no longer minted; this reader is
-    retained only so an old ``training_config.yaml`` carrying a ``class_uuids`` field
-    still parses. Always effectively ``None`` for models trained on the new data model.
-    Returns ``None`` when the config or ``class_uuids`` list is unavailable.
-    """
-    if head_type == "multi_class_topdown":
-        cfg = getattr(assets, "confmap_config", None)
-        sub_key = "class_vectors"
-    elif head_type == "multi_class_bottomup":
-        cfg = getattr(assets, "bottomup_config", None)
-        sub_key = "class_maps"
-    else:
-        return None
-    if cfg is None:
-        return None
-    try:
-        class_uuids = cfg.model_config.head_configs[head_type][sub_key]["class_uuids"]
-    except (KeyError, AttributeError, TypeError):
-        return None
-    if class_uuids is None:
-        return None
-    return [str(u) for u in class_uuids]
+    classes = _multiclass_head_field(assets, head_type, "classes", None)
+    return None if classes is None else [str(c) for c in classes]
 
 
 def _multiclass_class_output(assets: Any, head_type: str) -> str:
     """How a multi-class head's classes map to ``sleap_io`` objects.
 
     Reads the ``class_output`` field off the head config (``"track"`` /
-    ``"identity"`` / ``"category"``). Defaults to ``"track"`` when unavailable
-    (e.g. a legacy checkpoint trained before this field existed), which restores
-    the track-only packaging — no global ``sio.Identity`` is fabricated unless the
-    model explicitly declares its classes are unique individuals.
+    ``"identity"``). Defaults to ``"track"`` when unavailable (e.g. a legacy
+    checkpoint trained before this field existed), which restores the track-only
+    packaging — no global ``sio.Identity`` is fabricated unless the model
+    explicitly declares its classes are unique individuals.
     """
-    if head_type == "multi_class_topdown":
-        cfg = getattr(assets, "confmap_config", None)
-        sub_key = "class_vectors"
-    elif head_type == "multi_class_bottomup":
-        cfg = getattr(assets, "bottomup_config", None)
-        sub_key = "class_maps"
-    else:
-        return "track"
-    if cfg is None:
-        return "track"
-    try:
-        value = cfg.model_config.head_configs[head_type][sub_key]["class_output"]
-    except (KeyError, AttributeError, TypeError):
-        return "track"
-    return str(value) if value is not None else "track"
+    return str(_multiclass_head_field(assets, head_type, "class_output", "track"))
 
 
 def _build_single_instance_layer(predictor: Any, device: str) -> SingleInstanceLayer:
@@ -406,7 +382,6 @@ def _build_bottomup_multiclass_layer(
         max_stride=max_stride,
         max_instances=getattr(predictor, "max_instances", None),
         class_names=_multiclass_class_names(predictor, "multi_class_bottomup"),
-        class_uuids=_multiclass_class_uuids(predictor, "multi_class_bottomup"),
         class_output=_multiclass_class_output(predictor, "multi_class_bottomup"),
         preprocess_config=PreprocessConfig(
             scale=inf.input_scale,
@@ -579,7 +554,6 @@ def _build_centered_instance_multiclass_layer(
     instance_model: Any,
     device: str,
     class_names: Optional[List[str]] = None,
-    class_uuids: Optional[List[str]] = None,
     class_output: str = "track",
 ) -> CenteredInstanceMultiClassLayer:
     """Wrap a ``TopDownMultiClassFindInstancePeaks`` model in a layer."""
@@ -588,7 +562,6 @@ def _build_centered_instance_multiclass_layer(
         output_stride=instance_model.output_stride,
         max_stride=instance_model.max_stride,
         class_names=class_names,
-        class_uuids=class_uuids,
         class_output=class_output,
         preprocess_config=PreprocessConfig(scale=instance_model.input_scale),
         postprocess_config=PostprocessConfig(
@@ -623,7 +596,6 @@ def _build_topdown_multiclass_layer(
         inf.instance_peaks,
         device,
         class_names=_multiclass_class_names(predictor, "multi_class_topdown"),
-        class_uuids=_multiclass_class_uuids(predictor, "multi_class_topdown"),
         class_output=_multiclass_class_output(predictor, "multi_class_topdown"),
     )
     crop_h, crop_w = inf.centroid_crop.crop_hw
@@ -803,6 +775,13 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
             assets.inference_model.instance_peaks,
             device,
             class_names=_multiclass_class_names(assets, "multi_class_topdown"),
+            # `class_output` must be forwarded here too, not just on the paired
+            # centroid+topdown build below: without it the layer kept the "track"
+            # default and `_multiclass_identities()` returned None, so a solo
+            # `multi_class_topdown` run emitted no `sio.Identity` at all -- and this
+            # is exactly the branch `sleap-nn train`'s post-training eval takes
+            # (predict on the run dir alone).
+            class_output=_multiclass_class_output(assets, "multi_class_topdown"),
         )
         centroid_layer = _build_centroid_layer_gt_only(assets, inst_layer.backend)
         crop_h, crop_w = assets.inference_model.centroid_crop.crop_hw
@@ -2381,14 +2360,17 @@ class Predictor:
         # The classes map to a global Identity only when the model declares them
         # as unique individuals (``class_output == "identity"``). A ``"track"``
         # model (the default) emits only the per-video Track — no Identity is
-        # fabricated. ``"category"`` (shared types/roles) is not yet implemented.
+        # fabricated. ``"category"`` (shared types/roles) is not implemented here;
+        # the head configs' validator rejects it at config load, so this only fires
+        # for a hand-written ``training_config.yaml`` that bypassed them.
         class_output = getattr(self.layer, "class_output", "track")
-        if class_output == "category":
+        if class_output not in ("track", "identity"):
             raise NotImplementedError(
-                "class_output='category' is not supported (sleap-io removed the "
-                "categories data model in #535); predicted classes can be emitted as "
-                "'track' (default) or 'identity'. Set the multi-class head's "
-                "class_output to 'track' or 'identity'."
+                f"class_output={class_output!r} is not supported; predicted classes "
+                "can be emitted as 'track' (default) or 'identity'. Set the "
+                "multi-class head's class_output to one of those. (sleap-io does "
+                "have a Category data model, but mapping classes onto it is not "
+                "implemented.)"
             )
         if class_output != "identity":
             return None

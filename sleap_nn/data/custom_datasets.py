@@ -2458,18 +2458,36 @@ class EmbeddingDataset(BaseDataset):
         )
 
     def _detect_mode(self, labels: List[sio.Labels]) -> str:
-        """``"mask"`` if any frame has a (tracked) mask, else ``"pose"`` (keypoints).
+        """``"mask"`` if masks are the dominant carrier, else ``"pose"`` (keypoints).
 
         With ``include_untracked`` (inference re-tracking), masks need not carry a
         track to select mask mode — otherwise an untracked mask-only ``.slp`` would
         be misread as pose mode (no keypoints) and embed nothing.
+
+        The mode is decided by which carrier holds MORE eligible detections, not by
+        "any mask anywhere". A single user-GT mask on one frame of an otherwise
+        pose-only ``.slp`` used to flip the whole run to mask mode, so the vectors
+        landed on that one mask and every pose went unembedded — and
+        :func:`~sleap_nn.inference.tracking.apply_tracking` then routed tracking to
+        the mask carrier. Ties go to masks (the historical choice, and what a
+        mask-only file wants).
         """
+        n_mask = 0
+        n_pose = 0
         for label in labels:
             for lf in label:
                 for m in getattr(lf, "masks", None) or []:
                     if self.include_untracked or getattr(m, "track", None) is not None:
-                        return "mask"
-        return "pose"
+                        n_mask += 1
+                for inst in lf.instances:
+                    if (
+                        self.include_untracked
+                        or getattr(inst, "track", None) is not None
+                    ):
+                        n_pose += 1
+        if n_mask == 0:
+            return "pose"
+        return "mask" if n_mask >= n_pose else "pose"
 
     def _group_keys(self, labels_idx, video_idx, track_name, global_label):
         """Return ``(group_id, global_group_id)`` for a detection.

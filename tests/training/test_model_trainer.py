@@ -2353,7 +2353,8 @@ class TestMultiClassIdentityClasses:
     The simplified sleap-io ``Identity`` (name + metadata, sleap-io #535) matches by
     NAME across files and retrains, so the old per-class uuid bridge is gone:
     ``ModelTrainer._setup_head_config`` resolves ``classes`` (the class names, which ARE
-    the canonical identity keys) but no longer mints/freezes ``class_uuids``. These
+    the canonical identity keys); the ``class_uuids`` field it used to mint is gone
+    from the configs, the heads and the layers entirely. These
     tests exercise class resolution in isolation (no full training run) by merging the
     raw head config with the structured schema and calling ``_setup_head_config``.
     """
@@ -2399,7 +2400,7 @@ class TestMultiClassIdentityClasses:
         return trainer
 
     def test_topdown_identity_classes_resolved_no_uuids(self, minimal_instance):
-        """class_vectors: classes resolved from tracks; class_uuids NOT minted."""
+        """class_vectors: classes resolved from tracks; no class_uuids field."""
         labels, _ = self._tracked_labels(minimal_instance)
         trainer = self._build_trainer(
             "multi_class_topdown", "class_vectors", {"classes": None}, [labels]
@@ -2407,11 +2408,12 @@ class TestMultiClassIdentityClasses:
         trainer._setup_head_config()
         cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
         assert cv.classes is not None and set(cv.classes) == {"female", "male"}
-        # The uuid bridge is obsolete: names ARE the identity key, so no uuids frozen.
-        assert cv.class_uuids is None
+        # The uuid bridge is obsolete: names ARE the identity key, and the field
+        # is gone rather than accepted-but-ignored.
+        assert not hasattr(cv, "class_uuids")
 
     def test_bottomup_identity_classes_resolved_no_uuids(self, minimal_instance):
-        """class_maps: classes resolved from tracks; class_uuids NOT minted."""
+        """class_maps: classes resolved from tracks; no class_uuids field."""
         labels, _ = self._tracked_labels(minimal_instance)
         trainer = self._build_trainer(
             "multi_class_bottomup", "class_maps", {"classes": None}, [labels]
@@ -2419,7 +2421,7 @@ class TestMultiClassIdentityClasses:
         trainer._setup_head_config()
         cm = trainer.config.model_config.head_configs.multi_class_bottomup.class_maps
         assert cm.classes is not None and set(cm.classes) == {"female", "male"}
-        assert cm.class_uuids is None
+        assert not hasattr(cm, "class_uuids")
 
     def test_gt_identities_do_not_mint_uuids(self, minimal_instance):
         """GT sio.Identity annotations are name-matched; no uuid is derived/frozen."""
@@ -2431,7 +2433,7 @@ class TestMultiClassIdentityClasses:
         trainer._setup_head_config()
         cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
         assert set(cv.classes) == {"female", "male"}
-        assert cv.class_uuids is None
+        assert not hasattr(cv, "class_uuids")
 
     def test_track_output_resolves_classes_no_uuids(self, minimal_instance):
         """Default class_output='track': classes resolved, no uuids (unchanged)."""
@@ -2446,4 +2448,4 @@ class TestMultiClassIdentityClasses:
         trainer._setup_head_config()
         cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
         assert cv.classes is not None and len(cv.classes) == 2
-        assert cv.class_uuids is None
+        assert not hasattr(cv, "class_uuids")

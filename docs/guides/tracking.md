@@ -165,12 +165,19 @@ tracker via `Tracker.from_config(...)`.
 
 ### Appearance (embedding / re-ID)
 
-Track by **appearance** instead of pose/position: each detection carries a learned
-`"reid"` appearance vector (from an [`embedding`](embedding-tracking.md) re-ID model)
-and candidates are matched by **cosine similarity** between vectors. Because identity
-comes from appearance, it survives crossings and occlusions that confuse
-position/pose-based association — the track follows *what the animal looks like*, not
-where it is.
+Track by **appearance**: each detection carries a learned appearance vector (from an
+[`embedding`](embedding-tracking.md) re-ID model) and candidates are matched by
+**cosine similarity** between vectors — the track follows *what the animal looks
+like*, not where it is.
+
+Appearance is a **complementary** cue, not a better one. On dense continuous video,
+geometry is highly informative and appearance-*only* association measurably loses to
+it (227 ID switches against 32 on a held-out session); appearance wins where geometry
+has no signal — temporally sparse frames, long occlusions, cross-session identity.
+Blended into a geometric score with
+[`--appearance_weight`](embedding-tracking.md#blending-appearance-with-geometry) it
+beats either cue alone. Read the [embedding tracking
+guide](embedding-tracking.md#which-regime-you-want) before choosing.
 
 ```bash
 # Detections already carry embeddings (saved by a prior embedding-model run):
@@ -182,8 +189,9 @@ both pose (`PredictedInstance`) and segmentation-mask (`PredictedSegmentationMas
 detections, and is image-free (no `--use_flow` / `--use_kalman`). `local_queues`
 (a per-track gallery of recent vectors) is a good pairing.
 
-**Best for**: re-identification across occlusions / crossings, multi-session identity,
-and any case where appearance is more discriminative than motion. See the
+**Best for**: re-identification across long occlusions, temporally sparse frames, and
+multi-session identity — the regimes where geometry has nothing to go on. On dense
+continuous video prefer a geometric `--features` with `--appearance_weight`. See the
 [embedding (re-ID) tracking guide](embedding-tracking.md) for the full workflow,
 including running the embedding model and tracking in one command.
 

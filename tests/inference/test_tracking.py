@@ -1153,6 +1153,110 @@ def test_apply_tracking_embeddings_routes_by_embedding_carrier(skeleton, video):
             )
     assert len(per_track) == 2  # masks tracked by appearance
     assert all(len(v) == 1 for v in per_track.values())
+    # ...and the pose instances that share those frames are CARRIED THROUGH, not
+    # deleted. `is_mask_mode` rebuilt each frame as `instances=[]`, which was
+    # unreachable for predicted poses before embedding routing removed the
+    # "no predicted instances" precondition: 4 poses in -> 0 out.
+    poses = [i for lf in out.labeled_frames for i in lf.instances]
+    assert len(poses) == 4, "pose instances were dropped by mask-mode tracking"
+    # They carry no appearance vector, so they are passed through UNTRACKED rather
+    # than being force-matched to a mask's identity.
+    assert all(i.track is None for i in poses)
+
+
+def test_apply_tracking_mask_mode_warns_about_untracked_poses(skeleton, video, caplog):
+    """Carrying poses through silently would be its own surprise -- warn once."""
+    import logging
+
+    from loguru import logger as _loguru
+
+    handler_id = _loguru.add(lambda m: logging.getLogger("loguru").warning(m))
+    try:
+        yy, xx = np.ogrid[:80, :80]
+        disk = ((yy - 40) ** 2 + (xx - 40) ** 2) <= 10**2
+        lfs = []
+        for fi in range(2):
+            m = sio.PredictedSegmentationMask.from_numpy(disk, score=0.9)
+            m.identity_embedding = sio.Embedding(np.asarray([1, 0], np.float32))
+            pose = sio.PredictedInstance.from_numpy(
+                points_data=np.array([[5.0, 5.0], [9.0, 9.0]], dtype=np.float32),
+                skeleton=skeleton,
+                score=0.9,
+            )
+            lfs.append(
+                sio.LabeledFrame(video=video, frame_idx=fi, instances=[pose], masks=[m])
+            )
+        labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=lfs)
+        with caplog.at_level(logging.WARNING, logger="loguru"):
+            apply_tracking(labels, _emb_cfg())
+        assert "carried through to the output UNTRACKED" in caplog.text
+    finally:
+        _loguru.remove(handler_id)
+
+
+def test_apply_tracking_embedding_log_line_is_formatted(skeleton, video, caplog):
+    """loguru formats with str.format, so the "%r" placeholders printed literally --
+    the one line that reports the resolved scoring method and carrier said neither."""
+    import logging
+
+    from loguru import logger as _loguru
+
+    handler_id = _loguru.add(lambda m: logging.getLogger("loguru").info(m))
+    try:
+        labels = _make_embedded_pose_labels(skeleton, video)
+        with caplog.at_level(logging.INFO, logger="loguru"):
+            apply_tracking(labels, _emb_cfg())
+        assert "scoring_method='cosine_sim'" in caplog.text
+        assert "carrier=pose" in caplog.text
+        assert "%r" not in caplog.text and "%s" not in caplog.text
+    finally:
+        _loguru.remove(handler_id)
+
+
+def test_apply_tracking_appearance_weight_without_vectors_raises(skeleton, video):
+    """`appearance_weight` on vector-less labels was a SILENT no-op byte-identical
+    to weight 0, while the help said "Requires embeddings in the input"."""
+    labels = _make_labels(skeleton, video, frames=3)  # no embeddings attached
+    with pytest.raises(ValueError, match="no detection in the labels carries"):
+        apply_tracking(labels, TrackerConfig(appearance_weight=0.5))
+
+
+def test_apply_tracking_appearance_weight_single_node_needs_scale(video):
+    """A 1-node skeleton resolves to `euclidean_dist` -- unbounded, so the blend
+    would be numerically inert without the distance kernel's length scale.
+
+    This is the guide's centroid-only fused case, so it has to work once the scale
+    is given, and say what is missing when it is not."""
+    skel1 = sio.Skeleton(nodes=["centroid"])
+    inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[10.0, 10.0]], dtype=np.float32),
+        skeleton=skel1,
+        score=0.9,
+    )
+    inst.identity_embedding = sio.Embedding(np.asarray([1.0, 0.0], np.float32))
+    labels = sio.Labels(
+        videos=[video],
+        skeletons=[skel1],
+        labeled_frames=[sio.LabeledFrame(video=video, frame_idx=0, instances=[inst])],
+    )
+    # `scoring_method_explicit=False` is how the CLI builds it when
+    # --scoring_method is left unset, which is what lets the single-node branch
+    # substitute euclidean_dist.
+    cfg = TrackerConfig(appearance_weight=0.3, scoring_method_explicit=False)
+    with pytest.raises(ValueError, match="requires euclidean_scale"):
+        apply_tracking(labels, cfg)
+
+    # With the scale, the blend runs on centroid-only detections.
+    out = apply_tracking(
+        labels,
+        TrackerConfig(
+            appearance_weight=0.3,
+            euclidean_scale=25.0,
+            scoring_method_explicit=False,
+        ),
+    )
+    tracked = [i for lf in out.labeled_frames for i in lf.instances]
+    assert tracked and all(i.track is not None for i in tracked)
 
 
 def test_apply_tracking_embeddings_skip_single_node_default(video, monkeypatch):

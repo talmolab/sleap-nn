@@ -212,6 +212,7 @@ def save_predictions(
     video_index: Optional[int] = None,
     embed: Union[str, bool] = "false",
     restore_source_videos: bool = False,
+    save_embedding_vectors: Optional[bool] = None,
 ) -> List[Path]:
     """Save predicted ``Labels`` to disk in the requested format(s).
 
@@ -237,6 +238,12 @@ def save_predictions(
             original pre-embedding source video files, when recorded. Maps to
             sleap-io's ``restore_original_videos`` and is ignored when
             embedding.
+        save_embedding_vectors: Whether to persist appearance (re-ID) vectors
+            attached to the detections. ``None`` (the default) PRESERVES them iff
+            any detection carries one — sleap-io's own default is ``False``, which
+            silently dropped every vector when retracking an embedded ``.slp``
+            (``predict -i embedded.slp -t --features embeddings`` produced an
+            output that could not be retracked again). ``True``/``False`` force it.
 
     Returns:
         The list of analysis HDF5 paths written (empty unless ``"analysis_h5"``
@@ -248,10 +255,18 @@ def save_predictions(
     formats = _normalize_output_formats(output_format)
 
     if "slp" in formats:
+        if save_embedding_vectors is None:
+            # Preserve appearance vectors iff the labels carry any: sleap-io
+            # defaults this to False, so a tracked/re-saved .slp silently lost the
+            # embeddings it was tracked on.
+            from sleap_nn.inference.tracking import _labels_have_embeddings
+
+            save_embedding_vectors = _labels_have_embeddings(labels)
         labels.save(
             Path(output_path).as_posix(),
             embed=_resolve_embed(embed, labels),
             restore_original_videos=restore_source_videos,
+            save_embedding_vectors=save_embedding_vectors,
         )
         logger.info(f"Predictions output path: {output_path}")
         logger.info(f"Saved file at: {datetime.now()}")
@@ -333,6 +348,7 @@ def predict(
     output_format: Union[str, Sequence[str]] = "slp",
     embed: Union[str, bool] = "false",
     restore_source_videos: bool = False,
+    save_embedding_vectors: Optional[bool] = None,
     clean_empty_frames: bool = False,
     progress_callback: Optional[Callable[[int, int], None]] = None,
     tracking_progress_callback: Optional[Callable[[int, int], None]] = None,
@@ -452,6 +468,9 @@ def predict(
             often unavailable. ``True`` instead restores references to the
             original pre-embedding source video files, when recorded.
             Ignored when embedding.
+        save_embedding_vectors: Whether to persist appearance (re-ID) vectors on
+            the saved detections. ``None`` (the default) preserves them iff any
+            detection carries one; see :func:`save_predictions`.
         clean_empty_frames: Drop frames with no instances.
         progress_callback: ``(processed_frames, total_frames)`` callback
             invoked after each batch (counts are in frames).
@@ -568,8 +587,10 @@ def predict(
                 "Embedding (re-ID) models emit appearance vectors, not poses, and are "
                 "not supported by `predict` (which packages pose Labels). Use the "
                 "dedicated embedding path instead:\n"
-                "  sleap-nn predict --data_path <video|.slp> --model_paths "
+                "  sleap-nn predict --data_path <detections.slp> --model_paths "
                 "<embedding_dir> --save_embeddings slp\n"
+                "(a lone embedding model EMBEDS EXISTING detections, so its input is "
+                "a .slp; pass a detection model alongside it to run on a video)\n"
                 "or, from Python:\n"
                 "  from sleap_nn.inference.embedding import predict_embeddings_to_slp\n"
                 "  predict_embeddings_to_slp(model_paths=[embedding_dir], "
@@ -656,6 +677,7 @@ def predict(
             output_format=output_format,
             embed=embed,
             restore_source_videos=restore_source_videos,
+            save_embedding_vectors=save_embedding_vectors,
         )
 
     return labels

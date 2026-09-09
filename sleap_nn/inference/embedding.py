@@ -25,8 +25,9 @@ This module hosts:
 Reachable from ``sleap-nn predict`` (the CLI routes embedding models here); the
 pose-packaging :func:`sleap_nn.inference.run.predict` flow rejects embedding models and
 points back to this function. A fused ``-m centroid [-m centered_instance] -m
-<embedding> -i <video> --tracking`` command first runs the detection stack to a
-temporary ``.slp`` and then embeds + tracks it (see ``sleap_nn.cli._run_embeddings``).
+<embedding> -i <video> --tracking`` command first runs the detection stack and then
+embeds + tracks the ``sio.Labels`` it returns, in memory (see
+``sleap_nn.cli._run_embeddings``).
 """
 
 from __future__ import annotations
@@ -145,6 +146,22 @@ def embed_labels(
     class_names = resolve_embedding_class_names([labels])
     if not class_names and not include_untracked:
         raise ValueError("No tracked detections found to embed.")
+    # No detections at all (e.g. a fused run whose detector found nothing).
+    # `EmbeddingDataset` -> `BaseDataset.__init__` would otherwise raise the
+    # training-flavored "none of the labeled frames contain user-labeled data",
+    # which is the wrong diagnosis at inference time.
+    n_detections = sum(
+        len(lf.instances) + len(getattr(lf, "masks", None) or [])
+        for lf in labels.labeled_frames
+    )
+    if n_detections == 0:
+        raise ValueError(
+            "No detections to embed: the labels contain "
+            f"{len(labels.labeled_frames)} frame(s) and no instances or masks. "
+            "An embedding (re-ID) model attaches vectors to detections that "
+            "already exist -- check that the detection stage produced any "
+            "(e.g. lower --peak_threshold)."
+        )
 
     emb_ensure_rgb, emb_ensure_grayscale = _resolve_embedding_channels(config)
     crop_centering = OmegaConf.select(
@@ -175,6 +192,28 @@ def embed_labels(
         max_hw=max_hw,
         cache_img=None,
     )
+    # A `burn_in` model was trained on MASKED crops (background blanked, standardize
+    # over the foreground only). In pose mode there are no masks to burn in, so
+    # `_crop_pose` hands the module an all-ones mask and `_standardize` degrades to a
+    # whole-crop standardize with the background left in, which is off distribution
+    # for that model. Every fused `detect -> embed` run is pose mode, so this is the
+    # common case, not the exotic one. Warn rather than silently produce
+    # off-distribution vectors.
+    # (`export/cli.py` points burn-in users at this native path "for exact parity",
+    # and `lightning_modules.set_embedding_burn_in_from_config` says callers on this
+    # path warn -- both rely on this.)
+    if dataset.detection_mode == "pose" and getattr(
+        getattr(layer, "embedding_module", None), "burn_in", False
+    ):
+        logger.warning(
+            "This embedding model was trained with mask burn-in, but these "
+            "detections carry no masks: the crops use a whole-crop standardize with "
+            "the background un-blanked, which diverges from the masked training "
+            "standardize and degrades the embeddings. For exact parity, embed a "
+            "mask-bearing .slp (e.g. the output of a segmentation model), or train "
+            "with burn_in=False."
+        )
+
     if len(dataset) == 0:
         return (
             np.zeros((0, embedding_dim), np.float32),
@@ -223,13 +262,15 @@ def embed_labels(
 @torch.inference_mode()
 def predict_embeddings_to_slp(
     model_paths,
-    data_path: str,
+    data_path: Optional[str] = None,
     output_path: Optional[str] = None,
     device: str = "cuda",
     batch_size: int = 64,
     save_embeddings: str = "slp",
     tracker_config: Optional["TrackerConfig"] = None,  # noqa: F821
     include_untracked: Optional[bool] = None,
+    labels: Optional[sio.Labels] = None,
+    restore_source_videos: bool = False,
 ) -> str:
     """Embed every detection in ``data_path`` and persist the vectors into a ``.slp``.
 
@@ -242,7 +283,9 @@ def predict_embeddings_to_slp(
         model_paths: Trained ``embedding`` model directory (or a list; the embedding
             model is selected and any stray non-embedding dirs are ignored — the CLI
             runs the detection stack separately for the fused path).
-        data_path: ``.slp`` file with the detections to embed.
+        data_path: ``.slp`` file with the detections to embed. Optional when
+            ``labels`` is passed (it is then used only to derive the default
+            ``output_path``).
         output_path: Output ``.slp`` path. Defaults to ``<data_path>.tracked.slp`` when
             tracking, else ``<data_path>.embeddings.slp``.
         device: Torch device.
@@ -263,9 +306,24 @@ def predict_embeddings_to_slp(
             non-tracking embeds only tracked detections, keyed by identity). The fused
             detect→embed path sets ``True`` because freshly-detected instances carry no
             tracks yet.
+        labels: Detections to embed, already in memory. When given, ``data_path`` is
+            NOT loaded — the fused ``detect→embed`` route hands over the ``sio.Labels``
+            its detection stage returned instead of round-tripping them through a
+            temporary ``.slp``.
+        restore_source_videos: Forwarded to sleap-io's ``restore_original_videos``.
+            ``False`` (the default, matching
+            :func:`sleap_nn.inference.run.save_predictions` and ``predict``'s
+            ``--restore_source_videos``) keeps references to an input ``.pkg.slp``,
+            whose pixels are already present; ``True`` restores references to the
+            pre-embedding source videos, which are often unavailable.
 
     Returns:
         The output ``.slp`` path.
+
+    Raises:
+        ValueError: If neither ``data_path`` nor ``labels`` is given, if no
+            ``embedding`` model is among ``model_paths``, if there is nothing to
+            persist, or if no detections were found to embed.
     """
     from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
     from sleap_nn.inference.loaders import _load_training_config
@@ -301,7 +359,25 @@ def predict_embeddings_to_slp(
             "to track by appearance."
         )
 
-    labels = sio.load_slp(data_path)
+    if labels is None:
+        if not data_path:
+            raise ValueError(
+                "predict_embeddings_to_slp requires either data_path (a .slp of "
+                "detections) or labels (detections already in memory)."
+            )
+        # A lone embedding model EMBEDS EXISTING detections, so its input must be a
+        # .slp. Say so, instead of letting a video path die inside h5py with an
+        # opaque "file signature not found" OSError.
+        if Path(str(data_path)).suffix.lower() != ".slp":
+            raise ValueError(
+                f"data_path must be a .slp of detections to embed, got {data_path!r}. "
+                "A lone embedding (re-ID) model attaches appearance vectors to "
+                "detections that already exist; to run on a video, pass a detection "
+                "model (centroid / centered_instance) alongside the embedding model "
+                "so the detections are produced first."
+            )
+        labels = sio.load_slp(data_path)
+    source_name = data_path if data_path else "<in-memory labels>"
 
     # Tracking (and the fused detect→embed path) embed EVERY detection — tracked or not —
     # so untracked inputs can be tracked / persisted; otherwise only tracked detections
@@ -314,7 +390,7 @@ def predict_embeddings_to_slp(
         include_untracked=inc_untracked,
     )
     if n_attached == 0:
-        raise ValueError(f"No detections found in {data_path} to embed.")
+        raise ValueError(f"No detections found in {source_name} to embed.")
 
     if tracking:
         # WF2: track by appearance on the freshly-attached vectors, then write the
@@ -337,8 +413,17 @@ def predict_embeddings_to_slp(
         tracked_out = output_path or f"{data_path}.tracked.slp"
         # #536 flipped the save_slp default to False; be explicit either way. Identity
         # links (sio.Track) always persist regardless of this flag.
+        # `restore_original_videos=False` by default, matching every other writer in
+        # the repo (`save_predictions` / `--restore_source_videos`): a `.pkg.slp`
+        # input already carries its pixels, and sleap-io's own default (True) would
+        # point the output at a pre-embedding source video that is often absent --
+        # so `lf.image` on the tracked output raised FileNotFoundError.
         sio.save_slp(
-            tracked, tracked_out, embed=False, save_embedding_vectors=persist_vectors
+            tracked,
+            tracked_out,
+            embed=False,
+            restore_original_videos=restore_source_videos,
+            save_embedding_vectors=persist_vectors,
         )
         logger.info(f"Wrote tracked labels to {tracked_out}")
         return tracked_out
@@ -350,7 +435,14 @@ def predict_embeddings_to_slp(
     # SegmentationMask (owner_type=3, sleap-io#527) embeddings persist here.
     slp_out = output_path or f"{data_path}.embeddings.slp"
     # This path exists to persist the vectors, so opt in explicitly (#536 default flip).
-    sio.save_slp(labels, slp_out, embed=False, save_embedding_vectors=True)
+    # See the tracked save above for why `restore_original_videos` defaults to False.
+    sio.save_slp(
+        labels,
+        slp_out,
+        embed=False,
+        restore_original_videos=restore_source_videos,
+        save_embedding_vectors=True,
+    )
     logger.info(
         f"Attached {n_attached} embeddings (dim={embedding_dim}) and wrote {slp_out}"
     )

@@ -66,6 +66,7 @@ class TrackerConfig:
     robust_best_instance: float = 1.0
     oks_stddev: Optional[float] = None
     appearance_weight: float = 0.0
+    euclidean_scale: Optional[float] = None
     track_matching_method: str = "hungarian"
     max_tracks: Optional[int] = None
     use_flow: bool = False
@@ -170,6 +171,7 @@ def apply_tracking(
     from sleap_nn.tracking.tracker import (
         Tracker,
         connect_single_breaks,
+        validate_appearance_config,
     )
     from sleap_nn.tracking.utils import cull_instances
 
@@ -238,9 +240,8 @@ def apply_tracking(
         ):
             logger.info(
                 "Single-node skeleton detected; applying centroid tracking "
-                "defaults: scoring_method=%r, features=%r.",
-                effective_scoring_method,
-                effective_features,
+                f"defaults: scoring_method={effective_scoring_method!r}, "
+                f"features={effective_features!r}."
             )
 
     # Segmentation (mask-only) default resolution. A bottom-up segmentation
@@ -301,13 +302,28 @@ def apply_tracking(
             effective_max_tracks = config.tracking_target_instance_count
         logger.info(
             "Segmentation model detected; applying mask tracking defaults: "
-            "features='masks', scoring_method='mask_iou', window_size=%d, "
-            "candidates_method=%r, max_tracks=%s. For best identity, pass the "
-            "known animal count via --max_tracks/--tracking_target_instance_count.",
-            effective_window_size,
-            effective_candidates_method,
-            effective_max_tracks,
+            "features='masks', scoring_method='mask_iou', "
+            f"window_size={effective_window_size}, "
+            f"candidates_method={effective_candidates_method!r}, "
+            f"max_tracks={effective_max_tracks}. For best identity, pass the "
+            "known animal count via --max_tracks/--tracking_target_instance_count."
         )
+
+    # Every appearance rule that does not need the labels -- vector-valued metric
+    # for `features='embeddings'`, no motion models, a BOUNDED geometric score to
+    # blend into, the weight's range -- is shared with `Tracker.from_config` so the
+    # legacy `sleap-nn track` command and direct API callers get the same guards.
+    # Validated on the RESOLVED effective values, and BEFORE the labels-dependent
+    # checks below so an incoherent config is reported ahead of a missing-vectors
+    # one.
+    validate_appearance_config(
+        features=effective_features,
+        scoring_method=effective_scoring_method,
+        appearance_weight=config.appearance_weight,
+        use_flow=config.use_flow,
+        use_kalman=config.use_kalman,
+        euclidean_scale=config.euclidean_scale,
+    )
 
     if is_embedding_mode:
         # Route to the carrier the embeddings actually ride on, NOT the pose/mask
@@ -327,25 +343,11 @@ def apply_tracking(
         # detection (every cosine is NaN -> inf cost -> no match).
         if not (insts_have_emb or masks_have_emb):
             raise ValueError(
-                "features='embeddings' but no detection in the labels carries a "
-                "'reid' appearance embedding. Run the embedding (re-ID) model and "
+                "features='embeddings' but no detection in the labels carries an "
+                "appearance embedding. Run the embedding (re-ID) model and "
                 "persist the vectors first (e.g. `sleap-nn predict --model_paths "
                 "<embedding_model> ... --save_embeddings slp`), then track the "
                 "resulting .slp."
-            )
-        # cosine_sim / euclidean_dist are the only vector-valued metrics; oks / iou /
-        # mask_iou are keypoint/box/mask shaped and crash on a 1-D embedding vector.
-        if effective_scoring_method not in ("cosine_sim", "euclidean_dist"):
-            raise ValueError(
-                "features='embeddings' requires scoring_method='cosine_sim' (or "
-                f"'euclidean_dist'); got {effective_scoring_method!r}. Leave "
-                "--scoring_method unset to auto-select cosine_sim."
-            )
-        # Appearance matching is image-free; the motion models are keypoint-shaped.
-        if config.use_flow or config.use_kalman:
-            raise ValueError(
-                "Embedding (appearance) tracking does not support motion models "
-                "(--use_flow / --use_kalman)."
             )
         # Mask-carried embeddings reuse the mask routing (track ``lf.masks``); the
         # pose-shaped cull/clean/connect ops crash on masks (same as mask_iou mode).
@@ -359,11 +361,24 @@ def apply_tracking(
                 "cull/clean/connect options (tracking_pre_cull_to_target / "
                 "tracking_clean_instance_count / post_connect_single_breaks)."
             )
+        carrier = "mask" if is_mask_mode else "pose"
         logger.info(
             "Embedding (appearance) tracking: features='embeddings', "
-            "scoring_method=%r, carrier=%s.",
-            effective_scoring_method,
-            "mask" if is_mask_mode else "pose",
+            f"scoring_method={effective_scoring_method!r}, carrier={carrier}."
+        )
+
+    if config.appearance_weight > 0.0 and not _labels_have_embeddings(labels):
+        # `appearance_weight` says "use appearance as a complementary cue", so with
+        # no vectors anywhere the blend is a silent no-op byte-identical to weight 0
+        # -- the same "forgot to run / persist the embedding model" mistake
+        # `features='embeddings'` fails loudly on. Fail here too.
+        raise ValueError(
+            f"appearance_weight={config.appearance_weight} was requested but no "
+            "detection in the labels carries an appearance embedding, so the "
+            "blend would be a silent no-op. Run the embedding (re-ID) model and "
+            "persist the vectors first (e.g. `sleap-nn predict --model_paths "
+            "<detection_models> <embedding_model> ... --save_embeddings slp`), or "
+            "drop --appearance_weight to track on geometry alone."
         )
 
     tracker = Tracker.from_config(
@@ -377,6 +392,7 @@ def apply_tracking(
         robust_best_instance=config.robust_best_instance,
         oks_stddev=config.oks_stddev,
         appearance_weight=config.appearance_weight,
+        euclidean_scale=config.euclidean_scale,
         track_matching_method=config.track_matching_method,
         max_tracks=effective_max_tracks,
         use_flow=config.use_flow,
@@ -392,6 +408,21 @@ def apply_tracking(
         tracking_pre_cull_to_target=config.tracking_pre_cull_to_target,
         tracking_pre_cull_iou_threshold=config.tracking_pre_cull_iou_threshold,
     )
+
+    if is_mask_mode:
+        n_pose = sum(
+            len(lf.instances)
+            for lf in labels.labeled_frames
+            if lf.has_predicted_instances
+        )
+        if n_pose:
+            logger.warning(
+                f"Tracking the MASK carrier, but {n_pose} pose instance(s) are also "
+                "present. They are carried through to the output UNTRACKED (no "
+                "track assigned) -- only the masks are tracked. Attach the "
+                "appearance vectors to the pose instances instead if the poses are "
+                "what should carry identity."
+            )
 
     needs_image = config.use_flow
     tracked_lfs: list = []
@@ -415,13 +446,20 @@ def apply_tracking(
             # Track segmentation masks: feed lf.masks through the same tracker
             # (duck-typed), get back the same mask objects with track /
             # tracking_score set, and preserve them on the rebuilt frame so
-            # they are NOT dropped (the #614 breakage). Instances stay empty.
+            # they are NOT dropped (the #614 breakage).
             if lf.masks:
                 masks = tracker.track(
                     untracked_instances=list(lf.masks),
                     frame_idx=lf.frame_idx,
                     image=None,
                 )
+            # Carry any pose instances through UNTRACKED rather than dropping them.
+            # Mask mode is reachable on frames that also hold poses -- embedding
+            # tracking routes to whichever carrier holds the vectors, so a
+            # `centered_instance_segmentation` output (poses + linked masks whose
+            # masks carry the embeddings) lands here with instances present. Emitting
+            # `instances=[]` silently deleted every pose from the tracked .slp.
+            instances = list(lf.instances)
         else:
             if lf.has_user_instances:
                 instances_to_track = lf.user_instances

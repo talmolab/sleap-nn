@@ -93,6 +93,18 @@ class FixedWindowCandidates:
             new_track_id = max(self.all_tracks) + 1
         return new_track_id
 
+    def available_new_tracks(self) -> Optional[int]:
+        """How many fresh track IDs can still be minted, or ``None`` if unbounded.
+
+        `fixed_window` has no track cap, so this is always ``None``. The
+        counterpart on `LocalQueueCandidates` reports the remaining headroom
+        under `max_tracks`. Read by `Tracker.assign_tracks` to decide whether an
+        infeasible pairing may be dropped: a dropped detection only survives if it
+        can spawn a fresh track, so with no headroom the forced match is kept
+        instead of letting the detection vanish from the output.
+        """
+        return None
+
     def add_new_tracks(
         self, current_instances: TrackInstances, add_to_queue: bool = True
     ) -> TrackInstances:

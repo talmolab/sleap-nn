@@ -442,31 +442,29 @@ class ClassMapsHead(Head):
 
     Attributes:
         classes: List of string names of the classes.
-        class_uuids: Optional list of per-class canonical identity UUIDs, parallel
-            to ``classes``. Carried through verbatim from the head config (frozen
-            at train time for the inference identity bridge); unused by the
-            architecture/loss. Accepted so the config can be splatted into the
-            constructor.
         sigma: Spread of the class maps around each node.
         output_stride: Stride of the output head tensor. The input tensor is expected to
             be at the same stride.
         loss_weight: Weight of the loss term for this head during optimization.
+        class_output: How the classes map to sleap-io objects (``"track"`` /
+            ``"identity"``). Carried through verbatim from the head config; unused
+            by the architecture/loss. Accepted so the config can be splatted into
+            the constructor. Appended AFTER the pre-existing arguments so a
+            positional ``ClassMapsHead(classes, 5.0)`` still binds ``sigma``.
     """
 
     def __init__(
         self,
         classes: List[Text],
-        class_output: str = "track",
-        class_uuids: Optional[List[Text]] = None,
         sigma: float = 5.0,
         output_stride: int = 1,
         loss_weight: float = 1.0,
+        class_output: str = "track",
     ) -> None:
         """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.classes = classes
         self.class_output = class_output
-        self.class_uuids = class_uuids
         self.sigma = sigma
 
     @property
@@ -511,35 +509,34 @@ class ClassVectorsHead(Head):
 
     Attributes:
         classes: List of string names of the classes.
-        class_uuids: Optional list of per-class canonical identity UUIDs, parallel
-            to ``classes``. Carried through verbatim from the head config (frozen
-            at train time for the inference identity bridge); unused by the
-            architecture/loss. Accepted so the config can be splatted into the
-            constructor.
         num_fc_layers: Number of fully connected layers after flattening input features.
         num_fc_units: Number of units (dimensions) in fully connected layers prior to
             classification output.
         output_stride: Stride of the output head tensor. The input tensor is expected to
             be at the same stride.
         loss_weight: Weight of the loss term for this head during optimization.
+        class_output: How the classes map to sleap-io objects (``"track"`` /
+            ``"identity"``). Carried through verbatim from the head config; unused
+            by the architecture/loss. Accepted so the config can be splatted into
+            the constructor. Appended AFTER the pre-existing arguments so a
+            positional ``ClassVectorsHead(classes, 2)`` still binds
+            ``num_fc_layers``.
     """
 
     def __init__(
         self,
         classes: List[Text],
-        class_output: str = "track",
-        class_uuids: Optional[List[Text]] = None,
         num_fc_layers: int = 1,
         num_fc_units: int = 64,
         global_pool: bool = True,
         output_stride: int = 1,
         loss_weight: float = 1.0,
+        class_output: str = "track",
     ) -> None:
         """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.classes = classes
         self.class_output = class_output
-        self.class_uuids = class_uuids
         self.num_fc_layers = num_fc_layers
         self.num_fc_units = num_fc_units
         self.global_pool = global_pool

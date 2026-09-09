@@ -321,10 +321,11 @@ class Outputs:
                 provided, each instance is **additively** assigned
                 ``identity = identities[cls_ind]`` and ``identity_score`` (the
                 class probability from ``instance_tracking_scores``) alongside
-                the existing ``track`` / ``tracking_score``. ``Identity`` carries
-                the canonical per-class uuid (the train→inference bridge); the
-                same objects must be reused across calls so the saver's
-                registration check passes. ``None`` for non-multiclass paths.
+                the existing ``track`` / ``tracking_score``. The simplified
+                sleap-io ``Identity`` matches by NAME (no uuid), so the class name
+                is the canonical cross-file key; the same objects must still be
+                reused across calls so the saver's registration check passes.
+                ``None`` for non-multiclass paths.
             collapse_skeleton: Centroid-only collapse — when supplied (a 1-node
                 'centroid' skeleton), standalone-centroid output is packaged on
                 it with the centroid at node 0, instead of NaN-padding the
@@ -667,7 +668,7 @@ class Outputs:
             identities: Multi-class canonical ``sio.Identity`` registry indexed
                 by class, parallel to ``tracks``. Forwarded to
                 :meth:`to_instances`; the identities that get used are registered
-                (deduped by uuid) on the returned ``sio.Labels.identities`` so
+                (deduped by name) on the returned ``sio.Labels.identities`` so
                 the saver's registration check passes. ``None`` for non-multiclass
                 paths.
             collapse_skeleton: When set (a 1-node 'centroid' skeleton), a
