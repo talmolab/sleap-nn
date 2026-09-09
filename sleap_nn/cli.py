@@ -1126,6 +1126,25 @@ def _run_inference_impl(**kwargs):
     else:
         kwargs["frames"] = None
 
+    # ── Embedding (re-ID) path: stream per-mask appearance vectors to .h5 ──
+    # An `embedding` model emits appearance vectors, not poses/masks, so it does
+    # not go through the normal Labels-producing flow; it streams to a .h5 via
+    # the dedicated writer. Detect it up front so `--embeddings_path` is required
+    # for embedding models (and rejected for non-embedding models).
+    embeddings_path = kwargs.pop("embeddings_path", None)
+    if _has_embedding_model(kwargs.get("model_paths")):
+        if not embeddings_path:
+            raise click.UsageError(
+                "The provided model is an `embedding` (re-ID) model; pass "
+                "--embeddings_path <out.h5> to stream the per-mask appearance "
+                "vectors for offline re-ID."
+            )
+        return _run_embeddings(kwargs, embeddings_path=embeddings_path)
+    if embeddings_path is not None:
+        raise click.UsageError(
+            "--embeddings_path is only valid with an `embedding` (re-ID) model."
+        )
+
     # The SAM mask path is in-memory only (it masks an existing .slp); it does not
     # use the streaming Predictor. Guard here so the combo fails with a SAM-aware
     # message instead of _run_stream_to_file's misleading "--model_paths is
@@ -1439,6 +1458,97 @@ def _scope_labels_to_video(
         provenance=dict(getattr(labels, "provenance", None) or {}),
     )
     return scoped, target
+
+
+def _has_embedding_model(model_paths) -> bool:
+    """Return ``True`` if any entry in ``model_paths`` is an ``embedding`` model.
+
+    Best-effort: loads each model's training config and checks its model type.
+    Export directories / unreadable configs are treated as non-embedding.
+    """
+    if not model_paths:
+        return False
+    from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
+    from sleap_nn.inference.loaders import _load_training_config
+
+    for mp in model_paths:
+        try:
+            if _is_export_dir(mp):
+                continue
+            cfg, _ = _load_training_config(resolve_model_dir(mp))
+            if get_model_type_from_cfg(config=cfg) == "embedding":
+                return True
+        except Exception:  # noqa: BLE001 — fail open; only gate the exact case
+            continue
+    return False
+
+
+# Options `--embeddings_path` actually forwards. Everything else the shared
+# inference option set accepts is NOT honored on this route, so an explicitly
+# passed flag outside this set is rejected rather than silently ignored (the
+# class of surprise #732 fixed for `predict`). An allowlist rather than a
+# denylist so a newly added option is rejected until someone threads it, instead
+# of quietly doing nothing.
+_EMBEDDINGS_FORWARDED_OPTIONS = frozenset(
+    {
+        "model_paths",
+        "data_path",
+        "embeddings_path",
+        "device",
+        "batch_size",
+        "peak_threshold",
+    }
+)
+
+
+def _reject_ignored_embeddings_options() -> None:
+    """Fail on explicitly-set options that ``--embeddings_path`` cannot honor.
+
+    Crop geometry (``--max_height`` / ``--max_width`` / ``--crop_size`` /
+    ``--input_scale``) is deliberately NOT overridable here: the crops must match
+    what the model was trained on, so they come from the saved training config.
+    Frame scoping (``--frames``, ``--video_index``, ``--only_labeled_frames``, ...)
+    and tracking are simply not implemented on this route.
+    """
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:  # programmatic call, no CLI to police
+        return
+    from click.core import ParameterSource
+
+    offenders = sorted(
+        name
+        for name in ctx.params
+        if name not in _EMBEDDINGS_FORWARDED_OPTIONS
+        and ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
+    )
+    if offenders:
+        flags = ", ".join(f"--{name}" for name in offenders)
+        raise click.UsageError(
+            f"--embeddings_path does not support {flags}. It streams appearance "
+            "vectors for every tracked mask in --data_path, using the crop "
+            "geometry the model was trained with (overriding it would embed crops "
+            "the model never saw). Supported alongside it: --model_paths, "
+            "--data_path, --device, --batch_size, --peak_threshold."
+        )
+
+
+def _run_embeddings(kwargs: dict, embeddings_path: str) -> "object":
+    """Stream per-mask appearance vectors of an ``embedding`` model to ``.h5``."""
+    from sleap_nn.inference.embedding import predict_embeddings_to_h5
+
+    if not kwargs.get("data_path"):
+        raise click.UsageError("--data_path is required for --embeddings_path.")
+    _reject_ignored_embeddings_options()
+    out = predict_embeddings_to_h5(
+        model_paths=kwargs["model_paths"],
+        data_path=kwargs["data_path"],
+        output_path=embeddings_path,
+        device=_resolve_device(kwargs.get("device")),
+        batch_size=kwargs.get("batch_size", 4) or 4,
+        peak_threshold=kwargs.get("peak_threshold"),
+    )
+    click.echo(f"Wrote embeddings to {out}")
+    return out
 
 
 def _is_export_dir(path: str) -> bool:
@@ -2399,6 +2509,15 @@ def _common_inference_options(f):
             "--restore_source_videos to instead restore references to the "
             "original pre-embedding source video files, when recorded. "
             "Ignored when embedding.",
+        ),
+        click.option(
+            "--embeddings_path",
+            "embeddings_path",
+            type=str,
+            default=None,
+            help="For an `embedding` (re-ID) model: stream per-mask appearance "
+            "vectors + index arrays (video/frame/detection/track) to this .h5 "
+            "for offline re-ID. Required when --model_paths is an embedding model.",
         ),
         click.option(
             "--device",

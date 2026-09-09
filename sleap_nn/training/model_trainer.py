@@ -49,7 +49,10 @@ from sleap_nn.config.utils import (
     get_backbone_type_from_cfg,
     get_model_type_from_cfg,
 )
-from sleap_nn.training.lightning_modules import LightningModel
+from sleap_nn.training.lightning_modules import (
+    LightningModel,
+    validate_embedding_identity,
+)
 from sleap_nn.config.utils import (
     check_centroid_methods,
     check_output_strides,
@@ -71,6 +74,7 @@ from sleap_nn.training.callbacks import (
     CentroidEvaluationCallback,
     SegmentationEvaluationCallback,
     TilingEpochCallback,
+    EmbeddingEvaluationCallback,
     UnifiedVizCallback,
 )
 from sleap_nn import RANK
@@ -233,18 +237,40 @@ class ModelTrainer:
                 trainer_devices = 1
         return trainer_devices
 
+    # Model types whose training targets are segmentation masks (``lf.masks``)
+    # rather than keypoint instances. Mask-only labels — no pose skeleton at all —
+    # are a normal input for these, so a frame with user masks and zero instances
+    # is a perfectly good training frame.
+    _MASK_TARGET_MODEL_TYPES = (
+        "bottomup_segmentation",
+        "centered_instance_segmentation",
+        "semantic_segmentation",
+        "embedding",
+    )
+
     def _is_training_frame(self, lf: "sio.LabeledFrame") -> bool:
         """Whether a frame carries a usable training target.
 
-        Normally that means user instances. The centroid model can additionally
-        train on frames that carry only user centroid annotations
-        (``frame.centroids``) with no pose instance — the pure-centroid seeding
-        case (label a body-center per animal before any keypoints exist).
+        Normally that means user instances. Two model families read something else:
+
+        - The centroid model can train on frames carrying only user centroid
+          annotations (``frame.centroids``) with no pose instance — the
+          pure-centroid seeding case (label a body-center per animal before any
+          keypoints exist).
+        - Mask-target models (see ``_MASK_TARGET_MODEL_TYPES``) train on
+          ``lf.masks``. Mask-only datasets carry **zero** instances, so counting
+          only user instances rejected them outright: every split came back empty
+          and ``_validate_nonempty_labels`` raised "No labeled frames available
+          for train" before setup finished. That made the `embedding` model
+          untrainable on its primary dataset, and would do the same to
+          `semantic_segmentation` on mask-only labels.
         """
         if lf.has_user_instances:
             return True
         if self.model_type == "centroid":
             return any(not c.is_predicted for c in lf.centroids)
+        if self.model_type in self._MASK_TARGET_MODEL_TYPES:
+            return any(not m.is_predicted for m in (getattr(lf, "masks", None) or []))
         return False
 
     def _count_labeled_frames(
@@ -372,6 +398,16 @@ class ModelTrainer:
             self.config, "data_config.use_same_data_for_val", default=False
         )
 
+        # Group-aware split (SPEC §5.3): when `data_config.split` is configured and no
+        # explicit val labels are provided, partition the training labels by a group key
+        # (frame/video/identity) instead of the frame-level random validation split.
+        split_cfg = OmegaConf.select(self.config, "data_config.split", default=None)
+        use_group_split = (
+            split_cfg is not None
+            and not use_same
+            and (val_labels is None or not len(val_labels))
+        )
+
         if use_same:
             # Same mode: use identical data for train and val (for overfitting)
             logger.info("Using same data for train and val (overfit mode)")
@@ -379,6 +415,22 @@ class ModelTrainer:
             self.val_labels = labels
             total_train_lfs = self._count_labeled_frames(labels, user_instances_only)
             total_val_lfs = total_train_lfs
+        elif use_group_split:
+            from sleap_nn.data.splitting import split_labels_list_train_val
+
+            logger.info(
+                "Using group-aware train/val split "
+                f"(split_by={OmegaConf.select(self.config, 'data_config.split.split_by', default='frame')})"
+            )
+            self.train_labels, self.val_labels = split_labels_list_train_val(
+                labels, split_cfg
+            )
+            total_train_lfs = self._count_labeled_frames(
+                self.train_labels, user_instances_only
+            )
+            total_val_lfs = self._count_labeled_frames(
+                self.val_labels, user_instances_only
+            )
         elif val_labels is None or not len(val_labels):
             # if val labels are not provided, split from train
             val_fraction = OmegaConf.select(
@@ -552,6 +604,7 @@ class ModelTrainer:
             "centered_instance",
             "multi_class_topdown",
             "centered_instance_segmentation",
+            "embedding",
         ):
             crop_size = self.config.data_config.preprocessing.crop_size
 
@@ -572,6 +625,7 @@ class ModelTrainer:
                 "centered_instance",
                 "multi_class_topdown",
                 "centered_instance_segmentation",
+                "embedding",
             ):
                 # compute crop size if not provided in config
                 if crop_size is None:
@@ -655,6 +709,7 @@ class ModelTrainer:
                 "centered_instance",
                 "multi_class_topdown",
                 "centered_instance_segmentation",
+                "embedding",
             )
             and crop_size is None
         ):
@@ -801,13 +856,14 @@ class ModelTrainer:
         """Setup node, edge and class names in head config."""
         # if edges and part names aren't set in head configs, get it from labels object.
         head_config = self.config.model_config.head_configs[self.model_type]
-        # Mask-only labels carry no skeleton at all (`labels.skeletons == []`), and
-        # a centroid model trained off `data_config.centroids_from_masks` needs
-        # none: its target comes from `UserCentroid` annotations and its head
-        # declares neither part_names nor edges. Indexing `self.skeletons[0]`
-        # unconditionally turned that case into a bare `IndexError` here, before
-        # any of the guards below could speak. Heads that genuinely require a
-        # skeleton now say so by name instead.
+        # Skeleton-less model types carry no skeleton at all: mask-only labels
+        # for a centroid model trained off `data_config.centroids_from_masks`,
+        # the `embedding` model type, and the segmentation heads. None of their
+        # heads declares part_names or edges, so an absent skeleton is correct --
+        # but indexing `self.skeletons[0]` unconditionally raised
+        # `IndexError: list index out of range` here before any guard below could
+        # be reached, making those model types unconfigurable. Heads that DO need
+        # a skeleton now say so by name instead.
         skeleton = self.skeletons[0] if self.skeletons else None
         skeleton_node_names = list(skeleton.node_names) if skeleton is not None else []
         for key in head_config:
@@ -1015,8 +1071,14 @@ class ModelTrainer:
                 self.config.model_config.backbone_config[
                     f"{self.backbone_type}"
                 ].in_channels = 3
-                self.config.data_config.preprocessing.ensure_rgb = True
-                self.config.data_config.preprocessing.ensure_grayscale = False
+                # The ImageNet stem needs a 3-channel input, but the `embedding`
+                # model type keeps its (default grayscale) DATA channels: a 1-channel
+                # crop is repeated to 3 in `Model.forward`. Flipping ensure_rgb here
+                # would silently turn an explicitly-grayscale re-ID model into an RGB
+                # one. For every other model type, sync the data to RGB as before.
+                if self.model_type != "embedding":
+                    self.config.data_config.preprocessing.ensure_rgb = True
+                    self.config.data_config.preprocessing.ensure_grayscale = False
                 logger.info(
                     f"Updating backbone in_channels to 3 based on the pretrained model weights."
                 )
@@ -1063,7 +1125,9 @@ class ModelTrainer:
                         logger.info(
                             f"Updating data preprocessing to ensure_grayscale to True based on the pretrained model weights."
                         )
-                    elif input_channels == 3:
+                    elif input_channels == 3 and self.model_type != "embedding":
+                        # Embedding keeps its (default grayscale) DATA channels even with a
+                        # 3-channel pretrained stem (gray is repeated in Model.forward).
                         self.config.data_config.preprocessing.ensure_rgb = True
                         self.config.data_config.preprocessing.ensure_grayscale = False
                         logger.info(
@@ -1091,7 +1155,8 @@ class ModelTrainer:
                         logger.info(
                             f"Updating data preprocessing to ensure_grayscale to True based on the pretrained model weights."
                         )
-                    elif input_channels == 3:
+                    elif input_channels == 3 and self.model_type != "embedding":
+                        # Embedding keeps grayscale data with a 3-channel pretrained stem.
                         self.config.data_config.preprocessing.ensure_rgb = True
                         self.config.data_config.preprocessing.ensure_grayscale = False
                         logger.info(
@@ -1162,6 +1227,29 @@ class ModelTrainer:
 
         # setup head config - partnames, edges and class names
         self._setup_head_config()
+
+        # Identity-equality gates (SPEC §4.4): the embedding objective's pos/neg
+        # sources silently assert "same / different animal"; validate them against the
+        # declared `data_config.identity` semantics (error for global_id without global
+        # names; warn for unproofread tracklets / non-deduplicated same-frame negatives).
+        if self.model_type == "embedding":
+            # Real `sio.Identity` annotations ground `global_id` grouping directly (no
+            # `track_names_are_global` promise needed).
+            has_identities = any(
+                bool(getattr(label, "identities", None) or [])
+                for label in self.train_labels
+            )
+            validate_embedding_identity(
+                objective=OmegaConf.select(
+                    self.config,
+                    "model_config.head_configs.embedding.embedding.objective",
+                    default=None,
+                ),
+                identity=OmegaConf.select(
+                    self.config, "data_config.identity", default=None
+                ),
+                has_identities=has_identities,
+            )
 
         # set max stride for the backbone: convnext and swint
         if self.backbone_type == "convnext":
@@ -1318,7 +1406,19 @@ class ModelTrainer:
                 memory_buffer=MEMORY_BUFFER,
                 num_workers=max_num_workers,
             )
-            if not mem_available:
+            if not mem_available and self.model_type == "embedding":
+                # The embedding (appearance / re-ID) model must NOT use the lossy JPEG
+                # disk cache (it silently degrades the model — see the disk-cache gate
+                # in get_train_val_datasets). Fall back to an uncached, lossless
+                # pipeline instead of disk.
+                self.config.data_config.data_pipeline_fw = "torch_dataset"
+                base_cache_img_path = None
+                logger.info(
+                    "Insufficient memory for in-memory caching of the `embedding` "
+                    "model; falling back to an uncached pipeline (`torch_dataset`) to "
+                    "avoid the lossy JPEG disk cache."
+                )
+            elif not mem_available:
                 # Validate: multi-GPU + auto-generated run_name + fallback to disk cache
                 original_run_name = self._initial_config.trainer_config.run_name
                 run_name_was_auto = (
@@ -1379,6 +1479,52 @@ class ModelTrainer:
         logger.info("Setting up callbacks and loggers...")
         loggers = []
         callbacks = []
+        # Checkpoint/early-stop SELECTION metric. Contrastive (embedding) objectives
+        # are NOT well-selected by val/loss, so select on a retrieval metric (SPEC §8).
+        if self.model_type == "embedding":
+            # Touch the objective/sampler so a missing config fails loud here rather
+            # than deep in the dataloader.
+            OmegaConf.select(
+                self.config,
+                "model_config.head_configs.embedding.embedding.objective.sampler.kind",
+                default=None,
+            )
+            emb_select = OmegaConf.select(
+                self.config, "trainer_config.eval.select_metric", default="rank1"
+            )
+            # Per-metric selection mode: retrieval / verification-AUC / kNN-accuracy are
+            # higher-better; EER is lower-better. Validate the name so a typo cannot
+            # silently monitor a key that is never logged (ModelCheckpoint would then
+            # never save "best" and a strict EarlyStopping would raise).
+            emb_metric_modes = {
+                "rank1": "max",
+                "mAP": "max",
+                "auc": "max",
+                "knn_acc": "max",
+                "eer": "min",
+            }
+            if emb_select not in emb_metric_modes:
+                raise ValueError(
+                    f"trainer_config.eval.select_metric='{emb_select}' is not a valid "
+                    f"embedding selection metric; choose one of "
+                    f"{'|'.join(emb_metric_modes)}."
+                )
+            ckpt_monitor = f"eval/val/{emb_select}"
+            ckpt_mode = emb_metric_modes[emb_select]
+            # The selection metric only exists on eval epochs, so let the
+            # checkpointer consider "best" only on those epochs. Same formula the
+            # callback uses ((epoch + 1) % frequency), so they cannot drift, and it
+            # keeps a saved "best" tied to the epoch its metric was measured on
+            # instead of a later epoch carrying a stale value forward.
+            ckpt_every_n_epochs = int(
+                OmegaConf.select(
+                    self.config, "trainer_config.eval.frequency", default=1
+                )
+            )
+        else:
+            ckpt_monitor, ckpt_mode = "val/loss", "min"
+            ckpt_every_n_epochs = 1
+
         if self.config.trainer_config.save_ckpt:
             # checkpoint callback
             checkpoint_callback = ModelCheckpoint(
@@ -1389,8 +1535,29 @@ class ModelTrainer:
                     / self.config.trainer_config.run_name
                 ).as_posix(),
                 filename="best",
-                monitor=self.config.trainer_config.model_ckpt.monitor,
-                mode=self.config.trainer_config.model_ckpt.mode,
+                # Config-driven monitor/mode (main #690/#692) wins when the user set
+                # it away from the "val/loss" schema default (e.g. a seg quality
+                # metric). Left at the default, fall back to the model-type-aware
+                # default computed above (embedding -> retrieval metric, else val/loss)
+                # since contrastive objectives are not well-selected by val/loss.
+                monitor=(
+                    self.config.trainer_config.model_ckpt.monitor
+                    if self.config.trainer_config.model_ckpt.monitor != "val/loss"
+                    else ckpt_monitor
+                ),
+                mode=(
+                    self.config.trainer_config.model_ckpt.mode
+                    if self.config.trainer_config.model_ckpt.monitor != "val/loss"
+                    else ckpt_mode
+                ),
+                # Only meaningful (and only non-1) when the monitored metric is the
+                # eval-gated embedding one; an explicitly configured monitor keeps
+                # the every-epoch default.
+                every_n_epochs=(
+                    1
+                    if self.config.trainer_config.model_ckpt.monitor != "val/loss"
+                    else ckpt_every_n_epochs
+                ),
             )
             callbacks.append(checkpoint_callback)
 
@@ -1543,12 +1710,28 @@ class ModelTrainer:
                         "val/fg_iou",
                     ]
                 )
+            # The embedding model's retrieval callback is NOT gated on eval.enabled
+            # (ModelCheckpoint selects on its metric, so it always runs -- see the
+            # callback branching below). Its keys therefore must NOT sit inside the
+            # eval.enabled gate, or the columns would vanish while the callback kept
+            # logging them. `train/pos_per_anchor` is a per-epoch training metric.
+            if self.model_type == "embedding":
+                csv_log_keys.extend(
+                    [
+                        "train/pos_per_anchor",
+                        "eval/val/rank1",
+                        "eval/val/mAP",
+                        "eval/val/auc",
+                        "eval/val/eer",
+                        "eval/val/knn_acc",
+                    ]
+                )
             # Eval-callback keys (only when trainer_config.eval.enabled, mirroring
             # the callback branching below). These are only computed every
             # eval.frequency epochs; CSVLoggerCallback NaN-resets them at the
             # start of each validation epoch so non-eval epochs show NaN instead
             # of silently repeating the last-computed eval value.
-            if self.config.trainer_config.eval.enabled:
+            elif self.config.trainer_config.eval.enabled:
                 if self.model_type == "centroid":
                     csv_log_keys.extend(
                         [
@@ -1618,15 +1801,21 @@ class ModelTrainer:
 
         if self.config.trainer_config.early_stopping.stop_training_on_plateau:
             # early stopping callback
-            callbacks.append(
-                EarlyStopping(
-                    monitor="val/loss",
-                    mode="min",
-                    verbose=False,
-                    min_delta=self.config.trainer_config.early_stopping.min_delta,
-                    patience=self.config.trainer_config.early_stopping.patience,
-                )
+            es_kwargs = dict(
+                monitor=ckpt_monitor,
+                mode=ckpt_mode,
+                verbose=False,
+                min_delta=self.config.trainer_config.early_stopping.min_delta,
+                patience=self.config.trainer_config.early_stopping.patience,
             )
+            if self.model_type == "embedding":
+                # The retrieval selection metric is logged only on eval epochs (so it is
+                # absent when eval.frequency > 1) and the verification metrics (auc/eer)
+                # can be NaN on a degenerate val set/shard. Don't let an absent/NaN value
+                # abort the run — pose/seg models keep the strict defaults.
+                es_kwargs["strict"] = False
+                es_kwargs["check_finite"] = False
+            callbacks.append(EarlyStopping(**es_kwargs))
 
         if self.config.trainer_config.use_wandb:
             # wandb logger
@@ -1743,7 +1932,26 @@ class ModelTrainer:
             callbacks.append(SleapProgressBar())
 
         # Add epoch-end evaluation callback if enabled
-        if self.config.trainer_config.eval.enabled:
+        # Embedding models are selected on a retrieval metric, so the retrieval
+        # callback is REQUIRED (it logs eval/val/<metric> that ModelCheckpoint reads),
+        # not gated on eval.enabled. Embedding models are skeleton-less so they must
+        # never reach the keypoint EpochEndEvaluationCallback below.
+        if self.model_type == "embedding":
+            emb_freq = (
+                OmegaConf.select(
+                    self.config, "trainer_config.eval.frequency", default=1
+                )
+                or 1
+            )
+            emb_select = OmegaConf.select(
+                self.config, "trainer_config.eval.select_metric", default="rank1"
+            )
+            callbacks.append(
+                EmbeddingEvaluationCallback(
+                    eval_frequency=emb_freq, select_metric=emb_select
+                )
+            )
+        elif self.config.trainer_config.eval.enabled:
             if self.model_type == "centroid":
                 # Use centroid-specific evaluation with distance-based metrics
                 callbacks.append(
@@ -1887,6 +2095,13 @@ class ModelTrainer:
             logger.info(f"Using GPUs with most available memory: {devices}")
 
         # create lightning.Trainer instance.
+        # The embedding loader uses a custom group-aware ``batch_sampler`` that shards
+        # itself per rank (seed + rank). Lightning's default sampler replacement cannot
+        # inject a DistributedSampler into a custom batch_sampler (it raises), so disable
+        # replacement for embedding; every other model type passes an explicit
+        # DistributedSampler under DDP, so the default (True) is correct for them.
+        use_distributed_sampler = self.model_type != "embedding"
+
         self.trainer = L.Trainer(
             callbacks=callbacks,
             logger=loggers,
@@ -1898,6 +2113,7 @@ class ModelTrainer:
             strategy=strategy,
             profiler=profiler,
             log_every_n_steps=1,
+            use_distributed_sampler=use_distributed_sampler,
         )
 
         self.trainer.strategy.barrier()
