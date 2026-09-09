@@ -1767,11 +1767,21 @@ class Predictor:
             return outputs_list
         if skeleton is not None:
             self.skeleton = skeleton
-        if (
-            self.skeleton is None
-            and not self._is_segmentation_layer()
-            and not self._is_embedding_layer()
-        ):
+        # An `embedding` model emits appearance vectors, not poses or masks, so
+        # nothing packages them into a `sio.Labels` -- `make_labels=True` returned
+        # an EMPTY Labels and looked like a model that predicted nothing. The CLI
+        # routes this to the .h5 writer; say so here too, since the Python API can
+        # reach it directly.
+        if self._is_embedding_layer():
+            raise ValueError(
+                "make_labels=True is not supported for an `embedding` (re-ID) "
+                "model: it predicts appearance vectors, which have no "
+                "`sio.Labels` representation. Use "
+                "`sleap_nn.inference.embedding.predict_embeddings_to_h5(...)` "
+                "(or `sleap-nn predict --embeddings_path out.h5`) to stream them, "
+                "or pass `make_labels=False` for the raw `Outputs`."
+            )
+        if self.skeleton is None and not self._is_segmentation_layer():
             raise ValueError(
                 "make_labels=True requires a skeleton. Either pass "
                 "`skeleton=...` or build the Predictor via Predictor.from_model_paths() "
@@ -1943,11 +1953,17 @@ class Predictor:
         """
         if skeleton is not None:
             self.skeleton = skeleton
-        if (
-            self.skeleton is None
-            and not self._is_segmentation_layer()
-            and not self._is_embedding_layer()
-        ):
+        # Same as `predict(make_labels=True)`: an embedding model has nothing to
+        # write into a `.slp`, so this streamed an empty file.
+        if self._is_embedding_layer():
+            raise ValueError(
+                "predict_to_file is not supported for an `embedding` (re-ID) "
+                "model: it predicts appearance vectors, which have no "
+                "`sio.Labels` representation. Use "
+                "`sleap_nn.inference.embedding.predict_embeddings_to_h5(...)` "
+                "(or `sleap-nn predict --embeddings_path out.h5`) instead."
+            )
+        if self.skeleton is None and not self._is_segmentation_layer():
             raise ValueError(
                 "predict_to_file requires a skeleton. Either pass "
                 "`skeleton=...` or build the Predictor via Predictor.from_model_paths() "
