@@ -2022,36 +2022,125 @@ def test_contradictory_centroid_config_fails_at_setup(config, tmp_path):
         ModelTrainer.get_model_trainer_from_config(cfg)
 
 
+def _mask_only_labels(config, keep_skeleton: bool = True):
+    """Build mask-only labels in memory: real masks, poses stripped.
+
+    ``Labels.get_masks()`` is a *query* in sleap-io 0.9.2, not a builder, so the
+    earlier version of these tests silently skipped and the feature shipped with
+    no exercised trainer coverage. ``Instance.to_mask`` is the actual builder.
+
+    Kept in memory rather than round-tripped through ``sio.save_slp``: the
+    fixture is an embedded ``.pkg.slp``, and re-saving it thin leaves a video
+    whose shape cannot be resolved — unrelated to what these tests check.
+    """
+    labels = sio.load_slp(config.data_config.train_labels_path[0])
+    for lf in labels:
+        height, width = lf.image.shape[:2]
+        masks = []
+        for inst in lf.instances:
+            # `method="shapes"` (the default) needs a non-zero radius, else it
+            # raises rather than rasterizing an empty geometry. A user instance
+            # yields a `UserSegmentationMask` with metadata propagated.
+            mask = inst.to_mask(
+                height=height, width=width, node_radius=4, edge_radius=2
+            )
+            # The poses are about to be stripped, so drop the back-link too: a
+            # mask-only file has no instance for a mask to point at.
+            mask.instance = None
+            masks.append(mask)
+        lf.masks = masks
+        lf.instances = []
+    assert any(len(lf.masks) for lf in labels), "fixture produced no masks"
+    if not keep_skeleton:
+        labels.skeletons = []
+    return labels
+
+
 def test_centroids_from_masks_makes_mask_only_labels_trainable(config, tmp_path):
     """A mask-only dataset has zero trainable frames until masks are converted.
 
     This is what #674 existed for; it is now a few lines feeding the existing
     ``centroid_source="user"`` path.
     """
-    labels = sio.load_slp(config.data_config.train_labels_path[0])
-    labels.get_masks()  # build masks from the poses
-    if not any(getattr(lf, "masks", None) for lf in labels):
-        pytest.skip("fixture produced no segmentation masks")
-    # Strip the poses: what remains is a mask-only dataset.
-    for lf in labels:
-        lf.instances = []
-    mask_only = tmp_path / "mask_only.slp"
-    sio.save_slp(labels, mask_only.as_posix())
+    labels = _mask_only_labels(config)
+    n_masks = sum(len(lf.masks) for lf in labels)
 
     cfg = _centroid_cfg_from(config, tmp_path)
-    cfg.data_config.train_labels_path = [mask_only.as_posix()]
-    cfg.data_config.val_labels_path = [mask_only.as_posix()]
 
     # Without the flag: no trainable frame at all.
     with pytest.raises(ValueError, match="No labeled frames available"):
-        ModelTrainer.get_model_trainer_from_config(cfg)
+        ModelTrainer.get_model_trainer_from_config(
+            cfg, train_labels=[labels.copy()], val_labels=[labels.copy()]
+        )
 
     # With it: the frames become trainable and carry one centroid per mask.
     cfg.data_config.centroids_from_masks = "center_of_mass"
-    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
-    n_masks = sum(len(lf.masks) for lf in labels)
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        cfg, train_labels=[labels.copy()], val_labels=[labels.copy()]
+    )
     n_centroids = sum(len(lf.centroids) for lbls in trainer.train_labels for lf in lbls)
     assert n_centroids == n_masks
+
+
+def test_centroids_from_masks_works_on_skeleton_less_labels(config, tmp_path):
+    """Truly skeleton-less mask-only labels must reach training.
+
+    ``labels.skeletons == []`` is the real shape of a mask-only file, and
+    ``_setup_head_config`` indexed ``self.skeletons[0]`` unconditionally — so the
+    headline path died with a bare ``IndexError`` before any guard could speak.
+    A centroid head declares neither part_names nor edges, so it needs no
+    skeleton at all.
+    """
+    labels = _mask_only_labels(config, keep_skeleton=False)
+    assert labels.skeletons == [], "the fixture must be genuinely skeleton-less"
+    n_masks = sum(len(lf.masks) for lf in labels)
+
+    cfg = _centroid_cfg_from(config, tmp_path)
+    cfg.data_config.centroids_from_masks = "center_of_mass"
+
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        cfg, train_labels=[labels.copy()], val_labels=[labels.copy()]
+    )
+
+    assert trainer.skeletons == []
+    assert list(trainer.config.data_config.skeletons) == []
+    n_centroids = sum(len(lf.centroids) for lbls in trainer.train_labels for lf in lbls)
+    assert n_centroids == n_masks
+
+
+def test_head_config_without_a_skeleton_names_the_head_it_cannot_fill(config):
+    """A head that genuinely needs a skeleton must say so, not IndexError.
+
+    Called directly: a pose head on skeleton-less labels never gets this far
+    through the factory, because the empty-split guard rejects mask-only data for
+    a pose model first. The guard exists so that a skeleton-less path which DOES
+    reach head setup (as the centroid model now does) fails with a message naming
+    the head and field, instead of a bare ``IndexError`` on ``self.skeletons[0]``.
+    """
+    cfg = OmegaConf.create(OmegaConf.to_container(config, resolve=True))
+    cfg.model_config.head_configs.centered_instance.confmaps.part_names = None
+
+    trainer = ModelTrainer(config=cfg)
+    trainer.model_type = "centered_instance"
+    trainer.skeletons = []
+
+    with pytest.raises(ValueError, match=r"part_names is null and the labels carry"):
+        trainer._setup_head_config()
+
+    # Same for a head that needs edges.
+    cfg_bu = OmegaConf.create(OmegaConf.to_container(config, resolve=True))
+    cfg_bu.model_config.head_configs.centered_instance = None
+    # Only the `pafs` key, so the edges branch is what runs (a `confmaps` key
+    # would hit the part_names check first).
+    cfg_bu.model_config.head_configs.bottomup = OmegaConf.create(
+        {"pafs": {"edges": None, "sigma": 4.0, "output_stride": 4}}
+    )
+    trainer_bu = ModelTrainer(config=cfg_bu)
+    trainer_bu.model_type = "bottomup"
+    trainer_bu.skeletons = []
+
+    with pytest.raises(ValueError, match=r"edges is null and the labels carry"):
+        trainer_bu._setup_head_config()
 
 
 def test_centroids_from_masks_rejects_an_unknown_method(config, tmp_path):

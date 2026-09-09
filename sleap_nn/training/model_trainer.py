@@ -801,13 +801,30 @@ class ModelTrainer:
         """Setup node, edge and class names in head config."""
         # if edges and part names aren't set in head configs, get it from labels object.
         head_config = self.config.model_config.head_configs[self.model_type]
-        skeleton_node_names = list(self.skeletons[0].node_names)
+        # Mask-only labels carry no skeleton at all (`labels.skeletons == []`), and
+        # a centroid model trained off `data_config.centroids_from_masks` needs
+        # none: its target comes from `UserCentroid` annotations and its head
+        # declares neither part_names nor edges. Indexing `self.skeletons[0]`
+        # unconditionally turned that case into a bare `IndexError` here, before
+        # any of the guards below could speak. Heads that genuinely require a
+        # skeleton now say so by name instead.
+        skeleton = self.skeletons[0] if self.skeletons else None
+        skeleton_node_names = list(skeleton.node_names) if skeleton is not None else []
         for key in head_config:
             if "part_names" in head_config[key].keys():
                 if head_config[key]["part_names"] is None:
+                    if skeleton is None:
+                        message = (
+                            f"model_config.head_configs.{self.model_type}.{key}"
+                            ".part_names is null and the labels carry no skeleton, "
+                            "so the node names cannot be inferred. Provide labels "
+                            "with a skeleton, or set part_names explicitly."
+                        )
+                        logger.error(message)
+                        raise ValueError(message)
                     self.config.model_config.head_configs[self.model_type][key][
                         "part_names"
-                    ] = self.skeletons[0].node_names
+                    ] = skeleton.node_names
                 elif list(head_config[key]["part_names"]) != skeleton_node_names:
                     # GT confidence-map generation always produces one channel
                     # per node in the skeleton (custom_datasets.py's
@@ -857,9 +874,17 @@ class ModelTrainer:
 
             if "edges" in head_config[key].keys():
                 if head_config[key]["edges"] is None:
+                    if skeleton is None:
+                        message = (
+                            f"model_config.head_configs.{self.model_type}.{key}"
+                            ".edges is null and the labels carry no skeleton, so "
+                            "the edges cannot be inferred. Provide labels with a "
+                            "skeleton, or set edges explicitly."
+                        )
+                        logger.error(message)
+                        raise ValueError(message)
                     edges = [
-                        (x.source.name, x.destination.name)
-                        for x in self.skeletons[0].edges
+                        (x.source.name, x.destination.name) for x in skeleton.edges
                     ]
                     self.config.model_config.head_configs[self.model_type][key][
                         "edges"
