@@ -176,3 +176,124 @@ def test_steps_per_epoch_uses_pk_for_embedding_datasets(config):
 
     # 64 crops at P*K = 8 per step -> 8 steps, not 64/4 = 16.
     assert train_loader.batch_sampler.batches_per_epoch == 8
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# `EmbeddingDataset.__getitem__` — never executed by the suite before
+# ─────────────────────────────────────────────────────────────────────────
+def _tracked_pose_labels(minimal_instance, n_identities=2):
+    """The embedded fixture, with tracks + identities attached in memory."""
+    labels = sio.load_slp(minimal_instance)
+    tracks = [sio.Track(name=f"t{i}") for i in range(n_identities)]
+    identities = [sio.Identity(name=f"id{i}") for i in range(n_identities)]
+    for lf in labels:
+        for i, inst in enumerate(lf.instances[:n_identities]):
+            inst.track = tracks[i % n_identities]
+            inst.identity = identities[i % n_identities]
+        lf.instances = lf.instances[:n_identities]
+    labels.tracks = tracks
+    return labels, [identity.name for identity in identities]
+
+
+def test_getitem_returns_a_usable_crop(minimal_instance):
+    """A real sample: crop, mask, and the metadata the loss keys on."""
+    import torch
+
+    labels, class_names = _tracked_pose_labels(minimal_instance)
+    dataset = EmbeddingDataset(
+        labels=[labels],
+        crop_size=32,
+        class_names=class_names,
+        embedding_head_config=OmegaConf.create(
+            {
+                "embedding_dim": 16,
+                "output_stride": 16,
+                "objective": {"positives": {"scope": "global_id", "aug_views": 2}},
+            }
+        ),
+        max_stride=16,
+        id_scope="global_id",
+        track_names_are_global=True,
+        cache_img=None,
+    )
+    assert len(dataset.mask_idx_list) > 0
+
+    sample = dataset[0]
+
+    assert sample["instance_image"].shape[-2:] == (32, 32)
+    assert sample["instance_mask"].shape[-2:] == (32, 32)
+    assert torch.isfinite(sample["instance_image"]).all()
+    # The keys `build_contrastive_masks` reads.
+    for key in ("group_id", "global_group_id", "video_id", "frame_idx", "item_id"):
+        assert key in sample, key
+    assert int(sample["group_id"]) in range(len(class_names))
+
+
+def test_getitem_two_views_when_augmenting(minimal_instance):
+    """`aug_views=2` yields a second view of the same crop."""
+    labels, class_names = _tracked_pose_labels(minimal_instance)
+    dataset = EmbeddingDataset(
+        labels=[labels],
+        crop_size=32,
+        class_names=class_names,
+        embedding_head_config=OmegaConf.create(
+            {
+                "embedding_dim": 16,
+                "output_stride": 16,
+                "objective": {"positives": {"scope": "global_id", "aug_views": 2}},
+            }
+        ),
+        max_stride=16,
+        id_scope="global_id",
+        track_names_are_global=True,
+        apply_aug=True,
+        intensity_aug=OmegaConf.create(
+            {
+                "uniform_noise_min": 0.0,
+                "uniform_noise_max": 0.04,
+                "uniform_noise_p": 1.0,
+            }
+        ),
+        cache_img=None,
+    )
+
+    sample = dataset[0]
+
+    assert "instance_image_view2" in sample
+    assert sample["instance_image_view2"].shape == sample["instance_image"].shape
+
+
+def test_getitem_scale_and_max_hw_change_the_crop(minimal_instance):
+    """The knobs the inference path was dropping actually move pixels."""
+    import torch
+
+    labels, class_names = _tracked_pose_labels(minimal_instance)
+
+    def _sample(**kwargs):
+        dataset = EmbeddingDataset(
+            labels=[labels],
+            crop_size=32,
+            class_names=class_names,
+            embedding_head_config=OmegaConf.create(
+                {
+                    "embedding_dim": 16,
+                    "output_stride": 16,
+                    "objective": {"positives": {"scope": "global_id"}},
+                }
+            ),
+            max_stride=16,
+            id_scope="global_id",
+            track_names_are_global=True,
+            cache_img=None,
+            **kwargs,
+        )
+        return dataset[0]["instance_image"]
+
+    baseline = _sample()
+    sizematched = _sample(max_hw=(192, 192))
+
+    assert baseline.shape == sizematched.shape
+    assert not torch.allclose(baseline, sizematched), (
+        "sizematching the frame before cropping must change the crop -- this is "
+        "what made the inference path's dropped max_hw a silent scale mismatch"
+    )

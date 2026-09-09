@@ -257,3 +257,84 @@ def test_callback_survives_an_empty_val_set():
 
     assert set(SELECTION_KEYS) <= set(module.logged)
     assert all(math.isnan(module.logged[k]) for k in SELECTION_KEYS)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Callback dispatch: embedding replaces the pose evaluator
+# ─────────────────────────────────────────────────────────────────────────
+def test_embedding_model_gets_the_embedding_evaluator(
+    config, tmp_path, minimal_instance
+):
+    """`embedding` installs `EmbeddingEvaluationCallback` and nothing else.
+
+    The dispatch is `if embedding: ... elif eval.enabled: ...`, so the pose
+    evaluator must NOT also be installed — and the embedding one must run even
+    with `eval.enabled=False`, since `ModelCheckpoint` selects on its metric.
+    """
+    from sleap_nn.training.callbacks import (
+        CentroidEvaluationCallback,
+        EmbeddingEvaluationCallback,
+        EpochEndEvaluationCallback,
+    )
+
+    trainer = _trainer(
+        config,
+        tmp_path,
+        minimal_instance,
+        model_type="embedding",
+        **{"trainer_config.eval.enabled": False, "trainer_config.eval.frequency": 2},
+    )
+    _, callbacks = trainer._setup_loggers_callbacks(
+        viz_train_dataset=None, viz_val_dataset=None
+    )
+
+    embedding_callbacks = [
+        c for c in callbacks if isinstance(c, EmbeddingEvaluationCallback)
+    ]
+    assert len(embedding_callbacks) == 1
+    assert embedding_callbacks[0].eval_frequency == 2
+    assert embedding_callbacks[0].select_metric == "rank1"
+    assert not any(isinstance(c, EpochEndEvaluationCallback) for c in callbacks)
+    assert not any(isinstance(c, CentroidEvaluationCallback) for c in callbacks)
+
+
+def test_pose_model_gets_the_pose_evaluator(config, tmp_path, minimal_instance):
+    """The other side of the same dispatch."""
+    from sleap_nn.training.callbacks import (
+        EmbeddingEvaluationCallback,
+        EpochEndEvaluationCallback,
+    )
+
+    trainer = _trainer(
+        config,
+        tmp_path,
+        minimal_instance,
+        **{"trainer_config.eval.enabled": True},
+    )
+    _, callbacks = trainer._setup_loggers_callbacks(
+        viz_train_dataset=None, viz_val_dataset=None
+    )
+
+    assert any(isinstance(c, EpochEndEvaluationCallback) for c in callbacks)
+    assert not any(isinstance(c, EmbeddingEvaluationCallback) for c in callbacks)
+
+
+def test_embedding_select_metric_reaches_the_callback(
+    config, tmp_path, minimal_instance
+):
+    """`select_metric` must reach the callback, not just the checkpointer."""
+    from sleap_nn.training.callbacks import EmbeddingEvaluationCallback
+
+    trainer = _trainer(
+        config,
+        tmp_path,
+        minimal_instance,
+        model_type="embedding",
+        **{"trainer_config.eval.select_metric": "knn_acc"},
+    )
+    _, callbacks = trainer._setup_loggers_callbacks(
+        viz_train_dataset=None, viz_val_dataset=None
+    )
+
+    callback = next(c for c in callbacks if isinstance(c, EmbeddingEvaluationCallback))
+    assert callback.select_metric == "knn_acc"

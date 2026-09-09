@@ -5,6 +5,7 @@ Covers the NaN-prevention guards (empty positive/negative rows) and the
 ``restrict_same_video`` "unknown cross-video pair" rule).
 """
 
+import pytest
 import torch
 
 from sleap_nn.training.losses import (
@@ -120,3 +121,100 @@ class TestBuildContrastiveMasks:
         )
         assert bool(pos[0, 1]) and bool(pos[1, 0])  # the two views
         assert not bool(pos[0, 2]) and not bool(pos[2, 0])  # different item
+
+
+class TestLossDirection:
+    """The losses must reward the right geometry, not merely be finite.
+
+    Every assertion above holds for a sign-flipped loss: `isfinite` says nothing
+    about whether positives are pulled together or pushed apart. These pin the
+    direction with embeddings whose geometry is known by construction.
+    """
+
+    @staticmethod
+    def _two_pairs(gap: float):
+        """Two identities, each a pair, separated by `gap` on the unit circle.
+
+        `gap=0` puts all four vectors on top of each other (nothing learned);
+        larger gaps separate the identities while keeping each pair together.
+        """
+        angles = torch.tensor([0.0, 0.0, gap, gap])
+        z = torch.stack([torch.cos(angles), torch.sin(angles)], dim=1)
+        return torch.nn.functional.normalize(z, dim=1)
+
+    _POS = torch.tensor(
+        [[0, 1, 0, 0], [1, 0, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]], dtype=torch.bool
+    )
+    _NEG = (~_POS) & (~torch.eye(4, dtype=torch.bool))
+
+    def test_supcon_prefers_separated_identities(self):
+        """Well-separated identities must score LOWER than collapsed ones."""
+        collapsed = supcon_loss(
+            self._two_pairs(0.0), self._POS, self._NEG, temperature=0.1
+        )
+        separated = supcon_loss(
+            self._two_pairs(torch.pi), self._POS, self._NEG, temperature=0.1
+        )
+
+        assert separated < collapsed
+        # A collapsed embedding of 2 identities cannot beat chance: with one
+        # positive and two negatives at equal similarity, -log(1/3).
+        assert collapsed == pytest.approx(float(torch.log(torch.tensor(3.0))), abs=1e-5)
+
+    def test_supcon_penalizes_a_swapped_positive_assignment(self):
+        """Calling two DIFFERENT animals positive must cost more than the truth."""
+        z = self._two_pairs(torch.pi)
+        swapped = torch.tensor(
+            [[0, 0, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0]], dtype=torch.bool
+        )
+        swapped_neg = (~swapped) & (~torch.eye(4, dtype=torch.bool))
+
+        truth = supcon_loss(z, self._POS, self._NEG, temperature=0.1)
+        wrong = supcon_loss(z, swapped, swapped_neg, temperature=0.1)
+
+        assert truth < wrong
+
+    def test_infonce_prefers_separated_identities(self):
+        collapsed = infonce_loss(
+            self._two_pairs(0.0), self._POS, self._NEG, temperature=0.1
+        )
+        separated = infonce_loss(
+            self._two_pairs(torch.pi), self._POS, self._NEG, temperature=0.1
+        )
+
+        assert separated < collapsed
+
+    def test_triplet_prefers_separated_identities(self):
+        collapsed = triplet_loss(self._two_pairs(0.0), self._POS, self._NEG, margin=0.2)
+        separated = triplet_loss(
+            self._two_pairs(torch.pi), self._POS, self._NEG, margin=0.2
+        )
+
+        assert separated < collapsed
+        # Hinge: fully separated pairs clear the margin, so no loss remains.
+        assert separated == pytest.approx(0.0, abs=1e-6)
+
+    def test_gradient_pulls_positives_together(self):
+        """A gradient step must reduce the distance WITHIN an identity.
+
+        Its own geometry: `_two_pairs` places each pair at one point, so their
+        distance is already zero and cannot shrink. Here the two members of each
+        identity are apart, and the two identities are far from each other.
+        """
+        angles = torch.tensor([0.0, 0.6, 2.5, 3.1])
+        z = (
+            torch.nn.functional.normalize(
+                torch.stack([torch.cos(angles), torch.sin(angles)], dim=1), dim=1
+            )
+            .clone()
+            .requires_grad_(True)
+        )
+
+        loss = supcon_loss(z, self._POS, self._NEG, temperature=0.1)
+        loss.backward()
+
+        stepped = torch.nn.functional.normalize(z - 0.1 * z.grad, dim=1)
+        for a, b in ((0, 1), (2, 3)):
+            before = torch.norm(z[a] - z[b]).item()
+            after = torch.norm(stepped[a] - stepped[b]).item()
+            assert after < before, f"positives {a},{b} were not pulled together"

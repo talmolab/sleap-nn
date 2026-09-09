@@ -1087,3 +1087,101 @@ def test_embedding_configure_optimizers_with_lr_scheduler():
     assert "lr_scheduler" in out
     # The scheduler must be bound to the optimizer that is returned.
     assert out["lr_scheduler"]["scheduler"].optimizer is out["optimizer"]
+
+
+class TestSchedulerResolution:
+    """`lr_scheduler` accepts a name, a config, or a plain dict.
+
+    Two silent mis-resolutions lived here: a plain Python `dict` produced NO
+    scheduler (where `main` raised), and an unrecognized NAME silently became
+    ReduceLROnPlateau, because that is the one field the default
+    `LRSchedulerConfig` populates.
+    """
+
+    def _module(self, lr_scheduler):
+        backbone = OmegaConf.create(
+            {
+                "unet": {
+                    "in_channels": 1,
+                    "kernel_size": 3,
+                    "filters": 8,
+                    "filters_rate": 1.5,
+                    "max_stride": 16,
+                    "stem_stride": None,
+                    "middle_block": True,
+                    "up_interpolate": True,
+                    "stacks": 1,
+                    "convs_per_block": 2,
+                    "output_stride": 2,
+                }
+            }
+        )
+        heads = OmegaConf.create(
+            {
+                "centroid": {
+                    "confmaps": {"anchor_part": None, "sigma": 1.5, "output_stride": 2}
+                }
+            }
+        )
+        return CentroidLightningModule(
+            model_type="centroid",
+            backbone_type="unet",
+            backbone_config=backbone,
+            head_configs=heads,
+            init_weights="xavier",
+            lr_scheduler=lr_scheduler,
+            optimizer="Adam",
+        )
+
+    def test_plain_dict_yields_a_scheduler(self):
+        """A plain dict must resolve, not silently produce nothing."""
+        out = self._module(
+            {"step_lr": {"step_size": 5, "gamma": 0.5}}
+        ).configure_optimizers()
+
+        assert "lr_scheduler" in out
+        assert isinstance(
+            out["lr_scheduler"]["scheduler"], torch.optim.lr_scheduler.StepLR
+        )
+
+    def test_plain_nested_dict_reduce_lr_on_plateau(self):
+        out = self._module(
+            {
+                "reduce_lr_on_plateau": {
+                    "threshold": 1e-6,
+                    "threshold_mode": "abs",
+                    "cooldown": 3,
+                    "patience": 5,
+                    "factor": 0.5,
+                    "min_lr": 1e-8,
+                }
+            }
+        ).configure_optimizers()
+
+        assert isinstance(
+            out["lr_scheduler"]["scheduler"],
+            torch.optim.lr_scheduler.ReduceLROnPlateau,
+        )
+
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("step_lr", torch.optim.lr_scheduler.StepLR),
+            ("reduce_lr_on_plateau", torch.optim.lr_scheduler.ReduceLROnPlateau),
+        ],
+    )
+    def test_string_shorthand_resolves(self, name, expected):
+        """The documented string form, at the LightningModule level."""
+        out = self._module(name).configure_optimizers()
+
+        assert isinstance(out["lr_scheduler"]["scheduler"], expected)
+
+    def test_unknown_string_raises_instead_of_defaulting(self):
+        """A typo must not silently train on ReduceLROnPlateau."""
+        with pytest.raises(ValueError, match="Unknown lr_scheduler"):
+            self._module("cosine_anealing").configure_optimizers()
+
+    def test_none_means_no_scheduler(self):
+        out = self._module(None).configure_optimizers()
+
+        assert "lr_scheduler" not in out
