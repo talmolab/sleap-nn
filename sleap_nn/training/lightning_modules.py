@@ -1,5 +1,6 @@
 """This module has the LightningModule classes for all model types."""
 
+from collections.abc import Mapping
 from typing import Optional, Union, Dict, Any, List, Tuple
 import math
 import time
@@ -815,6 +816,16 @@ class LightningModel(L.LightningModule):
                 lr_scheduler_cfg.linear_warmup_linear_decay = (
                     LinearWarmupLinearDecayConfig()
                 )
+            else:
+                # An unrecognized name left `lr_scheduler_cfg` at its default, whose
+                # `reduce_lr_on_plateau` is populated (the other three default to
+                # None) -- so a typo silently trained on ReduceLROnPlateau instead of
+                # the schedule the user asked for. Name the valid choices instead.
+                raise ValueError(
+                    f"Unknown lr_scheduler {self.lr_scheduler!r}. Expected one of "
+                    "'step_lr', 'reduce_lr_on_plateau', 'cosine_annealing_warmup', "
+                    "'linear_warmup_linear_decay', a scheduler config, or None."
+                )
 
         elif isinstance(self.lr_scheduler, dict) or OmegaConf.is_config(
             self.lr_scheduler
@@ -852,6 +863,13 @@ class LightningModel(L.LightningModule):
             """Scheduler sub-config by name, tolerating a partial dict."""
             if OmegaConf.is_config(lr_scheduler_cfg):
                 return OmegaConf.select(lr_scheduler_cfg, name, default=None)
+            # A plain Python dict has no attributes, so `getattr` alone returned
+            # None for every name and produced NO scheduler -- silently, where
+            # `main` raised. Sub-configs may themselves be dicts, so wrap them
+            # for the attribute access the branches below do.
+            if isinstance(lr_scheduler_cfg, Mapping):
+                sub = lr_scheduler_cfg.get(name, None)
+                return OmegaConf.create(sub) if isinstance(sub, Mapping) else sub
             return getattr(lr_scheduler_cfg, name, None)
 
         if _sched("cosine_annealing_warmup") is not None:
