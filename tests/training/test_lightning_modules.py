@@ -19,6 +19,7 @@ from sleap_nn.training.lightning_modules import (
     BottomUpLightningModule,
     BottomUpMultiClassLightningModule,
     LightningModel,
+    validate_embedding_identity,
 )
 from torch.nn.functional import mse_loss
 import torch
@@ -820,3 +821,367 @@ def test_configure_optimizers_respects_documented_scheduler_priority(
     assert isinstance(
         result["lr_scheduler"]["scheduler"], scheduler_types[expected_type]
     )
+
+
+# ── Embedding objective: identity-equality gates (SPEC §4.4) ─────────────────
+
+
+def _emb_objective(
+    scope="global_id", sources=("same_frame", "in_batch"), restrict_same_video=False
+):
+    """Minimal objective node for the identity-gate tests."""
+    return OmegaConf.create(
+        {
+            "positives": {"scope": scope, "aug_views": 2},
+            "negatives": {
+                "sources": list(sources),
+                "exclude_same_track": True,
+                "restrict_same_video": restrict_same_video,
+            },
+        }
+    )
+
+
+def _emb_identity(
+    tracks_are_proofread=False,
+    track_names_are_global=False,
+    detections_deduplicated=True,
+):
+    return OmegaConf.create(
+        {
+            "tracks_are_proofread": tracks_are_proofread,
+            "track_names_are_global": track_names_are_global,
+            "detections_deduplicated": detections_deduplicated,
+        }
+    )
+
+
+def test_validate_embedding_identity_global_id_ok():
+    """`global_id` positives with globally-consistent names pass the gate."""
+    validate_embedding_identity(
+        _emb_objective(scope="global_id"),
+        _emb_identity(track_names_are_global=True),
+    )  # no raise
+
+
+def test_validate_embedding_identity_global_id_errors_without_global_names():
+    """`global_id` positives without `track_names_are_global` is a hard error."""
+    with pytest.raises(ValueError, match="track_names_are_global"):
+        validate_embedding_identity(
+            _emb_objective(scope="global_id"),
+            _emb_identity(track_names_are_global=False),
+        )
+
+
+def test_validate_embedding_identity_global_id_ok_with_real_identities():
+    """`global_id` is grounded by real `sio.Identity` labels — no promise needed.
+
+    When the data carries global identities, they ARE the ground-truth cross-video
+    animal identity, so `global_id` grouping is valid without
+    `track_names_are_global`.
+    """
+    validate_embedding_identity(
+        _emb_objective(scope="global_id"),
+        _emb_identity(track_names_are_global=False),
+        has_identities=True,
+    )  # no raise
+
+
+def test_validate_embedding_identity_global_id_errors_no_identities_no_promise():
+    """`global_id` still errors when there are neither identities nor the promise."""
+    with pytest.raises(ValueError, match="sio.Identity"):
+        validate_embedding_identity(
+            _emb_objective(scope="global_id"),
+            _emb_identity(track_names_are_global=False),
+            has_identities=False,
+        )
+
+
+def test_validate_embedding_identity_defaults_error():
+    """Absent objective + identity -> default scope `global_id` -> hard error.
+
+    The default objective scope is `global_id` and the default identity is not
+    globally consistent, so a bare embedding config must fail fast.
+    """
+    with pytest.raises(ValueError, match="track_names_are_global"):
+        validate_embedding_identity(None, None)
+
+
+def test_validate_embedding_identity_tracklet_warns_unproofread(caplog):
+    """`tracklet` positives on unproofread tracks warn (but do not error)."""
+    with caplog.at_level("WARNING"):
+        validate_embedding_identity(
+            _emb_objective(scope="tracklet", restrict_same_video=True),
+            _emb_identity(tracks_are_proofread=False),
+        )
+    assert "tracks_are_proofread" in caplog.text
+
+
+def test_validate_embedding_identity_tracklet_proofread_silent(caplog):
+    """`tracklet` positives on proofread tracks (cross-video gated) are silent."""
+    with caplog.at_level("WARNING"):
+        validate_embedding_identity(
+            _emb_objective(scope="tracklet", restrict_same_video=True),
+            _emb_identity(tracks_are_proofread=True),
+        )
+    assert "tracks_are_proofread" not in caplog.text
+
+
+def test_validate_embedding_identity_tracklet_requires_restrict_same_video():
+    """`tracklet` + `in_batch` negatives without `restrict_same_video` is a hard error.
+
+    Otherwise the same animal in two videos becomes an in-batch hard negative (the
+    model is trained to push it apart across videos — the opposite of re-ID).
+    """
+    with pytest.raises(ValueError, match="restrict_same_video"):
+        validate_embedding_identity(
+            _emb_objective(
+                scope="tracklet",
+                sources=("same_frame", "in_batch"),
+                restrict_same_video=False,
+            ),
+            _emb_identity(tracks_are_proofread=True),
+        )
+
+
+def test_validate_embedding_identity_tracklet_same_frame_only_ok():
+    """`tracklet` with same-frame-only negatives needs no `restrict_same_video`.
+
+    Same-frame pairs are within-video by construction, so no cross-video pair can ever
+    become a negative — the gate must not fire.
+    """
+    validate_embedding_identity(
+        _emb_objective(
+            scope="tracklet", sources=("same_frame",), restrict_same_video=False
+        ),
+        _emb_identity(tracks_are_proofread=True),
+    )  # no raise
+
+
+def test_validate_embedding_identity_same_frame_warns_not_deduplicated(caplog):
+    """`same_frame` negatives without dedup warn (but do not error)."""
+    with caplog.at_level("WARNING"):
+        validate_embedding_identity(
+            _emb_objective(
+                scope="tracklet",
+                sources=("same_frame", "in_batch"),
+                restrict_same_video=True,
+            ),
+            _emb_identity(tracks_are_proofread=True, detections_deduplicated=False),
+        )
+    assert "detections_deduplicated" in caplog.text
+
+
+def test_validate_embedding_identity_aug_view_no_gates(caplog):
+    """`aug_view` positives + `in_batch`-only negatives assert nothing -> silent."""
+    with caplog.at_level("WARNING"):
+        validate_embedding_identity(
+            _emb_objective(scope="aug_view", sources=("in_batch",)),
+            _emb_identity(),  # all conservative defaults
+        )  # no raise
+    assert caplog.text == ""
+
+
+# ── Embedding mask burn-in is config-driven (data_config.preprocessing.burn_in) ──
+
+
+def test_set_embedding_burn_in_from_config():
+    """`set_embedding_burn_in_from_config` honors data_config.preprocessing.burn_in."""
+    from sleap_nn.training.lightning_modules import set_embedding_burn_in_from_config
+
+    class _M:
+        burn_in = True
+
+    m = _M()
+    set_embedding_burn_in_from_config(
+        m, OmegaConf.create({"data_config": {"preprocessing": {"burn_in": False}}})
+    )
+    assert m.burn_in is False
+
+    m = _M()
+    set_embedding_burn_in_from_config(
+        m, OmegaConf.create({"data_config": {"preprocessing": {"burn_in": True}}})
+    )
+    assert m.burn_in is True
+
+    # Absent field -> default False (matches PreprocessingConfig.burn_in and the LM
+    # __init__; mask-based models opt in explicitly).
+    m = _M()
+    m.burn_in = None
+    set_embedding_burn_in_from_config(m, OmegaConf.create({"data_config": {}}))
+    assert m.burn_in is False
+
+
+def test_embedding_configure_optimizers_with_lr_scheduler():
+    """Embedding + lr_scheduler binds the scheduler to the RETURNED optimizer.
+
+    Regression: the embedding override previously built the scheduler against a
+    different optimizer than the one it returned, which Lightning rejects with
+    MisconfigurationException when an lr_scheduler is configured.
+    """
+    from sleap_nn.training.lightning_modules import EmbeddingLightningModule
+
+    backbone = OmegaConf.create(
+        {
+            "unet": {
+                "in_channels": 1,
+                "kernel_size": 3,
+                "filters": 8,
+                "filters_rate": 1.5,
+                "max_stride": 16,
+                "stem_stride": None,
+                "middle_block": True,
+                "up_interpolate": True,
+                "stacks": 1,
+                "convs_per_block": 2,
+                "output_stride": 2,
+            }
+        }
+    )
+    heads = OmegaConf.create(
+        {
+            "embedding": {
+                "embedding": {
+                    "embedding_dim": 16,
+                    "num_fc_layers": 1,
+                    "num_fc_units": 32,
+                    "pool": "gem",
+                    "normalize": True,
+                    "output_stride": 16,
+                    "loss_weight": 1.0,
+                    "freeze_backbone": False,
+                    "objective": {
+                        "positives": {"scope": "global_id", "aug_views": 2},
+                        "negatives": {"sources": ["in_batch"]},
+                        "loss": {"name": "supcon", "temperature": 0.1},
+                        "use_projection": True,
+                        "projection_dim": 16,
+                    },
+                }
+            }
+        }
+    )
+    lr_sched = OmegaConf.create(
+        {
+            "step_lr": None,
+            "reduce_lr_on_plateau": {
+                "threshold": 1.0e-6,
+                "threshold_mode": "abs",
+                "cooldown": 3,
+                "patience": 5,
+                "factor": 0.5,
+                "min_lr": 1.0e-8,
+            },
+        }
+    )
+    mod = EmbeddingLightningModule(
+        model_type="embedding",
+        backbone_type="unet",
+        backbone_config=backbone,
+        head_configs=heads,
+        init_weights="xavier",
+        lr_scheduler=lr_sched,
+        optimizer="AdamW",
+    )
+    out = mod.configure_optimizers()
+    assert "lr_scheduler" in out
+    # The scheduler must be bound to the optimizer that is returned.
+    assert out["lr_scheduler"]["scheduler"].optimizer is out["optimizer"]
+
+
+class TestSchedulerResolution:
+    """`lr_scheduler` accepts a name, a config, or a plain dict.
+
+    Two silent mis-resolutions lived here: a plain Python `dict` produced NO
+    scheduler (where `main` raised), and an unrecognized NAME silently became
+    ReduceLROnPlateau, because that is the one field the default
+    `LRSchedulerConfig` populates.
+    """
+
+    def _module(self, lr_scheduler):
+        backbone = OmegaConf.create(
+            {
+                "unet": {
+                    "in_channels": 1,
+                    "kernel_size": 3,
+                    "filters": 8,
+                    "filters_rate": 1.5,
+                    "max_stride": 16,
+                    "stem_stride": None,
+                    "middle_block": True,
+                    "up_interpolate": True,
+                    "stacks": 1,
+                    "convs_per_block": 2,
+                    "output_stride": 2,
+                }
+            }
+        )
+        heads = OmegaConf.create(
+            {
+                "centroid": {
+                    "confmaps": {"anchor_part": None, "sigma": 1.5, "output_stride": 2}
+                }
+            }
+        )
+        return CentroidLightningModule(
+            model_type="centroid",
+            backbone_type="unet",
+            backbone_config=backbone,
+            head_configs=heads,
+            init_weights="xavier",
+            lr_scheduler=lr_scheduler,
+            optimizer="Adam",
+        )
+
+    def test_plain_dict_yields_a_scheduler(self):
+        """A plain dict must resolve, not silently produce nothing."""
+        out = self._module(
+            {"step_lr": {"step_size": 5, "gamma": 0.5}}
+        ).configure_optimizers()
+
+        assert "lr_scheduler" in out
+        assert isinstance(
+            out["lr_scheduler"]["scheduler"], torch.optim.lr_scheduler.StepLR
+        )
+
+    def test_plain_nested_dict_reduce_lr_on_plateau(self):
+        out = self._module(
+            {
+                "reduce_lr_on_plateau": {
+                    "threshold": 1e-6,
+                    "threshold_mode": "abs",
+                    "cooldown": 3,
+                    "patience": 5,
+                    "factor": 0.5,
+                    "min_lr": 1e-8,
+                }
+            }
+        ).configure_optimizers()
+
+        assert isinstance(
+            out["lr_scheduler"]["scheduler"],
+            torch.optim.lr_scheduler.ReduceLROnPlateau,
+        )
+
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("step_lr", torch.optim.lr_scheduler.StepLR),
+            ("reduce_lr_on_plateau", torch.optim.lr_scheduler.ReduceLROnPlateau),
+        ],
+    )
+    def test_string_shorthand_resolves(self, name, expected):
+        """The documented string form, at the LightningModule level."""
+        out = self._module(name).configure_optimizers()
+
+        assert isinstance(out["lr_scheduler"]["scheduler"], expected)
+
+    def test_unknown_string_raises_instead_of_defaulting(self):
+        """A typo must not silently train on ReduceLROnPlateau."""
+        with pytest.raises(ValueError, match="Unknown lr_scheduler"):
+            self._module("cosine_anealing").configure_optimizers()
+
+    def test_none_means_no_scheduler(self):
+        out = self._module(None).configure_optimizers()
+
+        assert "lr_scheduler" not in out

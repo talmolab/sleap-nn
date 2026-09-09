@@ -52,6 +52,7 @@ from sleap_nn.inference.layers.segmentation import (
     SegmentationLayer,
     SemanticSegmentationLayer,
 )
+from sleap_nn.inference.layers.embedding import EmbeddingLayer, TopDownEmbeddingLayer
 from sleap_nn.inference.layers.single_instance import SingleInstanceLayer
 from sleap_nn.inference.layers.tiled import (
     TiledLayer,
@@ -609,6 +610,53 @@ def _build_topdown_segmentation_layer(
     )
 
 
+def _build_embedding_layer_from_model(emb_model: Any, device: str) -> EmbeddingLayer:
+    """Wrap an ``EmbeddingInferenceModel`` holder in an ``EmbeddingLayer``."""
+    module = emb_model.torch_model
+    input_channels = 3 if getattr(emb_model, "ensure_rgb", False) else 1
+    return EmbeddingLayer(
+        backend=TorchBackend(model=module.model, device=device),
+        embedding_module=module,
+        embedding_dim=emb_model.embedding_dim,
+        output_stride=emb_model.output_stride,
+        max_stride=emb_model.max_stride,
+        input_channels=input_channels,
+        preprocess_config=PreprocessConfig(scale=emb_model.input_scale),
+        postprocess_config=PostprocessConfig(),
+    )
+
+
+def _build_embedding_layer(predictor: Any, device: str) -> EmbeddingLayer:
+    """Wrap the single-stage ``EmbeddingInferenceModel`` in an ``EmbeddingLayer``."""
+    return _build_embedding_layer_from_model(predictor.inference_model, device)
+
+
+def _build_topdown_embedding_layer(
+    predictor: Any, device: str
+) -> TopDownEmbeddingLayer:
+    """Compose centroid + per-crop-embedding stages into a ``TopDownEmbeddingLayer``.
+
+    Mirrors :func:`_build_topdown_segmentation_layer`: stage 2 is the appearance
+    embedder built from the ``EmbeddingInferenceModel`` carried on
+    ``inference_model.instance_peaks``; stage 1 is either a real centroid model or
+    the GT-centroid fallback (reusing the stage-2 backend, no separate model).
+    """
+    inf = predictor.inference_model
+    centroid_model = inf.centroid_crop
+    emb_model = inf.instance_peaks
+    emb_layer = _build_embedding_layer_from_model(emb_model, device)
+    if getattr(centroid_model, "use_gt_centroids", False):
+        centroid_layer = _build_centroid_layer_gt_only(predictor, emb_layer.backend)
+    else:
+        centroid_layer = _build_centroid_layer(centroid_model, device, assets=predictor)
+    crop_h, crop_w = centroid_model.crop_hw
+    return TopDownEmbeddingLayer(
+        centroid_layer=centroid_layer,
+        centered_instance_layer=emb_layer,
+        crop_size=(crop_h, crop_w),
+    )
+
+
 def _select_layer(assets: Any, model_types: List[str], device: str):
     """Dispatch on detected model types and build the appropriate layer composition."""
     if "single_instance" in model_types:
@@ -642,6 +690,16 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
             check_tiling_parity(_tiling_source_cfg(assets))
             return _build_tiled_semantic_segmentation_layer(inner, tiling)
         return inner
+    # Appearance-embedding (re-ID). Checked BEFORE the centroid / centered_instance
+    # / topdown family so a centroid + embedding pair isn't swallowed by the
+    # centroid-only branch.
+    #   - centroid + embedding -> composed centroid -> crop -> embed (the inference
+    #     model is a TopDownInferenceModel carrying .centroid_crop + .instance_peaks).
+    #   - embedding alone -> single-stage mask-driven EmbeddingLayer.
+    if "embedding" in model_types:
+        if getattr(assets.inference_model, "centroid_crop", None) is not None:
+            return _build_topdown_embedding_layer(assets, device)
+        return _build_embedding_layer(assets, device)
     # Top-down (crop-centered) segmentation: a centroid + centered_instance_segmentation
     # pair, OR a seg dir alone (GT-centroid fallback). Checked BEFORE the bare
     # ``has_centroid`` branch so a centroid+seg pair isn't routed to centroid-only.
@@ -1725,6 +1783,20 @@ class Predictor:
             return outputs_list
         if skeleton is not None:
             self.skeleton = skeleton
+        # An `embedding` model emits appearance vectors, not poses or masks, so
+        # nothing packages them into a `sio.Labels` -- `make_labels=True` returned
+        # an EMPTY Labels and looked like a model that predicted nothing. The CLI
+        # routes this to the .h5 writer; say so here too, since the Python API can
+        # reach it directly.
+        if self._is_embedding_layer():
+            raise ValueError(
+                "make_labels=True is not supported for an `embedding` (re-ID) "
+                "model: it predicts appearance vectors, which have no "
+                "`sio.Labels` representation. Use "
+                "`sleap_nn.inference.embedding.predict_embeddings_to_h5(...)` "
+                "(or `sleap-nn predict --embeddings_path out.h5`) to stream them, "
+                "or pass `make_labels=False` for the raw `Outputs`."
+            )
         if self.skeleton is None and not self._is_segmentation_layer():
             raise ValueError(
                 "make_labels=True requires a skeleton. Either pass "
@@ -1897,6 +1969,16 @@ class Predictor:
         """
         if skeleton is not None:
             self.skeleton = skeleton
+        # Same as `predict(make_labels=True)`: an embedding model has nothing to
+        # write into a `.slp`, so this streamed an empty file.
+        if self._is_embedding_layer():
+            raise ValueError(
+                "predict_to_file is not supported for an `embedding` (re-ID) "
+                "model: it predicts appearance vectors, which have no "
+                "`sio.Labels` representation. Use "
+                "`sleap_nn.inference.embedding.predict_embeddings_to_h5(...)` "
+                "(or `sleap-nn predict --embeddings_path out.h5`) instead."
+            )
         if self.skeleton is None and not self._is_segmentation_layer():
             raise ValueError(
                 "predict_to_file requires a skeleton. Either pass "
@@ -2236,6 +2318,17 @@ class Predictor:
                 TiledSemanticSegmentationLayer,
             ),
         )
+
+    def _is_embedding_layer(self) -> bool:
+        """``True`` iff ``layer`` is an appearance-embedding (re-ID) layer.
+
+        Embedding models are skeleton-less (like segmentation): they emit
+        ``Outputs.pred_embeddings`` rather than keypoints/masks. Gates the
+        no-skeleton path so a bare ``predict()`` on an embedding model does not
+        raise the "requires a skeleton" error (the offline re-ID stream goes
+        through :func:`sleap_nn.inference.embedding.predict_embeddings_to_h5`).
+        """
+        return isinstance(self.layer, (EmbeddingLayer, TopDownEmbeddingLayer))
 
     def _resolve_centroid_packaging(self) -> _CentroidPackaging:
         """Resolve the single-source centroid output-packaging decision.

@@ -278,6 +278,11 @@ class EvalConfig:
             that range, so segmentation eval falls back to `0.5` unless you set
             a value in ``(0, 1]`` (see ``train._run_segmentation_split_eval``).
             *Default*: `50.0`.
+        select_metric: (str) For the ``embedding`` model type, which retrieval /
+            verification metric selects the best checkpoint (and drives early
+            stopping): one of ``rank1``, ``mAP``, ``auc``, ``knn_acc`` (higher is
+            better) or ``eer`` (lower is better). Ignored by every other model
+            type, which selects on ``val/loss``. *Default*: `"rank1"`.
     """
 
     enabled: bool = False
@@ -285,6 +290,12 @@ class EvalConfig:
     oks_stddev: float = field(default=0.025, validator=validators.gt(0))
     oks_scale: Optional[float] = None
     match_threshold: float = field(default=50.0, validator=validators.gt(0))
+    # Declared here so it is reachable from YAML at all: a structured merge against
+    # this dataclass raises `ConfigKeyError` for any key it does not define, so
+    # `trainer_config.eval.select_metric` in a config file could only ever fail --
+    # the mode table in `model_trainer` was dead for config users and selection was
+    # always rank-1. The valid names are validated there (one table, one place).
+    select_metric: str = "rank1"
 
 
 @define

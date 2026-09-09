@@ -60,6 +60,17 @@ class ExportMetadata:
     anchor_part: Optional[str] = None
     centroid_method: Optional[str] = None
 
+    # Embedding (re-ID) model
+    embedding_dim: Optional[int] = None
+    normalize: Optional[bool] = None
+    backbone_source: Optional[str] = None
+    # ``burn_in``/``background_fill`` record whether the trained embedder masked the
+    # crop (foreground-only standardize). The single-input ONNX wrapper always does a
+    # maskless whole-crop standardize, so a ``burn_in=True`` model's exported embeddings
+    # DIVERGE from native masked inference — these fields make that detectable.
+    burn_in: Optional[bool] = None
+    background_fill: Optional[str] = None
+
     # Training config reference
     training_config_embedded: bool = False
     training_config_hash: str = ""
@@ -105,6 +116,11 @@ class ExportMetadata:
             class_names=data.get("class_names"),
             peak_threshold=data.get("peak_threshold"),
             anchor_part=data.get("anchor_part"),
+            embedding_dim=data.get("embedding_dim"),
+            normalize=data.get("normalize"),
+            backbone_source=data.get("backbone_source"),
+            burn_in=data.get("burn_in"),
+            background_fill=data.get("background_fill"),
             centroid_method=data.get("centroid_method"),
             training_config_embedded=bool(data.get("training_config_embedded", False)),
             training_config_hash=data.get("training_config_hash", ""),
@@ -165,6 +181,11 @@ def build_base_metadata(
     class_names: Optional[List[str]] = None,
     peak_threshold: Optional[float] = None,
     anchor_part: Optional[str] = None,
+    embedding_dim: Optional[int] = None,
+    normalize: Optional[bool] = None,
+    backbone_source: Optional[str] = None,
+    burn_in: Optional[bool] = None,
+    background_fill: Optional[str] = None,
     centroid_method: Optional[str] = None,
 ) -> ExportMetadata:
     """Create an ExportMetadata instance with standard defaults."""
@@ -194,6 +215,11 @@ def build_base_metadata(
         class_names=class_names,
         peak_threshold=peak_threshold,
         anchor_part=anchor_part,
+        embedding_dim=embedding_dim,
+        normalize=normalize,
+        backbone_source=backbone_source,
+        burn_in=burn_in,
+        background_fill=background_fill,
         centroid_method=centroid_method,
         training_config_embedded=training_config_embedded,
         training_config_hash=training_config_hash,

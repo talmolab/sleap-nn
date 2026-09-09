@@ -1,0 +1,146 @@
+# Sample config for the `embedding` (crop -> appearance vector, re-ID) model type.
+#
+# Trains a ConvNeXt-Tiny (ImageNet) embedder with a supervised-contrastive objective
+# (SupCon over global track-name identities). Set train/val paths and the pose
+# `anchor_part` (or use mask data; see notes) and run with `sleap-nn train`.
+#
+# AUGMENTATION — IMPORTANT: the embedding objective is contrastive, so it is *forced*
+# to be invariant to whatever augmentation is applied. Heavy invariance-forcing
+# augmentation (random-erase, strong intensity jitter, wide scale) therefore DESTROYS
+# the very cues re-ID depends on (body size, fine markings / striping). Empirically
+# this was the dominant factor in re-ID quality: cue-preserving augmentation took fly
+# female/male retrieval from ~0.84 to ~0.99 at the same budget. So the recommended
+# default below is deliberately gentle: NO erase, NO intensity jitter, NO scale aug,
+# small rotation. Prefer adding training budget over heavier augmentation.
+data_config:
+  train_labels_path: null
+  val_labels_path: null
+  validation_fraction: 0.1
+  test_file_path: null
+  provider: LabelsReader
+  user_instances_only: true
+  data_pipeline_fw: torch_dataset_cache_img_memory
+  preprocessing:
+    # Grayscale is the default (drops the camera-color confound). Set ensure_rgb: true
+    # (and ensure_grayscale: false) to train/infer on color crops where hue is a real
+    # re-ID cue. A 3-channel ImageNet backbone repeats the gray channel internally, so
+    # grayscale works with convnext/swint; the channel choice is honored end-to-end
+    # (training, the `--embeddings_path` inference stream, and ONNX export).
+    ensure_rgb: false
+    ensure_grayscale: true  # re-ID typically benefits from grayscale (drops camera color)
+    max_height: null
+    max_width: null
+    scale: 1.0
+    crop_size: null         # auto-detected from instance extents + rotation padding
+    min_crop_size: 100
+    # crop_centering (mask data only): how the fixed square crop is centered.
+    #   auto     -> mask center-of-mass (default); pose data uses anchor_part.
+    #   mask_com -> force the mask center-of-mass.
+    #   bbox     -> mask bounding-box midpoint (robust to concave masks whose COM
+    #               lands off the instance).
+    crop_centering: auto
+    # burn_in: mask burn-in. true for mask-based data (background zeroed); the all-ones
+    # placeholder mask of pose data makes it a no-op, so leaving it true is safe, but
+    # set false for pure pose/centroid-crop data to be explicit.
+    burn_in: false
+    # background_fill: what the masked-out background becomes when burn_in is on.
+    #   black -> zeroed (the original mask-multiply; neutral in standardized space).
+    #   grey  -> mid-grey.   mean -> foreground mean (== black for standardized input).
+    #   noise -> per-pixel noise (forces invariance to background texture).
+    background_fill: black
+  use_augmentations_train: true
+  augmentation_config:
+    # Cue-preserving (see header). Erase + intensity OFF; scale fixed; gentle rotation.
+    geometric:
+      rotation_min: -10.0
+      rotation_max: 10.0
+      rotation_p: null
+      scale_min: 1.0
+      scale_max: 1.0
+      scale_p: null
+      translate_width: 0.05
+      translate_height: 0.05
+      translate_p: null
+      affine_p: 1.0
+      erase_p: 0.0
+      flip_p: 0.0  # only enable if the animal is truly L/R symmetric in labeling
+    intensity:
+      contrast_p: 0.0
+      brightness_p: 0.0
+      gaussian_noise_p: 0.0
+  # Declared identity semantics (gates the objective; see model_config.objective).
+  identity:
+    tracks_are_proofread: true
+    track_names_are_global: true
+    detections_deduplicated: true
+  skeletons: null
+model_config:
+  init_weights: xavier
+  pretrained_backbone_weights: null
+  pretrained_head_weights: null
+  backbone_config:
+    unet: null
+    convnext:
+      model_type: tiny
+      in_channels: 3  # grayscale is repeated to 3ch for the ImageNet stem
+      pre_trained_weights: ConvNeXt_Tiny_Weights
+      stem_patch_kernel: 4
+      stem_patch_stride: 2
+      kernel_size: 3
+      filters_rate: 2
+      convs_per_block: 2
+      up_interpolate: true
+      output_stride: 1
+      max_stride: 32
+    swint: null
+  head_configs:
+    single_instance: null
+    centroid: null
+    centered_instance: null
+    bottomup: null
+    multi_class_bottomup: null
+    multi_class_topdown: null
+    embedding:
+      embedding:
+        embedding_dim: 128
+        num_fc_layers: 1
+        num_fc_units: 256
+        pool: gem
+        normalize: true
+        output_stride: 32  # = backbone max_stride (lone pooled head taps middle_output)
+        loss_weight: 1.0
+        freeze_backbone: false
+        anchor_part: null  # pose centering node; null -> mean of visible nodes
+        objective:
+          # positives x negatives x loss. scope=global_id needs track_names_are_global=true.
+          positives: {scope: global_id, aug_views: 2}
+          negatives: {sources: [same_frame, in_batch], exclude_same_track: true, restrict_same_video: false}
+          loss: {name: supcon, temperature: 0.1, margin: 0.2}
+          # PK sampler: P groups x K crops per batch. For tracklet scope use
+          # kind: within_video (so same-video negatives co-occur) + restrict_same_video: true.
+          sampler: {kind: pk, groups_per_batch: 8, samples_per_group: 16}
+          use_projection: true
+          projection_dim: 128
+trainer_config:
+  train_data_loader: {batch_size: 128, shuffle: true, num_workers: 0}
+  val_data_loader: {batch_size: 64, shuffle: false, num_workers: 0}
+  model_ckpt: {save_top_k: 1, save_last: false}
+  trainer_devices: 1
+  trainer_accelerator: auto
+  enable_progress_bar: true
+  max_epochs: 100
+  seed: 0
+  use_wandb: false
+  save_ckpt: true
+  ckpt_dir: null
+  run_name: embedding_convnext
+  optimizer_name: AdamW
+  optimizer: {lr: 0.0001, amsgrad: false}
+  lr_scheduler:
+    step_lr: null
+    reduce_lr_on_plateau: {threshold: 1.0e-6, threshold_mode: abs, cooldown: 3, patience: 8, factor: 0.5, min_lr: 1.0e-8}
+  early_stopping: {min_delta: 1.0e-8, patience: 20, stop_training_on_plateau: false}
+  # Embedding checkpoint/early-stop select on a retrieval metric (rank1), not val/loss.
+  eval: {enabled: true, frequency: 1}
+name: embedding_convnext
+description: ConvNeXt embedding (re-ID) with cue-preserving augmentation

@@ -72,11 +72,98 @@ def resolve_output_stride(cfg: DictConfig, model_type: str) -> int:
     head_cfg = cfg.model_config.head_configs[model_type]
     if head_cfg is None:
         return 1
+    if model_type == "embedding":
+        # Pooled re-ID head: no confmaps/pafs. The head taps the backbone's
+        # ``middle_output`` so its output_stride equals the backbone max_stride.
+        leaf = getattr(head_cfg, "embedding", None)
+        if leaf is not None and getattr(leaf, "output_stride", None) is not None:
+            return int(leaf.output_stride)
+        return 1
     if hasattr(head_cfg, "confmaps") and head_cfg.confmaps is not None:
         return int(head_cfg.confmaps.output_stride)
     if hasattr(head_cfg, "pafs") and head_cfg.pafs is not None:
         return int(head_cfg.pafs.output_stride)
     return 1
+
+
+def resolve_embedding_dim(cfg: DictConfig) -> int:
+    """Resolve the embedding (output vector) dimensionality for an embedding model."""
+    leaf = OmegaConf.select(
+        cfg, "model_config.head_configs.embedding.embedding", default=None
+    )
+    if leaf is None:
+        return 128
+    return int(OmegaConf.select(leaf, "embedding_dim", default=128))
+
+
+def resolve_normalize(cfg: DictConfig) -> bool:
+    """Resolve whether the embedding head L2-normalizes its output."""
+    leaf = OmegaConf.select(
+        cfg, "model_config.head_configs.embedding.embedding", default=None
+    )
+    if leaf is None:
+        return True
+    return bool(OmegaConf.select(leaf, "normalize", default=True))
+
+
+def resolve_burn_in(cfg: DictConfig) -> bool:
+    """Resolve whether the trained embedder masked the crop (mask burn-in).
+
+    A ``burn_in=True`` model standardizes over the foreground only and replaces the
+    background, which the single-input ONNX wrapper (maskless whole-crop standardize)
+    cannot reproduce — so this drives the export-time divergence warning + metadata.
+    Mirrors the canonical default in ``PreprocessingConfig.burn_in`` (``False``).
+    """
+    return bool(
+        OmegaConf.select(cfg, "data_config.preprocessing.burn_in", default=False)
+    )
+
+
+def resolve_background_fill(cfg: DictConfig) -> str:
+    """Resolve the masked-out background fill the trained embedder used (burn-in)."""
+    return str(
+        OmegaConf.select(
+            cfg, "data_config.preprocessing.background_fill", default="black"
+        )
+    )
+
+
+def resolve_embedding_input_channels(cfg: DictConfig) -> int:
+    """Resolve the DATA channels an embedding crop is fed with (not the backbone).
+
+    The embedder forces grayscale by default (1 channel); a 3-channel ImageNet
+    backbone repeats the gray channel internally (``Model.forward``). Only when the
+    user explicitly opts into RGB (``ensure_rgb``) are the crops 3-channel. This is
+    the channel count the exported graph should accept, independent of the backbone
+    ``in_channels``.
+    """
+    preprocessing = cfg.data_config.preprocessing
+    if bool(getattr(preprocessing, "ensure_rgb", False)):
+        return 3
+    if bool(getattr(preprocessing, "ensure_grayscale", False)):
+        return 1
+    # Embedding default is grayscale even when neither flag is set.
+    return 1
+
+
+def resolve_backbone_source(cfg: DictConfig) -> Optional[str]:
+    """Resolve a human-readable backbone weight source for metadata.
+
+    Returns ``"imagenet"`` if the backbone was initialized from pretrained ImageNet
+    weights (convnext/swint ``pre_trained_weights`` or unet
+    ``pretrained_backbone_weights``), else ``"scratch"``.
+    """
+    backbone_type = get_backbone_type_from_cfg(cfg)
+    backbone_cfg = cfg.model_config.backbone_config.get(backbone_type)
+    if backbone_cfg is not None:
+        pre_trained = OmegaConf.select(
+            backbone_cfg, "pre_trained_weights", default=None
+        )
+        if pre_trained:
+            return "imagenet"
+    if OmegaConf.select(cfg, "model_config.pretrained_backbone_weights", default=None):
+        return "imagenet"
+    return "scratch"
 
 
 def resolve_pafs_output_stride(cfg: DictConfig) -> int:
