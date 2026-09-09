@@ -1,11 +1,22 @@
 """Tests for external pretrained (HuggingFace) backbones.
 
-These tests build backbones with ``weights=False`` (random init from the model
+Most tests build backbones with ``weights=False`` (random init from the model
 config) so they never touch the network — the HF architecture code is exercised
 without downloading checkpoints. They are skipped when ``transformers`` (the
 ``backbones`` optional extra) is not installed, mirroring the ``requires_onnxruntime``
 convention in ``tests/export``.
+
+**That convention hid a bug.** ``weights=True`` and ``weights=False`` used to
+configure the backbone by *different mechanisms* — kwargs to ``from_pretrained``
+vs. attributes on the config — and only the weights=False one tolerated an option
+the model class does not declare. So ``mode="encoder"`` was broken for every CNN
+backbone with real weights while every test here passed. The two paths now share
+one mechanism, and ``TestWeightsTrueParity`` below pins the parity directly. Those
+tests need a cached model (or the network), so they are marked ``hf_weights`` and
+skipped unless ``SLEAP_NN_TEST_HF_WEIGHTS=1``.
 """
+
+import os
 
 import numpy as np
 import pytest
@@ -304,3 +315,114 @@ def test_resolve_mode():
     assert _resolve_mode(_Cfg("convnextv2", ["stem", "s1", "s2"]), "auto") == "decoder"
     assert _resolve_mode(_Cfg("dinov2", None), "auto") == "encoder"
     assert _resolve_mode(_Cfg("resnet", ["stem", "s1", "s2"]), "auto") == "decoder"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# weights=True — the path CI never runs, where the config-vs-kwargs
+# divergence lived. Opt in with SLEAP_NN_TEST_HF_WEIGHTS=1 (needs a cached
+# model or the network).
+# ─────────────────────────────────────────────────────────────────────────
+
+requires_hf_weights = pytest.mark.skipif(
+    os.environ.get("SLEAP_NN_TEST_HF_WEIGHTS") != "1",
+    reason="needs HF weights; set SLEAP_NN_TEST_HF_WEIGHTS=1 to run",
+)
+
+
+class TestWeightsTrueParity:
+    """`weights=True` must accept exactly what `weights=False` accepts."""
+
+    @requires_hf_weights
+    @pytest.mark.parametrize(
+        "model_name",
+        [
+            "facebook/convnextv2-nano-22k-224",  # CNN: no reshape_hidden_states
+            "facebook/dinov2-with-registers-base",  # ViT: has it
+        ],
+    )
+    @pytest.mark.parametrize("mode", ["auto", "encoder"])
+    def test_builds_with_and_without_weights(self, model_name, mode):
+        """Both weight settings build for both families, in both modes.
+
+        `mode="encoder"` + a CNN + `weights=True` raised
+        `TypeError: ConvNextV2Backbone.__init__() got an unexpected keyword
+        argument 'reshape_hidden_states'` — the Case-B options were forwarded to
+        the model constructor, and only ViT classes declare them.
+        """
+        for weights in (False, True):
+            bb = PretrainedBackbone.from_config(
+                _caseA_cfg(model_name, mode=mode, weights=weights)
+            )
+            out = bb(torch.rand(1, 3, 128, 128))
+            assert "middle_output" in out and "intermediate_feat" in out
+
+    @requires_hf_weights
+    def test_weights_are_actually_loaded_and_snapshotted(self):
+        """weights=True must snapshot real weights for the post-xavier reload."""
+        bb = PretrainedBackbone.from_config(
+            _caseA_cfg("facebook/convnextv2-nano-22k-224", weights=True)
+        )
+        assert bb._pretrained_sd is not None and len(bb._pretrained_sd) > 0
+        live = bb.enc.state_dict()
+        assert all(torch.equal(v, live[k].cpu()) for k, v in bb._pretrained_sd.items())
+
+
+def test_backbone_class_resolves_from_config_not_automodel():
+    """The concrete `*Backbone` class is resolved from the (offline-capable) config.
+
+    `AutoBackbone.from_pretrained` probes `hf_api().repo_exists()` before resolving
+    anything, so it raises `OfflineModeIsEnabled` under `HF_HUB_OFFLINE=1` even for
+    a fully-cached model — breaking the air-gapped workflow the guide documents.
+    Resolving the class off `AutoConfig` (which has no such probe) avoids it.
+    """
+    from transformers import AutoBackbone, AutoConfig
+
+    from sleap_nn.architectures.pretrained import _resolve_backbone_class
+
+    cfg = AutoConfig.from_pretrained("facebook/convnextv2-nano-22k-224")
+    cls = _resolve_backbone_class(cfg)
+    assert cls is not AutoBackbone
+    assert cls.__name__.endswith("Backbone")
+
+    # An unmapped config type falls back to AutoBackbone rather than raising.
+    class _Unmapped:
+        pass
+
+    assert _resolve_backbone_class(_Unmapped()) is AutoBackbone
+
+
+def test_frozen_encoder_stays_in_eval_through_train():
+    """A frozen encoder must not be flipped back to train mode.
+
+    `freeze_encoder()` calls `enc.eval()` once, but Lightning calls `model.train()`
+    at the start of every epoch and that recurses into submodules. Weights stayed
+    frozen; BatchNorm running statistics did not — measured on `microsoft/resnet-18`,
+    `running_mean` moved 0.63 in a single forward, so a "frozen" run was not
+    reproducible.
+    """
+    bb = PretrainedBackbone.from_config(_caseA_cfg("microsoft/resnet-18", freeze=True))
+    bb.freeze_encoder()
+    assert not bb.enc.training
+
+    bb.train()  # what Lightning does at every epoch start
+    assert not bb.enc.training, "frozen encoder was flipped back into train mode"
+
+    bns = [
+        m
+        for m in bb.enc.modules()
+        if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)
+    ]
+    assert bns, "resnet-18 should have BatchNorm layers"
+    before = bns[0].running_mean.clone()
+    with torch.no_grad():
+        bb(torch.rand(2, 3, 128, 128))
+    assert torch.equal(before, bns[0].running_mean), "frozen BN stats drifted"
+
+
+def test_unfrozen_encoder_still_follows_train_and_eval():
+    """The override must not pin an UNfrozen encoder to eval."""
+    bb = PretrainedBackbone.from_config(_caseA_cfg("microsoft/resnet-18", freeze=False))
+    bb.train()
+    assert bb.enc.training
+    bb.eval()
+    assert not bb.enc.training

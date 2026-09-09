@@ -108,6 +108,40 @@ def _resolve_mode(config: Any, mode: str) -> str:
     return "encoder" if is_isotropic else "decoder"
 
 
+def _resolve_backbone_class(config: Any):
+    """Return the concrete ``*Backbone`` class for an HF config.
+
+    ``AutoBackbone.from_pretrained`` performs a Hub existence check before it
+    resolves anything, so it cannot load a cached model under
+    ``HF_HUB_OFFLINE=1``. ``AutoConfig`` has no such check, so resolving the class
+    from an already-loaded config and calling ``from_pretrained`` on it keeps the
+    documented air-gapped path working.
+
+    Args:
+        config: A loaded HuggingFace config object.
+
+    Returns:
+        The mapped ``*Backbone`` class, or :class:`transformers.AutoBackbone` when
+        the config type is not in the backbone mapping (a custom or very new
+        model) — in which case the caller gets the original behavior, including
+        its offline limitation.
+    """
+    from transformers import AutoBackbone
+
+    try:
+        from transformers.models.auto.modeling_auto import (
+            MODEL_FOR_BACKBONE_MAPPING,
+        )
+
+        return MODEL_FOR_BACKBONE_MAPPING[type(config)]
+    except Exception:  # noqa: BLE001 - any lookup failure falls back to Auto
+        logger.debug(
+            f"No backbone mapping for {type(config).__name__}; falling back to "
+            "AutoBackbone (which cannot load offline)."
+        )
+        return AutoBackbone
+
+
 class PretrainedBackbone(nn.Module):
     """Wrap a HuggingFace pretrained backbone as a sleap-nn encoder.
 
@@ -224,18 +258,42 @@ class PretrainedBackbone(nn.Module):
                 idxs = (0, 1, 2, 3)
             backbone_kwargs = dict(out_indices=idxs)
 
+        # BOTH branches configure the backbone the same way: set the options as
+        # ATTRIBUTES on the config, then build from that config. Passing them as
+        # `from_pretrained(**kwargs)` instead — which the weights=True path used to
+        # do — forwards anything the config does not claim to the model's
+        # `__init__`, and Case B's `reshape_hidden_states`/`apply_layernorm` exist
+        # only on the ViT-family classes:
+        #
+        #     ConvNextV2Backbone.__init__() got an unexpected keyword argument
+        #     'reshape_hidden_states'
+        #
+        # That made `mode="encoder"` unusable for every CNN backbone with real
+        # weights, while the weights=False path (already config-based, where an
+        # unclaimed attribute is silently ignored) worked — so the two paths
+        # disagreed, and every test in `tests/architectures/test_pretrained.py`
+        # exercises only the one that works. Configuring both identically removes
+        # the divergence rather than special-casing the symptom.
+        for k, v in backbone_kwargs.items():
+            setattr(hf_config, k, v)
+
         if weights:
-            self.enc = AutoBackbone.from_pretrained(
+            # Resolve the concrete `*Backbone` class from the config instead of
+            # going through `AutoBackbone.from_pretrained`, which probes
+            # `hf_api().repo_exists()` before resolving anything and therefore
+            # raises `OfflineModeIsEnabled` under `HF_HUB_OFFLINE=1` even for a
+            # fully-cached model — breaking the air-gapped workflow the guide
+            # documents. `AutoConfig` is offline-capable, so the class it maps to
+            # is reachable without the network.
+            backbone_cls = _resolve_backbone_class(hf_config)
+            self.enc = backbone_cls.from_pretrained(
                 model_name,
+                config=hf_config,
                 revision=revision,
                 dtype=torch.float32,
-                **backbone_kwargs,
             )
         else:
-            cfg = AutoConfig.from_pretrained(model_name, revision=revision)
-            for k, v in backbone_kwargs.items():
-                setattr(cfg, k, v)
-            self.enc = AutoBackbone.from_config(cfg)
+            self.enc = AutoBackbone.from_config(hf_config)
 
         # Snapshot loaded weights on CPU so they can be re-applied after the
         # LightningModule's xavier init clobbers them (mirrors convnext/swint).
@@ -427,9 +485,32 @@ class PretrainedBackbone(nn.Module):
 
     def freeze_encoder(self) -> None:
         """Freeze the pretrained encoder (feature extraction; decoder/head train)."""
+        self.freeze = True
         self.enc.eval()
         self.enc.requires_grad_(False)
         logger.info(f"Froze pretrained encoder '{self.model_name}'.")
+
+    def train(self, mode: bool = True) -> "PretrainedBackbone":
+        """Set train/eval mode, keeping a FROZEN encoder in eval.
+
+        ``freeze_encoder`` calls ``enc.eval()`` once, but Lightning calls
+        ``model.train()`` at the start of every training epoch and that recurses
+        into every submodule — so without this override the encoder goes back into
+        train mode and its normalization layers keep updating. Weights stay frozen
+        (``requires_grad_(False)``); the running statistics did not, which is not
+        what ``freeze: true`` promises and makes a "frozen" run irreproducible in a
+        way that looks like seed noise.
+
+        Only matters for a backbone with running stats (BatchNorm: ResNet, BiT —
+        measured on ``microsoft/resnet-18``, ``running_mean`` moved 0.63 in a
+        single forward). ConvNeXt / Swin / ViT use LayerNorm and are unaffected,
+        which is why this went unnoticed: the documented default backbone is
+        ConvNeXtV2.
+        """
+        super().train(mode)
+        if getattr(self, "freeze", False):
+            self.enc.eval()
+        return self
 
     # ------------------------------------------------------------------ config
 
