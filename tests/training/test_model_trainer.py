@@ -1969,3 +1969,36 @@ def test_bare_constructor_train_loads_labels_from_the_config(
     assert trainer.backbone_type is not None
     assert trainer._initial_config is not None
     assert (Path(tmp_path) / "bare_ctor_run" / "best.ckpt").exists()
+
+
+def test_bare_constructor_seeds_like_the_factory(config, tmp_path, monkeypatch):
+    """Both entry points must run the same initializer.
+
+    The fallback in `train()` mirrored `get_model_trainer_from_config` but had
+    drifted: it omitted `_set_seed()`, so `ModelTrainer(config).train()` ran with
+    unseeded weight init and augmentation despite `trainer_config.seed` being set
+    (the train/val split is seeded separately, so that part was unaffected). It
+    also omitted the video-existence check, which `_initialize_from_config` now
+    runs for both paths.
+
+    Note: that check sits after `setup_config()`, which already dereferences
+    `video.shape` -- so for a video that genuinely cannot be read, the earlier
+    failure wins and the check is unreachable. Pre-existing ordering, untouched
+    here; only the seed is asserted, since it is observable.
+    """
+    monkeypatch.chdir(tmp_path)
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.seed", 1234)
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(cfg, "trainer_config.run_name", "bare_ctor_seed")
+
+    seeded = []
+    trainer = ModelTrainer(config=cfg)
+    monkeypatch.setattr(
+        type(trainer), "_set_seed", lambda self: seeded.append(True), raising=True
+    )
+    trainer._initialize_from_config()
+
+    assert seeded == [True], "the seed was not applied on the bare-constructor path"
+    assert len(trainer.train_labels) == 1
+    assert trainer.model_type is not None

@@ -127,47 +127,75 @@ class ModelTrainer:
         val_labels: Optional[List[sio.Labels]] = None,
     ):
         """Create a model trainer instance from config."""
-        # Verify config structure.
-        config = verify_training_cfg(config)
-
         model_trainer = cls(config=config)
+        model_trainer._initialize_from_config(
+            train_labels=train_labels, val_labels=val_labels
+        )
+        return model_trainer
 
-        model_trainer.model_type = get_model_type_from_cfg(model_trainer.config)
-        model_trainer.backbone_type = get_backbone_type_from_cfg(model_trainer.config)
+    def _initialize_from_config(
+        self,
+        train_labels: Optional[List[sio.Labels]] = None,
+        val_labels: Optional[List[sio.Labels]] = None,
+    ):
+        """Bring a bare trainer up to a trainable state.
 
-        if model_trainer.config.trainer_config.seed is not None:
-            model_trainer._set_seed()
+        The single initializer behind BOTH entry points --
+        :meth:`get_model_trainer_from_config` and the bare-constructor fallback in
+        :meth:`train`. It used to be duplicated between them, and the copy in
+        ``train()`` had already drifted: it omitted ``_set_seed()`` (so
+        ``ModelTrainer(config).train()`` ran with unseeded weight init and
+        augmentation even with ``trainer_config.seed`` set) and the
+        video-existence check (so a missing video surfaced later, as a confusing
+        failure deep in data loading).
+
+        Args:
+            train_labels: Labels to train on. ``None`` (with ``val_labels`` also
+                ``None``) loads them from ``data_config.train_labels_path``.
+            val_labels: Labels to validate on, or ``None`` to split from
+                ``train_labels`` / load from ``data_config.val_labels_path``.
+
+        Raises:
+            FileNotFoundError: If any video referenced by the labels is missing.
+        """
+        # Normalize the config first: it fills in optional sections (e.g.
+        # `preprocessing.tiling`), and the bare constructor does no verification
+        # of its own, so without this the first access to a missing key raises.
+        self.config = verify_training_cfg(self.config)
+
+        # Derived from the config, but only when not explicitly provided to the
+        # constructor -- an explicit override must survive.
+        if self.model_type is None:
+            self.model_type = get_model_type_from_cfg(self.config)
+        if self.backbone_type is None:
+            self.backbone_type = get_backbone_type_from_cfg(self.config)
+
+        if self.config.trainer_config.seed is not None:
+            self._set_seed()
 
         if train_labels is None and val_labels is None:
             # read labels from paths provided in the config
             train_labels = [
-                sio.load_slp(path)
-                for path in model_trainer.config.data_config.train_labels_path
+                sio.load_slp(path) for path in self.config.data_config.train_labels_path
             ]
             val_labels = (
-                [
-                    sio.load_slp(path)
-                    for path in model_trainer.config.data_config.val_labels_path
-                ]
-                if model_trainer.config.data_config.val_labels_path is not None
+                [sio.load_slp(path) for path in self.config.data_config.val_labels_path]
+                if self.config.data_config.val_labels_path is not None
                 else None
             )
-            model_trainer._setup_train_val_labels(
-                labels=train_labels, val_labels=val_labels
-            )
-        else:
-            model_trainer._setup_train_val_labels(
-                labels=train_labels, val_labels=val_labels
-            )
+        self._setup_train_val_labels(labels=train_labels, val_labels=val_labels)
 
-        model_trainer._initial_config = model_trainer.config.copy()
+        # Snapshot the pre-`setup_config` config: it is written out as
+        # `initial_config.yaml` at the end of training.
+        if self._initial_config is None:
+            self._initial_config = self.config.copy()
         # update config parameters
-        model_trainer.setup_config()
+        self.setup_config()
 
         # Check if all videos exist across all labels
         all_videos_exist = all(
             video.exists(check_all=True)
-            for labels in [*model_trainer.train_labels, *model_trainer.val_labels]
+            for labels in [*self.train_labels, *self.val_labels]
             for video in labels.videos
         )
 
@@ -175,8 +203,6 @@ class ModelTrainer:
             raise FileNotFoundError(
                 "One or more video files do not exist or are not accessible."
             )
-
-        return model_trainer
 
     def _set_seed(self):
         """Set seed for the current experiment."""
@@ -1763,34 +1789,10 @@ class ModelTrainer:
             # instead of `get_model_trainer_from_config`. This guard used to pass the
             # CONFIG where `_setup_train_val_labels` expects a `List[sio.Labels]`, so
             # it dereferenced `labels[0].skeletons` and died with
-            # `ConfigKeyError: Missing key 0` -- it could only ever raise. Load the
-            # labels from the config paths, exactly as the factory does.
-            #
-            # The factory normalizes the config (filling in optional sections such as
-            # `preprocessing.tiling`) before doing anything else; the bare constructor
-            # does not, so do it here or the first access to a missing key raises.
-            self.config = verify_training_cfg(self.config)
-            # `model_type` / `backbone_type` are `None` after the bare constructor and
-            # are read during label setup (e.g. the single-instance frame check), so
-            # derive them here too rather than leaving a half-initialized trainer.
-            if self.model_type is None:
-                self.model_type = get_model_type_from_cfg(self.config)
-            if self.backbone_type is None:
-                self.backbone_type = get_backbone_type_from_cfg(self.config)
-            train_labels = [
-                sio.load_slp(path) for path in self.config.data_config.train_labels_path
-            ]
-            val_labels = (
-                [sio.load_slp(path) for path in self.config.data_config.val_labels_path]
-                if self.config.data_config.val_labels_path is not None
-                else None
-            )
-            self._setup_train_val_labels(labels=train_labels, val_labels=val_labels)
-            # Snapshot the pre-`setup_config` config, as the factory does: it is
-            # written out as `initial_config.yaml` at the end of training.
-            if self._initial_config is None:
-                self._initial_config = self.config.copy()
-            self.setup_config()
+            # `ConfigKeyError: Missing key 0` -- it could only ever raise. Both entry
+            # points now run the SAME initializer, so this path cannot drift from the
+            # factory again (it had already lost `_set_seed` and the video check).
+            self._initialize_from_config()
 
         # create the ckpt dir.
         self._setup_model_ckpt_dir()
