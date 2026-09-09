@@ -63,7 +63,7 @@ class Tracker:
         features: Feature representation for the candidates to update current detections.
             One of [`keypoints`, `centroids`, `bboxes`, `masks`, `embeddings`]. `masks`
             tracks bottom-up segmentation `PredictedSegmentationMask` objects;
-            `embeddings` tracks by the `"reid"` appearance vector attached by the
+            `embeddings` tracks by the appearance vector attached by the
             `embedding` (re-ID) model (works on pose `PredictedInstance` *and* mask
             `PredictedSegmentationMask` carriers), scored by `cosine_sim`.
             Default: `keypoints`.
@@ -98,6 +98,7 @@ class Tracker:
     track_matching_method: str = "hungarian"
     robust_best_instance: float = 1.0
     oks_stddev: float = 0.025
+    appearance_weight: float = 0.0
     use_flow: bool = False
     is_local_queue: bool = False
     tracking_target_instance_count: Optional[int] = None
@@ -143,6 +144,7 @@ class Tracker:
         scoring_reduction: str = "mean",
         robust_best_instance: float = 1.0,
         oks_stddev: Optional[float] = None,
+        appearance_weight: float = 0.0,
         track_matching_method: str = "hungarian",
         max_tracks: Optional[int] = None,
         use_flow: bool = False,
@@ -179,7 +181,7 @@ class Tracker:
                 keypoints, or foreground area (px) for `features="masks"`. Default: 0.
             features: Feature representation for the candidates to update current detections.
                 One of [`keypoints`, `centroids`, `bboxes`, `masks`, `embeddings`].
-                `embeddings` tracks by the `"reid"` appearance vector (pair with
+                `embeddings` tracks by the appearance vector (pair with
                 `scoring_method="cosine_sim"`). Default: `keypoints`.
             scoring_method: Method to compute association score between features from the
                 current frame and the previous tracks. One of [`oks`, `cosine_sim`, `iou`,
@@ -212,6 +214,16 @@ class Tracker:
                 larger is more tolerant of localization error. `None` (default)
                 auto-resolves to 0.1 for `kf_track_features="keypoints"` (whose per-node
                 prediction is noisier) and 0.025 otherwise.
+            appearance_weight: Weight given to APPEARANCE (re-ID embedding cosine
+                similarity) when blended with the geometric association score:
+                `(1 - w) * geometry + w * appearance`. `0.0` (default) is geometry
+                only and byte-identical to not passing it; `0.15`-`0.5` uses
+                appearance as a complementary cue, which beats either cue alone on
+                dense continuous video; `1.0` is appearance only. Requires
+                embeddings on the detections, and a GEOMETRIC `features` --
+                `features='embeddings'` is already appearance-only and is
+                rejected. Pairs with no appearance evidence keep their geometric
+                score rather than blending toward NaN. Default: `0.0`.
             use_kalman: If True, `KalmanShiftTracker` is used, where poses are predicted
                 with a per-track constant-velocity Kalman filter. Requires
                 `tracking_target_instance_count` (or `max_tracks`) and is mutually
@@ -279,6 +291,39 @@ class Tracker:
             message = f"{candidates_method} is not a valid method. Please choose one of [`fixed_window`, `local_queues`]"
             logger.error(message)
             raise ValueError(message)
+
+        if not 0.0 <= appearance_weight <= 1.0:
+            message = (
+                f"appearance_weight must be in [0.0, 1.0], got {appearance_weight}. "
+                "It is the weight given to appearance (re-ID embedding cosine "
+                "similarity) when blended with the geometric score: 0.0 (default) is "
+                "geometry only, 1.0 is appearance only."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        if appearance_weight > 0.0 and features == "embeddings":
+            message = (
+                "appearance_weight blends appearance INTO a geometric score, but "
+                "features='embeddings' is already appearance-only -- the blend would "
+                "mix appearance with itself. Pair appearance_weight with a geometric "
+                "feature (e.g. features='keypoints'), or drop it and keep "
+                "features='embeddings' for the appearance-only regime."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        if features == "embeddings" and appearance_weight == 0.0:
+            # The G4 result: appearance-only association LOSES to geometry on dense
+            # continuous video, where geometry is highly informative. It is the right
+            # choice for sparse frames and post-occlusion recovery, where geometry has
+            # no signal at all -- but on continuous video a blend beats either alone.
+            logger.info(
+                "features='embeddings' tracks by appearance ALONE. On dense "
+                "continuous video that is measurably worse than geometry; consider "
+                "a geometric feature with appearance_weight=0.15-0.5 to use "
+                "appearance as a complementary cue instead."
+            )
 
         if use_kalman and use_flow:
             message = (
@@ -365,6 +410,7 @@ class Tracker:
             scoring_reduction=scoring_reduction,
             robust_best_instance=robust_best_instance,
             oks_stddev=oks_stddev,
+            appearance_weight=appearance_weight,
             track_matching_method=track_matching_method,
             use_flow=use_flow,
             is_local_queue=is_local_queue,
@@ -591,7 +637,96 @@ class Tracker:
                 )
                 scores[f_idx][t_idx] = score_trackid
 
+        if self.appearance_weight > 0.0:
+            scores = self._blend_appearance(
+                scores, current_instances, candidates_feature_dict, scoring_reduction
+            )
+
         return scores
+
+    def _appearance_scores(
+        self,
+        current_instances: Union[TrackInstances, List[TrackInstanceLocalQueue]],
+        candidates_feature_dict: Dict[int, TrackedInstanceFeature],
+        scoring_reduction,
+    ) -> np.ndarray:
+        """Cosine-similarity matrix from the detections' appearance vectors.
+
+        Read off the SOURCE detections rather than through ``_feature_methods``, so
+        appearance can COMPLEMENT whichever geometric feature is configured instead
+        of replacing it -- ``features='keypoints'`` and an appearance blend at the
+        same time. Pairs with no usable vector on either side are left NaN, which
+        :meth:`_blend_appearance` reads as "no appearance evidence" and falls back
+        to geometry for.
+
+        Args:
+            current_instances: The frame's untracked detections.
+            candidates_feature_dict: Track ID -> candidate features.
+            scoring_reduction: The same reduction the geometric score uses, so the
+                two matrices are comparable before blending.
+
+        Returns:
+            ``(num_new_instances, num_existing_tracks)`` similarities in ``[-1, 1]``,
+            NaN where either side carries no embedding.
+        """
+        if self.is_local_queue:
+            current_sources = [x.src_instance for x in current_instances]
+        else:
+            current_sources = list(current_instances.src_instances)
+
+        appearance = np.full(
+            (len(current_sources), len(self.candidate.current_tracks)), np.nan
+        )
+        for f_idx, source in enumerate(current_sources):
+            query = get_embedding(source)
+            if query is None:
+                continue
+            for t_idx, track_id in enumerate(self.candidate.current_tracks):
+                sims = []
+                for candidate in candidates_feature_dict[track_id]:
+                    gallery = get_embedding(candidate.src_predicted_instance)
+                    if gallery is None:
+                        continue
+                    sim = compute_cosine_sim(query, gallery)
+                    if not np.isnan(sim):
+                        sims.append(sim)
+                if sims:
+                    appearance[f_idx][t_idx] = scoring_reduction(sims)
+        return appearance
+
+    def _blend_appearance(
+        self,
+        scores: np.ndarray,
+        current_instances: Union[TrackInstances, List[TrackInstanceLocalQueue]],
+        candidates_feature_dict: Dict[int, TrackedInstanceFeature],
+        scoring_reduction,
+    ) -> np.ndarray:
+        """Blend appearance into the geometric score matrix.
+
+        ``(1 - w) * geometry + w * appearance`` where BOTH cues exist. Where
+        appearance is missing (a detection with no embedding, or a track whose
+        candidates carry none) the geometric score is kept unchanged rather than
+        blended toward NaN -- a NaN becomes an infinite cost in
+        :meth:`scores_to_cost_matrix`, so poisoning the pair would drop a valid
+        match and spawn a spurious track.
+
+        Geometry is likewise preserved where IT is NaN (no candidate passed
+        ``min_match_points``), so the blend can never invent a match that geometry
+        rejected outright.
+        """
+        appearance = self._appearance_scores(
+            current_instances, candidates_feature_dict, scoring_reduction
+        )
+        weight = self.appearance_weight
+        both = np.isfinite(scores) & np.isfinite(appearance)
+        blended = np.where(both, (1.0 - weight) * scores + weight * appearance, scores)
+        n_blended = int(both.sum())
+        if n_blended:
+            logger.debug(
+                f"appearance_weight={weight}: blended {n_blended} of {scores.size} "
+                "score(s); the rest had no appearance evidence and kept geometry."
+            )
+        return blended
 
     def scores_to_cost_matrix(self, scores: np.ndarray):
         """Converts `scores` matrix to cost matrix for track assignments."""

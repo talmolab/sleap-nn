@@ -65,6 +65,7 @@ class TrackerConfig:
     scoring_reduction: str = "mean"
     robust_best_instance: float = 1.0
     oks_stddev: Optional[float] = None
+    appearance_weight: float = 0.0
     track_matching_method: str = "hungarian"
     max_tracks: Optional[int] = None
     use_flow: bool = False
@@ -207,7 +208,7 @@ def apply_tracking(
     # Embedding (appearance / re-ID) tracking. Selected by an EXPLICIT
     # ``features="embeddings"`` only — apply_tracking never auto-selects it (nothing
     # in the labels distinguishes "track by appearance" from "track by pose"). It
-    # tracks by cosine similarity over the ``"reid"`` vector the embedding model
+    # tracks by cosine similarity over the appearance vector the embedding model
     # attached to each detection, and works on BOTH pose (``PredictedInstance``) and
     # mask (``PredictedSegmentationMask``) carriers. Resolved here, BEFORE the
     # single-node / mask default branches, so neither clobbers the explicit choice.
@@ -311,7 +312,7 @@ def apply_tracking(
     if is_embedding_mode:
         # Route to the carrier the embeddings actually ride on, NOT the pose/mask
         # presence heuristic: a .slp may have both pose instances and masks but carry
-        # the "reid" vectors on only one. The default `is_mask_mode` (masks present &&
+        # the appearance vectors on only one. The default `is_mask_mode` (masks present &&
         # no predicted instances) would, for masks-with-embeddings + pose-instances,
         # track the embedding-less poses (all-NaN -> no association). Decide on
         # embedding location: track masks only when the masks carry the embeddings and
@@ -375,6 +376,7 @@ def apply_tracking(
         scoring_reduction=config.scoring_reduction,
         robust_best_instance=config.robust_best_instance,
         oks_stddev=config.oks_stddev,
+        appearance_weight=config.appearance_weight,
         track_matching_method=config.track_matching_method,
         max_tracks=effective_max_tracks,
         use_flow=config.use_flow,

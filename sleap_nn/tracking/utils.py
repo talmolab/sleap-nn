@@ -212,7 +212,7 @@ def compute_euclidean_distance(a, b):
     A similarity (higher = closer); the cost negation happens in
     :meth:`Tracker.scores_to_cost_matrix`. Hardened against the same degenerate
     inputs as :func:`compute_cosine_sim` (it is the one explicit alternative metric
-    for ``features="embeddings"``, so a detection lacking a ``"reid"`` vector ->
+    for ``features="embeddings"``, so a detection lacking an appearance vector ->
     :func:`get_embedding` returns ``None``, and embeddings of differing dim can
     co-occur): a ``None`` operand, an empty/shape-mismatched pair, or a non-finite
     result reduces to ``NaN`` (-> ``inf`` cost -> no match) instead of raising. The
@@ -296,7 +296,7 @@ def compute_cosine_sim(a, b):
     Output range is ``[-1, 1]``.
 
     Hardened against the degenerate inputs the embedding path can produce
-    (utils.py:249, SPEC §7): a ``None`` feature (a detection with no ``"reid"``
+    (utils.py:249, SPEC §7): a ``None`` feature (a detection with no appearance
     embedding -> :func:`get_embedding` returns ``None``), a zero-norm vector, a
     shape mismatch, or non-finite values all reduce to ``NaN`` rather than a
     ``ZeroDivisionError`` / ``RuntimeWarning``. ``NaN`` flows to ``inf`` cost in

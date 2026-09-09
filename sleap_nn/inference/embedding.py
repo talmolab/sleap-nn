@@ -7,7 +7,7 @@ This module hosts:
   ``embedding`` model and that :func:`sleap_nn.inference.predictor._build_embedding_layer`
   consumes.
 * :func:`embed_labels` — embed every detection of an in-memory ``sio.Labels`` IN
-  PLACE (attach an ``sio.Embedding`` ``"reid"`` vector to each source detection) and
+  PLACE (attach an ``sio.Embedding`` vector to each source detection) and
   return the vectors + per-detection track names. The forward routes through the
   native-framework :class:`~sleap_nn.inference.layers.embedding.EmbeddingLayer`, so the
   crop pipeline (grayscale + optional mask burn-in + per-crop standardize) is IDENTICAL
@@ -234,7 +234,7 @@ def predict_embeddings_to_slp(
     """Embed every detection in ``data_path`` and persist the vectors into a ``.slp``.
 
     The appearance vectors persist via the sleap-io ``sio.Embedding`` data model
-    (``name="reid"``, attached to each detection's host ``sio.Instance`` /
+    (in the ``identity_embedding`` slot of each detection's host ``sio.Instance`` /
     ``sio.SegmentationMask``). The crop pipeline matches the trained model's config
     exactly (see :func:`embed_labels`).
 

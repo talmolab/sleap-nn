@@ -1374,6 +1374,7 @@ def _build_tracker_config(kwargs: dict) -> "object":
         scoring_reduction=kwargs.get("scoring_reduction", "mean"),
         robust_best_instance=kwargs.get("robust_best_instance", 1.0),
         oks_stddev=kwargs.get("oks_stddev", 0.025),
+        appearance_weight=kwargs.get("appearance_weight", 0.0) or 0.0,
         track_matching_method=kwargs.get("track_matching_method", "hungarian"),
         max_tracks=max_tracks,
         use_flow=kwargs.get("use_flow", False),
@@ -1587,7 +1588,8 @@ def _run_embeddings(
 ) -> "object":
     """Embed detections of an ``embedding`` model and persist the vectors into a ``.slp``.
 
-    Attaches each detection's appearance vector (``sio.Embedding`` ``"reid"``) to its
+    Attaches each detection's appearance vector (``sio.Embedding``, in the
+    ``identity_embedding`` slot) to its
     source detection and writes a ``.slp``. With
     ``tracker_config`` (``--tracking``, WF2) every detection is embedded and tracked by
     appearance (cosine similarity) into a tracked ``.slp``; ``save_embeddings`` then
@@ -3083,6 +3085,17 @@ def _common_inference_options(f):
             "iou, mask_iou, euclidean_dist. Left unset, single-node/centroid "
             "models resolve to 'euclidean_dist', segmentation (mask) models "
             "to 'mask_iou', and '--features embeddings' to 'cosine_sim'.",
+        ),
+        click.option(
+            "--appearance_weight",
+            type=float,
+            default=0.0,
+            help="Weight given to APPEARANCE (re-ID embedding cosine similarity) when "
+            "blended with the geometric association score: 0.0 (default) is geometry "
+            "only and inert; 0.15-0.5 uses appearance as a complementary cue, which "
+            "beats either alone on dense continuous video; 1.0 is appearance only. "
+            "Requires embeddings in the input (see --save_embeddings). Pair it with a "
+            "GEOMETRIC --features; '--features embeddings' is already appearance-only.",
         ),
         click.option("--scoring_reduction", type=str, default="mean"),
         click.option("--robust_best_instance", type=float, default=1.0),
