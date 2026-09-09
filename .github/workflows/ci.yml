@@ -180,3 +180,72 @@ jobs:
           fail_ci_if_error: false
           verbose: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  # The `backbones` extra (external pretrained HuggingFace encoders) is not part
+  # of any other job's sync, so `tests/architectures/test_pretrained.py` — which
+  # opens with `pytest.importorskip("transformers")` — has never executed in CI
+  # on any platform. Three bugs of real size lived behind that (#740: encoder
+  # mode on CNN backbones, the air-gapped load path, frozen BatchNorm), so the
+  # feature shipped with zero automated coverage.
+  #
+  # Kept as its own job rather than a fourth matrix entry, for two reasons: the
+  # extra only needs to be exercised on ONE platform (it is pure-Python
+  # `transformers` over the same torch), and these tests reach huggingface.co —
+  # so a Hub outage reddens this job alone instead of the whole test matrix.
+  pretrained-backbones:
+    name: Tests (pretrained backbones, ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CUDA_VISIBLE_DEVICES: ""
+      USE_CUDA: "0"
+      UV_FROZEN: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
+      # The suite builds backbones with `weights=False`, so it fetches each
+      # model's config.json (~400 KB total) and NO checkpoints. Cached below so
+      # the usual run resolves offline.
+      HF_HOME: ${{ github.workspace }}/.hf-cache
+      # `weights=True` — the path the config-vs-kwargs divergence in #740 lived
+      # in — is opt-in via SLEAP_NN_TEST_HF_WEIGHTS because it downloads real
+      # checkpoints. Flip to "1" to extend this job to that path (the tests it
+      # enables arrive with #740; the variable is inert before then).
+      SLEAP_NN_TEST_HF_WEIGHTS: "0"
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Cache HuggingFace configs
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.hf-cache
+          # Keyed on the test file: it names the models whose configs get
+          # fetched, so the key changes exactly when that set can change.
+          key: hf-configs-${{ hashFiles('tests/architectures/test_pretrained.py') }}
+          restore-keys: hf-configs-
+
+      - name: Install dev dependencies, torch and the backbones extra
+        run: uv sync --no-group gpu --extra torch-cpu --extra backbones
+
+      - name: Assert transformers is importable
+        # Without this the suite would silently `importorskip` back to zero
+        # coverage — the failure mode this job exists to close.
+        run: |
+          uv run --frozen --no-group gpu --extra torch-cpu --extra backbones python -c "
+          import transformers
+          print('transformers', transformers.__version__)
+          "
+
+      - name: Run pretrained backbone tests
+        run: |
+          uv run --frozen --no-group gpu --extra torch-cpu --extra backbones \
+            pytest tests/architectures/test_pretrained.py -v --durations=10
