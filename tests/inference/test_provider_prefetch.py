@@ -78,34 +78,55 @@ def test_video_provider_prefetch_matches_synchronous_output():
 def test_video_provider_prefetch_overlaps_decode_with_consumer_work():
     """Prefetch must actually overlap decode with consumer work, not just be correct.
 
-    Wraps frame access with an artificial per-frame delay (standing in for a
-    slow decode) and times the full iterate-and-consume loop (with an
-    artificial per-batch consumer delay, standing in for a GPU forward pass)
-    against the synchronous baseline. True overlap makes the prefetching
-    version meaningfully faster; without it, this is just a no-op wrapper.
+    Asserted by MECHANISM, not by wall clock. The previous version timed a
+    prefetch run against a synchronous one and required the prefetch arm to win
+    by 50 ms -- smaller than the scheduling jitter on a loaded CI runner, which
+    made it a coin flip there (observed on macos-14: prefetch=1.091s vs
+    sync=1.082s, red on one run and green on a re-run of the same commit).
+
+    Instead, the slow-decode stub records whether it was decoding *while the
+    consumer was busy*. That IS the property under test -- decode overlapping
+    consumer work -- and it holds regardless of how fast or loaded the machine
+    is: with a background decode thread some frame must be decoded during a
+    consumer's turn, and without one, none can be (the synchronous path decodes
+    strictly between iterations).
     """
-    decode_delay = 0.03
-    consumer_delay = 0.03
+    decode_delay = 0.02
+    consumer_delay = 0.02
     n_batches = 5
 
-    class SlowVideo:
-        def __init__(self, video):
-            self._video = video
+    def run(prefetch: bool):
+        """Return (n_decodes, n_decodes_overlapping_consumer_work, elapsed)."""
+        consumer_busy = threading.Event()
+        lock = threading.Lock()
+        decodes: list[int] = []
+        overlapping: list[int] = []
 
-        def __getitem__(self, i):
-            time.sleep(decode_delay / 4)
-            return self._video[i]
+        class SlowVideo:
+            def __init__(self, video):
+                self._video = video
 
-        def __len__(self):
-            return len(self._video)
+            def __getitem__(self, i):
+                # A decode counts as overlapping if the consumer was busy when it
+                # started OR was still busy when it finished -- either way the two
+                # ran concurrently.
+                busy_at_start = consumer_busy.is_set()
+                time.sleep(decode_delay)
+                with lock:
+                    decodes.append(i)
+                    if busy_at_start or consumer_busy.is_set():
+                        overlapping.append(i)
+                return self._video[i]
 
-        def close(self):
-            return self._video.close()
+            def __len__(self):
+                return len(self._video)
 
-        def __deepcopy__(self, memo):
-            return SlowVideo(deepcopy(self._video, memo))
+            def close(self):
+                return self._video.close()
 
-    def timed_run(prefetch: bool) -> float:
+            def __deepcopy__(self, memo):
+                return SlowVideo(deepcopy(self._video, memo))
+
         provider = VideoProvider(
             str(VIDEO),
             batch_size=4,
@@ -115,14 +136,32 @@ def test_video_provider_prefetch_overlaps_decode_with_consumer_work():
         provider._sio_video = SlowVideo(provider._sio_video)
         t0 = time.monotonic()
         for _ in provider:
+            consumer_busy.set()
             time.sleep(consumer_delay)
-        return time.monotonic() - t0
+            consumer_busy.clear()
+        elapsed = time.monotonic() - t0
+        with lock:
+            return len(decodes), len(overlapping), elapsed
 
-    elapsed_prefetch = timed_run(True)
-    elapsed_sync = timed_run(False)
-    assert elapsed_prefetch < elapsed_sync - 0.05, (
-        f"expected prefetch to overlap decode with consumer work: "
-        f"prefetch={elapsed_prefetch:.3f}s, sync={elapsed_sync:.3f}s"
+    n_pre, overlap_pre, elapsed_pre = run(prefetch=True)
+    n_sync, overlap_sync, elapsed_sync = run(prefetch=False)
+
+    # Both arms must have actually decoded the same frames.
+    assert n_pre == n_sync == n_batches * 4
+
+    # The synchronous path cannot overlap: it decodes strictly between the
+    # consumer's turns.
+    assert overlap_sync == 0, (
+        f"synchronous decode overlapped consumer work {overlap_sync} times, which "
+        "means the test's own instrumentation is wrong, not the provider"
+    )
+
+    # The prefetching path must decode while the consumer is working. Timings are
+    # reported for diagnostics only -- they are NOT the assertion.
+    assert overlap_pre > 0, (
+        "expected prefetch to decode while the consumer was busy, but none of "
+        f"{n_pre} decodes overlapped "
+        f"(prefetch={elapsed_pre:.3f}s, sync={elapsed_sync:.3f}s)"
     )
 
 
