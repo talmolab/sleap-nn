@@ -377,5 +377,9 @@ def test_add_centroids_from_masks(minimal_instance):
     assert add_centroids_from_masks(labels, method="center_of_mass") == 0
     assert sum(len(f.centroids) for f in labels) == n_masks
 
-    with pytest.raises(ValueError, match="unknown method"):
+    with pytest.raises(ValueError, match="unsupported method"):
         add_centroids_from_masks(labels, method="anchor")
+    # `geometric_median` is a valid pose method but NOT a mask one -- reject it at
+    # the call rather than letting sleap-io raise deep inside the load.
+    with pytest.raises(ValueError, match="not offered for masks"):
+        add_centroids_from_masks(labels, method="geometric_median")

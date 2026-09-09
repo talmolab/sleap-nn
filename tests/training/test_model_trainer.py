@@ -2057,5 +2057,11 @@ def test_centroids_from_masks_makes_mask_only_labels_trainable(config, tmp_path)
 def test_centroids_from_masks_rejects_an_unknown_method(config, tmp_path):
     cfg = _centroid_cfg_from(config, tmp_path)
     cfg.data_config.centroids_from_masks = "anchor"  # a mask has no nodes
-    with pytest.raises(ValueError, match="unknown method"):
+    with pytest.raises(ValueError, match="unsupported method"):
+        ModelTrainer.get_model_trainer_from_config(cfg)
+
+    # `geometric_median` is valid for POSE-derived centroids but has no mask
+    # equivalent; it must be rejected here, not deep inside sleap-io at load time.
+    cfg.data_config.centroids_from_masks = "geometric_median"
+    with pytest.raises(ValueError, match="not offered for masks"):
         ModelTrainer.get_model_trainer_from_config(cfg)

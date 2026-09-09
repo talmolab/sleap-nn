@@ -42,6 +42,12 @@ CENTROID_METHODS = ("center_of_mass", "bbox_center", "geometric_median", "anchor
 #: These are the valid values for an anchor *fallback*.
 REDUCE_METHODS = ("center_of_mass", "bbox_center", "geometric_median")
 
+#: The subset a SEGMENTATION MASK can be reduced by. A mask has no nodes, so
+#: ``"anchor"`` is meaningless -- and ``sio.SegmentationMask.to_centroid`` also has
+#: no ``"geometric_median"``: that is defined over a point set, and a mask's
+#: foreground is thousands of pixels rather than a handful of landmarks.
+MASK_REDUCE_METHODS = ("center_of_mass", "bbox_center")
+
 #: Fallback applied when a configured anchor node is not visible. Unlike
 #: ``sio.Instance.to_centroid``, whose ``fallback=None`` yields a NaN centroid,
 #: sleap-nn always falls back — a NaN training target for a partially-visible
@@ -377,8 +383,7 @@ def add_centroids_from_masks(
 
     Args:
         labels: An ``sio.Labels`` to annotate **in place**.
-        method: The derivation method, one of :data:`REDUCE_METHODS`. Masks have
-            no nodes, so ``"anchor"`` is meaningless here.
+        method: The derivation method, one of :data:`MASK_REDUCE_METHODS`.
         overwrite: If ``False`` (default), frames that already carry user
             centroids are left alone — a real annotation always outranks a
             derived one. If ``True``, derived centroids replace them.
@@ -389,11 +394,16 @@ def add_centroids_from_masks(
     Raises:
         ValueError: If ``method`` is not a mask-applicable reduce method.
     """
-    if method not in REDUCE_METHODS:
+    if method not in MASK_REDUCE_METHODS:
+        extra = (
+            " ('geometric_median' is defined over a point set and is not offered "
+            "for masks; it applies to pose-derived centroids only)"
+            if method == "geometric_median"
+            else " (a mask has no nodes, so 'anchor' does not apply)"
+        )
         message = (
-            f"centroids_from_masks: unknown method {method!r}. Expected one of "
-            f"{', '.join(repr(m) for m in REDUCE_METHODS)} (a mask has no nodes, "
-            f"so 'anchor' does not apply)."
+            f"centroids_from_masks: unsupported method {method!r}. Expected one of "
+            f"{', '.join(repr(m) for m in MASK_REDUCE_METHODS)}{extra}."
         )
         raise ValueError(message)
 

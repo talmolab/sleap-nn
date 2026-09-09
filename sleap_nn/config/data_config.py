@@ -340,8 +340,11 @@ class DataConfig:
         centroids_from_masks: (str) Derive `UserCentroid` annotations from the labels'
             segmentation masks at load time, so a MASK-ONLY dataset (no pose
             annotations at all) can train a centroid model. The value names the
-            derivation method — `center_of_mass`, `bbox_center` or
-            `geometric_median` — and `None` (default) disables it. Frames that
+            derivation method — `center_of_mass` or `bbox_center`, the two
+            `sio.SegmentationMask.to_centroid` offers — and `None` (default)
+            disables it. (`geometric_median` is defined over a point set and does
+            not apply to masks; it is available for pose-derived centroids via
+            `centroid_method`.) Frames that
             already carry user centroids are left alone. Once derived, the ordinary
             `centroid_source="user"` path takes over unchanged; nothing downstream
             knows the centroids came from masks. *Default*: `None`.
