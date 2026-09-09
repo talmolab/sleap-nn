@@ -7412,7 +7412,9 @@ weights are non-commercial).</p>
 <li><code>freeze: true</code> — the encoder is frozen (feature extraction) and only the
   decoder/head train. Faster, lower memory, and more robust on very small
   datasets. sleap-nn filters frozen parameters out of the optimizer
-  automatically.</li>
+  automatically, and holds the encoder in eval mode for the whole run so a
+  BatchNorm-bearing backbone (ResNet, BiT) does not drift its running statistics —
+  "frozen" covers the statistics, not just the weights.</li>
 </ul>
 <h3 id="channels-and-normalization">Channels and normalization<a class="headerlink" href="#channels-and-normalization" title="Permanent link">&para;</a></h3>
 <p>Pretrained stems are <strong>3-channel</strong>. The trainer sets <code>in_channels=3</code> and
@@ -7437,6 +7439,12 @@ is applied <strong>inside the backbone</strong> — the data pipeline still only
   (<code>~/.cache/huggingface/hub</code>) on a networked machine, copy it over, and set
   <code>HF_HUB_OFFLINE=1</code>. With <code>weights: false</code> the architecture still needs the
   model's <code>config.json</code> (tiny), but no checkpoint download.</p>
+<p>sleap-nn resolves the concrete <code>*Backbone</code> class from <code>AutoConfig</code> rather than
+  going through <code>AutoBackbone.from_pretrained</code>, which probes the Hub for the
+  repo's existence before resolving anything and so fails offline even for a
+  fully-cached model. A backbone whose config type is not in <code>transformers</code>'
+  backbone mapping (a custom or very new model) falls back to <code>AutoBackbone</code> and
+  inherits that limitation.</p>
 <h2 id="gotchas">Gotchas<a class="headerlink" href="#gotchas" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>DINOv2 is patch-14.</strong> Its stride (14) does not divide the 16/32-padded crops
