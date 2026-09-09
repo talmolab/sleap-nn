@@ -68,17 +68,41 @@ def _track_name(det) -> str:
     return name if name is not None else _NO_TRACK
 
 
+def _identity_name(det) -> str:
+    """Global identity of a detection, or the no-track sentinel.
+
+    ``split_by="identity"`` exists to keep one animal entirely on one side of the
+    split, and what "one animal" MEANS has to match what the training objective
+    groups positives by: ``sio.Identity`` first (the ground-truth cross-video
+    animal), a ``sio.Track`` name only as the pre-Identity fallback — the same
+    order as ``custom_datasets._global_identity_label``.
+
+    Grouping on the track name alone leaked exactly the case the split exists to
+    prevent: per-video tracks (``track_0`` in one video, ``track_2`` in another)
+    that carry the SAME ``Identity`` are two groups under track names, so a
+    group-aware split may put one on each side — and that animal is then in both
+    train and val.
+    """
+    identity = getattr(det, "identity", None)
+    if identity is not None and getattr(identity, "name", None):
+        return identity.name
+    return _track_name(det)
+
+
 def _build_pool(
     labels: sio.Labels,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Flatten a ``sio.Labels`` into per-detection arrays.
 
     Returns:
-        Tuple of ``(lf_index, det_index, track_name, video_index)`` arrays, one entry per
-        detection. ``lf_index`` indexes ``labels.labeled_frames``; ``det_index`` indexes
-        within that frame's detection list (from :func:`_frame_detections`).
+        Tuple of ``(lf_index, det_index, track_name, video_index, identity_name)``
+        arrays, one entry per detection. ``lf_index`` indexes
+        ``labels.labeled_frames``; ``det_index`` indexes within that frame's
+        detection list (from :func:`_frame_detections`). ``identity_name`` is the
+        global identity (see :func:`_identity_name`), which equals the track name
+        whenever no ``sio.Identity`` is present.
     """
-    lf_idx, det_idx, track_names, video_idx = [], [], [], []
+    lf_idx, det_idx, track_names, video_idx, identity_names = [], [], [], [], []
     for li, lf in enumerate(labels):
         vid = labels.videos.index(lf.video)
         for di, det in enumerate(_frame_detections(lf)):
@@ -86,11 +110,13 @@ def _build_pool(
             det_idx.append(di)
             track_names.append(_track_name(det))
             video_idx.append(vid)
+            identity_names.append(_identity_name(det))
     return (
         np.asarray(lf_idx, dtype=int),
         np.asarray(det_idx, dtype=int),
         np.asarray(track_names, dtype=object),
         np.asarray(video_idx, dtype=int),
+        np.asarray(identity_names, dtype=object),
     )
 
 
@@ -263,7 +289,7 @@ def split_labels_train_val(
     Returns:
         Tuple of new ``sio.Labels`` ``(train_labels, val_labels)`` with no group leakage.
     """
-    lf_idx, det_idx, track_names, video_idx = _build_pool(source)
+    lf_idx, det_idx, track_names, video_idx, identity_names = _build_pool(source)
     n = len(lf_idx)
 
     # Frames with zero detections (e.g. user-confirmed negatives) have no identity to
@@ -294,7 +320,12 @@ def split_labels_train_val(
     if split_by == "video":
         groups = video_idx
     elif split_by == "identity":
-        groups = track_names
+        # Group AND stratify on the global identity, not the per-video track name
+        # (see `_identity_name`): the two differ exactly when an animal carries a
+        # `sio.Identity` plus per-video tracks, which is the leak this split is
+        # meant to prevent.
+        groups = identity_names
+        y = identity_names
     else:  # frame
         groups = lf_idx
 
@@ -342,6 +373,19 @@ def split_labels_list_train_val(
     n_folds = int(getattr(split_config, "n_folds", 5))
     fold = int(getattr(split_config, "fold", 0))
     seed = int(getattr(split_config, "seed", 0))
+
+    # Each file is split independently, so a group-aware split is only group-aware
+    # WITHIN a file: with `split_by="identity"` and several files, one animal can
+    # land in file A's train side and file B's val side, which is the leakage the
+    # mode exists to prevent. Say so rather than reporting a clean-looking split.
+    if split_by == "identity" and len(labels_list) > 1:
+        logger.warning(
+            f"split_by='identity' with {len(labels_list)} labels files: each file is "
+            "split independently, so an identity present in more than one file can "
+            "still appear on both sides of the split. Pass explicit `val_labels_path` "
+            "for a guaranteed identity-disjoint validation set, or merge the files "
+            "first."
+        )
 
     train_list, val_list = [], []
     for labels in labels_list:
