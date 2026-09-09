@@ -441,6 +441,13 @@ def _build_centroid_layer(
         max_instances=centroid_model.max_instances,
         max_stride=centroid_model.max_stride,
         anchor_ind=centroid_model.anchor_ind,
+        # Carry the loaders' resolution (#586). Without these the layer re-infers
+        # the method from `anchor_ind` alone, so a checkpoint trained with
+        # `centroid_method: bbox_center` (or `geometric_median`) silently reverted
+        # to `center_of_mass` here -- and `sio.Centroid.source`, which reads
+        # `layer.centroid_method`, then recorded the wrong method too.
+        centroid_method=getattr(centroid_model, "centroid_method", None),
+        centroid_fallback=getattr(centroid_model, "centroid_fallback", None),
         use_gt_centroids=False,
         preprocess_config=PreprocessConfig(
             scale=centroid_model.input_scale,
@@ -494,6 +501,11 @@ def _build_centroid_layer_gt_only(assets: Any, backend: Any) -> CentroidLayer:
         max_instances=None,
         max_stride=1,
         anchor_ind=getattr(centroid_model, "anchor_ind", None),
+        # As in `_build_centroid_layer`: keep the loaders' resolved method. This
+        # path derives centroids from GT instances, so the method is what
+        # actually computes them -- dropping it silently changed the crop centers.
+        centroid_method=getattr(centroid_model, "centroid_method", None),
+        centroid_fallback=getattr(centroid_model, "centroid_fallback", None),
         use_gt_centroids=True,
         preprocess_config=PreprocessConfig(
             scale=1.0,
@@ -799,7 +811,11 @@ def _select_export_layer(
                     f"Anchor part {anchor_part!r} not found in export node_names: "
                     f"{node_names}."
                 )
-        return ExportedCentroidLayer(backend=backend, anchor_ind=anchor_ind)
+        return ExportedCentroidLayer(
+            backend=backend,
+            anchor_ind=anchor_ind,
+            centroid_method=getattr(metadata, "centroid_method", None),
+        )
     if model_type == "topdown":
         return ExportedTopDownLayer(backend=backend)
     if model_type == "bottomup":
@@ -2183,6 +2199,14 @@ class Predictor:
             return self.layer.anchor_ind
         return None
 
+    def _packaging_centroid_method(self) -> Optional[str]:
+        """Resolved centroid method for the ``sio.Centroid.source`` tag (#586)."""
+        from sleap_nn.inference.layers.exported import ExportedCentroidLayer
+
+        if isinstance(self.layer, (CentroidLayer, ExportedCentroidLayer)):
+            return getattr(self.layer, "centroid_method", None)
+        return None
+
     def _is_centroid_only_layer(self) -> bool:
         """``True`` iff ``layer`` is a standalone centroid layer."""
         from sleap_nn.inference.layers.exported import ExportedCentroidLayer
@@ -2236,7 +2260,9 @@ class Predictor:
         node_names = (
             list(self.skeleton.node_names) if self.skeleton is not None else None
         )
-        source = centroid_source_for_anchor(anchor_ind, node_names)
+        source = centroid_source_for_anchor(
+            anchor_ind, node_names, self._packaging_centroid_method()
+        )
         collapse_skeleton = None
         if self.skeleton is not None and len(self.skeleton.nodes) > 1:
             import sleap_io as sio

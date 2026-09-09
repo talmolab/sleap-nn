@@ -337,6 +337,17 @@ class DataConfig:
             Values < 1 down-weight negatives; values > 1 up-weight them. Only has effect when
             ``use_negative_frames`` is ``True``. *Default*: `1.0`.
         skeletons: skeleton configuration for the `.slp` file. This will be pulled from the train dataset and saved to the `training_config.yaml`
+        centroids_from_masks: (str) Derive `UserCentroid` annotations from the labels'
+            segmentation masks at load time, so a MASK-ONLY dataset (no pose
+            annotations at all) can train a centroid model. The value names the
+            derivation method — `center_of_mass` or `bbox_center`, the two
+            `sio.SegmentationMask.to_centroid` offers — and `None` (default)
+            disables it. (`geometric_median` is defined over a point set and does
+            not apply to masks; it is available for pose-derived centroids via
+            `centroid_method`.) Frames that
+            already carry user centroids are left alone. Once derived, the ordinary
+            `centroid_source="user"` path takes over unchanged; nothing downstream
+            knows the centroids came from masks. *Default*: `None`.
     """
 
     train_labels_path: Optional[List[str]] = None
@@ -362,6 +373,7 @@ class DataConfig:
     use_negative_frames: bool = False
     negative_loss_weight: float = field(default=1.0, validator=validators.gt(0))
     skeletons: Optional[list] = None
+    centroids_from_masks: Optional[str] = None
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:

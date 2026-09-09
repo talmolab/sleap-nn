@@ -2986,6 +2986,27 @@ def infer(**kwargs):
         "mode. Defaults to the mean of visible nodes when absent (#586)."
     ),
 )
+@click.option(
+    "--centroid_method",
+    type=click.Choice(["center_of_mass", "bbox_center", "geometric_median", "anchor"]),
+    default=None,
+    help=(
+        "How ground-truth centroids are derived in centroid mode. Defaults to "
+        "the anchor node when --anchor_part is given, else the mean of visible "
+        "nodes. Pass the value the model was TRAINED with (its "
+        "head_configs.centroid.confmaps.centroid_method) so the metric compares "
+        "like with like (#586)."
+    ),
+)
+@click.option(
+    "--centroid_fallback",
+    type=click.Choice(["center_of_mass", "bbox_center", "geometric_median"]),
+    default=None,
+    help=(
+        "Reduce method used when the --anchor_part node is not visible. "
+        "Default: center_of_mass."
+    ),
+)
 def eval(**kwargs):
     """Run evaluation workflow."""
     from sleap_nn.evaluation import run_evaluation
@@ -3025,6 +3046,88 @@ def info(path):
     from sleap_nn.model_info import print_model_info
 
     print_model_info(path)
+
+
+@cli.command("eval-tracking", context_settings=CONTEXT_SETTINGS)
+@click.option(
+    "--ground_truth_path",
+    "-g",
+    type=str,
+    required=True,
+    help="Path to tracked ground truth labels file (.slp)",
+)
+@click.option(
+    "--predicted_path",
+    "-p",
+    type=str,
+    required=True,
+    help="Path to tracked predicted labels file (.slp)",
+)
+@click.option(
+    "--save_metrics", "-s", type=str, help="Path to save metrics (.json file)"
+)
+@click.option(
+    "--carrier",
+    type=click.Choice(["auto", "pose", "mask"]),
+    default="auto",
+    help=(
+        "What carries identity: 'pose' (instances, matched by OKS), 'mask' "
+        "(segmentation masks, matched by IoU), or 'auto' (mask when the "
+        "prediction has masks but no instances). Default: auto."
+    ),
+)
+@click.option(
+    "--match_threshold",
+    type=float,
+    default=0.5,
+    help=(
+        "Minimum OKS (pose) or mask IoU (mask) for a predicted detection to "
+        "count as matched to a ground-truth one. Default: 0.5."
+    ),
+)
+@click.option(
+    "--mt_threshold",
+    type=float,
+    default=0.8,
+    help="Coverage at or above which a GT trajectory is mostly-tracked (MT).",
+)
+@click.option(
+    "--ml_threshold",
+    type=float,
+    default=0.2,
+    help="Coverage below which a GT trajectory is mostly-lost (ML).",
+)
+@click.option(
+    "--user_labels_only/--no-user_labels_only",
+    default=False,
+    help=(
+        "Drop predicted detections from the GROUND-TRUTH side (default: False, "
+        "unlike `sleap-nn eval`). Tracked ground truth is usually predicted "
+        "poses with tracks assigned afterwards, so filtering by type would "
+        "discard it. Pass this only for user-labeled GT that also carries "
+        "stale predictions from an earlier run."
+    ),
+)
+def eval_tracking(**kwargs):
+    """Evaluate identity persistence of a tracked prediction.
+
+    Scores whether tracks keep the right identity across frames -- ID switches,
+    IDF1, MT/PT/ML, fragmentation and track purity -- against tracked ground
+    truth. Complements `sleap-nn eval`, which scores detection and localization
+    but says nothing about identity.
+
+    Both files must be tracked: ground truth needs `track` set on the detections
+    to score, and the prediction needs tracks from `sleap-nn track` or
+    `sleap-nn predict -t`.
+
+    Examples:
+        sleap-nn eval-tracking -g gt.slp -p tracked.slp
+
+        sleap-nn eval-tracking -g gt.slp -p tracked.slp --carrier mask -s ids.json
+    """
+    from sleap_nn.evaluation import run_identity_evaluation
+
+    run_identity_evaluation(**kwargs)
 
 
 def _register_export_commands():

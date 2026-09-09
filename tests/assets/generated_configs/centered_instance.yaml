@@ -51,6 +51,8 @@ model_config:
         - A
         - B
         anchor_part: null
+        centroid_method: null
+        centroid_fallback: null
         sigma: 2.5
         output_stride: 2
         loss_weight: 1.0

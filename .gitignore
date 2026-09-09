@@ -172,7 +172,10 @@ wandb/
 # macOS
 .DS_Store
 
-# Development scratch folder
+# Development scratch folder -- as a directory OR a symlink to one. The
+# trailing-slash form matches directories only, so a `scratch` symlink slipped
+# past it and got committed (a broken absolute path for everyone else).
+scratch
 scratch/
 
 # Trained models

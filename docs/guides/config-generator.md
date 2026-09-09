@@ -146,6 +146,7 @@ config = (
 | `.early_stopping(enabled, patience)` | Configure early stopping |
 | `.crop_size(size)` | Set crop size (centered_instance) |
 | `.anchor_part(name)` | Set anchor part (top-down) |
+| `.centroid_method(method, fallback=None)` | How the centroid / crop center is derived: `center_of_mass`, `bbox_center`, `geometric_median`, `anchor` (#586) |
 
 ### Get Recommendations
 

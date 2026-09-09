@@ -24,6 +24,8 @@ sleap-nn eval \
 | `--oks_scale` | Scale factor for OKS calculation | None |
 | `--match_method` | Instance matcher: `oks`, `centroid`, `mask`, or `auto` (centroid when the prediction skeleton is single-node) | `auto` |
 | `--anchor_part` | GT node for centroid-mode ground-truth centroids (defaults to mean of visible nodes) | None |
+| `--centroid_method` | How centroid-mode GT centroids are derived: `center_of_mass`, `bbox_center`, `geometric_median`, `anchor`. Pass the value the model was **trained** with (`head_configs.centroid.confmaps.centroid_method`) so the metric compares like with like | infer from `--anchor_part` |
+| `--centroid_fallback` | Reduce method used when the `--anchor_part` node is not visible | `center_of_mass` |
 | `--user_labels_only` / `--no-user_labels_only` | Only evaluate user-labeled frames | `True` |
 
 ---

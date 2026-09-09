@@ -214,6 +214,39 @@ def resolve_anchor_part(cfg: DictConfig, model_type: str) -> Optional[str]:
     return None
 
 
+def resolve_centroid_method(cfg: DictConfig, model_type: str) -> Optional[str]:
+    """Resolve the trained centroid method for centroid / centered_instance models.
+
+    Companion to :func:`resolve_anchor_part`. Recorded in the export metadata so a
+    consumer of the exported model can tag predicted centroids with the method the
+    model was actually trained on (#586) — without it, a ``bbox_center`` model's
+    predictions would be recorded as ``center_of_mass``.
+
+    Args:
+        cfg: The training job configuration.
+        model_type: The model type (e.g., "centroid", "centered_instance").
+
+    Returns:
+        The resolved method (one of
+        ``sleap_nn.data.instance_centroids.CENTROID_METHODS``), or ``None`` for
+        model types that have no centroid.
+    """
+    from sleap_nn.data.instance_centroids import centroid_method_from_config
+
+    head_configs = cfg.model_config.head_configs
+
+    if model_type == "centroid":
+        head = getattr(head_configs, "centroid", None)
+    elif model_type == "centered_instance":
+        head = getattr(head_configs, "centered_instance", None)
+    else:
+        return None
+
+    if head and hasattr(head, "confmaps"):
+        return centroid_method_from_config(head.confmaps)[0]
+    return None
+
+
 def resolve_input_shape(
     cfg: DictConfig,
     input_height: Optional[int] = None,

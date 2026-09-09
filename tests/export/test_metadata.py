@@ -103,6 +103,7 @@ class TestExportMetadata:
             "class_names",
             "peak_threshold",
             "anchor_part",
+            "centroid_method",
             "training_config_embedded",
             "training_config_hash",
         }

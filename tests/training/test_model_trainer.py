@@ -2002,3 +2002,233 @@ def test_bare_constructor_seeds_like_the_factory(config, tmp_path, monkeypatch):
     assert seeded == [True], "the seed was not applied on the bare-constructor path"
     assert len(trainer.train_labels) == 1
     assert trainer.model_type is not None
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# #586 / #674 — centroid methods and mask-derived centroid targets
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _centroid_cfg_from(config, tmp_path, **data_overrides):
+    """A minimal centroid training config off an existing fixture config."""
+    cfg = OmegaConf.create(OmegaConf.to_container(config, resolve=True))
+    cfg.model_config.head_configs.centroid = OmegaConf.create(
+        {"confmaps": {"anchor_part": None, "sigma": 1.5, "output_stride": 2}}
+    )
+    for head in list(cfg.model_config.head_configs.keys()):
+        if head != "centroid":
+            cfg.model_config.head_configs[head] = None
+    cfg.trainer_config.max_epochs = 1
+    cfg.trainer_config.save_ckpt = False
+    cfg.trainer_config.use_wandb = False
+    cfg.trainer_config.ckpt_dir = str(tmp_path)
+    cfg.trainer_config.run_name = "centroid_method_test"
+    for k, v in data_overrides.items():
+        cfg.data_config[k] = v
+    return cfg
+
+
+def test_centroid_method_is_threaded_into_the_dataset(config, tmp_path):
+    """The head config's centroid_method must reach the dataset that builds targets."""
+    from sleap_nn.data.custom_datasets import get_train_val_datasets
+
+    cfg = _centroid_cfg_from(config, tmp_path)
+    cfg.model_config.head_configs.centroid.confmaps.centroid_method = "bbox_center"
+    labels = [sio.load_slp(cfg.data_config.train_labels_path[0])]
+
+    train_ds, _ = get_train_val_datasets(labels, labels, cfg)
+    assert train_ds.centroid_method == "bbox_center"
+    assert train_ds.centroid_fallback is None
+
+
+def _with_skeletons(cfg, labels):
+    """Serialize a skeleton into the config the way ModelTrainer._setup_config does."""
+    import yaml
+    from sleap_io.io.skeleton import SkeletonYAMLEncoder
+
+    skeleton_yaml = yaml.safe_load(SkeletonYAMLEncoder().encode(labels[0].skeletons))
+    cfg.data_config.skeletons = []
+    for name, skl in skeleton_yaml.items():
+        skl["name"] = name
+        cfg.data_config.skeletons.append(skl)
+    return cfg
+
+
+def test_centroid_method_anchor_fallback_is_threaded(config, tmp_path):
+    """anchor_part + centroid_fallback resolve to ('anchor', <fallback>)."""
+    from sleap_nn.data.custom_datasets import get_train_val_datasets
+
+    labels = [sio.load_slp(config.data_config.train_labels_path[0])]
+    node = labels[0].skeletons[0].node_names[0]
+
+    cfg = _with_skeletons(_centroid_cfg_from(config, tmp_path), labels)
+    cfg.model_config.head_configs.centroid.confmaps.anchor_part = node
+    cfg.model_config.head_configs.centroid.confmaps.centroid_fallback = (
+        "geometric_median"
+    )
+    train_ds, _ = get_train_val_datasets(labels, labels, cfg)
+    assert train_ds.centroid_method == "anchor"
+    assert train_ds.centroid_fallback == "geometric_median"
+
+
+def test_unresolvable_anchor_degrades_instead_of_raising(config, tmp_path):
+    """An anchor_part absent from the skeleton falls back rather than crashing.
+
+    The centroid model deliberately tolerates this (the anchor path is only a
+    fallback for frames without user centroids), so the batched op must not raise
+    from inside a dataloader worker.
+    """
+    from sleap_nn.data.custom_datasets import get_train_val_datasets
+
+    labels = [sio.load_slp(config.data_config.train_labels_path[0])]
+    cfg = _with_skeletons(_centroid_cfg_from(config, tmp_path), labels)
+    cfg.model_config.head_configs.centroid.confmaps.anchor_part = "not_a_node"
+    cfg.model_config.head_configs.centroid.confmaps.centroid_fallback = "bbox_center"
+
+    train_ds, _ = get_train_val_datasets(labels, labels, cfg)
+    assert train_ds.centroid_method == "bbox_center"
+    assert train_ds.centroid_fallback is None
+
+
+def test_contradictory_centroid_config_fails_at_setup(config, tmp_path):
+    """anchor_part + a non-anchor method must fail early, naming the head."""
+    cfg = _centroid_cfg_from(config, tmp_path)
+    cfg.model_config.head_configs.centroid.confmaps.anchor_part = "0"
+    cfg.model_config.head_configs.centroid.confmaps.centroid_method = "bbox_center"
+
+    with pytest.raises(ValueError, match=r"head_configs\.centroid\.confmaps"):
+        ModelTrainer.get_model_trainer_from_config(cfg)
+
+
+def _mask_only_labels(config, keep_skeleton: bool = True):
+    """Build mask-only labels in memory: real masks, poses stripped.
+
+    ``Labels.get_masks()`` is a *query* in sleap-io 0.9.2, not a builder, so the
+    earlier version of these tests silently skipped and the feature shipped with
+    no exercised trainer coverage. ``Instance.to_mask`` is the actual builder.
+
+    Kept in memory rather than round-tripped through ``sio.save_slp``: the
+    fixture is an embedded ``.pkg.slp``, and re-saving it thin leaves a video
+    whose shape cannot be resolved — unrelated to what these tests check.
+    """
+    labels = sio.load_slp(config.data_config.train_labels_path[0])
+    for lf in labels:
+        height, width = lf.image.shape[:2]
+        masks = []
+        for inst in lf.instances:
+            # `method="shapes"` (the default) needs a non-zero radius, else it
+            # raises rather than rasterizing an empty geometry. A user instance
+            # yields a `UserSegmentationMask` with metadata propagated.
+            mask = inst.to_mask(
+                height=height, width=width, node_radius=4, edge_radius=2
+            )
+            # The poses are about to be stripped, so drop the back-link too: a
+            # mask-only file has no instance for a mask to point at.
+            mask.instance = None
+            masks.append(mask)
+        lf.masks = masks
+        lf.instances = []
+    assert any(len(lf.masks) for lf in labels), "fixture produced no masks"
+    if not keep_skeleton:
+        labels.skeletons = []
+    return labels
+
+
+def test_centroids_from_masks_makes_mask_only_labels_trainable(config, tmp_path):
+    """A mask-only dataset has zero trainable frames until masks are converted.
+
+    This is what #674 existed for; it is now a few lines feeding the existing
+    ``centroid_source="user"`` path.
+    """
+    labels = _mask_only_labels(config)
+    n_masks = sum(len(lf.masks) for lf in labels)
+
+    cfg = _centroid_cfg_from(config, tmp_path)
+
+    # Without the flag: no trainable frame at all.
+    with pytest.raises(ValueError, match="No labeled frames available"):
+        ModelTrainer.get_model_trainer_from_config(
+            cfg, train_labels=[labels.copy()], val_labels=[labels.copy()]
+        )
+
+    # With it: the frames become trainable and carry one centroid per mask.
+    cfg.data_config.centroids_from_masks = "center_of_mass"
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        cfg, train_labels=[labels.copy()], val_labels=[labels.copy()]
+    )
+    n_centroids = sum(len(lf.centroids) for lbls in trainer.train_labels for lf in lbls)
+    assert n_centroids == n_masks
+
+
+def test_centroids_from_masks_works_on_skeleton_less_labels(config, tmp_path):
+    """Truly skeleton-less mask-only labels must reach training.
+
+    ``labels.skeletons == []`` is the real shape of a mask-only file, and
+    ``_setup_head_config`` indexed ``self.skeletons[0]`` unconditionally — so the
+    headline path died with a bare ``IndexError`` before any guard could speak.
+    A centroid head declares neither part_names nor edges, so it needs no
+    skeleton at all.
+    """
+    labels = _mask_only_labels(config, keep_skeleton=False)
+    assert labels.skeletons == [], "the fixture must be genuinely skeleton-less"
+    n_masks = sum(len(lf.masks) for lf in labels)
+
+    cfg = _centroid_cfg_from(config, tmp_path)
+    cfg.data_config.centroids_from_masks = "center_of_mass"
+
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        cfg, train_labels=[labels.copy()], val_labels=[labels.copy()]
+    )
+
+    assert trainer.skeletons == []
+    assert list(trainer.config.data_config.skeletons) == []
+    n_centroids = sum(len(lf.centroids) for lbls in trainer.train_labels for lf in lbls)
+    assert n_centroids == n_masks
+
+
+def test_head_config_without_a_skeleton_names_the_head_it_cannot_fill(config):
+    """A head that genuinely needs a skeleton must say so, not IndexError.
+
+    Called directly: a pose head on skeleton-less labels never gets this far
+    through the factory, because the empty-split guard rejects mask-only data for
+    a pose model first. The guard exists so that a skeleton-less path which DOES
+    reach head setup (as the centroid model now does) fails with a message naming
+    the head and field, instead of a bare ``IndexError`` on ``self.skeletons[0]``.
+    """
+    cfg = OmegaConf.create(OmegaConf.to_container(config, resolve=True))
+    cfg.model_config.head_configs.centered_instance.confmaps.part_names = None
+
+    trainer = ModelTrainer(config=cfg)
+    trainer.model_type = "centered_instance"
+    trainer.skeletons = []
+
+    with pytest.raises(ValueError, match=r"part_names is null and the labels carry"):
+        trainer._setup_head_config()
+
+    # Same for a head that needs edges.
+    cfg_bu = OmegaConf.create(OmegaConf.to_container(config, resolve=True))
+    cfg_bu.model_config.head_configs.centered_instance = None
+    # Only the `pafs` key, so the edges branch is what runs (a `confmaps` key
+    # would hit the part_names check first).
+    cfg_bu.model_config.head_configs.bottomup = OmegaConf.create(
+        {"pafs": {"edges": None, "sigma": 4.0, "output_stride": 4}}
+    )
+    trainer_bu = ModelTrainer(config=cfg_bu)
+    trainer_bu.model_type = "bottomup"
+    trainer_bu.skeletons = []
+
+    with pytest.raises(ValueError, match=r"edges is null and the labels carry"):
+        trainer_bu._setup_head_config()
+
+
+def test_centroids_from_masks_rejects_an_unknown_method(config, tmp_path):
+    cfg = _centroid_cfg_from(config, tmp_path)
+    cfg.data_config.centroids_from_masks = "anchor"  # a mask has no nodes
+    with pytest.raises(ValueError, match="unsupported method"):
+        ModelTrainer.get_model_trainer_from_config(cfg)
+
+    # `geometric_median` is valid for POSE-derived centroids but has no mask
+    # equivalent; it must be rejected here, not deep inside sleap-io at load time.
+    cfg.data_config.centroids_from_masks = "geometric_median"
+    with pytest.raises(ValueError, match="not offered for masks"):
+        ModelTrainer.get_model_trainer_from_config(cfg)
