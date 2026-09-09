@@ -555,8 +555,37 @@ def get_instances(labeled_frame: sio.LabeledFrame) -> List[MatchInstance]:
     return instance_list
 
 
+def _user_centroids(frame: sio.LabeledFrame) -> List[Any]:
+    """Return a frame's user (non-predicted) ``Centroid`` annotations."""
+    return [c for c in getattr(frame, "centroids", []) or [] if not c.is_predicted]
+
+
+def _instances_from_user_centroids(frame: sio.LabeledFrame) -> List[sio.Instance]:
+    """Represent a frame's user centroid annotations as single-node instances.
+
+    The centroid evaluator's matching, distance and detection metrics all speak
+    ``sio.Instance``; a ``Centroid`` annotation carries the same information with
+    no skeleton. Wrapping each one in a one-node instance on sleap-io's canonical
+    centroid skeleton lets the whole pipeline run unchanged on files that have no
+    poses at all -- and the wrapped point is exact, since every reduce method over
+    a single point returns that point.
+    """
+    skeleton = sio.get_centroid_skeleton()
+    return [
+        sio.Instance.from_numpy(
+            np.array([[float(c.x), float(c.y)]], dtype="float64"),
+            skeleton=skeleton,
+            track=getattr(c, "track", None),
+        )
+        for c in _user_centroids(frame)
+    ]
+
+
 def find_frame_pairs(
-    labels_gt: sio.Labels, labels_pr: sio.Labels, user_labels_only: bool = True
+    labels_gt: sio.Labels,
+    labels_pr: sio.Labels,
+    user_labels_only: bool = True,
+    keep_user_centroid_frames: bool = False,
 ) -> List[Tuple[sio.LabeledFrame, sio.LabeledFrame]]:
     """Find corresponding frames across two sets of labels.
 
@@ -567,6 +596,14 @@ def find_frame_pairs(
     Args:
         labels_gt: A `sio.Labels` instance with ground truth instances.
         labels_pr: A `sio.Labels` instance with predicted instances.
+        keep_user_centroid_frames: If True, a ground-truth frame also survives the
+            ``user_labels_only`` filter when it carries user ``Centroid``
+            annotations but no user instances. Set by ``match_method="centroid"``:
+            centroid annotations (hand-made, or derived from segmentation masks by
+            ``data_config.centroids_from_masks``) are the ground truth for a
+            centroid model, and a mask-only file has no instances at all -- so the
+            instance-only filter dropped every frame and evaluation died with
+            "Empty Frame Pairs".
         user_labels_only: If False, frames with predicted instances in `labels_gt` will
             also be considered for matching.
 
@@ -605,6 +642,7 @@ def find_frame_pairs(
                 attrs.evolve(lf, instances=lf.user_instances)
                 for lf in labeled_frames_gt
                 if len(lf.user_instances) > 0
+                or (keep_user_centroid_frames and _user_centroids(lf))
             ]
 
         # Attempt to match each labeled frame in the ground truth.
@@ -1100,7 +1138,10 @@ class Evaluator:
 
     def _process_frames(self):
         self.frame_pairs = find_frame_pairs(
-            self.ground_truth_instances, self.predicted_instances, self.user_labels_only
+            self.ground_truth_instances,
+            self.predicted_instances,
+            self.user_labels_only,
+            keep_user_centroid_frames=self.match_method == "centroid",
         )
         if not self.frame_pairs:
             message = "Empty Frame Pairs. No match found for the video frames"
@@ -1145,6 +1186,15 @@ class Evaluator:
         self.false_positives = []
 
         for frame_gt, frame_pr in self.frame_pairs:
+            # A mask-only or centroid-annotation-only ground-truth frame has no
+            # instances; its centroids ARE the ground truth (#586).
+            if not get_instances(frame_gt) and _user_centroids(frame_gt):
+                frame_gt = attrs.evolve(
+                    frame_gt, instances=_instances_from_user_centroids(frame_gt)
+                )
+                gt_from_centroid_annotations = True
+            else:
+                gt_from_centroid_annotations = False
             gt_match_instances = get_instances(frame_gt)
             pr_match_instances = get_instances(frame_pr)
 
@@ -1156,14 +1206,25 @@ class Evaluator:
                 ]
             ).reshape(-1, 2)
 
-            # GT centroids come from generate_centroids itself (#586).
+            # GT centroids come from generate_centroids itself (#586) -- except
+            # when they came from `Centroid` annotations, which are already the
+            # centroid: the wrapper is one node, so `anchor_ind` (an index into
+            # the POSE skeleton) does not apply to it.
             gt_centroids = np.array(
                 [
                     compute_gt_centroids(
                         m.instance.numpy(),
-                        self.anchor_ind,
-                        method=self.centroid_method,
-                        fallback=self.centroid_fallback,
+                        None if gt_from_centroid_annotations else self.anchor_ind,
+                        method=(
+                            None
+                            if gt_from_centroid_annotations
+                            else self.centroid_method
+                        ),
+                        fallback=(
+                            None
+                            if gt_from_centroid_annotations
+                            else self.centroid_fallback
+                        ),
                     )
                     for m in gt_match_instances
                 ]
