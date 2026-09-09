@@ -515,6 +515,38 @@ class MatchInstance:
     video_path: str
 
 
+def _video_key(video: Optional[sio.Video]) -> str:
+    """Identify a video by path, with fallbacks for embedded and image-sequence videos.
+
+    Args:
+        video: The video to identify, or ``None``.
+
+    Returns:
+        ``source_filename`` (embedded videos, which carry their original path)
+        else ``filename`` (first entry for image sequences), else a per-object
+        identifier so two distinct videos never collide.
+    """
+    if video is None:
+        return "unknown"
+    video_path = None
+    backend = getattr(video, "backend", None)
+    if backend is not None:
+        # Try source_filename first (for embedded videos with provenance)
+        video_path = getattr(backend, "source_filename", None)
+        if video_path is None:
+            video_path = getattr(backend, "filename", None)
+    # Fallback to video.filename if backend doesn't have it
+    if video_path is None:
+        video_path = getattr(video, "filename", None)
+        # Handle list filenames (image sequences)
+        if isinstance(video_path, list) and video_path:
+            video_path = video_path[0]
+    # Final fallback: use a unique identifier
+    if video_path is None:
+        return f"video_{id(video)}"
+    return str(video_path)
+
+
 def get_instances(labeled_frame: sio.LabeledFrame) -> List[MatchInstance]:
     """Get a list of instances of type MatchInstance from the Labeled Frame.
 
@@ -526,26 +558,7 @@ def get_instances(labeled_frame: sio.LabeledFrame) -> List[MatchInstance]:
     """
     instance_list = []
     frame_idx = labeled_frame.frame_idx
-
-    # Extract video path with fallbacks for embedded videos
-    video = labeled_frame.video
-    video_path = None
-    if video is not None:
-        backend = getattr(video, "backend", None)
-        if backend is not None:
-            # Try source_filename first (for embedded videos with provenance)
-            video_path = getattr(backend, "source_filename", None)
-            if video_path is None:
-                video_path = getattr(backend, "filename", None)
-        # Fallback to video.filename if backend doesn't have it
-        if video_path is None:
-            video_path = getattr(video, "filename", None)
-            # Handle list filenames (image sequences)
-            if isinstance(video_path, list) and video_path:
-                video_path = video_path[0]
-    # Final fallback: use a unique identifier
-    if video_path is None:
-        video_path = f"video_{id(video)}" if video is not None else "unknown"
+    video_path = _video_key(labeled_frame.video)
 
     for instance in labeled_frame.instances:
         match_instance = MatchInstance(
@@ -2618,3 +2631,708 @@ def run_evaluation(
         logger.info(f"Metrics saved successfully to {save_path}")
 
     return metrics
+
+
+# ---------------------------------------------------------------------------
+# Identity-persistence metrics (MOT-style)
+# ---------------------------------------------------------------------------
+# These score a TRACKED prediction against TRACKED ground truth: not "was the
+# animal found" (the detection metrics above) but "did it keep the same identity
+# across frames". Any tracker can use them -- fixed-window/local-queues, optical
+# flow, Kalman, mask-IoU -- since they read only `track` off the detections.
+#
+# Deliberately NOT MOTA: MOTA folds detection FP/FN into the identity score, so
+# when two trackers are compared over a FROZEN detection stage (the usual A/B) a
+# MOTA delta mostly reports detector noise. Detection counts are reported
+# separately in `IdentityMetrics` and never folded into IDF1 or the switch count.
+#
+# Definitions follow the standard multi-object-tracking literature:
+#   - ID switches (IDSW): CLEAR-MOT. Per ground-truth trajectory, a switch each
+#     time the predicted track matched to it differs from the last one it was
+#     matched to. Gaps do not count; a change *across* a gap does.
+#   - IDF1 / IDP / IDR: Ristani et al. Global max-weight assignment between
+#     ground-truth and predicted identities over co-matched detection counts,
+#     then F1 over IDTP / IDFP / IDFN.
+#   - MT/PT/ML + fragmentation: coverage of each ground-truth trajectory, so a
+#     tracker cannot win on switches by emitting fewer, shorter tracks.
+#   - Purity: per predicted track, the share of its matched detections belonging
+#     to its dominant ground-truth identity (length-weighted mean).
+
+IDENTITY_CARRIERS = ("pose", "mask")
+
+
+def _validate_carrier(carrier: str) -> str:
+    """Normalize and validate an identity-metric carrier.
+
+    Args:
+        carrier: ``"pose"`` (instances, matched by OKS) or ``"mask"``
+            (segmentation masks, matched by mask IoU).
+
+    Returns:
+        The validated carrier string.
+
+    Raises:
+        ValueError: If ``carrier`` is not one of ``IDENTITY_CARRIERS``.
+    """
+    if carrier not in IDENTITY_CARRIERS:
+        raise ValueError(
+            f"carrier must be one of {IDENTITY_CARRIERS}, got {carrier!r}. "
+            "Use 'pose' for instances (OKS) or 'mask' for segmentation masks (IoU)."
+        )
+    return carrier
+
+
+def _identity_frame_key(frame: sio.LabeledFrame) -> Tuple[str, int]:
+    """Key a frame by ``(video path, frame index)``.
+
+    Keyed on the video's path rather than its position in ``labels.videos`` so a
+    single-video prediction aligns with the right video of a multi-video
+    ground-truth project -- position would pair it with whatever happens to be
+    first. Matches the video identity `find_frame_pairs` uses for the detection
+    metrics.
+    """
+    return (_video_key(frame.video), frame.frame_idx)
+
+
+def _identity_dets(frame: sio.LabeledFrame, carrier: str) -> List[Any]:
+    """Return a frame's detections for the given carrier, in file order."""
+    if carrier == "mask":
+        return list(getattr(frame, "masks", None) or [])
+    return list(frame.instances)
+
+
+def _is_predicted_detection(det: Any) -> bool:
+    """Return True for model output, on either carrier."""
+    return isinstance(det, (sio.PredictedInstance, sio.PredictedSegmentationMask))
+
+
+def _keeps_identity(det: Any, drop_predicted: bool) -> bool:
+    """Return True if a detection should take part in identity scoring.
+
+    Args:
+        det: An instance or segmentation mask.
+        drop_predicted: Drop model output (the ground-truth side under
+            ``user_labels_only``).
+
+    Returns:
+        True when the detection carries a track and survives the predicted
+        filter. Untracked detections are counted in the totals but never
+        matched -- identity is what is being scored, so a detection without one
+        has no identity to get right.
+    """
+    if getattr(det, "track", None) is None:
+        return False
+    return not (drop_predicted and _is_predicted_detection(det))
+
+
+def _pose_similarity(gt: List[Any], pr: List[Any]) -> np.ndarray:
+    """Compute the ``(n_gt, n_pr)`` OKS matrix between two instance lists.
+
+    Built one predicted instance at a time. OKS is defined per ``(gt, pr)`` pair
+    -- each column depends only on its own prediction and the ground-truth
+    scales -- so the loop is exactly equivalent to the matrix form while also
+    working on repo versions whose ``compute_oks`` only accepted a single
+    prediction (see #739).
+    """
+    if not gt or not pr:
+        return np.zeros((len(gt), len(pr)))
+    pts_gt = np.stack([np.asarray(inst.numpy(), dtype=float)[:, :2] for inst in gt])
+    sim = np.zeros((len(gt), len(pr)))
+    for j, inst in enumerate(pr):
+        pts_pr = np.asarray(inst.numpy(), dtype=float)[None, :, :2]
+        sim[:, j] = np.asarray(compute_oks(pts_gt, pts_pr), dtype=float).reshape(
+            len(gt)
+        )
+    return sim
+
+
+def _mask_similarity(gt: List[np.ndarray], pr: List[np.ndarray]) -> np.ndarray:
+    """Compute the ``(n_gt, n_pr)`` mask-IoU matrix from decoded boolean arrays."""
+    if not len(gt) or not len(pr):
+        return np.zeros((len(gt), len(pr)))
+    # _mask_iou_matrix is (n_pred, n_gt); transpose to (n_gt, n_pr).
+    return np.asarray(_mask_iou_matrix(pr, gt), dtype=float).T
+
+
+def _match_identity_frame(
+    gt: List[Any], pr: List[Any], carrier: str, threshold: float
+) -> List[Tuple[int, int, float]]:
+    """Hungarian-match ground-truth to predicted detections within one frame.
+
+    Args:
+        gt: Ground-truth detections -- instances for ``"pose"``, decoded boolean
+            mask arrays for ``"mask"``.
+        pr: Predicted detections, same convention.
+        carrier: ``"pose"`` or ``"mask"``.
+        threshold: Minimum similarity (OKS or IoU) for a pair to count as matched.
+
+    Returns:
+        List of ``(gt_index, pred_index, similarity)`` for pairs at or above
+        ``threshold``.
+    """
+    from scipy.optimize import linear_sum_assignment
+
+    sim = _pose_similarity(gt, pr) if carrier == "pose" else _mask_similarity(gt, pr)
+    if sim.size == 0:
+        return []
+    rows, cols = linear_sum_assignment(-sim)
+    return [
+        (int(r), int(c), float(sim[r, c]))
+        for r, c in zip(rows, cols)
+        if sim[r, c] >= threshold
+    ]
+
+
+def motion_diagnostic(labels: sio.Labels, carrier: str = "pose") -> Dict[str, Any]:
+    """Judge whether a labels file is continuous video or temporally sparse samples.
+
+    **Identity metrics are meaningless on a sparse set, and nothing in the file
+    says so.** Embedded ``.pkg.slp`` training splits renumber their frames
+    ``0..N-1`` and record ``frame_numbers`` as contiguous, so every index-based
+    contiguity check passes -- while the animal has actually moved across the
+    arena between two "consecutive" frames. Run this before quoting a tracking
+    number on an unfamiliar file.
+
+    The decisive quantity is how far the same animal moves between consecutive
+    frames relative to its own size. Measured on real files, ``step_over_size``
+    lands near ``0.01-0.06`` for genuine video and ``3-9`` for sparse training
+    splits -- and at the high end same-animal consecutive mask IoU is ``0.000``
+    for most pairs, so geometric association has no signal to work with and any
+    IoU tracker must fail.
+
+    Args:
+        labels: Tracked labels to inspect.
+        carrier: ``"pose"`` (instance keypoints) or ``"mask"`` (segmentation
+            masks); decides how a detection's center and size are measured.
+
+    Returns:
+        Dict with ``median_step_px``, ``median_size_px``, ``step_over_size`` and
+        ``is_continuous`` (``step_over_size < 0.5``). When too few tracked
+        detections are present to judge, ``step_over_size`` is NaN,
+        ``is_continuous`` is False and a ``note`` explains why.
+    """
+    carrier = _validate_carrier(carrier)
+    prev: Dict[str, np.ndarray] = {}
+    steps: List[float] = []
+    sizes: List[float] = []
+
+    for frame in sorted(labels, key=lambda lf: lf.frame_idx):
+        items: List[Tuple[str, np.ndarray, float]] = []
+        if carrier == "mask":
+            for arr, det in zip(_frame_masks(frame), _identity_dets(frame, carrier)):
+                if getattr(det, "track", None) is None:
+                    continue
+                ys, xs = np.nonzero(arr)
+                if not len(xs):
+                    continue
+                items.append(
+                    (
+                        det.track.name,
+                        np.array([xs.mean(), ys.mean()]),
+                        # Equivalent-circle diameter of the mask.
+                        2.0 * float(np.sqrt(arr.sum() / np.pi)),
+                    )
+                )
+        else:
+            for det in _identity_dets(frame, carrier):
+                if getattr(det, "track", None) is None:
+                    continue
+                pts = np.asarray(det.numpy(), dtype=float)[:, :2]
+                pts = pts[~np.isnan(pts).any(axis=1)]
+                if not len(pts):
+                    continue
+                items.append(
+                    (det.track.name, pts.mean(axis=0), float(np.ptp(pts, axis=0).max()))
+                )
+
+        for name, center, size in items:
+            sizes.append(size)
+            if name in prev:
+                steps.append(float(np.linalg.norm(center - prev[name])))
+            prev[name] = center
+
+    if not steps or not sizes:
+        return {
+            "median_step_px": float("nan"),
+            "median_size_px": float("nan"),
+            "step_over_size": float("nan"),
+            "is_continuous": False,
+            "note": "not enough tracked detections to judge",
+        }
+
+    median_step = float(np.median(steps))
+    median_size = float(np.median(sizes))
+    if median_size <= 0.0:
+        # A single-node skeleton (a centroid model) or coincident nodes have no
+        # measurable extent, so there is nothing to normalize the step against.
+        # Report "cannot judge" rather than dividing by ~0 and calling every
+        # centroid prediction sparse.
+        return {
+            "median_step_px": round(median_step, 2),
+            "median_size_px": median_size,
+            "step_over_size": float("nan"),
+            "is_continuous": False,
+            "note": (
+                "detections have no measurable extent (single-node skeleton?) -- "
+                "cannot judge continuity"
+            ),
+        }
+    ratio = median_step / median_size
+    return {
+        "median_step_px": round(median_step, 2),
+        "median_size_px": round(median_size, 2),
+        "step_over_size": round(ratio, 3),
+        "is_continuous": bool(ratio < 0.5),
+    }
+
+
+@attrs.define(auto_attribs=True, slots=True)
+class IdentityMetrics:
+    """Identity-persistence metrics for one tracked prediction.
+
+    Attributes:
+        id_switches: CLEAR-MOT ID switches, summed over ground-truth trajectories.
+        idf1: Identity F1 (Ristani et al.).
+        idp: Identity precision.
+        idr: Identity recall.
+        mostly_tracked: Ground-truth trajectories covered at or above
+            ``mt_threshold``.
+        partly_tracked: Ground-truth trajectories between the two coverage cuts.
+        mostly_lost: Ground-truth trajectories covered below ``ml_threshold``.
+        fragmentations: Matched -> unmatched -> matched interruptions of a
+            ground-truth trajectory.
+        mean_gt_coverage: Mean share of each trajectory's frames that matched.
+        mean_track_purity: Length-weighted mean dominant-identity share per
+            predicted track.
+        n_gt_dets: Tracked ground-truth detections compared.
+        n_pred_dets: Predicted detections in the compared frames.
+        n_matched: Ground-truth/predicted pairs matched above threshold.
+        n_frames_compared: Frames present on both sides.
+        n_gt_tracks: Distinct ground-truth track names seen.
+        n_pred_tracks: Distinct predicted track names seen.
+        n_pred_untracked: Predicted detections with no ``track`` set.
+        notes: Human-readable caveats raised while comparing.
+    """
+
+    # Headline.
+    id_switches: int = 0
+    idf1: float = float("nan")
+    idp: float = float("nan")
+    idr: float = float("nan")
+    # Coverage -- guards against winning on switches by tracking less.
+    mostly_tracked: int = 0
+    partly_tracked: int = 0
+    mostly_lost: int = 0
+    fragmentations: int = 0
+    mean_gt_coverage: float = float("nan")
+    # Purity.
+    mean_track_purity: float = float("nan")
+    # Detection accounting, reported separately and never folded into the above.
+    n_gt_dets: int = 0
+    n_pred_dets: int = 0
+    n_matched: int = 0
+    n_frames_compared: int = 0
+    n_gt_tracks: int = 0
+    n_pred_tracks: int = 0
+    n_pred_untracked: int = 0
+    notes: List[str] = attrs.field(factory=list)
+
+    def as_dict(self) -> Dict[str, Any]:
+        """Return the metrics as a plain, JSON-serializable dict."""
+        return attrs.asdict(self)
+
+    def summary(self) -> str:
+        """Return a one-line summary of the headline metrics."""
+        return (
+            f"IDSW={self.id_switches}  IDF1={self.idf1:.4f} "
+            f"(P={self.idp:.4f} R={self.idr:.4f})  "
+            f"MT/PT/ML={self.mostly_tracked}/{self.partly_tracked}/{self.mostly_lost}  "
+            f"Frag={self.fragmentations}  purity={self.mean_track_purity:.4f}  "
+            f"cov={self.mean_gt_coverage:.4f}  "
+            f"[{self.n_matched}/{self.n_gt_dets} GT dets matched, "
+            f"{self.n_pred_dets} pred, {self.n_frames_compared} frames]"
+        )
+
+
+def identity_metrics(
+    gt_labels: sio.Labels,
+    pred_labels: sio.Labels,
+    carrier: str = "pose",
+    *,
+    match_threshold: float = 0.5,
+    mt_threshold: float = 0.8,
+    ml_threshold: float = 0.2,
+    user_labels_only: bool = False,
+) -> IdentityMetrics:
+    """Score a tracked prediction against tracked ground truth.
+
+    Detections are Hungarian-matched to ground truth within each frame (OKS for
+    ``"pose"``, mask IoU for ``"mask"``), then identity is scored over those
+    matches. Detections with no ``track`` set are counted but never matched, on
+    either side.
+
+    Args:
+        gt_labels: Ground truth with ``track`` set on the detections to score.
+        pred_labels: Prediction with ``track`` set by the tracker under test.
+        carrier: ``"pose"`` (instances, OKS) or ``"mask"`` (segmentation masks,
+            IoU) -- which similarity matches detections.
+        match_threshold: Minimum similarity for a ground-truth/predicted pair to
+            count as matched (OKS or IoU, per carrier).
+        mt_threshold: Coverage at or above which a ground-truth trajectory counts
+            as mostly-tracked.
+        ml_threshold: Coverage below which a ground-truth trajectory counts as
+            mostly-lost.
+        user_labels_only: Drop model output (``PredictedInstance`` /
+            ``PredictedSegmentationMask``) from the GROUND-TRUTH side.
+            **Defaults to False, unlike the detection metrics**, because tracked
+            ground truth usually *is* predicted: the standard workflow predicts
+            poses and then assigns or corrects tracks over them, so filtering by
+            type would silently discard the whole ground truth (measured on the
+            re-ID benchmark's GT sessions: 2465 detections to 0). Pass True when
+            the ground truth is user-labeled and the file also carries stale
+            predictions from an earlier run, which would otherwise be scored as
+            extra trajectories. Either way the count is reported in ``notes``,
+            and the prediction side is never filtered.
+
+    Returns:
+        An :class:`IdentityMetrics`. When the two files share no frames, the
+        result is empty and ``notes`` says so rather than raising -- check
+        ``n_frames_compared`` before quoting a number.
+    """
+    from collections import Counter, defaultdict
+    from scipy.optimize import linear_sum_assignment
+
+    carrier = _validate_carrier(carrier)
+    metrics = IdentityMetrics()
+
+    gt_by_key = {_identity_frame_key(lf): lf for lf in gt_labels}
+    pred_by_key = {_identity_frame_key(lf): lf for lf in pred_labels}
+    shared = sorted(set(gt_by_key) & set(pred_by_key))
+    if not shared:
+        # One video on each side but under different paths (a clip re-saved or
+        # copied elsewhere, an embedded package vs its source) is common enough
+        # to be worth rescuing: there is only one possible pairing, so fall back
+        # to frame_idx alone rather than reporting nothing. With several videos
+        # on either side the pairing is ambiguous, so it is left unaligned.
+        if (
+            len({k[0] for k in gt_by_key}) == 1
+            and len({k[0] for k in pred_by_key}) == 1
+        ):
+            gt_by_key = {("", lf.frame_idx): lf for lf in gt_labels}
+            pred_by_key = {("", lf.frame_idx): lf for lf in pred_labels}
+            shared = sorted(set(gt_by_key) & set(pred_by_key))
+            metrics.notes.append(
+                "aligned on frame_idx only (single video on both sides)"
+            )
+        if not shared:
+            metrics.notes.append("no frames in common -- nothing compared")
+            return metrics
+    if len(shared) < len(gt_by_key):
+        metrics.notes.append(
+            f"{len(gt_by_key) - len(shared)} GT frames had no predicted counterpart"
+        )
+
+    # gt track name -> ordered list of (frame position, matched pred name or None)
+    timeline: Dict[str, List[Tuple[int, Optional[str]]]] = defaultdict(list)
+    co_matched: "Counter[Tuple[str, str]]" = Counter()
+    pred_track_dets: "Counter[str]" = Counter()
+    gt_tracks: set = set()
+    pred_tracks: set = set()
+    n_gt_predicted = 0
+
+    for position, key in enumerate(shared):
+        gt_frame, pred_frame = gt_by_key[key], pred_by_key[key]
+        gt_all = _identity_dets(gt_frame, carrier)
+        gt_dets = [d for d in gt_all if _keeps_identity(d, user_labels_only)]
+        pred_all = _identity_dets(pred_frame, carrier)
+        pred_dets = [d for d in pred_all if _keeps_identity(d, False)]
+        n_gt_predicted += sum(1 for d in gt_all if _is_predicted_detection(d))
+
+        metrics.n_gt_dets += len(gt_dets)
+        metrics.n_pred_dets += len(pred_all)
+        metrics.n_pred_untracked += len(pred_all) - len(pred_dets)
+        gt_tracks.update(d.track.name for d in gt_dets)
+        pred_tracks.update(d.track.name for d in pred_dets)
+
+        # For the mask carrier, match on decoded image-grid arrays rather than on
+        # the mask objects: `_frame_masks` is scale-aware, so a stride-res
+        # prediction and a full-res ground-truth mask are compared on a common
+        # pixel grid (the class of bug #693/#694 fixed). It decodes `lf.masks` in
+        # order, so filtering the decoded list by the same tracked-ness
+        # predicate keeps it index-aligned with `gt_dets` / `pred_dets`.
+        if carrier == "mask":
+            match_gt = [
+                arr
+                for arr, det in zip(_frame_masks(gt_frame), gt_all)
+                if _keeps_identity(det, user_labels_only)
+            ]
+            match_pred = [
+                arr
+                for arr, det in zip(_frame_masks(pred_frame), pred_all)
+                if _keeps_identity(det, False)
+            ]
+        else:
+            match_gt, match_pred = gt_dets, pred_dets
+
+        matched_gt: Dict[int, str] = {}
+        for gt_idx, pred_idx, _sim in _match_identity_frame(
+            match_gt, match_pred, carrier, match_threshold
+        ):
+            gt_name = gt_dets[gt_idx].track.name
+            pred_name = pred_dets[pred_idx].track.name
+            matched_gt[gt_idx] = pred_name
+            co_matched[(gt_name, pred_name)] += 1
+            pred_track_dets[pred_name] += 1
+            metrics.n_matched += 1
+
+        for gt_idx, det in enumerate(gt_dets):
+            timeline[det.track.name].append((position, matched_gt.get(gt_idx)))
+
+    metrics.n_frames_compared = len(shared)
+    metrics.n_gt_tracks = len(gt_tracks)
+    metrics.n_pred_tracks = len(pred_tracks)
+    if n_gt_predicted:
+        if user_labels_only:
+            metrics.notes.append(
+                f"{n_gt_predicted} predicted detections were dropped from the "
+                "ground truth (user_labels_only=True)"
+            )
+            if not metrics.n_gt_dets:
+                metrics.notes.append(
+                    "user_labels_only=True left NO ground truth: every tracked "
+                    "detection is model output. Tracked GT is usually predicted "
+                    "poses with tracks assigned afterwards -- pass "
+                    "user_labels_only=False to score it."
+                )
+        else:
+            metrics.notes.append(
+                f"{n_gt_predicted} of the ground-truth detections are model "
+                "output (tracks assigned over predictions); scored as ground "
+                "truth. Pass user_labels_only=True to exclude them."
+            )
+
+    # --- ID switches, coverage and fragmentation, per ground-truth trajectory ---
+    coverages: List[float] = []
+    for entries in timeline.values():
+        entries.sort(key=lambda entry: entry[0])
+        matched = [name for _position, name in entries if name is not None]
+        coverage = len(matched) / len(entries) if entries else 0.0
+        coverages.append(coverage)
+
+        last: Optional[str] = None
+        for _position, name in entries:
+            if name is None:
+                continue
+            if last is not None and name != last:
+                metrics.id_switches += 1
+            last = name
+
+        # Fragmentation: matched -> unmatched -> matched interruptions. Only gaps
+        # that are re-matched later count, so a trajectory that simply ends is
+        # not a fragmentation.
+        matched_seq = [name is not None for _position, name in entries]
+        started = False
+        for i, is_matched in enumerate(matched_seq):
+            if is_matched:
+                started = True
+            elif started and i > 0 and matched_seq[i - 1] and any(matched_seq[i + 1 :]):
+                metrics.fragmentations += 1
+
+        if coverage >= mt_threshold:
+            metrics.mostly_tracked += 1
+        elif coverage < ml_threshold:
+            metrics.mostly_lost += 1
+        else:
+            metrics.partly_tracked += 1
+
+    metrics.mean_gt_coverage = float(np.mean(coverages)) if coverages else float("nan")
+
+    # --- IDF1: global max-weight ground-truth <-> predicted identity assignment ---
+    gt_names = sorted(gt_tracks)
+    pred_names = sorted(pred_tracks)
+    if gt_names and pred_names:
+        weights = np.zeros((len(gt_names), len(pred_names)))
+        gt_index = {name: i for i, name in enumerate(gt_names)}
+        pred_index = {name: i for i, name in enumerate(pred_names)}
+        for (gt_name, pred_name), count in co_matched.items():
+            weights[gt_index[gt_name], pred_index[pred_name]] = count
+        rows, cols = linear_sum_assignment(-weights)
+        idtp = float(weights[rows, cols].sum())
+        idfn = metrics.n_gt_dets - idtp
+        idfp = (metrics.n_pred_dets - metrics.n_pred_untracked) - idtp
+        metrics.idp = idtp / (idtp + idfp) if (idtp + idfp) > 0 else float("nan")
+        metrics.idr = idtp / (idtp + idfn) if (idtp + idfn) > 0 else float("nan")
+        denominator = 2 * idtp + idfp + idfn
+        metrics.idf1 = 2 * idtp / denominator if denominator > 0 else float("nan")
+
+    # --- Track purity, length-weighted over predicted tracks ---
+    by_pred: Dict[str, "Counter[str]"] = defaultdict(Counter)
+    for (gt_name, pred_name), count in co_matched.items():
+        by_pred[pred_name][gt_name] += count
+    if by_pred:
+        total = sum(pred_track_dets[name] for name in by_pred)
+        metrics.mean_track_purity = (
+            float(sum(max(counts.values()) for counts in by_pred.values()) / total)
+            if total
+            else float("nan")
+        )
+
+    return metrics
+
+
+def compare_identity_metrics(arms: Dict[str, IdentityMetrics]) -> str:
+    """Render a Markdown comparison table across tracker arms.
+
+    Args:
+        arms: Mapping of arm name (e.g. ``"geometry"``, ``"fused"``) to its
+            :class:`IdentityMetrics`.
+
+    Returns:
+        A Markdown table, one row per arm, with a footer naming the direction of
+        improvement for each column.
+    """
+    columns = [
+        ("IDSW", "id_switches", "{:d}"),
+        ("IDF1", "idf1", "{:.4f}"),
+        ("purity", "mean_track_purity", "{:.4f}"),
+        ("cov", "mean_gt_coverage", "{:.4f}"),
+        ("MT", "mostly_tracked", "{:d}"),
+        ("ML", "mostly_lost", "{:d}"),
+        ("Frag", "fragmentations", "{:d}"),
+        ("matched", "n_matched", "{:d}"),
+    ]
+    lines = [
+        "| arm | " + " | ".join(label for label, _attr, _fmt in columns) + " |",
+        "|---|" + "|".join("---" for _ in columns) + "|",
+    ]
+    for name, metrics in arms.items():
+        cells = []
+        for _label, attr, fmt in columns:
+            value = getattr(metrics, attr)
+            cells.append(
+                "n/a"
+                if value is None or (isinstance(value, float) and np.isnan(value))
+                else fmt.format(value)
+            )
+        lines.append(f"| {name} | " + " | ".join(cells) + " |")
+    lines.append("")
+    lines.append(
+        "Lower is better: IDSW, ML, Frag. Higher is better: IDF1, purity, cov, MT."
+    )
+    return "\n".join(lines)
+
+
+def run_identity_evaluation(
+    ground_truth_path: str,
+    predicted_path: str,
+    carrier: str = "auto",
+    match_threshold: float = 0.5,
+    mt_threshold: float = 0.8,
+    ml_threshold: float = 0.2,
+    user_labels_only: bool = False,
+    save_metrics: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Evaluate identity persistence of a tracked prediction against tracked GT.
+
+    Args:
+        ground_truth_path: Path to the ground-truth ``.slp`` file, tracked.
+        predicted_path: Path to the predicted ``.slp`` file, tracked.
+        carrier: ``"pose"``, ``"mask"``, or ``"auto"`` -- ``"auto"`` picks
+            ``"mask"`` when the prediction carries segmentation masks but no
+            instances, else ``"pose"``.
+        match_threshold: Minimum OKS (pose) or IoU (mask) for a detection pair to
+            count as matched.
+        mt_threshold: Mostly-tracked coverage cut.
+        ml_threshold: Mostly-lost coverage cut.
+        user_labels_only: Drop model output from the ground-truth side; off by
+            default (see :func:`identity_metrics` for why).
+        save_metrics: Optional ``.json`` path to write the metrics to.
+
+    Returns:
+        Dict with the :class:`IdentityMetrics` fields plus ``carrier``,
+        ``match_threshold`` and ``motion_diagnostic``, or ``None`` if the
+        prediction carries no tracked detections at all (nothing to score).
+    """
+    logger.info("Loading ground truth labels...")
+    gt_labels = sio.load_slp(ground_truth_path)
+    logger.info(
+        f"  Ground truth: {len(gt_labels.videos)} videos, "
+        f"{len(gt_labels.labeled_frames)} frames"
+    )
+
+    logger.info("Loading predicted labels...")
+    pred_labels = sio.load_slp(predicted_path)
+    logger.info(
+        f"  Predictions: {len(pred_labels.videos)} videos, "
+        f"{len(pred_labels.labeled_frames)} frames"
+    )
+
+    if carrier == "auto":
+        has_masks = any(len(getattr(lf, "masks", None) or []) for lf in pred_labels)
+        has_instances = any(len(lf.instances) for lf in pred_labels)
+        carrier = "mask" if (has_masks and not has_instances) else "pose"
+        logger.info(f"Auto-detected carrier: {carrier}.")
+    carrier = _validate_carrier(carrier)
+
+    n_tracked = sum(
+        1
+        for lf in pred_labels
+        for det in _identity_dets(lf, carrier)
+        if getattr(det, "track", None) is not None
+    )
+    if not n_tracked:
+        logger.info(
+            "0 tracked predicted detections: skipping identity metrics. Run "
+            "`sleap-nn track` (or predict with `-t`) first -- these metrics score "
+            "identity, so an untracked prediction has nothing to score."
+        )
+        return None
+
+    # The sparse-split trap: a `.pkg.slp` training split renumbers its frames
+    # contiguously, so it *looks* like video while the animal teleports between
+    # "consecutive" frames. Say so loudly rather than reporting a meaningless
+    # switch count.
+    motion = motion_diagnostic(gt_labels, carrier)
+    if np.isnan(motion["step_over_size"]):
+        logger.info(f"Continuity check inconclusive: {motion.get('note', '')}")
+    elif not motion["is_continuous"]:
+        logger.warning(
+            "Ground truth does not look like continuous video "
+            f"(step/size = {motion['step_over_size']}). Identity metrics on a "
+            "temporally sparse set (e.g. a `.pkg.slp` training split) are not "
+            "meaningful -- score a real video clip instead."
+        )
+
+    metrics = identity_metrics(
+        gt_labels,
+        pred_labels,
+        carrier,
+        match_threshold=match_threshold,
+        mt_threshold=mt_threshold,
+        ml_threshold=ml_threshold,
+        user_labels_only=user_labels_only,
+    )
+
+    logger.info("Identity Evaluation Results:")
+    logger.info(f"  {metrics.summary()}")
+    for note in metrics.notes:
+        logger.warning(f"  note: {note}")
+    if not metrics.n_gt_dets:
+        logger.warning(
+            "No tracked ground-truth detections were scored -- every metric "
+            "above is empty. Check that the ground truth carries tracks."
+        )
+
+    result = metrics.as_dict()
+    result["carrier"] = carrier
+    result["match_threshold"] = match_threshold
+    result["motion_diagnostic"] = motion
+
+    if save_metrics:
+        save_path = Path(save_metrics)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(save_path, "w") as f:
+            json.dump(_metrics_to_json_safe(result), f, indent=2)
+        logger.info(f"Metrics saved successfully to {save_path}")
+
+    return result
