@@ -2986,6 +2986,27 @@ def infer(**kwargs):
         "mode. Defaults to the mean of visible nodes when absent (#586)."
     ),
 )
+@click.option(
+    "--centroid_method",
+    type=click.Choice(["center_of_mass", "bbox_center", "geometric_median", "anchor"]),
+    default=None,
+    help=(
+        "How ground-truth centroids are derived in centroid mode. Defaults to "
+        "the anchor node when --anchor_part is given, else the mean of visible "
+        "nodes. Pass the value the model was TRAINED with (its "
+        "head_configs.centroid.confmaps.centroid_method) so the metric compares "
+        "like with like (#586)."
+    ),
+)
+@click.option(
+    "--centroid_fallback",
+    type=click.Choice(["center_of_mass", "bbox_center", "geometric_median"]),
+    default=None,
+    help=(
+        "Reduce method used when the --anchor_part node is not visible. "
+        "Default: center_of_mass."
+    ),
+)
 def eval(**kwargs):
     """Run evaluation workflow."""
     from sleap_nn.evaluation import run_evaluation

@@ -799,7 +799,11 @@ def _select_export_layer(
                     f"Anchor part {anchor_part!r} not found in export node_names: "
                     f"{node_names}."
                 )
-        return ExportedCentroidLayer(backend=backend, anchor_ind=anchor_ind)
+        return ExportedCentroidLayer(
+            backend=backend,
+            anchor_ind=anchor_ind,
+            centroid_method=getattr(metadata, "centroid_method", None),
+        )
     if model_type == "topdown":
         return ExportedTopDownLayer(backend=backend)
     if model_type == "bottomup":
@@ -2183,6 +2187,14 @@ class Predictor:
             return self.layer.anchor_ind
         return None
 
+    def _packaging_centroid_method(self) -> Optional[str]:
+        """Resolved centroid method for the ``sio.Centroid.source`` tag (#586)."""
+        from sleap_nn.inference.layers.exported import ExportedCentroidLayer
+
+        if isinstance(self.layer, (CentroidLayer, ExportedCentroidLayer)):
+            return getattr(self.layer, "centroid_method", None)
+        return None
+
     def _is_centroid_only_layer(self) -> bool:
         """``True`` iff ``layer`` is a standalone centroid layer."""
         from sleap_nn.inference.layers.exported import ExportedCentroidLayer
@@ -2236,7 +2248,9 @@ class Predictor:
         node_names = (
             list(self.skeleton.node_names) if self.skeleton is not None else None
         )
-        source = centroid_source_for_anchor(anchor_ind, node_names)
+        source = centroid_source_for_anchor(
+            anchor_ind, node_names, self._packaging_centroid_method()
+        )
         collapse_skeleton = None
         if self.skeleton is not None and len(self.skeleton.nodes) > 1:
             import sleap_io as sio

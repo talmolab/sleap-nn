@@ -30,7 +30,11 @@ from torch.utils.data import Dataset, DataLoader, DistributedSampler
 import sleap_io as sio
 from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
 from sleap_nn.data.identity import generate_class_maps, make_class_vectors
-from sleap_nn.data.instance_centroids import generate_centroids
+from sleap_nn.data.instance_centroids import (
+    centroid_method_from_config,
+    degrade_anchor_if_unresolved,
+    generate_centroids,
+)
 from sleap_nn.data.instance_cropping import generate_crops
 from sleap_nn.data.normalization import (
     convert_to_grayscale,
@@ -1607,6 +1611,11 @@ class CenteredInstanceDataset(BaseDataset):
         self.crop_size = crop_size
         self.anchor_ind = anchor_ind
         self.confmap_head_config = confmap_head_config
+        # (method, fallback) for the crop center, resolved once from the head
+        # config so training crops and inference crops agree (#586).
+        self.centroid_method, self.centroid_fallback = degrade_anchor_if_unresolved(
+            *centroid_method_from_config(confmap_head_config), anchor_ind
+        )
         self.instance_idx_list = self._get_instance_idx_list(labels)
         self.cache_lf = [None, None]
 
@@ -1706,7 +1715,12 @@ class CenteredInstanceDataset(BaseDataset):
         instances = instances * eff_scale
 
         # get the centroids based on the anchor idx
-        centroids = generate_centroids(instances, anchor_ind=self.anchor_ind)
+        centroids = generate_centroids(
+            instances,
+            anchor_ind=self.anchor_ind,
+            method=self.centroid_method,
+            fallback=self.centroid_fallback,
+        )
 
         instance, centroid = instances[0], centroids[0]  # (n_samples=1)
 
@@ -2110,7 +2124,12 @@ class CenteredInstanceSegmentationDataset(CenteredInstanceDataset):
         )
         instances = instances * eff_scale
 
-        centroids = generate_centroids(instances, anchor_ind=self.anchor_ind)
+        centroids = generate_centroids(
+            instances,
+            anchor_ind=self.anchor_ind,
+            method=self.centroid_method,
+            fallback=self.centroid_fallback,
+        )
         instance, centroid = instances[0], centroids[0]
 
         # Oversized (sqrt(2)) crop for rotation headroom — kept for parity with
@@ -2389,7 +2408,12 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         )
 
         # get the centroids based on the anchor idx
-        centroids = generate_centroids(instances, anchor_ind=self.anchor_ind)
+        centroids = generate_centroids(
+            instances,
+            anchor_ind=self.anchor_ind,
+            method=self.centroid_method,
+            fallback=self.centroid_fallback,
+        )
 
         instance, centroid = instances[0], centroids[0]  # (n_samples=1)
 
@@ -2585,6 +2609,11 @@ class CentroidDataset(BaseDataset):
         )
         self.anchor_ind = anchor_ind
         self.confmap_head_config = confmap_head_config
+        # (method, fallback) for the centroid TARGET, resolved once from the head
+        # config so the trained target and inference agree (#586).
+        self.centroid_method, self.centroid_fallback = degrade_anchor_if_unresolved(
+            *centroid_method_from_config(confmap_head_config), anchor_ind
+        )
 
         # Resolve ONE centroid source for the whole dataset so the head is never
         # trained against a per-frame mix of user-annotated and computed
@@ -2800,7 +2829,10 @@ class CentroidDataset(BaseDataset):
         else:
             # get the centroids based on the anchor idx
             centroids = generate_centroids(
-                sample["instances"], anchor_ind=self.anchor_ind
+                sample["instances"],
+                anchor_ind=self.anchor_ind,
+                method=self.centroid_method,
+                fallback=self.centroid_fallback,
             )
 
         sample["centroids"] = centroids
@@ -5151,7 +5183,13 @@ def get_train_val_datasets(
         )
 
     elif model_type == "centroid":
-        nodes = [x["name"] for x in config.data_config.skeletons[0]["nodes"]]
+        # Mask-only labels carry no skeleton at all (the centroid target comes from
+        # `UserCentroid` annotations, possibly derived from masks via
+        # `data_config.centroids_from_masks`). Indexing `skeletons[0]` crashed with
+        # a bare `ConfigIndexError: list index out of range`; an absent skeleton
+        # just means there is no anchor node to resolve.
+        skeletons_cfg = OmegaConf.select(config, "data_config.skeletons", default=None)
+        nodes = [x["name"] for x in skeletons_cfg[0]["nodes"]] if skeletons_cfg else []
         anchor_part = config.model_config.head_configs.centroid.confmaps.anchor_part
         # The anchor/instance-keypoint path is now only a FALLBACK for frames
         # without user centroids, so an anchor_part that is None OR absent from

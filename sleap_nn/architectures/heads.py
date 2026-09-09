@@ -142,6 +142,14 @@ class CentroidConfmapsHead(Head):
             the head can be built from the confmaps config, which co-locates it
             with ``anchor_part``. See ``CentroidConfMapsConfig`` and
             ``resolve_centroid_source``.
+        centroid_method: How the centroid is derived from the instance's points --
+            ``"center_of_mass"``, ``"bbox_center"``, ``"geometric_median"`` or
+            ``"anchor"``; ``None`` infers it from ``anchor_part``. Data-pipeline
+            metadata only (does not affect the head tensor); stored here so it
+            rides the checkpoint and inference can reproduce the training
+            geometry. See ``sleap_nn.data.instance_centroids``.
+        centroid_fallback: Reduce method used when ``anchor_part`` is not visible.
+            Passthrough metadata, as ``centroid_method``.
         sigma: Spread of the confidence maps.
         output_stride: Stride of the output head tensor. The input tensor is expected to
             be at the same stride.
@@ -166,6 +174,8 @@ class CentroidConfmapsHead(Head):
         self,
         anchor_part: Optional[Text] = None,
         centroid_source: Optional[Text] = None,
+        centroid_method: Optional[Text] = None,
+        centroid_fallback: Optional[Text] = None,
         sigma: float = 5.0,
         output_stride: int = 1,
         loss_weight: float = 1.0,
@@ -180,6 +190,8 @@ class CentroidConfmapsHead(Head):
         # Data-pipeline metadata only (does not affect the head tensor); kept so
         # the head is constructible from ``**head_config.confmaps``.
         self.centroid_source = centroid_source
+        self.centroid_method = centroid_method
+        self.centroid_fallback = centroid_fallback
         self.sigma = sigma
         self.use_sigmoid_activation = use_sigmoid_activation
         # Training-loss metadata only (consumed by `CentroidLightningModule`, not
@@ -212,6 +224,8 @@ class CentroidConfmapsHead(Head):
         return cls(
             anchor_part=config.anchor_part,
             centroid_source=config.get("centroid_source", None),
+            centroid_method=config.get("centroid_method", None),
+            centroid_fallback=config.get("centroid_fallback", None),
             sigma=config.sigma,
             output_stride=config.output_stride,
             loss_weight=config.loss_weight,
@@ -229,6 +243,14 @@ class CenteredInstanceConfmapsHead(Head):
         part_names: List of strings specifying the part names associated with channels.
         anchor_part: Name of the part to use as an anchor node. If not specified, the
             bounding box centroid will be used.
+        centroid_method: How the centroid is derived from the instance's points --
+            ``"center_of_mass"``, ``"bbox_center"``, ``"geometric_median"`` or
+            ``"anchor"``; ``None`` infers it from ``anchor_part``. Data-pipeline
+            metadata only (does not affect the head tensor); stored here so it
+            rides the checkpoint and inference can reproduce the training
+            geometry. See ``sleap_nn.data.instance_centroids``.
+        centroid_fallback: Reduce method used when ``anchor_part`` is not visible.
+            Passthrough metadata, as ``centroid_method``.
         sigma: Spread of the confidence maps.
         output_stride: Stride of the output head tensor. The input tensor is expected to
             be at the same stride.
@@ -239,6 +261,8 @@ class CenteredInstanceConfmapsHead(Head):
         self,
         part_names: List[Text],
         anchor_part: Optional[Text] = None,
+        centroid_method: Optional[Text] = None,
+        centroid_fallback: Optional[Text] = None,
         sigma: float = 5.0,
         output_stride: int = 1,
         loss_weight: float = 1.0,
@@ -247,6 +271,10 @@ class CenteredInstanceConfmapsHead(Head):
         super().__init__(output_stride, loss_weight)
         self.part_names = part_names
         self.anchor_part = anchor_part
+        # Data-pipeline metadata only (does not affect the head tensor); see
+        # `CentroidConfmapsHead` and `sleap_nn.data.instance_centroids`.
+        self.centroid_method = centroid_method
+        self.centroid_fallback = centroid_fallback
         self.sigma = sigma
 
     @property
@@ -282,6 +310,8 @@ class CenteredInstanceConfmapsHead(Head):
         return cls(
             part_names=part_names,
             anchor_part=config.anchor_part,
+            centroid_method=config.get("centroid_method", None),
+            centroid_fallback=config.get("centroid_fallback", None),
             sigma=config.sigma,
             output_stride=config.output_stride,
             loss_weight=config.loss_weight,

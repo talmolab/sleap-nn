@@ -1924,3 +1924,138 @@ class TestCsvLogKeysEvalMetrics:
         )
         csv_logger = next(c for c in callbacks if isinstance(c, CSVLoggerCallback))
         assert not any(key.startswith("eval/") for key in csv_logger.keys)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# #586 / #674 — centroid methods and mask-derived centroid targets
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _centroid_cfg_from(config, tmp_path, **data_overrides):
+    """A minimal centroid training config off an existing fixture config."""
+    cfg = OmegaConf.create(OmegaConf.to_container(config, resolve=True))
+    cfg.model_config.head_configs.centroid = OmegaConf.create(
+        {"confmaps": {"anchor_part": None, "sigma": 1.5, "output_stride": 2}}
+    )
+    for head in list(cfg.model_config.head_configs.keys()):
+        if head != "centroid":
+            cfg.model_config.head_configs[head] = None
+    cfg.trainer_config.max_epochs = 1
+    cfg.trainer_config.save_ckpt = False
+    cfg.trainer_config.use_wandb = False
+    cfg.trainer_config.ckpt_dir = str(tmp_path)
+    cfg.trainer_config.run_name = "centroid_method_test"
+    for k, v in data_overrides.items():
+        cfg.data_config[k] = v
+    return cfg
+
+
+def test_centroid_method_is_threaded_into_the_dataset(config, tmp_path):
+    """The head config's centroid_method must reach the dataset that builds targets."""
+    from sleap_nn.data.custom_datasets import get_train_val_datasets
+
+    cfg = _centroid_cfg_from(config, tmp_path)
+    cfg.model_config.head_configs.centroid.confmaps.centroid_method = "bbox_center"
+    labels = [sio.load_slp(cfg.data_config.train_labels_path[0])]
+
+    train_ds, _ = get_train_val_datasets(labels, labels, cfg)
+    assert train_ds.centroid_method == "bbox_center"
+    assert train_ds.centroid_fallback is None
+
+
+def _with_skeletons(cfg, labels):
+    """Serialize a skeleton into the config the way ModelTrainer._setup_config does."""
+    import yaml
+    from sleap_io.io.skeleton import SkeletonYAMLEncoder
+
+    skeleton_yaml = yaml.safe_load(SkeletonYAMLEncoder().encode(labels[0].skeletons))
+    cfg.data_config.skeletons = []
+    for name, skl in skeleton_yaml.items():
+        skl["name"] = name
+        cfg.data_config.skeletons.append(skl)
+    return cfg
+
+
+def test_centroid_method_anchor_fallback_is_threaded(config, tmp_path):
+    """anchor_part + centroid_fallback resolve to ('anchor', <fallback>)."""
+    from sleap_nn.data.custom_datasets import get_train_val_datasets
+
+    labels = [sio.load_slp(config.data_config.train_labels_path[0])]
+    node = labels[0].skeletons[0].node_names[0]
+
+    cfg = _with_skeletons(_centroid_cfg_from(config, tmp_path), labels)
+    cfg.model_config.head_configs.centroid.confmaps.anchor_part = node
+    cfg.model_config.head_configs.centroid.confmaps.centroid_fallback = (
+        "geometric_median"
+    )
+    train_ds, _ = get_train_val_datasets(labels, labels, cfg)
+    assert train_ds.centroid_method == "anchor"
+    assert train_ds.centroid_fallback == "geometric_median"
+
+
+def test_unresolvable_anchor_degrades_instead_of_raising(config, tmp_path):
+    """An anchor_part absent from the skeleton falls back rather than crashing.
+
+    The centroid model deliberately tolerates this (the anchor path is only a
+    fallback for frames without user centroids), so the batched op must not raise
+    from inside a dataloader worker.
+    """
+    from sleap_nn.data.custom_datasets import get_train_val_datasets
+
+    labels = [sio.load_slp(config.data_config.train_labels_path[0])]
+    cfg = _with_skeletons(_centroid_cfg_from(config, tmp_path), labels)
+    cfg.model_config.head_configs.centroid.confmaps.anchor_part = "not_a_node"
+    cfg.model_config.head_configs.centroid.confmaps.centroid_fallback = "bbox_center"
+
+    train_ds, _ = get_train_val_datasets(labels, labels, cfg)
+    assert train_ds.centroid_method == "bbox_center"
+    assert train_ds.centroid_fallback is None
+
+
+def test_contradictory_centroid_config_fails_at_setup(config, tmp_path):
+    """anchor_part + a non-anchor method must fail early, naming the head."""
+    cfg = _centroid_cfg_from(config, tmp_path)
+    cfg.model_config.head_configs.centroid.confmaps.anchor_part = "0"
+    cfg.model_config.head_configs.centroid.confmaps.centroid_method = "bbox_center"
+
+    with pytest.raises(ValueError, match=r"head_configs\.centroid\.confmaps"):
+        ModelTrainer.get_model_trainer_from_config(cfg)
+
+
+def test_centroids_from_masks_makes_mask_only_labels_trainable(config, tmp_path):
+    """A mask-only dataset has zero trainable frames until masks are converted.
+
+    This is what #674 existed for; it is now a few lines feeding the existing
+    ``centroid_source="user"`` path.
+    """
+    labels = sio.load_slp(config.data_config.train_labels_path[0])
+    labels.get_masks()  # build masks from the poses
+    if not any(getattr(lf, "masks", None) for lf in labels):
+        pytest.skip("fixture produced no segmentation masks")
+    # Strip the poses: what remains is a mask-only dataset.
+    for lf in labels:
+        lf.instances = []
+    mask_only = tmp_path / "mask_only.slp"
+    sio.save_slp(labels, mask_only.as_posix())
+
+    cfg = _centroid_cfg_from(config, tmp_path)
+    cfg.data_config.train_labels_path = [mask_only.as_posix()]
+    cfg.data_config.val_labels_path = [mask_only.as_posix()]
+
+    # Without the flag: no trainable frame at all.
+    with pytest.raises(ValueError, match="No labeled frames available"):
+        ModelTrainer.get_model_trainer_from_config(cfg)
+
+    # With it: the frames become trainable and carry one centroid per mask.
+    cfg.data_config.centroids_from_masks = "center_of_mass"
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    n_masks = sum(len(lf.masks) for lf in labels)
+    n_centroids = sum(len(lf.centroids) for lbls in trainer.train_labels for lf in lbls)
+    assert n_centroids == n_masks
+
+
+def test_centroids_from_masks_rejects_an_unknown_method(config, tmp_path):
+    cfg = _centroid_cfg_from(config, tmp_path)
+    cfg.data_config.centroids_from_masks = "anchor"  # a mask has no nodes
+    with pytest.raises(ValueError, match="unknown method"):
+        ModelTrainer.get_model_trainer_from_config(cfg)

@@ -54,8 +54,11 @@ class ExportMetadata:
     n_classes: Optional[int] = None
     class_names: Optional[List[str]] = None
 
-    # Centroid/top-down anchor point
+    # Centroid/top-down anchor point, and how the centroid is derived (#586).
+    # ``centroid_method`` is what `resolve_centroid_method` returned at export
+    # time; ``None`` in older exports, which then infer it from ``anchor_part``.
     anchor_part: Optional[str] = None
+    centroid_method: Optional[str] = None
 
     # Training config reference
     training_config_embedded: bool = False
@@ -102,6 +105,7 @@ class ExportMetadata:
             class_names=data.get("class_names"),
             peak_threshold=data.get("peak_threshold"),
             anchor_part=data.get("anchor_part"),
+            centroid_method=data.get("centroid_method"),
             training_config_embedded=bool(data.get("training_config_embedded", False)),
             training_config_hash=data.get("training_config_hash", ""),
         )
@@ -161,6 +165,7 @@ def build_base_metadata(
     class_names: Optional[List[str]] = None,
     peak_threshold: Optional[float] = None,
     anchor_part: Optional[str] = None,
+    centroid_method: Optional[str] = None,
 ) -> ExportMetadata:
     """Create an ExportMetadata instance with standard defaults."""
     return ExportMetadata(
@@ -189,6 +194,7 @@ def build_base_metadata(
         class_names=class_names,
         peak_threshold=peak_threshold,
         anchor_part=anchor_part,
+        centroid_method=centroid_method,
         training_config_embedded=training_config_embedded,
         training_config_hash=training_config_hash,
     )

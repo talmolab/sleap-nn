@@ -50,7 +50,11 @@ from sleap_nn.config.utils import (
     get_model_type_from_cfg,
 )
 from sleap_nn.training.lightning_modules import LightningModel
-from sleap_nn.config.utils import check_output_strides, check_tiling
+from sleap_nn.config.utils import (
+    check_centroid_methods,
+    check_output_strides,
+    check_tiling,
+)
 from sleap_nn.config_generator.architecture_estimates import (
     compute_backbone_context_margin,
     compute_suggested_tile_size,
@@ -338,6 +342,12 @@ class ModelTrainer:
         total_val_lfs = 0
         self.skeletons = labels[0].skeletons
 
+        # Mask-only labels: derive the centroid annotations a centroid model needs
+        # from the segmentation masks. Must run BEFORE splitting and counting —
+        # such labels have no trainable frame at all until it has (#586 / #674) —
+        # and on the raw lists, so every split inherits the derived centroids.
+        self._apply_centroids_from_masks(labels, val_labels)
+
         # Check if we should count only user-labeled frames
         user_instances_only = OmegaConf.select(
             self.config, "data_config.user_instances_only", default=True
@@ -442,6 +452,29 @@ class ModelTrainer:
         if self.model_type == "single_instance":
             self._validate_single_instance_labels(self.train_labels, "train")
             self._validate_single_instance_labels(self.val_labels, "validation")
+
+    def _apply_centroids_from_masks(self, *label_lists):
+        """Derive user centroids from segmentation masks when configured.
+
+        No-op unless ``data_config.centroids_from_masks`` names a method. Mutates
+        the labels in place, before any split or frame count: a mask-only dataset
+        (no poses, no centroid annotations) has zero trainable frames until this
+        has run, so running it later fails the empty-split guard.
+
+        Args:
+            *label_lists: The raw ``List[sio.Labels]`` inputs (train, val).
+                ``None`` entries are skipped.
+        """
+        method = OmegaConf.select(
+            self.config, "data_config.centroids_from_masks", default=None
+        )
+        if not method:
+            return
+        from sleap_nn.data.instance_centroids import add_centroids_from_masks
+
+        for label_list in label_lists:
+            for labels in label_list or []:
+                add_centroids_from_masks(labels, method=method)
 
     def _validate_nonempty_labels(self, n_labeled_frames: int, split_name: str):
         """Ensure a split has at least one trainable labeled frame.
@@ -1121,6 +1154,9 @@ class ModelTrainer:
 
         # set output stride for backbone from head config and verify max stride
         self.config = check_output_strides(self.config)
+
+        # fail fast on a contradictory / unknown centroid method (#586)
+        self.config = check_centroid_methods(self.config)
 
         # auto-size + validate tiling geometry (no-op unless tiling.enabled)
         self._setup_tiling_config()

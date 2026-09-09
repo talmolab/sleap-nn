@@ -116,6 +116,8 @@ class ConfigGenerator:
         self._early_stopping_min_delta: float = 1e-6  # Web-app HTML default
         self._validation_fraction: float = 0.1
         self._anchor_part: Optional[str] = None
+        self._centroid_method: Optional[str] = None
+        self._centroid_fallback: Optional[str] = None
         self._crop_size: Optional[int] = None
         self._min_crop_size: int = 100
         self._crop_padding: Optional[int] = None
@@ -604,6 +606,26 @@ class ConfigGenerator:
         self._anchor_part = part_name
         return self
 
+    def centroid_method(
+        self, method: str, fallback: Optional[str] = None
+    ) -> "ConfigGenerator":
+        """Set how the centroid / crop center is derived from an instance (#586).
+
+        Args:
+            method: One of ``"center_of_mass"`` (mean of visible nodes, the
+                default), ``"bbox_center"``, ``"geometric_median"`` (robust to
+                outlying nodes) or ``"anchor"`` (needs :meth:`anchor_part`).
+            fallback: Reduce method used when the anchor node is not visible.
+                Only meaningful with the anchor method; defaults to
+                ``"center_of_mass"``.
+
+        Returns:
+            self for method chaining.
+        """
+        self._centroid_method = method
+        self._centroid_fallback = fallback
+        return self
+
     def crop_size(self, size: int) -> "ConfigGenerator":
         """Set crop size for centered_instance models.
 
@@ -861,6 +883,8 @@ class ConfigGenerator:
             head_configs["centroid"] = {
                 "confmaps": {
                     "anchor_part": self._anchor_part,
+                    "centroid_method": self._centroid_method,
+                    "centroid_fallback": self._centroid_fallback,
                     "sigma": self._sigma,
                     "output_stride": self._output_stride,
                 }
@@ -871,6 +895,8 @@ class ConfigGenerator:
                 "confmaps": {
                     "part_names": part_names,
                     "anchor_part": self._anchor_part,
+                    "centroid_method": self._centroid_method,
+                    "centroid_fallback": self._centroid_fallback,
                     "sigma": self._sigma,
                     "output_stride": self._output_stride,
                     "loss_weight": 1.0,
@@ -914,6 +940,8 @@ class ConfigGenerator:
                 "confmaps": {
                     "part_names": part_names,
                     "anchor_part": self._anchor_part,
+                    "centroid_method": self._centroid_method,
+                    "centroid_fallback": self._centroid_fallback,
                     "sigma": self._sigma,
                     "output_stride": self._output_stride,
                     "loss_weight": self._mc_confmaps_loss_weight,

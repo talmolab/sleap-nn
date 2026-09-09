@@ -165,23 +165,77 @@ The exported runtime reads the full training skeleton from
 bit-for-bit identical to the checkpoint path. See the
 [Export guide](export.md#standalone-centroid) for details.
 
-## Anchor-node convention (#586)
+## Choosing what "centroid" means (#586)
 
 The centroid's *meaning* is defined by
 [`generate_centroids`](../reference/sleap_nn/data/instance_centroids.md) — the
-same function used for training-target generation and GT-centroid evaluation:
+same function used for training-target generation, top-down crop centers and
+GT-centroid evaluation, so all three can never disagree. Four methods are
+available, spelled exactly as in `sio.Instance.to_centroid`:
 
-1. **`anchor_part`** in `training_config.yaml` (the centroid head config): the
-   centroid is that node when visible.
-2. **`anchor_part` unset** (recommended for a 1-node skeleton, where the sole
-   node *is* the centroid): the centroid is the **NaN-ignoring mean of all
-   visible nodes** in each instance.
+| `centroid_method` | centroid is | good for |
+|---|---|---|
+| `center_of_mass` *(default)* | mean of the visible nodes | most datasets |
+| `bbox_center` | midpoint of the visible nodes' bounding box | the pre-v0.3 convention |
+| `geometric_median` | Weiszfeld median of the visible nodes | elongated / curled animals, or skeletons with a long tail node that drags the mean off the body |
+| `anchor` | the `anchor_part` node, falling back to `centroid_fallback` when it is occluded | a reliable, consistently-visible landmark |
 
-This is project-wide convention as of v0.3 — earlier versions used the
-**bounding-box midpoint**, which differs on asymmetric instances (long tails,
-sprawled limbs). If you trained a centroid model on the old bbox-midpoint
-convention with `anchor_part` unset, the GT centroid targets for partial
-instances shift slightly; re-training is recommended.
+Set it on the head config:
+
+```yaml
+model_config:
+  head_configs:
+    centroid:
+      confmaps:
+        centroid_method: geometric_median   # or center_of_mass / bbox_center
+        anchor_part: null
+```
+
+and for an anchor with a non-default fallback:
+
+```yaml
+        anchor_part: thorax
+        centroid_fallback: bbox_center      # used only when `thorax` is occluded
+```
+
+**Defaults are unchanged.** `centroid_method: null` (the default) means "the
+anchor node when `anchor_part` is set, else `center_of_mass`" — exactly the
+behavior of every config written before this knob existed. Setting `anchor_part`
+*and* a non-anchor `centroid_method` is rejected at setup: they name two
+different centroids, and `centroid_fallback` is what you want instead.
+
+**Match it at inference and evaluation.** The knob rides the checkpoint, so
+`sleap-nn predict` reproduces the training geometry automatically, and the
+recorded `sio.Centroid.source` tag names the method used. When evaluating a
+prediction file against ground truth by hand, pass the same method — otherwise
+the distance metric scores the model against a different definition of centroid
+than the one it was trained on:
+
+```bash
+sleap-nn eval --match_method centroid --centroid_method geometric_median ...
+```
+
+`center_of_mass` became the project-wide default in v0.3 — earlier versions used
+the bounding-box midpoint, which differs on asymmetric instances (long tails,
+sprawled limbs). A model trained on the old convention is now expressible
+directly as `centroid_method: bbox_center`, so it no longer needs re-training to
+be described accurately.
+
+### Training a centroid model on mask-only labels
+
+Labels that carry segmentation masks but no poses have nothing for the centroid
+target to be derived from. `data_config.centroids_from_masks` names a method and
+derives a `UserCentroid` per mask at load time (via
+`sio.SegmentationMask.to_centroid`), after which the ordinary
+`centroid_source: user` path takes over unchanged:
+
+```yaml
+data_config:
+  centroids_from_masks: center_of_mass   # or bbox_center / geometric_median
+```
+
+Frames that already carry user centroids are left alone — a real annotation
+always outranks a derived one. `anchor` does not apply here: a mask has no nodes.
 
 ## Interaction with filtering, tracking, and metrics
 
