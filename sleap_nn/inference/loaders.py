@@ -220,6 +220,38 @@ def _load_lightning_module(
     return module, config, backbone_type
 
 
+def _resolve_centroid_method(head_config: Any, anchor_override: Optional[str] = None):
+    """Resolve ``(method, fallback)`` for a GT-centroid crop path.
+
+    The crop geometry must reproduce what the crop-consuming model was TRAINED
+    with, so the knobs are read off that model's saved head config (#586).
+
+    Args:
+        head_config: The crop-consuming model's head-config leaf (the one carrying
+            ``anchor_part`` / ``centroid_method`` / ``centroid_fallback``).
+        anchor_override: An explicit user/CLI ``anchor_part``. When given it wins --
+            the caller asked for that node by name -- so only the config's
+            ``centroid_fallback`` is carried over; its ``centroid_method`` would
+            contradict the override.
+
+    Returns:
+        ``(method, fallback)`` as documented on
+        :func:`sleap_nn.data.instance_centroids.resolve_centroid_method`.
+    """
+    from sleap_nn.data.instance_centroids import (
+        centroid_method_from_config,
+        resolve_centroid_method,
+    )
+
+    if anchor_override is None:
+        return centroid_method_from_config(head_config)
+    if head_config is not None and OmegaConf.is_config(head_config):
+        fallback = OmegaConf.select(head_config, "centroid_fallback", default=None)
+    else:
+        fallback = getattr(head_config, "centroid_fallback", None)
+    return resolve_centroid_method(anchor_override, "anchor", fallback)
+
+
 def _resolve_preprocess_config(preprocess_config: Any, training_config: Any) -> Any:
     """Fill ``None`` fields in *preprocess_config* from the training config.
 
@@ -668,6 +700,20 @@ def _build_topdown(
         anchor_ind = (
             skeletons[0].node_names.index(anch_pt) if anch_pt is not None else None
         )
+    # Crop geometry follows the crop-CONSUMING model when there is one, else the
+    # centroid model's own config (#586).
+    _crop_head = (
+        confmap_config.model_config.head_configs.centered_instance.confmaps
+        if confmap_config is not None
+        else (
+            centroid_config.model_config.head_configs.centroid.confmaps
+            if centroid_config is not None
+            else None
+        )
+    )
+    centroid_method, centroid_fallback = _resolve_centroid_method(
+        _crop_head, anchor_part
+    )
 
     # Build CentroidCrop
     return_crops = confmap_model is not None
@@ -676,6 +722,8 @@ def _build_topdown(
             use_gt_centroids=True,
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             anchor_ind=anchor_ind,
+            centroid_method=centroid_method,
+            centroid_fallback=centroid_fallback,
             return_crops=return_crops,
         )
     else:
@@ -696,6 +744,8 @@ def _build_topdown(
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
+            centroid_method=centroid_method,
+            centroid_fallback=centroid_fallback,
         )
 
     # Build FindInstancePeaks
@@ -828,6 +878,10 @@ def _build_topdown_segmentation(
     anchor_ind = None
     if anch_pt is not None and skeletons:
         anchor_ind = skeletons[0].node_names.index(anch_pt)
+    centroid_method, centroid_fallback = _resolve_centroid_method(
+        seg_config.model_config.head_configs.centered_instance_segmentation.segmentation,
+        anchor_part,
+    )
 
     output_stride = (
         seg_config.model_config.head_configs.centered_instance_segmentation.segmentation.output_stride
@@ -842,6 +896,8 @@ def _build_topdown_segmentation(
             use_gt_centroids=True,
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             anchor_ind=anchor_ind,
+            centroid_method=centroid_method,
+            centroid_fallback=centroid_fallback,
             return_crops=True,
         )
     else:
@@ -862,6 +918,8 @@ def _build_topdown_segmentation(
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
+            centroid_method=centroid_method,
+            centroid_fallback=centroid_fallback,
         )
 
     instance_masks = CenteredInstanceMaskInferenceModel(
@@ -990,6 +1048,18 @@ def _build_topdown_multiclass(
         anchor_ind = (
             skeletons[0].node_names.index(anch_pt) if anch_pt is not None else None
         )
+    _crop_head = (
+        confmap_config.model_config.head_configs.multi_class_topdown.confmaps
+        if confmap_config is not None
+        else (
+            centroid_config.model_config.head_configs.centroid.confmaps
+            if centroid_config is not None
+            else None
+        )
+    )
+    centroid_method, centroid_fallback = _resolve_centroid_method(
+        _crop_head, anchor_part
+    )
 
     return_crops = confmap_model is not None
     if centroid_config is None:
@@ -997,6 +1067,8 @@ def _build_topdown_multiclass(
             use_gt_centroids=True,
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             anchor_ind=anchor_ind,
+            centroid_method=centroid_method,
+            centroid_fallback=centroid_fallback,
             return_crops=return_crops,
         )
     else:
@@ -1017,6 +1089,8 @@ def _build_topdown_multiclass(
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
+            centroid_method=centroid_method,
+            centroid_fallback=centroid_fallback,
         )
 
     max_stride_inst = confmap_config.model_config.backbone_config[

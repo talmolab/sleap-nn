@@ -562,3 +562,70 @@ def test_emit_centroid_with_tracking_raises():
     )
     with pytest.raises(ValueError, match="Tracking"):
         pred_both.predict("anything")
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 7. The centroid method/fallback reach the layer the factory builds
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _ckpt_with_centroid_method(tmp_path, method=None, fallback=None, anchor_part=None):
+    """Copy the centroid ckpt and set the centroid knobs in its saved config."""
+    import shutil
+
+    from omegaconf import OmegaConf
+
+    dest = tmp_path / "centroid_ckpt"
+    shutil.copytree(CENTROID_CKPT, dest)
+    cfg_path = dest / "training_config.yaml"
+    cfg = OmegaConf.load(cfg_path)
+    confmaps = cfg.model_config.head_configs.centroid.confmaps
+    if method is not None:
+        confmaps.centroid_method = method
+    if fallback is not None:
+        confmaps.centroid_fallback = fallback
+    confmaps.anchor_part = anchor_part
+    OmegaConf.save(cfg, cfg_path)
+    return dest
+
+
+@pytest.mark.skipif(not CENTROID_CKPT.exists(), reason="centroid ckpt absent")
+@pytest.mark.parametrize("method", ["bbox_center", "geometric_median"])
+def test_centroid_method_reaches_the_predictor_layer(tmp_path, method):
+    """A checkpoint's `centroid_method` must survive into `CentroidLayer`.
+
+    The loaders resolve the method off the head config, but the new-flow builders
+    forwarded only `anchor_ind`, so the layer re-inferred `center_of_mass` from it
+    — and `sio.Centroid.source`, which reads `layer.centroid_method`, then
+    recorded the wrong method for every prediction.
+    """
+    ckpt = _ckpt_with_centroid_method(tmp_path, method=method)
+    predictor = Predictor.from_model_paths([str(ckpt)], device="cpu")
+
+    assert isinstance(predictor.layer, CentroidLayer)
+    assert predictor.layer.centroid_method == method
+    # The `sio.Centroid.source` tag is derived from the same field.
+    assert predictor._packaging_centroid_method() == method
+
+
+@pytest.mark.skipif(not CENTROID_CKPT.exists(), reason="centroid ckpt absent")
+def test_centroid_anchor_and_fallback_reach_the_predictor_layer(tmp_path):
+    """`anchor_part` + `centroid_fallback` must both survive into the layer."""
+    ckpt = _ckpt_with_centroid_method(
+        tmp_path, method="anchor", fallback="bbox_center", anchor_part="A"
+    )
+    predictor = Predictor.from_model_paths([str(ckpt)], device="cpu")
+
+    assert predictor.layer.centroid_method == "anchor"
+    assert predictor.layer.centroid_fallback == "bbox_center"
+    assert predictor.layer.anchor_ind == 0
+
+
+@pytest.mark.skipif(not CENTROID_CKPT.exists(), reason="centroid ckpt absent")
+def test_centroid_method_default_is_unchanged(tmp_path):
+    """With the knobs unset, the layer keeps the historical inference."""
+    ckpt = _ckpt_with_centroid_method(tmp_path)
+    predictor = Predictor.from_model_paths([str(ckpt)], device="cpu")
+
+    assert predictor.layer.centroid_method == "center_of_mass"
+    assert predictor.layer.anchor_ind is None

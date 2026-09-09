@@ -6,55 +6,55 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import attrs
 import sleap_io as sio
+import torch
 from loguru import logger
 import click
 from pathlib import Path
 
+from sleap_nn.data.instance_centroids import generate_centroids
+
 
 def compute_gt_centroids(
-    instance_gt_points: np.ndarray, anchor_ind: Optional[int]
+    instance_gt_points: np.ndarray,
+    anchor_ind: Optional[int] = None,
+    method: Optional[str] = None,
+    fallback: Optional[str] = None,
 ) -> np.ndarray:
-    """Compute ground-truth centroids mirroring ``generate_centroids`` in numpy.
+    """Compute ground-truth centroids for a numpy array of instance keypoints.
 
-    This is the numpy mirror of
-    :func:`sleap_nn.data.instance_centroids.generate_centroids`. The centroid's
-    MEANING is defined by that function (see also #586): when the configured
-    anchor node is present (non-NaN) it is that node; otherwise the centroid
-    falls back to the NaN-ignoring MEAN of visible nodes (NOT the bounding-box
-    midpoint). The fallback is computed via ``np.nanmean`` over the node axis,
-    and is NaN only when every node of an instance is NaN.
+    A thin numpy-in/numpy-out wrapper around
+    :func:`sleap_nn.data.instance_centroids.generate_centroids`, which is the
+    single definition of what a centroid MEANS (see also #586). It used to be a
+    hand-written numpy mirror; delegating removes the drift that
+    ``sleap_nn.inference.centroid_convert`` warns about — evaluation now cannot
+    disagree with the trained target about the centroid, including for the
+    ``bbox_center`` / ``geometric_median`` methods.
 
     Args:
         instance_gt_points: Ground-truth keypoints of shape ``(n_instances,
             n_nodes, 2)`` or ``(n_nodes, 2)``. Missing/occluded nodes are NaN.
-        anchor_ind: Index of the node to use as the anchor. If ``None``, or if
-            the anchor node is NaN for a given instance, the centroid falls back
-            to the NaN-ignoring mean of visible nodes for that instance.
+        anchor_ind: Index of the node to use as the anchor. Required by (and only
+            used by) ``method="anchor"``; when that node is NaN for an instance,
+            that instance falls back to ``fallback``.
+        method: One of ``sleap_nn.data.instance_centroids.CENTROID_METHODS``.
+            ``None`` (default) infers it from ``anchor_ind`` — the historical
+            behavior: the anchor node when given, else the NaN-ignoring mean of
+            visible nodes.
+        fallback: Reduce method for a missing anchor. ``None`` means
+            ``"center_of_mass"``.
 
     Returns:
         Centroids of shape ``(n_instances, 2)`` (or ``(2,)`` for a single
         instance input), reducing the node axis.
     """
     points = np.asarray(instance_gt_points, dtype=np.float64)
-
-    if anchor_ind is not None:
-        centroids = points[..., anchor_ind, :].copy()
-    else:
-        centroids = np.full(points.shape[:-2] + (2,), np.nan, dtype=points.dtype)
-
-    missing_anchors = np.isnan(centroids).any(axis=-1)
-    if np.any(missing_anchors):
-        # NaN-ignoring mean of visible nodes. np.nanmean over the node axis
-        # yields NaN only when all nodes for that instance are NaN (matching
-        # find_points_mean). Suppress the all-NaN-slice RuntimeWarning.
-        import warnings
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            mean_fallback = np.nanmean(points, axis=-2)
-        centroids[missing_anchors] = mean_fallback[missing_anchors]
-
-    return centroids
+    centroids = generate_centroids(
+        torch.from_numpy(points),
+        anchor_ind=anchor_ind,
+        method=method,
+        fallback=fallback,
+    )
+    return centroids.numpy()
 
 
 def match_centroids(
@@ -555,8 +555,37 @@ def get_instances(labeled_frame: sio.LabeledFrame) -> List[MatchInstance]:
     return instance_list
 
 
+def _user_centroids(frame: sio.LabeledFrame) -> List[Any]:
+    """Return a frame's user (non-predicted) ``Centroid`` annotations."""
+    return [c for c in getattr(frame, "centroids", []) or [] if not c.is_predicted]
+
+
+def _instances_from_user_centroids(frame: sio.LabeledFrame) -> List[sio.Instance]:
+    """Represent a frame's user centroid annotations as single-node instances.
+
+    The centroid evaluator's matching, distance and detection metrics all speak
+    ``sio.Instance``; a ``Centroid`` annotation carries the same information with
+    no skeleton. Wrapping each one in a one-node instance on sleap-io's canonical
+    centroid skeleton lets the whole pipeline run unchanged on files that have no
+    poses at all -- and the wrapped point is exact, since every reduce method over
+    a single point returns that point.
+    """
+    skeleton = sio.get_centroid_skeleton()
+    return [
+        sio.Instance.from_numpy(
+            np.array([[float(c.x), float(c.y)]], dtype="float64"),
+            skeleton=skeleton,
+            track=getattr(c, "track", None),
+        )
+        for c in _user_centroids(frame)
+    ]
+
+
 def find_frame_pairs(
-    labels_gt: sio.Labels, labels_pr: sio.Labels, user_labels_only: bool = True
+    labels_gt: sio.Labels,
+    labels_pr: sio.Labels,
+    user_labels_only: bool = True,
+    keep_user_centroid_frames: bool = False,
 ) -> List[Tuple[sio.LabeledFrame, sio.LabeledFrame]]:
     """Find corresponding frames across two sets of labels.
 
@@ -567,6 +596,14 @@ def find_frame_pairs(
     Args:
         labels_gt: A `sio.Labels` instance with ground truth instances.
         labels_pr: A `sio.Labels` instance with predicted instances.
+        keep_user_centroid_frames: If True, a ground-truth frame also survives the
+            ``user_labels_only`` filter when it carries user ``Centroid``
+            annotations but no user instances. Set by ``match_method="centroid"``:
+            centroid annotations (hand-made, or derived from segmentation masks by
+            ``data_config.centroids_from_masks``) are the ground truth for a
+            centroid model, and a mask-only file has no instances at all -- so the
+            instance-only filter dropped every frame and evaluation died with
+            "Empty Frame Pairs".
         user_labels_only: If False, frames with predicted instances in `labels_gt` will
             also be considered for matching.
 
@@ -605,6 +642,7 @@ def find_frame_pairs(
                 attrs.evolve(lf, instances=lf.user_instances)
                 for lf in labeled_frames_gt
                 if len(lf.user_instances) > 0
+                or (keep_user_centroid_frames and _user_centroids(lf))
             ]
 
         # Attempt to match each labeled frame in the ground truth.
@@ -1039,6 +1077,13 @@ class Evaluator:
             skeleton node used to compute each ground-truth centroid (see
             :func:`compute_gt_centroids` and #586). ``None`` falls back to the
             NaN-ignoring mean of visible nodes.
+        centroid_method: For ``match_method="centroid"``, how the GT centroid is
+            derived -- ``"center_of_mass"``, ``"bbox_center"``,
+            ``"geometric_median"`` or ``"anchor"``. ``None`` (default) infers it
+            from ``anchor_ind``. Must match what the model was trained on, or the
+            distance metric compares two different definitions of "centroid";
+            :func:`run_evaluation` reads it off the training config.
+        centroid_fallback: Reduce method used when the anchor node is not visible.
 
     """
 
@@ -1052,6 +1097,8 @@ class Evaluator:
         user_labels_only: bool = True,
         match_method: str = "oks",
         anchor_ind: Optional[int] = None,
+        centroid_method: Optional[str] = None,
+        centroid_fallback: Optional[str] = None,
         exclude_predicted_instance_masks: bool = False,
     ):
         """Initialize the Evaluator class with ground-truth and predicted labels.
@@ -1072,6 +1119,8 @@ class Evaluator:
         self.user_labels_only = user_labels_only
         self.match_method = match_method
         self.anchor_ind = anchor_ind
+        self.centroid_method = centroid_method
+        self.centroid_fallback = centroid_fallback
         self.exclude_predicted_instance_masks = exclude_predicted_instance_masks
         # Populated only in centroid / mask mode.
         self.false_positives = []
@@ -1089,7 +1138,10 @@ class Evaluator:
 
     def _process_frames(self):
         self.frame_pairs = find_frame_pairs(
-            self.ground_truth_instances, self.predicted_instances, self.user_labels_only
+            self.ground_truth_instances,
+            self.predicted_instances,
+            self.user_labels_only,
+            keep_user_centroid_frames=self.match_method == "centroid",
         )
         if not self.frame_pairs:
             message = "Empty Frame Pairs. No match found for the video frames"
@@ -1134,6 +1186,15 @@ class Evaluator:
         self.false_positives = []
 
         for frame_gt, frame_pr in self.frame_pairs:
+            # A mask-only or centroid-annotation-only ground-truth frame has no
+            # instances; its centroids ARE the ground truth (#586).
+            if not get_instances(frame_gt) and _user_centroids(frame_gt):
+                frame_gt = attrs.evolve(
+                    frame_gt, instances=_instances_from_user_centroids(frame_gt)
+                )
+                gt_from_centroid_annotations = True
+            else:
+                gt_from_centroid_annotations = False
             gt_match_instances = get_instances(frame_gt)
             pr_match_instances = get_instances(frame_pr)
 
@@ -1145,10 +1206,26 @@ class Evaluator:
                 ]
             ).reshape(-1, 2)
 
-            # GT centroids mirror generate_centroids exactly (#586).
+            # GT centroids come from generate_centroids itself (#586) -- except
+            # when they came from `Centroid` annotations, which are already the
+            # centroid: the wrapper is one node, so `anchor_ind` (an index into
+            # the POSE skeleton) does not apply to it.
             gt_centroids = np.array(
                 [
-                    compute_gt_centroids(m.instance.numpy(), self.anchor_ind)
+                    compute_gt_centroids(
+                        m.instance.numpy(),
+                        None if gt_from_centroid_annotations else self.anchor_ind,
+                        method=(
+                            None
+                            if gt_from_centroid_annotations
+                            else self.centroid_method
+                        ),
+                        fallback=(
+                            None
+                            if gt_from_centroid_annotations
+                            else self.centroid_fallback
+                        ),
+                    )
                     for m in gt_match_instances
                 ]
             ).reshape(-1, 2)
@@ -2247,6 +2324,8 @@ def run_evaluation(
     save_metrics: Optional[str] = None,
     match_method: str = "oks",
     anchor_part: Optional[str] = None,
+    centroid_method: Optional[str] = None,
+    centroid_fallback: Optional[str] = None,
 ):
     """Evaluate SLEAP-NN model predictions against ground truth labels.
 
@@ -2278,6 +2357,14 @@ def run_evaluation(
         anchor_part: Name of the GT skeleton node used to compute GT centroids
             (centroid mode). Resolved against the GT skeleton; ``None`` (or an
             absent name) falls back to the mean of visible nodes (#586).
+        centroid_method: How GT centroids are derived (centroid mode) --
+            ``"center_of_mass"``, ``"bbox_center"``, ``"geometric_median"`` or
+            ``"anchor"``. ``None`` (default) infers it from ``anchor_part``. Pass
+            the value the model was TRAINED with (its
+            ``head_configs.centroid.confmaps.centroid_method``), or the distance
+            metric scores predictions against a different centroid than the one
+            they were trained to predict.
+        centroid_fallback: Reduce method used when the anchor node is not visible.
 
     Returns:
         The metrics dict, or ``None`` if the predicted labels have zero
@@ -2381,6 +2468,8 @@ def run_evaluation(
         user_labels_only=user_labels_only,
         match_method=match_method,
         anchor_ind=anchor_ind,
+        centroid_method=centroid_method,
+        centroid_fallback=centroid_fallback,
         exclude_predicted_instance_masks=exclude_predicted_instance_masks,
     )
     logger.info(

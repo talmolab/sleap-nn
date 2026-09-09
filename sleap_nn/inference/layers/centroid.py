@@ -26,7 +26,10 @@ from typing import Optional
 import attrs
 import torch
 
-from sleap_nn.data.instance_centroids import generate_centroids
+from sleap_nn.data.instance_centroids import (
+    degrade_anchor_if_unresolved,
+    generate_centroids,
+)
 from sleap_nn.inference.layers.backends.base import ModelBackend
 from sleap_nn.inference.layers.base import ImageInput, InferenceLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
@@ -53,6 +56,13 @@ class CentroidLayer(InferenceLayer):
         max_stride: Maximum stride the model requires the input to be
             divisible by. Padding is applied bottom-right after the
             preprocess input-scale resize.
+        centroid_method: How a GT centroid is derived from the instance's points
+            when ``use_gt_centroids=True`` -- one of ``"center_of_mass"``,
+            ``"bbox_center"``, ``"geometric_median"``, ``"anchor"``. ``None``
+            (default) infers it from ``anchor_ind``, i.e. the historical behavior.
+            Must match the training config; the loaders read it off the
+            checkpoint's head config (#586).
+        centroid_fallback: Reduce method used when the anchor node is not visible.
         anchor_ind: Skeleton-node index to use as the centroid anchor when
             ``use_gt_centroids=True``. ``None`` falls back to the NaN-ignoring
             mean of all visible nodes for each instance.
@@ -70,6 +80,8 @@ class CentroidLayer(InferenceLayer):
         max_instances: Optional[int] = None,
         max_stride: int = 1,
         anchor_ind: Optional[int] = None,
+        centroid_method: Optional[str] = None,
+        centroid_fallback: Optional[str] = None,
         use_gt_centroids: bool = False,
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
@@ -87,6 +99,12 @@ class CentroidLayer(InferenceLayer):
         )
         self.max_instances = max_instances
         self.anchor_ind = anchor_ind
+        self.centroid_method, self.centroid_fallback = degrade_anchor_if_unresolved(
+            centroid_method
+            or ("anchor" if anchor_ind is not None else "center_of_mass"),
+            centroid_fallback,
+            anchor_ind,
+        )
         self.use_gt_centroids = use_gt_centroids
 
     # ──────────────────────────────────────────────────────────────────
@@ -134,7 +152,12 @@ class CentroidLayer(InferenceLayer):
         B = x.shape[0]
         H, W = x.shape[-2], x.shape[-1]
 
-        centroids = generate_centroids(instances, anchor_ind=self.anchor_ind)
+        centroids = generate_centroids(
+            instances,
+            anchor_ind=self.anchor_ind,
+            method=self.centroid_method,
+            fallback=self.centroid_fallback,
+        )
         # ``centroids`` shape: ``(B, max_inst, 2)`` (3D — same rank as
         # ``Outputs.pred_centroids``).
         device = centroids.device

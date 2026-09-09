@@ -102,6 +102,18 @@ def _run_centroid_split_eval(
     anchor_part = OmegaConf.select(
         config, "model_config.head_configs.centroid.confmaps.anchor_part", default=None
     )
+    # ... and how it is derived, so the metric scores the model against the same
+    # centroid definition it was trained on.
+    centroid_method = OmegaConf.select(
+        config,
+        "model_config.head_configs.centroid.confmaps.centroid_method",
+        default=None,
+    )
+    centroid_fallback = OmegaConf.select(
+        config,
+        "model_config.head_configs.centroid.confmaps.centroid_fallback",
+        default=None,
+    )
     # Pixel match threshold from the eval config if present, else 50.0.
     match_threshold = OmegaConf.select(
         config, "trainer_config.eval.match_threshold", default=None
@@ -115,6 +127,8 @@ def _run_centroid_split_eval(
             predicted_path=pred_path.as_posix(),
             match_method="centroid",
             anchor_part=anchor_part,
+            centroid_method=centroid_method,
+            centroid_fallback=centroid_fallback,
             match_threshold=match_threshold,
             save_metrics=metrics_path.as_posix(),
         )

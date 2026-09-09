@@ -50,7 +50,11 @@ from sleap_nn.config.utils import (
     get_model_type_from_cfg,
 )
 from sleap_nn.training.lightning_modules import LightningModel
-from sleap_nn.config.utils import check_output_strides, check_tiling
+from sleap_nn.config.utils import (
+    check_centroid_methods,
+    check_output_strides,
+    check_tiling,
+)
 from sleap_nn.config_generator.architecture_estimates import (
     compute_backbone_context_margin,
     compute_suggested_tile_size,
@@ -338,6 +342,12 @@ class ModelTrainer:
         total_val_lfs = 0
         self.skeletons = labels[0].skeletons
 
+        # Mask-only labels: derive the centroid annotations a centroid model needs
+        # from the segmentation masks. Must run BEFORE splitting and counting —
+        # such labels have no trainable frame at all until it has (#586 / #674) —
+        # and on the raw lists, so every split inherits the derived centroids.
+        self._apply_centroids_from_masks(labels, val_labels)
+
         # Check if we should count only user-labeled frames
         user_instances_only = OmegaConf.select(
             self.config, "data_config.user_instances_only", default=True
@@ -442,6 +452,29 @@ class ModelTrainer:
         if self.model_type == "single_instance":
             self._validate_single_instance_labels(self.train_labels, "train")
             self._validate_single_instance_labels(self.val_labels, "validation")
+
+    def _apply_centroids_from_masks(self, *label_lists):
+        """Derive user centroids from segmentation masks when configured.
+
+        No-op unless ``data_config.centroids_from_masks`` names a method. Mutates
+        the labels in place, before any split or frame count: a mask-only dataset
+        (no poses, no centroid annotations) has zero trainable frames until this
+        has run, so running it later fails the empty-split guard.
+
+        Args:
+            *label_lists: The raw ``List[sio.Labels]`` inputs (train, val).
+                ``None`` entries are skipped.
+        """
+        method = OmegaConf.select(
+            self.config, "data_config.centroids_from_masks", default=None
+        )
+        if not method:
+            return
+        from sleap_nn.data.instance_centroids import add_centroids_from_masks
+
+        for label_list in label_lists:
+            for labels in label_list or []:
+                add_centroids_from_masks(labels, method=method)
 
     def _validate_nonempty_labels(self, n_labeled_frames: int, split_name: str):
         """Ensure a split has at least one trainable labeled frame.
@@ -768,13 +801,30 @@ class ModelTrainer:
         """Setup node, edge and class names in head config."""
         # if edges and part names aren't set in head configs, get it from labels object.
         head_config = self.config.model_config.head_configs[self.model_type]
-        skeleton_node_names = list(self.skeletons[0].node_names)
+        # Mask-only labels carry no skeleton at all (`labels.skeletons == []`), and
+        # a centroid model trained off `data_config.centroids_from_masks` needs
+        # none: its target comes from `UserCentroid` annotations and its head
+        # declares neither part_names nor edges. Indexing `self.skeletons[0]`
+        # unconditionally turned that case into a bare `IndexError` here, before
+        # any of the guards below could speak. Heads that genuinely require a
+        # skeleton now say so by name instead.
+        skeleton = self.skeletons[0] if self.skeletons else None
+        skeleton_node_names = list(skeleton.node_names) if skeleton is not None else []
         for key in head_config:
             if "part_names" in head_config[key].keys():
                 if head_config[key]["part_names"] is None:
+                    if skeleton is None:
+                        message = (
+                            f"model_config.head_configs.{self.model_type}.{key}"
+                            ".part_names is null and the labels carry no skeleton, "
+                            "so the node names cannot be inferred. Provide labels "
+                            "with a skeleton, or set part_names explicitly."
+                        )
+                        logger.error(message)
+                        raise ValueError(message)
                     self.config.model_config.head_configs[self.model_type][key][
                         "part_names"
-                    ] = self.skeletons[0].node_names
+                    ] = skeleton.node_names
                 elif list(head_config[key]["part_names"]) != skeleton_node_names:
                     # GT confidence-map generation always produces one channel
                     # per node in the skeleton (custom_datasets.py's
@@ -824,9 +874,17 @@ class ModelTrainer:
 
             if "edges" in head_config[key].keys():
                 if head_config[key]["edges"] is None:
+                    if skeleton is None:
+                        message = (
+                            f"model_config.head_configs.{self.model_type}.{key}"
+                            ".edges is null and the labels carry no skeleton, so "
+                            "the edges cannot be inferred. Provide labels with a "
+                            "skeleton, or set edges explicitly."
+                        )
+                        logger.error(message)
+                        raise ValueError(message)
                     edges = [
-                        (x.source.name, x.destination.name)
-                        for x in self.skeletons[0].edges
+                        (x.source.name, x.destination.name) for x in skeleton.edges
                     ]
                     self.config.model_config.head_configs[self.model_type][key][
                         "edges"
@@ -1121,6 +1179,9 @@ class ModelTrainer:
 
         # set output stride for backbone from head config and verify max stride
         self.config = check_output_strides(self.config)
+
+        # fail fast on a contradictory / unknown centroid method (#586)
+        self.config = check_centroid_methods(self.config)
 
         # auto-size + validate tiling geometry (no-op unless tiling.enabled)
         self._setup_tiling_config()

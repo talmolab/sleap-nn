@@ -886,6 +886,21 @@ class TopDownPredictor(Predictor):
             )
 
         if self.centroid_config is None:
+            # GT-centroid crops: the centroid is computed HERE from the instance's
+            # points, so the method must reproduce what the crop-consuming model
+            # was trained with (#586). Resolved off that model's head config, the
+            # same way the new-flow loaders do. (The model path below needs none
+            # of this -- there the centroid comes from the model's own peak.)
+            from sleap_nn.inference.loaders import _resolve_centroid_method
+
+            centroid_method, centroid_fallback = _resolve_centroid_method(
+                (
+                    self.confmap_config.model_config.head_configs.centered_instance.confmaps
+                    if self.confmap_config is not None
+                    else None
+                ),
+                self.anchor_part,
+            )
             centroid_crop_layer = CentroidCrop(
                 use_gt_centroids=True,
                 crop_hw=(
@@ -893,6 +908,8 @@ class TopDownPredictor(Predictor):
                     self.preprocess_config.crop_size,
                 ),
                 anchor_ind=anchor_ind,
+                centroid_method=centroid_method,
+                centroid_fallback=centroid_fallback,
                 return_crops=return_crops,
             )
 
@@ -3299,6 +3316,21 @@ class TopDownMultiClassPredictor(Predictor):
             )
 
         if self.centroid_config is None:
+            # GT-centroid crops: the centroid is computed HERE from the instance's
+            # points, so the method must reproduce what the crop-consuming model
+            # was trained with (#586). Resolved off that model's head config, the
+            # same way the new-flow loaders do. (The model path below needs none
+            # of this -- there the centroid comes from the model's own peak.)
+            from sleap_nn.inference.loaders import _resolve_centroid_method
+
+            centroid_method, centroid_fallback = _resolve_centroid_method(
+                (
+                    self.confmap_config.model_config.head_configs.multi_class_topdown.confmaps
+                    if self.confmap_config is not None
+                    else None
+                ),
+                self.anchor_part,
+            )
             centroid_crop_layer = CentroidCrop(
                 use_gt_centroids=True,
                 crop_hw=(
@@ -3306,6 +3338,8 @@ class TopDownMultiClassPredictor(Predictor):
                     self.preprocess_config.crop_size,
                 ),
                 anchor_ind=anchor_ind,
+                centroid_method=centroid_method,
+                centroid_fallback=centroid_fallback,
                 return_crops=return_crops,
             )
 

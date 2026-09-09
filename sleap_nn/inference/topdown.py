@@ -9,7 +9,10 @@ from sleap_nn.data.resizing import (
     apply_pad_to_stride,
 )
 from sleap_nn.inference.peak_finding import crop_bboxes
-from sleap_nn.data.instance_centroids import generate_centroids
+from sleap_nn.data.instance_centroids import (
+    degrade_anchor_if_unresolved,
+    generate_centroids,
+)
 from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.inference.peak_finding import find_global_peaks, find_local_peaks
 from sleap_nn.inference.identity import get_class_inds_from_vectors
@@ -56,6 +59,12 @@ class CentroidCrop(L.LightningModule):
         anchor_ind: The index of the node to use as the anchor for the centroid. If not
             provided or if not present in the instance, the NaN-ignoring mean of all
             visible nodes is used instead.
+        centroid_method: How a GT centroid is derived from the instance's points --
+            one of ``"center_of_mass"``, ``"bbox_center"``, ``"geometric_median"``,
+            ``"anchor"``. ``None`` (default) infers it from ``anchor_ind``, i.e. the
+            historical behavior. Must match the training config; the loaders read it
+            off the checkpoint's head config (#586).
+        centroid_fallback: Reduce method used when the anchor node is not visible.
 
     """
 
@@ -74,6 +83,8 @@ class CentroidCrop(L.LightningModule):
         max_stride: int = 1,
         use_gt_centroids: bool = False,
         anchor_ind: Optional[int] = None,
+        centroid_method: Optional[str] = None,
+        centroid_fallback: Optional[str] = None,
         **kwargs,
     ):
         """Initialise the model attributes."""
@@ -91,6 +102,12 @@ class CentroidCrop(L.LightningModule):
         self.max_stride = max_stride
         self.use_gt_centroids = use_gt_centroids
         self.anchor_ind = anchor_ind
+        self.centroid_method, self.centroid_fallback = degrade_anchor_if_unresolved(
+            centroid_method
+            or ("anchor" if anchor_ind is not None else "center_of_mass"),
+            centroid_fallback,
+            anchor_ind,
+        )
 
     def _generate_crops(self, inputs, cms: Optional[torch.Tensor] = None):
         """Generate Crops from the predicted centroids."""
@@ -179,7 +196,10 @@ class CentroidCrop(L.LightningModule):
         if self.use_gt_centroids:
             batch = inputs["video_idx"].shape[0]
             centroids = generate_centroids(
-                inputs["instances"], anchor_ind=self.anchor_ind
+                inputs["instances"],
+                anchor_ind=self.anchor_ind,
+                method=self.centroid_method,
+                fallback=self.centroid_fallback,
             )
             centroid_vals = torch.ones(centroids.shape)[..., 0]
             self.refined_peaks_batched = [x[0] for x in centroids]
