@@ -1457,8 +1457,19 @@ class ModelTrainer:
                 )
             ckpt_monitor = f"eval/val/{emb_select}"
             ckpt_mode = emb_metric_modes[emb_select]
+            # The selection metric only exists on eval epochs, so let the
+            # checkpointer consider "best" only on those epochs. Same formula the
+            # callback uses ((epoch + 1) % frequency), so they cannot drift, and it
+            # keeps a saved "best" tied to the epoch its metric was measured on
+            # instead of a later epoch carrying a stale value forward.
+            ckpt_every_n_epochs = int(
+                OmegaConf.select(
+                    self.config, "trainer_config.eval.frequency", default=1
+                )
+            )
         else:
             ckpt_monitor, ckpt_mode = "val/loss", "min"
+            ckpt_every_n_epochs = 1
 
         if self.config.trainer_config.save_ckpt:
             # checkpoint callback
@@ -1484,6 +1495,14 @@ class ModelTrainer:
                     self.config.trainer_config.model_ckpt.mode
                     if self.config.trainer_config.model_ckpt.monitor != "val/loss"
                     else ckpt_mode
+                ),
+                # Only meaningful (and only non-1) when the monitored metric is the
+                # eval-gated embedding one; an explicitly configured monitor keeps
+                # the every-epoch default.
+                every_n_epochs=(
+                    1
+                    if self.config.trainer_config.model_ckpt.monitor != "val/loss"
+                    else ckpt_every_n_epochs
                 ),
             )
             callbacks.append(checkpoint_callback)

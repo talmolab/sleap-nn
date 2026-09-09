@@ -2438,6 +2438,13 @@ class EmbeddingEvaluationCallback(Callback):
         self.eval_frequency = eval_frequency
         self.select_metric = select_metric
         self.knn_k = knn_k
+        # Last successfully computed metrics, re-logged on epochs that do not
+        # evaluate so the monitored key is never ABSENT from
+        # ``trainer.callback_metrics``. `ModelCheckpoint` raises
+        # `MisconfigurationException: could not find the monitored key` the first
+        # time it looks for a key that was never logged -- which, with
+        # `eval.frequency > 1`, is the end of epoch 0.
+        self._last_metrics = None
 
     def _get_wandb_logger(self, trainer):
         from lightning.pytorch.loggers import WandbLogger
@@ -2509,27 +2516,34 @@ class EmbeddingEvaluationCallback(Callback):
         # the flag so EVERY rank takes the SAME logging branch — mismatched ``self.log``
         # calls across ranks would hang the DDP sync barrier.
         have_metrics = bool(trainer.strategy.broadcast(metrics is not None, src=0))
-        if have_metrics:
-            # Broadcast each scalar from rank 0 so all ranks log the SAME value into
-            # callback_metrics (the ModelCheckpoint / EarlyStopping monitor reads it).
-            for k in ("rank1", "mAP", "auc", "eer", "knn_acc"):
-                v = (
-                    float(metrics[k])
-                    if (metrics is not None and k in metrics)
-                    else float("nan")
-                )
-                v = trainer.strategy.broadcast(v, src=0)
-                pl_module.log(
-                    f"eval/val/{k}",
-                    v,
-                    on_epoch=True,
-                    sync_dist=False,
-                    rank_zero_only=False,
-                )
-        # On non-eval epochs we log NOTHING for these keys: ``callback_metrics`` retains
-        # the last computed value, so the monitored selection metric stays finite and we
-        # never NaN-poison ``EarlyStopping(check_finite=True)`` into aborting the run at
-        # the first non-eval epoch.
+        if have_metrics and metrics is not None:
+            self._last_metrics = metrics
+
+        # Log on EVERY validation epoch, not only on eval epochs. Skipping the log
+        # entirely left the key absent from ``callback_metrics`` until the first
+        # eval epoch, and `ModelCheckpoint` raises rather than tolerating a missing
+        # monitor -- so any `eval.frequency > 1` run died at the end of epoch 0
+        # (`EarlyStopping` had been given `strict=False` for this; there is no such
+        # escape hatch for the checkpointer). Non-eval epochs re-log the last
+        # computed values, and before the first successful eval they log NaN, which
+        # `ModelCheckpoint` can never select as "best". The checkpointer is also
+        # pinned to the eval cadence (`every_n_epochs`) in `model_trainer`, so a
+        # carried-forward value is never what a saved "best" was chosen on.
+        source = metrics if metrics is not None else self._last_metrics
+        for k in ("rank1", "mAP", "auc", "eer", "knn_acc"):
+            v = (
+                float(source[k])
+                if (source is not None and source.get(k) is not None)
+                else float("nan")
+            )
+            v = trainer.strategy.broadcast(v, src=0)
+            pl_module.log(
+                f"eval/val/{k}",
+                v,
+                on_epoch=True,
+                sync_dist=False,
+                rank_zero_only=False,
+            )
 
         pl_module._collect_val_predictions = False
         if trainer.is_global_zero:
