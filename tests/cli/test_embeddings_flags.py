@@ -11,6 +11,8 @@ passed alongside the embedding model (the fused detect->embed path), the
 detection stage receives the full option set and those same flags are honored.
 """
 
+import re
+
 import pytest
 from click.testing import CliRunner
 from omegaconf import OmegaConf
@@ -47,6 +49,20 @@ def _invoke(model_dirs, *extra):
     return CliRunner().invoke(cli, args)
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _flat(result) -> str:
+    """``result.output`` with ANSI codes stripped and whitespace collapsed.
+
+    rich-click renders errors into a bordered panel wrapped at the TERMINAL width,
+    which differs across platforms -- so a phrase that sits on one line locally can
+    be split across two in CI, and a raw substring assertion fails there and only
+    there. Normalizing makes the assertions about the message, not the layout.
+    """
+    return " ".join(_ANSI.sub("", result.output).replace("│", " ").split())
+
+
 @pytest.mark.parametrize(
     "flag,value,reason",
     [
@@ -65,17 +81,16 @@ def test_unsupported_flags_are_rejected(embedding_model_dir, flag, value, reason
     result = _invoke([embedding_model_dir], *extra)
 
     assert result.exit_code != 0
-    assert "does not support" in result.output
-    assert flag.lstrip("-").replace("_", "") in result.output.replace("_", "").replace(
-        "-", ""
-    )
+    flat = _flat(result)
+    assert "does not support" in flat
+    assert flag.lstrip("-").replace("_", "") in flat.replace("_", "").replace("-", "")
 
 
 def test_the_rejection_explains_the_fused_alternative(embedding_model_dir):
     """The error points at the path that DOES honor these flags."""
     result = _invoke([embedding_model_dir], "--frames", "0-3")
 
-    assert "detection model alongside" in result.output
+    assert "detection model alongside" in _flat(result)
 
 
 def test_fused_mode_accepts_the_same_flags(embedding_model_dir):
@@ -86,7 +101,7 @@ def test_fused_mode_accepts_the_same_flags(embedding_model_dir):
     """
     result = _invoke([embedding_model_dir, CENTROID_CKPT], "--frames", "0-3")
 
-    assert "does not support" not in result.output
+    assert "does not support" not in _flat(result)
 
 
 def test_supported_flags_get_past_validation(embedding_model_dir, tmp_path):
@@ -101,7 +116,7 @@ def test_supported_flags_get_past_validation(embedding_model_dir, tmp_path):
         (tmp_path / "out.slp").as_posix(),
     )
 
-    assert "does not support" not in result.output
+    assert "does not support" not in _flat(result)
 
 
 def test_tracking_flags_are_not_rejected(embedding_model_dir):
@@ -113,7 +128,7 @@ def test_tracking_flags_are_not_rejected(embedding_model_dir):
         "5",
     )
 
-    assert "does not support" not in result.output
+    assert "does not support" not in _flat(result)
 
 
 # ── The honored set is COMPUTED, not hand-listed (review finding [12]) ─────────
@@ -143,7 +158,7 @@ def test_more_unhonored_flags_are_rejected(embedding_model_dir, flag, value):
     result = _invoke([embedding_model_dir], *extra)
 
     assert result.exit_code != 0, result.output
-    assert "does not support" in result.output
+    assert "does not support" in _flat(result)
 
 
 def test_tracking_flags_without_tracking_are_rejected(embedding_model_dir):
@@ -153,8 +168,9 @@ def test_tracking_flags_without_tracking_are_rejected(embedding_model_dir):
     result = _invoke([embedding_model_dir], "--tracking_window_size", "9")
 
     assert result.exit_code != 0, result.output
-    assert "does not support" in result.output
-    assert "require --tracking" in result.output
+    flat = _flat(result)
+    assert "does not support" in flat
+    assert "require --tracking" in flat
 
 
 def test_derived_tracker_options_are_all_real_predict_options():
@@ -252,7 +268,7 @@ def test_incoherent_blend_is_rejected_before_inference(embedding_model_dir):
     )
 
     assert result.exit_code != 0
-    assert "already appearance-only" in result.output
+    assert "already appearance-only" in _flat(result)
 
 
 def test_fused_centroid_only_blend_needs_a_scale_before_inference(
@@ -271,7 +287,7 @@ def test_fused_centroid_only_blend_needs_a_scale_before_inference(
     )
 
     assert result.exit_code != 0
-    assert "requires euclidean_scale" in result.output
+    assert "requires euclidean_scale" in _flat(result)
 
 
 def test_fused_centroid_only_blend_accepted_with_a_scale(

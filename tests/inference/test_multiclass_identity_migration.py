@@ -180,15 +180,18 @@ def test_identity_names_stable_across_runs(tmp_path):
             fx["peak_threshold"],
             fx["max_instances"],
         )
-        return sorted({i.name for i in labels.identities})
+        return _tracked_instances(labels), sorted({i.name for i in labels.identities})
 
-    names1 = _run("a")
-    names2 = _run("b")
-    # Do NOT skip on an empty result: "no identities emitted" is exactly the bug
-    # this file exists to catch (the sibling test correctly gates its skip on
-    # `tracked` instead). A run that detects nothing is a fixture problem, and a
-    # run that detects instances but emits no identity is a regression.
-    assert names1, "no identities emitted -- class_output was not honored"
+    tracked1, names1 = _run("a")
+    tracked2, names2 = _run("b")
+    # Gate the skip on DETECTION, the way the sibling test does -- not on the
+    # identities, which is the thing under test. "the model found nothing on this
+    # platform" is environmental (mac detects 0 on these fixtures); "it found
+    # instances but emitted no identity" is the class_output regression, and must
+    # fail rather than skip.
+    if not tracked1 or not tracked2:
+        pytest.skip("multiclass_topdown: model detected 0 instances on this platform")
+    assert names1, "instances detected but no identities emitted"
     assert names1 == names2
 
 
