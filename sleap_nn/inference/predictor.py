@@ -441,6 +441,13 @@ def _build_centroid_layer(
         max_instances=centroid_model.max_instances,
         max_stride=centroid_model.max_stride,
         anchor_ind=centroid_model.anchor_ind,
+        # Carry the loaders' resolution (#586). Without these the layer re-infers
+        # the method from `anchor_ind` alone, so a checkpoint trained with
+        # `centroid_method: bbox_center` (or `geometric_median`) silently reverted
+        # to `center_of_mass` here -- and `sio.Centroid.source`, which reads
+        # `layer.centroid_method`, then recorded the wrong method too.
+        centroid_method=getattr(centroid_model, "centroid_method", None),
+        centroid_fallback=getattr(centroid_model, "centroid_fallback", None),
         use_gt_centroids=False,
         preprocess_config=PreprocessConfig(
             scale=centroid_model.input_scale,
@@ -494,6 +501,11 @@ def _build_centroid_layer_gt_only(assets: Any, backend: Any) -> CentroidLayer:
         max_instances=None,
         max_stride=1,
         anchor_ind=getattr(centroid_model, "anchor_ind", None),
+        # As in `_build_centroid_layer`: keep the loaders' resolved method. This
+        # path derives centroids from GT instances, so the method is what
+        # actually computes them -- dropping it silently changed the crop centers.
+        centroid_method=getattr(centroid_model, "centroid_method", None),
+        centroid_fallback=getattr(centroid_model, "centroid_fallback", None),
         use_gt_centroids=True,
         preprocess_config=PreprocessConfig(
             scale=1.0,
