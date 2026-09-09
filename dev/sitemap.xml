@@ -253,6 +253,10 @@
          <lastmod>2026-09-09</lastmod>
     </url>
     <url>
+         <loc>https://nn.sleap.ai/dev/api/data/splitting/</loc>
+         <lastmod>2026-09-09</lastmod>
+    </url>
+    <url>
          <loc>https://nn.sleap.ai/dev/api/data/tiling/</loc>
          <lastmod>2026-09-09</lastmod>
     </url>
@@ -313,6 +317,10 @@
          <lastmod>2026-09-09</lastmod>
     </url>
     <url>
+         <loc>https://nn.sleap.ai/dev/api/export/wrappers/embedding/</loc>
+         <lastmod>2026-09-09</lastmod>
+    </url>
+    <url>
          <loc>https://nn.sleap.ai/dev/api/export/wrappers/single_instance/</loc>
          <lastmod>2026-09-09</lastmod>
     </url>
@@ -334,6 +342,10 @@
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/centroid_convert/</loc>
+         <lastmod>2026-09-09</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/inference/embedding/</loc>
          <lastmod>2026-09-09</lastmod>
     </url>
     <url>
@@ -450,6 +462,10 @@
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/layers/configs/</loc>
+         <lastmod>2026-09-09</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/inference/layers/embedding/</loc>
          <lastmod>2026-09-09</lastmod>
     </url>
     <url>
