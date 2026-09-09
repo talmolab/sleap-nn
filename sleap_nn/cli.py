@@ -1483,12 +1483,62 @@ def _has_embedding_model(model_paths) -> bool:
     return False
 
 
+# Options `--embeddings_path` actually forwards. Everything else the shared
+# inference option set accepts is NOT honored on this route, so an explicitly
+# passed flag outside this set is rejected rather than silently ignored (the
+# class of surprise #732 fixed for `predict`). An allowlist rather than a
+# denylist so a newly added option is rejected until someone threads it, instead
+# of quietly doing nothing.
+_EMBEDDINGS_FORWARDED_OPTIONS = frozenset(
+    {
+        "model_paths",
+        "data_path",
+        "embeddings_path",
+        "device",
+        "batch_size",
+        "peak_threshold",
+    }
+)
+
+
+def _reject_ignored_embeddings_options() -> None:
+    """Fail on explicitly-set options that ``--embeddings_path`` cannot honor.
+
+    Crop geometry (``--max_height`` / ``--max_width`` / ``--crop_size`` /
+    ``--input_scale``) is deliberately NOT overridable here: the crops must match
+    what the model was trained on, so they come from the saved training config.
+    Frame scoping (``--frames``, ``--video_index``, ``--only_labeled_frames``, ...)
+    and tracking are simply not implemented on this route.
+    """
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:  # programmatic call, no CLI to police
+        return
+    from click.core import ParameterSource
+
+    offenders = sorted(
+        name
+        for name in ctx.params
+        if name not in _EMBEDDINGS_FORWARDED_OPTIONS
+        and ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
+    )
+    if offenders:
+        flags = ", ".join(f"--{name}" for name in offenders)
+        raise click.UsageError(
+            f"--embeddings_path does not support {flags}. It streams appearance "
+            "vectors for every tracked mask in --data_path, using the crop "
+            "geometry the model was trained with (overriding it would embed crops "
+            "the model never saw). Supported alongside it: --model_paths, "
+            "--data_path, --device, --batch_size, --peak_threshold."
+        )
+
+
 def _run_embeddings(kwargs: dict, embeddings_path: str) -> "object":
     """Stream per-mask appearance vectors of an ``embedding`` model to ``.h5``."""
     from sleap_nn.inference.embedding import predict_embeddings_to_h5
 
     if not kwargs.get("data_path"):
         raise click.UsageError("--data_path is required for --embeddings_path.")
+    _reject_ignored_embeddings_options()
     out = predict_embeddings_to_h5(
         model_paths=kwargs["model_paths"],
         data_path=kwargs["data_path"],

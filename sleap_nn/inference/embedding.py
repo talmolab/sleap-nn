@@ -159,6 +159,17 @@ def predict_embeddings_to_h5(
     crop_centering = OmegaConf.select(
         config, "data_config.preprocessing.crop_centering", default="auto"
     )
+    # Crop geometry must match TRAINING exactly, or the model sees a differently
+    # scaled animal than it was fitted on. `EmbeddingDataset` sizematches the frame
+    # (max_hw) and applies `scale` BEFORE cropping, and both were being dropped
+    # here -- so any config with max_height/max_width or a non-unit scale embedded
+    # crops that training never produced. Read straight off the saved training
+    # config, the same values `get_train_val_datasets` used.
+    max_hw = (
+        OmegaConf.select(config, "data_config.preprocessing.max_height", default=None),
+        OmegaConf.select(config, "data_config.preprocessing.max_width", default=None),
+    )
+    emb_scale = OmegaConf.select(config, "data_config.preprocessing.scale", default=1.0)
     dataset = EmbeddingDataset(
         labels=[labels],
         crop_size=crop_size,
@@ -168,6 +179,8 @@ def predict_embeddings_to_h5(
         crop_centering=crop_centering,
         ensure_rgb=emb_ensure_rgb,
         ensure_grayscale=emb_ensure_grayscale,
+        scale=emb_scale if emb_scale is not None else 1.0,
+        max_hw=max_hw,
         cache_img=None,
     )
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False)
