@@ -671,7 +671,10 @@ def _build_topdown_embedding(
     supplies crop centers on the raw video and the embedder maps each crop to an
     L2-normalized vector. When ``centroid_ckpt_path`` is ``None`` the centroid
     stage falls back to GT user-instance centroids
-    (``CentroidCrop(use_gt_centroids=True)``).
+    (``CentroidCrop(use_gt_centroids=True)``) -- reachable only by calling this
+    function directly: ``load_model_assets`` routes an embedding dir with no
+    centroid dir to the single-stage, mask-driven ``EmbeddingLayer`` instead, so
+    it never passes ``None`` here.
 
     The crop size comes from the embedding config (a crop-level property), and the
     composed inference model carries the ``CentroidCrop`` (stage 1) +

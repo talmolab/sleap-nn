@@ -36,10 +36,6 @@ from typing import List, Optional, Tuple
 import numpy as np
 import sleap_io as sio
 from loguru import logger
-from sklearn.model_selection import (
-    GroupKFold,
-    StratifiedGroupKFold,
-)
 
 # Sentinel used for detections with no track (so they form their own group / class
 # instead of breaking sklearn's hashing of mixed None/str arrays).
@@ -135,6 +131,12 @@ def _select_val_fold(
     Uses the sklearn cross-validator appropriate for ``split_by`` and returns the
     ``fold``-th test partition as validation; everything else is training.
     """
+    # scikit-learn is imported here rather than at module scope: it is needed
+    # ONLY by the group-aware splits (and by the embedding verification metrics),
+    # so importing lazily keeps `import sleap_nn` off it and leaves the door open
+    # to moving it out of the core dependencies.
+    from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
+
     idx = np.arange(n_detections)
 
     if split_by == "frame":

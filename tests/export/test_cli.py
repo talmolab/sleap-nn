@@ -267,6 +267,7 @@ class TestExportCommand:
         norms = np.linalg.norm(out, axis=1)
         assert np.allclose(norms, 1.0, atol=1e-4)
 
+    @requires_onnxruntime
     def test_export_command_embedding_onnx_numeric_parity(
         self, minimal_embedding_model_dir, tmp_path
     ):

@@ -18,7 +18,9 @@ Two pieces, mirroring the keypoint / segmentation top-down stacks:
   run the embedder on each crop and pack ``Outputs.pred_embeddings`` ``(B, I, D)``
   (+ ``pred_centroids`` / ``instance_scores`` / ``instance_valid``). The
   GT-centroid fallback (``CentroidLayer(use_gt_centroids=True)``) covers the
-  mask-only data the same way :class:`TopDownSegmentationLayer` does.
+  mask-only data the same way :class:`TopDownSegmentationLayer` does -- available
+  when this layer is built directly, since a lone embedding dir routes to the
+  mask-driven :class:`EmbeddingLayer` instead.
 """
 
 from __future__ import annotations
