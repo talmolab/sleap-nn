@@ -112,7 +112,9 @@ A ready-to-edit sample lives at
 - `freeze: true` — the encoder is frozen (feature extraction) and only the
   decoder/head train. Faster, lower memory, and more robust on very small
   datasets. sleap-nn filters frozen parameters out of the optimizer
-  automatically.
+  automatically, and holds the encoder in eval mode for the whole run so a
+  BatchNorm-bearing backbone (ResNet, BiT) does not drift its running statistics —
+  "frozen" covers the statistics, not just the weights.
 
 ### Channels and normalization
 
@@ -141,6 +143,13 @@ is applied **inside the backbone** — the data pipeline still only rescales to
   (`~/.cache/huggingface/hub`) on a networked machine, copy it over, and set
   `HF_HUB_OFFLINE=1`. With `weights: false` the architecture still needs the
   model's `config.json` (tiny), but no checkpoint download.
+
+  sleap-nn resolves the concrete `*Backbone` class from `AutoConfig` rather than
+  going through `AutoBackbone.from_pretrained`, which probes the Hub for the
+  repo's existence before resolving anything and so fails offline even for a
+  fully-cached model. A backbone whose config type is not in `transformers`'
+  backbone mapping (a custom or very new model) falls back to `AutoBackbone` and
+  inherits that limitation.
 
 ## Gotchas
 
