@@ -35,6 +35,7 @@ from sleap_nn.tracking.utils import (
     get_centroid,
     get_keypoints,
     get_mask,
+    get_embedding,
     count_valid_points,
     is_segmentation_mask,
     compute_euclidean_distance,
@@ -60,13 +61,18 @@ class Tracker:
         min_match_points: Minimum support for match candidates: non-NaN keypoints,
             or foreground area (px) for `features="masks"`. Default: 0.
         features: Feature representation for the candidates to update current detections.
-            One of [`keypoints`, `centroids`, `bboxes`, `masks`, `image`]. `masks`
-            tracks bottom-up segmentation `PredictedSegmentationMask` objects.
+            One of [`keypoints`, `centroids`, `bboxes`, `masks`, `embeddings`]. `masks`
+            tracks bottom-up segmentation `PredictedSegmentationMask` objects;
+            `embeddings` tracks by the `"reid"` appearance vector attached by the
+            `embedding` (re-ID) model (works on pose `PredictedInstance` *and* mask
+            `PredictedSegmentationMask` carriers), scored by `cosine_sim`.
             Default: `keypoints`.
         scoring_method: Method to compute association score between features from the
             current frame and the previous tracks. One of [`oks`, `cosine_sim`, `iou`,
             `mask_iou`, `euclidean_dist`]. `mask_iou` is the pixel IoU between two
-            segmentation masks (pair with `features="masks"`). Default: `oks`.
+            segmentation masks (pair with `features="masks"`); `cosine_sim` is the
+            appearance similarity between two embedding vectors (pair with
+            `features="embeddings"`). Default: `oks`.
         scoring_reduction: Method to aggregate and reduce multiple scores if there are
             several detections associated with the same track. One of [`mean`, `max`,
             `robust_quantile`]. Default: `mean`.
@@ -117,6 +123,7 @@ class Tracker:
         "centroids": get_centroid,
         "bboxes": get_bbox,
         "masks": get_mask,
+        "embeddings": get_embedding,
     }
     _track_matching_methods: Dict[str, Any] = {
         "hungarian": hungarian_matching,
@@ -171,8 +178,9 @@ class Tracker:
             min_match_points: Minimum support for match candidates: non-NaN
                 keypoints, or foreground area (px) for `features="masks"`. Default: 0.
             features: Feature representation for the candidates to update current detections.
-                One of [`keypoints`, `centroids`, `bboxes`, `masks`, `image`].
-                Default: `keypoints`.
+                One of [`keypoints`, `centroids`, `bboxes`, `masks`, `embeddings`].
+                `embeddings` tracks by the `"reid"` appearance vector (pair with
+                `scoring_method="cosine_sim"`). Default: `keypoints`.
             scoring_method: Method to compute association score between features from the
                 current frame and the previous tracks. One of [`oks`, `cosine_sim`, `iou`,
                 `mask_iou`, `euclidean_dist`]. Default: `oks`.
@@ -472,7 +480,7 @@ class Tracker:
             assigned for the untracked instances and track_id set as `None`.
         """
         if self.features not in self._feature_methods:
-            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes`, `masks` and `image`"
+            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes`, `masks` and `embeddings`"
             logger.error(message)
             raise ValueError(message)
 
@@ -615,9 +623,23 @@ class Tracker:
         matching_method = self._track_matching_methods[self.track_matching_method]
 
         row_inds, col_inds = matching_method(cost_matrix)
-        tracking_scores = [
-            -cost_matrix[row, col] for row, col in zip(row_inds, col_inds)
+        # Drop INFEASIBLE assignments before they persist. A non-finite original cost
+        # means the detection had no valid candidate for that track (every score was
+        # NaN -> inf cost): e.g. an empty candidate list, or an embedding-less
+        # detection whose cosine/euclidean similarity is NaN. `hungarian_matching`
+        # fills inf with a large finite value internally so it still returns a
+        # pairing, but persisting it would steal an arbitrary identity and write a
+        # `-inf` tracking_score. Dropping it leaves the row unmatched, so it spawns a
+        # fresh track in `update_tracks` -- the documented contract (and the
+        # similarity-floor / admission gate the appearance path needs).
+        feasible = [
+            (int(row), int(col))
+            for row, col in zip(row_inds, col_inds)
+            if np.isfinite(cost_matrix[row, col])
         ]
+        row_inds = [row for row, _ in feasible]
+        col_inds = [col for _, col in feasible]
+        tracking_scores = [-cost_matrix[row, col] for row, col in feasible]
 
         # update the candidates tracker queue with the newly tracked instances and assign
         # track IDs to `current_instances`.
@@ -826,7 +848,7 @@ class FlowShiftTracker(Tracker):
         """
         # get feature method for the shifted instances
         if self.features not in self._feature_methods:
-            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes`, `masks` and `image`"
+            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes`, `masks` and `embeddings`"
             logger.error(message)
             raise ValueError(message)
         feature_method = self._feature_methods[self.features]
@@ -1000,7 +1022,7 @@ class KalmanShiftTracker(Tracker):
             `TrackedInstanceFeature`.
         """
         if self.features not in self._feature_methods:
-            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes`, `masks` and `image`"
+            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes`, `masks` and `embeddings`"
             logger.error(message)
             raise ValueError(message)
         feature_method = self._feature_methods[self.features]

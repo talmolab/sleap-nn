@@ -21,7 +21,7 @@ class EmbeddingONNXWrapper(BaseExportWrapper):
     this single-input graph cannot replicate — its exported embeddings therefore DIVERGE
     from native masked inference. The export CLI records ``burn_in``/``background_fill``
     in the metadata and warns on a ``burn_in=True`` export; use the native
-    ``sleap-nn predict ... --embeddings_path <out.h5>`` path for exact parity with such
+    ``sleap-nn predict ... --save_embeddings slp`` path for exact parity with such
     a model.
     """
 

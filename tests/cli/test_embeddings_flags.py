@@ -1,9 +1,14 @@
-"""`--embeddings_path` must reject flags it cannot honor.
+"""The embedding (re-ID) route must reject flags it cannot honor.
 
-The route forwards six options and silently dropped every other flag the shared
-inference option set accepts — including frame scoping, tracking, and crop
-geometry overrides. Crop geometry in particular must come from the saved training
-config: an override would embed crops the model was never fitted on.
+`--save_embeddings` / `--tracking` on an embedding model embed every detection
+already present in `--data_path`, so frame scoping has nowhere to go, and crop
+geometry has to come from the trained config or the model embeds crops it was
+never fitted on. Silently ignoring those flags is the class of surprise #732
+fixed for `predict`.
+
+The rejection is scoped to the LONE-embedding route: when a detection stack is
+passed alongside the embedding model (the fused detect->embed path), the
+detection stage receives the full option set and those same flags are honored.
 """
 
 import pytest
@@ -18,11 +23,11 @@ SLP = "tests/assets/datasets/minimal_instance.pkg.slp"
 
 @pytest.fixture
 def embedding_model_dir(tmp_path):
-    """A model dir the `embedding` route accepts.
+    """A model dir the embedding route accepts.
 
-    Only `training_config.yaml` is needed: `--embeddings_path` is gated on the
-    saved model type, and these tests assert on flag validation, which happens
-    before any checkpoint is loaded.
+    Only `training_config.yaml` is needed: the route is selected on the saved
+    model type, and these tests assert on flag validation, which happens before
+    any checkpoint is loaded.
     """
     dest = tmp_path / "embedding_model"
     dest.mkdir()
@@ -34,38 +39,30 @@ def embedding_model_dir(tmp_path):
     return dest.as_posix()
 
 
-def _invoke(embedding_model_dir, out_path, *extra):
-    return CliRunner().invoke(
-        cli,
-        [
-            "predict",
-            "-m",
-            embedding_model_dir,
-            "-i",
-            SLP,
-            "--embeddings_path",
-            out_path,
-            *extra,
-        ],
-    )
+def _invoke(model_dirs, *extra):
+    args = ["predict"]
+    for d in model_dirs:
+        args += ["-m", d]
+    args += ["-i", SLP, "--save_embeddings", "slp", *extra]
+    return CliRunner().invoke(cli, args)
 
 
 @pytest.mark.parametrize(
-    "flag,value",
+    "flag,value,reason",
     [
-        ("--max_height", "512"),
-        ("--max_width", "512"),
-        ("--crop_size", "64"),
-        ("--input_scale", "0.5"),
-        ("--video_index", "0"),
-        ("--frames", "0-3"),
-        ("--only_labeled_frames", None),
+        ("--frames", "0-3", "frame scoping"),
+        ("--video_index", "0", "frame scoping"),
+        ("--only_labeled_frames", None, "frame scoping"),
+        ("--max_height", "512", "crop geometry"),
+        ("--max_width", "512", "crop geometry"),
+        ("--crop_size", "64", "crop geometry"),
+        ("--input_scale", "0.5", "crop geometry"),
     ],
 )
-def test_unsupported_flags_are_rejected(tmp_path, embedding_model_dir, flag, value):
-    """Each ignored flag fails loudly, naming itself."""
+def test_unsupported_flags_are_rejected(embedding_model_dir, flag, value, reason):
+    """Each unusable flag fails loudly, naming itself and why."""
     extra = [flag] if value is None else [flag, value]
-    result = _invoke(embedding_model_dir, (tmp_path / "emb.h5").as_posix(), *extra)
+    result = _invoke([embedding_model_dir], *extra)
 
     assert result.exit_code != 0
     assert "does not support" in result.output
@@ -74,54 +71,46 @@ def test_unsupported_flags_are_rejected(tmp_path, embedding_model_dir, flag, val
     )
 
 
-def test_tracking_flag_is_rejected(tmp_path, embedding_model_dir):
-    """`-t` would silently do nothing on this route."""
-    result = _invoke(embedding_model_dir, (tmp_path / "emb.h5").as_posix(), "-t")
+def test_the_rejection_explains_the_fused_alternative(embedding_model_dir):
+    """The error points at the path that DOES honor these flags."""
+    result = _invoke([embedding_model_dir], "--frames", "0-3")
 
-    assert result.exit_code != 0
-    assert "does not support" in result.output
-    assert "tracking" in result.output
+    assert "detection model alongside" in result.output
 
 
-def test_forwarded_flags_get_past_validation(tmp_path, embedding_model_dir):
-    """The six forwarded options must still be accepted.
+def test_fused_mode_accepts_the_same_flags(embedding_model_dir):
+    """With a detection stack, frame scoping applies to the detection stage.
 
-    The run fails later (this fixture has no weights), but it must not fail with
-    the unsupported-flag error.
+    The run fails later (this fixture carries no weights), but it must not fail
+    with the unsupported-flag error.
     """
+    result = _invoke([embedding_model_dir, CENTROID_CKPT], "--frames", "0-3")
+
+    assert "does not support" not in result.output
+
+
+def test_supported_flags_get_past_validation(embedding_model_dir, tmp_path):
+    """Device, batch size and the output path are honored, not rejected."""
     result = _invoke(
-        embedding_model_dir,
-        (tmp_path / "emb.h5").as_posix(),
+        [embedding_model_dir],
         "--device",
         "cpu",
         "--batch_size",
         "2",
-        "--peak_threshold",
-        "0.2",
+        "-o",
+        (tmp_path / "out.slp").as_posix(),
     )
 
     assert "does not support" not in result.output
 
 
-def test_data_path_is_still_required(tmp_path, embedding_model_dir):
-    """A missing input is reported before the flag check.
-
-    `--data_path` is a required click option, so click rejects it first; the
-    `_run_embeddings` guard with the same intent is for programmatic callers.
-    """
-    result = CliRunner().invoke(
-        cli,
-        [
-            "predict",
-            "-m",
-            embedding_model_dir,
-            "--embeddings_path",
-            (tmp_path / "emb.h5").as_posix(),
-            "--crop_size",
-            "64",
-        ],
+def test_tracking_flags_are_not_rejected(embedding_model_dir):
+    """`--tracking` is the point of the route; its knobs must pass through."""
+    result = _invoke(
+        [embedding_model_dir],
+        "-t",
+        "--tracking_window_size",
+        "5",
     )
 
-    assert result.exit_code != 0
-    assert "data_path" in result.output
     assert "does not support" not in result.output

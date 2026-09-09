@@ -7,6 +7,7 @@ import tempfile
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import rich_click as click
 from click import Command
@@ -876,13 +877,13 @@ def train(
     "--features",
     type=str,
     default="keypoints",
-    help="Feature representation for the candidates to update current detections. One of [`keypoints`, `centroids`, `bboxes`, `image`].",
+    help="Feature representation for the candidates to update current detections. One of [`keypoints`, `centroids`, `bboxes`, `masks`, `embeddings`]. `embeddings` tracks by the `reid` appearance vector attached by the embedding model (pair with `--scoring_method cosine_sim`).",
 )
 @click.option(
     "--scoring_method",
     type=str,
     default="oks",
-    help="Method to compute association score between features from the current frame and the previous tracks. One of [`oks`, `cosine_sim`, `iou`, `euclidean_dist`].",
+    help="Method to compute association score between features from the current frame and the previous tracks. One of [`oks`, `cosine_sim`, `iou`, `mask_iou`, `euclidean_dist`]. `cosine_sim` pairs with `--features embeddings`.",
 )
 @click.option(
     "--scoring_reduction",
@@ -1126,23 +1127,58 @@ def _run_inference_impl(**kwargs):
     else:
         kwargs["frames"] = None
 
-    # ── Embedding (re-ID) path: stream per-mask appearance vectors to .h5 ──
-    # An `embedding` model emits appearance vectors, not poses/masks, so it does
-    # not go through the normal Labels-producing flow; it streams to a .h5 via
-    # the dedicated writer. Detect it up front so `--embeddings_path` is required
-    # for embedding models (and rejected for non-embedding models).
-    embeddings_path = kwargs.pop("embeddings_path", None)
+    # ── Embedding (re-ID) path: persist appearance vectors into a .slp ──
+    # An `embedding` model emits appearance vectors, not poses/masks, so it does not go
+    # through the normal Labels-producing flow; it attaches `sio.Embedding` vectors to
+    # the source detections and writes a .slp. A fused
+    # `-m centroid [-m centered_instance] -m <embedding>` command runs the detection
+    # stack first (to a temp .slp) and then embeds + (optionally) tracks those detections.
+    save_embeddings = kwargs.pop("save_embeddings", "none") or "none"
     if _has_embedding_model(kwargs.get("model_paths")):
-        if not embeddings_path:
+        # The embedding (re-ID) path is in-memory only; it does not stream to file and
+        # has no SAM mask stage. Reject those flags up front (they precede the generic
+        # stream-to-file / mask_backend guards below) so they are not silently ignored.
+        if stream_to_file is not None:
+            raise click.UsageError(
+                "--stream-to-file is not supported for `embedding` (re-ID) models; "
+                "the embedding path is in-memory. Use -o/--output_path to name the "
+                "output."
+            )
+        if kwargs.get("mask_backend"):
+            raise click.UsageError(
+                "--mask_backend (SAM) is not supported with an `embedding` (re-ID) "
+                "model."
+            )
+        # ``--tracking`` (WF2) embeds every detection and tracks by appearance into a
+        # tracked .slp. Without tracking, ``--save_embeddings slp`` persists the vectors
+        # into a .slp; the default (none) writes nothing, so require one or the other.
+        tracking = bool(kwargs.get("tracking"))
+        if save_embeddings == "none" and not tracking:
             raise click.UsageError(
                 "The provided model is an `embedding` (re-ID) model; pass "
-                "--embeddings_path <out.h5> to stream the per-mask appearance "
-                "vectors for offline re-ID."
+                "--save_embeddings slp to persist the appearance vectors into a .slp, "
+                "or --tracking to track detections by appearance (cosine similarity) "
+                "into a .slp."
             )
-        return _run_embeddings(kwargs, embeddings_path=embeddings_path)
-    if embeddings_path is not None:
+        tracker_config = None
+        if tracking:
+            # An embedding model tracks by appearance: default --features/--scoring
+            # to embeddings/cosine_sim (the user can still override). Injected into
+            # kwargs so _build_tracker_config records them as explicit.
+            if not kwargs.get("features"):
+                kwargs["features"] = "embeddings"
+            if not kwargs.get("scoring_method"):
+                kwargs["scoring_method"] = "cosine_sim"
+            tracker_config = _build_tracker_config(kwargs)
+        return _run_embeddings(
+            kwargs,
+            save_embeddings=save_embeddings,
+            tracker_config=tracker_config,
+            paf_workers=paf_workers,
+        )
+    if save_embeddings != "none":
         raise click.UsageError(
-            "--embeddings_path is only valid with an `embedding` (re-ID) model."
+            "--save_embeddings is only valid with an `embedding` (re-ID) model."
         )
 
     # The SAM mask path is in-memory only (it masks an existing .slp); it does not
@@ -1460,56 +1496,65 @@ def _scope_labels_to_video(
     return scoped, target
 
 
-def _has_embedding_model(model_paths) -> bool:
-    """Return ``True`` if any entry in ``model_paths`` is an ``embedding`` model.
+def _is_embedding_model(model_path) -> bool:
+    """Return ``True`` if ``model_path`` is an ``embedding`` (re-ID) model directory.
 
-    Best-effort: loads each model's training config and checks its model type.
+    Best-effort: loads the model's training config and checks its model type.
     Export directories / unreadable configs are treated as non-embedding.
     """
-    if not model_paths:
-        return False
     from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
     from sleap_nn.inference.loaders import _load_training_config
 
-    for mp in model_paths:
-        try:
-            if _is_export_dir(mp):
-                continue
-            cfg, _ = _load_training_config(resolve_model_dir(mp))
-            if get_model_type_from_cfg(config=cfg) == "embedding":
-                return True
-        except Exception:  # noqa: BLE001 — fail open; only gate the exact case
-            continue
-    return False
+    try:
+        if _is_export_dir(model_path):
+            return False
+        cfg, _ = _load_training_config(resolve_model_dir(model_path))
+        return get_model_type_from_cfg(config=cfg) == "embedding"
+    except Exception:  # noqa: BLE001 — fail open; only gate the exact case
+        return False
 
 
-# Options `--embeddings_path` actually forwards. Everything else the shared
-# inference option set accepts is NOT honored on this route, so an explicitly
-# passed flag outside this set is rejected rather than silently ignored (the
-# class of surprise #732 fixed for `predict`). An allowlist rather than a
-# denylist so a newly added option is rejected until someone threads it, instead
-# of quietly doing nothing.
-_EMBEDDINGS_FORWARDED_OPTIONS = frozenset(
-    {
-        "model_paths",
-        "data_path",
-        "embeddings_path",
-        "device",
-        "batch_size",
-        "peak_threshold",
-    }
-)
+def _has_embedding_model(model_paths) -> bool:
+    """Return ``True`` if any entry in ``model_paths`` is an ``embedding`` model."""
+    if not model_paths:
+        return False
+    return any(_is_embedding_model(mp) for mp in model_paths)
 
 
-def _reject_ignored_embeddings_options() -> None:
-    """Fail on explicitly-set options that ``--embeddings_path`` cannot honor.
+# Options the LONE-embedding route cannot honor. That route takes a `.slp` of
+# detections and writes a `.slp` of vectors (and/or tracks), so frame scoping and
+# crop-geometry overrides have nowhere to go -- and crop geometry must come from
+# the trained config regardless, or the model embeds crops it never saw.
+#
+# A denylist here, unlike the allowlist `--embeddings_path` used before this route
+# replaced it: the honored set is now large and GROWS (every `--tracking_*` option
+# is consumed via `_build_tracker_config`, and in FUSED mode the detection stage
+# receives the full option set), so an allowlist would reject valid flags every
+# time a tracker option is added.
+_EMBEDDING_ROUTE_UNSUPPORTED_OPTIONS = {
+    "frames": "frame scoping is not threaded into the embedding pass",
+    "video_index": "frame scoping is not threaded into the embedding pass",
+    "only_labeled_frames": "frame scoping is not threaded into the embedding pass",
+    "only_suggested_frames": "frame scoping is not threaded into the embedding pass",
+    "max_height": "crop geometry comes from the trained config",
+    "max_width": "crop geometry comes from the trained config",
+    "crop_size": "crop geometry comes from the trained config",
+    "input_scale": "crop geometry comes from the trained config",
+}
 
-    Crop geometry (``--max_height`` / ``--max_width`` / ``--crop_size`` /
-    ``--input_scale``) is deliberately NOT overridable here: the crops must match
-    what the model was trained on, so they come from the saved training config.
-    Frame scoping (``--frames``, ``--video_index``, ``--only_labeled_frames``, ...)
-    and tracking are simply not implemented on this route.
+
+def _reject_unsupported_embedding_options(fused: bool) -> None:
+    """Fail on explicitly-set options the embedding route cannot honor.
+
+    Silently ignoring them is the class of surprise #732 fixed for `predict`.
+
+    Args:
+        fused: True when a detection stack was passed alongside the embedding
+            model. The detection stage then receives the full option set, so
+            frame scoping and geometry ARE honored there and nothing is rejected.
     """
+    if fused:
+        return
     ctx = click.get_current_context(silent=True)
     if ctx is None:  # programmatic call, no CLI to police
         return
@@ -1518,36 +1563,114 @@ def _reject_ignored_embeddings_options() -> None:
     offenders = sorted(
         name
         for name in ctx.params
-        if name not in _EMBEDDINGS_FORWARDED_OPTIONS
+        if name in _EMBEDDING_ROUTE_UNSUPPORTED_OPTIONS
         and ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
     )
     if offenders:
-        flags = ", ".join(f"--{name}" for name in offenders)
+        detail = "; ".join(
+            f"--{name} ({_EMBEDDING_ROUTE_UNSUPPORTED_OPTIONS[name]})"
+            for name in offenders
+        )
         raise click.UsageError(
-            f"--embeddings_path does not support {flags}. It streams appearance "
-            "vectors for every tracked mask in --data_path, using the crop "
-            "geometry the model was trained with (overriding it would embed crops "
-            "the model never saw). Supported alongside it: --model_paths, "
-            "--data_path, --device, --batch_size, --peak_threshold."
+            f"the embedding (re-ID) route does not support {detail}. It embeds every "
+            "detection already present in --data_path. Pass a detection model "
+            "alongside the embedding model to detect and embed in one command, in "
+            "which case those options apply to the detection stage."
         )
 
 
-def _run_embeddings(kwargs: dict, embeddings_path: str) -> "object":
-    """Stream per-mask appearance vectors of an ``embedding`` model to ``.h5``."""
-    from sleap_nn.inference.embedding import predict_embeddings_to_h5
+def _run_embeddings(
+    kwargs: dict,
+    save_embeddings: str = "none",
+    tracker_config: "object" = None,
+    paf_workers: int = 0,
+) -> "object":
+    """Embed detections of an ``embedding`` model and persist the vectors into a ``.slp``.
+
+    Attaches each detection's appearance vector (``sio.Embedding`` ``"reid"``) to its
+    source detection and writes a ``.slp``. With
+    ``tracker_config`` (``--tracking``, WF2) every detection is embedded and tracked by
+    appearance (cosine similarity) into a tracked ``.slp``; ``save_embeddings`` then
+    decides whether the vectors persist in it (``"slp"``) or are stripped (``"none"`` =
+    tracks only).
+
+    **Fused detect→embed:** when ``--model_paths`` carries a detection stack (centroid
+    and/or centered_instance) ALONGSIDE the embedding model, the detection stack is run
+    first on ``--data_path`` (to a temporary ``.slp``) and those detections are then
+    embedded + (optionally) tracked — equivalent to the two-step
+    ``detect → .slp → embed+track``, fused into a single command.
+    """
+    import os
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    from sleap_nn.inference.embedding import predict_embeddings_to_slp
 
     if not kwargs.get("data_path"):
-        raise click.UsageError("--data_path is required for --embeddings_path.")
-    _reject_ignored_embeddings_options()
-    out = predict_embeddings_to_h5(
-        model_paths=kwargs["model_paths"],
-        data_path=kwargs["data_path"],
-        output_path=embeddings_path,
-        device=_resolve_device(kwargs.get("device")),
-        batch_size=kwargs.get("batch_size", 4) or 4,
-        peak_threshold=kwargs.get("peak_threshold"),
-    )
-    click.echo(f"Wrote embeddings to {out}")
+        raise click.UsageError(
+            "--data_path is required for --save_embeddings / --tracking on an "
+            "embedding model."
+        )
+
+    model_paths = list(kwargs["model_paths"])
+    embedding_dirs = [m for m in model_paths if _is_embedding_model(m)]
+    detection_dirs = [m for m in model_paths if not _is_embedding_model(m)]
+    _reject_unsupported_embedding_options(fused=bool(detection_dirs))
+
+    data_path = kwargs["data_path"]
+    output_path = kwargs.get("output_path")
+    tmpdir = None
+    try:
+        if detection_dirs:
+            # FUSED: run the detection stack (centroid [+ centered_instance]) on the raw
+            # input -> temp poses .slp, then embed (+track). Exactly the two-step
+            # `detect -> .slp -> embed+track` path, fused into one command.
+            tmpdir = tempfile.mkdtemp(prefix="sleapnn_fused_det_")
+            poses_tmp = os.path.join(tmpdir, "detections.slp")
+            det_kwargs = dict(kwargs)
+            det_kwargs["model_paths"] = detection_dirs
+            det_kwargs["tracking"] = False  # detect only; the embedding path tracks
+            det_kwargs["output_path"] = poses_tmp
+            det_kwargs["output_format"] = kwargs.get("output_format") or ("slp",)
+            click.echo(
+                f"[fused] detecting with {len(detection_dirs)} model(s), then "
+                "embedding the detections..."
+            )
+            _run_in_memory_new_flow(det_kwargs, paf_workers=paf_workers)
+            data_path = poses_tmp
+            # Default the final output off the ORIGINAL input (the temp detections .slp
+            # would otherwise leak into the auto-derived name).
+            if not output_path:
+                src, _, _ = _resolve_data_path(kwargs["data_path"])
+                stem = str(Path(src).with_suffix(""))
+                output_path = (
+                    f"{stem}.tracked.slp"
+                    if tracker_config is not None
+                    else f"{stem}.embeddings.slp"
+                )
+
+        out = predict_embeddings_to_slp(
+            model_paths=embedding_dirs,
+            data_path=data_path,
+            output_path=output_path,
+            device=_resolve_device(kwargs.get("device")),
+            batch_size=kwargs.get("batch_size", 4) or 4,
+            save_embeddings=save_embeddings,
+            tracker_config=tracker_config,
+            # Fused detections are freshly produced and carry no tracks yet, so embed
+            # them all (tracked-only would be empty); the lone-embedding path keeps the
+            # default (derive from tracking).
+            include_untracked=True if detection_dirs else None,
+        )
+    finally:
+        if tmpdir:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    if tracker_config is not None:
+        click.echo(f"Wrote tracked labels to {out}")
+    else:
+        click.echo(f"Wrote embeddings to {out}")
     return out
 
 
@@ -2511,13 +2634,16 @@ def _common_inference_options(f):
             "Ignored when embedding.",
         ),
         click.option(
-            "--embeddings_path",
-            "embeddings_path",
-            type=str,
-            default=None,
-            help="For an `embedding` (re-ID) model: stream per-mask appearance "
-            "vectors + index arrays (video/frame/detection/track) to this .h5 "
-            "for offline re-ID. Required when --model_paths is an embedding model.",
+            "--save_embeddings",
+            "save_embeddings",
+            type=click.Choice(["none", "slp"]),
+            default="none",
+            help="For an `embedding` (re-ID) model: whether to persist each "
+            "detection's appearance vector into the output .slp, attached to its source "
+            "detection via the sleap-io `Embedding` data model. 'slp' writes the "
+            "vectors; 'none' (default) does not. With --tracking, 'none' yields tracks "
+            "only while 'slp' keeps the vectors alongside the assigned tracks. Without "
+            "--tracking, use 'slp' to write a .slp of appearance vectors.",
         ),
         click.option(
             "--device",
@@ -2944,8 +3070,10 @@ def _common_inference_options(f):
             type=str,
             default=None,
             help="Feature for track association: one of keypoints, centroids, "
-            "bboxes, masks. Left unset, single-node/centroid models resolve to "
-            "'centroids' and bottom-up segmentation (mask) models to 'masks'.",
+            "bboxes, masks, embeddings. Left unset, single-node/centroid models "
+            "resolve to 'centroids' and bottom-up segmentation (mask) models to "
+            "'masks'. 'embeddings' tracks by the 'reid' appearance vector attached "
+            "by the embedding model (auto-pairs with cosine_sim).",
         ),
         click.option(
             "--scoring_method",
@@ -2953,8 +3081,8 @@ def _common_inference_options(f):
             default=None,
             help="Track association scoring method: one of oks, cosine_sim, "
             "iou, mask_iou, euclidean_dist. Left unset, single-node/centroid "
-            "models resolve to 'euclidean_dist' and segmentation (mask) models "
-            "to 'mask_iou'.",
+            "models resolve to 'euclidean_dist', segmentation (mask) models "
+            "to 'mask_iou', and '--features embeddings' to 'cosine_sim'.",
         ),
         click.option("--scoring_reduction", type=str, default="mean"),
         click.option("--robust_best_instance", type=float, default=1.0),

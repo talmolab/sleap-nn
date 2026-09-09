@@ -38,13 +38,13 @@ def test_predict_to_file_is_refused(embedding_predictor, minimal_instance, tmp_p
 
 
 def test_refusal_points_at_the_supported_route(embedding_predictor, minimal_instance):
-    """The message names the .h5 writer and the CLI flag."""
+    """The message names the .slp writer and the CLI flag."""
     with pytest.raises(ValueError) as excinfo:
         embedding_predictor.predict(sio.load_slp(minimal_instance), make_labels=True)
 
     message = str(excinfo.value)
-    assert "predict_embeddings_to_h5" in message
-    assert "--embeddings_path" in message
+    assert "predict_embeddings_to_slp" in message
+    assert "--save_embeddings" in message
 
 
 def test_pose_predictor_still_requires_a_skeleton(minimal_instance):
@@ -110,10 +110,10 @@ def test_inference_dataset_inherits_the_trained_crop_geometry(
     sio.save_slp(labels, slp_path.as_posix())
 
     with pytest.raises(RuntimeError, match="stop after capturing"):
-        embedding_module.predict_embeddings_to_h5(
+        embedding_module.predict_embeddings_to_slp(
             model_paths=[str(minimal_embedding_model_dir)],
             data_path=slp_path.as_posix(),
-            output_path=(tmp_path / "out.h5").as_posix(),
+            output_path=(tmp_path / "out.slp").as_posix(),
             device="cpu",
         )
 
