@@ -1759,7 +1759,37 @@ class ModelTrainer:
 
         # initialize the labels object and update config.
         if not len(self.train_labels) or not len(self.val_labels):
-            self._setup_train_val_labels(self.config)
+            # Reached when the bare constructor was used (`ModelTrainer(config=...)`)
+            # instead of `get_model_trainer_from_config`. This guard used to pass the
+            # CONFIG where `_setup_train_val_labels` expects a `List[sio.Labels]`, so
+            # it dereferenced `labels[0].skeletons` and died with
+            # `ConfigKeyError: Missing key 0` -- it could only ever raise. Load the
+            # labels from the config paths, exactly as the factory does.
+            #
+            # The factory normalizes the config (filling in optional sections such as
+            # `preprocessing.tiling`) before doing anything else; the bare constructor
+            # does not, so do it here or the first access to a missing key raises.
+            self.config = verify_training_cfg(self.config)
+            # `model_type` / `backbone_type` are `None` after the bare constructor and
+            # are read during label setup (e.g. the single-instance frame check), so
+            # derive them here too rather than leaving a half-initialized trainer.
+            if self.model_type is None:
+                self.model_type = get_model_type_from_cfg(self.config)
+            if self.backbone_type is None:
+                self.backbone_type = get_backbone_type_from_cfg(self.config)
+            train_labels = [
+                sio.load_slp(path) for path in self.config.data_config.train_labels_path
+            ]
+            val_labels = (
+                [sio.load_slp(path) for path in self.config.data_config.val_labels_path]
+                if self.config.data_config.val_labels_path is not None
+                else None
+            )
+            self._setup_train_val_labels(labels=train_labels, val_labels=val_labels)
+            # Snapshot the pre-`setup_config` config, as the factory does: it is
+            # written out as `initial_config.yaml` at the end of training.
+            if self._initial_config is None:
+                self._initial_config = self.config.copy()
             self.setup_config()
 
         # create the ckpt dir.

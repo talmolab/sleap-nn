@@ -1470,6 +1470,14 @@ def test_loading_pretrained_weights(
     sleap_nn_config.trainer_config.trainer_accelerator = (
         "cpu" if torch.mps.is_available() else "auto"
     )
+    # Pin to a single device. With `trainer_accelerator="auto"` on a MULTI-GPU
+    # machine Lightning takes every device, initializes DDP, and leaves
+    # `torch.distributed` initialized for the rest of the pytest session -- every
+    # later test doing a collective then fails with `DistBackendError`, and
+    # `TestDistributedUtils` asserts the group is NOT initialized. 13 downstream
+    # failures traced back to this one test. Invisible on CI (single-GPU/CPU
+    # runners); it bites every multi-GPU developer machine.
+    sleap_nn_config.trainer_config.trainer_devices = 1
     sleap_nn_config.trainer_config.ckpt_dir = f"{tmp_path}"
     sleap_nn_config.trainer_config.run_name = "test_loading_weights"
 
@@ -1502,6 +1510,7 @@ def test_loading_pretrained_weights(
     sleap_nn_config.trainer_config.trainer_accelerator = (
         "cpu" if torch.mps.is_available() else "auto"
     )
+    sleap_nn_config.trainer_config.trainer_devices = 1  # see above: DDP leak
     trainer = ModelTrainer.get_model_trainer_from_config(
         config=sleap_nn_config,
         train_labels=[sio.load_slp(minimal_instance)],
@@ -1924,3 +1933,39 @@ class TestCsvLogKeysEvalMetrics:
         )
         csv_logger = next(c for c in callbacks if isinstance(c, CSVLoggerCallback))
         assert not any(key.startswith("eval/") for key in csv_logger.keys)
+
+
+def test_bare_constructor_train_loads_labels_from_the_config(
+    config, tmp_path, monkeypatch
+):
+    """`ModelTrainer(config=...).train()` must work, not raise a cryptic error.
+
+    `train()` guards with `if not len(self.train_labels)` and then called
+    `_setup_train_val_labels(self.config)` -- passing the CONFIG where a
+    `List[sio.Labels]` is expected, so it dereferenced `labels[0].skeletons` and
+    died with `ConfigKeyError: Missing key 0`. The guard could only ever raise,
+    while reading as though the bare constructor were a supported entry point.
+    Latent because every shipped entry point goes through
+    `get_model_trainer_from_config`, which loads labels first.
+    """
+    monkeypatch.chdir(tmp_path)
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.max_epochs", 1)
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(cfg, "trainer_config.run_name", "bare_ctor_run")
+    OmegaConf.update(cfg, "trainer_config.trainer_devices", 1)
+    OmegaConf.update(cfg, "trainer_config.save_ckpt", True)
+    if torch.mps.is_available():
+        cfg.trainer_config.trainer_accelerator = "cpu"
+
+    trainer = ModelTrainer(config=cfg)
+    assert not len(trainer.train_labels)  # the fallback's precondition
+    trainer.train()
+
+    # The fallback must leave a fully initialized trainer, not a half-built one.
+    assert len(trainer.train_labels) == 1
+    assert len(trainer.val_labels) == 1
+    assert trainer.model_type is not None
+    assert trainer.backbone_type is not None
+    assert trainer._initial_config is not None
+    assert (Path(tmp_path) / "bare_ctor_run" / "best.ckpt").exists()
