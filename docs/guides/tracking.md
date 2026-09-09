@@ -225,6 +225,131 @@ sleap-nn predict -i video.mp4 -m models/ \
 
 ---
 
+## Evaluating Identity Persistence
+
+`sleap-nn eval` scores detection and localization -- whether the animal was found,
+and where. It says nothing about whether a track kept the **right** animal.
+`sleap-nn eval-tracking` scores that:
+
+```bash
+sleap-nn eval-tracking -g ground_truth.slp -p tracked_predictions.slp
+```
+
+Both files must be tracked: the ground truth needs `track` set on the detections
+you want scored, and the prediction needs tracks from `sleap-nn track` or
+`sleap-nn predict -t`. An untracked prediction is skipped with a message rather
+than scored as a failure.
+
+Detections are matched to ground truth within each frame first (OKS for poses,
+mask IoU for segmentation masks), and identity is scored over those matches --
+so a tracker is never penalized for the detector's misses.
+
+| metric | what it measures | better |
+|---|---|---|
+| `id_switches` | Times a ground-truth trajectory changed which predicted track it matched (CLEAR-MOT). A change across a gap counts; the gap itself does not. | lower |
+| `idf1` / `idp` / `idr` | Identity F1 after a global best assignment of predicted identities to ground-truth ones (Ristani et al.). | higher |
+| `mostly_tracked` / `partly_tracked` / `mostly_lost` | Ground-truth trajectories bucketed by how much of them was matched at all. | MT higher |
+| `fragmentations` | Interruptions of a trajectory that later resumes. A trajectory that simply ends is not counted. | lower |
+| `mean_track_purity` | Per predicted track, the share of its matched detections belonging to its dominant ground-truth identity, length-weighted. | higher |
+| `mean_gt_coverage` | Mean share of each ground-truth trajectory's frames that matched. | higher |
+
+The coverage and purity columns are there on purpose: without them a tracker can
+"win" on ID switches by emitting fewer, shorter, more timid tracks. Read them
+together.
+
+Detection counts (`n_gt_dets`, `n_pred_dets`, `n_matched`, `n_pred_untracked`)
+are reported alongside but never folded into the identity scores -- which is why
+MOTA is deliberately absent. MOTA mixes detection false positives and misses
+into one number, so when two trackers are compared over the same detections a
+MOTA delta mostly reports detector noise.
+
+### What carries identity
+
+`--carrier` selects what is matched and scored:
+
+- `pose` -- instances, matched by OKS. The default for pose models.
+- `mask` -- `PredictedSegmentationMask`es, matched by mask IoU, for segmentation
+  models. Scale-aware, so stride-resolution predicted masks and full-resolution
+  ground-truth masks are compared on the same pixel grid.
+- `auto` (default) -- picks `mask` when the prediction carries masks but no
+  instances, else `pose`.
+
+`--match_threshold` is the minimum OKS or IoU for a pair to count as matched
+(default `0.5`), and `--mt_threshold` / `--ml_threshold` are the coverage cuts
+for MT and ML.
+
+!!! note "`--user_labels_only` is OFF here, unlike `sleap-nn eval`"
+    Tracked ground truth usually *is* predicted: the normal workflow predicts
+    poses and then assigns or corrects tracks over them in the GUI. Filtering
+    the ground-truth side by detection type would therefore discard it -- on the
+    re-ID benchmark's own ground-truth sessions, turning the filter on takes
+    2465 scored detections to 0.
+
+    So everything carrying a track on the ground-truth side is scored, and the
+    count of predicted ground-truth detections is reported in `notes`. Pass
+    `--user_labels_only` in the one case it helps: user-labeled ground truth in
+    a file that *also* holds stale predictions from an earlier run, which would
+    otherwise be scored as extra trajectories.
+
+### Score a video clip, not a training split
+
+!!! warning "Identity metrics on a sparse label file are meaningless"
+    An embedded `.pkg.slp` training split renumbers its frames `0..N-1`, so
+    `frame_idx` and `frame_numbers` both read as contiguous while the animal has
+    actually moved across the arena between two "consecutive" frames. Every
+    index-based check passes and the metrics come out looking authoritative.
+
+    `eval-tracking` measures this and warns. The check is exposed directly:
+
+    ```python
+    from sleap_nn.evaluation import motion_diagnostic
+    import sleap_io as sio
+
+    motion_diagnostic(sio.load_slp("labels.slp"), "pose")
+    # continuous video:     {'step_over_size': 0.06, 'is_continuous': True, ...}
+    # sparse training split: {'step_over_size': 8.74, 'is_continuous': False, ...}
+    ```
+
+    `step_over_size` is how far the same animal moves between consecutive frames
+    relative to its own body size. At the high end, consecutive detections of one
+    animal do not even overlap, so geometric association has no signal to work
+    with and any IoU tracker must fail -- for reasons that have nothing to do
+    with the tracker.
+
+### Python API
+
+```python
+import sleap_io as sio
+from sleap_nn.evaluation import identity_metrics
+
+gt = sio.load_slp("ground_truth.slp")
+pred = sio.load_slp("tracked_predictions.slp")
+
+metrics = identity_metrics(gt, pred, "pose")
+print(metrics.summary())
+# IDSW=32  IDF1=0.8491 (P=0.8491 R=0.8491)  MT/PT/ML=5/0/0  Frag=0 ...
+
+metrics.as_dict()["id_switches"]  # 32
+```
+
+Comparing tracker settings is the common case, so there is a table renderer for it:
+
+```python
+from sleap_nn.evaluation import compare_identity_metrics
+
+print(compare_identity_metrics({
+    "fixed_window": identity_metrics(gt, pred_fixed, "pose"),
+    "flow": identity_metrics(gt, pred_flow, "pose"),
+    "kalman": identity_metrics(gt, pred_kalman, "pose"),
+}))
+```
+
+Always compare arms over the **same** detections -- retrack one prediction file
+with different tracker settings rather than re-running inference -- so the
+difference you read is the tracker's and not the detector's.
+
+---
+
 ## Troubleshooting
 
 ??? question "Tracks switch identities"
