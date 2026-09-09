@@ -1434,13 +1434,30 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#anchor-node-convention-586" class="md-nav__link">
+  <a href="#choosing-what-centroid-means-586" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Anchor-node convention (#586)
+        Choosing what "centroid" means (#586)
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Choosing what &#34;centroid&#34; means (#586)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#training-a-centroid-model-on-mask-only-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training a centroid model on mask-only labels
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -7262,13 +7279,30 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#anchor-node-convention-586" class="md-nav__link">
+  <a href="#choosing-what-centroid-means-586" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Anchor-node convention (#586)
+        Choosing what "centroid" means (#586)
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Choosing what &#34;centroid&#34; means (#586)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#training-a-centroid-model-on-mask-only-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training a centroid model on mask-only labels
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -7493,22 +7527,84 @@ representation choices:</p>
 <code>training_config.yaml</code> and applies the same collapse, so the output is
 bit-for-bit identical to the checkpoint path. See the
 <a href="../export/#standalone-centroid">Export guide</a> for details.</p>
-<h2 id="anchor-node-convention-586">Anchor-node convention (#586)<a class="headerlink" href="#anchor-node-convention-586" title="Permanent link">&para;</a></h2>
+<h2 id="choosing-what-centroid-means-586">Choosing what "centroid" means (#586)<a class="headerlink" href="#choosing-what-centroid-means-586" title="Permanent link">&para;</a></h2>
 <p>The centroid's <em>meaning</em> is defined by
 <a href="../reference/sleap_nn/data/instance_centroids.md"><code>generate_centroids</code></a> — the
-same function used for training-target generation and GT-centroid evaluation:</p>
-<ol>
-<li><strong><code>anchor_part</code></strong> in <code>training_config.yaml</code> (the centroid head config): the
-   centroid is that node when visible.</li>
-<li><strong><code>anchor_part</code> unset</strong> (recommended for a 1-node skeleton, where the sole
-   node <em>is</em> the centroid): the centroid is the <strong>NaN-ignoring mean of all
-   visible nodes</strong> in each instance.</li>
-</ol>
-<p>This is project-wide convention as of v0.3 — earlier versions used the
-<strong>bounding-box midpoint</strong>, which differs on asymmetric instances (long tails,
-sprawled limbs). If you trained a centroid model on the old bbox-midpoint
-convention with <code>anchor_part</code> unset, the GT centroid targets for partial
-instances shift slightly; re-training is recommended.</p>
+same function used for training-target generation, top-down crop centers and
+GT-centroid evaluation, so all three can never disagree. Four methods are
+available, spelled exactly as in <code>sio.Instance.to_centroid</code>:</p>
+<table>
+<thead>
+<tr>
+<th><code>centroid_method</code></th>
+<th>centroid is</th>
+<th>good for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>center_of_mass</code> <em>(default)</em></td>
+<td>mean of the visible nodes</td>
+<td>most datasets</td>
+</tr>
+<tr>
+<td><code>bbox_center</code></td>
+<td>midpoint of the visible nodes' bounding box</td>
+<td>the pre-v0.3 convention</td>
+</tr>
+<tr>
+<td><code>geometric_median</code></td>
+<td>Weiszfeld median of the visible nodes</td>
+<td>skeletons where a node is sometimes badly localized — measured on flies13 and gerbil pose, one node off by a body length moves this centroid ~1.7× less than <code>center_of_mass</code> and ~5× less than <code>bbox_center</code>. It is <em>not</em> more stable than the mean when a node goes <strong>missing</strong>, which is a different perturbation.</td>
+</tr>
+<tr>
+<td><code>anchor</code></td>
+<td>the <code>anchor_part</code> node, falling back to <code>centroid_fallback</code> when it is occluded</td>
+<td>a reliable, consistently-visible landmark</td>
+</tr>
+</tbody>
+</table>
+<p>Set it on the head config:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">model_config</span><span class="p">:</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">head_configs</span><span class="p">:</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="nt">centroid</span><span class="p">:</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">      </span><span class="nt">confmaps</span><span class="p">:</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">        </span><span class="nt">centroid_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">geometric_median</span><span class="w">   </span><span class="c1"># or center_of_mass / bbox_center</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">        </span><span class="nt">anchor_part</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+</span></code></pre></div>
+<p>and for an anchor with a non-default fallback:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="w">        </span><span class="nt">anchor_part</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">thorax</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">        </span><span class="nt">centroid_fallback</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bbox_center</span><span class="w">      </span><span class="c1"># used only when `thorax` is occluded</span>
+</span></code></pre></div>
+<p><strong>Defaults are unchanged.</strong> <code>centroid_method: null</code> (the default) means "the
+anchor node when <code>anchor_part</code> is set, else <code>center_of_mass</code>" — exactly the
+behavior of every config written before this knob existed. Setting <code>anchor_part</code>
+<em>and</em> a non-anchor <code>centroid_method</code> is rejected at setup: they name two
+different centroids, and <code>centroid_fallback</code> is what you want instead.</p>
+<p><strong>Match it at inference and evaluation.</strong> The knob rides the checkpoint, so
+<code>sleap-nn predict</code> reproduces the training geometry automatically, and the
+recorded <code>sio.Centroid.source</code> tag names the method used. When evaluating a
+prediction file against ground truth by hand, pass the same method — otherwise
+the distance metric scores the model against a different definition of centroid
+than the one it was trained on:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--match_method<span class="w"> </span>centroid<span class="w"> </span>--centroid_method<span class="w"> </span>geometric_median<span class="w"> </span>...
+</span></code></pre></div>
+<p><code>center_of_mass</code> became the project-wide default in v0.3 — earlier versions used
+the bounding-box midpoint, which differs on asymmetric instances (long tails,
+sprawled limbs). A model trained on the old convention is now expressible
+directly as <code>centroid_method: bbox_center</code>, so it no longer needs re-training to
+be described accurately.</p>
+<h3 id="training-a-centroid-model-on-mask-only-labels">Training a centroid model on mask-only labels<a class="headerlink" href="#training-a-centroid-model-on-mask-only-labels" title="Permanent link">&para;</a></h3>
+<p>Labels that carry segmentation masks but no poses have nothing for the centroid
+target to be derived from. <code>data_config.centroids_from_masks</code> names a method and
+derives a <code>UserCentroid</code> per mask at load time (via
+<code>sio.SegmentationMask.to_centroid</code>), after which the ordinary
+<code>centroid_source: user</code> path takes over unchanged:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">data_config</span><span class="p">:</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">centroids_from_masks</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">center_of_mass</span><span class="w">   </span><span class="c1"># or bbox_center / geometric_median</span>
+</span></code></pre></div>
+<p>Frames that already carry user centroids are left alone — a real annotation
+always outranks a derived one. <code>anchor</code> does not apply here: a mask has no nodes.</p>
 <h2 id="interaction-with-filtering-tracking-and-metrics">Interaction with filtering, tracking, and metrics<a class="headerlink" href="#interaction-with-filtering-tracking-and-metrics" title="Permanent link">&para;</a></h2>
 <h3 id="filtering">Filtering<a class="headerlink" href="#filtering" title="Permanent link">&para;</a></h3>
 <p><code>FilterConfig</code> knobs apply to centroid-only outputs:</p>
@@ -7524,16 +7620,16 @@ instances shift slightly; re-training is recommended.</p>
 auto-resolves to <code>euclidean_dist</code> (pixel distance between centroids); OKS /
 keypoint scoring is degenerate on a single point
 (<code>sleap_nn/inference/tracking.py</code>).</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference.tracking</span><span class="w"> </span><span class="kn">import</span> <span class="n">TrackerConfig</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">tracker_config</span> <span class="o">=</span> <span class="n">TrackerConfig</span><span class="p">(</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="n">features</span><span class="o">=</span><span class="s2">&quot;centroids&quot;</span><span class="p">,</span>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>    <span class="c1"># scoring_method auto-resolves to &quot;euclidean_dist&quot; for single-node;</span>
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>    <span class="c1"># set it explicitly if you want to be sure.</span>
-</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>    <span class="n">scoring_method</span><span class="o">=</span><span class="s2">&quot;euclidean_dist&quot;</span><span class="p">,</span>
-</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    <span class="n">window_size</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
-</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>    <span class="n">track_matching_method</span><span class="o">=</span><span class="s2">&quot;hungarian&quot;</span><span class="p">,</span>
-</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference.tracking</span><span class="w"> </span><span class="kn">import</span> <span class="n">TrackerConfig</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="n">tracker_config</span> <span class="o">=</span> <span class="n">TrackerConfig</span><span class="p">(</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>    <span class="n">features</span><span class="o">=</span><span class="s2">&quot;centroids&quot;</span><span class="p">,</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>    <span class="c1"># scoring_method auto-resolves to &quot;euclidean_dist&quot; for single-node;</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>    <span class="c1"># set it explicitly if you want to be sure.</span>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>    <span class="n">scoring_method</span><span class="o">=</span><span class="s2">&quot;euclidean_dist&quot;</span><span class="p">,</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>    <span class="n">window_size</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>    <span class="n">track_matching_method</span><span class="o">=</span><span class="s2">&quot;hungarian&quot;</span><span class="p">,</span>
+</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="p">)</span>
 </span></code></pre></div>
 <h3 id="metrics">Metrics<a class="headerlink" href="#metrics" title="Permanent link">&para;</a></h3>
 <p>Distance-based metrics (centroid localization error, instance count) work as

@@ -7351,6 +7351,16 @@
 <td>None</td>
 </tr>
 <tr>
+<td><code>--centroid_method</code></td>
+<td>How centroid-mode GT centroids are derived: <code>center_of_mass</code>, <code>bbox_center</code>, <code>geometric_median</code>, <code>anchor</code>. Pass the value the model was <strong>trained</strong> with (<code>head_configs.centroid.confmaps.centroid_method</code>) so the metric compares like with like</td>
+<td>infer from <code>--anchor_part</code></td>
+</tr>
+<tr>
+<td><code>--centroid_fallback</code></td>
+<td>Reduce method used when the <code>--anchor_part</code> node is not visible</td>
+<td><code>center_of_mass</code></td>
+</tr>
+<tr>
 <td><code>--user_labels_only</code> / <code>--no-user_labels_only</code></td>
 <td>Only evaluate user-labeled frames</td>
 <td><code>True</code></td>
