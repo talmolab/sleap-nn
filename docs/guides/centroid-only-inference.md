@@ -177,7 +177,7 @@ available, spelled exactly as in `sio.Instance.to_centroid`:
 |---|---|---|
 | `center_of_mass` *(default)* | mean of the visible nodes | most datasets |
 | `bbox_center` | midpoint of the visible nodes' bounding box | the pre-v0.3 convention |
-| `geometric_median` | Weiszfeld median of the visible nodes | elongated / curled animals, or skeletons with a long tail node that drags the mean off the body |
+| `geometric_median` | Weiszfeld median of the visible nodes | skeletons where a node is sometimes badly localized — measured on flies13 and gerbil pose, one node off by a body length moves this centroid ~1.7× less than `center_of_mass` and ~5× less than `bbox_center`. It is *not* more stable than the mean when a node goes **missing**, which is a different perturbation. |
 | `anchor` | the `anchor_part` node, falling back to `centroid_fallback` when it is occluded | a reliable, consistently-visible landmark |
 
 Set it on the head config:

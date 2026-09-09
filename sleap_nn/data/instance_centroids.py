@@ -7,9 +7,13 @@ several ways, and sleap-nn now exposes the same four-way vocabulary as
 ===================== =========================================================
 ``center_of_mass``    Mean of the visible nodes (the historical default).
 ``bbox_center``       Midpoint of the visible nodes' bounding box.
-``geometric_median``  Weiszfeld geometric median of the visible nodes; robust to
-                      a few outlying nodes, so it tracks the body center better
-                      for elongated or curled animals.
+``geometric_median``  Weiszfeld geometric median of the visible nodes. The
+                      least affected by a MISLOCALIZED node: with one node off by
+                      a body length, the centroid moves ~1.7x less than the mean
+                      and ~5x less than the bbox midpoint (measured on flies13 and
+                      gerbil pose). It is NOT more stable than the mean when a
+                      node goes MISSING -- a different perturbation, where it
+                      measured slightly worse.
 ``anchor``            A named node, with a reduce-method fallback when that node
                       is not visible.
 ===================== =========================================================
@@ -122,9 +126,25 @@ def find_points_geometric_median(
     """Find the geometric median of a set of points via Weiszfeld's algorithm.
 
     The geometric median minimizes the sum of Euclidean distances to the input
-    points, which makes it markedly more robust than the mean to a few badly
-    localized or anatomically extreme nodes — a curled tail pulls
+    points, which makes it markedly more robust than the mean to a badly localized
+    node — a tracker that flings one node across the frame pulls
     :func:`find_points_mean` off the body, but barely moves this.
+
+    Measured on real pose data (flies13, gerbil; one visible node displaced by one
+    body length), the resulting centroid shift is:
+
+    ==================  ===============  ===============
+    method              flies13 median   gerbil median
+    ==================  ===============  ===============
+    geometric_median    3.7 px           4.4 px
+    center_of_mass      6.6 px           6.9 px
+    bbox_center         21.3 px          17.8 px
+    ==================  ===============  ===============
+
+    This is robustness to a node in the WRONG PLACE, not to a node being absent:
+    under single-node dropout the geometric median moved slightly MORE than the
+    mean (4.8 px vs 3.4 px median on flies13), since removing a node can move the
+    Fermat point it was pinned near.
 
     Args:
         points: A torch.Tensor of dtype torch.float32 and of shape (..., n_points, 2),
