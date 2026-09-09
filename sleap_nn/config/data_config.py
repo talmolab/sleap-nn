@@ -411,6 +411,17 @@ class DataConfig:
             partitions the training labels by the configured group key (`frame`/`video`/
             `identity`) instead of the default frame-level random `validation_fraction`
             split. *Default*: `None` (unchanged default behavior).
+        centroids_from_masks: (str) Derive `UserCentroid` annotations from the labels'
+            segmentation masks at load time, so a MASK-ONLY dataset (no pose
+            annotations at all) can train a centroid model. The value names the
+            derivation method — `center_of_mass` or `bbox_center`, the two
+            `sio.SegmentationMask.to_centroid` offers — and `None` (default)
+            disables it. (`geometric_median` is defined over a point set and does
+            not apply to masks; it is available for pose-derived centroids via
+            `centroid_method`.) Frames that
+            already carry user centroids are left alone. Once derived, the ordinary
+            `centroid_source="user"` path takes over unchanged; nothing downstream
+            knows the centroids came from masks. *Default*: `None`.
     """
 
     train_labels_path: Optional[List[str]] = None
@@ -438,6 +449,7 @@ class DataConfig:
     skeletons: Optional[list] = None
     identity: Optional[IdentityConfig] = None
     split: Optional[SplitConfig] = None
+    centroids_from_masks: Optional[str] = None
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:

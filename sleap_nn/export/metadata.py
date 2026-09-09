@@ -54,8 +54,11 @@ class ExportMetadata:
     n_classes: Optional[int] = None
     class_names: Optional[List[str]] = None
 
-    # Centroid/top-down anchor point
+    # Centroid/top-down anchor point, and how the centroid is derived (#586).
+    # ``centroid_method`` is what `resolve_centroid_method` returned at export
+    # time; ``None`` in older exports, which then infer it from ``anchor_part``.
     anchor_part: Optional[str] = None
+    centroid_method: Optional[str] = None
 
     # Embedding (re-ID) model
     embedding_dim: Optional[int] = None
@@ -118,6 +121,7 @@ class ExportMetadata:
             backbone_source=data.get("backbone_source"),
             burn_in=data.get("burn_in"),
             background_fill=data.get("background_fill"),
+            centroid_method=data.get("centroid_method"),
             training_config_embedded=bool(data.get("training_config_embedded", False)),
             training_config_hash=data.get("training_config_hash", ""),
         )
@@ -182,6 +186,7 @@ def build_base_metadata(
     backbone_source: Optional[str] = None,
     burn_in: Optional[bool] = None,
     background_fill: Optional[str] = None,
+    centroid_method: Optional[str] = None,
 ) -> ExportMetadata:
     """Create an ExportMetadata instance with standard defaults."""
     return ExportMetadata(
@@ -215,6 +220,7 @@ def build_base_metadata(
         backbone_source=backbone_source,
         burn_in=burn_in,
         background_fill=background_fill,
+        centroid_method=centroid_method,
         training_config_embedded=training_config_embedded,
         training_config_hash=training_config_hash,
     )

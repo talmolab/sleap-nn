@@ -138,6 +138,59 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
     return config
 
 
+def check_centroid_methods(config: OmegaConf) -> OmegaConf:
+    """Validate every head config's centroid-method knobs (#586).
+
+    A contradictory pair (``anchor_part`` plus a non-anchor ``centroid_method``)
+    or an unknown method name must fail at setup with a message naming the head,
+    not deep inside the first ``__getitem__`` of a dataloader worker — where the
+    traceback is a multiprocessing wrapper and the run has already spent minutes
+    caching images.
+
+    Args:
+        config: The full training job config.
+
+    Returns:
+        The config, unchanged (validation only).
+
+    Raises:
+        ValueError: For any head whose centroid knobs do not resolve.
+    """
+    from sleap_nn.data.instance_centroids import resolve_centroid_method
+
+    head_configs = OmegaConf.select(config, "model_config.head_configs", default=None)
+    if head_configs is None:
+        return config
+    for head_type, head in head_configs.items():
+        if head is None:
+            continue
+        for leaf_name, leaf in head.items():
+            if leaf is None or not OmegaConf.is_config(leaf):
+                continue
+            if OmegaConf.select(leaf, "centroid_method", default=None) is None and (
+                OmegaConf.select(leaf, "centroid_fallback", default=None) is None
+            ):
+                continue
+            try:
+                resolve_centroid_method(
+                    anchor_part=OmegaConf.select(leaf, "anchor_part", default=None),
+                    centroid_method=OmegaConf.select(
+                        leaf, "centroid_method", default=None
+                    ),
+                    centroid_fallback=OmegaConf.select(
+                        leaf, "centroid_fallback", default=None
+                    ),
+                )
+            except ValueError as e:
+                message = (
+                    f"Invalid centroid config in "
+                    f"`head_configs.{head_type}.{leaf_name}`: {e}"
+                )
+                logger.error(message)
+                raise ValueError(message) from e
+    return config
+
+
 def check_tiling(config: OmegaConf) -> OmegaConf:
     """Validate + reconcile tiling geometry against the finalized backbone/head.
 

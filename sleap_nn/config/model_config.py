@@ -694,6 +694,26 @@ class CentroidConfMapsConfig:
             reliable anchor point can significantly improve topdown model
             accuracy as they benefit from a consistent geometry of the body parts
             relative to the center of the image. Default is None.
+        centroid_method: (str) How the centroid is derived from the instance's
+            points, spelled as in ``sio.Instance.to_centroid``:
+            ``"center_of_mass"`` (mean of visible nodes), ``"bbox_center"``
+            (midpoint of the visible nodes' bounding box), ``"geometric_median"``
+            (Weiszfeld median — the least affected by a MISLOCALIZED node; measured
+            on real pose data, one node off by a body length moves it ~1.7x less
+            than the mean and ~5x less than the bbox midpoint. Not more stable
+            than the mean under node dropout), or ``"anchor"``
+            (the ``anchor_part`` node). ``None`` (default) infers it: ``"anchor"``
+            when ``anchor_part`` is set, else ``"center_of_mass"`` — i.e. exactly
+            the historical behavior, so existing configs are unchanged. Setting
+            both ``anchor_part`` and a non-anchor ``centroid_method`` is an error
+            (they name different centroids); use ``centroid_fallback`` for that.
+            Default is None.
+        centroid_fallback: (str) The reduce method used when ``anchor_part`` is
+            configured but that node is not visible: ``"center_of_mass"``
+            (default), ``"bbox_center"`` or ``"geometric_median"``. Only
+            meaningful for the anchor method. Unlike ``sio``'s ``fallback=None``,
+            sleap-nn always falls back rather than emitting a NaN centroid.
+            Default is None (= ``"center_of_mass"``).
         centroid_source: (str) Which centroid the model is trained to predict.
             The centroid head must use ONE source for the whole dataset —
             mixing user-annotated and computed centroids trains the head against
@@ -746,6 +766,8 @@ class CentroidConfMapsConfig:
     """
 
     anchor_part: Optional[str] = None
+    centroid_method: Optional[str] = None
+    centroid_fallback: Optional[str] = None
     centroid_source: Optional[str] = None
     sigma: float = 5.0
     output_stride: int = 1
@@ -772,6 +794,26 @@ class CenteredInstanceConfMapsConfig:
             reliable anchor point can significantly improve topdown model
             accuracy as they benefit from a consistent geometry of the body parts
             relative to the center of the image. Default is None.
+        centroid_method: (str) How the crop center is derived from the instance's
+            points, spelled as in ``sio.Instance.to_centroid``:
+            ``"center_of_mass"`` (mean of visible nodes), ``"bbox_center"``
+            (midpoint of the visible nodes' bounding box), ``"geometric_median"``
+            (Weiszfeld median — the least affected by a MISLOCALIZED node; measured
+            on real pose data, one node off by a body length moves it ~1.7x less
+            than the mean and ~5x less than the bbox midpoint. Not more stable
+            than the mean under node dropout), or ``"anchor"``
+            (the ``anchor_part`` node). ``None`` (default) infers it: ``"anchor"``
+            when ``anchor_part`` is set, else ``"center_of_mass"`` — i.e. exactly
+            the historical behavior, so existing configs are unchanged. Setting
+            both ``anchor_part`` and a non-anchor ``centroid_method`` is an error
+            (they name different centroids); use ``centroid_fallback`` for that.
+            Default is None.
+        centroid_fallback: (str) The reduce method used when ``anchor_part`` is
+            configured but that node is not visible: ``"center_of_mass"``
+            (default), ``"bbox_center"`` or ``"geometric_median"``. Only
+            meaningful for the anchor method. Unlike ``sio``'s ``fallback=None``,
+            sleap-nn always falls back rather than emitting a NaN centroid.
+            Default is None (= ``"center_of_mass"``).
         sigma: (float) Spread of the Gaussian distribution of the confidence maps as a
             scalar float. Smaller values are more precise but may be difficult to learn
             as they have a lower density within the image space. Larger values are
@@ -790,6 +832,8 @@ class CenteredInstanceConfMapsConfig:
 
     part_names: Optional[List[str]] = None
     anchor_part: Optional[str] = None
+    centroid_method: Optional[str] = None
+    centroid_fallback: Optional[str] = None
     sigma: float = 5.0
     output_stride: int = 1
     loss_weight: float = 1.0
@@ -1076,11 +1120,33 @@ class CenteredInstanceSegmentationHeadConfig:
         anchor_part: (str) Optional node name used to center crops during
             training. ``None`` (default) centers on the mean of each instance's
             visible nodes.
+        centroid_method: (str) How the centroid is derived from the instance's
+            points, spelled as in ``sio.Instance.to_centroid``:
+            ``"center_of_mass"`` (mean of visible nodes), ``"bbox_center"``
+            (midpoint of the visible nodes' bounding box), ``"geometric_median"``
+            (Weiszfeld median — the least affected by a MISLOCALIZED node; measured
+            on real pose data, one node off by a body length moves it ~1.7x less
+            than the mean and ~5x less than the bbox midpoint. Not more stable
+            than the mean under node dropout), or ``"anchor"``
+            (the ``anchor_part`` node). ``None`` (default) infers it: ``"anchor"``
+            when ``anchor_part`` is set, else ``"center_of_mass"`` — i.e. exactly
+            the historical behavior, so existing configs are unchanged. Setting
+            both ``anchor_part`` and a non-anchor ``centroid_method`` is an error
+            (they name different centroids); use ``centroid_fallback`` for that.
+            Default is None.
+        centroid_fallback: (str) The reduce method used when ``anchor_part`` is
+            configured but that node is not visible: ``"center_of_mass"``
+            (default), ``"bbox_center"`` or ``"geometric_median"``. Only
+            meaningful for the anchor method. Unlike ``sio``'s ``fallback=None``,
+            sleap-nn always falls back rather than emitting a NaN centroid.
+            Default is None (= ``"center_of_mass"``).
     """
 
     output_stride: int = 2
     loss_weight: float = 1.0
     anchor_part: Optional[str] = None
+    centroid_method: Optional[str] = None
+    centroid_fallback: Optional[str] = None
 
 
 @define

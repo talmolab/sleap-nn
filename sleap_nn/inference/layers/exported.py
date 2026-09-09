@@ -165,10 +165,15 @@ class ExportedCentroidLayer:
             ``Predictor._packaging_anchor_ind`` so the centroid lands on the
             configured anchor node rather than node 0 (#582). ``None`` (old
             exports without ``anchor_part``) keeps the node-0 behavior.
+        centroid_method: The method the exported model was trained to predict
+            (``ExportMetadata.centroid_method``), read at packaging time for the
+            recorded ``sio.Centroid.source`` tag (#586). ``None`` (old exports)
+            infers it from ``anchor_ind``.
     """
 
     backend: Any
     anchor_ind: Optional[int] = None
+    centroid_method: Optional[str] = None
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
         """Run the backend and translate to :class:`Outputs`."""

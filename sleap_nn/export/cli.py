@@ -102,6 +102,7 @@ def export(
         warn_on_tiled_export,
         resolve_anchor_part,
         resolve_backbone_source,
+        resolve_centroid_method,
         resolve_backbone_type,
         resolve_background_fill,
         resolve_burn_in,
@@ -418,6 +419,7 @@ def export(
             backbone_source=metadata_backbone_source,
             burn_in=metadata_burn_in,
             background_fill=metadata_background_fill,
+            centroid_method=resolve_centroid_method(cfg, model_type),
         )
 
         metadata.save(export_dir / "export_metadata.json")
@@ -498,6 +500,7 @@ def export(
                 backbone_source=metadata_backbone_source,
                 burn_in=metadata_burn_in,
                 background_fill=metadata_background_fill,
+                centroid_method=resolve_centroid_method(cfg, model_type),
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
         return
@@ -651,6 +654,7 @@ def export(
             normalization="0_to_1",
             peak_threshold=peak_threshold,
             anchor_part=resolve_anchor_part(centroid_cfg, "centroid"),
+            centroid_method=resolve_centroid_method(centroid_cfg, "centroid"),
         )
 
         metadata.save(export_dir / "export_metadata.json")
@@ -703,6 +707,7 @@ def export(
                 normalization="0_to_1",
                 peak_threshold=peak_threshold,
                 anchor_part=resolve_anchor_part(centroid_cfg, "centroid"),
+                centroid_method=resolve_centroid_method(centroid_cfg, "centroid"),
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
         return
@@ -862,6 +867,7 @@ def export(
             class_names=class_names,
             peak_threshold=peak_threshold,
             anchor_part=resolve_anchor_part(centroid_cfg, "centroid"),
+            centroid_method=resolve_centroid_method(centroid_cfg, "centroid"),
         )
         metadata.save(export_dir / "export_metadata.json")
         click.echo(f"ONNX model exported to: {model_out_path}")
@@ -910,6 +916,7 @@ def export(
                 class_names=class_names,
                 peak_threshold=peak_threshold,
                 anchor_part=resolve_anchor_part(centroid_cfg, "centroid"),
+                centroid_method=resolve_centroid_method(centroid_cfg, "centroid"),
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
         return
