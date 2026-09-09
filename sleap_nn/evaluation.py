@@ -799,7 +799,12 @@ def compute_oks(
     # of Eq. 1.
     missing_gt = np.any(np.isnan(points_gt), axis=-1)  # (n_gt, n_nodes)
     assert missing_gt.shape == (n_gt, n_nodes)
-    ks[np.expand_dims(missing_gt, axis=1)] = 0
+    # BROADCAST, don't boolean-index. `ks` is (n_gt, n_pr, n_nodes) while the mask
+    # is (n_gt, 1, n_nodes); numpy requires a boolean index to match the indexed
+    # array's shape exactly, so `ks[mask] = 0` raised an IndexError for every
+    # n_pr > 1 -- i.e. for the (n_gt, n_pr) matrix this function documents and
+    # returns. Latent because every in-repo caller passes one prediction at a time.
+    ks = np.where(missing_gt[:, None, :], 0.0, ks)
 
     # Compute the OKS.
     n_visible_gt = np.sum(

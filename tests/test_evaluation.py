@@ -32,6 +32,52 @@ def caplog(caplog: LogCaptureFixture):
     logger.remove(handler_id)
 
 
+def test_compute_oks_returns_a_matrix_for_multiple_predictions():
+    """`compute_oks` must produce the (n_gt, n_pr) matrix it documents.
+
+    It raised `IndexError` for EVERY n_pr > 1: `ks` is (n_gt, n_pr, n_nodes) but the
+    missing-GT mask was applied as a boolean index of shape (n_gt, 1, n_nodes), and
+    numpy requires a boolean index to match the indexed array exactly. Latent because
+    every in-repo caller passes one prediction at a time (`evaluation.py` inside a
+    per-prediction loop, `tracking/tracker.py` as a pairwise scorer), so nothing
+    exercised the documented matrix form.
+    """
+    rng = np.random.default_rng(0)
+    for n_gt, n_pr in [(1, 1), (2, 1), (1, 2), (2, 2), (3, 2), (2, 3)]:
+        gt = rng.normal(100, 10, (n_gt, 5, 2))
+        pr = rng.normal(100, 10, (n_pr, 5, 2))
+        assert compute_oks(gt, pr).shape == (n_gt, n_pr)
+
+
+def test_compute_oks_matrix_matches_per_prediction_columns():
+    """Column j of the matrix must equal scoring prediction j on its own.
+
+    Exercises the missing-node paths on both sides, which is where the broken
+    masking would have silently changed values rather than raising.
+    """
+    rng = np.random.default_rng(1)
+    gt = rng.normal(100, 10, (3, 5, 2))
+    pr = rng.normal(100, 10, (4, 5, 2))
+    gt[0, 1] = np.nan  # occluded GT nodes
+    gt[2, 3] = np.nan
+    pr[1, 0] = np.nan  # a missing predicted node
+
+    matrix = compute_oks(gt, pr)
+    columns = np.hstack([compute_oks(gt, pr[j : j + 1]) for j in range(pr.shape[0])])
+    np.testing.assert_allclose(matrix, columns, equal_nan=True)
+
+
+def test_compute_oks_zeroes_the_similarity_of_missing_gt_nodes():
+    """A fully-occluded GT instance contributes no keypoint similarity."""
+    gt = np.full((1, 4, 2), np.nan)
+    gt[0, 0] = [10.0, 10.0]  # a single visible node
+    pr = np.tile(np.array([[10.0, 10.0]]), (3, 4, 1))  # 3 predictions, all on it
+    oks = compute_oks(gt, pr)
+    assert oks.shape == (1, 3)
+    # Only the one visible GT node counts, and every prediction sits on it.
+    np.testing.assert_allclose(oks, np.ones((1, 3)), atol=1e-6)
+
+
 def test_compute_oks():
     # Test compute_oks function with the cocoutils implementation
     inst_gt = np.array([[0, 0], [1, 1], [2, 2]]).astype("float32")
