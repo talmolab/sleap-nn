@@ -447,6 +447,11 @@ def add_centroids_from_masks(
             # bad annotation; `to_centroid` returns NaN rather than raising.
             if centroid.x != centroid.x or centroid.y != centroid.y:
                 continue
+            # Record the provenance: `to_centroid` leaves `source` empty, so
+            # nothing downstream could tell a mask-derived centroid from a
+            # hand-annotated one. Compound tag in the same style as the
+            # model-level `anchor:<node>` (see `centroid_source_for_anchor`).
+            centroid.source = f"mask:{method}"
             lf.centroids.append(centroid)
             added_here += 1
         n_added += added_here

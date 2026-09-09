@@ -358,20 +358,63 @@ def test_centroid_source_tag_follows_the_method():
     assert centroid_source_for_anchor(1, ["a", "b"], "anchor") == "anchor:b"
 
 
-def test_add_centroids_from_masks(minimal_instance):
-    """Mask-only labels gain the user centroids a centroid model needs (#674)."""
-    labels = sio.load_slp(minimal_instance)
-    lf = labels[0]
-    if not getattr(lf, "masks", None):
-        # Build masks from the poses so this runs on the minimal fixture.
-        labels.get_masks()
-    if not getattr(labels[0], "masks", None):
-        pytest.skip("fixture has no segmentation masks to derive centroids from")
+def _mask_only_labels(with_skeleton: bool = False, n_frames: int = 2):
+    """Build a mask-only labels object: two square masks per frame, no poses.
 
+    Squares rather than the pose fixture's derived masks, so every expected
+    centroid is known exactly: a filled square's center of mass and its bounding
+    box center coincide at its center, and an L-shape separates them.
+    """
+    video = sio.Video.from_filename("mask_only.mp4")
+    tracks = [sio.Track("a"), sio.Track("b")]
+    frames = []
+    for frame_idx in range(n_frames):
+        masks = []
+        for k, track in enumerate(tracks):
+            arr = np.zeros((40, 40), dtype=bool)
+            arr[4 + 16 * k : 12 + 16 * k, 4 + 16 * k : 12 + 16 * k] = True
+            mask = sio.UserSegmentationMask.from_numpy(arr)
+            mask.track = track
+            masks.append(mask)
+        frames.append(
+            sio.LabeledFrame(
+                video=video, frame_idx=frame_idx, instances=[], masks=masks
+            )
+        )
+    return sio.Labels(
+        labeled_frames=frames,
+        videos=[video],
+        skeletons=[sio.Skeleton(["a"])] if with_skeleton else [],
+        tracks=tracks,
+    )
+
+
+def test_add_centroids_from_masks():
+    """Mask-only labels gain the user centroids a centroid model needs (#586).
+
+    Builds real ``UserSegmentationMask``es: ``Labels.get_masks()`` is a *query* in
+    sleap-io 0.9.2, not a builder, so relying on it left this test skipping and
+    the feature with no exercised coverage.
+    """
+    labels = _mask_only_labels()
     n_masks = sum(len(f.masks) for f in labels)
+    assert n_masks == 4
+
     n_added = add_centroids_from_masks(labels, method="center_of_mass")
     assert n_added == n_masks
+    assert sum(len(f.centroids) for f in labels) == n_masks
     assert all(not c.is_predicted for f in labels for c in f.centroids)
+
+    # Exact values: the two squares span [4, 12) and [20, 28), so their centers
+    # sit at 7.5 and 23.5 on both axes.
+    for frame in labels:
+        xs = sorted(round(float(c.x), 3) for c in frame.centroids)
+        ys = sorted(round(float(c.y), 3) for c in frame.centroids)
+        assert xs == [7.5, 23.5]
+        assert ys == [7.5, 23.5]
+
+    # The mask's track rides along, so identity survives the derivation.
+    assert {c.track.name for f in labels for c in f.centroids} == {"a", "b"}
 
     # A second pass must not duplicate: real annotations outrank derived ones.
     assert add_centroids_from_masks(labels, method="center_of_mass") == 0
@@ -383,3 +426,81 @@ def test_add_centroids_from_masks(minimal_instance):
     # the call rather than letting sleap-io raise deep inside the load.
     with pytest.raises(ValueError, match="not offered for masks"):
         add_centroids_from_masks(labels, method="geometric_median")
+
+
+def test_add_centroids_from_masks_bbox_center_differs_on_an_L_shape():
+    """center_of_mass and bbox_center must not be silently interchangeable."""
+    video = sio.Video.from_filename("l_shape.mp4")
+    arr = np.zeros((40, 40), dtype=bool)
+    arr[10:30, 10:14] = True  # vertical bar
+    arr[26:30, 10:30] = True  # horizontal foot -> mass pulled down-left
+    frame = sio.LabeledFrame(
+        video=video,
+        frame_idx=0,
+        instances=[],
+        masks=[sio.UserSegmentationMask.from_numpy(arr)],
+    )
+    labels = sio.Labels(labeled_frames=[frame], videos=[video], skeletons=[])
+
+    assert add_centroids_from_masks(labels, method="center_of_mass") == 1
+    com = (float(labels[0].centroids[0].x), float(labels[0].centroids[0].y))
+
+    labels[0].centroids = []
+    assert add_centroids_from_masks(labels, method="bbox_center") == 1
+    bbox = (float(labels[0].centroids[0].x), float(labels[0].centroids[0].y))
+
+    # The bounding box is symmetric about its own center; the mass is not. Note
+    # the conventions differ by half a pixel: center_of_mass averages pixel
+    # indices (rows 10..29 -> 19.5) while bbox_center measures the half-open
+    # pixel extent (rows [10, 30) -> 20.0).
+    assert bbox == pytest.approx((20.0, 20.0))
+    assert com != pytest.approx(bbox)
+    assert com[1] > bbox[1]  # mass sits below the box center (the foot)
+
+
+def test_add_centroids_from_masks_skips_predicted_masks_and_empty_ones():
+    """Model output is not ground truth, and an all-background mask has no center."""
+    video = sio.Video.from_filename("mixed.mp4")
+    good = np.zeros((20, 20), dtype=bool)
+    good[2:6, 2:6] = True
+    frame = sio.LabeledFrame(
+        video=video,
+        frame_idx=0,
+        instances=[],
+        masks=[
+            sio.UserSegmentationMask.from_numpy(good),
+            # An empty user mask: `to_centroid` returns NaN rather than raising.
+            sio.UserSegmentationMask.from_numpy(np.zeros((20, 20), dtype=bool)),
+            # Model output in a ground-truth file.
+            sio.PredictedSegmentationMask.from_numpy(good, score=0.9),
+        ],
+    )
+    labels = sio.Labels(labeled_frames=[frame], videos=[video], skeletons=[])
+
+    assert add_centroids_from_masks(labels, method="center_of_mass") == 1
+    assert len(labels[0].centroids) == 1
+    assert float(labels[0].centroids[0].x) == pytest.approx(3.5)
+
+
+def test_add_centroids_from_masks_overwrite_replaces_derived_centroids():
+    """`overwrite=True` re-derives; the default leaves existing annotations alone."""
+    labels = _mask_only_labels(n_frames=1)
+    assert add_centroids_from_masks(labels, method="center_of_mass") == 2
+
+    # Default: untouched.
+    assert add_centroids_from_masks(labels, method="bbox_center") == 0
+
+    # overwrite: replaced, not appended.
+    assert add_centroids_from_masks(labels, method="bbox_center", overwrite=True) == 2
+    assert len(labels[0].centroids) == 2
+
+
+def test_add_centroids_from_masks_records_its_provenance():
+    """A derived centroid must be distinguishable from a hand-annotated one."""
+    labels = _mask_only_labels(n_frames=1)
+    add_centroids_from_masks(labels, method="center_of_mass")
+    assert {c.source for c in labels[0].centroids} == {"mask:center_of_mass"}
+
+    labels_bbox = _mask_only_labels(n_frames=1)
+    add_centroids_from_masks(labels_bbox, method="bbox_center")
+    assert {c.source for c in labels_bbox[0].centroids} == {"mask:bbox_center"}
