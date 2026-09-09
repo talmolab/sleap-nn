@@ -2414,9 +2414,19 @@ class EmbeddingDataset(BaseDataset):
             self.mask_idx_list = self._get_mask_idx_list(labels)
         # Per-crop arrays for the group-aware batch sampler.
         self.group_ids = np.array([m["group_id"] for m in self.mask_idx_list], np.int64)
-        self.video_ids = np.array(
-            [m["video_idx"] for m in self.mask_idx_list], np.int64
-        )
+        # Video identity must be unique ACROSS labels files. `video_idx` indexes ONE
+        # file's `labels.videos`, so video 0 of file A and video 0 of file B shared an
+        # id: a cross-file pair at the same frame then looked like a same-video,
+        # same-frame pair -- a "known negative" under `restrict_same_video=True` -- and
+        # `GroupAwareBatchSampler`'s same-video guarantee silently spanned two files.
+        # `video_idx` is kept as-is for image loading, which is per file.
+        self._video_id_vocab: dict = {}
+        for meta in self.mask_idx_list:
+            key = (meta["labels_idx"], meta["video_idx"])
+            meta["video_id"] = self._video_id_vocab.setdefault(
+                key, len(self._video_id_vocab)
+            )
+        self.video_ids = np.array([m["video_id"] for m in self.mask_idx_list], np.int64)
         self.frame_ids = np.array(
             [m["frame_idx"] for m in self.mask_idx_list], np.int64
         )
@@ -2730,6 +2740,11 @@ class EmbeddingDataset(BaseDataset):
                 meta.get("global_group_id", meta["group_id"]), dtype=torch.int64
             ),
             "video_idx": torch.tensor(meta["video_idx"], dtype=torch.int64),
+            # `video_id` (global, see __init__) is what the contrastive masks key
+            # same-frame / same-video on; `video_idx` stays per-file for image loading.
+            "video_id": torch.tensor(
+                meta.get("video_id", meta["video_idx"]), dtype=torch.int64
+            ),
             "frame_idx": torch.tensor(meta["frame_idx"], dtype=torch.int64),
             "item_id": torch.tensor(index, dtype=torch.int64),
             "labels_idx": meta["labels_idx"],
@@ -6528,9 +6543,29 @@ def get_train_val_dataloaders(
     if train_steps_per_epoch is None:
         train_steps_per_epoch = config.trainer_config.train_steps_per_epoch
         if train_steps_per_epoch is None:
+            # Embedding training does NOT consume `train_data_loader.batch_size`
+            # crops per step: `GroupAwareBatchSampler` yields P*K of them (the
+            # batch_sampler is mutually exclusive with batch_size). Dividing by
+            # batch_size therefore overstated the steps needed to cover the data by
+            # P*K/batch_size -- with the defaults P=8, K=16 and batch_size=4, an
+            # "epoch" walked the dataset 32 times.
+            steps_batch_size = config.trainer_config.train_data_loader.batch_size
+            if isinstance(train_dataset, EmbeddingDataset):
+                sampler_path = (
+                    "model_config.head_configs.embedding.embedding.objective.sampler"
+                )
+                steps_batch_size = int(
+                    OmegaConf.select(
+                        config, f"{sampler_path}.groups_per_batch", default=8
+                    )
+                ) * int(
+                    OmegaConf.select(
+                        config, f"{sampler_path}.samples_per_group", default=16
+                    )
+                )
             train_steps_per_epoch = get_steps_per_epoch(
                 dataset=train_dataset,
-                batch_size=config.trainer_config.train_data_loader.batch_size,
+                batch_size=steps_batch_size,
             )
 
     if val_steps_per_epoch is None:

@@ -3106,6 +3106,25 @@ def validate_embedding_identity(objective, identity, has_identities: bool = Fals
                 "restrict_same_video=True, or use a video-global scope='global_id' with "
                 "globally-consistent track names."
             )
+    if scope == "tracklet":
+        # `restrict_same_video=True` (required above) makes every cross-video pair a
+        # non-negative, so the batch must actually CONTAIN same-video crops for an
+        # anchor to have any negative at all. The `pk` sampler draws its P groups
+        # globally, so most of a batch is cross-video and a large share of anchors
+        # end up with zero negatives -- measured at 29-96% depending on how many
+        # videos the data spans, against 0% for `within_video`, which draws each
+        # batch from one video. Not a correctness invariant (the loss masks out
+        # zero-negative anchors), so a warning rather than an error.
+        sampler_kind = OmegaConf.select(objective, "sampler.kind", default="pk")
+        if sampler_kind == "pk":
+            logger.warning(
+                "embedding objective positives.scope='tracklet' with "
+                "sampler.kind='pk': PK draws groups across ALL videos while "
+                "restrict_same_video=True discards cross-video negatives, so many "
+                "anchors will see NO negatives and contribute nothing to the loss. "
+                "Use sampler.kind='within_video' for tracklet-scope training."
+            )
+
     if "same_frame" in neg_sources and not detections_deduplicated:
         logger.warning(
             "embedding objective negatives include 'same_frame' but "
@@ -3425,7 +3444,11 @@ class EmbeddingLightningModule(LightningModel):
         z = self._project(e)
 
         item_id = torch.cat([batch["item_id"], batch["item_id"]], dim=0)
-        video = torch.cat([batch["video_idx"], batch["video_idx"]], dim=0)
+        # `video_id` is unique across labels files; `video_idx` is per file (see
+        # EmbeddingDataset.__init__). Fall back for batches built before that field
+        # existed (e.g. a hand-built dict in a test).
+        video_key = "video_id" if "video_id" in batch else "video_idx"
+        video = torch.cat([batch[video_key], batch[video_key]], dim=0)
         frame = torch.cat([batch["frame_idx"], batch["frame_idx"]], dim=0)
         group = torch.cat([batch["group_id"], batch["group_id"]], dim=0)
         pos, neg = self._build_masks(item_id, video, frame, group)
@@ -3456,7 +3479,10 @@ class EmbeddingLightningModule(LightningModel):
 
         item_id = batch["item_id"]
         pos, neg = self._build_masks(
-            item_id, batch["video_idx"], batch["frame_idx"], batch["group_id"]
+            item_id,
+            batch["video_id" if "video_id" in batch else "video_idx"],
+            batch["frame_idx"],
+            batch["group_id"],
         )
         val_loss = self.loss_fn(z, pos, neg, **self._loss_kwargs())
         self.log(
