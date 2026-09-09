@@ -1,3 +1,37 @@
 # Pin Python source line endings to LF in the repository so a Windows checkout
 # cannot silently re-write a whole file to CRLF and produce a large, spurious diff.
 *.py text eol=lf
+
+# Same policy for the other text formats that tooling REGENERATES and humans
+# then read in diffs -- the config-generator goldens under
+# `tests/assets/generated_configs/` above all. `*.py` alone (added with the
+# `embedding` model type) left those exposed to exactly the problem it fixed:
+# three source files sat CRLF in the index for months, so any PR touching them
+# read as a whole-file rewrite (15,495+/8,665- against 6,912+/82- with
+# `--ignore-cr-at-eol`) and merging them needed `merge.renormalize=true` to
+# dissolve conflicts that were pure line-ending noise.
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.cfg text eol=lf
+
+# Recorded artifacts, not source: these are captured training outputs, some
+# produced on Windows, and their bytes are the point. `model_info` reads them
+# with the csv module, which is newline-agnostic, so normalizing them would
+# rewrite ~400 lines across 7 checkpoint directories for no reader's benefit.
+tests/assets/**/training_log.csv -text
+
+# Binary payloads: never normalize, never diff as text. Git's own heuristic
+# catches most of these, but an HDF5/pickle/npz payload can carry no NUL byte in
+# its first 8 kB and be misdetected as text.
+*.slp binary
+*.h5 binary
+*.npz binary
+*.ckpt binary
+*.pkl binary
+*.pt binary
+*.png binary
+*.jpg binary
+*.mp4 binary
