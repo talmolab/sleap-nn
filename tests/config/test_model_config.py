@@ -259,3 +259,83 @@ def test_get_head_configs_embedding_missing_leaf_raises():
     for bad in ({"embedding": {}}, {"embedding": {"embedding": None}}):
         with pytest.raises(ValueError, match="embedding"):
             get_head_configs(bad)
+
+
+class TestEmbeddingPretrainedEncoderMode:
+    """`embedding` + `pretrained` must be configurable through the DEFAULT path.
+
+    Both features have a notion of "this model has no decoder" and they spell it
+    differently: the embedding model says it with strides (`check_output_strides`
+    pins `backbone.output_stride = max_stride` so the native UNet/ConvNeXt/SwinT
+    decoder comes out empty), while the `pretrained` wrapper says it with
+    `mode="encoder"` and treats `output_stride == max_stride` as a user error
+    ("nothing to decode"). Pinning the stride is therefore what made the default
+    `mode: auto` refuse to build on every hierarchical pretrained backbone.
+    """
+
+    @staticmethod
+    def _cfg(backbone, mode=None, head_output_stride=32, max_stride=32):
+        backbone_cfg = {"max_stride": max_stride, "output_stride": 2}
+        if backbone == "pretrained":
+            backbone_cfg.update(
+                {"model_name": "facebook/convnextv2-nano-22k-224", "mode": mode}
+            )
+        return OmegaConf.create(
+            {
+                "model_config": {
+                    "backbone_config": {backbone: backbone_cfg},
+                    "head_configs": {
+                        "embedding": {
+                            "embedding": {
+                                "embedding_dim": 128,
+                                "output_stride": head_output_stride,
+                            }
+                        }
+                    },
+                }
+            }
+        )
+
+    def test_auto_resolves_to_encoder(self):
+        """The default. Before this, it raised "nothing to decode" at build time."""
+        from sleap_nn.config.utils import check_output_strides
+
+        cfg = check_output_strides(self._cfg("pretrained", mode="auto"))
+        assert cfg.model_config.backbone_config.pretrained.mode == "encoder"
+
+    def test_explicit_encoder_is_left_alone(self):
+        from sleap_nn.config.utils import check_output_strides
+
+        cfg = check_output_strides(self._cfg("pretrained", mode="encoder"))
+        assert cfg.model_config.backbone_config.pretrained.mode == "encoder"
+
+    def test_explicit_decoder_is_rejected_for_a_pooled_head(self):
+        """A decoder under a pooled head gets no gradient; say so, not "strides"."""
+        from sleap_nn.config.utils import check_output_strides
+
+        with pytest.raises(ValueError, match="no gradient"):
+            check_output_strides(self._cfg("pretrained", mode="decoder"))
+
+    def test_pretrained_stride_is_not_pinned_to_max_stride(self):
+        """The pin is the collision; the head still gets max_stride."""
+        from sleap_nn.config.utils import check_output_strides
+
+        cfg = check_output_strides(
+            self._cfg("pretrained", mode="auto", head_output_stride=16, max_stride=32)
+        )
+        head = cfg.model_config.head_configs.embedding.embedding
+        assert head.output_stride == 32
+        assert cfg.model_config.backbone_config.pretrained.output_stride != 32
+
+    def test_native_backbones_still_pin_the_stride(self):
+        """UNet/ConvNeXt/SwinT express "no decoder" with strides; unchanged."""
+        from sleap_nn.config.utils import check_output_strides
+
+        for backbone in ("unet", "convnext", "swint"):
+            cfg = check_output_strides(self._cfg(backbone))
+            assert (
+                cfg.model_config.backbone_config[backbone].output_stride == 32
+            ), backbone
+            assert (
+                cfg.model_config.head_configs.embedding.embedding.output_stride == 32
+            ), backbone

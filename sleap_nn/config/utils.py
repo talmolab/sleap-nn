@@ -132,10 +132,54 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
             "max_stride"
         ]
         config.model_config.head_configs.embedding.embedding.output_stride = max_stride
-        config.model_config.backbone_config[f"{backbone_type}"][
-            "output_stride"
-        ] = max_stride
+        if backbone_type == "pretrained":
+            # The `pretrained` wrapper spells "no decoder" as `mode="encoder"`, not
+            # with strides -- and it treats `output_stride == max_stride` as a user
+            # error ("nothing to decode"). Pinning the stride here, as the native
+            # backbones need, is therefore exactly what made the DEFAULT
+            # `mode: auto` refuse to build for every hierarchical backbone. Say it
+            # in the wrapper's own vocabulary instead and leave its stride alone.
+            _set_pretrained_encoder_mode(config)
+        else:
+            config.model_config.backbone_config[f"{backbone_type}"][
+                "output_stride"
+            ] = max_stride
     return config
+
+
+def _set_pretrained_encoder_mode(config: OmegaConf) -> None:
+    """Put a `pretrained` backbone in encoder-only mode for a pooled-head model.
+
+    Args:
+        config: The full training job config, with `backbone_type == "pretrained"`
+            and a lone pooled head (the `embedding` model type).
+
+    Raises:
+        ValueError: If the config explicitly asks for `mode: decoder`.
+    """
+    pretrained_cfg = config.model_config.backbone_config.pretrained
+    mode = OmegaConf.select(pretrained_cfg, "mode", default="auto")
+    if mode == "decoder":
+        # Not a stride problem, so do not let it surface as one. A pooled head
+        # reads the bottleneck (`Model.forward` routes it to `intermediate_feat`),
+        # so a decoder built underneath it never receives gradient -- measured at
+        # 4.9 M of 20.1 M parameters (24%) on convnextv2-nano, which is dead weight
+        # and a DDP hazard (unused parameters).
+        message = (
+            "model_config.backbone_config.pretrained.mode='decoder' is not valid "
+            "for the `embedding` model type: its lone pooled head reads the "
+            "encoder bottleneck, so the decoder would receive no gradient. Use "
+            "mode='encoder' (or 'auto', which resolves to it here)."
+        )
+        logger.error(message)
+        raise ValueError(message)
+    if mode != "encoder":
+        pretrained_cfg.mode = "encoder"
+        logger.info(
+            "Setting `model_config.backbone_config.pretrained.mode` to 'encoder' "
+            "for the `embedding` model type (its pooled head taps the encoder "
+            "bottleneck; there is nothing for a decoder to do)."
+        )
 
 
 def check_centroid_methods(config: OmegaConf) -> OmegaConf:

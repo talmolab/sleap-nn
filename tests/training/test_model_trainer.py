@@ -2449,3 +2449,111 @@ class TestMultiClassIdentityClasses:
         cv = trainer.config.model_config.head_configs.multi_class_topdown.class_vectors
         assert cv.classes is not None and len(cv.classes) == 2
         assert not hasattr(cv, "class_uuids")
+
+
+class TestEmbeddingPretrainedBackboneSync:
+    """`pretrained` backbone x `embedding` model type (U8 / U11, #671 follow-up).
+
+    The `pretrained` branch of `_verify_model_input_channels` was the only one of
+    the three 3-channel-stem branches with no `embedding` guard, so it (U11)
+    overrode an explicitly-grayscale re-ID model, and (U8) left the backbone's
+    ImageNet mean/std on top of the embedding pipeline's own per-crop standardize.
+    """
+
+    @staticmethod
+    def _cfg(model_type, *, in_channels=1, normalize=True):
+        head = (
+            {"embedding": {"embedding": {"embedding_dim": 128}}}
+            if model_type == "embedding"
+            else {"centered_instance": {"confmaps": {}}}
+        )
+        return OmegaConf.create(
+            {
+                "data_config": {
+                    "preprocessing": {"ensure_rgb": False, "ensure_grayscale": True}
+                },
+                "model_config": {
+                    "backbone_config": {
+                        "pretrained": {
+                            "model_name": "facebook/dinov2-with-registers-base",
+                            "mode": "encoder",
+                            "in_channels": in_channels,
+                            "normalize": normalize,
+                        }
+                    },
+                    "head_configs": head,
+                },
+            }
+        )
+
+    def _verify(self, model_type, **kwargs):
+        mt = ModelTrainer.__new__(ModelTrainer)
+        mt.config = self._cfg(model_type, **kwargs)
+        mt.backbone_type = "pretrained"
+        mt.model_type = model_type
+        mt.train_labels = [None]  # skip the image-derived channel block
+        mt._verify_model_input_channels()
+        return mt.config
+
+    # ---- U11: the grayscale override ----
+
+    def test_embedding_keeps_explicit_grayscale(self):
+        """U11: an `ensure_grayscale` re-ID model is not silently flipped to RGB."""
+        cfg = self._verify("embedding")
+        # The STEM still goes to 3 channels -- gray is repeated in `Model.forward`.
+        assert cfg.model_config.backbone_config.pretrained.in_channels == 3
+        assert cfg.data_config.preprocessing.ensure_grayscale is True
+        assert cfg.data_config.preprocessing.ensure_rgb is False
+
+    def test_non_embedding_still_flips_to_rgb(self):
+        """The behavior every other model type relies on is unchanged."""
+        cfg = self._verify("centered_instance")
+        assert cfg.model_config.backbone_config.pretrained.in_channels == 3
+        assert cfg.data_config.preprocessing.ensure_rgb is True
+        assert cfg.data_config.preprocessing.ensure_grayscale is False
+
+    # ---- U8: the double-normalization ----
+
+    def test_embedding_disables_pretrained_normalize(self, caplog):
+        """U8: the ImageNet mean/std is turned off, loudly, for `embedding`."""
+        with caplog.at_level("INFO"):
+            cfg = self._verify("embedding")
+        assert cfg.model_config.backbone_config.pretrained.normalize is False
+        assert "double-normalize" in caplog.text
+
+    def test_non_embedding_keeps_pretrained_normalize(self):
+        """Every other model type feeds [0, 1], so it keeps the ImageNet stats."""
+        cfg = self._verify("centered_instance")
+        assert cfg.model_config.backbone_config.pretrained.normalize is True
+
+    def test_already_disabled_normalize_is_not_relogged(self, caplog):
+        """An explicit `normalize: false` is a no-op, not a second log line."""
+        with caplog.at_level("INFO"):
+            cfg = self._verify("embedding", normalize=False)
+        assert cfg.model_config.backbone_config.pretrained.normalize is False
+        assert "double-normalize" not in caplog.text
+
+    def test_missing_normalize_key_defaults_to_on_and_is_disabled(self):
+        """A config written before this knob existed still gets the fix."""
+        mt = ModelTrainer.__new__(ModelTrainer)
+        cfg = self._cfg("embedding")
+        del cfg.model_config.backbone_config.pretrained.normalize
+        mt.config = cfg
+        mt.backbone_type = "pretrained"
+        mt.model_type = "embedding"
+        mt.train_labels = [None]
+        mt._verify_model_input_channels()
+        assert mt.config.model_config.backbone_config.pretrained.normalize is False
+
+    def test_head_normalize_is_untouched(self):
+        """`head_configs...normalize` (L2 on the OUTPUT vector) is a different knob."""
+        mt = ModelTrainer.__new__(ModelTrainer)
+        cfg = self._cfg("embedding")
+        cfg.model_config.head_configs.embedding.embedding.normalize = True
+        mt.config = cfg
+        mt.backbone_type = "pretrained"
+        mt.model_type = "embedding"
+        mt.train_labels = [None]
+        mt._verify_model_input_channels()
+        assert cfg.model_config.head_configs.embedding.embedding.normalize is True
+        assert cfg.model_config.backbone_config.pretrained.normalize is False

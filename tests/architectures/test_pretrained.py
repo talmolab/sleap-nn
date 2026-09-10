@@ -426,3 +426,103 @@ def test_unfrozen_encoder_still_follows_train_and_eval():
     assert bb.enc.training
     bb.eval()
     assert not bb.enc.training
+
+
+# ------------------------------------------------------- embedding (re-ID) x pretrained
+
+
+def _embedding_cfg(model_name, mode="auto", max_stride=32):
+    """A full model config for a lone pooled `embedding` head on `model_name`."""
+    return OmegaConf.create(
+        {
+            "model_config": {
+                "backbone_config": {
+                    "pretrained": _caseA_cfg(
+                        model_name, output_stride=2, max_stride=max_stride, mode=mode
+                    )
+                },
+                "head_configs": {
+                    "single_instance": None,
+                    "centroid": None,
+                    "centered_instance": None,
+                    "bottomup": None,
+                    "multi_class_bottomup": None,
+                    "multi_class_topdown": None,
+                    "embedding": {
+                        "embedding": {
+                            "embedding_dim": 128,
+                            "num_fc_layers": 1,
+                            "num_fc_units": 256,
+                            "pool": "gem",
+                            "normalize": True,
+                            "output_stride": max_stride,
+                            "loss_weight": 1.0,
+                            "freeze_backbone": False,
+                            "anchor_part": None,
+                            "objective": None,
+                        }
+                    },
+                },
+            }
+        }
+    )
+
+
+def _build_embedding_model(model_name, mode="auto"):
+    """Config -> model, through the same `check_output_strides` the trainer runs."""
+    from sleap_nn.config.utils import check_output_strides
+
+    cfg = check_output_strides(_embedding_cfg(model_name, mode=mode))
+    return Model.from_config(
+        backbone_type="pretrained",
+        backbone_config=cfg.model_config.backbone_config.pretrained,
+        head_configs=cfg.model_config.head_configs.embedding,
+        model_type="embedding",
+    )
+
+
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "facebook/convnextv2-nano-22k-224",
+        "microsoft/resnet-50",
+        "facebook/dinov2-with-registers-small",
+    ],
+)
+def test_embedding_builds_on_the_default_mode(model_name):
+    """`embedding` + `pretrained` must build with `mode: auto` (the default).
+
+    This combination used to be unconfigurable: `check_output_strides` pins the
+    embedding head's stride to `max_stride`, and the pretrained wrapper reads
+    `output_stride == max_stride` as "nothing to decode" and raises. Only an
+    isotropic ViT with an explicit `mode: encoder` got through, so the hierarchical
+    CNN backbones -- the useful ones -- were closed off entirely.
+    """
+    model = _build_embedding_model(model_name)
+    out = model(torch.rand(2, 3, 64, 64))
+    assert out["EmbeddingHead"].shape == (2, 128)
+
+
+def test_embedding_has_no_dead_decoder_parameters():
+    """Every parameter must receive gradient: a decoder here would be dead weight.
+
+    A pooled head reads the encoder bottleneck (`Model.forward` routes it to
+    `intermediate_feat`), so a decoder built underneath it is never touched --
+    measured at 4.9 M of 20.1 M parameters on convnextv2-nano. Unused parameters
+    are also a DDP hazard, which is why the fix is `mode="encoder"` rather than
+    relaxing the stride check.
+    """
+    model = _build_embedding_model("facebook/convnextv2-nano-22k-224")
+    model(torch.rand(2, 3, 64, 64))["EmbeddingHead"].sum().backward()
+    no_grad = [n for n, p in model.named_parameters() if p.grad is None]
+    assert not no_grad, f"{len(no_grad)} parameter tensor(s) received no gradient"
+
+
+def test_embedding_rejects_an_explicit_decoder_mode():
+    """`mode: decoder` under a pooled head fails with a reason, not a stride error."""
+    from sleap_nn.config.utils import check_output_strides
+
+    with pytest.raises(ValueError, match="no gradient"):
+        check_output_strides(
+            _embedding_cfg("facebook/convnextv2-nano-22k-224", mode="decoder")
+        )

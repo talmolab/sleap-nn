@@ -1059,6 +1059,40 @@ class ModelTrainer:
                     / self.config.trainer_config.run_name
                 )
 
+    def _disable_pretrained_normalize_for_embedding(self):
+        """Turn off the pretrained backbone's input normalization for `embedding`.
+
+        `PretrainedBackbone` applies model-specific (ImageNet) mean/std inside its
+        forward, and documents its input contract as ``[0, 1]`` -- which is what
+        every other model type feeds it. The `embedding` model type breaks that
+        contract on purpose: `EmbeddingLightningModule._build_input` per-crop
+        standardizes to ~N(0, 1) before the backbone sees the crop, so applying the
+        ImageNet shift on top of it hands the stem mean -1.99 / std 4.43 instead of
+        the ~N(0, 1) it was pretrained on.
+
+        This is silent -- it trains, it just trains badly. Measured on the gerbil
+        re-ID set (DINOv2-with-registers, 3 epochs, seed 0, paired runs): val rank-1
+        **0.363** with normalization left on vs **0.920** with it off.
+
+        Rather than let the default quietly cost 2.5x rank-1, force it off and say
+        so. Only the pretrained backbone has this knob, so this runs only on that
+        branch of :meth:`_verify_model_input_channels`. Note this is
+        ``backbone_config.pretrained.normalize`` (input normalization), NOT
+        ``head_configs.embedding.embedding.normalize`` (L2-normalizing the output
+        vector), which is unrelated and stays on.
+        """
+        pretrained_cfg = self.config.model_config.backbone_config.pretrained
+        if not OmegaConf.select(pretrained_cfg, "normalize", default=True):
+            return
+        pretrained_cfg.normalize = False
+        logger.info(
+            "Disabling `model_config.backbone_config.pretrained.normalize` for the "
+            "`embedding` model type: the embedding pipeline already per-crop "
+            "standardizes to ~N(0, 1), so the backbone's ImageNet mean/std would "
+            "double-normalize the input (measured cost: 2.5x val rank-1). Set it "
+            "back to `true` only if you also disable the per-crop standardize."
+        )
+
     def _verify_model_input_channels(self):
         """Verify input channels in model_config based on input image and pretrained model weights."""
         # check in channels, verify with img channels / ensure_rgb/ ensure_grayscale
@@ -1123,8 +1157,16 @@ class ModelTrainer:
             if self.config.model_config.backbone_config.pretrained.in_channels != 3:
                 self.config.model_config.backbone_config.pretrained.in_channels = 3
                 logger.info("Updating pretrained backbone in_channels to 3 (RGB stem).")
-            self.config.data_config.preprocessing.ensure_rgb = True
-            self.config.data_config.preprocessing.ensure_grayscale = False
+            if self.model_type == "embedding":
+                # As in the two branches above, the `embedding` model type keeps its
+                # own DATA channels: a 1-channel crop is repeated to 3 in
+                # `Model.forward`, so the stem is fed correctly either way, and
+                # flipping `ensure_rgb` here would silently turn an
+                # explicitly-grayscale re-ID model into an RGB one.
+                self._disable_pretrained_normalize_for_embedding()
+            else:
+                self.config.data_config.preprocessing.ensure_rgb = True
+                self.config.data_config.preprocessing.ensure_grayscale = False
 
         elif (
             self.backbone_type == "unet"
