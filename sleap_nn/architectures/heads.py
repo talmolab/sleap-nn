@@ -446,6 +446,11 @@ class ClassMapsHead(Head):
         output_stride: Stride of the output head tensor. The input tensor is expected to
             be at the same stride.
         loss_weight: Weight of the loss term for this head during optimization.
+        class_output: How the classes map to sleap-io objects (``"track"`` /
+            ``"identity"``). Carried through verbatim from the head config; unused
+            by the architecture/loss. Accepted so the config can be splatted into
+            the constructor. Appended AFTER the pre-existing arguments so a
+            positional ``ClassMapsHead(classes, 5.0)`` still binds ``sigma``.
     """
 
     def __init__(
@@ -454,10 +459,12 @@ class ClassMapsHead(Head):
         sigma: float = 5.0,
         output_stride: int = 1,
         loss_weight: float = 1.0,
+        class_output: str = "track",
     ) -> None:
         """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.classes = classes
+        self.class_output = class_output
         self.sigma = sigma
 
     @property
@@ -508,6 +515,12 @@ class ClassVectorsHead(Head):
         output_stride: Stride of the output head tensor. The input tensor is expected to
             be at the same stride.
         loss_weight: Weight of the loss term for this head during optimization.
+        class_output: How the classes map to sleap-io objects (``"track"`` /
+            ``"identity"``). Carried through verbatim from the head config; unused
+            by the architecture/loss. Accepted so the config can be splatted into
+            the constructor. Appended AFTER the pre-existing arguments so a
+            positional ``ClassVectorsHead(classes, 2)`` still binds
+            ``num_fc_layers``.
     """
 
     def __init__(
@@ -518,10 +531,12 @@ class ClassVectorsHead(Head):
         global_pool: bool = True,
         output_stride: int = 1,
         loss_weight: float = 1.0,
+        class_output: str = "track",
     ) -> None:
         """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.classes = classes
+        self.class_output = class_output
         self.num_fc_layers = num_fc_layers
         self.num_fc_units = num_fc_units
         self.global_pool = global_pool

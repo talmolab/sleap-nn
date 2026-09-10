@@ -2340,6 +2340,7 @@ class EmbeddingDataset(BaseDataset):
         id_scope: str = "global_id",
         track_names_are_global: bool = True,
         crop_centering: str = "auto",
+        include_untracked: bool = False,
         user_instances_only: bool = True,
         ensure_rgb: bool = False,
         ensure_grayscale: bool = True,
@@ -2376,6 +2377,12 @@ class EmbeddingDataset(BaseDataset):
             logger.error(message)
             raise ValueError(message)
         self.crop_centering = crop_centering
+        # Inference re-tracking (WF2): when True, enumerate EVERY detection — tracked
+        # or not — and assign a placeholder ``group_id=0`` (unused at inference). The
+        # default (training / offline-retrieval) keeps the tracked-only enumeration,
+        # where ``group_id`` is the real training-group key. Set before super().__init__
+        # because the base ctor calls the overridden ``_get_lf_idx_list``.
+        self.include_untracked = include_untracked
         # `scale` is NOT applied to embedding crops (the crop path sizes via the
         # centroid bbox + max_hw, then resizes to crop_size), but inference's
         # EmbeddingLayer DOES scale its preprocess — so a non-1.0 scale would make the
@@ -2451,13 +2458,36 @@ class EmbeddingDataset(BaseDataset):
         )
 
     def _detect_mode(self, labels: List[sio.Labels]) -> str:
-        """``"mask"`` if any frame has a tracked mask, else ``"pose"`` (keypoints)."""
+        """``"mask"`` if masks are the dominant carrier, else ``"pose"`` (keypoints).
+
+        With ``include_untracked`` (inference re-tracking), masks need not carry a
+        track to select mask mode — otherwise an untracked mask-only ``.slp`` would
+        be misread as pose mode (no keypoints) and embed nothing.
+
+        The mode is decided by which carrier holds MORE eligible detections, not by
+        "any mask anywhere". A single user-GT mask on one frame of an otherwise
+        pose-only ``.slp`` used to flip the whole run to mask mode, so the vectors
+        landed on that one mask and every pose went unembedded — and
+        :func:`~sleap_nn.inference.tracking.apply_tracking` then routed tracking to
+        the mask carrier. Ties go to masks (the historical choice, and what a
+        mask-only file wants).
+        """
+        n_mask = 0
+        n_pose = 0
         for label in labels:
             for lf in label:
                 for m in getattr(lf, "masks", None) or []:
-                    if getattr(m, "track", None) is not None:
-                        return "mask"
-        return "pose"
+                    if self.include_untracked or getattr(m, "track", None) is not None:
+                        n_mask += 1
+                for inst in lf.instances:
+                    if (
+                        self.include_untracked
+                        or getattr(inst, "track", None) is not None
+                    ):
+                        n_pose += 1
+        if n_mask == 0:
+            return "pose"
+        return "mask" if n_mask >= n_pose else "pose"
 
     def _group_keys(self, labels_idx, video_idx, track_name, global_label):
         """Return ``(group_id, global_group_id)`` for a detection.
@@ -2517,10 +2547,16 @@ class EmbeddingDataset(BaseDataset):
             for lf_idx, lf in enumerate(label):
                 for inst_idx, inst in enumerate(lf.instances):
                     video_idx = labels[labels_idx].videos.index(lf.video)
-                    group = self._resolve_group(inst, labels_idx, video_idx)
-                    if group is None:
-                        n_missing += 1
-                        continue
+                    if self.include_untracked:
+                        # Inference re-tracking: index EVERY detection; the group is an
+                        # unused placeholder (grouping is a training-only concern).
+                        group_id = global_group_id = 0
+                    else:
+                        group = self._resolve_group(inst, labels_idx, video_idx)
+                        if group is None:
+                            n_missing += 1
+                            continue
+                        group_id, global_group_id = group
                     pts = torch.from_numpy(inst.numpy()).to(
                         torch.float32
                     )  # (n_nodes,2)
@@ -2532,7 +2568,6 @@ class EmbeddingDataset(BaseDataset):
                     if torch.isnan(centroid).any():
                         continue
                     centroid = centroid.numpy().astype(np.float32)
-                    group_id, global_group_id = group
                     idx_list.append(
                         {
                             "labels_idx": labels_idx,
@@ -2541,6 +2576,10 @@ class EmbeddingDataset(BaseDataset):
                             "video_idx": video_idx,
                             "frame_idx": lf.frame_idx,
                             "centroid": centroid,
+                            # Object-exact source detection (same ``sio.Instance`` held
+                            # by ``labels``), parallel to the mask path's ``mask_obj``,
+                            # so the embedding writer can attach the vector to it.
+                            "mask_obj": inst,
                             "group_id": group_id,
                             "global_group_id": global_group_id,
                         }
@@ -2566,9 +2605,13 @@ class EmbeddingDataset(BaseDataset):
         for labels_idx, label in enumerate(labels):
             for lf_idx, lf in enumerate(label):
                 lf_masks = getattr(lf, "masks", None) or []
-                has_tracked = any(self._is_member(m) for m in lf_masks) or any(
-                    self._is_member(inst) for inst in lf.instances
-                )
+                if self.include_untracked:
+                    # Inference re-tracking: index any frame carrying a detection.
+                    has_tracked = bool(lf_masks) or bool(lf.instances)
+                else:
+                    has_tracked = any(self._is_member(m) for m in lf_masks) or any(
+                        self._is_member(inst) for inst in lf.instances
+                    )
                 if has_tracked:
                     video_idx = labels[labels_idx].videos.index(lf.video)
                     lf_idx_list.append(
@@ -2592,11 +2635,15 @@ class EmbeddingDataset(BaseDataset):
                 lf_masks = getattr(lf, "masks", None) or []
                 for mask_idx, mask_obj in enumerate(lf_masks):
                     video_idx = labels[labels_idx].videos.index(lf.video)
-                    group = self._resolve_group(mask_obj, labels_idx, video_idx)
-                    if group is None:
-                        n_missing += 1
-                        continue
-                    group_id, global_group_id = group
+                    if self.include_untracked:
+                        # Inference re-tracking: index EVERY mask; placeholder group.
+                        group_id = global_group_id = 0
+                    else:
+                        group = self._resolve_group(mask_obj, labels_idx, video_idx)
+                        if group is None:
+                            n_missing += 1
+                            continue
+                        group_id, global_group_id = group
                     mask_idx_list.append(
                         {
                             "labels_idx": labels_idx,

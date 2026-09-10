@@ -990,3 +990,295 @@ def test_apply_tracking_masks_roundtrip_persistence(video, tmp_path):
     assert all(
         m.tracking_score is not None and np.isfinite(m.tracking_score) for m in masks
     )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# apply_tracking — embedding (appearance / re-ID) mode
+# ──────────────────────────────────────────────────────────────────────
+
+
+def _make_embedded_pose_labels(skeleton, video, vecs=((1, 0, 0, 0), (0, 1, 0, 0))):
+    """Pose labels where the two instances swap x-position every frame but keep a
+    constant per-animal ``identity_embedding`` (so appearance tracking can hold identity
+    across the swap, where pose/OKS tracking would fail)."""
+    lfs = []
+    for fi in range(4):
+        xa, xb = (10.0, 60.0) if fi % 2 == 0 else (60.0, 10.0)
+        insts = []
+        for x, vec in ((xa, vecs[0]), (xb, vecs[1])):
+            inst = sio.PredictedInstance.from_numpy(
+                points_data=np.array([[x, 0.0], [x + 5, 0.0]], dtype=np.float32),
+                skeleton=skeleton,
+                score=0.9,
+            )
+            inst.identity_embedding = sio.Embedding(np.asarray(vec, np.float32))
+            insts.append(inst)
+        lfs.append(sio.LabeledFrame(video=video, frame_idx=fi, instances=insts))
+    return sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=lfs)
+
+
+def _emb_cfg(**kw):
+    """TrackerConfig in embedding mode (features explicit, scoring auto-paired)."""
+    kw.setdefault("features", "embeddings")
+    kw.setdefault("features_explicit", True)
+    kw.setdefault("scoring_method_explicit", False)
+    kw.setdefault("candidates_method", "local_queues")
+    return TrackerConfig(**kw)
+
+
+def test_apply_tracking_embeddings_pose_follows_appearance(skeleton, video):
+    """Track follows the embedding across position swaps, not position."""
+    labels = _make_embedded_pose_labels(skeleton, video)
+    out = apply_tracking(labels, _emb_cfg())
+    per_track: dict = {}
+    for lf in out.labeled_frames:
+        for inst in lf.instances:
+            assert inst.track is not None
+            per_track.setdefault(inst.track.name, set()).add(
+                tuple(np.round(inst.identity_embedding.vector, 3))
+            )
+    assert len(per_track) == 2
+    assert all(len(v) == 1 for v in per_track.values())
+
+
+def test_apply_tracking_embeddings_auto_pairs_cosine(skeleton, video, monkeypatch):
+    """features='embeddings' + scoring unset -> cosine_sim is resolved."""
+    captured = _capture_from_config_kwargs(monkeypatch)
+    apply_tracking(
+        _make_embedded_pose_labels(skeleton, video),
+        TrackerConfig(
+            features="embeddings",
+            features_explicit=True,
+            scoring_method_explicit=False,
+        ),
+    )
+    assert captured["features"] == "embeddings"
+    assert captured["scoring_method"] == "cosine_sim"
+
+
+def test_apply_tracking_embeddings_mask_carrier(video):
+    """Mask-carried embeddings track via the mask routing + cosine."""
+    yy, xx = np.ogrid[:80, :80]
+    vecs = [(1, 0, 0, 0), (0, 1, 0, 0)]
+    lfs = []
+    for fi in range(4):
+        cy_a, cy_b = (20, 60) if fi % 2 == 0 else (60, 20)
+        masks = []
+        for cy, vec in ((cy_a, vecs[0]), (cy_b, vecs[1])):
+            disk = ((yy - cy) ** 2 + (xx - 40) ** 2) <= 10**2
+            m = sio.PredictedSegmentationMask.from_numpy(disk, score=0.9)
+            m.identity_embedding = sio.Embedding(np.asarray(vec, np.float32))
+            masks.append(m)
+        lfs.append(sio.LabeledFrame(video=video, frame_idx=fi, masks=masks))
+    labels = sio.Labels(videos=[video], labeled_frames=lfs)
+    out = apply_tracking(labels, _emb_cfg())
+    per_track: dict = {}
+    for lf in out.labeled_frames:
+        for m in lf.masks:
+            assert m.track is not None
+            per_track.setdefault(m.track.name, set()).add(
+                tuple(np.round(m.identity_embedding.vector, 3))
+            )
+    assert len(per_track) == 2
+    assert all(len(v) == 1 for v in per_track.values())
+
+
+def test_apply_tracking_embeddings_no_vectors_raises(skeleton, video):
+    """features='embeddings' but detections carry no identity embedding -> clear error."""
+    labels = _make_labels(skeleton, video, frames=3)  # no embeddings attached
+    with pytest.raises(ValueError, match="no detection in the labels carries"):
+        apply_tracking(
+            labels, TrackerConfig(features="embeddings", features_explicit=True)
+        )
+
+
+def test_apply_tracking_embeddings_motion_model_raises(skeleton, video):
+    labels = _make_embedded_pose_labels(skeleton, video)
+    with pytest.raises(ValueError, match="motion models"):
+        apply_tracking(labels, _emb_cfg(use_flow=True))
+
+
+def test_apply_tracking_embeddings_bad_scoring_raises(skeleton, video):
+    labels = _make_embedded_pose_labels(skeleton, video)
+    cfg = TrackerConfig(
+        features="embeddings",
+        features_explicit=True,
+        scoring_method="iou",
+        scoring_method_explicit=True,
+    )
+    with pytest.raises(ValueError, match="requires scoring_method='cosine_sim'"):
+        apply_tracking(labels, cfg)
+
+
+def test_apply_tracking_embeddings_euclidean_allowed(skeleton, video):
+    """euclidean_dist is the one explicit alternative vector metric."""
+    labels = _make_embedded_pose_labels(skeleton, video)
+    cfg = _emb_cfg(scoring_method="euclidean_dist", scoring_method_explicit=True)
+    out = apply_tracking(labels, cfg)
+    assert all(i.track is not None for lf in out.labeled_frames for i in lf.instances)
+
+
+def test_apply_tracking_embeddings_routes_by_embedding_carrier(skeleton, video):
+    """Mixed .slp: pose instances (no embeddings) + masks (with embeddings). The
+    tracker must route to the MASKS (where the embeddings live), not the pose
+    instances — review finding [4]/[5]."""
+    yy, xx = np.ogrid[:80, :80]
+    vecs = [(1, 0, 0, 0), (0, 1, 0, 0)]
+    lfs = []
+    for fi in range(4):
+        cy_a, cy_b = (20, 60) if fi % 2 == 0 else (60, 20)
+        masks = []
+        for cy, vec in ((cy_a, vecs[0]), (cy_b, vecs[1])):
+            disk = ((yy - cy) ** 2 + (xx - 40) ** 2) <= 10**2
+            m = sio.PredictedSegmentationMask.from_numpy(disk, score=0.9)
+            m.identity_embedding = sio.Embedding(np.asarray(vec, np.float32))
+            masks.append(m)
+        # Pose instances WITHOUT embeddings coexist on the same frames.
+        pose = sio.PredictedInstance.from_numpy(
+            points_data=np.array([[5.0, 5.0], [9.0, 9.0]], dtype=np.float32),
+            skeleton=skeleton,
+            score=0.9,
+        )
+        lfs.append(
+            sio.LabeledFrame(video=video, frame_idx=fi, instances=[pose], masks=masks)
+        )
+    labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=lfs)
+    out = apply_tracking(labels, _emb_cfg())
+    per_track: dict = {}
+    for lf in out.labeled_frames:
+        for m in lf.masks:
+            assert m.track is not None
+            per_track.setdefault(m.track.name, set()).add(
+                tuple(np.round(m.identity_embedding.vector, 3))
+            )
+    assert len(per_track) == 2  # masks tracked by appearance
+    assert all(len(v) == 1 for v in per_track.values())
+    # ...and the pose instances that share those frames are CARRIED THROUGH, not
+    # deleted. `is_mask_mode` rebuilt each frame as `instances=[]`, which was
+    # unreachable for predicted poses before embedding routing removed the
+    # "no predicted instances" precondition: 4 poses in -> 0 out.
+    poses = [i for lf in out.labeled_frames for i in lf.instances]
+    assert len(poses) == 4, "pose instances were dropped by mask-mode tracking"
+    # They carry no appearance vector, so they are passed through UNTRACKED rather
+    # than being force-matched to a mask's identity.
+    assert all(i.track is None for i in poses)
+
+
+def test_apply_tracking_mask_mode_warns_about_untracked_poses(skeleton, video, caplog):
+    """Carrying poses through silently would be its own surprise -- warn once."""
+    import logging
+
+    from loguru import logger as _loguru
+
+    handler_id = _loguru.add(lambda m: logging.getLogger("loguru").warning(m))
+    try:
+        yy, xx = np.ogrid[:80, :80]
+        disk = ((yy - 40) ** 2 + (xx - 40) ** 2) <= 10**2
+        lfs = []
+        for fi in range(2):
+            m = sio.PredictedSegmentationMask.from_numpy(disk, score=0.9)
+            m.identity_embedding = sio.Embedding(np.asarray([1, 0], np.float32))
+            pose = sio.PredictedInstance.from_numpy(
+                points_data=np.array([[5.0, 5.0], [9.0, 9.0]], dtype=np.float32),
+                skeleton=skeleton,
+                score=0.9,
+            )
+            lfs.append(
+                sio.LabeledFrame(video=video, frame_idx=fi, instances=[pose], masks=[m])
+            )
+        labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=lfs)
+        with caplog.at_level(logging.WARNING, logger="loguru"):
+            apply_tracking(labels, _emb_cfg())
+        assert "carried through to the output UNTRACKED" in caplog.text
+    finally:
+        _loguru.remove(handler_id)
+
+
+def test_apply_tracking_embedding_log_line_is_formatted(skeleton, video, caplog):
+    """loguru formats with str.format, so the "%r" placeholders printed literally --
+    the one line that reports the resolved scoring method and carrier said neither."""
+    import logging
+
+    from loguru import logger as _loguru
+
+    handler_id = _loguru.add(lambda m: logging.getLogger("loguru").info(m))
+    try:
+        labels = _make_embedded_pose_labels(skeleton, video)
+        with caplog.at_level(logging.INFO, logger="loguru"):
+            apply_tracking(labels, _emb_cfg())
+        assert "scoring_method='cosine_sim'" in caplog.text
+        assert "carrier=pose" in caplog.text
+        assert "%r" not in caplog.text and "%s" not in caplog.text
+    finally:
+        _loguru.remove(handler_id)
+
+
+def test_apply_tracking_appearance_weight_without_vectors_raises(skeleton, video):
+    """`appearance_weight` on vector-less labels was a SILENT no-op byte-identical
+    to weight 0, while the help said "Requires embeddings in the input"."""
+    labels = _make_labels(skeleton, video, frames=3)  # no embeddings attached
+    with pytest.raises(ValueError, match="no detection in the labels carries"):
+        apply_tracking(labels, TrackerConfig(appearance_weight=0.5))
+
+
+def test_apply_tracking_appearance_weight_single_node_needs_scale(video):
+    """A 1-node skeleton resolves to `euclidean_dist` -- unbounded, so the blend
+    would be numerically inert without the distance kernel's length scale.
+
+    This is the guide's centroid-only fused case, so it has to work once the scale
+    is given, and say what is missing when it is not."""
+    skel1 = sio.Skeleton(nodes=["centroid"])
+    inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[10.0, 10.0]], dtype=np.float32),
+        skeleton=skel1,
+        score=0.9,
+    )
+    inst.identity_embedding = sio.Embedding(np.asarray([1.0, 0.0], np.float32))
+    labels = sio.Labels(
+        videos=[video],
+        skeletons=[skel1],
+        labeled_frames=[sio.LabeledFrame(video=video, frame_idx=0, instances=[inst])],
+    )
+    # `scoring_method_explicit=False` is how the CLI builds it when
+    # --scoring_method is left unset, which is what lets the single-node branch
+    # substitute euclidean_dist.
+    cfg = TrackerConfig(appearance_weight=0.3, scoring_method_explicit=False)
+    with pytest.raises(ValueError, match="requires euclidean_scale"):
+        apply_tracking(labels, cfg)
+
+    # With the scale, the blend runs on centroid-only detections.
+    out = apply_tracking(
+        labels,
+        TrackerConfig(
+            appearance_weight=0.3,
+            euclidean_scale=25.0,
+            scoring_method_explicit=False,
+        ),
+    )
+    tracked = [i for lf in out.labeled_frames for i in lf.instances]
+    assert tracked and all(i.track is not None for i in tracked)
+
+
+def test_apply_tracking_embeddings_skip_single_node_default(video, monkeypatch):
+    """A 1-node skeleton with features='embeddings' is NOT overridden to centroids."""
+    captured = _capture_from_config_kwargs(monkeypatch)
+    skel1 = sio.Skeleton(nodes=["centroid"])
+    inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[5.0, 5.0]], dtype=np.float32), skeleton=skel1, score=0.9
+    )
+    inst.identity_embedding = sio.Embedding(np.array([1, 0, 0, 0], np.float32))
+    labels = sio.Labels(
+        videos=[video],
+        skeletons=[skel1],
+        labeled_frames=[sio.LabeledFrame(video=video, frame_idx=0, instances=[inst])],
+    )
+    apply_tracking(
+        labels,
+        TrackerConfig(
+            features="embeddings",
+            features_explicit=True,
+            scoring_method_explicit=False,
+        ),
+    )
+    assert captured["features"] == "embeddings"
+    assert captured["scoring_method"] == "cosine_sim"

@@ -64,6 +64,7 @@ class CenteredInstanceMultiClassLayer(InferenceLayer):
         preprocess_config: Optional[PreprocessConfig] = None,
         postprocess_config: Optional[PostprocessConfig] = None,
         class_names: Optional[list[str]] = None,
+        class_output: str = "track",
     ) -> None:
         """Compose the layer with the standard centered-instance config."""
         super().__init__(
@@ -74,6 +75,7 @@ class CenteredInstanceMultiClassLayer(InferenceLayer):
             max_stride=max_stride,
         )
         self.class_names = list(class_names) if class_names is not None else None
+        self.class_output = class_output
 
     def postprocess(self, raw_out: dict, info: PreprocInfo) -> Outputs:
         """Decode confmaps to keypoints; classify via ``ClassVectorsHead``."""
@@ -176,3 +178,8 @@ class TopDownMultiClassLayer(TopDownLayer):
     def class_names(self) -> Optional[list[str]]:
         """Class names from the inner multi-class centered-instance layer."""
         return self.centered_instance_layer.class_names
+
+    @property
+    def class_output(self) -> str:
+        """Class-output mode from the inner multi-class centered-instance layer."""
+        return getattr(self.centered_instance_layer, "class_output", "track")

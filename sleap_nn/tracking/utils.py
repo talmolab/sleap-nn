@@ -1,5 +1,6 @@
 """Helper functions for Tracker module."""
 
+import math
 from typing import List, Tuple, Union, Optional
 from scipy.optimize import linear_sum_assignment
 import operator
@@ -181,9 +182,75 @@ def count_valid_points(obj) -> int:
     return int((~np.isnan(points).any(axis=1)).sum())
 
 
+def get_embedding(pred_instance):
+    """Return the appearance re-ID embedding vector for a detection.
+
+    The ``"embeddings"`` feature extractor (mirrors :func:`get_keypoints` /
+    :func:`get_mask`). Reads the appearance vector attached by the ``embedding``
+    (re-ID) model into the single ``identity_embedding`` slot (sleap-io #535); works
+    on any embedding-carrying detection (``PredictedInstance`` *or*
+    ``PredictedSegmentationMask`` — both carry ``identity_embedding``), so embedding
+    tracking is keypoint/mask agnostic. Scored by :func:`compute_cosine_sim`.
+
+    Returns the vector as a ``float32`` ``np.ndarray`` of shape ``(D,)``, or
+    ``None`` when the detection carries no embedding. ``None`` is the "no feature"
+    sentinel: :func:`compute_cosine_sim` maps it to ``NaN`` (-> ``inf`` cost in
+    :meth:`Tracker.scores_to_cost_matrix`), so a detection that is missing its
+    embedding simply never matches and spawns a fresh track instead of crashing the
+    run. An ``np.ndarray`` is passed through unchanged (a precomputed feature).
+    """
+    if isinstance(pred_instance, np.ndarray):
+        return pred_instance
+    emb = getattr(pred_instance, "identity_embedding", None)
+    if emb is None:
+        return None
+    return np.asarray(emb.vector, dtype=np.float32)
+
+
 def compute_euclidean_distance(a, b):
-    """Return the negative euclidean distance between a and b points."""
-    return -np.linalg.norm(a - b)
+    """Return the negative euclidean distance between vectors ``a`` and ``b``.
+
+    A similarity (higher = closer); the cost negation happens in
+    :meth:`Tracker.scores_to_cost_matrix`. Hardened against the same degenerate
+    inputs as :func:`compute_cosine_sim` (it is the one explicit alternative metric
+    for ``features="embeddings"``, so a detection lacking an appearance vector ->
+    :func:`get_embedding` returns ``None``, and embeddings of differing dim can
+    co-occur): a ``None`` operand, an empty/shape-mismatched pair, or a non-finite
+    result reduces to ``NaN`` (-> ``inf`` cost -> no match) instead of raising. The
+    real-array centroid path is unaffected (its inputs are never ``None``).
+    """
+    if a is None or b is None:
+        return np.nan
+    # Fast path for the GEOMETRIC callers (centroids / keypoints), whose features
+    # are always real 1-D float64 ndarrays of matching shape. `euclidean_dist` is
+    # the metric `apply_tracking` auto-selects for single-node/centroid tracking, so
+    # a default run pays the `asarray` + `ravel` normalization below on every pair
+    # for no behavioral change; skipping it is ~29% (3.7 -> 2.6 us/pair measured).
+    # The `float64` gate keeps this BIT-IDENTICAL to the general path -- a float32
+    # embedding vector would otherwise accumulate in float32 and shift the score by
+    # ~1e-7, which the appearance-matrix equivalence test catches.
+    if (
+        type(a) is np.ndarray
+        and type(b) is np.ndarray
+        and a.dtype == np.float64
+        and b.dtype == np.float64
+        and a.ndim == 1
+        and a.shape == b.shape
+        and a.size > 0
+    ):
+        # `math.sqrt(d.dot(d))` over `np.linalg.norm(d)`: same float64 result (checked
+        # bit-for-bit over 250k random coordinate pairs at pixel magnitudes), ~35%
+        # less dispatch overhead. The `isfinite` check below still catches an
+        # overflow, which `norm`'s internal scaling would have avoided.
+        d = a - b
+        dist = math.sqrt(d.dot(d))
+        return np.nan if not np.isfinite(dist) else -float(dist)
+    a = np.asarray(a, dtype=np.float64).ravel()
+    b = np.asarray(b, dtype=np.float64).ravel()
+    if a.size == 0 or a.shape != b.shape:
+        return np.nan
+    dist = float(np.linalg.norm(a - b))
+    return np.nan if not np.isfinite(dist) else -dist
 
 
 def compute_iou(a, b):
@@ -245,11 +312,32 @@ def _mask_feature_intersection(fa: MaskFeature, fb: MaskFeature) -> int:
 
 
 def compute_cosine_sim(a, b):
-    """Return cosine simalirity between a and b vectors."""
-    number = np.dot(a, b)
-    denom = np.linalg.norm(a) * np.linalg.norm(b)
-    cosine_sim = number / denom
-    return cosine_sim
+    """Return cosine similarity between appearance-embedding vectors ``a`` and ``b``.
+
+    The ``"cosine_sim"`` scoring method, paired with the ``"embeddings"`` feature
+    (:func:`get_embedding`). Higher = more similar (a similarity like ``oks`` /
+    ``iou``; the cost negation ``cost = -score`` happens in
+    :meth:`Tracker.scores_to_cost_matrix`, so it must NOT be negated here).
+    Output range is ``[-1, 1]``.
+
+    Hardened against the degenerate inputs the embedding path can produce
+    (utils.py:249, SPEC §7): a ``None`` feature (a detection with no appearance
+    embedding -> :func:`get_embedding` returns ``None``), a zero-norm vector, a
+    shape mismatch, or non-finite values all reduce to ``NaN`` rather than a
+    ``ZeroDivisionError`` / ``RuntimeWarning``. ``NaN`` flows to ``inf`` cost in
+    :meth:`Tracker.scores_to_cost_matrix` (no match), so a missing/garbage
+    embedding spawns a fresh track instead of crashing the run.
+    """
+    if a is None or b is None:
+        return np.nan
+    a = np.asarray(a, dtype=np.float64).ravel()
+    b = np.asarray(b, dtype=np.float64).ravel()
+    if a.size == 0 or a.shape != b.shape:
+        return np.nan
+    denom = float(np.linalg.norm(a) * np.linalg.norm(b))
+    if not np.isfinite(denom) or denom == 0.0:
+        return np.nan
+    return float(np.dot(a, b) / denom)
 
 
 def nms_fast(boxes, scores, iou_threshold, target_count=None) -> List[int]:

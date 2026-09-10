@@ -133,37 +133,67 @@ def _pp_field(assets: Any, name: str, default: Any = None) -> Any:
     return val if val is not None else default
 
 
+_MULTICLASS_HEAD_SUBKEY = {
+    "multi_class_topdown": "class_vectors",
+    "multi_class_bottomup": "class_maps",
+}
+
+
+def _multiclass_head_field(
+    assets: Any, head_type: str, field: str, default: Any
+) -> Any:
+    """Read one field off a multi-class head's saved training config.
+
+    The single reader behind :func:`_multiclass_class_names` and
+    :func:`_multiclass_class_output`, mirroring legacy ``predictors.py`` track
+    construction:
+
+    * ``multi_class_topdown`` →
+      ``confmap_config.model_config.head_configs.multi_class_topdown.class_vectors.*``
+      (TopDownMultiClass, predictors.py:3808-3811).
+    * ``multi_class_bottomup`` →
+      ``bottomup_config.model_config.head_configs.multi_class_bottomup.class_maps.*``
+      (BottomUpMultiClass, predictors.py:2966-2969).
+
+    Returns ``default`` for an unknown head type, a missing config, a missing
+    field (a checkpoint trained before it existed), or an explicit ``None``.
+    """
+    sub_key = _MULTICLASS_HEAD_SUBKEY.get(head_type)
+    if sub_key is None:
+        return default
+    cfg = getattr(
+        assets,
+        "confmap_config" if head_type == "multi_class_topdown" else "bottomup_config",
+        None,
+    )
+    if cfg is None:
+        return default
+    try:
+        value = cfg.model_config.head_configs[head_type][sub_key][field]
+    except (KeyError, AttributeError, TypeError):
+        return default
+    return default if value is None else value
+
+
 def _multiclass_class_names(assets: Any, head_type: str) -> Optional[List[str]]:
     """Ordered class names for a multi-class head from the training config.
 
-    Mirrors legacy ``predictors.py`` track construction:
-
-    * ``multi_class_topdown`` →
-      ``confmap_config.model_config.head_configs.multi_class_topdown.class_vectors.classes``
-      (TopDownMultiClass, predictors.py:3808-3811).
-    * ``multi_class_bottomup`` →
-      ``bottomup_config.model_config.head_configs.multi_class_bottomup.class_maps.classes``
-      (BottomUpMultiClass, predictors.py:2966-2969).
-
     Returns ``None`` when the config or class list is unavailable.
     """
-    if head_type == "multi_class_topdown":
-        cfg = getattr(assets, "confmap_config", None)
-        sub_key = "class_vectors"
-    elif head_type == "multi_class_bottomup":
-        cfg = getattr(assets, "bottomup_config", None)
-        sub_key = "class_maps"
-    else:
-        return None
-    if cfg is None:
-        return None
-    try:
-        classes = cfg.model_config.head_configs[head_type][sub_key]["classes"]
-    except (KeyError, AttributeError, TypeError):
-        return None
-    if classes is None:
-        return None
-    return [str(c) for c in classes]
+    classes = _multiclass_head_field(assets, head_type, "classes", None)
+    return None if classes is None else [str(c) for c in classes]
+
+
+def _multiclass_class_output(assets: Any, head_type: str) -> str:
+    """How a multi-class head's classes map to ``sleap_io`` objects.
+
+    Reads the ``class_output`` field off the head config (``"track"`` /
+    ``"identity"``). Defaults to ``"track"`` when unavailable (e.g. a legacy
+    checkpoint trained before this field existed), which restores the track-only
+    packaging — no global ``sio.Identity`` is fabricated unless the model
+    explicitly declares its classes are unique individuals.
+    """
+    return str(_multiclass_head_field(assets, head_type, "class_output", "track"))
 
 
 def _build_single_instance_layer(predictor: Any, device: str) -> SingleInstanceLayer:
@@ -352,6 +382,7 @@ def _build_bottomup_multiclass_layer(
         max_stride=max_stride,
         max_instances=getattr(predictor, "max_instances", None),
         class_names=_multiclass_class_names(predictor, "multi_class_bottomup"),
+        class_output=_multiclass_class_output(predictor, "multi_class_bottomup"),
         preprocess_config=PreprocessConfig(
             scale=inf.input_scale,
             max_height=_pp_field(predictor, "max_height"),
@@ -520,7 +551,10 @@ def _build_centroid_layer_gt_only(assets: Any, backend: Any) -> CentroidLayer:
 
 
 def _build_centered_instance_multiclass_layer(
-    instance_model: Any, device: str, class_names: Optional[List[str]] = None
+    instance_model: Any,
+    device: str,
+    class_names: Optional[List[str]] = None,
+    class_output: str = "track",
 ) -> CenteredInstanceMultiClassLayer:
     """Wrap a ``TopDownMultiClassFindInstancePeaks`` model in a layer."""
     return CenteredInstanceMultiClassLayer(
@@ -528,6 +562,7 @@ def _build_centered_instance_multiclass_layer(
         output_stride=instance_model.output_stride,
         max_stride=instance_model.max_stride,
         class_names=class_names,
+        class_output=class_output,
         preprocess_config=PreprocessConfig(scale=instance_model.input_scale),
         postprocess_config=PostprocessConfig(
             peak_threshold=instance_model.peak_threshold,
@@ -561,6 +596,7 @@ def _build_topdown_multiclass_layer(
         inf.instance_peaks,
         device,
         class_names=_multiclass_class_names(predictor, "multi_class_topdown"),
+        class_output=_multiclass_class_output(predictor, "multi_class_topdown"),
     )
     crop_h, crop_w = inf.centroid_crop.crop_hw
     return TopDownMultiClassLayer(
@@ -739,6 +775,13 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
             assets.inference_model.instance_peaks,
             device,
             class_names=_multiclass_class_names(assets, "multi_class_topdown"),
+            # `class_output` must be forwarded here too, not just on the paired
+            # centroid+topdown build below: without it the layer kept the "track"
+            # default and `_multiclass_identities()` returned None, so a solo
+            # `multi_class_topdown` run emitted no `sio.Identity` at all -- and this
+            # is exactly the branch `sleap-nn train`'s post-training eval takes
+            # (predict on the run dir alone).
+            class_output=_multiclass_class_output(assets, "multi_class_topdown"),
         )
         centroid_layer = _build_centroid_layer_gt_only(assets, inst_layer.backend)
         crop_h, crop_w = assets.inference_model.centroid_crop.crop_hw
@@ -1791,11 +1834,12 @@ class Predictor:
         if self._is_embedding_layer():
             raise ValueError(
                 "make_labels=True is not supported for an `embedding` (re-ID) "
-                "model: it predicts appearance vectors, which have no "
-                "`sio.Labels` representation. Use "
-                "`sleap_nn.inference.embedding.predict_embeddings_to_h5(...)` "
-                "(or `sleap-nn predict --embeddings_path out.h5`) to stream them, "
-                "or pass `make_labels=False` for the raw `Outputs`."
+                "model: it predicts appearance vectors, and this path has nothing "
+                "to attach them to. Use "
+                "`sleap_nn.inference.embedding.predict_embeddings_to_slp(...)` "
+                "(or `sleap-nn predict --save_embeddings slp`), which attaches each "
+                "vector to its source detection via `sio.Embedding`, or pass "
+                "`make_labels=False` for the raw `Outputs`."
             )
         if self.skeleton is None and not self._is_segmentation_layer():
             raise ValueError(
@@ -1974,11 +2018,12 @@ class Predictor:
         if self._is_embedding_layer():
             raise ValueError(
                 "predict_to_file is not supported for an `embedding` (re-ID) "
-                "model: it predicts appearance vectors, which have no "
-                "`sio.Labels` representation. Use "
-                "`sleap_nn.inference.embedding.predict_embeddings_to_h5(...)` "
-                "(or `sleap-nn predict --embeddings_path out.h5`) instead."
+                "model: it predicts appearance vectors, and this path has nothing "
+                "to attach them to. Use "
+                "`sleap_nn.inference.embedding.predict_embeddings_to_slp(...)` "
+                "(or `sleap-nn predict --save_embeddings slp`) instead."
             )
+
         if self.skeleton is None and not self._is_segmentation_layer():
             raise ValueError(
                 "predict_to_file requires a skeleton. Either pass "
@@ -1999,6 +2044,12 @@ class Predictor:
         self._log_inference_start(source, provider, derived)
         self._log_filter_config()
         pkg = self._resolve_centroid_packaging()
+        # NOTE: this streaming writer does NOT apply multi-class packaging — neither
+        # `tracks` (pre-existing) nor `identities` are threaded into the per-batch
+        # `slim.to_labels`. The default `sleap-nn predict` flow uses the in-memory
+        # `Predictor.predict`/`to_labels` path (run.py), which DOES emit both. A
+        # multi-class model run through this streaming path therefore omits the
+        # predicted Track/Identity packaging; route such models through `predict()`.
         writer = IncrementalLabelsWriter(
             path=path,
             skeleton=self.skeleton,
@@ -2215,6 +2266,7 @@ class Predictor:
         skeleton = self.skeleton
         pkg = self._resolve_centroid_packaging()
         tracks = self._multiclass_tracks()
+        identities = self._multiclass_identities()
         videos = list(videos) if videos else [None]
         # When a standalone centroid model collapses to a 1-node 'centroid'
         # skeleton, that is the skeleton attached to emitted instances and to
@@ -2229,12 +2281,15 @@ class Predictor:
         all_lf: list = []
         used_tracks: list = []
         seen_track_ids: set = set()
+        used_identities: list = []
+        seen_identity_names: set = set()
         for outputs in outputs_list:
             sub = outputs.to_labels(
                 skeleton=skeleton,
                 videos=videos,
                 anchor_ind=pkg.anchor_ind,
                 tracks=tracks,
+                identities=identities,
                 collapse_skeleton=pkg.collapse_skeleton,
                 emit_centroid=pkg.emit_centroid,
                 source=pkg.source,
@@ -2247,6 +2302,13 @@ class Predictor:
                 if id(trk) not in seen_track_ids:
                     seen_track_ids.add(id(trk))
                     used_tracks.append(trk)
+            # Dedup identities by name across batches (the simplified sio.Identity
+            # matches by name; the same canonical objects are reused for every frame,
+            # so this collapses to the registry).
+            for ident in sub.identities:
+                if ident.name not in seen_identity_names:
+                    seen_identity_names.add(ident.name)
+                    used_identities.append(ident)
         valid_videos = [v for v in videos if v is not None]
         labels = sio.Labels(
             labeled_frames=all_lf,
@@ -2255,6 +2317,8 @@ class Predictor:
         )
         if used_tracks:
             labels.tracks = used_tracks
+        if used_identities:
+            labels.identities = used_identities
         return labels
 
     def _multiclass_tracks(self) -> Optional[list["sio.Track"]]:
@@ -2272,6 +2336,45 @@ class Predictor:
         if not class_names:
             return None
         return [sio.Track(name=str(name)) for name in class_names]
+
+    def _multiclass_identities(self) -> Optional[list["sio.Identity"]]:
+        """Build the canonical ``sio.Identity`` registry for multi-class models.
+
+        Sibling of :meth:`_multiclass_tracks`. Reads ``class_names`` off the (possibly
+        composed) multi-class layer and builds one ``sio.Identity(name=<class name>)``
+        per class, ordered by class index. The simplified sleap-io ``Identity`` (name +
+        metadata, sleap-io #535) matches by NAME across files and retrains, so the class
+        name is itself the canonical cross-file identity key — no per-class uuid bridge.
+
+        The identities are built **once** here and the same objects are reused for every
+        frame/instance (the canonical-reference contract — ``Identity`` compares by
+        object identity, so the writer's ``identity in labels.identities`` registration
+        check only passes for the exact objects we register; cross-file joins use
+        ``Identity.matches`` on the name). Returns ``None`` for non-multiclass layers.
+        """
+        import sleap_io as sio
+
+        class_names = getattr(self.layer, "class_names", None)
+        if not class_names:
+            return None
+        # The classes map to a global Identity only when the model declares them
+        # as unique individuals (``class_output == "identity"``). A ``"track"``
+        # model (the default) emits only the per-video Track — no Identity is
+        # fabricated. ``"category"`` (shared types/roles) is not implemented here;
+        # the head configs' validator rejects it at config load, so this only fires
+        # for a hand-written ``training_config.yaml`` that bypassed them.
+        class_output = getattr(self.layer, "class_output", "track")
+        if class_output not in ("track", "identity"):
+            raise NotImplementedError(
+                f"class_output={class_output!r} is not supported; predicted classes "
+                "can be emitted as 'track' (default) or 'identity'. Set the "
+                "multi-class head's class_output to one of those. (sleap-io does "
+                "have a Category data model, but mapping classes onto it is not "
+                "implemented.)"
+            )
+        if class_output != "identity":
+            return None
+        return [sio.Identity(name=str(name)) for name in class_names]
 
     def _packaging_anchor_ind(self) -> Optional[int]:
         """Anchor-node slot for centroid-only output packaging."""
@@ -2325,8 +2428,8 @@ class Predictor:
         Embedding models are skeleton-less (like segmentation): they emit
         ``Outputs.pred_embeddings`` rather than keypoints/masks. Gates the
         no-skeleton path so a bare ``predict()`` on an embedding model does not
-        raise the "requires a skeleton" error (the offline re-ID stream goes
-        through :func:`sleap_nn.inference.embedding.predict_embeddings_to_h5`).
+        raise the "requires a skeleton" error (the re-ID path goes
+        through :func:`sleap_nn.inference.embedding.predict_embeddings_to_slp`).
         """
         return isinstance(self.layer, (EmbeddingLayer, TopDownEmbeddingLayer))
 

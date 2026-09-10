@@ -98,6 +98,21 @@ class LocalQueueCandidates:
         self.tracker_queue[new_track_id] = deque(maxlen=self.window_size)
         return new_track_id
 
+    def available_new_tracks(self) -> Optional[int]:
+        """Fresh track IDs still mintable under `max_tracks`, or ``None`` if uncapped.
+
+        Mirrors `get_new_track_id`'s cap arithmetic (the next ID is
+        ``max(current_tracks) + 1``, refused once it reaches `max_tracks`) WITHOUT
+        mutating the queue. Read by `Tracker.assign_tracks`: an infeasible pairing
+        is only safe to drop if the detection can spawn a fresh track instead, and
+        at the cap `get_new_track_id` returns ``None`` -> `update_tracks` filters
+        the detection out entirely. With no headroom the forced match is kept.
+        """
+        if self.max_tracks is None:
+            return None
+        next_id = max(self.current_tracks) + 1 if self.current_tracks else 0
+        return max(0, self.max_tracks - next_id)
+
     def add_new_tracks(
         self, current_instances: List[TrackInstanceLocalQueue]
     ) -> List[TrackInstanceLocalQueue]:

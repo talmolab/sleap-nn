@@ -908,6 +908,17 @@ class ClassMapConfig:
 
     Attributes:
         classes: (List[str]) List of class (track) names. Default is `None`. When `None`, these are inferred from the track names in the labels file.
+        class_output: (str) How a predicted class is interpreted as an `sleap_io`
+            object at inference. One of ``"track"`` (default) — emit only a
+            video-local `sio.Track` per class (the classification-as-tracking
+            output) — or ``"identity"`` — ALSO stamp a global
+            `sio.Identity(name=<class name>)`, for classes that enumerate unique
+            individuals (e.g. named animals for re-ID). The `sio.Track` is always
+            emitted regardless. Only set ``"identity"`` when each class is a
+            distinct animal; otherwise the shared identity name would falsely
+            claim all instances of a class are the same animal. The simplified
+            sleap-io `Identity` matches by NAME, so the class name is the
+            canonical cross-file key and nothing per-class is frozen at train time.
         sigma: (float) Spread of the Gaussian distribution of the confidence maps as
             a scalar float. Smaller values are more precise but may be difficult to
             learn as they have a lower density within the image space. Larger values
@@ -926,6 +937,9 @@ class ClassMapConfig:
     """
 
     classes: Optional[List[str]] = None
+    class_output: str = field(
+        default="track", validator=validators.in_(("track", "identity"))
+    )
     sigma: float = 5.0
     output_stride: int = 1
     loss_weight: Optional[float] = None
@@ -940,6 +954,17 @@ class ClassVectorsConfig:
 
     Attributes:
         classes: List of string names of the classes that this head will predict.
+        class_output: How a predicted class is interpreted as an ``sleap_io`` object
+            at inference. One of ``"track"`` (default) — emit only a video-local
+            ``sio.Track`` per class (classification-as-tracking) — or
+            ``"identity"`` — ALSO stamp a global ``sio.Identity(name=<class
+            name>)``, for classes that enumerate unique individuals (e.g. named
+            animals for re-ID). The ``sio.Track`` is always emitted. Only set
+            ``"identity"`` when each class is a distinct animal; a shared identity
+            name otherwise falsely claims all instances of a class are the same
+            animal. The simplified sleap-io ``Identity`` matches by NAME, so the
+            class name is the canonical cross-file key and nothing per-class is
+            frozen at train time.
         num_fc_layers: Number of fully-connected layers before the classification output
             layer. These can help in transforming general image features into
             classification-specific features.
@@ -957,6 +982,9 @@ class ClassVectorsConfig:
     """
 
     classes: Optional[List[str]] = None
+    class_output: str = field(
+        default="track", validator=validators.in_(("track", "identity"))
+    )
     num_fc_layers: int = 1
     num_fc_units: int = 64
     global_pool: bool = True
