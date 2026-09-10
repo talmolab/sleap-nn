@@ -32,6 +32,7 @@ embeds + tracks the ``sio.Labels`` it returns, in memory (see
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Tuple
 
@@ -351,6 +352,7 @@ def predict_embeddings_to_slp(
 
     tracking = tracker_config is not None
     inc_untracked = include_untracked if include_untracked is not None else tracking
+    start_time = datetime.now()
 
     if not tracking and save_embeddings == "none":
         raise ValueError(
@@ -411,6 +413,18 @@ def predict_embeddings_to_slp(
         if not persist_vectors:
             _strip_embeddings(tracked)
         tracked_out = output_path or f"{data_path}.tracked.slp"
+        tracked.provenance = _embedding_provenance(
+            labels,
+            model_dir,
+            data_path,
+            start_time=start_time,
+            device=device,
+            batch_size=batch_size,
+            save_embeddings=save_embeddings,
+            n_attached=n_attached,
+            embedding_dim=embedding_dim,
+            tracker_config=tracker_config,
+        )
         # #536 flipped the save_slp default to False; be explicit either way. Identity
         # links (sio.Track) always persist regardless of this flag.
         # `restore_original_videos=False` by default, matching every other writer in
@@ -434,6 +448,17 @@ def predict_embeddings_to_slp(
     # names (a track/class name is not a global animal identity). Both Instance and
     # SegmentationMask (owner_type=3, sleap-io#527) embeddings persist here.
     slp_out = output_path or f"{data_path}.embeddings.slp"
+    labels.provenance = _embedding_provenance(
+        labels,
+        model_dir,
+        data_path,
+        start_time=start_time,
+        device=device,
+        batch_size=batch_size,
+        save_embeddings=save_embeddings,
+        n_attached=n_attached,
+        embedding_dim=embedding_dim,
+    )
     # This path exists to persist the vectors, so opt in explicitly (#536 default flip).
     # See the tracked save above for why `restore_original_videos` defaults to False.
     sio.save_slp(
@@ -447,6 +472,85 @@ def predict_embeddings_to_slp(
         f"Attached {n_attached} embeddings (dim={embedding_dim}) and wrote {slp_out}"
     )
     return slp_out
+
+
+def _embedding_provenance(
+    labels: sio.Labels,
+    model_dir,
+    data_path,
+    *,
+    start_time: datetime,
+    device: str,
+    batch_size: int,
+    save_embeddings: str,
+    n_attached: int,
+    embedding_dim: int,
+    tracker_config: Optional["TrackerConfig"] = None,  # noqa: F821
+) -> dict:
+    """Provenance for an embedding-route output ``.slp``.
+
+    The embedding routes wrote NO provenance -- an output carried only sleap-io's
+    ``filename`` -- so they dropped the lineage #728 established for ``predict``
+    (which records the model paths, the resolved crop geometry, versions and
+    timings) and the tracking parameters the retrack route records. Reuses
+    :func:`~sleap_nn.inference.provenance.build_inference_provenance` rather than
+    inventing a second schema, so a re-ID output is inspectable the same way every
+    other prediction output is.
+
+    ``inference_params`` carries the geometry read off the TRAINED config, which is
+    the load-bearing detail for this route: the crops must match training exactly,
+    and the CLI rejects overriding them.
+    """
+    from omegaconf import OmegaConf
+
+    from sleap_nn.inference.loaders import _load_training_config
+    from sleap_nn.inference.provenance import build_inference_provenance
+
+    params: dict = {
+        "batch_size": batch_size,
+        "save_embeddings": save_embeddings,
+        "embeddings_attached": n_attached,
+        "embedding_dim": embedding_dim,
+    }
+    try:
+        cfg, _ = _load_training_config(model_dir)
+        # Record the EFFECTIVE geometry, resolving the same defaults `embed_labels`
+        # resolves -- provenance is meant to say what the crops actually were, and a
+        # config that simply omits `crop_centering` still cropped somehow.
+        # `max_height`/`max_width` stay `None` when unset, which genuinely means "no
+        # size-matching", and `build_inference_provenance` drops the null.
+        for key, fallback in (
+            ("crop_size", None),
+            ("scale", 1.0),
+            ("max_height", None),
+            ("max_width", None),
+            ("crop_centering", "auto"),
+        ):
+            value = OmegaConf.select(
+                cfg, f"data_config.preprocessing.{key}", default=None
+            )
+            params[key] = fallback if value is None else value
+    except Exception:  # noqa: BLE001 -- provenance must never fail a run
+        pass
+
+    tracking_params = None
+    if tracker_config is not None:
+        import attrs
+
+        tracking_params = attrs.asdict(tracker_config)
+
+    return build_inference_provenance(
+        model_paths=[str(model_dir)],
+        model_type="embedding",
+        start_time=start_time,
+        end_time=datetime.now(),
+        input_labels=labels,
+        input_path=data_path,
+        frames_processed=len(labels.labeled_frames),
+        inference_params=params,
+        tracking_params=tracking_params,
+        device=device,
+    )
 
 
 def _strip_embeddings(labels: sio.Labels) -> None:
