@@ -14,7 +14,7 @@
         <link rel="prev" href="../evaluation/">
       
       
-        <link rel="next" href="../export/">
+        <link rel="next" href="../embedding-tracking/">
       
       
         
@@ -1596,6 +1596,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#appearance-embedding-re-id" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appearance (embedding / re-ID)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1738,6 +1749,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../embedding-tracking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embedding (re-ID) Tracking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -7426,6 +7465,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#appearance-embedding-re-id" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appearance (embedding / re-ID)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -7636,13 +7686,13 @@
 <tr>
 <td><code>--features</code></td>
 <td>Features for matching</td>
-<td><code>keypoints</code>, <code>centroids</code>, <code>bboxes</code>, <code>image</code></td>
+<td><code>keypoints</code>, <code>centroids</code>, <code>bboxes</code>, <code>masks</code>, <code>embeddings</code></td>
 <td><code>keypoints</code></td>
 </tr>
 <tr>
 <td><code>--scoring_method</code></td>
 <td>Similarity scoring method</td>
-<td><code>oks</code>, <code>cosine_sim</code>, <code>iou</code>, <code>euclidean_dist</code></td>
+<td><code>oks</code>, <code>cosine_sim</code>, <code>iou</code>, <code>mask_iou</code>, <code>euclidean_dist</code></td>
 <td><code>oks</code></td>
 </tr>
 <tr>
@@ -7860,48 +7910,73 @@ tracker via <code>Tracker.from_config(...)</code>.</p>
 </tr>
 </tbody>
 </table>
+<h3 id="appearance-embedding-re-id">Appearance (embedding / re-ID)<a class="headerlink" href="#appearance-embedding-re-id" title="Permanent link">&para;</a></h3>
+<p>Track by <strong>appearance</strong>: each detection carries a learned appearance vector (from an
+<a href="../embedding-tracking/"><code>embedding</code></a> re-ID model) and candidates are matched by
+<strong>cosine similarity</strong> between vectors — the track follows <em>what the animal looks
+like</em>, not where it is.</p>
+<p>Appearance is a <strong>complementary</strong> cue, not a better one. On dense continuous video,
+geometry is highly informative and appearance-<em>only</em> association measurably loses to
+it (227 ID switches against 32 on a held-out session); appearance wins where geometry
+has no signal — temporally sparse frames, long occlusions, cross-session identity.
+Blended into a geometric score with
+<a href="../embedding-tracking/#blending-appearance-with-geometry"><code>--appearance_weight</code></a> it
+beats either cue alone. Read the <a href="../embedding-tracking/#which-regime-you-want">embedding tracking
+guide</a> before choosing.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Detections already carry embeddings (saved by a prior embedding-model run):</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>embedded.slp<span class="w"> </span>-t<span class="w"> </span>--features<span class="w"> </span>embeddings
+</span></code></pre></div>
+<p><code>--features embeddings</code> auto-pairs with <code>--scoring_method cosine_sim</code>. It works on
+both pose (<code>PredictedInstance</code>) and segmentation-mask (<code>PredictedSegmentationMask</code>)
+detections, and is image-free (no <code>--use_flow</code> / <code>--use_kalman</code>). <code>local_queues</code>
+(a per-track gallery of recent vectors) is a good pairing.</p>
+<p><strong>Best for</strong>: re-identification across long occlusions, temporally sparse frames, and
+multi-session identity — the regimes where geometry has nothing to go on. On dense
+continuous video prefer a geometric <code>--features</code> with <code>--appearance_weight</code>. See the
+<a href="../embedding-tracking/">embedding (re-ID) tracking guide</a> for the full workflow,
+including running the embedding model and tracking in one command.</p>
 <hr />
 <h2 id="track-only-mode">Track-Only Mode<a class="headerlink" href="#track-only-mode" title="Permanent link">&para;</a></h2>
 <p>Assign tracks to existing predictions (no inference):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>--tracking
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>--tracking
 </span></code></pre></div>
 <p>Note: Omit <code>--model_paths</code> for track-only mode.</p>
 <p>With specific frames:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>-t<span class="w"> </span>--frames<span class="w"> </span><span class="m">0</span>-100<span class="w"> </span>--video_index<span class="w"> </span><span class="m">0</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>-t<span class="w"> </span>--frames<span class="w"> </span><span class="m">0</span>-100<span class="w"> </span>--video_index<span class="w"> </span><span class="m">0</span>
 </span></code></pre></div>
 <hr />
 <h2 id="limit-instances">Limit Instances<a class="headerlink" href="#limit-instances" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Maximum 5 instances per frame</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--max_instances<span class="w"> </span><span class="m">5</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Maximum 5 instances per frame</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span>--max_instances<span class="w"> </span><span class="m">5</span>
 </span></code></pre></div>
 <hr />
 <h2 id="example-configurations">Example Configurations<a class="headerlink" href="#example-configurations" title="Permanent link">&para;</a></h2>
 <h3 id="fast-animals">Fast Animals<a class="headerlink" href="#fast-animals" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span>--use_flow<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span>--of_img_scale<span class="w"> </span><span class="m">0</span>.5
-</span></code></pre></div>
-<h3 id="crowded-scenes">Crowded Scenes<a class="headerlink" href="#crowded-scenes" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span>--candidates_method<span class="w"> </span>local_queues<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span>--max_tracks<span class="w"> </span><span class="m">10</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span>--use_flow<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span>--of_img_scale<span class="w"> </span><span class="m">0</span>.5
 </span></code></pre></div>
-<h3 id="high-accuracy">High Accuracy<a class="headerlink" href="#high-accuracy" title="Permanent link">&para;</a></h3>
+<h3 id="crowded-scenes">Crowded Scenes<a class="headerlink" href="#crowded-scenes" title="Permanent link">&para;</a></h3>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span>--scoring_method<span class="w"> </span>oks<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span>--scoring_reduction<span class="w"> </span>mean<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span>--track_matching_method<span class="w"> </span>hungarian
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span>--candidates_method<span class="w"> </span>local_queues<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span>--max_tracks<span class="w"> </span><span class="m">10</span>
+</span></code></pre></div>
+<h3 id="high-accuracy">High Accuracy<a class="headerlink" href="#high-accuracy" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span>--scoring_method<span class="w"> </span>oks<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span>--scoring_reduction<span class="w"> </span>mean<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">    </span>--track_matching_method<span class="w"> </span>hungarian
 </span></code></pre></div>
 <hr />
 <h2 id="evaluating-identity-persistence">Evaluating Identity Persistence<a class="headerlink" href="#evaluating-identity-persistence" title="Permanent link">&para;</a></h2>
 <p><code>sleap-nn eval</code> scores detection and localization -- whether the animal was found,
 and where. It says nothing about whether a track kept the <strong>right</strong> animal.
 <code>sleap-nn eval-tracking</code> scores that:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>sleap-nn<span class="w"> </span>eval-tracking<span class="w"> </span>-g<span class="w"> </span>ground_truth.slp<span class="w"> </span>-p<span class="w"> </span>tracked_predictions.slp
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>sleap-nn<span class="w"> </span>eval-tracking<span class="w"> </span>-g<span class="w"> </span>ground_truth.slp<span class="w"> </span>-p<span class="w"> </span>tracked_predictions.slp
 </span></code></pre></div>
 <p>Both files must be tracked: the ground truth needs <code>track</code> set on the detections
 you want scored, and the prediction needs tracks from <code>sleap-nn track</code> or
@@ -7993,12 +8068,12 @@ otherwise be scored as extra trajectories.</p>
 actually moved across the arena between two "consecutive" frames. Every
 index-based check passes and the metrics come out looking authoritative.</p>
 <p><code>eval-tracking</code> measures this and warns. The check is exposed directly:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">motion_diagnostic</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="n">motion_diagnostic</span><span class="p">(</span><span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;labels.slp&quot;</span><span class="p">),</span> <span class="s2">&quot;pose&quot;</span><span class="p">)</span>
-</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="c1"># continuous video:     {&#39;step_over_size&#39;: 0.06, &#39;is_continuous&#39;: True, ...}</span>
-</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="c1"># sparse training split: {&#39;step_over_size&#39;: 8.74, &#39;is_continuous&#39;: False, ...}</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">motion_diagnostic</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="n">motion_diagnostic</span><span class="p">(</span><span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;labels.slp&quot;</span><span class="p">),</span> <span class="s2">&quot;pose&quot;</span><span class="p">)</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="c1"># continuous video:     {&#39;step_over_size&#39;: 0.06, &#39;is_continuous&#39;: True, ...}</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="c1"># sparse training split: {&#39;step_over_size&#39;: 8.74, &#39;is_continuous&#39;: False, ...}</span>
 </span></code></pre></div>
 <p><code>step_over_size</code> is how far the same animal moves between consecutive frames
 relative to its own body size. At the high end, consecutive detections of one
@@ -8007,26 +8082,26 @@ with and any IoU tracker must fail -- for reasons that have nothing to do
 with the tracker.</p>
 </div>
 <h3 id="python-api">Python API<a class="headerlink" href="#python-api" title="Permanent link">&para;</a></h3>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">identity_metrics</span>
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="n">gt</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;ground_truth.slp&quot;</span><span class="p">)</span>
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="n">pred</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;tracked_predictions.slp&quot;</span><span class="p">)</span>
-</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>
-</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="n">metrics</span> <span class="o">=</span> <span class="n">identity_metrics</span><span class="p">(</span><span class="n">gt</span><span class="p">,</span> <span class="n">pred</span><span class="p">,</span> <span class="s2">&quot;pose&quot;</span><span class="p">)</span>
-</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">metrics</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
-</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="c1"># IDSW=32  IDF1=0.8491 (P=0.8491 R=0.8491)  MT/PT/ML=5/0/0  Frag=0 ...</span>
-</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>
-</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="n">metrics</span><span class="o">.</span><span class="n">as_dict</span><span class="p">()[</span><span class="s2">&quot;id_switches&quot;</span><span class="p">]</span>  <span class="c1"># 32</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">identity_metrics</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="n">gt</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;ground_truth.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="n">pred</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;tracked_predictions.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="n">metrics</span> <span class="o">=</span> <span class="n">identity_metrics</span><span class="p">(</span><span class="n">gt</span><span class="p">,</span> <span class="n">pred</span><span class="p">,</span> <span class="s2">&quot;pose&quot;</span><span class="p">)</span>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">metrics</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="c1"># IDSW=32  IDF1=0.8491 (P=0.8491 R=0.8491)  MT/PT/ML=5/0/0  Frag=0 ...</span>
+</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a>
+</span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="n">metrics</span><span class="o">.</span><span class="n">as_dict</span><span class="p">()[</span><span class="s2">&quot;id_switches&quot;</span><span class="p">]</span>  <span class="c1"># 32</span>
 </span></code></pre></div>
 <p>Comparing tracker settings is the common case, so there is a table renderer for it:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">compare_identity_metrics</span>
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">compare_identity_metrics</span><span class="p">({</span>
-</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>    <span class="s2">&quot;fixed_window&quot;</span><span class="p">:</span> <span class="n">identity_metrics</span><span class="p">(</span><span class="n">gt</span><span class="p">,</span> <span class="n">pred_fixed</span><span class="p">,</span> <span class="s2">&quot;pose&quot;</span><span class="p">),</span>
-</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>    <span class="s2">&quot;flow&quot;</span><span class="p">:</span> <span class="n">identity_metrics</span><span class="p">(</span><span class="n">gt</span><span class="p">,</span> <span class="n">pred_flow</span><span class="p">,</span> <span class="s2">&quot;pose&quot;</span><span class="p">),</span>
-</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>    <span class="s2">&quot;kalman&quot;</span><span class="p">:</span> <span class="n">identity_metrics</span><span class="p">(</span><span class="n">gt</span><span class="p">,</span> <span class="n">pred_kalman</span><span class="p">,</span> <span class="s2">&quot;pose&quot;</span><span class="p">),</span>
-</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="p">}))</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">compare_identity_metrics</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">compare_identity_metrics</span><span class="p">({</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>    <span class="s2">&quot;fixed_window&quot;</span><span class="p">:</span> <span class="n">identity_metrics</span><span class="p">(</span><span class="n">gt</span><span class="p">,</span> <span class="n">pred_fixed</span><span class="p">,</span> <span class="s2">&quot;pose&quot;</span><span class="p">),</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    <span class="s2">&quot;flow&quot;</span><span class="p">:</span> <span class="n">identity_metrics</span><span class="p">(</span><span class="n">gt</span><span class="p">,</span> <span class="n">pred_flow</span><span class="p">,</span> <span class="s2">&quot;pose&quot;</span><span class="p">),</span>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>    <span class="s2">&quot;kalman&quot;</span><span class="p">:</span> <span class="n">identity_metrics</span><span class="p">(</span><span class="n">gt</span><span class="p">,</span> <span class="n">pred_kalman</span><span class="p">,</span> <span class="s2">&quot;pose&quot;</span><span class="p">),</span>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="p">}))</span>
 </span></code></pre></div>
 <p>Always compare arms over the <strong>same</strong> detections -- retrack one prediction file
 with different tracker settings rather than re-running inference -- so the

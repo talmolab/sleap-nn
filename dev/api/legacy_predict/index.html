@@ -1476,6 +1476,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../guides/embedding-tracking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Embedding (re-ID) Tracking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../guides/export/" class="md-nav__link">
         
   
@@ -10365,12 +10393,12 @@ Python-level legacy entry point.
 </span><span id="__span-0-627"><a id="__codelineno-0-627" name="__codelineno-0-627"></a>                    <span class="s2">&quot;`track` / `run_inference` pipeline (they emit appearance &quot;</span>
 </span><span id="__span-0-628"><a id="__codelineno-0-628" name="__codelineno-0-628"></a>                    <span class="s2">&quot;vectors, not poses). Use the new flow:</span><span class="se">\n</span><span class="s2">&quot;</span>
 </span><span id="__span-0-629"><a id="__codelineno-0-629" name="__codelineno-0-629"></a>                    <span class="s2">&quot;  sleap-nn predict --data_path &lt;.slp&gt; --model_paths &quot;</span>
-</span><span id="__span-0-630"><a id="__codelineno-0-630" name="__codelineno-0-630"></a>                    <span class="s2">&quot;&lt;embedding_dir&gt; --embeddings_path &lt;out.h5&gt;</span><span class="se">\n</span><span class="s2">&quot;</span>
+</span><span id="__span-0-630"><a id="__codelineno-0-630" name="__codelineno-0-630"></a>                    <span class="s2">&quot;&lt;embedding_dir&gt; --save_embeddings slp</span><span class="se">\n</span><span class="s2">&quot;</span>
 </span><span id="__span-0-631"><a id="__codelineno-0-631" name="__codelineno-0-631"></a>                    <span class="s2">&quot;or, from Python:</span><span class="se">\n</span><span class="s2">&quot;</span>
 </span><span id="__span-0-632"><a id="__codelineno-0-632" name="__codelineno-0-632"></a>                    <span class="s2">&quot;  from sleap_nn.inference.embedding import &quot;</span>
-</span><span id="__span-0-633"><a id="__codelineno-0-633" name="__codelineno-0-633"></a>                    <span class="s2">&quot;predict_embeddings_to_h5</span><span class="se">\n</span><span class="s2">&quot;</span>
-</span><span id="__span-0-634"><a id="__codelineno-0-634" name="__codelineno-0-634"></a>                    <span class="s2">&quot;  predict_embeddings_to_h5(model_paths=[embedding_dir], &quot;</span>
-</span><span id="__span-0-635"><a id="__codelineno-0-635" name="__codelineno-0-635"></a>                    <span class="s2">&quot;data_path=src, output_path=&#39;out.h5&#39;)&quot;</span>
+</span><span id="__span-0-633"><a id="__codelineno-0-633" name="__codelineno-0-633"></a>                    <span class="s2">&quot;predict_embeddings_to_slp</span><span class="se">\n</span><span class="s2">&quot;</span>
+</span><span id="__span-0-634"><a id="__codelineno-0-634" name="__codelineno-0-634"></a>                    <span class="s2">&quot;  predict_embeddings_to_slp(model_paths=[embedding_dir], &quot;</span>
+</span><span id="__span-0-635"><a id="__codelineno-0-635" name="__codelineno-0-635"></a>                    <span class="s2">&quot;data_path=src, output_path=&#39;out.slp&#39;)&quot;</span>
 </span><span id="__span-0-636"><a id="__codelineno-0-636" name="__codelineno-0-636"></a>                <span class="p">)</span>
 </span><span id="__span-0-637"><a id="__codelineno-0-637" name="__codelineno-0-637"></a>            <span class="k">if</span> <span class="s2">&quot;centered_instance_segmentation&quot;</span> <span class="ow">in</span> <span class="n">_types</span><span class="p">:</span>
 </span><span id="__span-0-638"><a id="__codelineno-0-638" name="__codelineno-0-638"></a>                <span class="c1"># The legacy Predictor.from_model_paths has no segmentation</span>
@@ -10710,8 +10738,8 @@ Python-level legacy entry point.
 </span><span id="__span-0-972"><a id="__codelineno-0-972" name="__codelineno-0-972"></a>        <span class="c1"># Determine model type from predictor class. This map is provenance-only and</span>
 </span><span id="__span-0-973"><a id="__codelineno-0-973" name="__codelineno-0-973"></a>        <span class="c1"># keyed by `Predictor` SUBCLASS name. The `embedding` (re-ID) model type never</span>
 </span><span id="__span-0-974"><a id="__codelineno-0-974" name="__codelineno-0-974"></a>        <span class="c1"># reaches here: it emits appearance vectors, not poses, and is routed through</span>
-</span><span id="__span-0-975"><a id="__codelineno-0-975" name="__codelineno-0-975"></a>        <span class="c1"># the dedicated `--embeddings_path` stream (`cli._run_embeddings` -&gt;</span>
-</span><span id="__span-0-976"><a id="__codelineno-0-976" name="__codelineno-0-976"></a>        <span class="c1"># `inference.embedding.predict_embeddings_to_h5`) / `predictor._select_layer`&#39;s</span>
+</span><span id="__span-0-975"><a id="__codelineno-0-975" name="__codelineno-0-975"></a>        <span class="c1"># the dedicated embedding path (`cli._run_embeddings` -&gt;</span>
+</span><span id="__span-0-976"><a id="__codelineno-0-976" name="__codelineno-0-976"></a>        <span class="c1"># `inference.embedding.predict_embeddings_to_slp`) / `predictor._select_layer`&#39;s</span>
 </span><span id="__span-0-977"><a id="__codelineno-0-977" name="__codelineno-0-977"></a>        <span class="c1"># `embedding` branch, never instantiating a `Predictor`. An `embedding` key here</span>
 </span><span id="__span-0-978"><a id="__codelineno-0-978" name="__codelineno-0-978"></a>        <span class="c1"># would be unreachable dead code.</span>
 </span><span id="__span-0-979"><a id="__codelineno-0-979" name="__codelineno-0-979"></a>        <span class="n">predictor_type_map</span> <span class="o">=</span> <span class="p">{</span>
