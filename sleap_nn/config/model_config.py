@@ -1337,6 +1337,29 @@ class EmbeddingHeadConfig:
         output_stride: Stride of the pooled feature. Should equal the backbone
             ``max_stride`` so the decoder is empty and the head taps ``middle_output``.
         loss_weight: Scalar loss weight.
+        anchor_part: (str) Node name used to center the re-ID crop. ``None``
+            (default) centers on the mean of each instance's visible nodes.
+        centroid_method: (str) How the crop center is derived from the instance's
+            points, spelled as in ``sio.Instance.to_centroid``:
+            ``"center_of_mass"`` (mean of visible nodes), ``"bbox_center"``
+            (midpoint of the visible nodes' bounding box), ``"geometric_median"``
+            (Weiszfeld median — the least affected by a MISLOCALIZED node; measured
+            on real pose data, one node off by a body length moves it ~1.7x less
+            than the mean and ~5x less than the bbox midpoint. Not more stable
+            than the mean under node dropout), or ``"anchor"``
+            (the ``anchor_part`` node). ``None`` (default) infers it: ``"anchor"``
+            when ``anchor_part`` is set, else ``"center_of_mass"`` — i.e. exactly
+            the historical behavior, so existing configs are unchanged. Setting
+            both ``anchor_part`` and a non-anchor ``centroid_method`` is an error
+            (they name different centroids); use ``centroid_fallback`` for that.
+            Only used in the pose detection mode — a mask-driven embedding dataset
+            crops on the mask's own center of mass. Default is None.
+        centroid_fallback: (str) The reduce method used when ``anchor_part`` is
+            configured but that node is not visible: ``"center_of_mass"``
+            (default), ``"bbox_center"`` or ``"geometric_median"``. Only
+            meaningful for the anchor method. Unlike ``sio``'s ``fallback=None``,
+            sleap-nn always falls back rather than emitting a NaN centroid.
+            Default is None (= ``"center_of_mass"``).
         objective: The pluggable training objective (positives x negatives x loss).
     """
 
@@ -1349,6 +1372,8 @@ class EmbeddingHeadConfig:
     loss_weight: float = 1.0
     freeze_backbone: bool = False
     anchor_part: Optional[str] = None
+    centroid_method: Optional[str] = None
+    centroid_fallback: Optional[str] = None
     objective: Optional[ObjectiveConfig] = None
 
 
