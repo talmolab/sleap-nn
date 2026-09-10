@@ -22,6 +22,8 @@ provenance held only sleap-io's ``filename``.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -126,7 +128,13 @@ def test_lone_embed_records_provenance(
     prov = sio.load_slp(out).provenance or {}
 
     assert prov.get("model_type") == "embedding"
-    assert prov.get("model_paths") == [str(embedding_model_dir)]
+    # `build_inference_provenance` deliberately normalizes paths through
+    # `Path(...).resolve().as_posix()` so provenance is portable, which on Windows
+    # means forward slashes where `str(model_dir)` has backslashes -- and on macOS
+    # means `/tmp` resolved to `/private/tmp`. Compare resolved Paths, not strings.
+    assert [Path(q).resolve() for q in prov.get("model_paths") or []] == [
+        Path(embedding_model_dir).resolve()
+    ]
     assert prov.get("sleap_nn_version") and prov.get("sleap_io_version")
     assert prov.get("inference_start_timestamp") and prov.get("inference_end_timestamp")
     assert prov.get("source_file", "").endswith(".slp")
