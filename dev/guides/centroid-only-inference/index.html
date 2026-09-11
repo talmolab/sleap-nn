@@ -7716,6 +7716,12 @@ available, spelled exactly as in <code>sio.Instance.to_centroid</code>:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="w">        </span><span class="nt">anchor_part</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">thorax</span>
 </span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">        </span><span class="nt">centroid_fallback</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bbox_center</span><span class="w">      </span><span class="c1"># used only when `thorax` is occluded</span>
 </span></code></pre></div>
+<p>The same two knobs live on <strong>every head that defines a crop or centroid center</strong> —
+<code>centroid.confmaps</code>, <code>centered_instance.confmaps</code>, <code>multi_class_topdown.confmaps</code>,
+<code>centered_instance_segmentation.segmentation</code> and <code>embedding.embedding</code> — and mean
+the same thing on each. On <code>embedding.embedding</code> they set the re-ID crop center for
+<strong>pose</strong> data; a mask-driven embedding dataset crops on the mask's own center of
+mass instead (see <code>data_config.preprocessing.crop_centering</code>).</p>
 <p><strong>Defaults are unchanged.</strong> <code>centroid_method: null</code> (the default) means "the
 anchor node when <code>anchor_part</code> is set, else <code>center_of_mass</code>" — exactly the
 behavior of every config written before this knob existed. Setting <code>anchor_part</code>
