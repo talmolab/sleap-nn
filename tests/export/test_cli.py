@@ -229,6 +229,17 @@ class TestExportCommand:
         metadata = json.loads((output_dir / "export_metadata.json").read_text())
         assert metadata["model_type"] == "embedding"
         assert metadata["embedding_dim"] == 16
+        # The re-ID crop-center recipe is recorded too (#586 remainder): an ONNX
+        # consumer has to produce the crops itself, so it must know how the
+        # embedder's training crops were centered.
+        from omegaconf import OmegaConf
+
+        from sleap_nn.export.utils import resolve_anchor_part, resolve_centroid_method
+
+        cfg = OmegaConf.load(minimal_embedding_model_dir / "training_config.yaml")
+        assert metadata["anchor_part"] == resolve_anchor_part(cfg, "embedding")
+        assert metadata["centroid_method"] == resolve_centroid_method(cfg, "embedding")
+        assert metadata["centroid_method"] is not None
         assert metadata["normalize"] is True
         assert metadata["backbone_source"] == "scratch"
         assert metadata["normalization"] == "per_crop_standardize"

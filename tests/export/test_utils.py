@@ -826,6 +826,31 @@ class TestResolveAnchorPart:
         anchor = resolve_anchor_part(cfg, "single_instance")
         assert anchor is None
 
+    def test_resolve_anchor_part_embedding(self):
+        """The re-ID head carries the same knob on its `embedding` leaf (#746)."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_anchor_part
+
+        cfg = OmegaConf.create(
+            {
+                "model_config": {
+                    "head_configs": {
+                        "embedding": {"embedding": {"anchor_part": "thorax"}}
+                    }
+                }
+            }
+        )
+        assert resolve_anchor_part(cfg, "embedding") == "thorax"
+
+    def test_resolve_anchor_part_embedding_none_when_not_set(self):
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_anchor_part
+
+        cfg = OmegaConf.create(
+            {"model_config": {"head_configs": {"embedding": {"embedding": {}}}}}
+        )
+        assert resolve_anchor_part(cfg, "embedding") is None
+
     def test_resolve_anchor_part_none_for_unsupported_model(self):
         """Test that anchor_part returns None for unsupported model types."""
         from omegaconf import OmegaConf
@@ -854,6 +879,77 @@ class TestResolveAnchorPart:
         anchor = resolve_anchor_part(cfg, "centered_instance")
         # anchor_part may be None or a string depending on config
         assert anchor is None or isinstance(anchor, str)
+
+
+class TestResolveCentroidMethod:
+    """Tests for resolve_centroid_method (export metadata, #586 / #746)."""
+
+    @staticmethod
+    def _cfg(head_type, leaf_name, **leaf):
+        from omegaconf import OmegaConf
+
+        return OmegaConf.create(
+            {"model_config": {"head_configs": {head_type: {leaf_name: leaf}}}}
+        )
+
+    @pytest.mark.parametrize(
+        "model_type,leaf_name",
+        [
+            ("centroid", "confmaps"),
+            ("centered_instance", "confmaps"),
+            ("embedding", "embedding"),
+        ],
+    )
+    def test_default_is_center_of_mass(self, model_type, leaf_name):
+        """No knobs set -> the historical default, recorded explicitly."""
+        from sleap_nn.export.utils import resolve_centroid_method
+
+        cfg = self._cfg(model_type, leaf_name)
+        assert resolve_centroid_method(cfg, model_type) == "center_of_mass"
+
+    @pytest.mark.parametrize(
+        "model_type,leaf_name",
+        [
+            ("centroid", "confmaps"),
+            ("centered_instance", "confmaps"),
+            ("embedding", "embedding"),
+        ],
+    )
+    def test_explicit_method_is_recorded(self, model_type, leaf_name):
+        """A `bbox_center` model must not be recorded as `center_of_mass`."""
+        from sleap_nn.export.utils import resolve_centroid_method
+
+        cfg = self._cfg(model_type, leaf_name, centroid_method="bbox_center")
+        assert resolve_centroid_method(cfg, model_type) == "bbox_center"
+
+    def test_embedding_anchor_resolves_to_anchor(self):
+        """anchor_part on the re-ID head -> method 'anchor' (fallback is implied)."""
+        from sleap_nn.export.utils import resolve_centroid_method
+
+        cfg = self._cfg(
+            "embedding",
+            "embedding",
+            anchor_part="thorax",
+            centroid_fallback="bbox_center",
+        )
+        assert resolve_centroid_method(cfg, "embedding") == "anchor"
+
+    @pytest.mark.parametrize("model_type", ["bottomup", "single_instance", "nope"])
+    def test_none_for_model_types_without_a_centroid(self, model_type):
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_centroid_method
+
+        cfg = OmegaConf.create(
+            {
+                "model_config": {
+                    "head_configs": {
+                        "bottomup": {"confmaps": {}, "pafs": {}},
+                        "single_instance": {"confmaps": {}},
+                    }
+                }
+            }
+        )
+        assert resolve_centroid_method(cfg, model_type) is None
 
 
 class TestResolveNodeNamesEdgeCases:

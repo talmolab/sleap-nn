@@ -758,13 +758,28 @@ def _build_topdown_embedding(
     if user_crop_size is None and emb_crop is not None:
         preprocess_config.crop_size = emb_crop
 
-    # anchor_ind is only used by the GT-centroid crop path; the embedding model has
-    # no skeleton anchor, so this only fires when a real anchor_part + skeleton exist.
+    emb_head = emb_config.model_config.head_configs.embedding.embedding
+
+    # anchor_ind is only used by the GT-centroid crop path; the embedding model
+    # usually has no skeleton anchor, so this only fires when a real anchor_part +
+    # skeleton exist. Falling back to the TRAINED anchor (as the seg path does)
+    # matters: `EmbeddingDataset` centers its training crops on it, so honoring only
+    # a CLI override would crop a differently-centered image than the embedder saw.
+    emb_anchor = OmegaConf.select(emb_head, "anchor_part", default=None)
     anchor_ind = None
     if anchor_part is not None and skeletons:
+        # An explicit override names a node: a typo should not be silently ignored.
         anchor_ind = skeletons[0].node_names.index(anchor_part)
+    elif emb_anchor is not None and skeletons:
+        # The trained anchor is resolved leniently, mirroring `EmbeddingDataset`:
+        # embedding labels routinely carry a partial (or no) skeleton, and
+        # `CentroidCrop` degrades an unresolved anchor to the fallback with a warning.
+        names = skeletons[0].node_names
+        anchor_ind = names.index(emb_anchor) if emb_anchor in names else None
 
-    emb_head = emb_config.model_config.head_configs.embedding.embedding
+    # Crop geometry must reproduce what the EMBEDDER was trained with, so the knobs
+    # come off its head config rather than the centroid model's (#586).
+    centroid_method, centroid_fallback = _resolve_centroid_method(emb_head, anchor_part)
     max_stride_emb = emb_config.model_config.backbone_config[emb_backbone_type][
         "max_stride"
     ]
@@ -775,6 +790,8 @@ def _build_topdown_embedding(
             use_gt_centroids=True,
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             anchor_ind=anchor_ind,
+            centroid_method=centroid_method,
+            centroid_fallback=centroid_fallback,
             return_crops=True,
         )
     else:
@@ -795,6 +812,8 @@ def _build_topdown_embedding(
             crop_hw=(preprocess_config.crop_size, preprocess_config.crop_size),
             use_gt_centroids=False,
             anchor_ind=anchor_ind,
+            centroid_method=centroid_method,
+            centroid_fallback=centroid_fallback,
         )
 
     emb_ensure_rgb, emb_ensure_grayscale = _resolve_embedding_channels(emb_config)

@@ -2430,6 +2430,12 @@ class EmbeddingDataset(BaseDataset):
                     if self.anchor_part in names:
                         self.anchor_ind = names.index(self.anchor_part)
                     break
+        # (method, fallback) for the crop center. Resolved after `anchor_ind` so an
+        # `anchor_part` absent from the skeleton degrades to the fallback rather
+        # than raising, matching this dataset's lenient anchor resolution (#586).
+        self.centroid_method, self.centroid_fallback = degrade_anchor_if_unresolved(
+            *centroid_method_from_config(embedding_head_config), self.anchor_ind
+        )
 
         # Detection mode: tracked masks (crop on the mask center-of-mass) vs tracked
         # keypoint instances (crop on the pose centroid, no mask).
@@ -2561,7 +2567,10 @@ class EmbeddingDataset(BaseDataset):
                         torch.float32
                     )  # (n_nodes,2)
                     centroid = generate_centroids(
-                        pts.unsqueeze(0), anchor_ind=self.anchor_ind
+                        pts.unsqueeze(0),
+                        anchor_ind=self.anchor_ind,
+                        method=self.centroid_method,
+                        fallback=self.centroid_fallback,
                     )[
                         0
                     ]  # (x, y) in original image coords

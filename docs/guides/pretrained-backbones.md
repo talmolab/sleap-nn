@@ -40,7 +40,12 @@ a U-Net-style pyramid; they are used encoder-only. A ViT feeding a spatial head
 would need a ViTDet-style Simple Feature Pyramid, which is not yet implemented.
 
 `mode: auto` picks `encoder` for isotropic ViTs and `decoder` for everything
-else.
+else — **except** for the `embedding` (re-ID) model type, where it always
+resolves to `encoder` regardless of family. That head is a lone pooled head that
+reads the encoder bottleneck, so a decoder underneath it would be dead weight:
+on convnextv2-nano, 4.9 M of 20.1 M parameters (24%) receive no gradient, which
+is also a DDP hazard. `mode: decoder` with an `embedding` head is rejected at
+setup for the same reason.
 
 ## Tested model families
 
@@ -125,6 +130,23 @@ the model's `AutoImageProcessor`, or set explicitly via `image_mean`/`image_std`
 is applied **inside the backbone** — the data pipeline still only rescales to
 `[0, 1]`.
 
+!!! note "The `embedding` model type is the exception"
+
+    The re-ID (`embedding`) pipeline per-crop standardizes to ~N(0, 1) before the
+    backbone sees the crop, so it does **not** feed `[0, 1]`. Applying the ImageNet
+    shift on top of that hands the stem mean −1.99 / std 4.43, which trains — badly.
+    Measured on the gerbil re-ID set (DINOv2-with-registers, 3 epochs, seed 0,
+    paired runs): val rank-1 **0.363** with normalization on vs **0.920** with it
+    off. The trainer therefore forces `normalize: false` for `embedding` and logs
+    that it did; set it back to `true` only if you also disable the per-crop
+    standardize.
+
+    For the same reason `embedding` also keeps its own data channels: unlike every
+    other model type it is **not** flipped to `ensure_rgb`, because the 1-channel
+    crop is repeated to 3 in `Model.forward` and grayscale is often a deliberate
+    anti-confound choice (a recording setup mixing color and monochrome cameras
+    makes color an identity cue that will not generalize).
+
 ## Reproducibility, gating, and offline use
 
 - **Pin `revision`.** HuggingFace `main` moves. Set `revision` to a commit sha
@@ -169,3 +191,10 @@ is applied **inside the backbone** — the data pipeline still only rescales to
   exporting transformer backbones.
 - **`dtype`.** `transformers` v5 defaults to `dtype="auto"`, which can silently
   load fp16/bf16. sleap-nn forces `float32` in the backbone factory.
+- **Re-ID (`embedding`) has three trainer-applied overrides.** `mode` resolves to
+  `encoder`, `normalize` is forced off (the pipeline already standardizes each
+  crop), and the data channels are *not* flipped to RGB. Each is logged when it
+  fires; see the notes under
+  [Channels and normalization](#channels-and-normalization). Fine-tuned DINOv2
+  reached val rank-1 0.92 in 3 epochs on the gerbil re-ID set once the
+  normalization override was in place.

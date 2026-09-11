@@ -276,42 +276,74 @@ def resolve_backbone_type(cfg: DictConfig) -> str:
     return get_backbone_type_from_cfg(cfg)
 
 
+# Sentinel distinguishing "this model type has no centroid head" (-> ``None``)
+# from a present head whose leaf is ``None`` (-> the historical default).
+_NO_HEAD = object()
+
+# Head-config leaf carrying the crop/centroid-center knobs (``anchor_part``,
+# ``centroid_method``, ``centroid_fallback``), per model type. The re-ID head's
+# leaf is ``embedding``, not ``confmaps``.
+_CENTROID_HEAD_LEAVES = {
+    "centroid": ("centroid", "confmaps"),
+    "centered_instance": ("centered_instance", "confmaps"),
+    "embedding": ("embedding", "embedding"),
+}
+
+
+def _centroid_head_leaf(cfg: DictConfig, model_type: str):
+    """Return the head-config leaf carrying the centroid knobs for *model_type*.
+
+    Returns :data:`_NO_HEAD` when the model type has no such head (or the head is
+    absent from the config), so callers can tell that apart from a present head
+    whose leaf resolves to ``None``.
+    """
+    entry = _CENTROID_HEAD_LEAVES.get(model_type)
+    if entry is None:
+        return _NO_HEAD
+    head_name, leaf_name = entry
+    head = getattr(cfg.model_config.head_configs, head_name, None)
+    if head and hasattr(head, leaf_name):
+        return getattr(head, leaf_name)
+    return _NO_HEAD
+
+
 def resolve_anchor_part(cfg: DictConfig, model_type: str) -> Optional[str]:
-    """Resolve anchor_part from config for centroid and centered_instance models.
+    """Resolve anchor_part from config for the model types that center a crop.
 
     Args:
         cfg: The training job configuration.
-        model_type: The model type (e.g., "centroid", "centered_instance").
+        model_type: The model type (e.g., "centroid", "centered_instance",
+            "embedding").
 
     Returns:
-        The anchor part name if configured, None otherwise.
-        Only returns a value for "centroid" and "centered_instance" model types.
+        The anchor part name if configured, None otherwise. Only returns a value
+        for the "centroid", "centered_instance" and "embedding" model types -- the
+        heads that carry the crop/centroid-center knobs (#586). For an
+        ``embedding`` model the consumer of the export has to produce the crops
+        itself, so this is the one piece of geometry it cannot do without.
     """
-    head_configs = cfg.model_config.head_configs
-
-    if model_type == "centroid":
-        head = getattr(head_configs, "centroid", None)
-    elif model_type == "centered_instance":
-        head = getattr(head_configs, "centered_instance", None)
-    else:
+    leaf = _centroid_head_leaf(cfg, model_type)
+    if leaf is _NO_HEAD:
         return None
-
-    if head and hasattr(head, "confmaps"):
-        return getattr(head.confmaps, "anchor_part", None)
-    return None
+    return getattr(leaf, "anchor_part", None)
 
 
 def resolve_centroid_method(cfg: DictConfig, model_type: str) -> Optional[str]:
-    """Resolve the trained centroid method for centroid / centered_instance models.
+    """Resolve the trained centroid method for the model types that center a crop.
 
     Companion to :func:`resolve_anchor_part`. Recorded in the export metadata so a
     consumer of the exported model can tag predicted centroids with the method the
     model was actually trained on (#586) — without it, a ``bbox_center`` model's
     predictions would be recorded as ``center_of_mass``.
 
+    The same applies to an ``embedding`` (re-ID) model, more strongly: its
+    consumer must produce the crops itself, so the crop-center recipe the
+    embedder was trained with is what makes its vectors comparable.
+
     Args:
         cfg: The training job configuration.
-        model_type: The model type (e.g., "centroid", "centered_instance").
+        model_type: The model type (e.g., "centroid", "centered_instance",
+            "embedding").
 
     Returns:
         The resolved method (one of
@@ -320,18 +352,10 @@ def resolve_centroid_method(cfg: DictConfig, model_type: str) -> Optional[str]:
     """
     from sleap_nn.data.instance_centroids import centroid_method_from_config
 
-    head_configs = cfg.model_config.head_configs
-
-    if model_type == "centroid":
-        head = getattr(head_configs, "centroid", None)
-    elif model_type == "centered_instance":
-        head = getattr(head_configs, "centered_instance", None)
-    else:
+    leaf = _centroid_head_leaf(cfg, model_type)
+    if leaf is _NO_HEAD:
         return None
-
-    if head and hasattr(head, "confmaps"):
-        return centroid_method_from_config(head.confmaps)[0]
-    return None
+    return centroid_method_from_config(leaf)[0]
 
 
 def resolve_input_shape(

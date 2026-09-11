@@ -198,6 +198,13 @@ and for an anchor with a non-default fallback:
         centroid_fallback: bbox_center      # used only when `thorax` is occluded
 ```
 
+The same two knobs live on **every head that defines a crop or centroid center** —
+`centroid.confmaps`, `centered_instance.confmaps`, `multi_class_topdown.confmaps`,
+`centered_instance_segmentation.segmentation` and `embedding.embedding` — and mean
+the same thing on each. On `embedding.embedding` they set the re-ID crop center for
+**pose** data; a mask-driven embedding dataset crops on the mask's own center of
+mass instead (see `data_config.preprocessing.crop_centering`).
+
 **Defaults are unchanged.** `centroid_method: null` (the default) means "the
 anchor node when `anchor_part` is set, else `center_of_mass`" — exactly the
 behavior of every config written before this knob existed. Setting `anchor_part`

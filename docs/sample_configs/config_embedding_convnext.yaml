@@ -110,7 +110,16 @@ model_config:
         output_stride: 32  # = backbone max_stride (lone pooled head taps middle_output)
         loss_weight: 1.0
         freeze_backbone: false
+        # Crop centering for POSE data (mask data uses `crop_centering` above).
         anchor_part: null  # pose centering node; null -> mean of visible nodes
+        # How the crop center is reduced from the instance's points, in sleap-io's
+        # vocabulary: center_of_mass (default) | bbox_center | geometric_median |
+        # anchor. null infers it -- "anchor" if anchor_part is set, else
+        # center_of_mass -- so leaving both null is the historical behavior exactly.
+        # Setting anchor_part AND a non-anchor method is rejected at setup; use
+        # centroid_fallback for "anchor, but this when it is occluded".
+        centroid_method: null
+        centroid_fallback: null  # null -> center_of_mass; only used with an anchor
         objective:
           # positives x negatives x loss. scope=global_id needs track_names_are_global=true.
           positives: {scope: global_id, aug_views: 2}
