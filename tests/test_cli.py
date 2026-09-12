@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 from omegaconf import OmegaConf
 import subprocess
+from tests.utils.cli import cpu_only_env, sleap_nn_cli
 from click.testing import CliRunner
 from sleap_nn.legacy_predict import run_inference
 from sleap_nn.cli import (
@@ -949,14 +950,7 @@ def _strip_ansi_codes(text: str) -> str:
 
 def test_main_cli(sample_config, tmp_path):
     cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--no-group",
-        "gpu",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
+        *sleap_nn_cli(),
         "train",
         "--help",
     ]
@@ -964,6 +958,7 @@ def test_main_cli(sample_config, tmp_path):
         cmd,
         capture_output=True,
         text=True,
+        env=cpu_only_env(),
     )
     # Exit code should be 0
     assert result.returncode == 0
@@ -984,14 +979,7 @@ def test_main_cli(sample_config, tmp_path):
     no_color_env = {**os.environ, "NO_COLOR": "1", "FORCE_COLOR": "0"}
 
     cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--no-group",
-        "gpu",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
+        *sleap_nn_cli(),
         "train",
         "--config-dir",
         f"{tmp_path}",
@@ -1002,7 +990,7 @@ def test_main_cli(sample_config, tmp_path):
         cmd,
         capture_output=True,
         text=True,
-        env=no_color_env,
+        env=cpu_only_env(no_color_env),
     )
     # Exit code should be 0
     assert result.returncode == 0
@@ -1022,14 +1010,7 @@ def test_main_cli(sample_config, tmp_path):
     sample_config.trainer_config.max_epochs = 2
     sample_config.data_config.preprocessing.scale = 1.2
     cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--no-group",
-        "gpu",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
+        *sleap_nn_cli(),
         "train",
         "--config-dir",
         f"{tmp_path}",
@@ -1042,7 +1023,7 @@ def test_main_cli(sample_config, tmp_path):
         cmd,
         capture_output=True,
         text=True,
-        env=no_color_env,
+        env=cpu_only_env(no_color_env),
     )
     # Exit code should be 0
     assert result.returncode == 0
@@ -1056,14 +1037,7 @@ def test_main_cli(sample_config, tmp_path):
 
     # Test CLI with '--' to separate config overrides from positional args
     cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--no-group",
-        "gpu",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
+        *sleap_nn_cli(),
         "train",
         "--config-dir",
         f"{tmp_path}",
@@ -1077,7 +1051,7 @@ def test_main_cli(sample_config, tmp_path):
         cmd,
         capture_output=True,
         text=True,
-        env=no_color_env,
+        env=cpu_only_env(no_color_env),
     )
     assert (
         Path(f"{sample_config.trainer_config.ckpt_dir}")
@@ -1113,14 +1087,7 @@ def test_train_cli_with_video_paths(
 
     # with video paths as list
     cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--no-group",
-        "gpu",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
+        *sleap_nn_cli(),
         "train",
         "--config-dir",
         f"{tmp_path}",
@@ -1129,7 +1096,7 @@ def test_train_cli_with_video_paths(
         "--video-paths",
         f"{small_robot_minimal_video.as_posix()}",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=cpu_only_env())
     assert result.returncode == 0
 
     assert (
@@ -1149,14 +1116,7 @@ def test_train_cli_with_video_paths(
     video_path = Path(labels.videos[0].filename).as_posix()
 
     cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--no-group",
-        "gpu",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
+        *sleap_nn_cli(),
         "train",
         "--config-dir",
         f"{tmp_path}",
@@ -1166,7 +1126,7 @@ def test_train_cli_with_video_paths(
         f"{video_path}",
         f"{small_robot_minimal_video.as_posix()}",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=cpu_only_env())
     assert result.returncode == 0
 
     assert (
@@ -1200,14 +1160,7 @@ def test_train_cli_with_prefix_map(
     new_prefix = new_video_path.parent.as_posix()
 
     cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--no-group",
-        "gpu",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
+        *sleap_nn_cli(),
         "train",
         "--config-dir",
         f"{tmp_path}",
@@ -1217,7 +1170,7 @@ def test_train_cli_with_prefix_map(
         f"{old_prefix}",
         f"{new_prefix}",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=cpu_only_env())
     assert result.returncode == 0, f"stderr: {result.stderr}"
 
     assert (
@@ -1238,14 +1191,7 @@ def test_track_command(
     import subprocess
 
     cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--no-group",
-        "gpu",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
+        *sleap_nn_cli(),
         "track",
         "--model_paths",
         minimal_instance_centroid_ckpt,
@@ -1262,7 +1208,9 @@ def test_track_command(
         "--device",
         "cpu",
     ]
-    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    result = subprocess.run(
+        cmd, check=True, capture_output=True, text=True, env=cpu_only_env()
+    )
     assert Path(f"{tmp_path}/test.slp").exists()
 
     labels = sio.load_slp(f"{tmp_path}/test.slp")
@@ -1281,14 +1229,7 @@ def test_track_command_retrack_only_uses_new_flow(
     # Step 1: produce a tracked .slp via the inference + tracking path.
     pred_slp = f"{tmp_path}/preds.slp"
     inference_cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--no-group",
-        "gpu",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
+        *sleap_nn_cli(),
         "predict",
         "--model_paths",
         minimal_instance_centroid_ckpt,
@@ -1305,20 +1246,15 @@ def test_track_command_retrack_only_uses_new_flow(
         "--device",
         "cpu",
     ]
-    subprocess.run(inference_cmd, check=True, capture_output=True, text=True)
+    subprocess.run(
+        inference_cmd, check=True, capture_output=True, text=True, env=cpu_only_env()
+    )
     assert Path(pred_slp).exists()
 
     # Step 2: retrack with NO model_paths (pure tracking-only path).
     retracked_slp = f"{tmp_path}/retracked.slp"
     retrack_cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--no-group",
-        "gpu",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
+        *sleap_nn_cli(),
         "predict",
         "--data_path",
         pred_slp,
@@ -1328,7 +1264,9 @@ def test_track_command_retrack_only_uses_new_flow(
         "--output_path",
         retracked_slp,
     ]
-    subprocess.run(retrack_cmd, check=True, capture_output=True, text=True)
+    subprocess.run(
+        retrack_cmd, check=True, capture_output=True, text=True, env=cpu_only_env()
+    )
     assert Path(retracked_slp).exists()
 
     out = sio.load_slp(retracked_slp)
@@ -1346,14 +1284,7 @@ def test_track_command_with_tracking_uses_new_flow(
     import subprocess
 
     cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--no-group",
-        "gpu",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
+        *sleap_nn_cli(),
         "predict",
         "--model_paths",
         minimal_instance_centroid_ckpt,
@@ -1373,7 +1304,7 @@ def test_track_command_with_tracking_uses_new_flow(
         "--device",
         "cpu",
     ]
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    subprocess.run(cmd, check=True, capture_output=True, text=True, env=cpu_only_env())
     out = Path(f"{tmp_path}/test_tracked.slp")
     assert out.exists()
 
@@ -1402,14 +1333,7 @@ def test_eval_command(
         device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--no-group",
-        "gpu",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
+        *sleap_nn_cli(),
         "eval",
         "--ground_truth_path",
         minimal_instance.as_posix(),
@@ -1419,5 +1343,7 @@ def test_eval_command(
         f"{tmp_path}/metrics_test.npz",
     ]
     # Run the command and check for errors
-    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    result = subprocess.run(
+        cmd, check=True, capture_output=True, text=True, env=cpu_only_env()
+    )
     assert Path(f"{tmp_path}/metrics_test.npz").exists()

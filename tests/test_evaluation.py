@@ -5,6 +5,7 @@ import pytest
 from pathlib import Path
 import copy
 import torch
+from tests.utils.cli import cpu_only_env, sleap_nn_cli
 import warnings
 from sleap_nn.legacy_predict import run_inference
 from sleap_nn.evaluation import (
@@ -762,14 +763,7 @@ def test_evaluator_main(
 
     # Build the command to run sleap-nn eval with the required arguments
     cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--no-group",
-        "gpu",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
+        *sleap_nn_cli(),
         "eval",
         "--ground_truth_path",
         minimal_instance.as_posix(),
@@ -779,7 +773,9 @@ def test_evaluator_main(
         f"{tmp_path}/metrics_test.npz",
     ]
     # Run the command and check for errors
-    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    result = subprocess.run(
+        cmd, check=True, capture_output=True, text=True, env=cpu_only_env()
+    )
     assert Path(f"{tmp_path}/metrics_test.npz").exists()
 
     # Load metrics in SLEAP 1.4 format (single "metrics" key)
