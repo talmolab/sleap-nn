@@ -132,6 +132,40 @@ def _warn_size_mismatch(
     )
 
 
+def compute_eff_scale(
+    img_hw: Tuple[int, int],
+    max_hw: Optional[Tuple[Optional[int], Optional[int]]] = None,
+) -> float:
+    """Return the scale `apply_sizematcher` would apply to a frame of this size.
+
+    The size matcher fits each frame into ``(max_height, max_width)`` preserving
+    aspect ratio, so the scale is the *smaller* of the two ratios. This is the
+    single definition of that factor: `apply_sizematcher` calls it to derive the
+    ``eff_scale`` it returns, and the crop-size helpers in
+    `sleap_nn.data.instance_cropping` call it to measure labels in the same space
+    the crops are taken in. Keeping one implementation is what stops the sizing
+    and the cropping from drifting apart.
+
+    Args:
+        img_hw: The frame's ``(height, width)`` in its native resolution.
+        max_hw: The configured ``(max_height, max_width)``. ``None``, or a
+            ``None`` in either slot, means "no target for that axis", which
+            leaves the frame at its native size on that axis.
+
+    Returns:
+        The scale factor, ``1.0`` when the frame already matches the target.
+    """
+    img_height, img_width = img_hw
+    max_height, max_width = (None, None) if max_hw is None else max_hw
+    if max_height is None:
+        max_height = img_height
+    if max_width is None:
+        max_width = img_width
+    if img_height == max_height and img_width == max_width:
+        return 1.0
+    return min(max_height / img_height, max_width / img_width)
+
+
 def apply_sizematcher(
     image: torch.Tensor,
     max_height: Optional[int] = None,
@@ -146,17 +180,11 @@ def apply_sizematcher(
         max_width = img_width
     if img_height != max_height or img_width != max_width:
         _warn_size_mismatch(img_height, img_width, max_height, max_width)
-        hratio = max_height / img_height
-        wratio = max_width / img_width
-
-        if hratio > wratio:
-            eff_scale_ratio = wratio
-            target_h = int(round(img_height * wratio))
-            target_w = int(round(img_width * wratio))
-        else:
-            eff_scale_ratio = hratio
-            target_w = int(round(img_width * hratio))
-            target_h = int(round(img_height * hratio))
+        eff_scale_ratio = compute_eff_scale(
+            (img_height, img_width), (max_height, max_width)
+        )
+        target_h = int(round(img_height * eff_scale_ratio))
+        target_w = int(round(img_width * eff_scale_ratio))
 
         image = tvf.resize(image, size=(target_h, target_w))
 
