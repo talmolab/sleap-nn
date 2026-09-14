@@ -2738,3 +2738,25 @@ def test_auto_crop_size_warns_when_a_val_instance_clips(config, tmp_path, caplog
     # ...and that is reported rather than left silent.
     assert "Computed crop size" in caplog.text
     assert "validation instances" in caplog.text
+
+
+def test_computed_crop_size_is_reported_with_its_provenance(config, caplog):
+    """The computed crop size must say what drove it, by node name (#2862).
+
+    An off-center anchor can double the crop, so a number several times the
+    animal's width is expected rather than a bug -- but only if the log says so.
+    """
+    cfg = config.copy()
+    OmegaConf.update(cfg, "data_config.preprocessing.crop_size", None)
+    # The fixture config anchors on node "A", an end of the two-node skeleton.
+    ModelTrainer.get_model_trainer_from_config(cfg)
+
+    assert "Computed crop size" in caplog.text
+    # Named, not an opaque skeleton index.
+    assert "anchor node 'A'" in caplog.text
+    assert "index" not in caplog.text
+    # Warned, so it does not scroll past the person choosing a crop size.
+    assert any(
+        record.levelname == "WARNING" and "Computed crop size" in record.message
+        for record in caplog.records
+    )

@@ -644,7 +644,11 @@ class ModelTrainer:
         lets that validation raise the good error a moment later.
 
         Returns:
-            ``(anchor_ind, method, fallback)`` for `generate_centroids`.
+            ``(anchor_ind, anchor_part, method, fallback)`` -- the first, third
+            and fourth for `generate_centroids`, and the node's name for
+            reporting. ``anchor_part`` is ``None`` when no anchor is in force,
+            including when a configured one could not be resolved and was
+            degraded to its fallback.
         """
         leaf_paths = {
             "centered_instance": "centered_instance.confmaps",
@@ -656,7 +660,7 @@ class ModelTrainer:
         }
         leaf_path = leaf_paths.get(self.model_type)
         if leaf_path is None:
-            return None, None, None
+            return None, None, None, None
         head_cfg = OmegaConf.select(
             self.config, f"model_config.head_configs.{leaf_path}", default=None
         )
@@ -676,7 +680,15 @@ class ModelTrainer:
         method, fallback = degrade_anchor_if_unresolved(
             *centroid_method_from_config(head_cfg), anchor_ind
         )
-        return anchor_ind, method, fallback
+        # Report the name only if the anchor actually took effect; an
+        # unresolvable one has degraded to `fallback` and naming it would
+        # describe a center that is not being used.
+        return (
+            anchor_ind,
+            (anchor_part if anchor_ind is not None else None),
+            method,
+            fallback,
+        )
 
     def _compute_crop_padding(self, train_label, max_hw):
         """Return the augmentation margin to add to a computed crop size.
@@ -771,7 +783,12 @@ class ModelTrainer:
             self.config.data_config.preprocessing.max_height,
             self.config.data_config.preprocessing.max_width,
         )
-        anchor_ind, centroid_method, centroid_fallback = self._resolve_crop_centroid()
+        (
+            anchor_ind,
+            anchor_part,
+            centroid_method,
+            centroid_fallback,
+        ) = self._resolve_crop_centroid()
         user_instances_only = self.config.data_config.user_instances_only
         crop_size = self.config.data_config.preprocessing.crop_size
 
@@ -797,7 +814,9 @@ class ModelTrainer:
                 max_crop_size = max(max_crop_size, crop_sz)
             self.config.data_config.preprocessing.crop_size = max_crop_size
             crop_size = max_crop_size
-            self._log_crop_size(max_crop_size, anchor_ind, centroid_method, max_hw)
+            self._log_crop_size(
+                max_crop_size, anchor_ind, anchor_part, centroid_method, max_hw
+            )
 
         # Check the resolved crop size against every labeled instance, however it
         # was arrived at. A computed size is derived from the TRAIN split, so a
@@ -812,19 +831,34 @@ class ModelTrainer:
             was_auto=was_auto,
         )
 
-    def _log_crop_size(self, crop_size, anchor_ind, centroid_method, max_hw):
+    def _log_crop_size(
+        self, crop_size, anchor_ind, anchor_part, centroid_method, max_hw
+    ):
         """Report the computed crop size and what it was derived from.
 
-        The value now depends on the size-matcher scale, the centroid the crop
-        is centered on and the augmentation margin, none of which a user can
-        infer from the number alone -- so say them (#2862).
+        The value depends on the size-matcher scale, the centroid the crop is
+        centered on and the augmentation margin, none of which a user can infer
+        from the number alone -- an off-center anchor alone can double it, so a
+        crop several times the animal's width is expected rather than a bug.
+        Warned rather than logged at info so it does not scroll past the person
+        who is trying to choose a crop size (#2862).
+
+        Args:
+            crop_size: The computed crop size, in size-matched pixels.
+            anchor_ind: Index of the anchor node, or ``None``.
+            anchor_part: Name of the anchor node, for reporting, or ``None``.
+            centroid_method: The resolved centroid method.
+            max_hw: The resolved ``(max_height, max_width)``.
         """
         scale = self.config.data_config.preprocessing.scale or 1.0
-        center = (
-            f"anchor node index {anchor_ind}"
-            if anchor_ind is not None
-            else f"{centroid_method or 'center_of_mass'} centroid"
-        )
+        if anchor_ind is not None:
+            center = (
+                f"anchor node {anchor_part!r}"
+                if anchor_part is not None
+                else f"anchor node index {anchor_ind}"
+            )
+        else:
+            center = f"{centroid_method or 'center_of_mass'} centroid"
         message = (
             f"Computed crop size: {crop_size}px, sized to reach every labeled "
             f"node from the {center} it is centered on"
@@ -838,7 +872,7 @@ class ModelTrainer:
                 f". Input scaling {scale} is applied to the crop, so the network "
                 f"input is {int(crop_size * scale)}px"
             )
-        logger.info(message + ".")
+        logger.warning(message + ".")
 
     def _warn_if_crop_size_clips(
         self,
