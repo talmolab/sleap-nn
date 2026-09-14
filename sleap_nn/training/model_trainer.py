@@ -967,10 +967,7 @@ class ModelTrainer:
                 f"generalizes to new data rather than being fitted to this project's "
                 f"validation set -- so {val_clipped} validation instance{plural}, "
                 f"larger than anything labeled for training, "
-                f"{'is' if val_clipped == 1 else 'are'} not covered. If "
-                f"{'it is' if val_clipped == 1 else 'they are'} not "
-                f"{'an outlier' if val_clipped == 1 else 'outliers'}, label more "
-                f"training frames at that size."
+                f"{'is' if val_clipped == 1 else 'are'} not covered."
             )
 
         logger.warning(message)
