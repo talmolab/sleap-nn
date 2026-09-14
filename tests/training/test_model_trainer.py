@@ -2689,3 +2689,52 @@ def test_explicit_crop_size_stays_quiet_when_it_fits(config, tmp_path, caplog):
 
     ModelTrainer.get_model_trainer_from_config(cfg)
     assert "clips" not in caplog.text
+
+
+def test_auto_crop_size_warns_when_a_val_instance_clips(config, tmp_path, caplog):
+    """A computed crop size is sized from train, so a bigger val instance warns.
+
+    The crop size is derived from the training split alone, so an instance that
+    only appears in validation can exceed it -- and the validation images are
+    exactly where a user would notice the clipping (#2862).
+    """
+    skel = sio.Skeleton(["A", "B"])
+    img_path = Path(tmp_path) / "frame.png"
+    Image.fromarray(np.zeros((384, 384), dtype=np.uint8)).save(img_path)
+
+    def _labels_with_span(span, path):
+        video = sio.Video(filename=[img_path.as_posix()])
+        pts = np.array([[100.0, 100.0], [100.0 + span, 100.0]])
+        labels = sio.Labels(
+            videos=[video],
+            skeletons=[skel],
+            labeled_frames=[
+                sio.LabeledFrame(
+                    video=video,
+                    frame_idx=0,
+                    instances=[sio.Instance.from_numpy(pts, skeleton=skel)],
+                )
+            ],
+        )
+        labels.save(path.as_posix())
+        return path
+
+    train_path = _labels_with_span(40, Path(tmp_path) / "train.slp")
+    # The val instance is much wider than anything in the train split.
+    val_path = _labels_with_span(200, Path(tmp_path) / "val.slp")
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "data_config.train_labels_path", [train_path.as_posix()])
+    OmegaConf.update(cfg, "data_config.val_labels_path", [val_path.as_posix()])
+    OmegaConf.update(cfg, "data_config.preprocessing.crop_size", None)
+    OmegaConf.update(cfg, "data_config.preprocessing.min_crop_size", 0)
+    OmegaConf.update(cfg, "data_config.preprocessing.crop_padding", 0)
+
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    # Sized from train only, so it does not cover the val instance...
+    crop_size = trainer.config.data_config.preprocessing.crop_size
+    assert crop_size < 200
+    # ...and that is reported rather than left silent.
+    assert "Computed crop size" in caplog.text
+    assert "validation instances" in caplog.text
