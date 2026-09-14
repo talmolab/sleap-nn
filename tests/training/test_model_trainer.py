@@ -2735,9 +2735,13 @@ def test_auto_crop_size_warns_when_a_val_instance_clips(config, tmp_path, caplog
     # Sized from train only, so it does not cover the val instance...
     crop_size = trainer.config.data_config.preprocessing.crop_size
     assert crop_size < 200
-    # ...and that is reported rather than left silent.
+    # ...and that is reported rather than left silent, saying where the clipped
+    # instances are and that the sizing deliberately only covers train.
     assert "Computed crop size" in caplog.text
-    assert "validation instances" in caplog.text
+    assert "TRAINING split only" in caplog.text
+    # A computed size always covers the split it was measured from, so the
+    # clipping is in validation by construction.
+    assert "(0 in train, 1 in validation)" in caplog.text
 
 
 def test_computed_crop_size_is_reported_with_its_provenance(config, caplog):

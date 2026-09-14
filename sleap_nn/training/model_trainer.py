@@ -885,12 +885,18 @@ class ModelTrainer:
     ):
         """Warn when the crop size in force clips labeled instances.
 
-        Checks both splits, because the two ways to arrive at a crop size fail
-        differently. An explicit one is never overridden -- clipping an extremity
-        may well be a deliberate trade against GPU memory -- but it should not be
-        silent, since the clipped nodes are dropped from the targets. A computed
-        one is derived from the train split alone, so a larger val instance can
-        still clip, and the validation visualizations are where that surfaces.
+        Checks both splits and reports them separately, because which split an
+        instance falls in determines what the user should do about it.
+
+        The crop size is computed from the TRAINING split only -- the behavior
+        SLEAP has had since 1.x, where `find_instance_crop_size` was likewise
+        passed `training_labels`. Keeping the crop a property of the training
+        data means a validation instance larger than anything in training is not
+        covered, so it is called out here rather than left to be discovered in a
+        validation visualization (#2862). An explicit crop size is never
+        overridden either -- clipping an extremity may well be a deliberate trade
+        against GPU memory -- but it should not be silent, since the clipped
+        nodes are dropped from the targets.
 
         Args:
             crop_size: The crop size in force, in size-matched pixels.
@@ -901,48 +907,61 @@ class ModelTrainer:
             was_auto: Whether ``crop_size`` was computed rather than configured,
                 which changes what the user can do about it.
         """
-        n_clipped = 0
-        n_total = 0
-        max_required = 0.0
-        for labels in list(self.train_labels) + list(self.val_labels):
-            clipped, total, required = count_clipped_instances(
-                labels,
-                crop_size=crop_size,
-                max_hw=max_hw,
-                anchor_ind=anchor_ind,
-                centroid_method=centroid_method,
-                centroid_fallback=centroid_fallback,
-                user_instances_only=self.config.data_config.user_instances_only,
-            )
-            n_clipped += clipped
-            n_total += total
-            max_required = max(max_required, required)
 
+        def tally(labels_list):
+            """Return ``(n_clipped, n_total, max_required)`` over one split."""
+            n_clipped = n_total = 0
+            max_required = 0.0
+            for labels in labels_list:
+                clipped, total, required = count_clipped_instances(
+                    labels,
+                    crop_size=crop_size,
+                    max_hw=max_hw,
+                    anchor_ind=anchor_ind,
+                    centroid_method=centroid_method,
+                    centroid_fallback=centroid_fallback,
+                    user_instances_only=self.config.data_config.user_instances_only,
+                )
+                n_clipped += clipped
+                n_total += total
+                max_required = max(max_required, required)
+            return n_clipped, n_total, max_required
+
+        # Tallied per split, because which split an instance is in determines
+        # what the user should do about it.
+        train_clipped, train_total, train_required = tally(self.train_labels)
+        val_clipped, val_total, val_required = tally(self.val_labels)
+        n_clipped = train_clipped + val_clipped
         if n_clipped == 0:
             return
 
+        n_total = train_total + val_total
+        max_required = max(train_required, val_required)
         stride = self.config.model_config.backbone_config[f"{self.backbone_type}"][
             "max_stride"
         ]
         suggested = math.ceil(max_required / float(stride)) * int(stride)
         origin = "Computed" if was_auto else "Configured"
-        remedy = (
-            (
-                f"The crop size is computed from the training split, so these are "
-                f"validation instances larger than anything labeled for training. "
-                f"Set crop_size to {suggested} explicitly to contain them."
+        if was_auto:
+            # A computed size always covers the train split it was measured
+            # from, so anything clipped here is in validation by construction.
+            remedy = (
+                f"The crop size is computed from the TRAINING split only, so "
+                f"validation instances larger than anything labeled for training "
+                f"are not covered by it. Set crop_size to {suggested} explicitly "
+                f"to contain every labeled instance."
             )
-            if was_auto
-            else (
-                f"Set crop_size to {suggested} (or leave it unset for the computed "
-                f"value) to contain every labeled node."
+        else:
+            remedy = (
+                f"Set crop_size to {suggested} to contain every labeled instance "
+                f"(leaving it unset sizes the crop from the training split alone)."
             )
-        )
         logger.warning(
             f"{origin} crop size {crop_size}px clips {n_clipped} of {n_total} "
-            f"labeled instances: crops are centered on the instance centroid, and "
-            f"these instances have nodes further from it than {crop_size // 2}px. "
-            f"Those nodes are dropped from the training targets. {remedy}"
+            f"labeled instances ({train_clipped} in train, {val_clipped} in "
+            f"validation): crops are centered on the instance centroid, and these "
+            f"instances have nodes further from it than {crop_size // 2}px. Those "
+            f"nodes are dropped from the targets. {remedy}"
         )
 
     def _get_confmap_sigma(self, output_stride: int) -> float:
