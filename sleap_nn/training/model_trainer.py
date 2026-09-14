@@ -936,33 +936,44 @@ class ModelTrainer:
             return
 
         n_total = train_total + val_total
-        max_required = max(train_required, val_required)
         stride = self.config.model_config.backbone_config[f"{self.backbone_type}"][
             "max_stride"
         ]
-        suggested = math.ceil(max_required / float(stride)) * int(stride)
         origin = "Computed" if was_auto else "Configured"
-        if was_auto:
-            # A computed size always covers the train split it was measured
-            # from, so anything clipped here is in validation by construction.
-            remedy = (
-                f"The crop size is computed from the TRAINING split only, so "
-                f"validation instances larger than anything labeled for training "
-                f"are not covered by it. Set crop_size to {suggested} explicitly "
-                f"to contain every labeled instance."
-            )
-        else:
-            remedy = (
-                f"Set crop_size to {suggested} to contain every labeled instance "
-                f"(leaving it unset sizes the crop from the training split alone)."
-            )
-        logger.warning(
+        message = (
             f"{origin} crop size {crop_size}px clips {n_clipped} of {n_total} "
             f"labeled instances ({train_clipped} in train, {val_clipped} in "
             f"validation): crops are centered on the instance centroid, and these "
             f"instances have nodes further from it than {crop_size // 2}px. Those "
-            f"nodes are dropped from the targets. {remedy}"
+            f"nodes are dropped from the targets."
         )
+
+        if train_clipped:
+            # Only ever suggest a size that covers TRAIN. Deriving it from val
+            # too would fit a hyperparameter to held-out data, which is the very
+            # thing the train-only sizing exists to avoid.
+            suggested = math.ceil(train_required / float(stride)) * int(stride)
+            message += (
+                f" Set crop_size to {suggested} to contain every training instance."
+            )
+
+        if val_clipped:
+            # Deliberately no size to set: the crop is sized from train alone so
+            # that it generalizes to unseen data, and a val instance bigger than
+            # anything in train is a coverage problem in the labels, not a knob.
+            plural = "" if val_clipped == 1 else "s"
+            message += (
+                f" The crop size is sized from the training split alone, so that it "
+                f"generalizes to new data rather than being fitted to this project's "
+                f"validation set -- so {val_clipped} validation instance{plural}, "
+                f"larger than anything labeled for training, "
+                f"{'is' if val_clipped == 1 else 'are'} not covered. If "
+                f"{'it is' if val_clipped == 1 else 'they are'} not "
+                f"{'an outlier' if val_clipped == 1 else 'outliers'}, label more "
+                f"training frames at that size."
+            )
+
+        logger.warning(message)
 
     def _get_confmap_sigma(self, output_stride: int) -> float:
         """Return the active head's confmap sigma (input px), else ``output_stride``.
