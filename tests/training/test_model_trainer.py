@@ -119,7 +119,10 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
     assert len(list(iter(train_dataset))) == 2
     assert len(list(iter(val_dataset))) == 2
     sample = next(iter(train_dataloader))
-    assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
+    # 152, not the bounding-box extent: this config anchors on node "A", an
+    # END of the two-node skeleton, so the crop must be twice the extent to
+    # reach node "B" from the anchor it is centered on.
+    assert sample["instance_image"].shape == (1, 1, 1, 152, 152)
 
     ## with memory caching
     config_copy = config.copy()
@@ -143,7 +146,10 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
     assert len(list(iter(train_dataset))) == 2
     assert len(list(iter(val_dataset))) == 2
     sample = next(iter(train_dataloader))
-    assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
+    # 152, not the bounding-box extent: this config anchors on node "A", an
+    # END of the two-node skeleton, so the crop must be twice the extent to
+    # reach node "B" from the anchor it is centered on.
+    assert sample["instance_image"].shape == (1, 1, 1, 152, 152)
 
     ## with caching imgs on disk
     config_copy = config.copy()
@@ -184,7 +190,10 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
     assert len(list(iter(train_dataset))) == 2
     assert len(list(iter(val_dataset))) == 2
     sample = next(iter(train_dataloader))
-    assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
+    # 152, not the bounding-box extent: this config anchors on node "A", an
+    # END of the two-node skeleton, so the crop must be twice the extent to
+    # reach node "B" from the anchor it is centered on.
+    assert sample["instance_image"].shape == (1, 1, 1, 152, 152)
 
     ## raise exception if no imgs are found when use_existing_imgs = True.
     OmegaConf.update(
@@ -416,7 +425,10 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     assert training_config.model_config.total_params is not None
     assert training_config.trainer_config.wandb.api_key == ""
     assert training_config.data_config.skeletons
-    assert training_config.data_config.preprocessing.crop_size == 104
+    # 152, not the bounding-box extent: this config anchors on node "A", an
+    # END of the two-node skeleton, so the crop must be twice the extent to
+    # reach node "B" from the anchor it is centered on.
+    assert training_config.data_config.preprocessing.crop_size == 152
 
     # Verify API key is also masked in initial_config.yaml
     initial_config = OmegaConf.load(
@@ -2557,3 +2569,201 @@ class TestEmbeddingPretrainedBackboneSync:
         mt._verify_model_input_channels()
         assert cfg.model_config.head_configs.embedding.embedding.normalize is True
         assert cfg.model_config.backbone_config.pretrained.normalize is False
+
+
+def _mixed_resolution_labels(tmp_path, small_hw=(192, 192), large_hw=(384, 384)):
+    """Write a two-video project whose videos differ in resolution.
+
+    The instance on the SMALLER video is narrower in native pixels but, once the
+    size matcher upscales that video to the larger one's size, becomes the widest
+    instance in the project.
+
+    Args:
+        tmp_path: Directory to write the ``.slp`` into.
+        small_hw: The smaller video's ``(height, width)``.
+        large_hw: The larger video's ``(height, width)``, which sets ``max_hw``.
+
+    Returns:
+        ``(path, expected_native_extent, expected_scaled_extent)``.
+    """
+    skel = sio.Skeleton(["A", "B"])
+    scale = large_hw[0] / small_hw[0]  # 2.0 for the defaults
+
+    # Real image files, since the trainer opens the videos when it loads labels.
+    big_path = Path(tmp_path) / "big.png"
+    small_path = Path(tmp_path) / "small.png"
+    Image.fromarray(np.zeros(large_hw, dtype=np.uint8)).save(big_path)
+    Image.fromarray(np.zeros(small_hw, dtype=np.uint8)).save(small_path)
+    big_video = sio.Video(filename=[big_path.as_posix()])
+    small_video = sio.Video(filename=[small_path.as_posix()])
+
+    # 80px wide on the big video; 60px wide on the small one, which is 120px
+    # after upscaling and so becomes the binding constraint.
+    big_pts = np.array([[100.0, 100.0], [180.0, 100.0]])
+    small_pts = np.array([[60.0, 60.0], [120.0, 60.0]])
+
+    labels = sio.Labels(
+        videos=[big_video, small_video],
+        skeletons=[skel],
+        labeled_frames=[
+            sio.LabeledFrame(
+                video=big_video,
+                frame_idx=0,
+                instances=[sio.Instance.from_numpy(big_pts, skeleton=skel)],
+            ),
+            sio.LabeledFrame(
+                video=small_video,
+                frame_idx=0,
+                instances=[sio.Instance.from_numpy(small_pts, skeleton=skel)],
+            ),
+        ],
+    )
+    path = Path(tmp_path) / "mixed_resolution.slp"
+    labels.save(path.as_posix())
+    return path, 80.0, 60.0 * scale
+
+
+def test_preprocessing_crop_size_accounts_for_sizematcher(config, tmp_path):
+    """The computed crop size must cover instances after size matching (#2862).
+
+    Measured natively, the larger video's instance looks widest. But the smaller
+    video is upscaled to `max_hw`, so its instance is the one that needs room.
+    """
+    path, native_extent, scaled_extent = _mixed_resolution_labels(tmp_path)
+    assert scaled_extent > native_extent  # the point of the fixture
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "data_config.train_labels_path", [path.as_posix()])
+    OmegaConf.update(cfg, "data_config.val_labels_path", [path.as_posix()])
+    OmegaConf.update(cfg, "data_config.preprocessing.crop_size", None)
+    OmegaConf.update(cfg, "data_config.preprocessing.min_crop_size", 0)
+    OmegaConf.update(cfg, "data_config.preprocessing.crop_padding", 0)
+    OmegaConf.update(cfg, "data_config.preprocessing.max_height", None)
+    OmegaConf.update(cfg, "data_config.preprocessing.max_width", None)
+    # Center on the mean of the two nodes so this isolates the scaling effect
+    # from the anchor-offset effect.
+    OmegaConf.update(
+        cfg, "model_config.head_configs.centered_instance.confmaps.anchor_part", None
+    )
+
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    crop_size = trainer.config.data_config.preprocessing.crop_size
+
+    # max_hw is resolved to the larger video before the crop is sized.
+    assert trainer.config.data_config.preprocessing.max_height == 384
+    # Must cover the upscaled instance, not just the natively-widest one.
+    assert crop_size >= scaled_extent
+    assert crop_size < 2 * scaled_extent  # not wildly over-sized
+
+
+def test_explicit_crop_size_warns_when_it_clips(config, tmp_path, caplog):
+    """An explicit crop size is honored, but clipping is reported (#2862)."""
+    path, _, _ = _mixed_resolution_labels(tmp_path)
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "data_config.train_labels_path", [path.as_posix()])
+    OmegaConf.update(cfg, "data_config.val_labels_path", [path.as_posix()])
+    OmegaConf.update(cfg, "data_config.preprocessing.max_height", None)
+    OmegaConf.update(cfg, "data_config.preprocessing.max_width", None)
+    # Far too small for either instance once anchored on node "A" (an end node).
+    OmegaConf.update(cfg, "data_config.preprocessing.crop_size", 16)
+
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    # The user's value is never overridden.
+    assert trainer.config.data_config.preprocessing.crop_size == 16
+    assert "clips" in caplog.text
+    assert "crop_size" in caplog.text
+
+
+def test_explicit_crop_size_stays_quiet_when_it_fits(config, tmp_path, caplog):
+    """No warning when the configured crop size contains every instance."""
+    path, _, _ = _mixed_resolution_labels(tmp_path)
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "data_config.train_labels_path", [path.as_posix()])
+    OmegaConf.update(cfg, "data_config.val_labels_path", [path.as_posix()])
+    OmegaConf.update(cfg, "data_config.preprocessing.max_height", None)
+    OmegaConf.update(cfg, "data_config.preprocessing.max_width", None)
+    OmegaConf.update(cfg, "data_config.preprocessing.crop_size", 512)
+
+    ModelTrainer.get_model_trainer_from_config(cfg)
+    assert "clips" not in caplog.text
+
+
+def test_auto_crop_size_warns_when_a_val_instance_clips(config, tmp_path, caplog):
+    """A computed crop size is sized from train, so a bigger val instance warns.
+
+    The crop size is derived from the training split alone, so an instance that
+    only appears in validation can exceed it -- and the validation images are
+    exactly where a user would notice the clipping (#2862).
+    """
+    skel = sio.Skeleton(["A", "B"])
+    img_path = Path(tmp_path) / "frame.png"
+    Image.fromarray(np.zeros((384, 384), dtype=np.uint8)).save(img_path)
+
+    def _labels_with_span(span, path):
+        video = sio.Video(filename=[img_path.as_posix()])
+        pts = np.array([[100.0, 100.0], [100.0 + span, 100.0]])
+        labels = sio.Labels(
+            videos=[video],
+            skeletons=[skel],
+            labeled_frames=[
+                sio.LabeledFrame(
+                    video=video,
+                    frame_idx=0,
+                    instances=[sio.Instance.from_numpy(pts, skeleton=skel)],
+                )
+            ],
+        )
+        labels.save(path.as_posix())
+        return path
+
+    train_path = _labels_with_span(40, Path(tmp_path) / "train.slp")
+    # The val instance is much wider than anything in the train split.
+    val_path = _labels_with_span(200, Path(tmp_path) / "val.slp")
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "data_config.train_labels_path", [train_path.as_posix()])
+    OmegaConf.update(cfg, "data_config.val_labels_path", [val_path.as_posix()])
+    OmegaConf.update(cfg, "data_config.preprocessing.crop_size", None)
+    OmegaConf.update(cfg, "data_config.preprocessing.min_crop_size", 0)
+    OmegaConf.update(cfg, "data_config.preprocessing.crop_padding", 0)
+
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+
+    # Sized from train only, so it does not cover the val instance...
+    crop_size = trainer.config.data_config.preprocessing.crop_size
+    assert crop_size < 200
+    # ...and that is reported rather than left silent, saying where the clipped
+    # instances are and that the sizing deliberately only covers train.
+    assert "Computed crop size" in caplog.text
+    assert "sized from the training split alone" in caplog.text
+    # A computed size always covers the split it was measured from, so the
+    # clipping is in validation by construction.
+    assert "(0 in train, 1 in validation)" in caplog.text
+    # No crop size is suggested for val clipping: sizing the crop to cover the
+    # validation set would fit a hyperparameter to held-out data.
+    assert "Set crop_size to" not in caplog.text
+
+
+def test_computed_crop_size_is_reported_with_its_provenance(config, caplog):
+    """The computed crop size must say what drove it, by node name (#2862).
+
+    An off-center anchor can double the crop, so a number several times the
+    animal's width is expected rather than a bug -- but only if the log says so.
+    """
+    cfg = config.copy()
+    OmegaConf.update(cfg, "data_config.preprocessing.crop_size", None)
+    # The fixture config anchors on node "A", an end of the two-node skeleton.
+    ModelTrainer.get_model_trainer_from_config(cfg)
+
+    assert "Computed crop size" in caplog.text
+    # Named, not an opaque skeleton index.
+    assert "anchor node 'A'" in caplog.text
+    assert "index" not in caplog.text
+    # Warned, so it does not scroll past the person choosing a crop size.
+    assert any(
+        record.levelname == "WARNING" and "Computed crop size" in record.message
+        for record in caplog.records
+    )

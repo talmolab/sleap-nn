@@ -33,9 +33,14 @@ from lightning.pytorch.profilers import (
 )
 from sleap_io.io.skeleton import SkeletonYAMLEncoder
 from sleap_nn.data.instance_cropping import (
+    count_clipped_instances,
     find_instance_crop_size,
     find_max_instance_bbox_size,
     compute_augmentation_padding,
+)
+from sleap_nn.data.instance_centroids import (
+    centroid_method_from_config,
+    degrade_anchor_if_unresolved,
 )
 from sleap_nn.data.providers import get_max_height_width
 from sleap_nn.data.custom_datasets import (
@@ -85,6 +90,14 @@ from sleap_nn.legacy_models import get_keras_first_layer_channels
 _SPARSE_LABEL_THRESHOLD = 20
 
 MEMORY_BUFFER = 0.2  # Default memory buffer for caching
+
+# Model types that crop around an instance centroid, and so need a crop size.
+CROPPING_MODEL_TYPES = (
+    "centered_instance",
+    "multi_class_topdown",
+    "centered_instance_segmentation",
+    "embedding",
+)
 
 
 @attrs.define
@@ -621,125 +634,343 @@ class ModelTrainer:
                         f"bottom-up) model instead."
                     )
 
+    def _resolve_crop_centroid(self):
+        """Resolve the centroid definition the crops will be centered on.
+
+        The crop center is what makes a crop size sufficient or not, so sizing
+        the crop requires knowing it. Resolution is deliberately lenient: this
+        runs before `_setup_head_config`, which is where a bad ``anchor_part``
+        is reported, so an unresolvable anchor degrades to its fallback here and
+        lets that validation raise the good error a moment later.
+
+        Returns:
+            ``(anchor_ind, anchor_part, method, fallback)`` -- the first, third
+            and fourth for `generate_centroids`, and the node's name for
+            reporting. ``anchor_part`` is ``None`` when no anchor is in force,
+            including when a configured one could not be resolved and was
+            degraded to its fallback.
+        """
+        leaf_paths = {
+            "centered_instance": "centered_instance.confmaps",
+            "multi_class_topdown": "multi_class_topdown.confmaps",
+            "centered_instance_segmentation": (
+                "centered_instance_segmentation.segmentation"
+            ),
+            "embedding": "embedding.embedding",
+        }
+        leaf_path = leaf_paths.get(self.model_type)
+        if leaf_path is None:
+            return None, None, None, None
+        head_cfg = OmegaConf.select(
+            self.config, f"model_config.head_configs.{leaf_path}", default=None
+        )
+
+        anchor_part = OmegaConf.select(head_cfg, "anchor_part", default=None)
+        anchor_ind = None
+        if anchor_part is not None:
+            # Resolve against the skeleton rather than the head's `part_names`,
+            # which `_setup_head_config` has not populated yet.
+            for labels in self.train_labels:
+                if labels.skeletons:
+                    names = labels.skeletons[0].node_names
+                    if anchor_part in names:
+                        anchor_ind = names.index(anchor_part)
+                    break
+
+        method, fallback = degrade_anchor_if_unresolved(
+            *centroid_method_from_config(head_cfg), anchor_ind
+        )
+        # Report the name only if the anchor actually took effect; an
+        # unresolvable one has degraded to `fallback` and naming it would
+        # describe a center that is not being used.
+        return (
+            anchor_ind,
+            (anchor_part if anchor_ind is not None else None),
+            method,
+            fallback,
+        )
+
+    def _compute_crop_padding(self, train_label, max_hw):
+        """Return the augmentation margin to add to a computed crop size.
+
+        Args:
+            train_label: The `sio.Labels` to measure instances from.
+            max_hw: The resolved ``(max_height, max_width)``, so the bounding
+                box is measured in the space the crop is taken in.
+
+        Returns:
+            Padding in pixels, from the config when set, else derived from the
+            enabled geometric augmentations.
+        """
+        padding = self.config.data_config.preprocessing.crop_padding
+        if padding is not None:
+            return padding
+
+        aug_config = self.config.data_config.augmentation_config
+        if not (
+            self.config.data_config.use_augmentations_train
+            and aug_config is not None
+            and aug_config.geometric is not None
+        ):
+            return 0
+
+        geo = aug_config.geometric
+        # Check if rotation is enabled (via rotation_p or affine_p)
+        rotation_enabled = (geo.rotation_p is not None and geo.rotation_p > 0) or (
+            geo.rotation_p is None
+            and geo.scale_p is None
+            and geo.translate_p is None
+            and geo.affine_p > 0
+        )
+        # Check if scale is enabled (via scale_p or affine_p)
+        scale_enabled = (geo.scale_p is not None and geo.scale_p > 0) or (
+            geo.rotation_p is None
+            and geo.scale_p is None
+            and geo.translate_p is None
+            and geo.affine_p > 0
+        )
+        if not (rotation_enabled or scale_enabled):
+            return 0
+
+        # First find the actual max bbox size from labels
+        bbox_size = find_max_instance_bbox_size(
+            train_label,
+            max_hw=max_hw,
+            user_instances_only=self.config.data_config.user_instances_only,
+        )
+        bbox_size = max(
+            bbox_size,
+            self.config.data_config.preprocessing.min_crop_size or 100,
+        )
+        rotation_max = (
+            max(abs(geo.rotation_min), abs(geo.rotation_max))
+            if rotation_enabled
+            else 0.0
+        )
+        scale_max = geo.scale_max if scale_enabled else 1.0
+        return compute_augmentation_padding(
+            bbox_size=bbox_size,
+            rotation_max=rotation_max,
+            scale_max=scale_max,
+        )
+
     def _setup_preprocessing_config(self):
-        """Setup preprocessing config."""
-        # compute max_heigt, max_width, and crop_size (if not provided in the config)
+        """Setup preprocessing config.
+
+        Runs in two passes: ``max_height``/``max_width`` must be resolved across
+        *every* labels file before any crop size can be computed, because the
+        size matcher rescales each frame to them and the crop is taken in that
+        rescaled space. Measuring a crop in native pixels under-sizes it for any
+        video that gets scaled up (see #2862).
+        """
         max_height = self.config.data_config.preprocessing.max_height
         max_width = self.config.data_config.preprocessing.max_width
-        if self.model_type in (
-            "centered_instance",
-            "multi_class_topdown",
-            "centered_instance_segmentation",
-            "embedding",
-        ):
-            crop_size = self.config.data_config.preprocessing.crop_size
 
-        max_h, max_w = 0, 0
-        max_crop_size = 0
-
-        for train_label in self.train_labels:
-            # compute max h and w from slp file if not provided
-            if max_height is None or max_width is None:
-                current_max_h, current_max_w = get_max_height_width(train_label)
-
-                if current_max_h > max_h:
-                    max_h = current_max_h
-                if current_max_w > max_w:
-                    max_w = current_max_w
-
-            if self.model_type in (
-                "centered_instance",
-                "multi_class_topdown",
-                "centered_instance_segmentation",
-                "embedding",
-            ):
-                # compute crop size if not provided in config
-                if crop_size is None:
-                    # Get padding from config or auto-compute from augmentation settings
-                    padding = self.config.data_config.preprocessing.crop_padding
-                    if padding is None:
-                        # Auto-compute padding based on augmentation settings
-                        aug_config = self.config.data_config.augmentation_config
-                        if (
-                            self.config.data_config.use_augmentations_train
-                            and aug_config is not None
-                            and aug_config.geometric is not None
-                        ):
-                            geo = aug_config.geometric
-                            # Check if rotation is enabled (via rotation_p or affine_p)
-                            rotation_enabled = (
-                                geo.rotation_p is not None and geo.rotation_p > 0
-                            ) or (
-                                geo.rotation_p is None
-                                and geo.scale_p is None
-                                and geo.translate_p is None
-                                and geo.affine_p > 0
-                            )
-                            # Check if scale is enabled (via scale_p or affine_p)
-                            scale_enabled = (
-                                geo.scale_p is not None and geo.scale_p > 0
-                            ) or (
-                                geo.rotation_p is None
-                                and geo.scale_p is None
-                                and geo.translate_p is None
-                                and geo.affine_p > 0
-                            )
-
-                            if rotation_enabled or scale_enabled:
-                                # First find the actual max bbox size from labels
-                                bbox_size = find_max_instance_bbox_size(train_label)
-                                bbox_size = max(
-                                    bbox_size,
-                                    self.config.data_config.preprocessing.min_crop_size
-                                    or 100,
-                                )
-                                rotation_max = (
-                                    max(
-                                        abs(geo.rotation_min),
-                                        abs(geo.rotation_max),
-                                    )
-                                    if rotation_enabled
-                                    else 0.0
-                                )
-                                scale_max = geo.scale_max if scale_enabled else 1.0
-                                padding = compute_augmentation_padding(
-                                    bbox_size=bbox_size,
-                                    rotation_max=rotation_max,
-                                    scale_max=scale_max,
-                                )
-                            else:
-                                padding = 0
-                        else:
-                            padding = 0
-
-                    crop_sz = find_instance_crop_size(
-                        labels=train_label,
-                        padding=padding,
-                        maximum_stride=self.config.model_config.backbone_config[
-                            f"{self.backbone_type}"
-                        ]["max_stride"],
-                        min_crop_size=self.config.data_config.preprocessing.min_crop_size,
-                    )
-
-                    if crop_sz > max_crop_size:
-                        max_crop_size = crop_sz
-
-        # if preprocessing params were None, replace with computed params
+        # Pass 1: resolve the size-matcher target.
         if max_height is None or max_width is None:
+            max_h, max_w = 0, 0
+            for train_label in self.train_labels:
+                current_max_h, current_max_w = get_max_height_width(train_label)
+                max_h = max(max_h, current_max_h)
+                max_w = max(max_w, current_max_w)
             self.config.data_config.preprocessing.max_height = max_h
             self.config.data_config.preprocessing.max_width = max_w
 
-        if (
-            self.model_type
-            in (
-                "centered_instance",
-                "multi_class_topdown",
-                "centered_instance_segmentation",
-                "embedding",
-            )
-            and crop_size is None
-        ):
+        if self.model_type not in CROPPING_MODEL_TYPES:
+            return
+
+        max_hw = (
+            self.config.data_config.preprocessing.max_height,
+            self.config.data_config.preprocessing.max_width,
+        )
+        (
+            anchor_ind,
+            anchor_part,
+            centroid_method,
+            centroid_fallback,
+        ) = self._resolve_crop_centroid()
+        user_instances_only = self.config.data_config.user_instances_only
+        crop_size = self.config.data_config.preprocessing.crop_size
+
+        # Pass 2: size the crop when it was not given.
+        was_auto = crop_size is None
+        if was_auto:
+            max_crop_size = 0
+            for train_label in self.train_labels:
+                padding = self._compute_crop_padding(train_label, max_hw)
+                crop_sz = find_instance_crop_size(
+                    labels=train_label,
+                    padding=padding,
+                    maximum_stride=self.config.model_config.backbone_config[
+                        f"{self.backbone_type}"
+                    ]["max_stride"],
+                    min_crop_size=self.config.data_config.preprocessing.min_crop_size,
+                    max_hw=max_hw,
+                    anchor_ind=anchor_ind,
+                    centroid_method=centroid_method,
+                    centroid_fallback=centroid_fallback,
+                    user_instances_only=user_instances_only,
+                )
+                max_crop_size = max(max_crop_size, crop_sz)
             self.config.data_config.preprocessing.crop_size = max_crop_size
+            crop_size = max_crop_size
+            self._log_crop_size(
+                max_crop_size, anchor_ind, anchor_part, centroid_method, max_hw
+            )
+
+        # Check the resolved crop size against every labeled instance, however it
+        # was arrived at. A computed size is derived from the TRAIN split, so a
+        # larger val instance can still clip -- and the validation images are
+        # exactly where a user would notice it (#2862).
+        self._warn_if_crop_size_clips(
+            crop_size,
+            max_hw,
+            anchor_ind,
+            centroid_method,
+            centroid_fallback,
+            was_auto=was_auto,
+        )
+
+    def _log_crop_size(
+        self, crop_size, anchor_ind, anchor_part, centroid_method, max_hw
+    ):
+        """Report the computed crop size and what it was derived from.
+
+        The value depends on the size-matcher scale, the centroid the crop is
+        centered on and the augmentation margin, none of which a user can infer
+        from the number alone -- an off-center anchor alone can double it, so a
+        crop several times the animal's width is expected rather than a bug.
+        Warned rather than logged at info so it does not scroll past the person
+        who is trying to choose a crop size (#2862).
+
+        Args:
+            crop_size: The computed crop size, in size-matched pixels.
+            anchor_ind: Index of the anchor node, or ``None``.
+            anchor_part: Name of the anchor node, for reporting, or ``None``.
+            centroid_method: The resolved centroid method.
+            max_hw: The resolved ``(max_height, max_width)``.
+        """
+        scale = self.config.data_config.preprocessing.scale or 1.0
+        if anchor_ind is not None:
+            center = (
+                f"anchor node {anchor_part!r}"
+                if anchor_part is not None
+                else f"anchor node index {anchor_ind}"
+            )
+        else:
+            center = f"{centroid_method or 'center_of_mass'} centroid"
+        message = (
+            f"Computed crop size: {crop_size}px, sized to reach every labeled "
+            f"node from the {center} it is centered on"
+        )
+        if max_hw[0] is not None:
+            message += (
+                f", measured after size matching to {max_hw[0]}x{max_hw[1]} (HxW)"
+            )
+        if scale != 1.0:
+            message += (
+                f". Input scaling {scale} is applied to the crop, so the network "
+                f"input is {int(crop_size * scale)}px"
+            )
+        logger.warning(message + ".")
+
+    def _warn_if_crop_size_clips(
+        self,
+        crop_size,
+        max_hw,
+        anchor_ind,
+        centroid_method,
+        centroid_fallback,
+        was_auto=False,
+    ):
+        """Warn when the crop size in force clips labeled instances.
+
+        Checks both splits and reports them separately, because which split an
+        instance falls in determines what the user should do about it.
+
+        The crop size is computed from the TRAINING split only -- the behavior
+        SLEAP has had since 1.x, where `find_instance_crop_size` was likewise
+        passed `training_labels`. Keeping the crop a property of the training
+        data means a validation instance larger than anything in training is not
+        covered, so it is called out here rather than left to be discovered in a
+        validation visualization (#2862). An explicit crop size is never
+        overridden either -- clipping an extremity may well be a deliberate trade
+        against GPU memory -- but it should not be silent, since the clipped
+        nodes are dropped from the targets.
+
+        Args:
+            crop_size: The crop size in force, in size-matched pixels.
+            max_hw: The resolved ``(max_height, max_width)``.
+            anchor_ind: Index of the anchor node, or ``None``.
+            centroid_method: The resolved centroid method.
+            centroid_fallback: The reduce method for a non-visible anchor node.
+            was_auto: Whether ``crop_size`` was computed rather than configured,
+                which changes what the user can do about it.
+        """
+
+        def tally(labels_list):
+            """Return ``(n_clipped, n_total, max_required)`` over one split."""
+            n_clipped = n_total = 0
+            max_required = 0.0
+            for labels in labels_list:
+                clipped, total, required = count_clipped_instances(
+                    labels,
+                    crop_size=crop_size,
+                    max_hw=max_hw,
+                    anchor_ind=anchor_ind,
+                    centroid_method=centroid_method,
+                    centroid_fallback=centroid_fallback,
+                    user_instances_only=self.config.data_config.user_instances_only,
+                )
+                n_clipped += clipped
+                n_total += total
+                max_required = max(max_required, required)
+            return n_clipped, n_total, max_required
+
+        # Tallied per split, because which split an instance is in determines
+        # what the user should do about it.
+        train_clipped, train_total, train_required = tally(self.train_labels)
+        val_clipped, val_total, val_required = tally(self.val_labels)
+        n_clipped = train_clipped + val_clipped
+        if n_clipped == 0:
+            return
+
+        n_total = train_total + val_total
+        stride = self.config.model_config.backbone_config[f"{self.backbone_type}"][
+            "max_stride"
+        ]
+        origin = "Computed" if was_auto else "Configured"
+        message = (
+            f"{origin} crop size {crop_size}px clips {n_clipped} of {n_total} "
+            f"labeled instances ({train_clipped} in train, {val_clipped} in "
+            f"validation): crops are centered on the instance centroid, and these "
+            f"instances have nodes further from it than {crop_size // 2}px. Those "
+            f"nodes are dropped from the targets."
+        )
+
+        if train_clipped:
+            # Only ever suggest a size that covers TRAIN. Deriving it from val
+            # too would fit a hyperparameter to held-out data, which is the very
+            # thing the train-only sizing exists to avoid.
+            suggested = math.ceil(train_required / float(stride)) * int(stride)
+            message += (
+                f" Set crop_size to {suggested} to contain every training instance."
+            )
+
+        if val_clipped:
+            # Deliberately no size to set: the crop is sized from train alone so
+            # that it generalizes to unseen data, and a val instance bigger than
+            # anything in train is a coverage problem in the labels, not a knob.
+            plural = "" if val_clipped == 1 else "s"
+            message += (
+                f" The crop size is sized from the training split alone, so that it "
+                f"generalizes to new data rather than being fitted to this project's "
+                f"validation set -- so {val_clipped} validation instance{plural}, "
+                f"larger than anything labeled for training, "
+                f"{'is' if val_clipped == 1 else 'are'} not covered."
+            )
+
+        logger.warning(message)
 
     def _get_confmap_sigma(self, output_stride: int) -> float:
         """Return the active head's confmap sigma (input px), else ``output_stride``.
