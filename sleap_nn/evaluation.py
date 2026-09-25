@@ -2641,32 +2641,175 @@ def run_evaluation(
 # ---------------------------------------------------------------------------
 # Retrieval / verification metrics for the `embedding` model type (SPEC §8).
 #
-# Pure numpy (+ sklearn ROC-AUC). Consume embedding matrices + integer group labels;
-# they do NOT touch `.slp` instances (retrieval is appearance-only).
+# Pure numpy. Consume embedding matrices + identity labels; they do NOT touch
+# `.slp` instances (retrieval is appearance-only).
+#
+# Protocol, shared by every function below:
+#   - Similarity is cosine (rows L2-normalized, float64).
+#   - rank-1 / mAP / kNN follow the standard CMC protocol: a query with no
+#     same-identity item in the gallery has nothing to retrieve, so it is left out
+#     of all three and counted in `n_no_positive_queries`. Under leave-self-out
+#     these are the identities seen once (singletons).
+#   - kNN is a similarity-weighted vote of the k nearest gallery items, each voting
+#     for its own label with weight max(sim, 0); see `_knn_vote`.
+#   - AUC / EER score same- vs different-identity pairs exactly (no ROC curve is
+#     materialized); see `_auc_eer`.
 # ---------------------------------------------------------------------------
+
+# Query rows scored per block by `embedding_leave_self_out_eval`: bounds its peak
+# memory to a few (block x N) arrays instead of several N x N ones.
+_RETRIEVAL_BLOCK_ROWS = 256
+
+
 def _l2_normalize(x: np.ndarray) -> np.ndarray:
     """Row-wise L2-normalize."""
     return x / np.maximum(np.linalg.norm(x, axis=1, keepdims=True), 1e-8)
 
 
+def _mean_or_nan(x: np.ndarray) -> float:
+    """Mean of ``x`` rounded to 4 decimals, or NaN when ``x`` is empty."""
+    return round(float(np.mean(x)), 4) if x.size else float("nan")
+
+
+def _knn_vote(nn_labels: np.ndarray, nn_sims: np.ndarray):
+    """Similarity-weighted vote over each query's ``k`` nearest gallery items.
+
+    Each neighbour votes for its own label with weight ``max(sim, 0)``, so only a
+    label present among the neighbours can win. Unclipped, a label with no
+    neighbour at all (total 0) beat every label whose neighbours all had negative
+    similarity. Ties (e.g. every weight 0) go to the label of the nearest of the
+    tied neighbours.
+
+    Args:
+        nn_labels: ``(Q, k)`` labels of each query's neighbours, nearest first.
+        nn_sims: ``(Q, k)`` their similarities to the query.
+
+    Returns:
+        ``(pred, conf)``: the winning label per query, and its share of the total
+        vote (0 when no neighbour has positive similarity).
+    """
+    weights = np.clip(nn_sims, 0.0, None)
+    # votes[q, a]: total weight of the neighbours sharing neighbour a's label.
+    same = nn_labels[:, :, None] == nn_labels[:, None, :]
+    votes = (same * weights[:, None, :]).sum(axis=2)
+    best = votes.argmax(axis=1)  # first maximum: the nearest of tied labels
+    rows = np.arange(len(nn_labels))
+    win, total = votes[rows, best], weights.sum(axis=1)
+    conf = np.divide(win, total, out=np.zeros_like(win), where=total > 0)
+    return nn_labels[rows, best], conf
+
+
+def _score_queries(
+    sim: np.ndarray,
+    query_y: np.ndarray,
+    gallery_y: np.ndarray,
+    k: int,
+    drop_self: bool = False,
+):
+    """Per-query retrieval outcomes for a block of queries.
+
+    Args:
+        sim: ``(Q, G)`` cosine similarities of the queries to the gallery. With
+            ``drop_self``, each row's own entry must be ``-inf``: it ranks last and
+            is dropped from the ranking.
+        query_y: ``(Q,)`` query labels.
+        gallery_y: ``(G,)`` gallery labels.
+        k: Neighbours in the kNN vote (at most the gallery size).
+        drop_self: Leave-self-out ranking (see ``sim``).
+
+    Returns:
+        ``(top1_hit, ap, knn_hit)`` per query: whether the most similar gallery item
+        has the query's label, the query's average precision (0 with no positive),
+        and whether the kNN vote (:func:`_knn_vote`) predicts the query's label.
+    """
+    order = np.argsort(-sim, axis=1)
+    if drop_self:
+        order = order[:, :-1]
+    rel = gallery_y[order] == query_y[:, None]
+    hits = np.cumsum(rel, axis=1)
+    ranks = np.arange(1, rel.shape[1] + 1)
+    ap = np.where(rel, hits / ranks, 0.0).sum(axis=1) / np.maximum(rel.sum(axis=1), 1)
+    nn = order[:, :k]
+    pred, _ = _knn_vote(gallery_y[nn], np.take_along_axis(sim, nn, axis=1))
+    return rel[:, 0], ap, pred == query_y
+
+
+def _auc_eer(pos: np.ndarray, neg: np.ndarray) -> Tuple[float, float]:
+    """ROC-AUC and EER of same-identity (``pos``) vs different-identity (``neg``) scores.
+
+    Both arrays must be sorted ascending. Exact, in ``O((P + N) log N)`` without
+    materializing the ROC curve (``sklearn.metrics.roc_auc_score`` over the ~12.5M
+    pairs of a 5000-crop set took ~8 s):
+
+    - AUC is the Mann-Whitney statistic -- the probability that a random positive
+      scores above a random negative, a tie counting 1/2 -- which is the
+      trapezoidal area under the ROC curve that ``roc_auc_score`` computes.
+    - EER is the rate at which FNR = FPR on the ROC curve, linearly interpolated
+      between the two operating points that bracket the crossing -- the usual
+      ``brentq`` / ``interp1d`` recipe on ``roc_curve``. Operating points are the
+      observed scores used as thresholds: a pair is accepted when its score is
+      ``>=`` the threshold, so tied scores move together.
+
+    Returns:
+        ``(auc, eer)``, both NaN when either array is empty.
+    """
+    n_pos, n_neg = len(pos), len(neg)
+    if n_pos == 0 or n_neg == 0:
+        return float("nan"), float("nan")
+    below = np.searchsorted(neg, pos, side="left")
+    tied = np.searchsorted(neg, pos, side="right") - below
+    auc = (float(below.sum()) + 0.5 * float(tied.sum())) / (n_pos * n_neg)
+
+    def errors(t):
+        """``(false rejects, false accepts)`` at threshold ``t``."""
+        return (
+            int(np.searchsorted(pos, t, side="left")),
+            int(n_neg - np.searchsorted(neg, t, side="left")),
+        )
+
+    def gap(point):
+        """``(FNR - FPR) * n_pos * n_neg`` at an operating point, as an exact int."""
+        return point[0] * n_neg - point[1] * n_pos
+
+    # The gap strictly increases with the threshold, so the crossing lies between
+    # the last point below zero and the first one at or above it. Each sorted array
+    # holds its own pair of such candidates; bisect for them. Both sides exist: the
+    # lowest threshold accepts everything (FPR = 1), and rejecting everything
+    # (FNR = 1, the ROC curve's first point) is always above zero.
+    points = {(n_pos, 0)}
+    for scores in (pos, neg):
+        lo, hi = 0, len(scores)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if gap(errors(scores[mid])) >= 0:
+                hi = mid
+            else:
+                lo = mid + 1
+        points.update(errors(scores[i]) for i in (lo - 1, lo) if 0 <= i < len(scores))
+    upper = min((p for p in points if gap(p) >= 0), key=gap)
+    lower = max((p for p in points if gap(p) < 0), key=gap)
+    # Fraction of the way from `upper` to `lower` at which the gap is zero.
+    frac = gap(upper) / (gap(upper) - gap(lower))
+    fnr_upper, fnr_lower = upper[0] / n_pos, lower[0] / n_pos
+    return auc, fnr_upper + frac * (fnr_lower - fnr_upper)
+
+
 def retrieval_metrics(gallery_emb, gallery_y, query_emb, query_y):
-    """Rank-1 (CMC@1) + mAP of queries against a gallery (cosine similarity)."""
+    """Rank-1 (CMC@1) + mAP of queries against a gallery (cosine similarity).
+
+    A query whose identity is absent from the gallery has nothing to retrieve: it is
+    left out of both metrics (NaN when no query has a positive) and counted in
+    ``n_no_positive_queries``.
+    """
     g, q = _l2_normalize(np.asarray(gallery_emb)), _l2_normalize(np.asarray(query_emb))
     gy, qy = np.asarray(gallery_y), np.asarray(query_y)
-    sim = q @ g.T
-    order = np.argsort(-sim, axis=1)
-    ranked = gy[order]
-    rank1 = float(np.mean(ranked[:, 0] == qy))
-    aps = []
-    for i in range(len(qy)):
-        rel = (ranked[i] == qy[i]).astype(float)
-        if rel.sum() == 0:
-            continue
-        csum = np.cumsum(rel)
-        prec = csum / np.arange(1, len(rel) + 1)
-        aps.append((prec * rel).sum() / rel.sum())
-    mAP = float(np.mean(aps)) if aps else 0.0
-    return {"rank1": round(rank1, 4), "mAP": round(mAP, 4)}
+    top1, ap, _ = _score_queries(q @ g.T, qy, gy, k=1)
+    has_pos = np.isin(qy, gy)
+    return {
+        "rank1": _mean_or_nan(top1[has_pos]),
+        "mAP": _mean_or_nan(ap[has_pos]),
+        "n_no_positive_queries": int((~has_pos).sum()),
+    }
 
 
 def verification_metrics(
@@ -2677,56 +2820,42 @@ def verification_metrics(
     When ``exclude_diagonal`` (gallery == query in the same order), the self-pairs on
     the similarity diagonal are dropped before scoring so a leave-self-out evaluation is
     not optimistically biased by ``N`` perfect same-identity matches at sim=1.0.
+    See :func:`_auc_eer` for the definitions.
     """
-    from sklearn.metrics import roc_auc_score
-
     g, q = _l2_normalize(np.asarray(gallery_emb)), _l2_normalize(np.asarray(query_emb))
     gy, qy = np.asarray(gallery_y), np.asarray(query_y)
-    sim2d = q @ g.T
-    same2d = (qy[:, None] == gy[None, :]).astype(int)
+    sim = q @ g.T
+    same = qy[:, None] == gy[None, :]
+    keep = np.ones_like(same)
     if exclude_diagonal:
-        keep = ~np.eye(sim2d.shape[0], sim2d.shape[1], dtype=bool)
-        sim = sim2d[keep]
-        same = same2d[keep]
-    else:
-        sim = sim2d.ravel()
-        same = same2d.ravel()
-    if same.min() == same.max():
-        return {"auc": float("nan"), "eer": float("nan")}
-    auc = float(roc_auc_score(same, sim))
-    order = np.argsort(-sim)
-    lab = same[order]
-    P, N = lab.sum(), len(lab) - lab.sum()
-    fnr = 1 - np.cumsum(lab) / max(P, 1)
-    fpr = np.cumsum(1 - lab) / max(N, 1)
-    j = int(np.argmin(np.abs(fnr - fpr)))
-    eer = float((fnr[j] + fpr[j]) / 2)
+        np.fill_diagonal(keep, False)
+    pos, neg = np.sort(sim[same & keep]), np.sort(sim[~same & keep])
+    auc, eer = _auc_eer(pos, neg)
     return {"auc": round(auc, 4), "eer": round(eer, 4)}
 
 
 def knn_classify(gallery_emb, gallery_y, query_emb, k: int = 7):
-    """Cosine k-NN classification (weighted vote). Returns (pred, conf)."""
+    """Cosine k-NN classification (see :func:`_knn_vote`). Returns (pred, conf)."""
     g, q = _l2_normalize(np.asarray(gallery_emb)), _l2_normalize(np.asarray(query_emb))
     gy = np.asarray(gallery_y)
     sim = q @ g.T
     idx = np.argsort(-sim, 1)[:, :k]
-    nn_y, nn_s = gy[idx], np.take_along_axis(sim, idx, 1)
-    nclass = int(gy.max()) + 1
-    votes = np.zeros((len(q), nclass))
-    for c in range(nclass):
-        votes[:, c] = (nn_s * (nn_y == c)).sum(1)
-    pred = votes.argmax(1)
-    conf = votes.max(1) / (np.abs(votes).sum(1) + 1e-8)
-    return pred, conf
+    return _knn_vote(gy[idx], np.take_along_axis(sim, idx, 1))
 
 
 def embedding_full_eval(gallery_emb, gallery_y, query_emb, query_y, k: int = 7):
-    """Combined retrieval + verification + kNN-accuracy metrics dict."""
+    """Combined retrieval + verification + kNN-accuracy metrics dict.
+
+    kNN accuracy, like rank-1 and mAP, leaves out the queries whose identity is
+    absent from the gallery.
+    """
     out = {}
     out.update(retrieval_metrics(gallery_emb, gallery_y, query_emb, query_y))
     out.update(verification_metrics(gallery_emb, gallery_y, query_emb, query_y))
     pred, _ = knn_classify(gallery_emb, gallery_y, query_emb, k=k)
-    out["knn_acc"] = round(float(np.mean(pred == np.asarray(query_y))), 4)
+    qy = np.asarray(query_y)
+    has_pos = np.isin(qy, np.asarray(gallery_y))
+    out["knn_acc"] = _mean_or_nan((pred == qy)[has_pos])
     return out
 
 
@@ -2739,17 +2868,31 @@ def embedding_leave_self_out_eval(emb, y, k: int = 7, max_n: int = 5000):
     :class:`~sleap_nn.training.callbacks.EmbeddingEvaluationCallback` uses for
     checkpoint selection, so the post-training headline matches the selected metric.
 
+    - rank-1, mAP and kNN accuracy are averaged over the queries that have a
+      positive, i.e. whose identity appears at least twice. Singleton identities
+      have nothing to retrieve and are counted in ``n_no_positive_queries`` instead
+      (the standard CMC protocol).
+    - kNN accuracy: the similarity-weighted vote of the ``k`` nearest other items,
+      with negative similarities carrying no weight (see :func:`_knn_vote`).
+    - AUC / EER score every unordered pair of distinct items once, same identity vs
+      different identity (see :func:`_auc_eer`).
+
+    The similarity is computed once, in blocks of query rows, and every metric reads
+    that one pass, so memory stays at a few ``(block x N)`` arrays plus the ``N^2/2``
+    pair scores.
+
     Args:
         emb: ``(N, D)`` embeddings.
-        y: ``(N,)`` integer identity labels.
-        k: ``k`` for the cosine-kNN accuracy (clamped to ``N - 1``).
-        max_n: Cap on the number of embeddings used for the ``N x N`` similarity. Larger
-            sets are deterministically subsampled so the per-epoch eval stays bounded
-            (an uncapped set would build an O(N^2) float64 matrix every epoch). ``None``
-            disables the cap.
+        y: ``(N,)`` identity labels (any comparable dtype).
+        k: ``k`` for the cosine-kNN accuracy (clamped to ``[1, N - 1]``).
+        max_n: Cap on the number of embeddings scored. Larger sets are
+            deterministically subsampled so the per-epoch eval stays bounded (an
+            uncapped set costs O(N^2) every epoch). ``None`` disables the cap.
 
     Returns:
-        dict with ``rank1``, ``mAP``, ``auc``, ``eer``, ``knn_acc``.
+        dict with ``rank1``, ``mAP``, ``auc``, ``eer``, ``knn_acc`` (rank-1, mAP and
+        kNN are NaN when no query has a positive; AUC/EER when no pair of either kind
+        exists) and ``n_no_positive_queries``.
     """
     emb = np.asarray(emb, dtype=np.float64)
     y = np.asarray(y)
@@ -2757,42 +2900,48 @@ def embedding_leave_self_out_eval(emb, y, k: int = 7, max_n: int = 5000):
         # Deterministic subsample so the N x N similarity + argsort stay bounded.
         keep = np.sort(np.random.default_rng(0).choice(len(emb), max_n, replace=False))
         emb, y = emb[keep], y[keep]
-    emb = emb / np.maximum(np.linalg.norm(emb, axis=1, keepdims=True), 1e-8)
+    emb = _l2_normalize(emb)
     n = len(emb)
-    sim = emb @ emb.T
-    np.fill_diagonal(sim, -np.inf)  # leave-self-out (self sorts to the very end)
-    order = np.argsort(-sim, axis=1)[:, : n - 1]  # drop the self slot
-    ranked = y[order]
+    _, identity, counts = np.unique(y, return_inverse=True, return_counts=True)
+    has_pos = counts[identity.reshape(-1)] > 1
 
-    rank1 = float(np.mean(ranked[:, 0] == y))
-    aps = []
-    for i in range(n):
-        rel = (ranked[i] == y[i]).astype(float)
-        if rel.sum() == 0:
-            continue
-        csum = np.cumsum(rel)
-        prec = csum / np.arange(1, len(rel) + 1)
-        aps.append((prec * rel).sum() / rel.sum())
-    mAP = float(np.mean(aps)) if aps else 0.0
+    top1 = np.zeros(n, dtype=bool)
+    ap = np.zeros(n)
+    knn_hit = np.zeros(n, dtype=bool)
+    # Every unordered pair (i < j) once: same-identity scores in `pos`, the rest in
+    # `neg`, filled block by block.
+    n_pos_pairs = int((counts * (counts - 1) // 2).sum())
+    pos = np.empty(n_pos_pairs)
+    neg = np.empty(n * (n - 1) // 2 - n_pos_pairs)
+    n_pos_filled = n_neg_filled = 0
+    cols = np.arange(n)
+    kk = max(1, min(k, n - 1))
+    for start in range(0, n if n > 1 else 0, _RETRIEVAL_BLOCK_ROWS):
+        rows = cols[start : start + _RETRIEVAL_BLOCK_ROWS]
+        sim = emb[rows] @ emb.T
+        upper = cols[None, :] > rows[:, None]
+        same = y[rows, None] == y[None, :]
+        block_pos, block_neg = sim[upper & same], sim[upper & ~same]
+        pos[n_pos_filled : n_pos_filled + block_pos.size] = block_pos
+        neg[n_neg_filled : n_neg_filled + block_neg.size] = block_neg
+        n_pos_filled += block_pos.size
+        n_neg_filled += block_neg.size
 
-    # kNN accuracy (leave-self-out): top-k excluding self.
-    kk = min(k, n - 1)
-    idx = order[:, :kk]
-    nn_y = y[idx]
-    nn_s = np.take_along_axis(sim, idx, 1)
-    nclass = int(y.max()) + 1
-    votes = np.zeros((n, nclass))
-    for c in range(nclass):
-        votes[:, c] = (nn_s * (nn_y == c)).sum(1)
-    knn_acc = float(np.mean(votes.argmax(1) == y))
+        sim[np.arange(len(rows)), rows] = -np.inf  # leave-self-out
+        top1[rows], ap[rows], knn_hit[rows] = _score_queries(
+            sim, y[rows], y, kk, drop_self=True
+        )
 
-    ver = verification_metrics(emb, y, emb, y, exclude_diagonal=True)
+    pos.sort()
+    neg.sort()
+    auc, eer = _auc_eer(pos, neg)
     return {
-        "rank1": round(rank1, 4),
-        "mAP": round(mAP, 4),
-        "auc": ver["auc"],
-        "eer": ver["eer"],
-        "knn_acc": round(knn_acc, 4),
+        "rank1": _mean_or_nan(top1[has_pos]),
+        "mAP": _mean_or_nan(ap[has_pos]),
+        "auc": round(auc, 4),
+        "eer": round(eer, 4),
+        "knn_acc": _mean_or_nan(knn_hit[has_pos]),
+        "n_no_positive_queries": int((~has_pos).sum()),
     }
 
 
