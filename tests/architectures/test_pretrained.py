@@ -606,3 +606,83 @@ def test_embedding_freeze_backbone_keeps_batchnorm_frozen_through_training(
     enc_ids = {id(p) for p in enc.parameters()}
     for name, p in module.named_parameters():
         assert p.requires_grad is (id(p) not in enc_ids), name
+
+
+@pytest.mark.parametrize(
+    "overrides, expected",
+    [
+        ({}, "gem"),
+        ({"model_config.backbone_config.pretrained.freeze": True}, "avg"),
+        (
+            {"model_config.head_configs.embedding.embedding.freeze_backbone": True},
+            "avg",
+        ),
+    ],
+    ids=["fine-tuned", "pretrained.freeze", "freeze_backbone"],
+)
+def test_embedding_default_pool_is_avg_for_a_frozen_pretrained_encoder(
+    tracked_slp, tmp_path, overrides, expected
+):
+    """An unset `pool` trains with avg on a frozen pretrained encoder, else GeM.
+
+    GeM floors its input at eps, so it pools only the positive part of each
+    channel; a pretrained encoder's LayerNorm output is about half negative and a
+    frozen one cannot adapt. Measured (8 seeds): avg beats GeM by ~+0.04 val rank-1
+    on frozen DINOv2 / ConvNeXtV2 and ties when fine-tuned. The resolved pooling is
+    written into the saved config so inference rebuilds the same head.
+    """
+    from sleap_nn.architectures.heads import GeM
+
+    backbone = {
+        "pretrained": {
+            "model_name": "microsoft/resnet-18",
+            "weights": False,
+            "in_channels": 3,
+            "normalize": False,
+        }
+    }
+    cfg = _emb_train_config(
+        tracked_slp, tmp_path, "default_pool", backbone=backbone, **overrides
+    )
+    module = _emb_train(cfg).lightning_model
+
+    saved = OmegaConf.load(tmp_path / "default_pool" / "training_config.yaml")
+    assert saved.model_config.head_configs.embedding.embedding.pool == expected
+    pool = module.model.head_layers[0].pre_embedding_pool
+    if expected == "avg":
+        assert isinstance(pool, torch.nn.AdaptiveAvgPool2d)
+    else:
+        assert isinstance(pool, GeM)
+
+
+def test_embedding_explicit_pool_is_kept_on_a_frozen_pretrained_encoder():
+    """The default applies only to an UNSET pool; an explicit choice is kept."""
+    from sleap_nn.architectures.heads import GeM
+    from sleap_nn.config.utils import check_output_strides
+
+    cfg = _embedding_cfg("microsoft/resnet-18")
+    cfg.model_config.backbone_config.pretrained.freeze = True
+    assert cfg.model_config.head_configs.embedding.embedding.pool == "gem"
+    cfg = check_output_strides(cfg)
+    assert cfg.model_config.head_configs.embedding.embedding.pool == "gem"
+
+    # And a model built without the trainer's config setup resolves an unset pool
+    # the same way.
+    cfg.model_config.head_configs.embedding.embedding.pool = None
+    model = Model.from_config(
+        backbone_type="pretrained",
+        backbone_config=cfg.model_config.backbone_config.pretrained,
+        head_configs=cfg.model_config.head_configs.embedding,
+        model_type="embedding",
+    )
+    assert isinstance(
+        model.head_layers[0].pre_embedding_pool, torch.nn.AdaptiveAvgPool2d
+    )
+    cfg.model_config.backbone_config.pretrained.freeze = False
+    model = Model.from_config(
+        backbone_type="pretrained",
+        backbone_config=cfg.model_config.backbone_config.pretrained,
+        head_configs=cfg.model_config.head_configs.embedding,
+        model_type="embedding",
+    )
+    assert isinstance(model.head_layers[0].pre_embedding_pool, GeM)

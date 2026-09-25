@@ -26,6 +26,8 @@ from sleap_nn.architectures.heads import (
     InstanceCenterHead,
     CenterOffsetHead,
     EmbeddingHead,
+    default_embedding_pool,
+    embedding_encoder_is_frozen,
 )
 from sleap_nn.architectures.unet import UNet
 from sleap_nn.architectures.convnext import ConvNextWrapper
@@ -197,6 +199,17 @@ class Model(nn.Module):
         self.head_configs = head_configs
 
         self.heads = get_head(model_type, self.head_configs)
+        for head in self.heads:
+            if isinstance(head, EmbeddingHead) and head.pool is None:
+                # An unset pool means "the default for this backbone". Training
+                # setup writes the resolved value into the saved config
+                # (`check_output_strides`); this covers a model built from a config
+                # that did not go through it.
+                head.pool = default_embedding_pool(
+                    embedding_encoder_is_frozen(
+                        backbone_type, backbone_config, head_configs.embedding
+                    )
+                )
 
         output_strides = []
         for head_type in head_configs:

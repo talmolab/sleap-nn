@@ -674,9 +674,11 @@ class GeM(nn.Module):
 
     The ``eps`` floor also means a NEGATIVE activation contributes as if it were
     ``eps``: GeM pools only the positive part of each channel. That is what the
-    native backbones feed it (their bottleneck ends in a ReLU). Pretrained encoders
-    end in a LayerNorm instead (about half their activations are negative) and keep
-    GeM as well; see the note on ``EmbeddingHeadConfig.pool`` for the measurement.
+    native backbones feed it (their bottleneck ends in a ReLU). A pretrained encoder
+    ends in a LayerNorm instead (about half its activations are negative); when it
+    is fine-tuned it adapts and GeM costs nothing, but a FROZEN one cannot, so the
+    default pool for a frozen pretrained encoder is ``avg`` -- see
+    ``default_embedding_pool``.
     """
 
     def __init__(self, p: float = 3.0, eps: float = 1e-6, learnable: bool = True):
@@ -726,6 +728,56 @@ class GeM(nn.Module):
             )
 
 
+def embedding_encoder_is_frozen(
+    backbone_type: str, backbone_config, embedding_config
+) -> bool:
+    """Whether an `embedding` model's pooled feature comes from a frozen pretrained encoder.
+
+    Args:
+        backbone_type: The backbone type (``unet`` / ``convnext`` / ``swint`` /
+            ``pretrained``).
+        backbone_config: That backbone's config leaf.
+        embedding_config: The ``head_configs.embedding.embedding`` leaf.
+
+    Returns:
+        ``True`` for a ``pretrained`` (HuggingFace) backbone frozen by
+        ``backbone_config.pretrained.freeze`` or by the head's ``freeze_backbone``.
+        The native backbones always return ``False``: their pooled feature is the
+        output of randomly initialized, trainable middle blocks ending in a ReLU,
+        frozen encoder or not.
+    """
+    from omegaconf import OmegaConf
+
+    if backbone_type != "pretrained":
+        return False
+    return bool(OmegaConf.select(backbone_config, "freeze", default=False)) or bool(
+        OmegaConf.select(embedding_config, "freeze_backbone", default=False)
+    )
+
+
+def default_embedding_pool(encoder_frozen: bool) -> str:
+    """The pooling an `embedding` head uses when its config leaves ``pool`` unset.
+
+    ``avg`` for a frozen pretrained encoder, ``gem`` for everything else. GeM floors
+    its input at ``eps``, so it pools only the positive part of each channel; a
+    pretrained encoder's bottleneck is LayerNorm output (DINOv2-with-registers-base
+    50% negative, ConvNeXtV2-nano 55%), and a frozen one cannot adapt to that.
+    Measured on the gerbil re-ID set (8 paired seeds, 3 epochs, val rank-1,
+    avg - gem): frozen DINOv2-reg-base +0.042 (7/8 seeds, paired t p=0.007), frozen
+    ConvNeXtV2-nano +0.046 (7/8, p=0.015); fine-tuned ConvNeXtV2-nano -0.001
+    (p=0.87) and fine-tuned DINOv2-reg-base -0.035 (p=0.31; one avg seed trained
+    to 0.65 against GeM's 0.91) -- so fine-tuned pretrained encoders keep GeM, as
+    do the native backbones, whose bottleneck ends in a ReLU.
+
+    Args:
+        encoder_frozen: ``embedding_encoder_is_frozen(...)`` for the model.
+
+    Returns:
+        ``"avg"`` or ``"gem"``.
+    """
+    return "avg" if encoder_frozen else "gem"
+
+
 class L2Norm(nn.Module):
     """L2-normalize along ``dim`` (so embeddings live on the unit hypersphere)."""
 
@@ -755,6 +807,8 @@ class EmbeddingHead(Head):
         num_fc_layers: Number of FC layers before the embedding output.
         num_fc_units: Units in the pre-embedding FC layers.
         pool: Pooling over the encoder feature map: ``gem`` | ``max`` | ``avg``.
+            ``None`` means "the default for this backbone"; `Model` resolves it
+            with ``default_embedding_pool`` before building the head.
         normalize: L2-normalize the output embedding.
         output_stride: Should equal the backbone max_stride (so the decoder is empty
             and the head taps ``middle_output``).

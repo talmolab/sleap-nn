@@ -133,6 +133,7 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
         ]
         config.model_config.head_configs.embedding.embedding.output_stride = max_stride
         _check_embedding_backbone(config, backbone_type)
+        _resolve_embedding_pool(config, backbone_type)
         if backbone_type == "pretrained":
             # The `pretrained` wrapper spells "no decoder" as `mode="encoder"`, not
             # with strides -- and it treats `output_stride == max_stride` as a user
@@ -204,6 +205,39 @@ def _check_embedding_backbone(config: OmegaConf, backbone_type: str) -> None:
             "random initialization for the whole run. This is almost certainly a "
             "mistake -- load pretrained weights or set freeze_backbone=False."
         )
+
+
+def _resolve_embedding_pool(config: OmegaConf, backbone_type: str) -> None:
+    """Write the default pooling into an `embedding` config that leaves it unset.
+
+    Resolved here, at training setup, so the saved ``training_config.yaml`` records
+    the pooling the model was trained with and inference never has to re-derive it.
+
+    Args:
+        config: The full training job config of an `embedding` model.
+        backbone_type: Its backbone type.
+    """
+    from sleap_nn.architectures.heads import (
+        default_embedding_pool,
+        embedding_encoder_is_frozen,
+    )
+
+    leaf = config.model_config.head_configs.embedding.embedding
+    if OmegaConf.select(leaf, "pool", default=None) is not None:
+        return
+    frozen = embedding_encoder_is_frozen(
+        backbone_type, config.model_config.backbone_config[backbone_type], leaf
+    )
+    leaf.pool = default_embedding_pool(frozen)
+    logger.info(
+        f"Setting `head_configs.embedding.embedding.pool` to '{leaf.pool}' "
+        + (
+            "(frozen pretrained encoder: its LayerNorm output is about half "
+            "negative, and GeM pools only the positive part)."
+            if frozen
+            else "(the default)."
+        )
+    )
 
 
 def _set_pretrained_encoder_mode(config: OmegaConf) -> None:

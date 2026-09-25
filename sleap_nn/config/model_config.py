@@ -1436,7 +1436,17 @@ class EmbeddingHeadConfig:
         num_fc_layers: Number of FC layers before the embedding output.
         num_fc_units: Units in the pre-embedding FC layers.
         pool: Pooling over the encoder feature map. One of ``gem`` (generalized-mean,
-            learnable exponent), ``max``, ``avg``.
+            learnable exponent), ``max``, ``avg``, or ``None`` (default) for the
+            backbone's default, resolved at training setup and written into the
+            saved config: ``avg`` for a FROZEN ``pretrained`` encoder
+            (``pretrained.freeze`` or ``freeze_backbone``), ``gem`` otherwise. GeM
+            pools only the positive part of each channel, and a frozen pretrained
+            encoder's LayerNorm output is about half negative: on the gerbil re-ID
+            set avg beat GeM by +0.04 val rank-1 on frozen DINOv2 and ConvNeXtV2
+            (8 seeds each, p < 0.02) and tied when the encoder was fine-tuned (see
+            ``sleap_nn.architectures.heads.default_embedding_pool``). Configs saved
+            before this default existed carry an explicit ``gem`` and are
+            unchanged.
         normalize: L2-normalize the embedding (applied identically train + inference).
         output_stride: Stride of the pooled feature. Should equal the backbone
             ``max_stride`` so the decoder is empty and the head taps ``middle_output``.
@@ -1493,7 +1503,7 @@ class EmbeddingHeadConfig:
     embedding_dim: int = 128
     num_fc_layers: int = 1
     num_fc_units: int = 256
-    pool: str = "gem"
+    pool: Optional[str] = None
     normalize: bool = True
     output_stride: int = 32
     loss_weight: float = 1.0

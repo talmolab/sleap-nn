@@ -265,6 +265,13 @@ def test_freeze_backbone_freezes_only_the_encoder_of_a_native_backbone(
     assert "freeze_backbone=True" in caplog.text
     assert "random initialization" in caplog.text
 
+    # A native backbone keeps GeM even with a frozen encoder: what it pools is the
+    # output of its trainable, ReLU-terminated middle blocks. The resolved default
+    # is written into the saved config.
+    saved = OmegaConf.load(tmp_path / "freeze_native" / "training_config.yaml")
+    assert saved.model_config.head_configs.embedding.embedding.pool == "gem"
+    assert isinstance(module.model.head_layers[0].pre_embedding_pool, GeM)
+
 
 def test_freeze_backbone_on_a_checkpoint_initialized_unet(
     tracked_slp, tmp_path, step_spy, caplog
