@@ -974,12 +974,24 @@ def test_validate_embedding_identity_same_frame_warns_not_deduplicated(caplog):
 
 def test_validate_embedding_identity_aug_view_no_gates(caplog):
     """`aug_view` positives + `in_batch`-only negatives assert nothing -> silent."""
+    objective = _emb_objective(scope="aug_view", sources=("in_batch",))
+    objective.sampler = {"kind": "random"}  # the sampler aug_view is meant for
     with caplog.at_level("WARNING"):
         validate_embedding_identity(
-            _emb_objective(scope="aug_view", sources=("in_batch",)),
+            objective,
             _emb_identity(),  # all conservative defaults
         )  # no raise
     assert caplog.text == ""
+
+
+def test_validate_embedding_identity_aug_view_with_a_group_sampler_warns(caplog):
+    """Under `aug_view` every detection is its own group, so `pk` draws P crops and
+    repeats each K times."""
+    with caplog.at_level("WARNING"):
+        validate_embedding_identity(
+            _emb_objective(scope="aug_view", sources=("in_batch",)), _emb_identity()
+        )
+    assert "sampler.kind='random'" in caplog.text
 
 
 # ── Embedding mask burn-in is config-driven (data_config.preprocessing.burn_in) ──

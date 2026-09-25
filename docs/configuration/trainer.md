@@ -271,7 +271,7 @@ trainer_config:
 | `profiler` | str | `null` | PyTorch profiler: `simple`, `advanced`, `pytorch` |
 | `enable_progress_bar` | bool | `true` | Show training progress |
 | `min_train_steps_per_epoch` | int | `200` | Minimum batches per epoch (for `embedding`, P×K batches) |
-| `train_steps_per_epoch` | int | `null` | Exact steps per epoch (null = auto: one pass over the data; for `embedding`, in P×K batches) |
+| `train_steps_per_epoch` | int | `null` | Exact steps per epoch (null = auto: one pass over the data; for `embedding`, in P×K batches — `min(P, groups in the video)`×K for `sampler.kind: within_video`) |
 | `visualize_preds_during_training` | bool | `false` | Save prediction visualizations |
 | `keep_viz` | bool | `false` | Keep viz folder after training |
 | `use_wandb` | bool | `false` | Enable WandB logging |

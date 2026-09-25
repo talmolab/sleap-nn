@@ -1,5 +1,6 @@
 """This module is to train a sleap-nn model using Lightning."""
 
+from copy import deepcopy
 import os
 import shutil
 import attrs
@@ -37,17 +38,24 @@ from sleap_nn.data.instance_cropping import (
     find_instance_crop_size,
     find_max_instance_bbox_size,
     compute_augmentation_padding,
+    iter_mask_extents,
 )
 from sleap_nn.data.instance_centroids import (
     centroid_method_from_config,
     degrade_anchor_if_unresolved,
 )
 from sleap_nn.data.providers import get_max_height_width
+from sleap_nn.data.utils import embedding_detections
 from sleap_nn.data.custom_datasets import (
+    EMBEDDING_MIN_MASK_AREA,
+    embedding_membership_from_config,
+    embedding_preferred_carrier,
+    embedding_training_groups,
     get_train_val_dataloaders,
     get_steps_per_epoch,
     get_train_samples_per_step,
     get_train_val_datasets,
+    resolve_embedding_detection_mode,
 )
 from sleap_nn.data.tiling import generate_tile_grid
 from loguru import logger
@@ -58,6 +66,7 @@ from sleap_nn.config.utils import (
 from sleap_nn.training.lightning_modules import (
     LightningModel,
     validate_embedding_identity,
+    validate_embedding_views,
 )
 from sleap_nn.config.utils import (
     check_centroid_methods,
@@ -307,6 +316,17 @@ class ModelTrainer:
           untrainable on its primary dataset, and would do the same to
           `semantic_segmentation` on mask-only labels.
         """
+        if self.model_type == "embedding":
+            # The embedding model trains on any detection its dataset keeps: user
+            # labels, and predictions no user label on the frame supersedes (proofread
+            # tracks on predicted poses stay `PredictedInstance`s).
+            instances, masks = embedding_detections(
+                lf,
+                OmegaConf.select(
+                    self.config, "data_config.user_instances_only", default=True
+                ),
+            )
+            return bool(instances or masks)
         if lf.has_user_instances:
             return True
         if self.model_type == "centroid":
@@ -349,9 +369,14 @@ class ModelTrainer:
         # Filter labeled frames to only trainable ones
         user_lfs = [lf for lf in labels if self._is_training_frame(lf)]
 
-        # Set instances to user instances only (empty for centroid-only frames)
-        for lf in user_lfs:
-            lf.instances = lf.user_instances
+        # Set instances to user instances only (empty for centroid-only frames).
+        # Not for `embedding`: it trains on unsuperseded predictions too, its dataset
+        # and post-training eval apply `user_instances_only` themselves, and these are
+        # the TRAINING labels' own frames (this runs on rank 0 before the datasets are
+        # built), so stripping them here would drop training samples.
+        if self.model_type != "embedding":
+            for lf in user_lfs:
+                lf.instances = lf.user_instances
 
         # Create new Labels with filtered frames
         return sio.Labels(
@@ -362,6 +387,38 @@ class ModelTrainer:
             suggestions=labels.suggestions,
             provenance=labels.provenance,
         )
+
+    def _split_embedding_labels(
+        self, label: sio.Labels, val_fraction: float, seed: Optional[int]
+    ):
+        """Random frame split for the `embedding` model that keeps its samples.
+
+        `sio.Labels.make_training_splits` step for step, except that where it removes
+        every prediction this removes only the predictions a user label on the same
+        frame supersedes (with ``user_instances_only``; nothing without it), the rule
+        the embedding dataset applies. On labels without such predictions the split
+        is the one `make_training_splits` makes.
+        """
+        user_instances_only = OmegaConf.select(
+            self.config, "data_config.user_instances_only", default=True
+        )
+        labels = deepcopy(label)
+        for lf in labels.labeled_frames:
+            lf.instances, lf.masks = embedding_detections(lf, user_instances_only)
+        labels.suggestions = []
+        labels.clean()
+        train_split, rest = labels.split(1 - val_fraction, seed=seed)
+        n_val = val_fraction
+        if n_val < 1:
+            n_val = (n_val * len(labels)) / len(rest)
+        if isinstance(n_val, float) and n_val == 1.0:
+            val_split = rest
+        else:
+            val_split, _ = rest.split(n=n_val, seed=seed)
+        source_labels = label.provenance.get("filename", None)
+        train_split.provenance["source_labels"] = source_labels
+        val_split.provenance["source_labels"] = source_labels
+        return train_split, val_split
 
     def _split_centroid_labels(
         self, label: sio.Labels, val_fraction: float, seed: Optional[int]
@@ -479,6 +536,14 @@ class ModelTrainer:
                 self.config, "data_config.validation_fraction", default=0.1
             )
             seed = self.config.trainer_config.seed
+            if self.model_type == "embedding":
+                logger.warning(
+                    "embedding: `validation_fraction` splits FRAMES at random, so "
+                    "near-identical neighboring frames of one animal land on both "
+                    "sides and inflate the validation rank-1 that selects the "
+                    "checkpoint. Set `data_config.split` (split_by='video' measures "
+                    "cross-session re-ID) or pass `val_labels_path`."
+                )
 
             # Warn if resuming from a checkpoint with a potentially different seed
             resume_ckpt = OmegaConf.select(
@@ -515,6 +580,12 @@ class ModelTrainer:
                     # Centroid-aware split keeps pure-centroid frames that
                     # make_training_splits would drop (no user instances).
                     train_split, val_split = self._split_centroid_labels(
+                        label, val_fraction, seed
+                    )
+                elif self.model_type == "embedding":
+                    # make_training_splits removes EVERY prediction, including the
+                    # unsuperseded ones the embedding model trains on.
+                    train_split, val_split = self._split_embedding_labels(
                         label, val_fraction, seed
                     )
                 else:
@@ -693,13 +764,15 @@ class ModelTrainer:
             fallback,
         )
 
-    def _compute_crop_padding(self, train_label, max_hw):
+    def _compute_crop_padding(self, train_label, max_hw, bbox_size=None):
         """Return the augmentation margin to add to a computed crop size.
 
         Args:
             train_label: The `sio.Labels` to measure instances from.
             max_hw: The resolved ``(max_height, max_width)``, so the bounding
                 box is measured in the space the crop is taken in.
+            bbox_size: The largest bounding-box side, when already measured (the
+                mask-mode embedding crop measures masks, not instances).
 
         Returns:
             Padding in pixels, from the config when set, else derived from the
@@ -736,11 +809,13 @@ class ModelTrainer:
             return 0
 
         # First find the actual max bbox size from labels
-        bbox_size = find_max_instance_bbox_size(
-            train_label,
-            max_hw=max_hw,
-            user_instances_only=self.config.data_config.user_instances_only,
-        )
+        if bbox_size is None:
+            bbox_size = find_max_instance_bbox_size(
+                train_label,
+                max_hw=max_hw,
+                user_instances_only=self.config.data_config.user_instances_only,
+                superseded_only=self.model_type == "embedding",
+            )
         bbox_size = max(
             bbox_size,
             self.config.data_config.preprocessing.min_crop_size or 100,
@@ -786,6 +861,16 @@ class ModelTrainer:
             self.config.data_config.preprocessing.max_height,
             self.config.data_config.preprocessing.max_width,
         )
+        if (
+            self.model_type == "embedding"
+            and self.config.model_config.head_configs.embedding.embedding.detection_mode
+            == "mask"
+        ):
+            # Mask-mode crops are centered on the mask and must hold the MASK: the
+            # keypoint sizing below finds no keypoints on mask-only data and fell
+            # back to `min_crop_size` (a 400x300 px animal got a 128 px crop).
+            self._setup_mask_crop_size(max_hw)
+            return
         (
             anchor_ind,
             anchor_part,
@@ -813,6 +898,7 @@ class ModelTrainer:
                     centroid_method=centroid_method,
                     centroid_fallback=centroid_fallback,
                     user_instances_only=user_instances_only,
+                    superseded_only=self.model_type == "embedding",
                 )
                 max_crop_size = max(max_crop_size, crop_sz)
             self.config.data_config.preprocessing.crop_size = max_crop_size
@@ -833,6 +919,107 @@ class ModelTrainer:
             centroid_fallback,
             was_auto=was_auto,
         )
+
+    def _setup_embedding_carrier(self):
+        """Decide and record the carrier (pose / mask) an embedding model trains on.
+
+        Resolved from the TRAIN labels with the dataset's own membership rule
+        (:func:`~sleap_nn.data.custom_datasets.resolve_embedding_detection_mode`):
+        a configured ``detection_mode``, else masks under ``burn_in``, else the
+        carrier holding more samples. Writing it into
+        ``head_configs.embedding.embedding.detection_mode`` makes the train and val
+        datasets crop the same carrier, sizes the crop for it, and tells inference
+        which carrier to embed when a file holds both.
+        """
+        leaf = self.config.model_config.head_configs.embedding.embedding
+        membership = embedding_membership_from_config(
+            self.config, self.train_labels + self.val_labels
+        )
+        # (Warns when the preferred carrier holds no sample and the other is used.)
+        mode = resolve_embedding_detection_mode(
+            self.train_labels,
+            membership.is_member,
+            preferred=embedding_preferred_carrier(self.config),
+        )
+        leaf.detection_mode = mode
+        logger.info(f"Embedding training carrier (detection_mode): {mode}")
+
+    def _setup_mask_crop_size(self, max_hw):
+        """Size (when unset) and check the crop of a mask-mode embedding model.
+
+        The mask analog of the keypoint path in `_setup_preprocessing_config`: the
+        crop is centered on each mask (``crop_centering``) and must hold the whole
+        mask. Computed from the TRAIN split; both splits are checked for clipping.
+        """
+        preprocessing = self.config.data_config.preprocessing
+        crop_centering = (
+            OmegaConf.select(
+                self.config, "data_config.preprocessing.crop_centering", default=None
+            )
+            or "auto"
+        )
+        stride = int(
+            self.config.model_config.backbone_config[f"{self.backbone_type}"][
+                "max_stride"
+            ]
+        )
+
+        def extents(labels_list):
+            return [
+                extent
+                for labels in labels_list
+                for extent in iter_mask_extents(
+                    labels,
+                    max_hw=max_hw,
+                    crop_centering=crop_centering,
+                    user_instances_only=self.config.data_config.user_instances_only,
+                    min_mask_area=EMBEDDING_MIN_MASK_AREA,
+                )
+            ]
+
+        train = extents(self.train_labels)
+        val = extents(self.val_labels)
+        crop_size = preprocessing.crop_size
+        was_auto = crop_size is None
+        if was_auto:
+            padding = self._compute_crop_padding(
+                None, max_hw, bbox_size=max((bbox for _, bbox in train), default=0.0)
+            )
+            min_crop_size = preprocessing.min_crop_size or 0
+            length = max([float(min_crop_size - padding)] + [req for req, _ in train])
+            length = max(length, 0.0) + float(padding)
+            crop_size = int(math.ceil(length / float(stride)) * stride)
+            preprocessing.crop_size = crop_size
+            message = (
+                f"Computed crop size: {crop_size}px, sized to hold every training mask "
+                f"around its {'bounding-box midpoint' if crop_centering == 'bbox' else 'center of mass'}"
+            )
+            if max_hw[0] is not None:
+                message += (
+                    f", measured after size matching to {max_hw[0]}x{max_hw[1]} (HxW)"
+                )
+            logger.warning(message + ".")
+
+        train_clipped = sum(req > crop_size for req, _ in train)
+        val_clipped = sum(req > crop_size for req, _ in val)
+        if not (train_clipped or val_clipped):
+            return
+        message = (
+            f"{'Computed' if was_auto else 'Configured'} crop size {crop_size}px clips "
+            f"{train_clipped + val_clipped} of {len(train) + len(val)} masks "
+            f"({train_clipped} in train, {val_clipped} in validation): the crop is "
+            f"centered on each mask, and these extend further than {crop_size // 2}px "
+            "from that center, so the crop cuts part of the animal off."
+        )
+        if train_clipped:
+            required = max(req for req, _ in train)
+            suggested = int(math.ceil(required / float(stride)) * stride)
+            message += (
+                f" Set crop_size to {suggested} to contain every training mask (a "
+                "smaller crop that keeps the identifying part of the animal can be a "
+                "deliberate choice)."
+            )
+        logger.warning(message)
 
     def _log_crop_size(
         self, crop_size, anchor_ind, anchor_part, centroid_method, max_hw
@@ -924,6 +1111,7 @@ class ModelTrainer:
                     centroid_method=centroid_method,
                     centroid_fallback=centroid_fallback,
                     user_instances_only=self.config.data_config.user_instances_only,
+                    superseded_only=self.model_type == "embedding",
                 )
                 n_clipped += clipped
                 n_total += total
@@ -1522,6 +1710,11 @@ class ModelTrainer:
         if self.config.trainer_config.wandb.prv_runid == "":
             self.config.trainer_config.wandb.prv_runid = None
 
+        # The carrier (pose / mask) an embedding model trains on; the crop sizing
+        # below depends on it.
+        if self.model_type == "embedding":
+            self._setup_embedding_carrier()
+
         # compute preprocessing parameters from the labels objects and fill in the config
         self._setup_preprocessing_config()
 
@@ -1548,16 +1741,34 @@ class ModelTrainer:
                 bool(getattr(label, "identities", None) or [])
                 for label in self.train_labels
             )
-            validate_embedding_identity(
-                objective=OmegaConf.select(
-                    self.config,
-                    "model_config.head_configs.embedding.embedding.objective",
-                    default=None,
+            objective = OmegaConf.select(
+                self.config,
+                "model_config.head_configs.embedding.embedding.objective",
+                default=None,
+            )
+            # The training crops' groups, from the labels alone (before any image
+            # is cached), so an objective that can never draw a negative fails now.
+            batch_groups = embedding_training_groups(
+                self.train_labels,
+                embedding_membership_from_config(
+                    self.config, self.train_labels + self.val_labels
                 ),
+                self.config.model_config.head_configs.embedding.embedding.detection_mode,
+            )
+            validate_embedding_identity(
+                objective=objective,
                 identity=OmegaConf.select(
                     self.config, "data_config.identity", default=None
                 ),
                 has_identities=has_identities,
+                batch_groups=batch_groups,
+            )
+            validate_embedding_views(
+                objective,
+                use_augmentations_train=bool(
+                    self.config.data_config.use_augmentations_train
+                ),
+                augmentation_config=self.config.data_config.augmentation_config,
             )
 
         # set max stride for the backbone: convnext and swint

@@ -5,6 +5,7 @@ from __future__ import annotations
 import torch
 from torch.nn import functional as F
 
+from sleap_nn.data.normalization import EMBEDDING_STD_FLOOR
 from sleap_nn.export.wrappers.base import BaseExportWrapper
 
 
@@ -25,17 +26,26 @@ class EmbeddingONNXWrapper(BaseExportWrapper):
     a model.
     """
 
-    def __init__(self, model, normalize: bool = True, eps: float = 1e-5):
+    def __init__(
+        self,
+        model,
+        normalize: bool = True,
+        eps: float = 1e-5,
+        std_floor: float = EMBEDDING_STD_FLOOR,
+    ):
         """Initialize.
 
         Args:
             model: The underlying ``Model`` (encoder + EmbeddingHead).
             normalize: L2-normalize the output embedding.
             eps: Standardization epsilon.
+            std_floor: Smallest std the standardize divides by (grey levels), the
+                same floor as ``EmbeddingLightningModule._standardize``.
         """
         super().__init__(model)
         self.normalize = normalize
         self.eps = eps
+        self.std_floor = std_floor
 
     def forward(self, image: torch.Tensor):
         """image: (B, C, H, W) [0, 255] -> {"embedding": (B, D)}.
@@ -54,7 +64,7 @@ class EmbeddingONNXWrapper(BaseExportWrapper):
         cnt = ones.sum((2, 3), keepdim=True).clamp(min=1)
         mu = (x * ones).sum((2, 3), keepdim=True) / cnt
         var = ((x - mu) ** 2 * ones).sum((2, 3), keepdim=True) / cnt
-        x = (x - mu) / (var.sqrt() + self.eps)
+        x = (x - mu) / (var.sqrt() + self.eps).clamp(min=self.std_floor)
         feat = self._extract_tensor(self.model(x), ["embedding", "vector"])
         if feat.dim() > 2:
             feat = feat.flatten(1)

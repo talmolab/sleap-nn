@@ -413,6 +413,39 @@ class TestStandardizePerChannel:
         assert torch.allclose(g.mean(dim=(2, 3)), torch.zeros(2, 1), atol=1e-4)
 
 
+class TestStandardizeStdFloor:
+    """A flat or empty foreground must not divide by ~0 (FINDINGS Tier 3, D8).
+
+    The std was `+ 1e-5` on the 0-255 scale, so a flat foreground with the `grey`
+    fill standardized the background to ~1e7.
+    """
+
+    @pytest.mark.parametrize("fill", ["black", "grey"])
+    @pytest.mark.parametrize("foreground", ["flat", "empty"])
+    def test_inputs_stay_on_the_grey_level_scale(self, fill, foreground):
+        module = _make_embedding_module()
+        module.burn_in = True
+        module.background_fill = fill
+        gray = torch.rand(1, 1, 16, 16) * 255.0
+        mask = torch.zeros(1, 1, 16, 16)
+        if foreground == "flat":
+            mask[..., :4, :4] = 1.0
+            gray[..., :4, :4] = 40.0
+        out = module._standardize(gray, mask)
+        assert torch.isfinite(out).all()
+        assert out.abs().max() <= 255.0
+
+    def test_real_crops_are_unchanged(self):
+        """Above one grey level of std the floor is inactive."""
+        module = _make_embedding_module()
+        gray = torch.rand(3, 1, 16, 16) * 255.0
+        ones = torch.ones_like(gray)
+        mu = gray.mean(dim=(2, 3), keepdim=True)
+        std = gray.std(dim=(2, 3), keepdim=True, unbiased=False)
+        expected = (gray - mu) / std
+        assert torch.allclose(module._standardize(gray, ones), expected, atol=1e-5)
+
+
 class TestForwardMaskAware:
     """`forward` uses the instance mask when provided (burn-in parity with training)."""
 
@@ -586,39 +619,35 @@ class TestIdentitySampling:
     def test_global_id_group_is_identity_across_videos(self):
         """Same animal in two videos gets the SAME group_id under global_id scope."""
         from sleap_nn.data.custom_datasets import (
-            EmbeddingDataset,
+            EmbeddingMembership,
             resolve_embedding_class_names,
         )
 
         labels = self._labels_two_videos_same_animals()
         class_names = resolve_embedding_class_names([labels])
-        ds = EmbeddingDataset.__new__(EmbeddingDataset)
-        ds.class_names = list(class_names)
-        ds.id_scope = "global_id"
-        ds.track_names_are_global = False
-        ds._tracklet_vocab = {}
+        membership = EmbeddingMembership(
+            class_names, id_scope="global_id", track_names_are_global=False
+        )
         # mouseA in video 0 and video 1 -> same group_id (the identity index).
-        g_v0 = ds._resolve_group(labels[0].instances[0], 0, 0)
-        g_v1 = ds._resolve_group(labels[1].instances[0], 0, 1)
+        g_v0 = membership.group(labels[0].instances[0], 0, 0)
+        g_v1 = membership.group(labels[1].instances[0], 0, 1)
         assert g_v0 is not None and g_v1 is not None
         assert g_v0[0] == g_v1[0] == class_names.index("mouseA")
 
     def test_tracklet_group_is_per_video_track(self):
         """Under tracklet scope the same animal in two videos is DIFFERENT groups."""
         from sleap_nn.data.custom_datasets import (
-            EmbeddingDataset,
+            EmbeddingMembership,
             resolve_embedding_class_names,
         )
 
         labels = self._labels_two_videos_same_animals()
         class_names = resolve_embedding_class_names([labels])
-        ds = EmbeddingDataset.__new__(EmbeddingDataset)
-        ds.class_names = list(class_names)
-        ds.id_scope = "tracklet"
-        ds.track_names_are_global = False
-        ds._tracklet_vocab = {}
-        g_v0 = ds._resolve_group(labels[0].instances[0], 0, 0)
-        g_v1 = ds._resolve_group(labels[1].instances[0], 0, 1)
+        membership = EmbeddingMembership(
+            class_names, id_scope="tracklet", track_names_are_global=False
+        )
+        g_v0 = membership.group(labels[0].instances[0], 0, 0)
+        g_v1 = membership.group(labels[1].instances[0], 0, 1)
         # Distinct per-video tracklet group_ids ...
         assert g_v0[0] != g_v1[0]
         # ... but the eval (global) grouping still ties them to the same identity.
