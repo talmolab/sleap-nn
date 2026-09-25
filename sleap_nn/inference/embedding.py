@@ -110,7 +110,9 @@ def embed_labels(
         batch_size: Crops per forward pass.
         include_untracked: When ``False`` (default) only detections with a track or
             an identity are embedded. When ``True`` every detection is embedded
-            regardless of track (WF2 tracking).
+            regardless of track (WF2 tracking). Either way predictions are embedded,
+            empty masks are not, and when the file holds both carriers the one the
+            model was trained on is embedded.
 
     Returns:
         ``(embeddings, track_names, n_attached, embedding_dim)`` where ``embeddings`` is
@@ -154,8 +156,10 @@ def embed_labels_for_eval(
     ``track_names_are_global=False`` a per-video track name is not an identity:
     ``global_id`` scope scores only the detections carrying a ``sio.Identity``, and
     ``tracklet`` scope scores each ``(video, track)`` as its own group, so ``track_0``
-    in two videos is two groups. Like :func:`embed_labels`, attaches the vectors to
-    ``labels`` in place.
+    in two videos is two groups. It also follows the training config's
+    ``data_config.user_instances_only`` (predicted instances and masks left out), its
+    smallest-mask rule, and the carrier the model was trained on. Like
+    :func:`embed_labels`, attaches the vectors to ``labels`` in place.
 
     Args:
         model_dir: Trained ``embedding`` model directory.
@@ -209,8 +213,10 @@ def _embed_detections(
     """
     from sleap_nn.config.utils import resolve_model_dir
     from sleap_nn.data.custom_datasets import (
+        EMBEDDING_MIN_MASK_AREA,
         EmbeddingDataset,
         _global_identity_label,
+        embedding_preferred_carrier,
         resolve_embedding_class_names,
         resolve_embedding_grouping,
     )
@@ -248,15 +254,29 @@ def _embed_detections(
     embedding_dim = int(emb_head.embedding_dim)
 
     if group_as_trained:
-        # What the per-epoch validation set was built with (get_train_val_datasets).
+        # What the per-epoch validation set was built with (get_train_val_datasets):
+        # its grouping, its `user_instances_only` (predicted instances AND masks left
+        # out) and its smallest mask.
         track_names_are_global, id_scope = resolve_embedding_grouping(config)
+        user_instances_only = bool(
+            OmegaConf.select(config, "data_config.user_instances_only", default=True)
+        )
+        min_mask_area = EMBEDDING_MIN_MASK_AREA
     else:
-        # Every track or identity name is an identity.
+        # Every track or identity name is an identity, and every detection --
+        # predicted ones included -- gets a vector; only an empty mask (nothing to
+        # center a crop on) does not.
         track_names_are_global, id_scope = True, "global_id"
+        user_instances_only = False
+        min_mask_area = 1
     class_names = resolve_embedding_class_names(
-        [labels], track_names_are_global=track_names_are_global
+        [labels],
+        track_names_are_global=track_names_are_global,
+        user_instances_only=user_instances_only,
     )
-    if not include_untracked:
+    if not include_untracked and id_scope != "aug_view":
+        # (Under `aug_view` every detection is a member; the no-detections check
+        # below covers it.)
         if id_scope == "tracklet":
             # Tracklet scope groups on the track itself: a track is all it needs.
             has_members = any(
@@ -315,6 +335,7 @@ def _embed_detections(
         track_names_are_global=track_names_are_global,
         crop_centering=crop_centering,
         include_untracked=include_untracked,
+        user_instances_only=user_instances_only,
         ensure_rgb=emb_ensure_rgb,
         ensure_grayscale=emb_ensure_grayscale,
         max_hw=max_hw,
@@ -322,6 +343,11 @@ def _embed_detections(
         # Samples are enumerated frame by frame (and the loader does not shuffle),
         # so a one-frame cache decodes each frame once instead of once per crop.
         frame_cache_size=1,
+        # Embed the carrier the model was trained on whenever the file holds it (a
+        # top-down segmentation output holds both): the one recorded at training, or,
+        # for a model saved before that, masks under burn-in.
+        detection_mode=embedding_preferred_carrier(config),
+        min_mask_area=min_mask_area,
     )
     # A `burn_in` model was trained on MASKED crops (background blanked, standardize
     # over the foreground only). In pose mode there are no masks to burn in, so

@@ -266,8 +266,23 @@ def build_contrastive_masks(
     return pos, neg
 
 
+def _valid_anchors(pos: torch.Tensor, neg: torch.Tensor) -> torch.Tensor:
+    """Rows that can contribute: at least one positive AND at least one negative.
+
+    A row with no negative has nothing to contrast its positives against: its
+    InfoNCE term is exactly 0 and its SupCon term only equalizes its positives'
+    similarities. Averaging those rows in diluted the loss of the rows that DO carry
+    signal (under ``pk`` + ``tracklet``, where most anchors have no same-video
+    negative, InfoNCE came out 16x smaller). The same rule the triplet loss applies.
+    """
+    return (pos.sum(1) > 0) & (neg.sum(1) > 0)
+
+
 def supcon_loss(z, pos_mask, neg_mask, temperature: float = 0.1):
-    """Supervised contrastive loss (Khosla et al.) over masks. `z` is L2-normalized."""
+    """Supervised contrastive loss (Khosla et al.) over masks. `z` is L2-normalized.
+
+    Averaged over the anchors with >= 1 positive and >= 1 negative.
+    """
     B = z.shape[0]
     eye = torch.eye(B, device=z.device, dtype=torch.bool)
     sim = (z @ z.T) / temperature
@@ -277,7 +292,7 @@ def supcon_loss(z, pos_mask, neg_mask, temperature: float = 0.1):
     log_prob = sim - torch.log(exp.sum(1, keepdim=True) + 1e-12)
     pos = pos_mask & ~eye
     pos_cnt = pos.sum(1)
-    valid = pos_cnt > 0
+    valid = _valid_anchors(pos, neg_mask & ~eye)
     if not valid.any():
         return (sim * 0).sum()
     mean_log_prob_pos = (pos.float() * log_prob).sum(1) / pos_cnt.clamp(min=1)
@@ -285,7 +300,10 @@ def supcon_loss(z, pos_mask, neg_mask, temperature: float = 0.1):
 
 
 def infonce_loss(z, pos_mask, neg_mask, temperature: float = 0.1):
-    """NT-Xent / InfoNCE: log of summed-positive over summed-contrast."""
+    """NT-Xent / InfoNCE: log of summed-positive over summed-contrast.
+
+    Averaged over the anchors with >= 1 positive and >= 1 negative.
+    """
     B = z.shape[0]
     eye = torch.eye(B, device=z.device, dtype=torch.bool)
     sim = (z @ z.T) / temperature
@@ -295,7 +313,7 @@ def infonce_loss(z, pos_mask, neg_mask, temperature: float = 0.1):
     exp = torch.exp(sim)
     denom_sum = (exp * denom.float()).sum(1)
     pos_sum = (exp * pos.float()).sum(1)
-    valid = pos.sum(1) > 0
+    valid = _valid_anchors(pos, neg_mask & ~eye)
     if not valid.any():
         return (sim * 0).sum()
     loss = -torch.log((pos_sum + 1e-12) / (denom_sum + 1e-12))
@@ -314,7 +332,7 @@ def triplet_loss(z, pos_mask, neg_mask, margin: float = 0.2):
     hardest_neg = (
         torch.where(neg, dist, torch.full_like(dist, float(big))).min(1).values
     )
-    valid = (pos.sum(1) > 0) & (neg.sum(1) > 0)
+    valid = _valid_anchors(pos, neg)
     if not valid.any():
         return (dist * 0).sum()
     loss = F.relu(hardest_pos - hardest_neg + margin)

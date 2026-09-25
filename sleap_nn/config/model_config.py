@@ -1250,11 +1250,15 @@ class PositivesConfig:
 
     Attributes:
         scope: Which crops are positives of an anchor. One of
-            ``aug_view`` (only the anchor's own augmented views — self-supervised,
-            no identity labels), ``tracklet`` (same ``(video, track)`` — video-local
-            identity; cross-video pairs are UNKNOWN and excluded from the loss), or
-            ``global_id`` (same track name across all videos — requires globally
-            consistent names; gated by ``data_config.identity.track_names_are_global``).
+            ``aug_view`` (only the anchor's own augmented views — self-supervised:
+            every detection is a sample and its own group, so unlabeled data trains;
+            needs two DIFFERENT views, i.e. ``use_augmentations_train`` with some
+            augmentation configured, and pairs best with ``sampler.kind='random'``),
+            ``tracklet`` (same ``(video, track)`` — video-local identity; cross-video
+            pairs are UNKNOWN and excluded from the loss), or ``global_id`` (same
+            global identity across all videos: a ``sio.Identity`` when the detection
+            carries one, else its track name, which then must be globally consistent
+            -- declared by ``data_config.identity.track_names_are_global``).
         aug_views: Number of augmented views of each anchor (always positives).
             Fixed at 2 (the standard two-view contrastive setup the ``training_step``
             implements); any other value is unsupported in P1 and raises a
@@ -1322,11 +1326,14 @@ class SamplerConfig:
 
     Attributes:
         kind: ``pk`` (P groups x K crops) | ``within_video`` (one video per batch, so
-            cross-video pairs never co-occur — the correct video-local sampler) |
+            cross-video pairs never co-occur — the correct video-local sampler; a
+            batch holds ``min(P, groups in that video) x K`` crops) |
             ``random`` (aug-view-only / self-supervised).
         groups_per_batch: P — number of groups (identities/tracklets) per batch.
         samples_per_group: K — crops per group per batch. The effective batch size is
-            ``P x K`` (then doubled by two-view aug).
+            ``P x K`` (``min(P, groups in the video) x K`` for ``within_video``), then
+            doubled by two-view aug. The steps in an epoch are counted with that size,
+            so an epoch is one pass over the crops.
     """
 
     kind: str = field(
@@ -1451,6 +1458,14 @@ class EmbeddingHeadConfig:
             (they name different centroids); use ``centroid_fallback`` for that.
             Only used in the pose detection mode — a mask-driven embedding dataset
             crops on the mask's own center of mass. Default is None.
+        detection_mode: (str) The detection carrier the model crops: ``"pose"``
+            (``lf.instances``, crop on the pose centroid) or ``"mask"`` (``lf.masks``,
+            crop on the mask center, carrying the mask for ``burn_in``). ``None``
+            (default) lets training pick: ``"mask"`` under
+            ``data_config.preprocessing.burn_in``, else the carrier holding more
+            training samples (ties go to masks). Training WRITES the carrier it used
+            here, and inference embeds that carrier whenever a file holds it -- a
+            top-down segmentation output holds both. Set it to force a carrier.
         centroid_fallback: (str) The reduce method used when ``anchor_part`` is
             configured but that node is not visible: ``"center_of_mass"``
             (default), ``"bbox_center"`` or ``"geometric_median"``. Only
@@ -1471,6 +1486,9 @@ class EmbeddingHeadConfig:
     anchor_part: Optional[str] = None
     centroid_method: Optional[str] = None
     centroid_fallback: Optional[str] = None
+    detection_mode: Optional[str] = field(
+        default=None, validator=validators.optional(validators.in_(("pose", "mask")))
+    )
     objective: Optional[ObjectiveConfig] = None
 
 

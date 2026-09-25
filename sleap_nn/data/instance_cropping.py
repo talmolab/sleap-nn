@@ -242,6 +242,108 @@ def count_clipped_instances(
     return n_clipped, n_total, max_required
 
 
+def iter_mask_extents(
+    labels: sio.Labels,
+    max_hw: Optional[Tuple[Optional[int], Optional[int]]] = None,
+    crop_centering: str = "auto",
+    user_instances_only: bool = False,
+    min_mask_area: float = 1.0,
+) -> Iterator[Tuple[float, float]]:
+    """Yield ``(required_crop_size, bbox_size)`` for every mask, in size-matched pixels.
+
+    The mask analog of :func:`iter_required_crop_sizes`, for the ``embedding`` model's
+    mask mode, whose crop is centered on the mask's center of mass (``crop_centering``
+    ``auto`` / ``mask_com``) or on its bounding-box midpoint (``bbox``), as
+    ``EmbeddingDataset._crop_mask`` centers it. ``required_crop_size`` is the side a
+    crop around that center needs to hold the whole mask (twice the largest distance
+    from the center to a mask pixel's far edge); ``bbox_size`` is the larger side of
+    the mask's bounding box.
+
+    Args:
+        labels: A `sio.Labels` whose frames carry masks (``lf.masks``).
+        max_hw: The configured ``(max_height, max_width)``; masks are measured in the
+            space the size matcher puts the frame in.
+        crop_centering: ``auto`` | ``mask_com`` | ``bbox``.
+        user_instances_only: When ``True``, skip predicted masks.
+        min_mask_area: Skip masks with fewer foreground pixels (image pixels) than
+            this, as the embedding dataset does.
+    """
+    from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
+
+    for lf in labels:
+        eff_scale = None
+        for mask in getattr(lf, "masks", None) or []:
+            if user_instances_only and isinstance(mask, sio.PredictedSegmentationMask):
+                continue
+            sx, sy = tuple(getattr(mask, "scale", (1.0, 1.0)) or (1.0, 1.0))
+            if mask.area / max(sx * sy, 1e-12) < max(min_mask_area, 1.0):
+                continue
+            arr = decode_mask_to_image_res(mask)
+            xs = np.flatnonzero(arr.any(axis=0))
+            ys = np.flatnonzero(arr.any(axis=1))
+            if xs.size == 0:
+                continue
+            x0, x1, y0, y1 = int(xs[0]), int(xs[-1]), int(ys[0]), int(ys[-1])
+            if crop_centering == "bbox":
+                cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+            else:
+                # Center of mass, summed over the bounding box only (a full-frame
+                # reduction per mask dominated the cost).
+                box = arr[y0 : y1 + 1, x0 : x1 + 1]
+                col_sums = np.count_nonzero(box, axis=0)
+                row_sums = np.count_nonzero(box, axis=1)
+                n = float(col_sums.sum())
+                cx = x0 + float(col_sums @ np.arange(col_sums.size)) / n
+                cy = y0 + float(row_sums @ np.arange(row_sums.size)) / n
+            if eff_scale is None:
+                eff_scale = _frame_eff_scale(lf, max_hw)
+            # Pixel centers sit at integer coordinates; +1 reaches their far edges.
+            reach = max(cx - x0, x1 - cx, cy - y0, y1 - cy)
+            required = (2.0 * reach + 1.0) * eff_scale
+            bbox = (max(x1 - x0, y1 - y0) + 1.0) * eff_scale
+            yield float(required), float(bbox)
+
+
+def find_mask_crop_size(
+    labels: sio.Labels,
+    padding: int = 0,
+    maximum_stride: int = 2,
+    min_crop_size: Optional[int] = None,
+    max_hw: Optional[Tuple[Optional[int], Optional[int]]] = None,
+    crop_centering: str = "auto",
+    user_instances_only: bool = False,
+    min_mask_area: float = 1.0,
+) -> int:
+    """Compute a crop size that contains every mask (the mask analog of `find_instance_crop_size`).
+
+    Args:
+        labels: A `sio.Labels` whose frames carry masks.
+        padding: Pixels of margin to add.
+        maximum_stride: The returned size is divisible by this.
+        min_crop_size: A floor for the size, before padding.
+        max_hw: The configured ``(max_height, max_width)``.
+        crop_centering: Where the crop is centered on each mask (see
+            :func:`iter_mask_extents`).
+        user_instances_only: When ``True``, ignore predicted masks.
+        min_mask_area: Ignore masks smaller than this (image pixels).
+
+    Returns:
+        The crop side length, a multiple of ``maximum_stride``.
+    """
+    min_crop_size = 0 if min_crop_size is None else min_crop_size
+    max_length = float(min_crop_size - padding)
+    for required, _ in iter_mask_extents(
+        labels,
+        max_hw=max_hw,
+        crop_centering=crop_centering,
+        user_instances_only=user_instances_only,
+        min_mask_area=min_mask_area,
+    ):
+        max_length = max(max_length, required)
+    max_length = max(max_length, 0.0) + float(padding)
+    return int(math.ceil(max_length / float(maximum_stride)) * maximum_stride)
+
+
 def find_instance_crop_size(
     labels: sio.Labels,
     padding: int = 0,

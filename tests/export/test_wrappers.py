@@ -952,18 +952,20 @@ class TestEmbeddingONNXWrapper:
         out = wrapper(image)
         assert out["embedding"].shape == (2, 8)
 
+    @pytest.mark.parametrize("flat", [False, True])
     @pytest.mark.parametrize("channels", [1, 3])
-    def test_embedding_wrapper_standardize_matches_inference(self, channels):
+    def test_embedding_wrapper_standardize_matches_inference(self, channels, flat):
         """The wrapper's standardize must equal the inference _standardize exactly.
 
         The exported graph must reproduce the PyTorch inference normalization for any
         channel count (grayscale default AND the RGB opt-in), else exported embeddings
         silently diverge from inference. Inference uses a 1-channel ones mask, so the
         count is H*W (spatial only); the wrapper must match that, not divide by C*H*W.
+        A near-flat crop exercises the shared std floor.
         """
         from sleap_nn.training.lightning_modules import EmbeddingLightningModule
 
-        x = torch.rand(2, channels, 8, 8) * 255.0
+        x = torch.rand(2, channels, 8, 8) * (0.5 if flat else 255.0)
 
         class _Stub:
             burn_in = True

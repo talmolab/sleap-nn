@@ -331,14 +331,17 @@ class IdentityConfig:
 
     Each positives/negatives source silently asserts "same/different animal". These
     fields DECLARE what the track labels mean so the objective can validate them
-    (e.g. `positives.scope=global_id` requires `track_names_are_global=True`).
+    (e.g. `positives.scope=global_id` needs a global identity per detection: a
+    `sio.Identity`, or a track name under `track_names_are_global=True`).
 
     Attributes:
         tracks_are_proofread: (bool) Tracks are swap-free within a video. Gates
             `positives.scope=tracklet` (warn if False). *Default*: `False`.
         track_names_are_global: (bool) The same track name means the same animal
-            across videos. Gates `positives.scope=global_id` (error if False).
-            *Default*: `False`.
+            across videos, so a track name can stand in for a `sio.Identity`. Under
+            `positives.scope=global_id`, a detection without a `sio.Identity` is a
+            sample only when this is True (training errors when the labels carry no
+            `sio.Identity` and this is False). *Default*: `False`.
         detections_deduplicated: (bool) No duplicate/over-segmented detection per
             frame. Gates `same_frame` negatives (warn if False). *Default*: `True`.
     """
@@ -387,7 +390,7 @@ class DataConfig:
         use_same_data_for_val: (bool) If `True`, use the same data for both training and validation (train = val). Useful for intentional overfitting on small datasets. When enabled, `val_labels_path` and `validation_fraction` are ignored. *Default*: `False`.
         test_file_path: (str or List[str]) Path or list of paths to test dataset(s) (`.slp` file(s) or `.mp4` file(s)). *Note*: This is used only with CLI to get evaluation on test set after training is completed. *Default*: `None`.
         provider: (str) Provider class to read the input sleap files. Only "LabelsReader" is currently supported for the training pipeline. *Default*: `"LabelsReader"`.
-        user_instances_only: (bool) `True` if only user labeled instances should be used for training. If `False`, both user labeled and predicted instances would be used. *Default*: `True`.
+        user_instances_only: (bool) `True` if only user labeled instances should be used for training. If `False`, both user labeled and predicted instances would be used. For the `embedding` model type this also leaves out predicted masks (`PredictedSegmentationMask`), and its post-training retrieval eval follows the same rule. *Default*: `True`.
         data_pipeline_fw: (str) Framework to create the data loaders. One of [`torch_dataset`, `torch_dataset_cache_img_memory`, `torch_dataset_cache_img_disk`]. *Default*: `"torch_dataset"`. (Note: When using `torch_dataset`, `num_workers` in `trainer_config` should be set to 0 as multiprocessing doesn't work with pickling video backends.)
         cache_img_path: (str) Path to save `.jpg` images created with `torch_dataset_cache_img_disk` data pipeline framework. If `None`, the path provided in `trainer_config.save_ckpt` is used. The `train_imgs` and `val_imgs` dirs are created inside this path. *Default*: `None`.
         use_existing_imgs: (bool) Use existing train and val images/ chunks in the `cache_img_path` for `torch_dataset_cache_img_disk` frameworks. If `True`, the `cache_img_path` should have `train_imgs` and `val_imgs` dirs. *Default*: `False`.

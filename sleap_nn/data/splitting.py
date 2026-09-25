@@ -24,9 +24,13 @@ existing dataset builders (which iterate ``sio.Labels`` -> detections). For ``fr
 each source frame stays whole on one side; for ``identity`` a source frame's detections are
 filtered by identity, so a frame may contribute (disjoint) detections to both sides.
 
-Mask-only labels (e.g. the gerbil instance-segmentation data) carry detections on
-``lf.masks`` with ``lf.instances`` empty; identity grouping reads track names from
-``lf.masks`` in that case.
+Both carriers are split. A detection is a pose instance (``lf.instances``) or a mask
+(``lf.masks``); a mask LINKED to one of its frame's instances (``mask.instance``, as a
+top-down segmentation or SAM output has) is not a detection of its own: it goes wherever
+its instance goes, link intact. Keeping only one carrier per frame used to drop every mask
+of a pose + mask frame, which silently flipped an ``embedding`` model from mask to pose
+mode. Mask-only labels (e.g. the gerbil instance-segmentation data) carry all their
+detections on ``lf.masks``.
 """
 
 from __future__ import annotations
@@ -42,17 +46,34 @@ from loguru import logger
 _NO_TRACK = "__no_track__"
 
 
-def _frame_detections(lf: sio.LabeledFrame) -> list:
-    """Return the list of detection objects for a frame.
+def _linked_instance(mask, instances: list):
+    """The frame instance a mask is linked to (``mask.instance``), or ``None``."""
+    linked = getattr(mask, "instance", None)
+    if linked is None:
+        return None
+    return linked if any(linked is inst for inst in instances) else None
 
-    Prefers ``lf.instances`` (pose/keypoint labels); falls back to ``lf.masks`` for
-    mask-only (instance-segmentation) labels where ``lf.instances`` is empty.
+
+def _frame_detections(lf: sio.LabeledFrame) -> list:
+    """Return the detections of a frame: its instances, then its unlinked masks.
+
+    A mask linked to one of the frame's instances is not listed; it follows that
+    instance (see :func:`_frame_masks_by_instance`).
     """
     instances = list(getattr(lf, "instances", None) or [])
-    if instances:
-        return instances
     masks = list(getattr(lf, "masks", None) or [])
-    return masks
+    return instances + [m for m in masks if _linked_instance(m, instances) is None]
+
+
+def _frame_masks_by_instance(lf: sio.LabeledFrame) -> dict:
+    """``id(instance) -> [masks linked to it]`` for one frame."""
+    instances = list(getattr(lf, "instances", None) or [])
+    by_instance: dict = {}
+    for m in getattr(lf, "masks", None) or []:
+        inst = _linked_instance(m, instances)
+        if inst is not None:
+            by_instance.setdefault(id(inst), []).append(m)
+    return by_instance
 
 
 def _track_name(det) -> str:
@@ -101,12 +122,29 @@ def _build_pool(
     lf_idx, det_idx, track_names, video_idx, identity_names = [], [], [], [], []
     for li, lf in enumerate(labels):
         vid = labels.videos.index(lf.video)
+        linked = _frame_masks_by_instance(lf)
         for di, det in enumerate(_frame_detections(lf)):
+            # An instance and its linked masks are one animal: when the instance
+            # carries no track / identity, its mask's labels it.
+            carriers = [det] + linked.get(id(det), [])
+            track = next(
+                (n for n in map(_track_name, carriers) if n != _NO_TRACK), _NO_TRACK
+            )
+            # A real `sio.Identity` on either carrier outranks a track name.
+            identity = next(
+                (
+                    c.identity.name
+                    for c in carriers
+                    if getattr(c, "identity", None) is not None
+                    and getattr(c.identity, "name", None)
+                ),
+                track,
+            )
             lf_idx.append(li)
             det_idx.append(di)
-            track_names.append(_track_name(det))
+            track_names.append(track)
             video_idx.append(vid)
-            identity_names.append(_identity_name(det))
+            identity_names.append(identity)
     return (
         np.asarray(lf_idx, dtype=int),
         np.asarray(det_idx, dtype=int),
@@ -225,7 +263,9 @@ def _rebuild_labels(
 
     Groups kept detections by source frame and constructs a new ``LabeledFrame`` per source
     frame containing only the selected detections (preserving video / frame_idx). Detections
-    are attached on the same attribute (``instances`` or ``masks``) they came from.
+    are attached on the same attribute (``instances`` or ``masks``) they came from, and each
+    kept instance brings the masks linked to it (the same objects, so ``mask.instance``
+    still points at it). The new ``Labels`` collects the identities of what it holds.
 
     ``extra_lf_idx`` lists source-frame indices to carry through with NO detections (e.g.
     user-confirmed negative frames, which have no identity to fold) — emitted as empty
@@ -245,23 +285,28 @@ def _rebuild_labels(
         src_lf = source.labeled_frames[li]
         dets = _frame_detections(src_lf)
         selected = [dets[di] for di in kept_by_lf[li]]
-        # Re-attach on instances vs masks matching the source frame.
-        use_masks = not (getattr(src_lf, "instances", None) or [])
-        if use_masks:
-            new_lf = sio.LabeledFrame(
+        selected_ids = {id(d) for d in selected}
+        src_instances = list(getattr(src_lf, "instances", None) or [])
+        instances = [inst for inst in src_instances if id(inst) in selected_ids]
+        kept_instance_ids = {id(inst) for inst in instances}
+        # Source order; a linked mask is kept with its instance, an unlinked one when
+        # it was selected itself.
+        masks = []
+        for m in getattr(src_lf, "masks", None) or []:
+            inst = _linked_instance(m, src_instances)
+            if (inst is not None and id(inst) in kept_instance_ids) or (
+                inst is None and id(m) in selected_ids
+            ):
+                masks.append(m)
+        new_frames.append(
+            sio.LabeledFrame(
                 video=src_lf.video,
                 frame_idx=src_lf.frame_idx,
-                masks=selected,
+                instances=instances,
+                masks=masks,
                 is_negative=src_lf.is_negative,
             )
-        else:
-            new_lf = sio.LabeledFrame(
-                video=src_lf.video,
-                frame_idx=src_lf.frame_idx,
-                instances=selected,
-                is_negative=src_lf.is_negative,
-            )
-        new_frames.append(new_lf)
+        )
 
     return sio.Labels(
         labeled_frames=new_frames,

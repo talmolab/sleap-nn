@@ -218,3 +218,58 @@ class TestLossDirection:
             before = torch.norm(z[a] - z[b]).item()
             after = torch.norm(stepped[a] - stepped[b]).item()
             assert after < before, f"positives {a},{b} were not pulled together"
+
+
+class TestAnchorsWithoutNegatives:
+    """An anchor with no negative contributes nothing, to every loss (FINDINGS #23).
+
+    SupCon and InfoNCE averaged such rows in: a no-negative InfoNCE row is exactly
+    0, so under `pk` + `tracklet` (most anchors lack a same-video negative) the loss
+    of the rows that DO carry signal was diluted ~16x. The triplet loss already
+    excluded them.
+    """
+
+    @staticmethod
+    def _batch():
+        # Video 0: two tracklets (their anchors have negatives). Videos 1-6: one
+        # tracklet each, so under restrict_same_video their anchors have none.
+        items, videos, frames, groups = [], [], [], []
+        for g, video in [(0, 0), (1, 0)] + [(2 + j, 1 + j) for j in range(6)]:
+            for k in range(4):
+                items.append(len(items))
+                videos.append(video)
+                frames.append(k)
+                groups.append(g)
+        t = [torch.tensor(x) for x in (items, videos, frames, groups)]
+        item, video, frame, group = (torch.cat([x, x]) for x in t)
+        return build_contrastive_masks(
+            item,
+            video,
+            frame,
+            group,
+            positives_scope="tracklet",
+            negatives_sources=["in_batch"],
+            restrict_same_video=True,
+        )
+
+    @pytest.mark.parametrize("loss_fn", [supcon_loss, infonce_loss, triplet_loss])
+    def test_loss_equals_the_loss_of_the_rows_with_negatives(self, loss_fn):
+        pos, neg = self._batch()
+        keep = neg.any(1)
+        assert 0 < keep.sum() < len(keep)  # a mix of both kinds of anchor
+        z = _normalized(len(keep), seed=1)
+
+        full = loss_fn(z, pos, neg)
+        rows_with_negatives = loss_fn(z[keep], pos[keep][:, keep], neg[keep][:, keep])
+        assert full.item() == pytest.approx(rows_with_negatives.item(), rel=1e-5)
+
+    @pytest.mark.parametrize("loss_fn", [supcon_loss, infonce_loss, triplet_loss])
+    def test_no_negatives_anywhere_is_zero(self, loss_fn):
+        """A single-group batch: every row is positive-only."""
+        item = torch.tensor([0, 1, 2, 3, 0, 1, 2, 3])
+        zeros = torch.zeros(8, dtype=torch.long)
+        pos, neg = build_contrastive_masks(
+            item, zeros, torch.arange(8), zeros, positives_scope="global_id"
+        )
+        assert not neg.any()
+        assert loss_fn(_normalized(8), pos, neg).item() == 0.0

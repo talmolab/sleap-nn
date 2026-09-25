@@ -3,6 +3,11 @@
 import torch
 import torchvision.transforms.v2.functional as F
 
+# Smallest std the `embedding` model's per-crop standardize divides by, in grey levels
+# of the 0-255 input. Shared by `EmbeddingLightningModule._standardize` and the ONNX
+# `EmbeddingONNXWrapper`, which must standardize identically.
+EMBEDDING_STD_FLOOR = 1.0
+
 
 def normalize_on_gpu(image: torch.Tensor) -> torch.Tensor:
     """Normalize image tensor on GPU after transfer.

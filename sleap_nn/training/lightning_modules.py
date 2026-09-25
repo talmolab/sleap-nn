@@ -37,7 +37,7 @@ from sleap_nn.inference.bottomup import (
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.inference.segmentation import BottomUpSegmentationInferenceModel
 from sleap_nn.architectures.model import Model
-from sleap_nn.data.normalization import normalize_on_gpu
+from sleap_nn.data.normalization import EMBEDDING_STD_FLOOR, normalize_on_gpu
 from sleap_nn.training.losses import (
     compute_ohkm_loss,
     compute_bce_dice_loss,
@@ -3006,7 +3006,12 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                 )
 
 
-def validate_embedding_identity(objective, identity, has_identities: bool = False):
+def validate_embedding_identity(
+    objective,
+    identity,
+    has_identities: bool = False,
+    batch_groups: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None,
+):
     """Enforce the identity-equality gates for the embedding objective.
 
     Each positive/negative source silently asserts "same / different animal"; a wrong
@@ -3024,6 +3029,10 @@ def validate_embedding_identity(objective, identity, has_identities: bool = Fals
     - neg ``same_frame``: two detections / frame = different animals -> **warn** if
       ``identity.detections_deduplicated`` is False (a double / over-segmented
       detection becomes a hard negative against itself).
+    - negatives at all: with ``batch_groups`` (the training crops' groups), **error**
+      if no batch the sampler can draw holds a single negative pair (one group, or
+      one group per video under ``restrict_same_video`` / ``within_video``, or
+      ``groups_per_batch=1``): the contrastive loss would have nothing to train on.
 
     Absent objective fields are filled by
     :func:`~sleap_nn.config.model_config.resolve_embedding_objective` (the same
@@ -3039,12 +3048,16 @@ def validate_embedding_identity(objective, identity, has_identities: bool = Fals
         has_identities: Whether the training labels carry global ``sio.Identity``
             annotations. When ``True``, ``global_id`` grouping is grounded by the real
             identities and needs no ``track_names_are_global`` promise.
+        batch_groups: Optional ``(group_ids, video_ids, frame_ids)`` of the training
+            crops (:func:`~sleap_nn.data.custom_datasets.embedding_training_groups`).
+            When given, the objective is checked for being able to draw negatives.
 
     Raises:
         ValueError: if ``positives.scope='global_id'`` but the data carries no
             ``sio.Identity`` annotations AND does not declare
-            ``identity.track_names_are_global=True``; or if the objective has an
-            unknown option value (see ``resolve_embedding_objective``).
+            ``identity.track_names_are_global=True``; if no training batch can hold
+            a negative pair; or if the objective has an unknown option value (see
+            ``resolve_embedding_objective``).
     """
     # Resolve objective semantics exactly as the LightningModule does (one resolver,
     # so a default cannot mean one thing here and another there).
@@ -3116,9 +3129,21 @@ def validate_embedding_identity(objective, identity, has_identities: bool = Fals
                 "embedding objective positives.scope='tracklet' with "
                 "sampler.kind='pk': PK draws groups across ALL videos while "
                 "restrict_same_video=True discards cross-video negatives, so many "
-                "anchors will see NO negatives and contribute nothing to the loss. "
-                "Use sampler.kind='within_video' for tracklet-scope training."
+                "anchors will see NO negatives and contribute nothing to the loss "
+                "(it averages only the anchors that have one). Use "
+                "sampler.kind='within_video' for tracklet-scope training."
             )
+
+    if scope == "aug_view" and resolved.sampler.kind != "random":
+        # Under aug_view every detection is its own group, so a group-aware sampler
+        # draws P crops and repeats each K times: a batch of P distinct crops.
+        logger.warning(
+            "embedding objective positives.scope='aug_view' makes every detection its "
+            f"own group, so sampler.kind='{resolved.sampler.kind}' fills a batch with "
+            f"{resolved.sampler.samples_per_group} views of each of "
+            f"{resolved.sampler.groups_per_batch} crops. Use sampler.kind='random' for "
+            "batches of distinct crops."
+        )
 
     if "same_frame" in neg_sources and not detections_deduplicated:
         logger.warning(
@@ -3126,6 +3151,181 @@ def validate_embedding_identity(objective, identity, has_identities: bool = Fals
             "data_config.identity.detections_deduplicated=False: a double / "
             "over-segmented detection will be treated as a hard negative against itself."
         )
+
+    if batch_groups is not None:
+        reason = _why_no_batch_has_negatives(resolved, *batch_groups)
+        if reason is not None:
+            raise ValueError(
+                "The embedding objective can never see a negative pair: " + reason
+            )
+
+
+def _why_no_batch_has_negatives(
+    resolved, group_ids: np.ndarray, video_ids: np.ndarray, frame_ids: np.ndarray
+) -> Optional[str]:
+    """Why no training batch can hold a negative pair, or ``None`` if one can.
+
+    A negative is a pair of crops from DIFFERENT groups (``build_contrastive_masks``:
+    same-group pairs are positives, and a crop never negates itself), restricted to
+    one video by ``restrict_same_video`` or by a ``within_video`` sampler (which draws
+    each batch from one video), and to one frame when ``same_frame`` is the only
+    source. The ``pk`` / ``within_video`` samplers also need ``groups_per_batch >= 2``
+    to put two groups in one batch.
+    """
+    sampler = resolved.sampler
+    n = len(group_ids)
+    if n < 2:
+        return f"the training set has {n} crop(s)."
+    if sampler.kind in ("pk", "within_video") and sampler.groups_per_batch < 2:
+        return (
+            f"sampler.kind='{sampler.kind}' with groups_per_batch="
+            f"{sampler.groups_per_batch} puts one group in every batch. Set "
+            "head_configs.embedding.embedding.objective.sampler.groups_per_batch >= 2."
+        )
+    if (
+        sampler.kind == "random"
+        and sampler.groups_per_batch * sampler.samples_per_group < 2
+    ):
+        return "sampler.kind='random' draws batches of one crop."
+    sources = list(resolved.negatives.sources)
+    same_video = (
+        resolved.negatives.restrict_same_video or sampler.kind == "within_video"
+    )
+    if sources == ["same_frame"]:
+        keys = list(zip(video_ids.tolist(), frame_ids.tolist()))
+        where = "frame"
+    elif same_video:
+        keys = video_ids.tolist()
+        where = "video"
+    else:
+        keys = [0] * n
+        where = None
+    groups_by_key: Dict[Any, set] = {}
+    for key, group in zip(keys, group_ids.tolist()):
+        groups_by_key.setdefault(key, set()).add(group)
+    if any(len(g) >= 2 for g in groups_by_key.values()):
+        return None
+    scope = resolved.positives.scope
+    if where is None:
+        return (
+            f"all {n} training crops are one group (positives.scope='{scope}'), so "
+            "there is no different-group pair. Label a second animal, or train "
+            "self-supervised with positives.scope='aug_view'."
+        )
+    why = {
+        "frame": "negatives.sources=['same_frame'] only pairs crops of one frame",
+        "video": (
+            "negatives.restrict_same_video=True only pairs crops of one video"
+            if resolved.negatives.restrict_same_video
+            else "sampler.kind='within_video' draws each batch from one video"
+        ),
+    }[where]
+    return (
+        f"{why}, and none of the {len(groups_by_key)} {where}(s) holds two groups "
+        f"(positives.scope='{scope}')."
+    )
+
+
+def _augmentation_is_noop(augmentation_config) -> bool:
+    """Whether an ``augmentation_config`` leaves every crop unchanged.
+
+    ``True`` when there is no config, or when no op can fire: every probability is 0,
+    or the op's range is the identity (rotation 0 deg, scale 1, translate 0).
+    """
+    if augmentation_config is None:
+        return True
+
+    def get(node, key, default=None):
+        if node is None:
+            return default
+        value = OmegaConf.select(node, key, default=default)
+        return default if value is None else value
+
+    intensity = get(augmentation_config, "intensity")
+    if intensity is not None:
+        for key in (
+            "uniform_noise_p",
+            "gaussian_noise_p",
+            "contrast_p",
+            "brightness_p",
+        ):
+            if get(intensity, key, 0.0) > 0:
+                return False
+    geometric = get(augmentation_config, "geometric")
+    if geometric is None:
+        return True
+    affine_p = get(geometric, "affine_p", 0.0)
+
+    def fires(p_key):
+        # A per-op probability of `None` falls back to the bundled `affine_p`.
+        p = OmegaConf.select(geometric, p_key, default=None)
+        return (affine_p if p is None else p) > 0
+
+    rotation = (
+        get(geometric, "rotation_min", 0.0),
+        get(geometric, "rotation_max", 0.0),
+    )
+    if fires("rotation_p") and any(r != 0 for r in rotation):
+        return False
+    scale = (get(geometric, "scale_min", 1.0), get(geometric, "scale_max", 1.0))
+    if fires("scale_p") and any(v != 1.0 for v in scale):
+        return False
+    translate = (
+        get(geometric, "translate_width", 0.0),
+        get(geometric, "translate_height", 0.0),
+    )
+    if fires("translate_p") and any(t != 0 for t in translate):
+        return False
+    for key in ("erase_p", "mixup_p", "flip_p"):
+        if get(geometric, key, 0.0) > 0:
+            return False
+    return True
+
+
+def validate_embedding_views(
+    objective, use_augmentations_train: bool, augmentation_config
+) -> None:
+    """Check that the two contrastive views of a crop can differ.
+
+    The training step contrasts two views of every crop; they are two independent
+    draws of the configured augmentation (``EmbeddingDataset._pack_sample``). With
+    ``use_augmentations_train=False``, or no augmentation that can fire, both views
+    are the same tensor (``EmbeddingLightningModule._two_views`` reuses view 1).
+
+    - ``positives.scope='aug_view'``: the other view is the ONLY positive, so each
+      crop's positive is itself and the objective reduces to telling crops apart
+      pixel for pixel -> **error**.
+    - other scopes: identity positives still carry the signal, but the model learns no
+      invariance to the augmentations -> **warning**.
+
+    Args:
+        objective: The ``head_configs.embedding.embedding.objective`` node.
+        use_augmentations_train: ``data_config.use_augmentations_train``.
+        augmentation_config: ``data_config.augmentation_config``.
+
+    Raises:
+        ValueError: For ``aug_view`` with identical views.
+    """
+    if use_augmentations_train and not _augmentation_is_noop(augmentation_config):
+        return
+    scope = resolve_embedding_objective(objective).positives.scope
+    cause = (
+        "data_config.use_augmentations_train=False"
+        if not use_augmentations_train
+        else "data_config.augmentation_config has no augmentation that can fire"
+    )
+    if scope == "aug_view":
+        raise ValueError(
+            f"positives.scope='aug_view' needs two different views of each crop, but "
+            f"{cause}, so both views are the same tensor and each crop's only "
+            "positive is itself. Enable use_augmentations_train with an intensity "
+            "and/or geometric augmentation."
+        )
+    logger.warning(
+        f"embedding training: {cause}, so the two contrastive views of each crop are "
+        "identical. Identity positives still train the model, but it learns no "
+        "invariance to the augmentations."
+    )
 
 
 _EMBEDDING_BACKGROUND_FILLS = ("black", "grey", "mean", "noise")
@@ -3330,7 +3530,7 @@ class EmbeddingLightningModule(LightningModel):
         )
 
     # ---- crop intensity (Stage 5) + two-view aug (Stage 0, GPU) ----
-    def _standardize(self, gray, mask, eps=1e-5):
+    def _standardize(self, gray, mask, eps=1e-5, std_floor=EMBEDDING_STD_FLOOR):
         # Reduce over spatial dims ONLY (keep the channel axis) so each channel is
         # standardized independently. For grayscale (C=1) this is byte-identical to the
         # old whole-tensor reduction; for RGB (C=3) it yields a true per-channel
@@ -3340,6 +3540,11 @@ class EmbeddingLightningModule(LightningModel):
         cnt = m.sum((2, 3), keepdim=True).clamp(min=1)
         mu = (gray * m).sum((2, 3), keepdim=True) / cnt
         std = (((gray - mu) ** 2 * m).sum((2, 3), keepdim=True) / cnt).sqrt() + eps
+        # Floor the std at one grey level (inputs are on the 0-255 scale): `eps` alone
+        # let a flat (or empty) foreground divide by ~1e-5, so a `grey` background fill
+        # came out ~1e7. Real crops have a std of tens of grey levels, where the floor
+        # is inactive and the result is bit-identical to before.
+        std = std.clamp(min=std_floor)
         g = (gray - mu) / std
         if not self.burn_in:
             return g

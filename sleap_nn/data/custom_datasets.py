@@ -2261,7 +2261,9 @@ def _global_identity_label(det, track_names_are_global: bool) -> Optional[str]:
 
 
 def resolve_embedding_class_names(
-    labels: List[sio.Labels], track_names_are_global: bool = True
+    labels: List[sio.Labels],
+    track_names_are_global: bool = True,
+    user_instances_only: bool = False,
 ) -> List[str]:
     """Collect the sorted global-identity vocabulary (the ``global_id`` / eval grouping).
 
@@ -2272,12 +2274,17 @@ def resolve_embedding_class_names(
     per-video ``Track`` contributes only its identity, so identity- and track-labelled
     data share one coherent vocabulary. Scanning BOTH train + val labels and sorting
     gives one consistent vocabulary shared by the train and val datasets.
+
+    With ``user_instances_only`` (``data_config.user_instances_only``), predicted
+    detections are left out, as they are left out of the dataset itself.
     """
     names = set()
     for label in labels:
         for lf in label:
             dets = list(lf.instances) + list(getattr(lf, "masks", None) or [])
             for det in dets:
+                if user_instances_only and _is_predicted_detection(det):
+                    continue
                 lab = _global_identity_label(det, track_names_are_global)
                 if lab is not None:
                     names.add(lab)
@@ -2317,6 +2324,297 @@ def resolve_embedding_grouping(config: DictConfig) -> Tuple[bool, str]:
     return track_names_are_global, id_scope
 
 
+# The two detection carriers an embedding model can train on (the same names as
+# `sleap_nn.inference.tracking.POSE_CARRIER` / `MASK_CARRIER`).
+EMBEDDING_DETECTION_MODES = ("pose", "mask")
+
+# A training / eval mask with fewer foreground pixels (in image pixels) than this is
+# not a sample. An EMPTY mask has no center to crop on (the crop fell back to the image
+# center: a background crop labelled with that identity), and a few-pixel mask is an
+# annotation slip whose burn-in standardize runs over a handful of pixels. Inference
+# only skips empty masks (see `EmbeddingDataset(min_mask_area=...)`).
+EMBEDDING_MIN_MASK_AREA = 16
+
+
+def _is_predicted_detection(det) -> bool:
+    """Whether a detection is a prediction (``PredictedInstance`` / predicted mask)."""
+    return isinstance(det, (sio.PredictedInstance, sio.PredictedSegmentationMask))
+
+
+def _mask_image_area(mask) -> float:
+    """Foreground pixels of a mask, in IMAGE pixels.
+
+    ``mask.area`` counts pixels at the mask's stored resolution; a mask encoded at an
+    output stride carries ``scale < 1`` (``image = mask / scale + offset``), so each
+    stored pixel covers ``1 / (sx * sy)`` image pixels.
+    """
+    sx, sy = tuple(getattr(mask, "scale", (1.0, 1.0)) or (1.0, 1.0))
+    return float(mask.area) / max(float(sx) * float(sy), 1e-12)
+
+
+def embedding_preferred_carrier(config: DictConfig) -> Optional[str]:
+    """The carrier an embedding model was trained on (``pose`` / ``mask``), if known.
+
+    A file can carry both carriers (top-down segmentation and SAM output are poses
+    with linked masks), and the two crop differently (pose centroid vs mask center,
+    all-ones vs real mask). A model should embed the carrier it was trained on, so
+    training records it in
+    ``model_config.head_configs.embedding.embedding.detection_mode``. For a config
+    saved before that field existed, ``data_config.preprocessing.burn_in=True`` means
+    the model was trained on masks (burn-in needs one); otherwise the carrier is
+    unknown and ``None`` is returned (the dataset then counts, see
+    :func:`resolve_embedding_detection_mode`).
+    """
+    explicit = OmegaConf.select(
+        config,
+        "model_config.head_configs.embedding.embedding.detection_mode",
+        default=None,
+    )
+    if explicit is not None:
+        return str(explicit)
+    if bool(
+        OmegaConf.select(config, "data_config.preprocessing.burn_in", default=False)
+    ):
+        return "mask"
+    return None
+
+
+def resolve_embedding_detection_mode(
+    labels: List[sio.Labels], is_member, preferred: Optional[str] = None
+) -> str:
+    """Pick the carrier (``pose`` / ``mask``) an embedding dataset crops.
+
+    Counts the detections on each carrier that ``is_member`` accepts (the dataset's
+    own membership rule, so identity-only masks and untracked detections count the
+    way the dataset will index them) with
+    :func:`sleap_nn.inference.tracking.count_carriers`.
+
+    - ``preferred`` (the carrier the model trains / was trained on, see
+      :func:`embedding_preferred_carrier`) wins whenever it holds any member; if it
+      holds none the other carrier is used.
+    - With no preference, the carrier holding MORE members wins. Ties go to masks:
+      the historical rule, and so the carrier every model saved before
+      ``detection_mode`` was recorded was trained on when its file held both.
+      (``count_carriers``' own tie rule, pose, answers a different question: which
+      carrier to TRACK when both carry vectors.)
+    """
+    from sleap_nn.inference.tracking import count_carriers  # lazy: no import cycle
+
+    n_pose = n_mask = 0
+    for label in labels:
+        counts = count_carriers(label, is_member)
+        n_pose += counts.n_pose_with
+        n_mask += counts.n_mask_with
+    n_with = {"pose": n_pose, "mask": n_mask}
+    if preferred is not None:
+        if preferred not in EMBEDDING_DETECTION_MODES:
+            raise ValueError(
+                f"Unknown embedding detection_mode {preferred!r}; choose one of "
+                f"{'|'.join(EMBEDDING_DETECTION_MODES)}."
+            )
+        if n_with[preferred] > 0:
+            return preferred
+        other = "mask" if preferred == "pose" else "pose"
+        if n_with[other] > 0:
+            logger.warning(
+                f"Embedding carrier: the model uses the {preferred} carrier "
+                "(head_configs.embedding.embedding.detection_mode, or masks under "
+                f"burn_in), but these labels hold no {preferred} sample; using their "
+                f"{n_with[other]} {other} detection(s) instead."
+            )
+            return other
+        return preferred
+    if n_mask == 0:
+        return "pose"
+    return "mask" if n_mask >= n_pose else "pose"
+
+
+class EmbeddingMembership:
+    """Which detections an embedding dataset uses, and the groups they fall in.
+
+    The one statement of the rules, shared by :class:`EmbeddingDataset` (its index and
+    its carrier choice) and by the trainer's setup-time checks (crop sizing, "can any
+    batch hold a negative?"), which run before any dataset is built.
+
+    A detection is **usable** unless it is a prediction under ``user_instances_only``
+    (``PredictedInstance`` and ``PredictedSegmentationMask`` alike), an empty pose (every
+    point NaN), or a mask with fewer than ``min_mask_area`` image pixels. A usable
+    detection is a **member** when the scope can group it:
+
+    - ``tracklet``: it carries a ``sio.Track``.
+    - ``global_id``: it has a global identity in ``class_names`` (a ``sio.Identity``
+      name, or its track name under ``track_names_are_global``).
+    - ``aug_view``: always. The scope is self-supervised: each detection is its own
+      group, so unlabeled data trains.
+    - ``include_untracked`` (inference): always, with the placeholder group ``0``.
+
+    Args:
+        class_names: The global-identity vocabulary
+            (:func:`resolve_embedding_class_names`).
+        id_scope: ``global_id`` | ``tracklet`` | ``aug_view``.
+        track_names_are_global: A track name counts as a global identity.
+        user_instances_only: Leave predicted detections out.
+        include_untracked: Inference: every usable detection is a member.
+        min_mask_area: Masks with fewer image pixels are not usable.
+    """
+
+    def __init__(
+        self,
+        class_names: List[str],
+        id_scope: str = "global_id",
+        track_names_are_global: bool = True,
+        user_instances_only: bool = False,
+        include_untracked: bool = False,
+        min_mask_area: float = EMBEDDING_MIN_MASK_AREA,
+    ) -> None:
+        """Store the rules; group ids are assigned as detections are grouped."""
+        self.class_names = list(class_names)
+        self._class_index = {name: i for i, name in enumerate(self.class_names)}
+        self.id_scope = id_scope
+        self.track_names_are_global = bool(track_names_are_global)
+        self.user_instances_only = bool(user_instances_only)
+        self.include_untracked = bool(include_untracked)
+        self.min_mask_area = float(min_mask_area)
+        # Dense ids for tracklets (`tracklet` training groups; the eval fallback of a
+        # detection with no global identity) and per-detection `aug_view` groups.
+        self._tracklet_vocab: Dict[tuple, int] = {}
+        self._n_detection_groups = 0
+
+    def skip_reason(self, det) -> Optional[str]:
+        """Why a detection is not a member, or ``None`` if it is one."""
+        if self.user_instances_only and _is_predicted_detection(det):
+            return "predicted (data_config.user_instances_only)"
+        if isinstance(det, sio.SegmentationMask):
+            if _mask_image_area(det) < max(self.min_mask_area, 1.0):
+                return "empty mask" if det.area == 0 else "tiny mask"
+        elif getattr(det, "is_empty", False):
+            return "empty pose"
+        if self.include_untracked or self.id_scope == "aug_view":
+            return None
+        if self.id_scope == "tracklet":
+            return None if getattr(det, "track", None) is not None else "no track"
+        label = _global_identity_label(det, self.track_names_are_global)
+        if label is None or label not in self._class_index:
+            return "no global identity"
+        return None
+
+    def is_member(self, det) -> bool:
+        """Whether a detection is a sample (side-effect free)."""
+        return self.skip_reason(det) is None
+
+    def group(self, det, labels_idx: int, video_idx: int) -> Optional[Tuple[int, int]]:
+        """Return ``(group_id, global_group_id)`` for a member, or ``None`` to skip.
+
+        ``group_id`` is the TRAINING positive key: the global-identity index for
+        ``global_id``, a dense per-``(labels, video, track)`` tracklet id for
+        ``tracklet``, or a per-detection id for ``aug_view``.
+
+        ``global_group_id`` is the eval grouping: the global-identity index in
+        ``[0, len(class_names))``; for a detection with no global identity, its own
+        tracklet (or, untracked under ``aug_view``, itself) keyed
+        ``len(class_names) + id`` so it cannot share an id with an identity.
+
+        Assigns ids, so call it once per indexed detection, in index order.
+        """
+        if not self.is_member(det):
+            return None
+        if self.include_untracked:
+            # Inference: grouping is a training-only concern.
+            return 0, 0
+        global_label = _global_identity_label(det, self.track_names_are_global)
+        gid = self._class_index.get(global_label) if global_label is not None else None
+        track = getattr(det, "track", None)
+        track_name = track.name if track is not None else None
+        if self.id_scope == "tracklet":
+            tid = self._tracklet_vocab.setdefault(
+                (labels_idx, video_idx, track_name), len(self._tracklet_vocab)
+            )
+            # Identity indices and tracklet ids both count up from 0. Shift the
+            # tracklet fallback past the identities: returning a bare `tid` made
+            # tracklet k and identity k one group in the retrieval metrics.
+            return tid, (gid if gid is not None else len(self.class_names) + tid)
+        if self.id_scope == "aug_view":
+            group_id = self._n_detection_groups
+            self._n_detection_groups += 1
+            if gid is not None:
+                return group_id, gid
+            key = (
+                (labels_idx, video_idx, track_name)
+                if track is not None
+                else ("detection", group_id)
+            )
+            fallback = self._tracklet_vocab.setdefault(key, len(self._tracklet_vocab))
+            return group_id, len(self.class_names) + fallback
+        return gid, gid
+
+
+def embedding_membership_from_config(
+    config: DictConfig,
+    labels: List[sio.Labels],
+    *,
+    user_instances_only: Optional[bool] = None,
+) -> EmbeddingMembership:
+    """The training :class:`EmbeddingMembership` of an embedding config.
+
+    Reads the same settings :func:`get_train_val_datasets` builds the datasets from
+    (identity grouping, ``user_instances_only``) and the vocabulary of ``labels`` (the
+    train + val labels), for checks that must run before the datasets exist.
+    """
+    track_names_are_global, id_scope = resolve_embedding_grouping(config)
+    if user_instances_only is None:
+        user_instances_only = bool(
+            OmegaConf.select(config, "data_config.user_instances_only", default=True)
+        )
+    class_names = resolve_embedding_class_names(
+        labels,
+        track_names_are_global=track_names_are_global,
+        user_instances_only=user_instances_only,
+    )
+    return EmbeddingMembership(
+        class_names,
+        id_scope=id_scope,
+        track_names_are_global=track_names_are_global,
+        user_instances_only=user_instances_only,
+    )
+
+
+def embedding_training_groups(
+    labels: List[sio.Labels], membership: EmbeddingMembership, detection_mode: str
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(group_ids, video_ids, frame_ids)`` of the crops an embedding dataset would index.
+
+    The per-crop arrays :class:`GroupAwareBatchSampler` draws batches from, computed
+    from the labels alone (no image decode) so the objective can be checked against
+    them before the dataset is built and cached. ``video_ids`` are unique across
+    labels files, like :attr:`EmbeddingDataset.video_ids`.
+    """
+    groups, videos, frames = [], [], []
+    video_vocab: Dict[tuple, int] = {}
+    for labels_idx, label in enumerate(labels):
+        video_index = {id(v): i for i, v in enumerate(label.videos)}
+        for lf in label:
+            dets = (
+                (getattr(lf, "masks", None) or [])
+                if detection_mode == "mask"
+                else lf.instances
+            )
+            video_idx = video_index[id(lf.video)]
+            for det in dets:
+                group = membership.group(det, labels_idx, video_idx)
+                if group is None:
+                    continue
+                groups.append(group[0])
+                videos.append(
+                    video_vocab.setdefault((labels_idx, video_idx), len(video_vocab))
+                )
+                frames.append(lf.frame_idx)
+    return (
+        np.asarray(groups, np.int64),
+        np.asarray(videos, np.int64),
+        np.asarray(frames, np.int64),
+    )
+
+
 def _mask_bbox_midpoint(mask_bool: np.ndarray) -> Tuple[float, float]:
     """Return the ``(cx, cy)`` midpoint of a boolean mask's bounding box.
 
@@ -2335,13 +2633,20 @@ def _mask_bbox_midpoint(mask_bool: np.ndarray) -> Tuple[float, float]:
 class EmbeddingDataset(BaseDataset):
     """Dataset for the ``embedding`` (crop -> vector, re-ID) model type.
 
-    One sample per tracked detection. Two detection modes are auto-detected:
+    One sample per member detection of ONE carrier (see :class:`EmbeddingMembership`
+    for which detections are members under each scope: tracked ones for ``tracklet``,
+    identified ones for ``global_id``, every one for ``aug_view`` and for inference's
+    ``include_untracked``). The carrier is the ``detection_mode``:
 
-    - ``mask``: a tracked ``lf.masks`` entry; the fixed-square crop is centered on the
-      mask center-of-mass and carries the binary mask crop.
-    - ``pose``: a tracked ``lf.instances`` keypoint detection; the crop is centered on
+    - ``mask``: an ``lf.masks`` entry; the fixed-square crop is centered on the mask
+      center-of-mass (or bounding-box midpoint) and carries the binary mask crop.
+    - ``pose``: an ``lf.instances`` keypoint detection; the crop is centered on
       the pose centroid (anchor node with a per-instance mean-of-visible-nodes
       fallback) and carries an all-ones mask.
+
+    The ``detection_mode`` argument names the carrier the model trains / was trained
+    on; it is used whenever it holds a member, otherwise the carrier holding more
+    members is (see :func:`resolve_embedding_detection_mode`).
 
     Returns the grayscale crop, a mask crop, and per-crop metadata (``video_idx``,
     ``frame_idx``, ``group_id``, ``global_group_id``, ``item_id``). When ``apply_aug``
@@ -2350,12 +2655,12 @@ class EmbeddingDataset(BaseDataset):
     augmentation; otherwise a single un-augmented view is returned (val / inference).
 
     The ``group_id`` keys the training groups: the global-identity index for
-    ``global_id`` scope, or a per-``(labels, video, track)`` tracklet id for
-    ``tracklet`` scope. ``global_group_id`` is the grouping used for evaluation: the
-    global-identity index, or, for a ``tracklet``-scope detection with no global
-    identity, its own tracklet in a separate id range (see :meth:`_group_keys`). The
-    per-epoch validation and the post-training eval both group on it. The global
-    identity of a detection is its real
+    ``global_id`` scope, a per-``(labels, video, track)`` tracklet id for ``tracklet``
+    scope, or a per-detection id for ``aug_view``. ``global_group_id`` is the grouping
+    used for evaluation: the global-identity index, or, for a detection with no global
+    identity, its own tracklet (untracked under ``aug_view``: itself) in a separate id
+    range (see :meth:`EmbeddingMembership.group`). The per-epoch validation and the
+    post-training eval both group on it. The global identity of a detection is its real
     ``sio.Identity`` name when present, else its ``sio.Track`` name under
     ``track_names_are_global`` (see :func:`_global_identity_label`).
 
@@ -2368,6 +2673,9 @@ class EmbeddingDataset(BaseDataset):
         id_scope: Training-group key: ``global_id`` | ``tracklet`` | ``aug_view``.
         track_names_are_global: Treat a ``sio.Track`` name as a global animal identity
             for detections lacking a ``sio.Identity`` (the pre-Identity convention).
+        membership: The :class:`EmbeddingMembership` deciding which detections are
+            samples and their groups.
+        detection_mode: The carrier cropped: ``pose`` or ``mask``.
     """
 
     def __init__(
@@ -2396,6 +2704,8 @@ class EmbeddingDataset(BaseDataset):
         parallel_caching: bool = True,
         cache_workers: int = 0,
         frame_cache_size: int = 0,
+        detection_mode: Optional[str] = None,
+        min_mask_area: float = EMBEDDING_MIN_MASK_AREA,
     ) -> None:
         """Initialize class attributes.
 
@@ -2404,6 +2714,14 @@ class EmbeddingDataset(BaseDataset):
         frame once instead of once per detection; ``0`` (default) keeps the
         decode-per-sample behavior for training, whose sampler has no frame
         locality.
+
+        ``user_instances_only`` leaves predicted detections out
+        (``PredictedInstance`` and ``PredictedSegmentationMask``); it is ignored under
+        ``include_untracked``, and the tracked-only inference path passes ``False``,
+        so inference embeds predictions. ``detection_mode`` is the preferred carrier
+        (``pose`` / ``mask``, ``None`` to count). ``min_mask_area`` is the smallest
+        mask (in image pixels) that is a sample; inference passes ``1`` (skip only
+        empty masks).
         """
         self.crop_size = crop_size
         self.class_names = list(class_names)
@@ -2411,8 +2729,16 @@ class EmbeddingDataset(BaseDataset):
         self._frame_cache = (
             _FrameLRU(int(frame_cache_size)) if frame_cache_size > 0 else None
         )
-        # `group_id` keying: global identity (global_id) vs per-(video, track)
-        # tracklet. `_tracklet_vocab` lazily assigns a dense id per distinct tracklet.
+        if detection_mode is not None and detection_mode not in (
+            EMBEDDING_DETECTION_MODES
+        ):
+            raise ValueError(
+                f"Unknown embedding detection_mode {detection_mode!r}; choose one of "
+                f"{'|'.join(EMBEDDING_DETECTION_MODES)}."
+            )
+        self._preferred_mode = detection_mode
+        # `group_id` keying: global identity (global_id), per-(video, track) tracklet,
+        # or per detection (aug_view); see `EmbeddingMembership.group`.
         self.id_scope = id_scope
         # Whether a `sio.Track` name doubles as a global animal identity for detections
         # without a real `sio.Identity` (the pre-Identity convention).
@@ -2430,10 +2756,19 @@ class EmbeddingDataset(BaseDataset):
         self.crop_centering = crop_centering
         # Inference re-tracking (WF2): when True, enumerate EVERY detection — tracked
         # or not — and assign a placeholder ``group_id=0`` (unused at inference). The
-        # default (training / offline-retrieval) keeps the tracked-only enumeration,
+        # default (training / offline-retrieval) keeps the member-only enumeration,
         # where ``group_id`` is the real training-group key. Set before super().__init__
         # because the base ctor calls the overridden ``_get_lf_idx_list``.
         self.include_untracked = include_untracked
+        self.membership = EmbeddingMembership(
+            self.class_names,
+            id_scope=id_scope,
+            track_names_are_global=track_names_are_global,
+            # Inference embeds predictions: `include_untracked` means every detection.
+            user_instances_only=user_instances_only and not include_untracked,
+            include_untracked=include_untracked,
+            min_mask_area=min_mask_area,
+        )
         # `scale` is NOT applied to embedding crops, at training or at inference: the
         # crop path sizes the frame via max_hw, crops crop_size around the detection,
         # and never resizes by `scale` (inference reuses this dataset, and
@@ -2446,7 +2781,6 @@ class EmbeddingDataset(BaseDataset):
                 "at training and inference alike. Use crop_size (or max_height/"
                 "max_width) to change how large the animal appears in the crop."
             )
-        self._tracklet_vocab: Dict[tuple, int] = {}
         super().__init__(
             labels=labels,
             max_stride=max_stride,
@@ -2489,8 +2823,9 @@ class EmbeddingDataset(BaseDataset):
             *centroid_method_from_config(embedding_head_config), self.anchor_ind
         )
 
-        # Detection mode: tracked masks (crop on the mask center-of-mass) vs tracked
-        # keypoint instances (crop on the pose centroid, no mask).
+        # Detection mode: masks (crop on the mask center-of-mass) vs keypoint instances
+        # (crop on the pose centroid, no mask) -- the preferred (trained) carrier when
+        # it holds a member, else the one holding more.
         self.detection_mode = self._detect_mode(labels)
         if self.detection_mode == "pose":
             self.mask_idx_list = self._get_instance_idx_list(labels)
@@ -2516,109 +2851,57 @@ class EmbeddingDataset(BaseDataset):
         )
 
     def _detect_mode(self, labels: List[sio.Labels]) -> str:
-        """``"mask"`` if masks are the dominant carrier, else ``"pose"`` (keypoints).
+        """The carrier to crop: ``"mask"`` or ``"pose"`` (keypoints).
 
-        With ``include_untracked`` (inference re-tracking), masks need not carry a
-        track to select mask mode — otherwise an untracked mask-only ``.slp`` would
-        be misread as pose mode (no keypoints) and embed nothing.
+        Counts each carrier's MEMBERS (:meth:`EmbeddingMembership.is_member`, so
+        identity-only masks count under ``global_id`` and every detection counts under
+        ``include_untracked``) and applies :func:`resolve_embedding_detection_mode`:
+        the preferred ``detection_mode`` when it holds a member, else the carrier with
+        more members (ties to masks).
 
-        The mode is decided by which carrier holds MORE eligible detections, not by
-        "any mask anywhere". A single user-GT mask on one frame of an otherwise
-        pose-only ``.slp`` used to flip the whole run to mask mode, so the vectors
-        landed on that one mask and every pose went unembedded — and
-        :func:`~sleap_nn.inference.tracking.apply_tracking` then routed tracking to
-        the mask carrier. Ties go to masks (the historical choice, and what a
-        mask-only file wants).
+        Counting only TRACKED detections, as this once did, sent identity-only masks
+        (the sleap-io #535 style) to pose mode and an empty dataset. Deciding on "any
+        mask anywhere", as it did before that, let a single user-GT mask flip a whole
+        pose-only ``.slp`` to mask mode.
         """
-        n_mask = 0
-        n_pose = 0
-        for label in labels:
-            for lf in label:
-                for m in getattr(lf, "masks", None) or []:
-                    if self.include_untracked or getattr(m, "track", None) is not None:
-                        n_mask += 1
-                for inst in lf.instances:
-                    if (
-                        self.include_untracked
-                        or getattr(inst, "track", None) is not None
-                    ):
-                        n_pose += 1
-        if n_mask == 0:
-            return "pose"
-        return "mask" if n_mask >= n_pose else "pose"
-
-    def _group_keys(self, labels_idx, video_idx, track_name, global_label):
-        """Return ``(group_id, global_group_id)`` for a detection.
-
-        ``global_group_id`` is the eval grouping: the detection's GLOBAL identity index
-        (``sio.Identity``, or track name under ``track_names_are_global``) in
-        ``[0, len(class_names))``. A detection with no global label (a bare tracklet
-        under ``scope='tracklet'``) is its own tracklet group instead, keyed
-        ``len(class_names) + tracklet_id`` so it cannot share an id with an identity.
-
-        ``group_id`` is the TRAINING positive key: the global-identity index for
-        ``global_id`` / ``aug_view`` scope, or a dense per-``(labels, video, track)``
-        tracklet id for ``tracklet`` scope.
-        """
-        gid = (
-            self.class_names.index(global_label)
-            if global_label is not None and global_label in self.class_names
-            else None
+        return resolve_embedding_detection_mode(
+            labels, self.membership.is_member, preferred=self._preferred_mode
         )
-        if self.id_scope == "tracklet":
-            key = (labels_idx, video_idx, track_name)
-            tid = self._tracklet_vocab.setdefault(key, len(self._tracklet_vocab))
-            # Identity indices and tracklet ids both count up from 0. Shift the
-            # tracklet fallback past the identities: returning a bare `tid` made
-            # tracklet k and identity k one group in the retrieval metrics.
-            return tid, (gid if gid is not None else len(self.class_names) + tid)
-        return gid, gid
 
     def _is_member(self, det) -> bool:
-        """Whether a detection is a training sample under the active scope.
-
-        Side-effect free (does NOT assign tracklet ids), so it is safe to call in the
-        frame-cache pass. ``tracklet`` needs a ``sio.Track`` (the per-video tracklet it
-        groups on); ``global_id`` / ``aug_view`` need a global-identity label
-        (``sio.Identity`` name, or a track name under ``track_names_are_global``)
-        present in the shared vocabulary.
-        """
-        if self.id_scope == "tracklet":
-            return getattr(det, "track", None) is not None
-        global_label = _global_identity_label(det, self.track_names_are_global)
-        return global_label is not None and global_label in self.class_names
+        """Whether a detection is a sample (see :class:`EmbeddingMembership`)."""
+        return self.membership.is_member(det)
 
     def _resolve_group(self, det, labels_idx, video_idx):
         """Return ``(group_id, global_group_id)`` for a detection, or ``None`` to skip."""
-        if not self._is_member(det):
-            return None
-        track = getattr(det, "track", None)
-        track_name = track.name if track is not None else None
-        global_label = _global_identity_label(det, self.track_names_are_global)
-        return self._group_keys(labels_idx, video_idx, track_name, global_label)
+        return self.membership.group(det, labels_idx, video_idx)
+
+    def _warn_skipped(self, skipped: Dict[str, int], carrier: str) -> None:
+        """Say how many detections were left out, and why."""
+        if not skipped:
+            return
+        reasons = ", ".join(f"{n} {why}" for why, n in sorted(skipped.items()))
+        logger.warning(
+            f"EmbeddingDataset: skipped {sum(skipped.values())} {carrier} "
+            f"detection(s) under scope='{self.id_scope}': {reasons}."
+        )
 
     def _get_instance_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
-        """Index per tracked keypoint instance (pose mode).
+        """Index per member keypoint instance (pose mode).
 
         Centroid via the topdown :func:`generate_centroids` (anchor node with a
         per-instance fallback to the mean of visible nodes).
         """
         idx_list = []
-        n_missing = 0
+        skipped: Dict[str, int] = {}
         for labels_idx, label in enumerate(labels):
             for lf_idx, lf in enumerate(label):
                 for inst_idx, inst in enumerate(lf.instances):
                     video_idx = labels[labels_idx].videos.index(lf.video)
-                    if self.include_untracked:
-                        # Inference re-tracking: index EVERY detection; the group is an
-                        # unused placeholder (grouping is a training-only concern).
-                        group_id = global_group_id = 0
-                    else:
-                        group = self._resolve_group(inst, labels_idx, video_idx)
-                        if group is None:
-                            n_missing += 1
-                            continue
-                        group_id, global_group_id = group
+                    reason = self.membership.skip_reason(inst)
+                    if reason is not None:
+                        skipped[reason] = skipped.get(reason, 0) + 1
+                        continue
                     pts = torch.from_numpy(inst.numpy()).to(
                         torch.float32
                     )  # (n_nodes,2)
@@ -2631,7 +2914,11 @@ class EmbeddingDataset(BaseDataset):
                         0
                     ]  # (x, y) in original image coords
                     if torch.isnan(centroid).any():
+                        skipped["no centroid"] = skipped.get("no centroid", 0) + 1
                         continue
+                    group_id, global_group_id = self._resolve_group(
+                        inst, labels_idx, video_idx
+                    )
                     centroid = centroid.numpy().astype(np.float32)
                     idx_list.append(
                         {
@@ -2649,35 +2936,26 @@ class EmbeddingDataset(BaseDataset):
                             "global_group_id": global_group_id,
                         }
                     )
-        if n_missing:
-            logger.warning(
-                f"EmbeddingDataset: skipped {n_missing} instance(s) with no group "
-                f"under scope='{self.id_scope}' (no track for tracklet scope, or no "
-                f"in-vocabulary global identity for global_id/aug_view)."
-            )
+        self._warn_skipped(skipped, "pose")
         return idx_list
 
     def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
-        """Index frames carrying >=1 tracked mask OR instance (so the image cache covers them).
+        """Index frames carrying >=1 member mask OR instance (so the image cache covers them).
 
         Mask-only (gerbil) data carries no user *instances* and pose (fly) data carries
         no *masks*, so the base ``_get_lf_idx_list`` (which filters on user instances)
-        can leave the image cache empty. Index on either a tracked ``lf.masks`` or a
-        tracked ``lf.instances``. Runs before ``detection_mode`` is set, so it is
+        can leave the image cache empty. Index on either a member ``lf.masks`` or a
+        member ``lf.instances``. Runs before ``detection_mode`` is set, so it is
         mode-agnostic.
         """
         lf_idx_list = []
         for labels_idx, label in enumerate(labels):
             for lf_idx, lf in enumerate(label):
                 lf_masks = getattr(lf, "masks", None) or []
-                if self.include_untracked:
-                    # Inference re-tracking: index any frame carrying a detection.
-                    has_tracked = bool(lf_masks) or bool(lf.instances)
-                else:
-                    has_tracked = any(self._is_member(m) for m in lf_masks) or any(
-                        self._is_member(inst) for inst in lf.instances
-                    )
-                if has_tracked:
+                has_member = any(self._is_member(m) for m in lf_masks) or any(
+                    self._is_member(inst) for inst in lf.instances
+                )
+                if has_member:
                     video_idx = labels[labels_idx].videos.index(lf.video)
                     lf_idx_list.append(
                         {
@@ -2692,23 +2970,21 @@ class EmbeddingDataset(BaseDataset):
         return lf_idx_list
 
     def _get_mask_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
-        """Index per mask, capturing the (picklable) mask object + its group id."""
+        """Index per member mask, capturing the (picklable) mask object + its group id."""
         mask_idx_list = []
-        n_missing = 0
+        skipped: Dict[str, int] = {}
         for labels_idx, label in enumerate(labels):
             for lf_idx, lf in enumerate(label):
                 lf_masks = getattr(lf, "masks", None) or []
                 for mask_idx, mask_obj in enumerate(lf_masks):
                     video_idx = labels[labels_idx].videos.index(lf.video)
-                    if self.include_untracked:
-                        # Inference re-tracking: index EVERY mask; placeholder group.
-                        group_id = global_group_id = 0
-                    else:
-                        group = self._resolve_group(mask_obj, labels_idx, video_idx)
-                        if group is None:
-                            n_missing += 1
-                            continue
-                        group_id, global_group_id = group
+                    reason = self.membership.skip_reason(mask_obj)
+                    if reason is not None:
+                        skipped[reason] = skipped.get(reason, 0) + 1
+                        continue
+                    group_id, global_group_id = self._resolve_group(
+                        mask_obj, labels_idx, video_idx
+                    )
                     mask_idx_list.append(
                         {
                             "labels_idx": labels_idx,
@@ -2721,12 +2997,7 @@ class EmbeddingDataset(BaseDataset):
                             "global_group_id": global_group_id,
                         }
                     )
-        if n_missing:
-            logger.warning(
-                f"EmbeddingDataset: skipped {n_missing} mask(s) with no group under "
-                f"scope='{self.id_scope}' (no track for tracklet scope, or no "
-                f"in-vocabulary global identity for global_id/aug_view)."
-            )
+        self._warn_skipped(skipped, "mask")
         return mask_idx_list
 
     def __len__(self) -> int:
@@ -4080,10 +4351,11 @@ class GroupAwareBatchSampler(torch.utils.data.Sampler):
     Its only job is to make the wanted positives/negatives co-occur in a batch. Modes:
       - ``pk``: P groups x K crops (the contrastive-standard sampler; guarantees K
         positives per group).
-      - ``within_video``: pick ONE video, then P tracks x K crops from it — every
-        in-batch pair is same-video so its relationship is KNOWN (the correct
-        video-local sampler; cross-video pairs never co-occur). Falls back to PK when
-        there is a single video.
+      - ``within_video``: pick ONE video (among those holding >= 2 groups, in
+        proportion to their crops), then ``min(P, groups in it)`` tracks x K crops
+        from it — every in-batch pair is same-video so its relationship is KNOWN (the
+        correct video-local sampler; cross-video pairs never co-occur). A batch is
+        therefore smaller than ``P x K`` when its video holds fewer than P groups.
       - ``random``: plain random batch (aug-view-only / self-supervised objectives).
 
     Yields lists of dataset indices. ``__len__`` = ``batches_per_epoch``.
@@ -4156,15 +4428,26 @@ class GroupAwareBatchSampler(torch.utils.data.Sampler):
 
     @property
     def samples_per_batch(self) -> int:
-        """Crops one batch draws: ``min(P, groups) x K``, or ``min(P x K, n)`` for ``random``.
+        """Crops one batch draws, on average.
+
+        ``pk``: ``min(P, groups) x K``. ``random``: ``min(P x K, n)``.
+        ``within_video``: each batch holds ``min(P, groups in its video) x K`` crops,
+        so this is that size averaged over the videos the way they are drawn (in
+        proportion to their crops). A 2-animal video yields ``2 x K`` crops, not
+        ``P x K``: counting it like ``pk`` made an "epoch" cover only a fraction of
+        the data (a quarter with ``P=8``).
 
         This is the unit that converts a dataset size into a number of training
-        steps (see :func:`get_train_samples_per_step`). ``within_video`` is counted
-        like ``pk``, although its batches can be smaller when a video holds fewer
-        than P groups.
+        steps (see :func:`get_train_samples_per_step`).
         """
         if self.kind == "random":
             return max(1, min(self.P * self.K, len(self.all_idx)))
+        if self.kind == "within_video" and len(self.elig_videos):
+            groups = np.array(
+                [min(self.P, len(self.groups_in_video[v])) for v in self.elig_videos],
+                float,
+            )
+            return max(1, int(round(float(self.video_w @ groups) * self.K)))
         return max(1, min(self.P, len(self.uniq_groups)) * self.K)
 
     def __len__(self) -> int:
@@ -6447,11 +6730,18 @@ def get_train_val_datasets(
         # the training-group key (global identity vs per-video tracklet). The
         # post-training eval reads the same pair, so both group alike.
         track_names_are_global, id_scope = resolve_embedding_grouping(config)
+        user_instances_only = bool(config.data_config.user_instances_only)
         # One global-identity vocabulary shared by train + val (the group_id space):
         # `sio.Identity` names, else track names under `track_names_are_global`.
         class_names = resolve_embedding_class_names(
-            train_labels + val_labels, track_names_are_global=track_names_are_global
+            train_labels + val_labels,
+            track_names_are_global=track_names_are_global,
+            user_instances_only=user_instances_only,
         )
+        # The carrier to crop. `ModelTrainer` records the one it resolved from the
+        # train labels in `detection_mode` before this runs, so train and val crop
+        # the same carrier and the saved config says which one inference must use.
+        detection_mode = embedding_preferred_carrier(config)
         max_stride = config.model_config.backbone_config[f"{backbone_type}"][
             "max_stride"
         ]
@@ -6504,6 +6794,7 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            detection_mode=detection_mode,
         )
         val_dataset = EmbeddingDataset(
             labels=val_labels,
@@ -6525,14 +6816,29 @@ def get_train_val_datasets(
             rank=rank,
             parallel_caching=parallel_caching,
             cache_workers=cache_workers,
+            detection_mode=detection_mode,
         )
 
         if len(train_dataset) == 0:
+            needs = {
+                "tracklet": "a sio.Track",
+                "global_id": (
+                    "a sio.Identity (or a track name, under "
+                    "data_config.identity.track_names_are_global)"
+                ),
+                "aug_view": "nothing but a non-empty pose or mask",
+            }[id_scope]
             message = (
-                "The embedding train dataset is empty: no tracked detections whose "
-                f"track name is in the resolved vocabulary ({len(class_names)} "
-                "class(es)) were found. Check that the labels carry tracked "
-                "masks/instances and that the track names match."
+                "The embedding train dataset is empty: no detection is a sample under "
+                f"positives.scope='{id_scope}', which needs {needs} "
+                f"({len(class_names)} global identit(ies) found)"
+                + (
+                    ", and data_config.user_instances_only=True leaves predicted "
+                    "instances and masks out"
+                    if user_instances_only
+                    else ""
+                )
+                + "."
             )
             logger.error(message)
             raise ValueError(message)
