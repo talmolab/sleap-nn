@@ -63,7 +63,7 @@ jobs:
     # past 45 min because MPS compute intermittently hangs / OOMs on the
     # virtualized macos-14 runner; that is now neutralized by
     # SLEAP_NN_DISABLE_MPS below.)
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
       CUDA_VISIBLE_DEVICES: ""
       USE_CUDA: "0"
@@ -77,24 +77,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu", "windows", "mac"]  # "self-hosted-gpu" temporarily disabled
-        include:
-          - os: ubuntu
-            runs-on: ubuntu-latest
-          - os: windows
-            runs-on: windows-latest
-          - os: mac
-            runs-on: macos-14
-          # - os: self-hosted-gpu
-          #   runs-on: [self-hosted, puma, gpu, 2xgpu]
+        # DIAGNOSTIC: windows only, at two heads -- the one that hung twice
+        # (#756 rebased onto #755, 9f1ad78a) and its rebase onto D2 (3109a494).
+        os: ["windows"]
+        runs-on: ["windows-latest"]
+        ref:
+          - 9f1ad78a1626e052c522b6c8d1e1449dc90a33a9
+          - 3109a49473d76dacbd1f8cff3af5118f816fda18
         python: [3.13]
 
-    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    name: Tests (${{ matrix.os }}, ${{ matrix.ref }})
     runs-on: ${{ matrix.runs-on }}
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -159,12 +158,13 @@ jobs:
               print('MPS backend is not available on this macOS system')
           "
 
-      - name: Run pytest
-        run: |
-          echo "=== Final environment check before tests ==="
-          uv run --frozen --no-group gpu --extra torch-cpu python -c "import numpy, torch, lightning, skia; print(f'All packages available: numpy={numpy.__version__}, torch={torch.__version__}')"
-          echo "=== Running pytest ==="
-          uv run --frozen --no-group gpu --extra torch-cpu pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
+      # DIAGNOSTIC (emb-review F2 Windows hang), round 2: the EXACT CI pytest command
+      # (coverage on), first thing on a fresh runner, with a faulthandler dump of every
+      # thread's stack when one test runs past 240 s.
+      - name: "DIAG F: exact CI pytest command + faulthandler"
+        continue-on-error: true
+        timeout-minutes: 32
+        run: uv run --frozen --no-group gpu --extra torch-cpu pytest --cov=sleap_nn --cov-report=xml --durations=-1 -o faulthandler_timeout=240 tests/
 
       - name: Upload coverage
         if: github.repository == 'talmolab/sleap-nn'
