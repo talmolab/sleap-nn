@@ -7647,6 +7647,14 @@ detection stack and embedding pass have run.</p>
 detection in the <code>.slp</code> carries its appearance vector. Track it (no model, no GPU):</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>embedded.slp<span class="w"> </span>-t<span class="w"> </span>--features<span class="w"> </span>embeddings
 </span></code></pre></div>
+<p>To produce <code>embedded.slp</code>, run the embedding model on any <code>.slp</code> of detections —
+tracked or untracked; every detection gets a vector, and any vectors the input
+already carried (e.g. from an earlier model) are replaced:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>models/embedding/<span class="w"> </span>-i<span class="w"> </span>detections.slp<span class="w"> </span>--save_embeddings<span class="w"> </span>slp<span class="w"> </span>-o<span class="w"> </span>embedded.slp
+</span></code></pre></div>
+<p>The default output is <code>&lt;input&gt;.embeddings.slp</code> (for a URL input, the URL's file name
+in the current directory). <code>-o</code> may not name the input when the input stores its own
+frames (a <code>.pkg.slp</code>): the frames would be destroyed, so the run is refused.</p>
 <p><code>--features embeddings</code> auto-selects <code>--scoring_method cosine_sim</code>. This is the
 <a href="../tracking/#track-only-mode">track-only / retrack path</a> — omit <code>--model_paths</code>. The
 prior tracks (if any) are reassigned from scratch by appearance.</p>
@@ -7658,7 +7666,7 @@ the embedding model first.</p>
 track them by appearance in a single command. Every detection is embedded (the
 embedding model runs in "include-untracked" mode), the vectors are attached, and the
 tracker assigns <code>sio.Track</code>s by cosine similarity:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>models/embedding/<span class="w"> </span>-i<span class="w"> </span>detections.slp<span class="w"> </span>-t
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>models/embedding/<span class="w"> </span>-i<span class="w"> </span>detections.slp<span class="w"> </span>-t
 </span></code></pre></div>
 <ul>
 <li>The output is a <strong>tracked <code>.slp</code></strong> (default <code>&lt;input&gt;.tracked.slp</code>, or <code>-o out.slp</code>).</li>
@@ -7688,8 +7696,8 @@ tracker assigns <code>sio.Track</code>s by cosine similarity:</p>
 </tr>
 </tbody>
 </table>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Track AND keep the appearance vectors in the output for later reuse:</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>models/embedding/<span class="w"> </span>-i<span class="w"> </span>detections.slp<span class="w"> </span>-t<span class="w"> </span>--save_embeddings<span class="w"> </span>slp
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Track AND keep the appearance vectors in the output for later reuse:</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>models/embedding/<span class="w"> </span>-i<span class="w"> </span>detections.slp<span class="w"> </span>-t<span class="w"> </span>--save_embeddings<span class="w"> </span>slp
 </span></code></pre></div>
 <hr />
 <h2 id="workflow-3-detect-embed-and-track-a-video-fused">Workflow 3 — detect, embed, and track a video (fused)<a class="headerlink" href="#workflow-3-detect-embed-and-track-a-video-fused" title="Permanent link">&para;</a></h2>
@@ -7698,15 +7706,20 @@ embedding, and appearance tracking on a raw video in one command. The detection 
 (a centroid, optionally plus a centered-instance model, i.e. top-down) run first to
 produce the per-frame detections, those detections are embedded, and the tracker
 assigns <code>sio.Track</code>s by cosine similarity:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># top-down detect (centroid + centered_instance) -&gt; embed -&gt; track, in one command</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>models/centroid/<span class="w"> </span>-m<span class="w"> </span>models/centered_instance/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>-m<span class="w"> </span>models/embedding/<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-t<span class="w"> </span>--max_tracks<span class="w"> </span><span class="m">6</span><span class="w"> </span>-o<span class="w"> </span>tracked.slp
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># top-down detect (centroid + centered_instance) -&gt; embed -&gt; track, in one command</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-m<span class="w"> </span>models/centroid/<span class="w"> </span>-m<span class="w"> </span>models/centered_instance/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>-m<span class="w"> </span>models/embedding/<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-t<span class="w"> </span>--max_tracks<span class="w"> </span><span class="m">6</span><span class="w"> </span>-o<span class="w"> </span>tracked.slp
 </span></code></pre></div>
 <p>This is exactly Workflow 2 with the detection step folded in — equivalent to running
 <code>sleap-nn predict -m centroid -m centered_instance -i video.mp4 -o poses.slp</code> and then
 <code>sleap-nn predict -m embedding -i poses.slp -t -o tracked.slp</code>. <code>--save_embeddings slp</code>
 keeps the vectors in the output as above; a centroid-only detector (no
 centered-instance model) yields single-node detections to embed + track.</p>
+<p>The output is always a <code>.slp</code> that references the source video: <code>--output_format
+analysis_h5</code> and <code>--embed true|auto</code> are rejected on this route rather than ignored.
+With <code>--video_index</code> on a multi-video <code>.slp</code>, the default output name includes the
+video's name (<code>&lt;input&gt;.&lt;video&gt;.tracked.slp</code>), as with <code>predict</code>, so per-video runs do
+not overwrite each other.</p>
 <hr />
 <h2 id="output-tracks-not-global-identities">Output: tracks, not global identities<a class="headerlink" href="#output-tracks-not-global-identities" title="Permanent link">&para;</a></h2>
 <p>This path emits per-video <code>sio.Track</code>s only (classification-as-tracking). It does
@@ -7794,7 +7807,7 @@ switch to a bounded metric (<code>oks</code> / <code>iou</code> / <code>mask_iou
 <details class="question">
 <summary>How do I know whether the blend helped?</summary>
 <p>Score it against tracked ground truth:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span>eval-tracking<span class="w"> </span>-g<span class="w"> </span>ground_truth.slp<span class="w"> </span>-p<span class="w"> </span>tracked.slp
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sleap-nn<span class="w"> </span>eval-tracking<span class="w"> </span>-g<span class="w"> </span>ground_truth.slp<span class="w"> </span>-p<span class="w"> </span>tracked.slp
 </span></code></pre></div>
 <p>That reports ID switches, IDF1, MT/PT/ML, fragmentation and track purity, so a
 weight can be chosen on evidence rather than by feel. Compare arms over the SAME
