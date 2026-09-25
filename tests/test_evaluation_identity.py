@@ -917,9 +917,9 @@ def test_zero_area_pose_matches_by_distance_under_oks():
     gt, pred = _synthetic_pose(10, pred_offset=1.0)
     m = identity_metrics(gt, pred, "pose")
 
-    assert m.match_method == "oks"
     assert m.n_matched == 20
     assert m.idf1 == pytest.approx(1.0)
+    assert m.match_method == "oks"
 
 
 # --- C3: trajectories are per video by default --------------------------------
@@ -1160,10 +1160,10 @@ def test_dont_care_does_not_forgive_unmatched_predictions():
         )
     m = identity_metrics(gt, pred, "pose")
 
-    assert m.n_dont_care == 10
-    # 10 IDTP; the 10 stray detections are IDFP.
+    # 10 IDTP; the 10 stray detections are IDFP, the 10 on untracked GT are not.
     assert m.idp == pytest.approx(0.5)
     assert m.idr == pytest.approx(1.0)
+    assert m.n_dont_care == 10
 
 
 # --- C6: IDF1 includes detection errors; idf1_matched factors them out --------
