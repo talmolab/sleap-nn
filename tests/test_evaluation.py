@@ -1494,16 +1494,17 @@ class TestEmbeddingRetrievalMetrics:
     def test_leave_self_out_excludes_self(self):
         """rank1 must reflect the NEAREST OTHER item, not the (trivial) self-match.
 
-        With one item per identity, leave-self-out retrieval can never match (every
-        other item is a different id) -> rank1 == 0, proving self is excluded.
+        Each item's nearest OTHER item belongs to a different identity (its own
+        identity's other item points the opposite way), so rank1 == 0 -- with the
+        self-match counted it would be 1.
         """
         from sleap_nn.evaluation import embedding_leave_self_out_eval
 
-        rng = np.random.RandomState(1)
-        emb = rng.randn(6, 8)
-        y = np.arange(6)  # all distinct -> no true positive exists besides self
+        emb = np.array([[1.0, 0.0], [-1.0, 0.0], [0.95, 0.31], [-0.95, 0.31]])
+        y = np.array([0, 0, 1, 1])
         m = embedding_leave_self_out_eval(emb, y)
         assert m["rank1"] == 0.0
+        assert m["n_no_positive_queries"] == 0
 
     def test_leave_self_out_keys(self):
         """The metrics dict has the full retrieval/verification/kNN key set."""
@@ -1511,7 +1512,214 @@ class TestEmbeddingRetrievalMetrics:
 
         emb, y = self._separable()
         m = embedding_leave_self_out_eval(emb, y)
-        assert set(m.keys()) == {"rank1", "mAP", "auc", "eer", "knn_acc"}
+        assert set(m.keys()) == {
+            "rank1",
+            "mAP",
+            "auc",
+            "eer",
+            "knn_acc",
+            "n_no_positive_queries",
+        }
+
+    def test_singleton_identities_are_not_scored(self):
+        """A query whose identity appears once has nothing to retrieve (standard CMC).
+
+        It used to count as a miss in rank-1 and kNN while mAP silently dropped it:
+        a perfect embedding with 3 singleton identities scored rank-1 0.909 against
+        mAP 1.0. Now all three leave it out, and the count is reported.
+        """
+        from sleap_nn.evaluation import embedding_leave_self_out_eval
+
+        rng = np.random.default_rng(0)
+        centers = rng.normal(size=(6, 16))
+        y = np.array([0] * 10 + [1] * 10 + [2] * 10 + [3, 4, 5])
+        emb = centers[y] + 0.01 * rng.normal(size=(len(y), 16))
+
+        m = embedding_leave_self_out_eval(emb, y)
+
+        assert m["rank1"] == 1.0
+        assert m["knn_acc"] == 1.0
+        assert m["mAP"] == 1.0
+        assert m["n_no_positive_queries"] == 3
+
+    def test_all_singletons_score_nothing(self):
+        """With no query that has a positive, rank-1 / mAP / kNN are undefined (NaN)."""
+        from sleap_nn.evaluation import embedding_leave_self_out_eval
+
+        emb = np.random.default_rng(1).normal(size=(6, 8))
+        m = embedding_leave_self_out_eval(emb, np.arange(6))
+
+        assert all(np.isnan(m[key]) for key in ("rank1", "mAP", "knn_acc"))
+        # Every pair is a different-identity pair: no AUC / EER either.
+        assert np.isnan(m["auc"]) and np.isnan(m["eer"])
+        assert m["n_no_positive_queries"] == 6
+
+    def test_knn_vote_ignores_negative_similarities(self):
+        """A label with no neighbour can no longer win on all-negative similarities.
+
+        Item 0's two nearest items are both its own identity, but at a negative
+        cosine. Summing raw similarities gave its label a negative vote, which lost to
+        the 0 of a label no neighbour had. Clipped at 0, only the neighbours' labels
+        compete. Every other item's neighbours are positively similar, so it is the
+        only prediction that changes (6/7 -> 7/7).
+        """
+        from sleap_nn.evaluation import embedding_leave_self_out_eval
+
+        emb = np.array(
+            [
+                [1.0, 0.0, 0.0],  # item 0: identity 1
+                [-0.1, 1.0, 0.02],  # identity 1, cosine ~ -0.1 to item 0
+                [-0.1, 1.0, -0.02],
+                [-0.1, -1.0, 0.02],
+                [-0.1, -1.0, -0.02],
+                [-1.0, 0.01, 0.05],  # identity 0, cosine ~ -1 to item 0
+                [-1.0, -0.01, -0.05],
+            ]
+        )
+        y = np.array([1, 1, 1, 1, 1, 0, 0])
+
+        m = embedding_leave_self_out_eval(emb, y, k=2)
+
+        assert m["knn_acc"] == 1.0
+        assert m["rank1"] == 1.0
+
+    @staticmethod
+    def _reference_leave_self_out(emb, y, k=7):
+        """The pre-F2 implementation (Python AP loop + sklearn ROC-AUC), inlined."""
+        from sklearn.metrics import roc_auc_score
+
+        emb = np.asarray(emb, dtype=np.float64)
+        emb = emb / np.maximum(np.linalg.norm(emb, axis=1, keepdims=True), 1e-8)
+        n = len(emb)
+        sim = emb @ emb.T
+        np.fill_diagonal(sim, -np.inf)
+        order = np.argsort(-sim, axis=1)[:, : n - 1]
+        ranked = y[order]
+        rank1 = float(np.mean(ranked[:, 0] == y))
+        aps = []
+        for i in range(n):
+            rel = (ranked[i] == y[i]).astype(float)
+            if rel.sum() == 0:
+                continue
+            prec = np.cumsum(rel) / np.arange(1, len(rel) + 1)
+            aps.append((prec * rel).sum() / rel.sum())
+        kk = min(k, n - 1)
+        idx = order[:, :kk]
+        nn_y, nn_s = y[idx], np.take_along_axis(sim, idx, 1)
+        votes = np.zeros((n, int(y.max()) + 1))
+        for c in range(votes.shape[1]):
+            votes[:, c] = (nn_s * (nn_y == c)).sum(1)
+        # verification_metrics(emb, y, emb, y, exclude_diagonal=True)
+        q = emb / np.maximum(np.linalg.norm(emb, axis=1, keepdims=True), 1e-8)
+        g = emb / np.maximum(np.linalg.norm(emb, axis=1, keepdims=True), 1e-8)
+        sim2d = q @ g.T
+        keep = ~np.eye(n, dtype=bool)
+        scores = sim2d[keep]
+        same = (y[:, None] == y[None, :])[keep].astype(int)
+        order2 = np.argsort(-scores)
+        lab = same[order2]
+        fnr = 1 - np.cumsum(lab) / lab.sum()
+        fpr = np.cumsum(1 - lab) / (len(lab) - lab.sum())
+        j = int(np.argmin(np.abs(fnr - fpr)))
+        return {
+            "rank1": round(rank1, 4),
+            "mAP": round(float(np.mean(aps)), 4),
+            "auc": round(float(roc_auc_score(same, scores)), 4),
+            "eer": round(float((fnr[j] + fpr[j]) / 2), 4),
+            "knn_acc": round(float(np.mean(votes.argmax(1) == y)), 4),
+        }
+
+    def test_matches_the_reference_implementation(self):
+        """Parity (F5): the blocked, vectorized eval scores exactly like the old one.
+
+        On a set where the two metric changes are inert (every identity has >= 2
+        items, every query's nearest neighbours are positively similar), rank-1, mAP
+        and kNN are identical and AUC is equal. EER may move by at most a quarter of a
+        ROC step: the old code scored every pair twice, as (i, j) and (j, i), and its
+        per-position EER could stop between the two copies.
+        """
+        from sleap_nn.evaluation import embedding_leave_self_out_eval
+
+        rng = np.random.default_rng(7)
+        n, dim, n_ids = 600, 16, 12
+        centers = rng.normal(size=(n_ids, dim)) + 2.0  # all-positive similarities
+        y = np.concatenate([np.arange(n_ids), rng.integers(0, n_ids, n - n_ids)])
+        y = np.concatenate([y[:n_ids], y])  # every identity >= 2 items
+        emb = centers[y] + 1.5 * rng.normal(size=(len(y), dim))
+
+        new = embedding_leave_self_out_eval(emb, y)
+        old = self._reference_leave_self_out(emb, y)
+
+        for key in ("rank1", "mAP", "knn_acc"):
+            assert new[key] == old[key], key
+        # Rounded to 4 decimals: allow one unit for a float difference at a boundary.
+        assert new["auc"] == pytest.approx(old["auc"], abs=1e-4)
+        _, counts = np.unique(y, return_counts=True)
+        n_pos = int((counts * (counts - 1) // 2).sum())
+        n_neg = len(y) * (len(y) - 1) // 2 - n_pos
+        assert abs(new["eer"] - old["eer"]) <= 1 / (8 * min(n_pos, n_neg)) + 1e-4
+        # Not a vacuous comparison: the embedding is far from separable.
+        assert 0.2 < new["rank1"] < 0.95
+        assert new.get("n_no_positive_queries", 0) == 0
+
+    def test_peak_memory_is_bounded(self):
+        """F5: no stack of N x N copies and no ROC curve over all N^2 pairs.
+
+        The old eval held a float64 similarity, its argsort and the ranked labels
+        (3 x N^2 x 8 bytes) at once, then rebuilt the similarity for the verification
+        metrics and ran sklearn's ROC-AUC over every ordered pair: ~2.7 GB at the
+        N=5000 cap. It now scores query rows in blocks and keeps one score per
+        unordered pair.
+        """
+        import tracemalloc
+
+        from sleap_nn.evaluation import embedding_leave_self_out_eval
+
+        n = 2000
+        rng = np.random.default_rng(0)
+        emb = rng.normal(size=(n, 32)).astype(np.float32)
+        y = rng.integers(0, 20, n)
+        embedding_leave_self_out_eval(emb[:50], y[:50])  # warm up lazy imports
+
+        tracemalloc.start()
+        try:
+            embedding_leave_self_out_eval(emb, y)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+
+        # The pair scores alone are half a float64 N x N matrix; the old code peaked
+        # at ~14 of them here (436 MB), the blocked one at ~1.3 (40 MB).
+        one_square = n * n * 8
+        assert peak < 2 * one_square
+
+    def test_auc_eer_are_exact(self):
+        """AUC == sklearn's ROC-AUC; EER == the interpolated FNR = FPR crossing.
+
+        Heavily tied scores (rounded to one decimal), where tie handling matters.
+        """
+        from sklearn.metrics import roc_auc_score, roc_curve
+
+        from sleap_nn.evaluation import _auc_eer
+
+        rng = np.random.default_rng(3)
+        for _ in range(20):
+            m = int(rng.integers(5, 2000))
+            scores = np.round(rng.normal(size=m), 1)
+            same = rng.random(m) < rng.uniform(0.1, 0.9)
+            if same.all() or not same.any():
+                continue
+            auc, eer = _auc_eer(np.sort(scores[same]), np.sort(scores[~same]))
+
+            fpr, tpr, _ = roc_curve(same, scores, drop_intermediate=False)
+            fnr = 1 - tpr
+            gap = fnr - fpr
+            i = int(np.flatnonzero(gap >= 0)[-1])
+            frac = gap[i] / (gap[i] - gap[i + 1])
+            assert auc == pytest.approx(roc_auc_score(same, scores), abs=1e-12)
+            assert eer == pytest.approx(
+                fnr[i] + frac * (fnr[i + 1] - fnr[i]), abs=1e-12
+            )
 
     def test_verification_excludes_self_pair_diagonal(self):
         """Leave-self-out verification must drop the N perfect self-pairs.
