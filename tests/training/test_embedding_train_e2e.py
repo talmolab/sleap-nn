@@ -334,3 +334,182 @@ def test_objective_vocabularies_match_their_consumers():
     for kind in EMBEDDING_SAMPLER_KINDS:
         sampler = GroupAwareBatchSampler(ids, np.zeros(4), np.arange(4), kind=kind)
         assert len(next(iter(sampler))) > 0
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# The post-training retrieval eval (`metrics.<split>.npz`) must group the
+# detections exactly as the per-epoch metric that selected the checkpoint.
+# ─────────────────────────────────────────────────────────────────────────
+FRAMES_PER_VIDEO = 8
+
+
+@pytest.fixture
+def two_video_slp(centered_instance_video, tmp_path):
+    """Build two-video labels whose track names are per-video.
+
+    Each video has its OWN `track_0` / `track_1` tracks, so `track_0` names two
+    different tracklets. With `identified_video` set, that video's animals also
+    carry a `sio.Identity`. Its frames are stored last, so the other video's
+    tracklets get tracklet ids 0 and 1, the same numbers as the identity indices.
+    """
+
+    def build(identified_video=None):
+        skeleton = sio.Skeleton(["a", "b"])
+        identities = [sio.Identity(name=f"animal_{i}") for i in range(N_ANIMALS)]
+        rng = np.random.default_rng(0)
+        videos, tracks, frames = [], [], []
+        for v in range(2):
+            video = sio.load_video(centered_instance_video.as_posix())
+            video_tracks = [sio.Track(name=f"track_{i}") for i in range(N_ANIMALS)]
+            videos.append(video)
+            tracks += video_tracks
+            for frame_idx in range(FRAMES_PER_VIDEO):
+                instances = []
+                for i, (cx, cy) in enumerate([(120, 180), (260, 200)]):
+                    points = np.array([[cx - 10, cy], [cx + 10, cy]], float)
+                    instance = sio.Instance.from_numpy(
+                        points + rng.normal(0, 2, 2),
+                        skeleton=skeleton,
+                        track=video_tracks[i],
+                    )
+                    if v == identified_video:
+                        instance.identity = identities[i]
+                    instances.append(instance)
+                frames.append(
+                    sio.LabeledFrame(
+                        # Different frames of the (shared) movie per video, so no two
+                        # crops are identical.
+                        video=video,
+                        frame_idx=100 * v + frame_idx,
+                        instances=instances,
+                    )
+                )
+        labels = sio.Labels(
+            labeled_frames=frames, videos=videos, skeletons=[skeleton], tracks=tracks
+        )
+        path = tmp_path / f"two_video_{identified_video}.slp"
+        labels.save(path.as_posix())
+        return path
+
+    return build
+
+
+def _record_retrieval_evals(monkeypatch):
+    """Record every call of the shared retrieval metric, tagged by its caller.
+
+    The per-epoch callback (`_compute_metrics`) and the post-training eval
+    (`_run_embedding_split_eval`) both call it, so the recorded labels are exactly
+    the groups each one scored.
+    """
+    import sys
+
+    import sleap_nn.evaluation as evaluation
+
+    real = evaluation.embedding_leave_self_out_eval
+    calls = []
+
+    def record(emb, y, **kwargs):
+        metrics = real(emb, y, **kwargs)
+        calls.append(
+            {
+                "caller": sys._getframe(1).f_code.co_name,
+                "emb": np.asarray(emb, np.float64),
+                "y": np.asarray(y),
+                "metrics": metrics,
+            }
+        )
+        return metrics
+
+    monkeypatch.setattr(evaluation, "embedding_leave_self_out_eval", record)
+    return calls
+
+
+def _partition(y):
+    """The grouping as a set of row sets, independent of the label values."""
+    return {frozenset(np.flatnonzero(y == g).tolist()) for g in np.unique(y)}
+
+
+def _unit(emb):
+    return emb / np.linalg.norm(emb, axis=1, keepdims=True)
+
+
+TWO_VIDEO_CROPS = 2 * FRAMES_PER_VIDEO * N_ANIMALS  # 32
+TRACKLET = {
+    f"{OBJECTIVE}.positives": {"scope": "tracklet"},
+    f"{OBJECTIVE}.negatives": {"restrict_same_video": True},
+    f"{OBJECTIVE}.sampler.kind": "within_video",
+    "data_config.identity": {
+        "track_names_are_global": False,
+        "tracks_are_proofread": True,
+    },
+}
+GLOBAL_ID = {
+    f"{OBJECTIVE}.positives": {"scope": "global_id"},
+    "data_config.identity": {"track_names_are_global": False},
+}
+
+
+@pytest.mark.parametrize(
+    "identified_video,objective,n_crops,n_groups",
+    [
+        # Per-video names, no identities: each (video, track) is its own group.
+        # The eval grouped by track NAME, merging `track_0` of both videos (2 groups).
+        pytest.param(None, TRACKLET, TWO_VIDEO_CROPS, 4, id="tracklet-per-video"),
+        # Video 1 identified, video 0 bare tracklets: 2 identities + 2 tracklets.
+        # The per-epoch metric keyed a bare tracklet by its tracklet id, which
+        # collided with the identity index: tracklet k == identity k (2 groups).
+        pytest.param(1, TRACKLET, TWO_VIDEO_CROPS, 4, id="tracklet-mixed"),
+        # `global_id` without `track_names_are_global`: only identified detections
+        # are samples. The eval also scored video 0 by track name (32 crops,
+        # 4 groups).
+        pytest.param(1, GLOBAL_ID, TWO_VIDEO_CROPS // 2, 2, id="global-id"),
+    ],
+)
+def test_post_training_eval_groups_like_the_selection_metric(
+    two_video_slp,
+    tmp_path,
+    monkeypatch,
+    identified_video,
+    objective,
+    n_crops,
+    n_groups,
+):
+    """The reported retrieval metric scores the same groups as the per-epoch one.
+
+    Goes through `sleap_nn.train.run_training` (what `sleap-nn train` calls): one
+    epoch, so `best.ckpt` holds the weights the per-epoch metric was computed with,
+    then the post-training eval of `train.0` / `val.0` (FINDINGS #7, #8).
+    """
+    from sleap_nn.train import run_training
+
+    slp = two_video_slp(identified_video)
+    cfg = _config(
+        slp,
+        tmp_path,
+        "grouping",
+        **{"trainer_config.val_data_loader.batch_size": 8, **objective},
+    )
+    calls = _record_retrieval_evals(monkeypatch)
+    run_training(cfg)
+
+    per_epoch = [c for c in calls if c["caller"] == "_compute_metrics"]
+    post = [c for c in calls if c["caller"] == "_run_embedding_split_eval"]
+    assert len(per_epoch) == 1  # max_epochs=1
+    assert len(post) == 2  # train.0 and val.0 (both are `slp`)
+    selection = per_epoch[0]
+    assert len(selection["y"]) == n_crops
+    assert len(np.unique(selection["y"])) == n_groups
+    for split in post:
+        assert len(split["y"]) == n_crops
+        assert len(np.unique(split["y"])) == n_groups
+        # Same crops in the same order, embedded by the same weights...
+        np.testing.assert_allclose(
+            _unit(split["emb"]), _unit(selection["emb"]), atol=1e-4
+        )
+        # ...grouped the same way.
+        assert _partition(split["y"]) == _partition(selection["y"])
+
+    # So the saved headline is the selection metric of the selected checkpoint.
+    saved = np.load(tmp_path / "grouping" / "metrics.val.0.npz")
+    for key in ("rank1", "mAP", "auc", "eer", "knn_acc"):
+        assert float(saved[key]) == pytest.approx(selection["metrics"][key], abs=1e-6)

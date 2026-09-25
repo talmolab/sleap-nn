@@ -130,6 +130,44 @@ def test_sample_carries_the_global_video_id():
     assert len(ids) == 2
 
 
+def test_bare_tracklets_never_share_an_eval_group_with_an_identity():
+    """Tracklet scope: a bare tracklet is its own eval group (FINDINGS #8).
+
+    A detection with no global identity is evaluated as its tracklet. Tracklet ids
+    and identity indices both count from 0, so tracklet 0 (of the file stored first)
+    and identity 0 were ONE group in the retrieval metrics.
+    """
+    bare = _one_video_labels("b.mp4", ["b0", "b1"])  # tracklet ids 0 and 1
+    identified = _one_video_labels("a.mp4", ["a0", "a1"])
+    identities = [sio.Identity(name="black"), sio.Identity(name="white")]
+    for lf in identified:
+        for instance, identity in zip(lf.instances, identities):
+            instance.identity = identity
+    dataset = EmbeddingDataset(
+        labels=[bare, identified],
+        crop_size=16,
+        class_names=["black", "white"],  # identity indices 0 and 1
+        embedding_head_config=_HEAD,
+        max_stride=16,
+        id_scope="tracklet",
+        track_names_are_global=False,
+        cache_img=None,
+    )
+
+    animals_in_group = {}
+    for meta in dataset.mask_idx_list:
+        det = meta["mask_obj"]
+        animal = (
+            det.identity.name
+            if det.identity is not None
+            else (meta["labels_idx"], det.track.name)
+        )
+        animals_in_group.setdefault(meta["global_group_id"], set()).add(animal)
+    # Four animals, four groups, one animal per group.
+    assert len(animals_in_group) == 4
+    assert all(len(animals) == 1 for animals in animals_in_group.values())
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # steps_per_epoch must use the sampler's batch size (P*K), not batch_size
 # ─────────────────────────────────────────────────────────────────────────

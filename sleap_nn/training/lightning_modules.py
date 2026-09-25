@@ -3483,9 +3483,10 @@ class EmbeddingLightningModule(LightningModel):
 
         if self._collect_val_predictions:
             emb = e.detach().cpu()
-            # Evaluate on the GLOBAL grouping (track-name), independent of the training
-            # group (e.g. tracklet), so different objectives are comparable on one
-            # retrieval metric. Falls back to group_id when no global grouping exists.
+            # Evaluate on the eval grouping (`global_group_id`: the global identity, or
+            # a bare tracklet's own group), independent of the training group (e.g.
+            # tracklet), so different objectives are comparable on one retrieval
+            # metric. The post-training eval (train.py) groups on the same key.
             label_key = "global_group_id" if "global_group_id" in batch else "group_id"
             labels = batch[label_key].detach().cpu()
             for i in range(emb.shape[0]):

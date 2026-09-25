@@ -12,8 +12,10 @@ This module hosts:
   native-framework :class:`~sleap_nn.inference.layers.embedding.EmbeddingLayer`, so the
   crop pipeline (grayscale + optional mask burn-in + per-crop standardize) is IDENTICAL
   to training and the embeddings are consistent with the validation retrieval metrics.
-  Shared by the ``.slp`` writer below and the post-training retrieval eval in
-  :mod:`sleap_nn.train`.
+  Used by the ``.slp`` writer below.
+* :func:`embed_labels_for_eval` — the same kernel for the post-training retrieval eval
+  in :mod:`sleap_nn.train`: selects and groups detections by identity exactly as the
+  per-epoch validation metric that picked the checkpoint.
 * :func:`predict_embeddings_to_slp` — the re-ID entry point: embed every detection in a
   ``.slp`` and persist the vectors via the sleap-io ``sio.Embedding`` data model back
   into a ``.slp``. With a ``tracker_config`` (WF2: "embed + track on the
@@ -34,7 +36,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, NamedTuple, Optional, Tuple
 
 import attrs
 import numpy as np
@@ -77,7 +79,6 @@ class EmbeddingInferenceModel:
     ensure_rgb: bool = False
 
 
-@torch.inference_mode()
 def embed_labels(
     model_dir,
     labels: sio.Labels,
@@ -96,9 +97,9 @@ def embed_labels(
     ``sio.SegmentationMask``) via the single ``identity_embedding`` slot (sleap-io #535).
     Both pose and mask (``owner_type=3``) detections persist their embeddings.
 
-    This is the shared embedding kernel: :func:`predict_embeddings_to_slp` calls it then
-    writes a ``.slp``; the post-training retrieval eval calls it for the ``(vectors,
-    track names)`` arrays without writing anything.
+    :func:`predict_embeddings_to_slp` calls it, then writes a ``.slp``. For retrieval
+    eval use :func:`embed_labels_for_eval`, which groups the detections the way the
+    model was trained instead of by name.
 
     Args:
         model_dir: Trained ``embedding`` model directory (``best.ckpt`` +
@@ -107,20 +108,111 @@ def embed_labels(
             detection).
         device: Torch device.
         batch_size: Crops per forward pass.
-        include_untracked: When ``False`` (default) only tracked detections are
-            embedded (track names are the identities, e.g. for retrieval eval). When
-            ``True`` every detection is embedded regardless of track (WF2 tracking).
+        include_untracked: When ``False`` (default) only detections with a track or
+            an identity are embedded. When ``True`` every detection is embedded
+            regardless of track (WF2 tracking).
 
     Returns:
         ``(embeddings, track_names, n_attached, embedding_dim)`` where ``embeddings`` is
-        ``(N, D) float32``, ``track_names`` is ``(N,)`` object (the per-detection class /
-        track name; empty strings for untracked detections), ``n_attached`` is ``N``, and
+        ``(N, D) float32``, ``track_names`` is ``(N,)`` object (the detection's
+        ``sio.Identity`` name, else its track name; with ``include_untracked``, always
+        its track name, ``""`` when untracked), ``n_attached`` is ``N``, and
         ``embedding_dim`` is ``D``.
+    """
+    embedded = _embed_detections(
+        model_dir,
+        labels,
+        device=device,
+        batch_size=batch_size,
+        include_untracked=include_untracked,
+        group_as_trained=False,
+    )
+    return (
+        embedded.embeddings,
+        embedded.track_names,
+        len(embedded.embeddings),
+        embedded.embedding_dim,
+    )
+
+
+def embed_labels_for_eval(
+    model_dir,
+    labels: sio.Labels,
+    *,
+    device: str = "cuda",
+    batch_size: int = 64,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Embed the detections retrieval eval scores, grouped by identity as in training.
+
+    Selects and groups the detections exactly as the model's per-epoch validation
+    set did (``EmbeddingEvaluationCallback``, which selected the checkpoint), so a
+    post-training metric is the same metric. Both read
+    ``data_config.identity.track_names_are_global`` and the objective's
+    ``positives.scope`` from the training config
+    (:func:`~sleap_nn.data.custom_datasets.resolve_embedding_grouping`), and group on
+    the dataset's ``global_group_id``, not on names. With the default
+    ``track_names_are_global=False`` a per-video track name is not an identity:
+    ``global_id`` scope scores only the detections carrying a ``sio.Identity``, and
+    ``tracklet`` scope scores each ``(video, track)`` as its own group, so ``track_0``
+    in two videos is two groups. Like :func:`embed_labels`, attaches the vectors to
+    ``labels`` in place.
+
+    Args:
+        model_dir: Trained ``embedding`` model directory.
+        labels: Ground-truth ``sio.Labels`` of one split.
+        device: Torch device.
+        batch_size: Crops per forward pass.
+
+    Returns:
+        ``(embeddings, group_ids)``: ``(N, D) float32`` vectors and their ``(N,)
+        int64`` identity groups.
+
+    Raises:
+        EmbeddingInputError: If no detection carries what the grouping needs (a
+            ``sio.Identity``, or a track for ``tracklet`` scope or under
+            ``track_names_are_global``).
+    """
+    embedded = _embed_detections(
+        model_dir,
+        labels,
+        device=device,
+        batch_size=batch_size,
+        include_untracked=False,
+        group_as_trained=True,
+    )
+    return embedded.embeddings, embedded.group_ids
+
+
+class _Embedded(NamedTuple):
+    """One row per embedded detection (see :func:`_embed_detections`)."""
+
+    embeddings: np.ndarray  # (N, D) float32
+    track_names: np.ndarray  # (N,) object
+    group_ids: np.ndarray  # (N,) int64 `global_group_id` (0 under include_untracked)
+    embedding_dim: int
+
+
+@torch.inference_mode()
+def _embed_detections(
+    model_dir,
+    labels: sio.Labels,
+    *,
+    device: str,
+    batch_size: int,
+    include_untracked: bool,
+    group_as_trained: bool,
+) -> _Embedded:
+    """The kernel behind :func:`embed_labels` and :func:`embed_labels_for_eval`.
+
+    ``group_as_trained`` takes the dataset's identity semantics from the training
+    config; otherwise every track or identity name counts as an identity.
     """
     from sleap_nn.config.utils import resolve_model_dir
     from sleap_nn.data.custom_datasets import (
         EmbeddingDataset,
+        _global_identity_label,
         resolve_embedding_class_names,
+        resolve_embedding_grouping,
     )
     from sleap_nn.inference.loaders import (
         _load_training_config,
@@ -155,9 +247,34 @@ def embed_labels(
     emb_head = config.model_config.head_configs.embedding.embedding
     embedding_dim = int(emb_head.embedding_dim)
 
-    class_names = resolve_embedding_class_names([labels])
-    if not class_names and not include_untracked:
-        raise EmbeddingInputError("No tracked detections found to embed.")
+    if group_as_trained:
+        # What the per-epoch validation set was built with (get_train_val_datasets).
+        track_names_are_global, id_scope = resolve_embedding_grouping(config)
+    else:
+        # Every track or identity name is an identity.
+        track_names_are_global, id_scope = True, "global_id"
+    class_names = resolve_embedding_class_names(
+        [labels], track_names_are_global=track_names_are_global
+    )
+    if not include_untracked:
+        if id_scope == "tracklet":
+            # Tracklet scope groups on the track itself: a track is all it needs.
+            has_members = any(
+                getattr(det, "track", None) is not None
+                for lf in labels.labeled_frames
+                for det in list(lf.instances) + list(getattr(lf, "masks", None) or [])
+            )
+        else:
+            has_members = bool(class_names)
+        if not has_members:
+            if id_scope != "tracklet" and not track_names_are_global:
+                raise EmbeddingInputError(
+                    "No detections carry a sio.Identity, and the model was trained "
+                    f"with positives.scope='{id_scope}' and "
+                    "data_config.identity.track_names_are_global=False, so a track "
+                    "name does not identify an animal."
+                )
+            raise EmbeddingInputError("No tracked detections found to embed.")
     # No detections at all (e.g. a fused run whose detector found nothing).
     # `EmbeddingDataset` -> `BaseDataset.__init__` would otherwise raise the
     # training-flavored "none of the labeled frames contain user-labeled data",
@@ -194,6 +311,8 @@ def embed_labels(
         class_names=class_names,
         embedding_head_config=emb_head,
         max_stride=max_stride,
+        id_scope=id_scope,
+        track_names_are_global=track_names_are_global,
         crop_centering=crop_centering,
         include_untracked=include_untracked,
         ensure_rgb=emb_ensure_rgb,
@@ -227,17 +346,17 @@ def embed_labels(
         )
 
     if len(dataset) == 0:
-        return (
-            np.zeros((0, embedding_dim), np.float32),
-            np.zeros((0,), dtype=object),
-            0,
-            embedding_dim,
+        return _Embedded(
+            embeddings=np.zeros((0, embedding_dim), np.float32),
+            track_names=np.zeros((0,), dtype=object),
+            group_ids=np.zeros((0,), np.int64),
+            embedding_dim=embedding_dim,
         )
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
     all_emb = []
     all_tracks = []
-    n_attached = 0
+    all_groups = []
     for batch in loader:
         # EmbeddingDataset yields (b, 1, C, H, W); drop the n_samples axis to
         # (b, C, H, W) the same way the training/val steps do.
@@ -250,31 +369,33 @@ def embed_labels(
             # Map each emitted crop back to its OBJECT-EXACT source detection and
             # attach the vector. ``item_id`` is the dataset index carried per sample.
             item_id = int(batch["item_id"][i])
-            mask_obj = dataset.mask_idx_list[item_id]["mask_obj"]
+            meta = dataset.mask_idx_list[item_id]
+            mask_obj = meta["mask_obj"]
             # Single re-ID slot on every detection modality (sleap-io #535): the vector
             # is implicitly the appearance embedding; provenance / normalized-flag /
             # space-name no longer have a home on the bare `Embedding` value object.
             mask_obj.identity_embedding = sio.Embedding(emb[i])
+            track = getattr(mask_obj, "track", None)
+            track_name = track.name if track is not None else ""
             if include_untracked:
                 # `group_id` is a placeholder 0 here, not an identity index; name
                 # the detection by its own track ("" when untracked).
-                track = getattr(mask_obj, "track", None)
-                all_tracks.append(track.name if track is not None else "")
+                all_tracks.append(track_name)
             else:
-                g = int(batch["group_id"][i])
-                all_tracks.append(
-                    class_names[g] if class_names and 0 <= g < len(class_names) else ""
-                )
-            n_attached += 1
+                # Its global identity, else (a bare tracklet under tracklet scope)
+                # its own track. Eval groups on `global_group_id`, never on this
+                # name: one track name in two videos is two tracklets.
+                name = _global_identity_label(mask_obj, track_names_are_global)
+                all_tracks.append(name if name is not None else track_name)
+            all_groups.append(int(meta["global_group_id"]))
         all_emb.append(emb)
 
-    embeddings = (
-        np.concatenate(all_emb, axis=0)
-        if all_emb
-        else np.zeros((0, embedding_dim), np.float32)
+    return _Embedded(
+        embeddings=np.concatenate(all_emb, axis=0),
+        track_names=np.array(all_tracks, dtype=object),
+        group_ids=np.array(all_groups, np.int64),
+        embedding_dim=embedding_dim,
     )
-    track_names = np.array(all_tracks, dtype=object)
-    return embeddings, track_names, n_attached, embedding_dim
 
 
 @torch.inference_mode()

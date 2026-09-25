@@ -2284,6 +2284,39 @@ def resolve_embedding_class_names(
     return sorted(names)
 
 
+def resolve_embedding_grouping(config: DictConfig) -> Tuple[bool, str]:
+    """Return ``(track_names_are_global, id_scope)`` for an embedding training config.
+
+    These two settings decide which detections an :class:`EmbeddingDataset` keeps and
+    how it groups them into identities. The per-epoch validation set (built by
+    :func:`get_train_val_datasets`) and the post-training retrieval eval
+    (:func:`sleap_nn.inference.embedding.embed_labels_for_eval`) both read them here,
+    so the metric that selects the checkpoint and the reported one group detections
+    the same way.
+
+    Args:
+        config: The training config (``data_config`` + ``model_config``), e.g. the
+            ``training_config.yaml`` saved next to a trained model.
+
+    Returns:
+        ``track_names_are_global`` (``data_config.identity``, default ``False``) and
+        the objective's ``positives.scope`` as resolved by
+        :func:`~sleap_nn.config.model_config.resolve_embedding_objective`.
+    """
+    track_names_are_global = bool(
+        OmegaConf.select(
+            config, "data_config.identity.track_names_are_global", default=False
+        )
+    )
+    objective = OmegaConf.select(
+        config,
+        "model_config.head_configs.embedding.embedding.objective",
+        default=None,
+    )
+    id_scope = resolve_embedding_objective(objective).positives.scope
+    return track_names_are_global, id_scope
+
+
 def _mask_bbox_midpoint(mask_bool: np.ndarray) -> Tuple[float, float]:
     """Return the ``(cx, cy)`` midpoint of a boolean mask's bounding box.
 
@@ -2318,8 +2351,11 @@ class EmbeddingDataset(BaseDataset):
 
     The ``group_id`` keys the training groups: the global-identity index for
     ``global_id`` scope, or a per-``(labels, video, track)`` tracklet id for
-    ``tracklet`` scope. ``global_group_id`` is always the global-identity index (the
-    grouping used for evaluation). The global identity of a detection is its real
+    ``tracklet`` scope. ``global_group_id`` is the grouping used for evaluation: the
+    global-identity index, or, for a ``tracklet``-scope detection with no global
+    identity, its own tracklet in a separate id range (see :meth:`_group_keys`). The
+    per-epoch validation and the post-training eval both group on it. The global
+    identity of a detection is its real
     ``sio.Identity`` name when present, else its ``sio.Track`` name under
     ``track_names_are_global`` (see :func:`_global_identity_label`).
 
@@ -2514,10 +2550,11 @@ class EmbeddingDataset(BaseDataset):
     def _group_keys(self, labels_idx, video_idx, track_name, global_label):
         """Return ``(group_id, global_group_id)`` for a detection.
 
-        ``global_group_id`` is the detection's GLOBAL identity index (``sio.Identity``,
-        or track name under ``track_names_are_global``) — the eval grouping; it falls
-        back to ``group_id`` when the detection carries no global label (e.g. a bare
-        tracklet under ``scope='tracklet'``).
+        ``global_group_id`` is the eval grouping: the detection's GLOBAL identity index
+        (``sio.Identity``, or track name under ``track_names_are_global``) in
+        ``[0, len(class_names))``. A detection with no global label (a bare tracklet
+        under ``scope='tracklet'``) is its own tracklet group instead, keyed
+        ``len(class_names) + tracklet_id`` so it cannot share an id with an identity.
 
         ``group_id`` is the TRAINING positive key: the global-identity index for
         ``global_id`` / ``aug_view`` scope, or a dense per-``(labels, video, track)``
@@ -2531,7 +2568,10 @@ class EmbeddingDataset(BaseDataset):
         if self.id_scope == "tracklet":
             key = (labels_idx, video_idx, track_name)
             tid = self._tracklet_vocab.setdefault(key, len(self._tracklet_vocab))
-            return tid, (gid if gid is not None else tid)
+            # Identity indices and tracklet ids both count up from 0. Shift the
+            # tracklet fallback past the identities: returning a bare `tid` made
+            # tracklet k and identity k one group in the retrieval metrics.
+            return tid, (gid if gid is not None else len(self.class_names) + tid)
         return gid, gid
 
     def _is_member(self, det) -> bool:
@@ -6403,20 +6443,14 @@ def get_train_val_datasets(
     elif model_type == "embedding":
         emb_cfg = config.model_config.head_configs.embedding.embedding
         # Whether a per-video track name may stand in as a global animal identity for
-        # detections without a real `sio.Identity` (the pre-Identity convention).
-        track_names_are_global = bool(
-            OmegaConf.select(
-                config, "data_config.identity.track_names_are_global", default=False
-            )
-        )
+        # detections without a real `sio.Identity` (the pre-Identity convention), and
+        # the training-group key (global identity vs per-video tracklet). The
+        # post-training eval reads the same pair, so both group alike.
+        track_names_are_global, id_scope = resolve_embedding_grouping(config)
         # One global-identity vocabulary shared by train + val (the group_id space):
         # `sio.Identity` names, else track names under `track_names_are_global`.
         class_names = resolve_embedding_class_names(
             train_labels + val_labels, track_names_are_global=track_names_are_global
-        )
-        # Training-group key (global identity vs per-video tracklet).
-        id_scope = OmegaConf.select(
-            emb_cfg, "objective.positives.scope", default="global_id"
         )
         max_stride = config.model_config.backbone_config[f"{backbone_type}"][
             "max_stride"
