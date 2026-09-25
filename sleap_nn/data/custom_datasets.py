@@ -29,6 +29,10 @@ import torchvision.transforms as T
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
 import sleap_io as sio
 from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
+from sleap_nn.config.model_config import (
+    EMBEDDING_SAMPLER_KINDS,
+    resolve_embedding_objective,
+)
 from sleap_nn.data.identity import generate_class_maps, make_class_vectors
 from sleap_nn.data.instance_centroids import (
     centroid_method_from_config,
@@ -4067,6 +4071,11 @@ class GroupAwareBatchSampler(torch.utils.data.Sampler):
         rank recomputing the identical batch. ``rank=0`` / ``world_size=1`` reproduces
         the single-GPU stream exactly.
         """
+        if kind not in EMBEDDING_SAMPLER_KINDS:
+            raise ValueError(
+                f"Unknown sampler kind: {kind!r}; choose one of "
+                f"{'|'.join(EMBEDDING_SAMPLER_KINDS)}."
+            )
         self.group_ids = np.asarray(group_ids)
         self.video_ids = np.asarray(video_ids)
         self.frame_ids = np.asarray(frame_ids)
@@ -4102,8 +4111,21 @@ class GroupAwareBatchSampler(torch.utils.data.Sampler):
         self.video_w = w / w.sum()
 
         self.batches_per_epoch = batches_per_epoch or max(
-            1, int(np.ceil(n / (self.P * self.K)))
+            1, int(np.ceil(n / self.samples_per_batch))
         )
+
+    @property
+    def samples_per_batch(self) -> int:
+        """Crops one batch draws: ``min(P, groups) x K``, or ``min(P x K, n)`` for ``random``.
+
+        This is the unit that converts a dataset size into a number of training
+        steps (see :func:`get_train_samples_per_step`). ``within_video`` is counted
+        like ``pk``, although its batches can be smaller when a video holds fewer
+        than P groups.
+        """
+        if self.kind == "random":
+            return max(1, min(self.P * self.K, len(self.all_idx)))
+        return max(1, min(self.P, len(self.uniq_groups)) * self.K)
 
     def __len__(self) -> int:
         """Number of batches per epoch."""
@@ -6664,29 +6686,9 @@ def get_train_val_dataloaders(
     if train_steps_per_epoch is None:
         train_steps_per_epoch = config.trainer_config.train_steps_per_epoch
         if train_steps_per_epoch is None:
-            # Embedding training does NOT consume `train_data_loader.batch_size`
-            # crops per step: `GroupAwareBatchSampler` yields P*K of them (the
-            # batch_sampler is mutually exclusive with batch_size). Dividing by
-            # batch_size therefore overstated the steps needed to cover the data by
-            # P*K/batch_size -- with the defaults P=8, K=16 and batch_size=4, an
-            # "epoch" walked the dataset 32 times.
-            steps_batch_size = config.trainer_config.train_data_loader.batch_size
-            if isinstance(train_dataset, EmbeddingDataset):
-                sampler_path = (
-                    "model_config.head_configs.embedding.embedding.objective.sampler"
-                )
-                steps_batch_size = int(
-                    OmegaConf.select(
-                        config, f"{sampler_path}.groups_per_batch", default=8
-                    )
-                ) * int(
-                    OmegaConf.select(
-                        config, f"{sampler_path}.samples_per_group", default=16
-                    )
-                )
             train_steps_per_epoch = get_steps_per_epoch(
                 dataset=train_dataset,
-                batch_size=steps_batch_size,
+                batch_size=get_train_samples_per_step(train_dataset, config),
             )
 
     if val_steps_per_epoch is None:
@@ -6699,16 +6701,10 @@ def get_train_val_dataloaders(
     # wanted positives/negatives co-occur in each batch. The batch_sampler is mutually
     # exclusive with batch_size/shuffle/sampler, so build a distinct loader here.
     if isinstance(train_dataset, EmbeddingDataset):
-        sp = "model_config.head_configs.embedding.embedding.objective.sampler"
-        batch_sampler = GroupAwareBatchSampler(
-            group_ids=train_dataset.group_ids,
-            video_ids=train_dataset.video_ids,
-            frame_ids=train_dataset.frame_ids,
-            kind=OmegaConf.select(config, f"{sp}.kind", default="pk"),
-            P=OmegaConf.select(config, f"{sp}.groups_per_batch", default=8),
-            K=OmegaConf.select(config, f"{sp}.samples_per_group", default=16),
+        batch_sampler = get_embedding_batch_sampler(
+            train_dataset,
+            config,
             batches_per_epoch=max(1, round(train_steps_per_epoch / trainer_devices)),
-            seed=OmegaConf.select(config, "trainer_config.seed", default=0) or 0,
             # DDP: each rank draws an INDEPENDENT (seed + rank) batch stream of the same
             # length over the full dataset — not a partition — so the all-reduced gradient
             # aggregates roughly world_size x P x K decorrelated crops per step.
@@ -6842,3 +6838,49 @@ def get_train_val_dataloaders(
 def get_steps_per_epoch(dataset: BaseDataset, batch_size: int):
     """Compute the number of steps (iterations) per epoch for the given dataset."""
     return (len(dataset) // batch_size) + (1 if (len(dataset) % batch_size) else 0)
+
+
+def get_embedding_batch_sampler(
+    train_dataset: "EmbeddingDataset",
+    config: DictConfig,
+    batches_per_epoch: Optional[int] = None,
+    rank: int = 0,
+    world_size: int = 1,
+) -> GroupAwareBatchSampler:
+    """Build the group-aware batch sampler an ``embedding`` training run uses.
+
+    The one place the ``objective.sampler`` config is read, so the training loader
+    and the steps-per-epoch count (:func:`get_train_samples_per_step`) always agree
+    on the batch composition.
+    """
+    sampler = resolve_embedding_objective(
+        OmegaConf.select(
+            config, "model_config.head_configs.embedding.embedding.objective"
+        )
+    ).sampler
+    return GroupAwareBatchSampler(
+        group_ids=train_dataset.group_ids,
+        video_ids=train_dataset.video_ids,
+        frame_ids=train_dataset.frame_ids,
+        kind=sampler.kind,
+        P=sampler.groups_per_batch,
+        K=sampler.samples_per_group,
+        batches_per_epoch=batches_per_epoch,
+        seed=OmegaConf.select(config, "trainer_config.seed", default=0) or 0,
+        rank=rank,
+        world_size=world_size,
+    )
+
+
+def get_train_samples_per_step(train_dataset: BaseDataset, config: DictConfig) -> int:
+    """Number of training samples one optimizer step consumes (per device).
+
+    ``train_data_loader.batch_size`` for every model type except ``embedding``, whose
+    loader ignores it: :class:`GroupAwareBatchSampler` draws P groups x K crops per
+    step instead. Dividing the dataset by ``batch_size`` there overstated the steps
+    one pass needs by ``P x K / batch_size`` (with the defaults P=8, K=16 and
+    ``batch_size=4``, an "epoch" walked the dataset 32 times).
+    """
+    if isinstance(train_dataset, EmbeddingDataset):
+        return get_embedding_batch_sampler(train_dataset, config).samples_per_batch
+    return config.trainer_config.train_data_loader.batch_size

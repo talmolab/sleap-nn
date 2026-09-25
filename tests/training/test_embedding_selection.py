@@ -259,6 +259,38 @@ def test_callback_survives_an_empty_val_set():
     assert all(math.isnan(module.logged[k]) for k in SELECTION_KEYS)
 
 
+def test_only_rank_zero_collects_val_embeddings():
+    """DDP: other ranks run the full val set too, and nothing reads theirs.
+
+    Collection was switched on for every rank but cleared only on rank 0, so
+    each non-zero rank accumulated every val crop of every epoch (FINDINGS #24).
+    """
+    callback = EmbeddingEvaluationCallback(eval_frequency=1)
+    rank0, rank1 = _FakeTrainer(current_epoch=0), _FakeTrainer(current_epoch=0)
+    rank1.is_global_zero = False
+    module0, module1 = _FakeModule(), _FakeModule()
+
+    callback.on_validation_epoch_start(rank0, module0)
+    callback.on_validation_epoch_start(rank1, module1)
+
+    assert module0._collect_val_predictions is True
+    assert module1._collect_val_predictions is False
+
+
+def test_every_rank_clears_its_val_embeddings():
+    """Whatever a non-zero rank holds at epoch end is dropped, not carried."""
+    callback = EmbeddingEvaluationCallback(eval_frequency=1)
+    trainer = _FakeTrainer(current_epoch=0)
+    trainer.is_global_zero = False
+    predictions, ground_truth = _embeddings()
+    module = _FakeModule(predictions, ground_truth)
+
+    callback.on_validation_epoch_end(trainer, module)
+
+    assert module.val_predictions == []
+    assert module.val_ground_truth == []
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Callback dispatch: embedding replaces the pose evaluator
 # ─────────────────────────────────────────────────────────────────────────

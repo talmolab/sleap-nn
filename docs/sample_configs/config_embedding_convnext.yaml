@@ -131,6 +131,9 @@ model_config:
           use_projection: true
           projection_dim: 128
 trainer_config:
+  # Embedding training ignores train_data_loader.batch_size: every step is one
+  # P x K sampler batch (groups_per_batch x samples_per_group above), and the
+  # epoch length is counted in those batches.
   train_data_loader: {batch_size: 128, shuffle: true, num_workers: 0}
   val_data_loader: {batch_size: 64, shuffle: false, num_workers: 0}
   model_ckpt: {save_top_k: 1, save_last: false}
@@ -150,6 +153,7 @@ trainer_config:
     reduce_lr_on_plateau: {threshold: 1.0e-6, threshold_mode: abs, cooldown: 3, patience: 8, factor: 0.5, min_lr: 1.0e-8}
   early_stopping: {min_delta: 1.0e-8, patience: 20, stop_training_on_plateau: false}
   # Embedding checkpoint/early-stop select on a retrieval metric (rank1), not val/loss.
+  # It is measured every `frequency` epochs; early-stopping patience counts evaluations.
   eval: {enabled: true, frequency: 1}
 name: embedding_convnext
 description: ConvNeXt embedding (re-ID) with cue-preserving augmentation

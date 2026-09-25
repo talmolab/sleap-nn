@@ -73,6 +73,7 @@ from sleap_nn.training.schedulers import (
     LinearWarmupLinearDecayLR,
 )
 from sleap_nn.config.get_config import get_backbone_config
+from sleap_nn.config.model_config import resolve_embedding_objective
 from sleap_nn.legacy_models import (
     load_legacy_model_weights,
 )
@@ -3024,13 +3025,15 @@ def validate_embedding_identity(objective, identity, has_identities: bool = Fals
       ``identity.detections_deduplicated`` is False (a double / over-segmented
       detection becomes a hard negative against itself).
 
-    The defaults assumed for absent fields match :class:`EmbeddingLightningModule`'s
-    resolution and the conservative :class:`IdentityConfig` defaults.
+    Absent objective fields are filled by
+    :func:`~sleap_nn.config.model_config.resolve_embedding_objective` (the same
+    resolution :class:`EmbeddingLightningModule` uses); absent identity fields take
+    the conservative :class:`IdentityConfig` defaults.
 
     Args:
         objective: The ``head_configs.embedding.embedding.objective`` node (``DictConfig``
-            or ``None`` — defaults assumed when absent). Only ``positives.scope`` and
-            ``negatives.sources`` are read.
+            or ``None`` — defaults assumed when absent). Reads ``positives.scope``,
+            ``negatives.sources`` / ``restrict_same_video`` and ``sampler.kind``.
         identity: The ``data_config.identity`` node (``DictConfig`` or ``None`` —
             defaults assumed when absent).
         has_identities: Whether the training labels carry global ``sio.Identity``
@@ -3040,18 +3043,14 @@ def validate_embedding_identity(objective, identity, has_identities: bool = Fals
     Raises:
         ValueError: if ``positives.scope='global_id'`` but the data carries no
             ``sio.Identity`` annotations AND does not declare
-            ``identity.track_names_are_global=True``.
+            ``identity.track_names_are_global=True``; or if the objective has an
+            unknown option value (see ``resolve_embedding_objective``).
     """
-    # Resolve objective semantics with the same defaults the LightningModule uses.
-    if objective is not None:
-        scope = OmegaConf.select(objective, "positives.scope", default="global_id")
-        neg_sources = OmegaConf.select(
-            objective, "negatives.sources", default=["same_frame", "in_batch"]
-        )
-    else:
-        scope = "global_id"
-        neg_sources = ["same_frame", "in_batch"]
-    neg_sources = list(neg_sources) if neg_sources else []
+    # Resolve objective semantics exactly as the LightningModule does (one resolver,
+    # so a default cannot mean one thing here and another there).
+    resolved = resolve_embedding_objective(objective)
+    scope = resolved.positives.scope
+    neg_sources = list(resolved.negatives.sources)
 
     # Declared data semantics (default to the conservative IdentityConfig defaults).
     if identity is not None:
@@ -3092,10 +3091,7 @@ def validate_embedding_identity(objective, identity, has_identities: bool = Fals
         # negatives — training the model to push the same animal apart across videos,
         # the exact opposite of cross-session re-ID. The invariant is documented on both
         # NegativesConfig.restrict_same_video and build_contrastive_masks; enforce it.
-        restrict_same_video = bool(
-            OmegaConf.select(objective, "negatives.restrict_same_video", default=False)
-        )
-        if not restrict_same_video:
+        if not resolved.negatives.restrict_same_video:
             raise ValueError(
                 "embedding objective positives.scope='tracklet' with 'in_batch' "
                 "negatives REQUIRES "
@@ -3115,8 +3111,7 @@ def validate_embedding_identity(objective, identity, has_identities: bool = Fals
         # videos the data spans, against 0% for `within_video`, which draws each
         # batch from one video. Not a correctness invariant (the loss masks out
         # zero-negative anchors), so a warning rather than an error.
-        sampler_kind = OmegaConf.select(objective, "sampler.kind", default="pk")
-        if sampler_kind == "pk":
+        if resolved.sampler.kind == "pk":
             logger.warning(
                 "embedding objective positives.scope='tracklet' with "
                 "sampler.kind='pk': PK draws groups across ALL videos while "
@@ -3252,10 +3247,12 @@ class EmbeddingLightningModule(LightningModel):
         self.background_fill = "black"
 
         # Resolve the objective with defaults (nested sub-configs may be None).
-        obj = leaf.objective
-        self.loss_name = OmegaConf.select(obj, "loss.name", default="supcon")
-        self.loss_temperature = OmegaConf.select(obj, "loss.temperature", default=0.1)
-        self.loss_margin = OmegaConf.select(obj, "loss.margin", default=0.2)
+        obj = resolve_embedding_objective(
+            OmegaConf.select(leaf, "objective", default=None)
+        )
+        self.loss_name = obj.loss.name
+        self.loss_temperature = obj.loss.temperature
+        self.loss_margin = obj.loss.margin
         if float(self.loss_temperature) <= 0:
             raise ValueError(
                 "head_configs.embedding.embedding.objective.loss.temperature must be "
@@ -3267,8 +3264,8 @@ class EmbeddingLightningModule(LightningModel):
                 "head_configs.embedding.embedding.objective.loss.margin must be >= 0 "
                 f"(got {self.loss_margin})."
             )
-        self.pos_scope = OmegaConf.select(obj, "positives.scope", default="global_id")
-        aug_views = int(OmegaConf.select(obj, "positives.aug_views", default=2))
+        self.pos_scope = obj.positives.scope
+        aug_views = int(obj.positives.aug_views)
         if aug_views != 2:
             raise ValueError(
                 "head_configs.embedding.embedding.objective.positives.aug_views must "
@@ -3288,21 +3285,11 @@ class EmbeddingLightningModule(LightningModel):
                 "retrieval metric; avoid lr_scheduler='reduce_lr_on_plateau' (it "
                 "monitors val/loss) for this self-supervised regime."
             )
-        self.neg_sources = list(
-            OmegaConf.select(
-                obj, "negatives.sources", default=["same_frame", "in_batch"]
-            )
-        )
-        self.neg_exclude_same_track = bool(
-            OmegaConf.select(obj, "negatives.exclude_same_track", default=True)
-        )
-        self.neg_restrict_same_video = bool(
-            OmegaConf.select(obj, "negatives.restrict_same_video", default=False)
-        )
-        self.use_projection = bool(
-            OmegaConf.select(obj, "use_projection", default=True)
-        )
-        projection_dim = int(OmegaConf.select(obj, "projection_dim", default=128))
+        self.neg_sources = list(obj.negatives.sources)
+        self.neg_exclude_same_track = bool(obj.negatives.exclude_same_track)
+        self.neg_restrict_same_video = bool(obj.negatives.restrict_same_video)
+        self.use_projection = bool(obj.use_projection)
+        projection_dim = int(obj.projection_dim)
 
         self.loss_fn = get_contrastive_loss(self.loss_name)
         # Train-only projection head (discarded at inference) for supcon/infonce.

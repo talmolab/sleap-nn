@@ -1157,6 +1157,38 @@ def test_early_stopping(config, tmp_path):
     assert checkpoint["epoch"] == 1
 
 
+def test_last_ckpt_is_the_final_epoch_after_best_plateaus(config, tmp_path):
+    """`save_last` writes the FINAL epoch even when "best" stopped improving.
+
+    Lightning only rewrites its own `last.ckpt` when it also saves a new top-k
+    checkpoint, so `last.ckpt` froze at the last improving epoch and resuming from
+    it silently dropped the epochs after. Monitoring `epoch` in `min` mode makes
+    epoch 0 the only "best" there will ever be.
+    """
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.trainer_accelerator", "cpu")
+    OmegaConf.update(cfg, "trainer_config.save_ckpt", True)
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(cfg, "trainer_config.run_name", "last_after_plateau")
+    OmegaConf.update(cfg, "trainer_config.max_epochs", 3)
+    OmegaConf.update(cfg, "trainer_config.model_ckpt.save_last", True)
+    OmegaConf.update(cfg, "trainer_config.model_ckpt.monitor", "epoch")
+    OmegaConf.update(cfg, "trainer_config.model_ckpt.mode", "min")
+    OmegaConf.update(
+        cfg, "trainer_config.early_stopping.stop_training_on_plateau", False
+    )
+
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    trainer.train()
+
+    run_dir = tmp_path / "last_after_plateau"
+    best = torch.load(run_dir / "best.ckpt", map_location="cpu", weights_only=False)
+    last = torch.load(run_dir / "last.ckpt", map_location="cpu", weights_only=False)
+    assert best["epoch"] == 0
+    assert last["epoch"] == 2
+    assert last["global_step"] == trainer.trainer.global_step
+
+
 @pytest.mark.skipif(
     sys.platform.startswith("li")
     and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test

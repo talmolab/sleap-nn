@@ -4,7 +4,7 @@ These configuration classes are intended to specify all
 the parameters required to initialize the model config.
 """
 
-from attrs import define, field, validators
+from attrs import asdict, define, field, validators
 from sleap_nn.config.utils import oneof
 from typing import Optional, List
 from loguru import logger
@@ -1213,6 +1213,37 @@ class SemanticSegmentationConfig:
 # positives x negatives x loss). Adding a new objective therefore touches no
 # dispatch points. See docs/guides (SPEC §4).
 # ---------------------------------------------------------------------------
+# The objective's option vocabularies. Each consumer branches on these strings
+# (`build_contrastive_masks`, `get_contrastive_loss`, `GroupAwareBatchSampler`,
+# `EmbeddingDataset`), so an unknown value would otherwise train silently on the
+# wrong pairs (a misspelled scope keeps only aug-view positives; a misspelled
+# source leaves no negatives at all).
+EMBEDDING_POSITIVE_SCOPES = ("aug_view", "tracklet", "global_id")
+EMBEDDING_NEGATIVE_SOURCES = ("same_frame", "in_batch")
+EMBEDDING_LOSSES = ("supcon", "infonce", "triplet")
+EMBEDDING_SAMPLER_KINDS = ("pk", "within_video", "random")
+
+
+def _objective_option(section: str, options: tuple, many: bool = False):
+    """Attrs validator: the value (each entry, if ``many``) must be one of ``options``.
+
+    Raises a ``ValueError`` naming the full config key, instead of attrs' ``in_``
+    error, which carries the whole attribute repr.
+    """
+
+    def check(instance, attribute, value):
+        key = f"head_configs.embedding.embedding.objective.{section}.{attribute.name}"
+        if many and not isinstance(value, (list, tuple)):
+            raise ValueError(f"{key} must be a list (got {value!r}).")
+        for v in value if many else [value]:
+            if v not in options:
+                raise ValueError(
+                    f"{key}={value!r}: {v!r} is not one of {'|'.join(options)}."
+                )
+
+    return check
+
+
 @define
 class PositivesConfig:
     """Positive-pair sampling for the embedding objective.
@@ -1230,7 +1261,10 @@ class PositivesConfig:
             ``ValueError`` at model construction rather than being silently ignored.
     """
 
-    scope: str = "global_id"
+    scope: str = field(
+        default="global_id",
+        validator=_objective_option("positives", EMBEDDING_POSITIVE_SCOPES),
+    )
     aug_views: int = 2
 
 
@@ -1243,7 +1277,8 @@ class NegativesConfig:
     Attributes:
         sources: List of negative sources. ``in_batch`` = any other crop in the
             batch; ``same_frame`` = crops in the same frame (hard negatives;
-            asserts ``detections_deduplicated``).
+            asserts ``detections_deduplicated``). Default is both,
+            ``["same_frame", "in_batch"]``.
         exclude_same_track: Drop same-``(video, track)`` pairs from the negatives.
         restrict_same_video: Restrict negatives to same-video pairs. REQUIRED for
             ``scope=tracklet`` (video-local ids): cross-video pairs are unknown and
@@ -1252,7 +1287,13 @@ class NegativesConfig:
         proximity_filter_px: Reserved (P2); unused in P1.
     """
 
-    sources: Optional[List[str]] = None  # default ["same_frame", "in_batch"]
+    # A tuple, not `field(factory=...)`: OmegaConf builds this class from its type
+    # when merging a partial `negatives:` block and cannot call an attrs Factory.
+    # It lands as a list in every config (OmegaConf copies it into a ListConfig).
+    sources: List[str] = field(
+        default=EMBEDDING_NEGATIVE_SOURCES,
+        validator=_objective_option("negatives", EMBEDDING_NEGATIVE_SOURCES, many=True),
+    )
     exclude_same_track: bool = True
     restrict_same_video: bool = False
     proximity_filter_px: Optional[float] = None
@@ -1268,7 +1309,9 @@ class LossConfig:
         margin: Margin for ``triplet``.
     """
 
-    name: str = "supcon"
+    name: str = field(
+        default="supcon", validator=_objective_option("loss", EMBEDDING_LOSSES)
+    )
     temperature: float = 0.1
     margin: float = 0.2
 
@@ -1286,9 +1329,11 @@ class SamplerConfig:
             ``P x K`` (then doubled by two-view aug).
     """
 
-    kind: str = "pk"
-    groups_per_batch: int = 8
-    samples_per_group: int = 16
+    kind: str = field(
+        default="pk", validator=_objective_option("sampler", EMBEDDING_SAMPLER_KINDS)
+    )
+    groups_per_batch: int = field(default=8, validator=validators.ge(1))
+    samples_per_group: int = field(default=16, validator=validators.ge(1))
 
 
 @define
@@ -1318,6 +1363,58 @@ class ObjectiveConfig:
     sampler: Optional[SamplerConfig] = None
     use_projection: bool = True
     projection_dim: int = 128
+
+
+def resolve_embedding_objective(objective) -> ObjectiveConfig:
+    """Return the embedding objective with every sub-config filled in and validated.
+
+    The single reading of ``head_configs.embedding.embedding.objective`` shared by
+    the ``EmbeddingLightningModule``, the identity validator and the batch sampler, so
+    they cannot disagree about a default (``negatives.sources`` defaulting to ``None``
+    once meant "both sources" to one reader and "no negatives" to another). The
+    defaults are the attrs defaults above.
+
+    Args:
+        objective: The ``objective`` node: a ``DictConfig``, a plain ``dict``, an
+            ``ObjectiveConfig``, or ``None`` (all defaults). Absent or ``None``
+            sub-configs and fields take their defaults.
+
+    Returns:
+        A fully-populated ``ObjectiveConfig``.
+
+    Raises:
+        ValueError: If a field has an unknown value (e.g. a misspelled
+            ``positives.scope``, ``negatives.sources`` entry, ``loss.name`` or
+            ``sampler.kind``) or the node has an unknown key.
+    """
+    from omegaconf import DictConfig, OmegaConf
+
+    if isinstance(objective, ObjectiveConfig):
+        objective = asdict(objective)
+    elif isinstance(objective, DictConfig):
+        objective = OmegaConf.to_container(objective, resolve=True)
+    objective = dict(objective or {})
+
+    def build(cls, value):
+        if value is None:
+            return cls()
+        if not isinstance(value, dict):
+            value = asdict(value)
+        return cls(**{k: v for k, v in value.items() if v is not None})
+
+    try:
+        return ObjectiveConfig(
+            positives=build(PositivesConfig, objective.pop("positives", None)),
+            negatives=build(NegativesConfig, objective.pop("negatives", None)),
+            loss=build(LossConfig, objective.pop("loss", None)),
+            sampler=build(SamplerConfig, objective.pop("sampler", None)),
+            **{k: v for k, v in objective.items() if v is not None},
+        )
+    except (TypeError, ValueError) as e:
+        message = str(e)
+        if not message.startswith("head_configs."):  # not already a named key
+            message = f"Invalid head_configs.embedding.embedding.objective: {message}"
+        raise ValueError(message) from e
 
 
 @define
