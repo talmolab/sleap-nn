@@ -152,6 +152,27 @@ def test_run_sam_segmentation_writes_output_slp(minimal_instance, tmp_path):
     assert all(isinstance(m, sio.PredictedSegmentationMask) for m in rmasks)
 
 
+def test_run_sam_segmentation_refuses_output_over_the_input_pkg_slp(
+    minimal_instance, tmp_path
+):
+    """Called directly (not through `predict`), the SAM path saved with no
+    frame-source check: `output_path` = the input `.pkg.slp` destroyed its frames,
+    after the whole SAM pass. Refused before any masking now."""
+    import shutil
+
+    pkg = tmp_path / "in.pkg.slp"
+    shutil.copy(minimal_instance, pkg)
+
+    def _mask_fn(image, prompt):
+        raise AssertionError("SAM ran before the output path was checked")
+
+    with pytest.raises(ValueError, match="Refusing to write"):
+        run_sam_segmentation(
+            str(pkg), "sam", backend=FakeBackend(_mask_fn), output_path=str(pkg)
+        )
+    assert sio.load_slp(str(pkg))[0].image is not None
+
+
 def test_run_sam_segmentation_clean_empty_frames(minimal_instance):
     """clean_empty_frames drops 0-instance frames but keeps posed (mask-bearing) ones."""
     src = sio.load_slp(str(minimal_instance))
