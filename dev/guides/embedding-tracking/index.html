@@ -7673,7 +7673,8 @@ already carried (e.g. from an earlier model) are replaced:</p>
 </span></code></pre></div>
 <p>The default output is <code>&lt;input&gt;.embeddings.slp</code> (for a URL input, the URL's file name
 in the current directory). <code>-o</code> may not name the input when the input stores its own
-frames (a <code>.pkg.slp</code>): the frames would be destroyed, so the run is refused.</p>
+frames (a <code>.pkg.slp</code>): the frames would be destroyed, so the run is refused before
+anything is computed (on every <code>predict</code> route, including the fused one below).</p>
 <p><code>--features embeddings</code> auto-selects <code>--scoring_method cosine_sim</code>. This is the
 <a href="../tracking/#track-only-mode">track-only / retrack path</a> — omit <code>--model_paths</code>. The
 prior tracks (if any) are reassigned from scratch by appearance.</p>
@@ -7690,7 +7691,9 @@ tracker assigns <code>sio.Track</code>s by cosine similarity:</p>
 <ul>
 <li>The output is a <strong>tracked <code>.slp</code></strong> (default <code>&lt;input&gt;.tracked.slp</code>, or <code>-o out.slp</code>).</li>
 <li><code>--features</code> / <code>--scoring_method</code> default to <code>embeddings</code> / <code>cosine_sim</code> for an
-  embedding model; you can still override them.</li>
+  embedding model; you can still override them. With <code>--appearance_weight</code> they
+  are not defaulted: the usual geometric resolution applies and appearance is
+  blended into it.</li>
 <li><code>--tracking</code> lifts the usual requirement to pass <code>--save_embeddings</code> for an embedding
   model (the tracked <code>.slp</code> is the output).</li>
 </ul>
@@ -7746,6 +7749,10 @@ not overwrite each other.</p>
 a global animal identity. (Persisting predicted global identities from appearance is a
 separate, future step; multi_class models can emit <code>sio.Identity</code> via
 <code>class_output="identity"</code>.)</p>
+<p>Each video is tracked on its own, by a fresh tracker: a track never spans two videos,
+and track names continue across videos (<code>track_0</code>, <code>track_1</code> in the first;
+<code>track_2</code>, … in the next). So appearance tracking does not link one animal across
+the videos or sessions of a multi-video <code>.slp</code>.</p>
 <hr />
 <h2 id="parameters">Parameters<a class="headerlink" href="#parameters" title="Permanent link">&para;</a></h2>
 <table>
@@ -7780,7 +7787,7 @@ separate, future step; multi_class models can emit <code>sio.Identity</code> via
 <tr>
 <td><code>--candidates_method</code></td>
 <td><code>local_queues</code> = per-track appearance gallery</td>
-<td><code>local_queues</code> with <code>--features embeddings</code>, else <code>fixed_window</code></td>
+<td><code>local_queues</code> with <code>--features embeddings</code>, when tracking masks, or with <code>--max_tracks</code>; else <code>fixed_window</code></td>
 </tr>
 <tr>
 <td><code>--save_embeddings {none,slp}</code></td>
@@ -7832,6 +7839,12 @@ switch to a bounded metric (<code>oks</code> / <code>iou</code> / <code>mask_iou
 weight can be chosen on evidence rather than by feel. Compare arms over the SAME
 detections (retrack one prediction file at several weights) so the difference you
 read is the tracker's and not the detector's.</p>
+<p>Identity is scored per video (a trajectory is a <code>(video, track name)</code> pair, as
+the tracker names tracks per video); pass <code>--global_identity</code> only when the
+ground truth's names are global identities. Centroid-only detections are matched
+to the ground truth by pixel distance (50 px by default; <code>--match_threshold</code> is
+in pixels there). See <a href="../tracking/#evaluating-identity-persistence">Evaluating Identity
+Persistence</a> for what is scored.</p>
 <p>Retracking chains: a <code>.slp</code> that carries appearance vectors keeps them through
 a track-only run, so each arm can retrack the same embedded file. Pass
 <code>--save_embeddings none</code> if you explicitly want a tracks-only output.</p>
