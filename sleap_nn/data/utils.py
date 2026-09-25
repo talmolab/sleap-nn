@@ -19,6 +19,55 @@ def ensure_list(x: Any) -> List[Any]:
     return x
 
 
+def superseded_predictions(lf: sio.LabeledFrame) -> set:
+    """``id``s of the frame's predictions that a user label on the same frame supersedes.
+
+    sleap-io's own rule, from ``LabeledFrame.unused_predictions`` and
+    ``unused_predicted_masks``:
+
+    - A ``PredictedInstance`` is superseded when a user ``Instance`` on the frame has
+      its track. When no instance on the frame has a track, it is superseded when a
+      user ``Instance`` links to it through ``from_predicted``.
+    - A ``PredictedSegmentationMask`` is superseded when a user mask links to it
+      through ``from_predicted`` or overlaps it (bbox centroids within 5 px).
+
+    Every other prediction (on a frame nobody proofread, or an animal the user did
+    not relabel) stands on its own.
+    """
+    unused = {id(p) for p in lf.unused_predictions}
+    unused |= {id(m) for m in lf.unused_predicted_masks}
+    predicted = [inst for inst in lf.instances if type(inst) is sio.PredictedInstance]
+    predicted += [
+        m
+        for m in (getattr(lf, "masks", None) or [])
+        if isinstance(m, sio.PredictedSegmentationMask)
+    ]
+    return {id(det) for det in predicted if id(det) not in unused}
+
+
+def embedding_detections(
+    lf: sio.LabeledFrame, user_instances_only: bool
+) -> Tuple[list, list]:
+    """``(instances, masks)`` of a frame that the ``embedding`` model may train on.
+
+    This is the one reading of ``data_config.user_instances_only`` for the embedding
+    model type. With ``True``, only the predictions a user label on the same frame
+    supersedes are left out (:func:`superseded_predictions`). Re-ID training data is
+    often predicted poses whose tracks were proofread, and those stay
+    ``PredictedInstance``s, so dropping every prediction would leave nothing to
+    train on. With ``False``, every detection is kept.
+    """
+    instances = list(lf.instances)
+    masks = list(getattr(lf, "masks", None) or [])
+    if not user_instances_only:
+        return instances, masks
+    superseded = superseded_predictions(lf)
+    return (
+        [inst for inst in instances if id(inst) not in superseded],
+        [m for m in masks if id(m) not in superseded],
+    )
+
+
 def get_symmetric_inds(skeleton: "sio.Skeleton") -> List[Tuple[int, int]]:
     """Resolve symmetric node-index pairs from a skeleton's raw symmetries.
 

@@ -157,7 +157,8 @@ def embed_labels_for_eval(
     ``global_id`` scope scores only the detections carrying a ``sio.Identity``, and
     ``tracklet`` scope scores each ``(video, track)`` as its own group, so ``track_0``
     in two videos is two groups. It also follows the training config's
-    ``data_config.user_instances_only`` (predicted instances and masks left out), its
+    ``data_config.user_instances_only`` (predictions a user label on the same frame
+    supersedes left out), its
     smallest-mask rule, and the carrier the model was trained on. Like
     :func:`embed_labels`, attaches the vectors to ``labels`` in place.
 
@@ -255,8 +256,8 @@ def _embed_detections(
 
     if group_as_trained:
         # What the per-epoch validation set was built with (get_train_val_datasets):
-        # its grouping, its `user_instances_only` (predicted instances AND masks left
-        # out) and its smallest mask.
+        # its grouping, its `user_instances_only` (predictions a user label on the
+        # same frame supersedes left out) and its smallest mask.
         track_names_are_global, id_scope = resolve_embedding_grouping(config)
         user_instances_only = bool(
             OmegaConf.select(config, "data_config.user_instances_only", default=True)

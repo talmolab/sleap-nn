@@ -1,5 +1,6 @@
 """This module is to train a sleap-nn model using Lightning."""
 
+from copy import deepcopy
 import os
 import shutil
 import attrs
@@ -44,6 +45,7 @@ from sleap_nn.data.instance_centroids import (
     degrade_anchor_if_unresolved,
 )
 from sleap_nn.data.providers import get_max_height_width
+from sleap_nn.data.utils import embedding_detections
 from sleap_nn.data.custom_datasets import (
     EMBEDDING_MIN_MASK_AREA,
     embedding_membership_from_config,
@@ -314,6 +316,17 @@ class ModelTrainer:
           untrainable on its primary dataset, and would do the same to
           `semantic_segmentation` on mask-only labels.
         """
+        if self.model_type == "embedding":
+            # The embedding model trains on any detection its dataset keeps: user
+            # labels, and predictions no user label on the frame supersedes (proofread
+            # tracks on predicted poses stay `PredictedInstance`s).
+            instances, masks = embedding_detections(
+                lf,
+                OmegaConf.select(
+                    self.config, "data_config.user_instances_only", default=True
+                ),
+            )
+            return bool(instances or masks)
         if lf.has_user_instances:
             return True
         if self.model_type == "centroid":
@@ -356,9 +369,14 @@ class ModelTrainer:
         # Filter labeled frames to only trainable ones
         user_lfs = [lf for lf in labels if self._is_training_frame(lf)]
 
-        # Set instances to user instances only (empty for centroid-only frames)
-        for lf in user_lfs:
-            lf.instances = lf.user_instances
+        # Set instances to user instances only (empty for centroid-only frames).
+        # Not for `embedding`: it trains on unsuperseded predictions too, its dataset
+        # and post-training eval apply `user_instances_only` themselves, and these are
+        # the TRAINING labels' own frames (this runs on rank 0 before the datasets are
+        # built), so stripping them here would drop training samples.
+        if self.model_type != "embedding":
+            for lf in user_lfs:
+                lf.instances = lf.user_instances
 
         # Create new Labels with filtered frames
         return sio.Labels(
@@ -369,6 +387,38 @@ class ModelTrainer:
             suggestions=labels.suggestions,
             provenance=labels.provenance,
         )
+
+    def _split_embedding_labels(
+        self, label: sio.Labels, val_fraction: float, seed: Optional[int]
+    ):
+        """Random frame split for the `embedding` model that keeps its samples.
+
+        `sio.Labels.make_training_splits` step for step, except that where it removes
+        every prediction this removes only the predictions a user label on the same
+        frame supersedes (with ``user_instances_only``; nothing without it), the rule
+        the embedding dataset applies. On labels without such predictions the split
+        is the one `make_training_splits` makes.
+        """
+        user_instances_only = OmegaConf.select(
+            self.config, "data_config.user_instances_only", default=True
+        )
+        labels = deepcopy(label)
+        for lf in labels.labeled_frames:
+            lf.instances, lf.masks = embedding_detections(lf, user_instances_only)
+        labels.suggestions = []
+        labels.clean()
+        train_split, rest = labels.split(1 - val_fraction, seed=seed)
+        n_val = val_fraction
+        if n_val < 1:
+            n_val = (n_val * len(labels)) / len(rest)
+        if isinstance(n_val, float) and n_val == 1.0:
+            val_split = rest
+        else:
+            val_split, _ = rest.split(n=n_val, seed=seed)
+        source_labels = label.provenance.get("filename", None)
+        train_split.provenance["source_labels"] = source_labels
+        val_split.provenance["source_labels"] = source_labels
+        return train_split, val_split
 
     def _split_centroid_labels(
         self, label: sio.Labels, val_fraction: float, seed: Optional[int]
@@ -530,6 +580,12 @@ class ModelTrainer:
                     # Centroid-aware split keeps pure-centroid frames that
                     # make_training_splits would drop (no user instances).
                     train_split, val_split = self._split_centroid_labels(
+                        label, val_fraction, seed
+                    )
+                elif self.model_type == "embedding":
+                    # make_training_splits removes EVERY prediction, including the
+                    # unsuperseded ones the embedding model trains on.
+                    train_split, val_split = self._split_embedding_labels(
                         label, val_fraction, seed
                     )
                 else:
@@ -758,6 +814,7 @@ class ModelTrainer:
                 train_label,
                 max_hw=max_hw,
                 user_instances_only=self.config.data_config.user_instances_only,
+                superseded_only=self.model_type == "embedding",
             )
         bbox_size = max(
             bbox_size,
@@ -841,6 +898,7 @@ class ModelTrainer:
                     centroid_method=centroid_method,
                     centroid_fallback=centroid_fallback,
                     user_instances_only=user_instances_only,
+                    superseded_only=self.model_type == "embedding",
                 )
                 max_crop_size = max(max_crop_size, crop_sz)
             self.config.data_config.preprocessing.crop_size = max_crop_size
@@ -1053,6 +1111,7 @@ class ModelTrainer:
                     centroid_method=centroid_method,
                     centroid_fallback=centroid_fallback,
                     user_instances_only=self.config.data_config.user_instances_only,
+                    superseded_only=self.model_type == "embedding",
                 )
                 n_clipped += clipped
                 n_total += total

@@ -111,77 +111,161 @@ def _mask_config(slp, tmp_path, run_name, **updates):
     )
 
 
-# ── D3: `user_instances_only` drops predicted instances AND masks (FINDINGS #9) ──
+# ── D3: `user_instances_only` drops SUPERSEDED predictions (FINDINGS #9) ────────
+#
+# For the embedding model the flag keeps every user label and every prediction no user
+# label on the same frame supersedes (sleap-io's `unused_predictions` /
+# `unused_predicted_masks`): re-ID data is often predicted poses with proofread tracks,
+# which stay `PredictedInstance`s.
 
 
-def test_predicted_instances_are_not_trained_on(centered_instance_video, tmp_path):
-    """A merged predictions file: stale-track predictions must not become samples.
+def _pose_labels(video, frames_spec):
+    """Two animals per frame; ``frames_spec[fi]`` says which carriers each frame has.
 
-    Frames holding only predictions are not "training frames", so nothing upstream
-    strips them; the dataset iterated every `lf.instances` and trained on the
-    predicted duplicates (swapped tracks: a wrong-identity positive and a
-    same-frame hard negative against an identical crop).
+    ``"user"``: user instances; ``"predicted"``: predictions only; ``"both"``: the user
+    instances plus a predicted duplicate of each animal carrying the SAME track (the
+    merged-predictions case).
     """
-    video = sio.load_video(centered_instance_video.as_posix())
     skeleton = sio.Skeleton(["a", "b"])
     tracks = [sio.Track(name=f"track_{i}") for i in range(2)]
     rng = np.random.default_rng(0)
     frames = []
-    for fi in range(N_FRAMES):
-        predicted_only = fi >= N_FRAMES // 2
-        instances = [
-            _instance(
-                cx,
-                180,
-                skeleton,
-                rng,
-                predicted=predicted_only,
-                # The unproofread predictions carry the swapped (stale) tracks.
-                track=tracks[1 - i] if predicted_only else tracks[i],
-            )
-            for i, cx in enumerate((120, 260))
-        ]
+    for fi, kind in enumerate(frames_spec):
+        instances = []
+        for i, cx in enumerate((120, 260)):
+            if kind in ("user", "both"):
+                instances.append(_instance(cx, 180, skeleton, rng, track=tracks[i]))
+            if kind in ("predicted", "both"):
+                instances.append(
+                    _instance(cx, 180, skeleton, rng, predicted=True, track=tracks[i])
+                )
         frames.append(sio.LabeledFrame(video=video, frame_idx=fi, instances=instances))
-    labels = sio.Labels(
+    return sio.Labels(
         labeled_frames=frames, videos=[video], skeletons=[skeleton], tracks=tracks
     )
+
+
+@pytest.mark.parametrize("val_split", ["val_labels_path", "validation_fraction"])
+def test_tracked_predictions_train_under_the_default(
+    centered_instance_video, tmp_path, val_split
+):
+    """Predicted poses with proofread tracks, and no user instance at all.
+
+    Honoring `user_instances_only=True` (the default) as "no predictions" made this
+    file untrainable ("No labeled frames available"), also through the random
+    `validation_fraction` split, which removed every prediction.
+    """
+    video = sio.load_video(centered_instance_video.as_posix())
+    labels = _pose_labels(video, ["predicted"] * N_FRAMES)
+    slp = _save(labels, tmp_path, "tracked_predictions")
+    updates = {"trainer_config.seed": 0}
+    if val_split == "validation_fraction":
+        updates["data_config.val_labels_path"] = None
+    trainer, dataset = _train(_config(slp, tmp_path, "tracked_preds", **updates))
+
+    n_train = sum(len(lf.instances) for lf in trainer.train_labels[0])
+    assert n_train > 0
+    kinds = {type(m["mask_obj"]).__name__ for m in dataset.mask_idx_list}
+    assert kinds == {"PredictedInstance"}
+    assert len(dataset) == n_train  # every tracked prediction is a sample
+
+
+@pytest.mark.parametrize(
+    "rank",
+    [
+        # A single process. Before this PR rank 0 also rewrote the training labels'
+        # frames to their user instances while saving `labels_gt.*.slp`, which hid
+        # the bug here -- and made rank 0 train on different data than the others.
+        -1,
+        # A DDP worker, which never ran that rewrite: the dataset trained on the
+        # predicted duplicates.
+        1,
+    ],
+)
+def test_prediction_superseded_by_a_user_instance_is_not_trained_on(
+    centered_instance_video, tmp_path, monkeypatch, rank
+):
+    """A merged predictions file: a user `Instance` and a `PredictedInstance` of the
+    same animal (same track) on one frame are one sample, the user one. Predictions
+    on frames nobody proofread stay samples."""
+    monkeypatch.setattr("sleap_nn.training.model_trainer.RANK", rank)
+    # Under DDP, rank 0 creates the run directory; this process stands in for a
+    # worker, so create it here.
+    (tmp_path / "merged").mkdir()
+    video = sio.load_video(centered_instance_video.as_posix())
+    half = N_FRAMES // 2
+    labels = _pose_labels(video, ["both"] * half + ["predicted"] * half)
     slp = _save(labels, tmp_path, "merged")
 
-    _, dataset = _train(_config(slp, tmp_path, "user_only"))
+    _, dataset = _train(_config(slp, tmp_path, "merged"))
 
-    assert dataset.detection_mode == "pose"
-    kinds = {type(m["mask_obj"]).__name__ for m in dataset.mask_idx_list}
-    assert kinds == {"Instance"}
-    assert len(dataset) == N_FRAMES // 2 * 2
+    samples = [
+        (m["frame_idx"], type(m["mask_obj"]).__name__) for m in dataset.mask_idx_list
+    ]
+    assert sorted(samples) == sorted(
+        [(fi, "Instance") for fi in range(half) for _ in range(2)]
+        + [(fi, "PredictedInstance") for fi in range(half, N_FRAMES) for _ in range(2)]
+    )
 
 
-def test_predicted_masks_are_not_trained_on_or_scored(
+def test_superseded_predicted_masks_are_not_trained_on_or_scored(
     centered_instance_video, tmp_path, monkeypatch
 ):
-    """`user_instances_only` drops PredictedSegmentationMasks too -- in training, in
-    the per-epoch eval, and in the post-training eval (`embed_labels_for_eval`).
+    """The mask analogue, through training, the per-epoch eval and the post-training
+    eval (`embed_labels_for_eval`).
 
-    Each frame holds the two user masks plus a predicted duplicate of animal 0
-    labelled as animal 1.
+    Each frame holds the two user masks, a predicted duplicate of animal 0 (the user
+    mask adopted it: same place) labelled as animal 1, and a prediction of a third
+    animal that no user mask adopted.
     """
     from sleap_nn.train import run_training
 
     video = sio.load_video(centered_instance_video.as_posix())
+    third = sio.Identity(name="animal_2")
 
-    def duplicate(fi, ids, tracks):
-        return [_rect_mask(100, 150, 24, 24, predicted=True, identity=ids[1])]
+    def predictions(fi, ids, tracks):
+        return [
+            _rect_mask(100, 150, 24, 24, predicted=True, identity=ids[1]),
+            _rect_mask(300, 300, 24, 24, predicted=True, identity=third),
+        ]
 
-    slp = _save(_mask_labels(video, extra=duplicate), tmp_path, "pred_masks")
+    slp = _save(_mask_labels(video, extra=predictions), tmp_path, "pred_masks")
     cfg = _mask_config(slp, tmp_path, "pred_masks")
     calls, _ = _record_retrieval_evals(monkeypatch)
     run_training(cfg)
 
-    user_masks = N_FRAMES * 2
     per_epoch = [c for c in calls if c["caller"] == "_compute_metrics"]
     post = [c for c in calls if c["caller"] == "_run_embedding_split_eval"]
     assert per_epoch and post
     for call in per_epoch + post:
-        assert len(call["y"]) == user_masks
+        # 2 user masks + the unadopted prediction per frame; the duplicate is out.
+        assert len(call["y"]) == 3 * N_FRAMES
+        assert len(np.unique(call["y"])) == 3
+
+
+def test_random_split_of_user_labels_is_unchanged(centered_instance_video, tmp_path):
+    """Without predictions, the embedding split is `make_training_splits`' split."""
+    video = sio.load_video(centered_instance_video.as_posix())
+    labels = _mask_labels(video)
+    slp = _save(labels, tmp_path, "user_masks")
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        _mask_config(
+            slp,
+            tmp_path,
+            "split",
+            **{"data_config.val_labels_path": None, "trainer_config.seed": 0},
+        )
+    )
+
+    train, val = sio.load_slp(slp.as_posix()).make_training_splits(
+        n_train=0.9, n_val=0.1, seed=0
+    )
+    assert [lf.frame_idx for lf in trainer.train_labels[0]] == [
+        lf.frame_idx for lf in train
+    ]
+    assert [lf.frame_idx for lf in trainer.val_labels[0]] == [
+        lf.frame_idx for lf in val
+    ]
 
 
 # ── D4: auto crop_size for mask-mode data sizes from the masks (FINDINGS #10) ──

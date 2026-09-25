@@ -8,6 +8,7 @@ import torch
 from sleap_nn.data.instance_centroids import generate_centroids
 from sleap_nn.data.resizing import compute_eff_scale
 from sleap_nn.data.skia_augmentation import crop_and_resize_skia as crop_and_resize
+from sleap_nn.data.utils import embedding_detections
 
 
 def compute_augmentation_padding(
@@ -86,7 +87,7 @@ def _frame_eff_scale(
 
 
 def _iter_frame_instances(
-    labels: sio.Labels, user_instances_only: bool
+    labels: sio.Labels, user_instances_only: bool, superseded_only: bool = False
 ) -> Iterator[Tuple[sio.LabeledFrame, np.ndarray]]:
     """Yield ``(labeled_frame, points)`` for every non-empty instance.
 
@@ -95,15 +96,26 @@ def _iter_frame_instances(
         user_instances_only: When ``True``, skip `sio.PredictedInstance`s. This
             must match ``data_config.user_instances_only``, or the crop size is
             derived from instances the model is never trained on.
+        superseded_only: With ``user_instances_only``, skip only the predictions a
+            user instance on the same frame supersedes -- the ``embedding`` model's
+            reading of the flag (:func:`sleap_nn.data.utils.embedding_detections`).
 
     Yields:
         The frame and that instance's ``(n_nodes, 2)`` point array, in the
         video's native pixel coordinates.
     """
     for lf in labels:
-        for inst in lf.instances:
-            if user_instances_only and isinstance(inst, sio.PredictedInstance):
-                continue
+        if user_instances_only and superseded_only:
+            instances = embedding_detections(lf, True)[0]
+        elif user_instances_only:
+            instances = [
+                inst
+                for inst in lf.instances
+                if not isinstance(inst, sio.PredictedInstance)
+            ]
+        else:
+            instances = lf.instances
+        for inst in instances:
             if inst.is_empty:  # every point NaN
                 continue
             yield lf, inst.numpy()
@@ -113,6 +125,7 @@ def find_max_instance_bbox_size(
     labels: sio.Labels,
     max_hw: Optional[Tuple[Optional[int], Optional[int]]] = None,
     user_instances_only: bool = False,
+    superseded_only: bool = False,
 ) -> float:
     """Find the maximum bounding box dimension across all instances in labels.
 
@@ -123,12 +136,13 @@ def find_max_instance_bbox_size(
             cropped in, rather than in its video's native pixels. ``None``
             (default) measures native pixels, the historical behavior.
         user_instances_only: When ``True``, ignore predicted instances.
+        superseded_only: See :func:`_iter_frame_instances`.
 
     Returns:
         The maximum bounding box dimension (max of width or height) across all instances.
     """
     max_length = 0.0
-    for lf, pts in _iter_frame_instances(labels, user_instances_only):
+    for lf, pts in _iter_frame_instances(labels, user_instances_only, superseded_only):
         eff_scale = _frame_eff_scale(lf, max_hw)
         diff_x = np.nanmax(pts[:, 0]) - np.nanmin(pts[:, 0])
         diff_x = 0 if np.isnan(diff_x) else diff_x * eff_scale
@@ -146,6 +160,7 @@ def iter_required_crop_sizes(
     centroid_method: Optional[str] = None,
     centroid_fallback: Optional[str] = None,
     user_instances_only: bool = False,
+    superseded_only: bool = False,
 ) -> Iterator[float]:
     """Yield the crop size each labeled instance needs to avoid being clipped.
 
@@ -173,12 +188,13 @@ def iter_required_crop_sizes(
         centroid_fallback: The reduce method used when the anchor node is not
             visible on an instance.
         user_instances_only: When ``True``, ignore predicted instances.
+        superseded_only: See :func:`_iter_frame_instances`.
 
     Yields:
         The required crop side length, in size-matched pixels, per instance.
         Instances whose centroid is undefined are skipped.
     """
-    for lf, pts in _iter_frame_instances(labels, user_instances_only):
+    for lf, pts in _iter_frame_instances(labels, user_instances_only, superseded_only):
         eff_scale = _frame_eff_scale(lf, max_hw)
         scaled = torch.from_numpy(pts.astype("float32")) * eff_scale
         centroid = generate_centroids(
@@ -204,6 +220,7 @@ def count_clipped_instances(
     centroid_method: Optional[str] = None,
     centroid_fallback: Optional[str] = None,
     user_instances_only: bool = False,
+    superseded_only: bool = False,
 ) -> Tuple[int, int, float]:
     """Count labeled instances that a given crop size would clip.
 
@@ -218,6 +235,7 @@ def count_clipped_instances(
         centroid_method: The resolved centroid method, or ``None`` to infer.
         centroid_fallback: The reduce method for a non-visible anchor node.
         user_instances_only: When ``True``, ignore predicted instances.
+        superseded_only: See :func:`_iter_frame_instances`.
 
     Returns:
         ``(n_clipped, n_total, max_required)`` -- how many instances have at
@@ -234,6 +252,7 @@ def count_clipped_instances(
         centroid_method=centroid_method,
         centroid_fallback=centroid_fallback,
         user_instances_only=user_instances_only,
+        superseded_only=superseded_only,
     ):
         n_total += 1
         if required > crop_size:
@@ -264,7 +283,9 @@ def iter_mask_extents(
         max_hw: The configured ``(max_height, max_width)``; masks are measured in the
             space the size matcher puts the frame in.
         crop_centering: ``auto`` | ``mask_com`` | ``bbox``.
-        user_instances_only: When ``True``, skip predicted masks.
+        user_instances_only: When ``True``, skip the predicted masks a user mask on
+            the same frame supersedes, as the embedding dataset does
+            (:func:`sleap_nn.data.utils.embedding_detections`).
         min_mask_area: Skip masks with fewer foreground pixels (image pixels) than
             this, as the embedding dataset does.
     """
@@ -272,9 +293,7 @@ def iter_mask_extents(
 
     for lf in labels:
         eff_scale = None
-        for mask in getattr(lf, "masks", None) or []:
-            if user_instances_only and isinstance(mask, sio.PredictedSegmentationMask):
-                continue
+        for mask in embedding_detections(lf, user_instances_only)[1]:
             sx, sy = tuple(getattr(mask, "scale", (1.0, 1.0)) or (1.0, 1.0))
             if mask.area / max(sx * sy, 1e-12) < max(min_mask_area, 1.0):
                 continue
@@ -354,6 +373,7 @@ def find_instance_crop_size(
     centroid_method: Optional[str] = None,
     centroid_fallback: Optional[str] = None,
     user_instances_only: bool = False,
+    superseded_only: bool = False,
 ) -> int:
     """Compute a crop size that contains every labeled instance.
 
@@ -382,6 +402,7 @@ def find_instance_crop_size(
         user_instances_only: When ``True``, ignore predicted instances -- pass
             ``data_config.user_instances_only`` so the crop is not sized from
             instances that are excluded from training.
+        superseded_only: See :func:`_iter_frame_instances`.
 
     Returns:
         An integer crop size denoting the length of the side of the boxes that
@@ -401,6 +422,7 @@ def find_instance_crop_size(
         centroid_method=centroid_method,
         centroid_fallback=centroid_fallback,
         user_instances_only=user_instances_only,
+        superseded_only=superseded_only,
     ):
         max_length = max(max_length, required)
 

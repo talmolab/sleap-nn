@@ -56,7 +56,11 @@ from sleap_nn.data.augmentation import (
     apply_geometric_augmentation,
     apply_intensity_augmentation,
 )
-from sleap_nn.data.utils import get_symmetric_inds
+from sleap_nn.data.utils import (
+    embedding_detections,
+    get_symmetric_inds,
+    superseded_predictions,
+)
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.edge_maps import generate_pafs
 from sleap_nn.data.segmentation_maps import (
@@ -2275,16 +2279,15 @@ def resolve_embedding_class_names(
     data share one coherent vocabulary. Scanning BOTH train + val labels and sorting
     gives one consistent vocabulary shared by the train and val datasets.
 
-    With ``user_instances_only`` (``data_config.user_instances_only``), predicted
-    detections are left out, as they are left out of the dataset itself.
+    With ``user_instances_only`` (``data_config.user_instances_only``), predictions a
+    user label on the same frame supersedes are left out, as they are left out of the
+    dataset itself (:func:`~sleap_nn.data.utils.embedding_detections`).
     """
     names = set()
     for label in labels:
         for lf in label:
-            dets = list(lf.instances) + list(getattr(lf, "masks", None) or [])
-            for det in dets:
-                if user_instances_only and _is_predicted_detection(det):
-                    continue
+            instances, masks = embedding_detections(lf, user_instances_only)
+            for det in instances + masks:
                 lab = _global_identity_label(det, track_names_are_global)
                 if lab is not None:
                     names.add(lab)
@@ -2334,11 +2337,6 @@ EMBEDDING_DETECTION_MODES = ("pose", "mask")
 # annotation slip whose burn-in standardize runs over a handful of pixels. Inference
 # only skips empty masks (see `EmbeddingDataset(min_mask_area=...)`).
 EMBEDDING_MIN_MASK_AREA = 16
-
-
-def _is_predicted_detection(det) -> bool:
-    """Whether a detection is a prediction (``PredictedInstance`` / predicted mask)."""
-    return isinstance(det, (sio.PredictedInstance, sio.PredictedSegmentationMask))
 
 
 def _mask_image_area(mask) -> float:
@@ -2436,10 +2434,13 @@ class EmbeddingMembership:
     its carrier choice) and by the trainer's setup-time checks (crop sizing, "can any
     batch hold a negative?"), which run before any dataset is built.
 
-    A detection is **usable** unless it is a prediction under ``user_instances_only``
-    (``PredictedInstance`` and ``PredictedSegmentationMask`` alike), an empty pose (every
-    point NaN), or a mask with fewer than ``min_mask_area`` image pixels. A usable
-    detection is a **member** when the scope can group it:
+    A detection is **usable** unless it is a prediction that a user label on the same
+    frame supersedes, under ``user_instances_only``
+    (:func:`~sleap_nn.data.utils.superseded_predictions`: a ``PredictedInstance`` whose
+    track a user ``Instance`` carries, a ``PredictedSegmentationMask`` a user mask
+    adopted), an empty pose (every point NaN), or a mask with fewer than
+    ``min_mask_area`` image pixels. A usable detection is a **member** when the scope
+    can group it:
 
     - ``tracklet``: it carries a ``sio.Track``.
     - ``global_id``: it has a global identity in ``class_names`` (a ``sio.Identity``
@@ -2453,9 +2454,13 @@ class EmbeddingMembership:
             (:func:`resolve_embedding_class_names`).
         id_scope: ``global_id`` | ``tracklet`` | ``aug_view``.
         track_names_are_global: A track name counts as a global identity.
-        user_instances_only: Leave predicted detections out.
+        user_instances_only: Leave out predictions a user label on the same frame
+            supersedes.
         include_untracked: Inference: every usable detection is a member.
         min_mask_area: Masks with fewer image pixels are not usable.
+        labels: The labels the detections come from. Required with
+            ``user_instances_only``: whether a prediction is superseded is a property
+            of its frame, so it is resolved here, once per frame.
     """
 
     def __init__(
@@ -2466,6 +2471,7 @@ class EmbeddingMembership:
         user_instances_only: bool = False,
         include_untracked: bool = False,
         min_mask_area: float = EMBEDDING_MIN_MASK_AREA,
+        labels: Optional[List[sio.Labels]] = None,
     ) -> None:
         """Store the rules; group ids are assigned as detections are grouped."""
         self.class_names = list(class_names)
@@ -2475,6 +2481,17 @@ class EmbeddingMembership:
         self.user_instances_only = bool(user_instances_only)
         self.include_untracked = bool(include_untracked)
         self.min_mask_area = float(min_mask_area)
+        # `id`s of the predictions a user label on their frame supersedes.
+        self._superseded: set = set()
+        if self.user_instances_only:
+            if labels is None:
+                raise ValueError(
+                    "EmbeddingMembership(user_instances_only=True) needs the labels, "
+                    "to find the predictions a user label supersedes."
+                )
+            for label in labels:
+                for lf in label:
+                    self._superseded |= superseded_predictions(lf)
         # Dense ids for tracklets (`tracklet` training groups; the eval fallback of a
         # detection with no global identity) and per-detection `aug_view` groups.
         self._tracklet_vocab: Dict[tuple, int] = {}
@@ -2482,8 +2499,8 @@ class EmbeddingMembership:
 
     def skip_reason(self, det) -> Optional[str]:
         """Why a detection is not a member, or ``None`` if it is one."""
-        if self.user_instances_only and _is_predicted_detection(det):
-            return "predicted (data_config.user_instances_only)"
+        if id(det) in self._superseded:
+            return "superseded by a user label (data_config.user_instances_only)"
         if isinstance(det, sio.SegmentationMask):
             if _mask_image_area(det) < max(self.min_mask_area, 1.0):
                 return "empty mask" if det.area == 0 else "tiny mask"
@@ -2575,6 +2592,7 @@ def embedding_membership_from_config(
         id_scope=id_scope,
         track_names_are_global=track_names_are_global,
         user_instances_only=user_instances_only,
+        labels=labels,
     )
 
 
@@ -2715,8 +2733,9 @@ class EmbeddingDataset(BaseDataset):
         decode-per-sample behavior for training, whose sampler has no frame
         locality.
 
-        ``user_instances_only`` leaves predicted detections out
-        (``PredictedInstance`` and ``PredictedSegmentationMask``); it is ignored under
+        ``user_instances_only`` leaves out the predictions (``PredictedInstance`` and
+        ``PredictedSegmentationMask``) that a user label on the same frame supersedes;
+        it is ignored under
         ``include_untracked``, and the tracked-only inference path passes ``False``,
         so inference embeds predictions. ``detection_mode`` is the preferred carrier
         (``pose`` / ``mask``, ``None`` to count). ``min_mask_area`` is the smallest
@@ -2768,6 +2787,7 @@ class EmbeddingDataset(BaseDataset):
             user_instances_only=user_instances_only and not include_untracked,
             include_untracked=include_untracked,
             min_mask_area=min_mask_area,
+            labels=labels,
         )
         # `scale` is NOT applied to embedding crops, at training or at inference: the
         # crop path sizes the frame via max_hw, crops crop_size around the detection,
@@ -6833,8 +6853,8 @@ def get_train_val_datasets(
                 f"positives.scope='{id_scope}', which needs {needs} "
                 f"({len(class_names)} global identit(ies) found)"
                 + (
-                    ", and data_config.user_instances_only=True leaves predicted "
-                    "instances and masks out"
+                    ", and data_config.user_instances_only=True leaves out predictions "
+                    "that a user label on the same frame supersedes"
                     if user_instances_only
                     else ""
                 )
