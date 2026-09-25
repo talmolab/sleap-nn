@@ -175,7 +175,7 @@ like*, not where it is.
 Appearance is a **complementary** cue, not a better one. On dense continuous video,
 geometry is highly informative and appearance-*only* association measurably loses to
 it (227 ID switches against 32 on a held-out session); appearance wins where geometry
-has no signal — temporally sparse frames, long occlusions, cross-session identity.
+has no signal — temporally sparse frames and long occlusions.
 Blended into a geometric score with
 [`--appearance_weight`](embedding-tracking.md#blending-appearance-with-geometry) it
 beats either cue alone. Read the [embedding tracking
@@ -193,8 +193,10 @@ detections, and is image-free (no `--use_flow` / `--use_kalman`). It defaults to
 re-binds an animal that was absent for longer than the window); pass
 `--candidates_method fixed_window` to opt out.
 
-**Best for**: re-identification across long occlusions, temporally sparse frames, and
-multi-session identity — the regimes where geometry has nothing to go on. On dense
+**Best for**: re-identification across long occlusions and temporally sparse frames —
+the regimes where geometry has nothing to go on. (It does not link animals across
+videos or sessions: each video is tracked on its own, see
+[Track-Only Mode](#track-only-mode).) On dense
 continuous video prefer a geometric `--features` with `--appearance_weight`. See the
 [embedding (re-ID) tracking guide](embedding-tracking.md) for the full workflow,
 including running the embedding model and tracking in one command.

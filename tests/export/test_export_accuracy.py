@@ -106,7 +106,7 @@ def exported_bottomup_onnx_dir(bottomup_ckpt_path, tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
-def pytorch_bottomup_labels(bottomup_ckpt_path, video_path):
+def pytorch_bottomup_labels(bottomup_ckpt_path, video_path, tmp_path_factory):
     """Run PyTorch inference on the test video and return Labels."""
     from sleap_nn.legacy_predict import run_inference
 
@@ -118,6 +118,12 @@ def pytorch_bottomup_labels(bottomup_ckpt_path, video_path):
         device="cpu",
         frames=list(range(_N_FRAMES)),
         make_labels=True,
+        # `run_inference(make_labels=True)` always saves; without an explicit path
+        # it writes `<video>.predictions.slp` NEXT TO THE VIDEO, i.e. into
+        # `tests/assets/datasets/`, leaving a stray file in the repo.
+        output_path=str(
+            tmp_path_factory.mktemp("pytorch_bottomup") / "predictions.slp"
+        ),
     )
     assert isinstance(labels, sio.Labels)
     return labels

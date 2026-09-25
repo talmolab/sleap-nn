@@ -249,3 +249,68 @@ jobs:
         run: |
           uv run --frozen --no-group gpu --extra torch-cpu --extra backbones \
             pytest tests/architectures/test_pretrained.py -v --durations=10
+
+  # Same gap as `pretrained-backbones`, for the `export` extra (onnx, onnxruntime,
+  # onnxscript): no other job installs it, so every ONNX test -- `@requires_onnx` /
+  # `@requires_onnxruntime` in tests/export and the `onnxruntime is None` module
+  # skips under tests/inference -- was skipped in CI on every platform, including
+  # the exported-embedding metadata and ONNX-vs-torch parity tests. One platform is
+  # enough: the extra is prebuilt wheels over the same CPU torch. TensorRT tests
+  # still skip here (they need a GPU).
+  export-onnx:
+    name: Tests (ONNX export, ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CUDA_VISIBLE_DEVICES: ""
+      USE_CUDA: "0"
+      UV_FROZEN: "1"
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dev dependencies, torch and the export extra
+        run: uv sync --no-group gpu --extra torch-cpu --extra export
+
+      - name: Install graphics dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
+
+      - name: Assert onnx and onnxruntime are importable
+        # Without this the suite would silently skip back to zero ONNX coverage --
+        # the failure mode this job exists to close.
+        run: |
+          uv run --frozen --no-group gpu --extra torch-cpu --extra export python -c "
+          import onnx, onnxruntime
+          print('onnx', onnx.__version__, 'onnxruntime', onnxruntime.__version__)
+          "
+
+      - name: Run ONNX export tests
+        run: |
+          uv run --frozen --no-group gpu --extra torch-cpu --extra export \
+            pytest tests/export \
+              tests/inference/layers/backends/test_onnx_backend.py \
+              tests/inference/test_factory_export.py \
+              tests/inference/ops/test_onnx_export.py \
+              -v --durations=10
+
+      - name: Assert the tests left no stray files in the checkout
+        # tests/export/test_export_accuracy.py used to write
+        # `tests/assets/datasets/centered_pair_small.predictions.slp` whenever onnx
+        # was installed -- i.e. only ever on this job's configuration.
+        run: |
+          stray="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$stray" ]; then
+            echo "::error::tests wrote files into the checkout:"
+            echo "$stray"
+            exit 1
+          fi

@@ -535,3 +535,63 @@ def test_predict_on_pkg_slp_default_references_pkg_slp_not_source_video(
     assert Path(reloaded.videos[0].filename).name == "minimal_instance.pkg.slp"
     # The embedded image must still be readable from the reloaded reference.
     assert reloaded[0].image is not None
+
+
+# ── `output_path` over the input's frame source is refused BEFORE inference ────
+
+
+class _ComputeRan(AssertionError):
+    """Raised by the patched model/SAM entry points: the work was not refused."""
+
+
+@pytest.fixture
+def no_compute(monkeypatch):
+    """Make every compute entry of ``predict()`` fail loudly if it is reached."""
+
+    def _boom(*args, **kwargs):
+        raise _ComputeRan("inference ran before the output path was checked")
+
+    from sleap_nn.inference import sam
+    from sleap_nn.inference.predictor import Predictor
+
+    monkeypatch.setattr(Predictor, "from_model_paths", _boom)
+    monkeypatch.setattr(Predictor, "from_export_dir", _boom)
+    monkeypatch.setattr(sam, "run_sam_segmentation", _boom)
+
+
+@pytest.mark.parametrize("route", ["model", "sam"])
+def test_predict_refuses_output_over_input_pkg_slp_before_inference(
+    route, minimal_instance, minimal_instance_centroid_ckpt, tmp_path, no_compute
+):
+    """`save_predictions` refused this, but only after the whole pass had run."""
+    import shutil
+
+    pkg = tmp_path / "in.pkg.slp"
+    shutil.copy(minimal_instance, pkg)
+    kwargs = (
+        {"model_paths": [str(minimal_instance_centroid_ckpt)]}
+        if route == "model"
+        else {"mask_backend": "sam"}
+    )
+
+    with pytest.raises(ValueError, match="Refusing to write"):
+        predict(str(pkg), device="cpu", output_path=str(pkg), **kwargs)
+    assert sio.load_slp(str(pkg))[0].image is not None
+
+
+def test_predict_early_check_refuses_no_more_than_the_save_check(
+    minimal_instance_centroid_ckpt, tmp_path, no_compute
+):
+    """Overwriting an input `.slp` whose frames live in an external video is not a
+    frame-source overwrite (the save-time check allows it), so inference proceeds."""
+    video = Path(__file__).resolve().parents[1] / "assets/datasets/small_robot.mp4"
+    labels_path = tmp_path / "external.slp"
+    sio.Labels(videos=[sio.Video.from_filename(str(video))]).save(str(labels_path))
+
+    with pytest.raises(_ComputeRan):
+        predict(
+            str(labels_path),
+            model_paths=[str(minimal_instance_centroid_ckpt)],
+            device="cpu",
+            output_path=str(labels_path),
+        )

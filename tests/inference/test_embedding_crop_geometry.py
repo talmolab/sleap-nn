@@ -139,3 +139,118 @@ class TestEmbeddingCropGeometry:
         """An explicit override names a node by hand: a typo must not pass silently."""
         with pytest.raises(ValueError):
             _build(_emb_config(), stub_embedding_ckpt, anchor_part="wing")
+
+
+# ── The composed centroid + embedding layer at its entry point (F10) ─────────
+#
+# `Predictor.from_model_paths([centroid_dir, embedding_dir])` builds a
+# `TopDownEmbeddingLayer` (API-only: the CLI's fused route embeds through
+# `embed_labels` instead). These drive it the way an API caller does.
+
+
+def _embedding_dir(root, **preprocessing):
+    """A tiny random-weights embedding model dir, with preprocessing overrides."""
+    from tests.fixtures.model_ckpts import (
+        _build_embedding_training_config,
+        _write_embedding_model_dir,
+    )
+
+    config = _build_embedding_training_config()
+    for key, value in preprocessing.items():
+        config.data_config.preprocessing[key] = value
+    torch.manual_seed(0)
+    return _write_embedding_model_dir(root / "embedding_model", config)
+
+
+def _frame(labels_path):
+    """The first frame of ``labels_path`` as a ``(1, C, H, W)`` float tensor."""
+    image = sio.load_slp(str(labels_path))[0].image
+    return torch.from_numpy(image).permute(2, 0, 1)[None].float()
+
+
+class TestComposedEmbeddingLayer:
+    def test_crops_are_sized_like_the_embedder_was_trained(
+        self, minimal_instance_centroid_ckpt, minimal_instance, tmp_path
+    ):
+        """`EmbeddingDataset` size-matches each frame to the EMBEDDER's saved
+        max_height/max_width before cropping; the composed layer re-applied the
+        CENTROID model's (384 here vs the embedder's 64), so it embedded crops at
+        6x the scale the model was trained on."""
+        from sleap_nn.data.instance_cropping import make_centered_bboxes
+        from sleap_nn.data.resizing import apply_sizematcher
+        from sleap_nn.inference.ops.crops import crop_bboxes
+        from sleap_nn.inference.predictor import Predictor
+
+        emb_dir = _embedding_dir(tmp_path, max_height=64, max_width=64)
+        layer = Predictor.from_model_paths(
+            [str(minimal_instance_centroid_ckpt), str(emb_dir)], device="cpu"
+        ).layer
+        image = _frame(minimal_instance)
+        out = layer.predict(image)
+
+        valid = out.instance_valid[0]
+        centroids = out.pred_centroids[0][valid]  # original-image space
+        assert len(centroids) > 0, "the centroid model found nothing to embed"
+
+        # The embedder's training geometry: frame sized to ITS max_hw, crop
+        # `crop_size` around the centroid in that sized space.
+        sized, ratio = apply_sizematcher(image[0], 64, 64)
+        crops = crop_bboxes(
+            sized[None],
+            make_centered_bboxes(centroids * ratio, 32, 32),
+            torch.zeros(len(centroids), dtype=torch.long),
+        )
+        expected = layer.centered_instance_layer.predict(crops).pred_embeddings[:, 0]
+
+        torch.testing.assert_close(out.pred_embeddings[0][valid], expected)
+
+    def test_burn_in_embedder_warns(
+        self, minimal_instance_centroid_ckpt, minimal_instance, tmp_path
+    ):
+        """This path never has masks, so a burn-in model runs off distribution;
+        `embed_labels` warns about that case, this layer was silent."""
+        from loguru import logger
+
+        from sleap_nn.inference.predictor import Predictor
+
+        messages = []
+        handler_id = logger.add(messages.append, level="WARNING")
+        try:
+            for burn_in in (False, True):
+                emb_dir = _embedding_dir(tmp_path / str(burn_in), burn_in=burn_in)
+                Predictor.from_model_paths(
+                    [str(minimal_instance_centroid_ckpt), str(emb_dir)], device="cpu"
+                ).layer.predict(_frame(minimal_instance))
+                text = " ".join(" ".join(str(m) for m in messages).split())
+                assert ("trained with mask burn-in" in text) is burn_in, text
+        finally:
+            logger.remove(handler_id)
+
+    def test_filtered_detections_lose_their_vector_and_valid_flag(
+        self, minimal_instance_centroid_ckpt, minimal_instance, tmp_path
+    ):
+        """A filter NaN'd the dropped slot's score and centroid but left its
+        `pred_embeddings` row and `instance_valid=True` -- the fields a consumer
+        of embedding outputs enumerates by -- so the detection survived."""
+        from sleap_nn.inference.filters import FilterConfig
+        from sleap_nn.inference.predictor import Predictor
+
+        emb_dir = _embedding_dir(tmp_path)
+        paths = [str(minimal_instance_centroid_ckpt), str(emb_dir)]
+        video = sio.load_slp(str(minimal_instance)).video
+
+        kept = Predictor.from_model_paths(paths, device="cpu").predict(
+            video, make_labels=False
+        )[0]
+        n_kept = int(kept.instance_valid.sum())
+        assert n_kept > 0, "nothing to filter"
+        assert torch.isfinite(kept.pred_embeddings[kept.instance_valid]).all()
+
+        # A score gate no centroid passes drops every detection.
+        gate = float(kept.instance_scores[kept.instance_valid].max()) + 1.0
+        dropped = Predictor.from_model_paths(
+            paths, device="cpu", filter_config=FilterConfig(min_instance_score=gate)
+        ).predict(video, make_labels=False)[0]
+        assert torch.isnan(dropped.instance_scores).all()
+        assert not dropped.instance_valid.any()
+        assert torch.isnan(dropped.pred_embeddings).all()

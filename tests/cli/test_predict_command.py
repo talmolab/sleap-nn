@@ -1308,3 +1308,64 @@ def test_predict_forwards_embed_auto(tmp_path):
     assert result.exit_code == 0, result.output
     assert mock_predict.called
     assert mock_predict.call_args[1]["embed"] == "auto"
+
+
+# ── `-o` naming the input .pkg.slp is refused BEFORE any inference ──────────────
+
+
+def _flat_output(result) -> str:
+    """ANSI-stripped, whitespace-collapsed CLI output (rich-click wraps by width)."""
+    import re
+
+    text = result.output + (str(result.exception) if result.exception else "")
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text).replace("│", " ")
+    return " ".join(text.split())
+
+
+@pytest.fixture
+def input_pkg(minimal_instance, tmp_path):
+    """A private copy of the embedded ``.pkg.slp`` (its frames live in the file)."""
+    import shutil
+
+    pkg = tmp_path / "in.pkg.slp"
+    shutil.copy(minimal_instance, pkg)
+    return pkg
+
+
+def _fail_if_called(*args, **kwargs):
+    raise AssertionError("the compute ran before the output path was checked")
+
+
+@pytest.mark.parametrize("route", ["inference", "retrack", "stream", "fused"])
+def test_predict_output_over_the_input_pkg_slp_is_refused_before_compute(
+    route,
+    input_pkg,
+    minimal_instance_centroid_ckpt,
+    minimal_embedding_model_dir,
+    monkeypatch,
+):
+    """Since #750 `-o` was refused only in `save_predictions` (after the whole
+    inference or tracking pass had run and been thrown away), and on the fused
+    detect -> embed route only after the detection stack; `--stream-to-file` over
+    the input was not refused at all (the frames were destroyed)."""
+    import sleap_io as sio
+
+    from sleap_nn.inference.predictor import Predictor
+
+    monkeypatch.setattr(Predictor, "from_model_paths", _fail_if_called)
+    monkeypatch.setattr(Predictor, "retrack", _fail_if_called)
+    centroid = str(minimal_instance_centroid_ckpt)
+    out = ["-o", str(input_pkg)]
+    args = ["predict", "-i", str(input_pkg), "--device", "cpu"]
+    args += {
+        "inference": ["-m", centroid, *out],
+        "retrack": ["-t", *out],
+        "stream": ["-m", centroid, "--stream-to-file", str(input_pkg)],
+        "fused": ["-m", centroid, "-m", str(minimal_embedding_model_dir), "-t", *out],
+    }[route]
+
+    result = CliRunner().invoke(cli, args)
+
+    assert result.exit_code == 2, _flat_output(result)
+    assert "Refusing to write" in _flat_output(result)
+    assert sio.load_slp(str(input_pkg))[0].image is not None

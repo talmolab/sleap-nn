@@ -709,10 +709,26 @@ def _build_topdown_embedding_layer(
     else:
         centroid_layer = _build_centroid_layer(centroid_model, device, assets=predictor)
     crop_h, crop_w = centroid_model.crop_hw
+    # The crops must come from the frame sized the way the EMBEDDER was trained
+    # (`EmbeddingDataset` size-matches to its own saved max_height/max_width, as
+    # `embed_labels` does), not to the centroid model's target, which the shared
+    # preprocess config carries when a centroid model is loaded.
+    from omegaconf import OmegaConf
+
+    emb_cfg = getattr(predictor, "confmap_config", None)
+    max_hw = (
+        (
+            OmegaConf.select(emb_cfg, "data_config.preprocessing.max_height"),
+            OmegaConf.select(emb_cfg, "data_config.preprocessing.max_width"),
+        )
+        if emb_cfg is not None
+        else None
+    )
     return TopDownEmbeddingLayer(
         centroid_layer=centroid_layer,
         centered_instance_layer=emb_layer,
         crop_size=(crop_h, crop_w),
+        max_hw=max_hw,
     )
 
 

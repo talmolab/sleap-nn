@@ -188,7 +188,10 @@ def run_sam_segmentation(
             are not re-embedded, and (with ``restore_source_videos`` also
             defaulting to ``False``) the output backreferences the input file
             itself, so a ``.pkg.slp`` input stays matchable without depending
-            on a pre-embedding source video that's often not on disk.
+            on a pre-embedding source video that's often not on disk. A path the
+            input reads its frames from (e.g. the input ``.pkg.slp`` itself)
+            raises ``ValueError`` before any masking, since writing it would
+            destroy those frames.
         overlay_path: Optional path to write a review overlay PNG of the first
             frame.
         frames: Optional frame indices (matched against ``lf.frame_idx``) to
@@ -224,6 +227,13 @@ def run_sam_segmentation(
         labels = source
     else:
         labels = sio.load_slp(Path(source).expanduser().as_posix())
+
+    if output_path is not None:
+        # Before the backend loads or SAM runs: writing over a file the input reads
+        # its frames from (e.g. the input .pkg.slp) destroys those frames.
+        from sleap_nn.inference.run import _refuse_overwriting_frame_source
+
+        _refuse_overwriting_frame_source(labels, Path(output_path).expanduser())
 
     if backend is None:
         backend = get_mask_backend(

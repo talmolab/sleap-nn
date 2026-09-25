@@ -190,6 +190,60 @@ def _refuse_overwriting_frame_source(labels, output_path) -> None:
                 )
 
 
+def _source_videos(source) -> list:
+    """The videos ``predict(source)`` reads frames from, resolved without decoding.
+
+    Lets the frame-source overwrite check run BEFORE inference: a ``.slp`` path is
+    read for its video records only (``open_backend=False``, no frames or
+    annotations), and an in-memory ``sio.Labels`` / ``sio.Video`` / provider
+    exposes its videos directly. Best effort -- anything unrecognized (arrays,
+    remote URLs, an unreadable file) returns ``[]``, and ``save_predictions``
+    re-checks the predicted labels' videos before writing anyway.
+    """
+    from types import SimpleNamespace
+    from urllib.parse import urlparse
+
+    if isinstance(source, (str, Path)):
+        name = str(source)
+        if len(urlparse(name).scheme) > 1:  # remote (a Windows drive is 1 char)
+            return []
+        if Path(name).suffix.lower() != ".slp":
+            return [SimpleNamespace(filename=name)]
+        try:
+            from sleap_io.io.slp import read_videos
+
+            return read_videos(name, open_backend=False)
+        except Exception:  # noqa: BLE001 - loading reports a bad file properly
+            return []
+    if isinstance(source, sio.Video):
+        return [source]
+    try:
+        return list(getattr(source, "videos", None) or [])
+    except Exception:  # noqa: BLE001 - best effort, the save-time check remains
+        return []
+
+
+def _refuse_overwriting_source_before_inference(
+    source, output_path, output_format: Union[str, Sequence[str]] = "slp"
+) -> None:
+    """Fail fast if the ``.slp`` output would overwrite the input's frame source.
+
+    The same refusal ``save_predictions`` makes, moved in front of the compute:
+    without it, ``-o`` naming the input ``.pkg.slp`` was refused only after the
+    whole inference pass had run. A no-op when no ``.slp`` is written.
+
+    Raises:
+        ValueError: If ``output_path`` is a file a source video reads frames from.
+    """
+    from types import SimpleNamespace
+
+    if output_path is None or "slp" not in _normalize_output_formats(output_format):
+        return
+    _refuse_overwriting_frame_source(
+        SimpleNamespace(videos=_source_videos(source)), output_path
+    )
+
+
 def _resolve_embed(embed, labels) -> bool:
     """Resolve the ``embed`` control (``"auto"``/``"true"``/``"false"`` or bool) to bool.
 
@@ -523,11 +577,17 @@ def predict(
 
     Raises:
         ValueError: If neither ``model_paths`` nor ``export_dir`` is given,
-            or if both are given.
+            or if both are given, or if the ``.slp`` output would overwrite a file
+            the input reads its frames from (e.g. ``output_path`` is the input
+            ``.pkg.slp``) -- checked before any model is loaded.
     """
     import torch
 
     from sleap_nn.inference.predictor import Predictor
+
+    # Before any model load or inference (SAM included): `save_predictions` makes
+    # the same check, but only once the whole pass has run.
+    _refuse_overwriting_source_before_inference(source, output_path, output_format)
 
     if device == "auto":
         device = (

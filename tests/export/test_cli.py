@@ -370,6 +370,122 @@ class TestExportCommand:
             np.abs(torch_out - ort_out).max()
         )
 
+    @staticmethod
+    def _export_embedding(model_dir, output_dir):
+        """Export ``model_dir`` to ONNX; return ``(onnxruntime session, log text)``."""
+        import onnxruntime as ort
+        from loguru import logger
+
+        from sleap_nn.export.cli import export
+
+        messages = []
+        handler_id = logger.add(messages.append, level="WARNING")
+        try:
+            result = CliRunner().invoke(
+                export,
+                [str(model_dir), "-o", str(output_dir), "-f", "onnx"],
+                catch_exceptions=False,
+            )
+        finally:
+            logger.remove(handler_id)
+        assert result.exit_code == 0, result.output
+        sess = ort.InferenceSession(
+            str(output_dir / "model.onnx"), providers=["CPUExecutionProvider"]
+        )
+        return sess, " ".join(" ".join(str(m) for m in messages).split())
+
+    @requires_onnxruntime
+    @pytest.mark.parametrize("in_channels", [1, 3])
+    def test_export_embedding_onnx_matches_native_inference(
+        self, tmp_path, in_channels
+    ):
+        """onnxruntime output == the torch export wrapper == NATIVE inference.
+
+        The parity test above stops at the torch wrapper. This closes the chain to
+        what `sleap-nn predict` computes -- the `EmbeddingLayer` that
+        `Predictor.from_model_paths` builds -- for grayscale and the RGB opt-in
+        (a `burn_in=False` model, whose native standardize is the wrapper's).
+        """
+        import numpy as np
+        import torch
+
+        from sleap_nn.export.wrappers import EmbeddingONNXWrapper
+        from sleap_nn.inference.predictor import Predictor
+        from tests.fixtures.model_ckpts import (
+            _build_embedding_training_config,
+            _write_embedding_model_dir,
+        )
+
+        torch.manual_seed(0)
+        model_dir = _write_embedding_model_dir(
+            tmp_path / "embedding_model",
+            _build_embedding_training_config(in_channels=in_channels),
+        )
+        sess, _ = self._export_embedding(model_dir, tmp_path / "export")
+
+        layer = Predictor.from_model_paths([str(model_dir)], device="cpu").layer
+        crops = np.random.default_rng(0).integers(
+            0, 256, (4, in_channels, 32, 32), dtype=np.uint8
+        )
+        with torch.no_grad():
+            native = layer.predict(torch.from_numpy(crops).float()).pred_embeddings
+            native = native[:, 0].numpy()
+            wrapped = (
+                EmbeddingONNXWrapper(layer.embedding_module.model)
+                .eval()(torch.from_numpy(crops))["embedding"]
+                .numpy()
+            )
+        onnx_out = sess.run(None, {sess.get_inputs()[0].name: crops})[0]
+
+        # Measured: ~6e-8 (wrapper) and ~6e-7 (onnxruntime) max abs difference.
+        assert onnx_out.shape == native.shape == (4, 16)
+        np.testing.assert_allclose(wrapped, native, rtol=0, atol=1e-6)
+        np.testing.assert_allclose(onnx_out, native, rtol=0, atol=1e-5)
+
+    @requires_onnxruntime
+    def test_export_burn_in_embedding_matches_only_maskless_inference(self, tmp_path):
+        """`burn_in=True` is exportable but NOT mask-faithful -- pin that contract.
+
+        The single-input graph has no mask input, so it reproduces native inference
+        on MASKLESS crops (pose-mode detections, an all-ones mask) and diverges from
+        native inference on masked crops. The export warns and records `burn_in`
+        in the metadata, as the wrapper's docstring says.
+        """
+        import numpy as np
+        import torch
+
+        from sleap_nn.inference.predictor import Predictor
+        from tests.fixtures.model_ckpts import (
+            _build_embedding_training_config,
+            _write_embedding_model_dir,
+        )
+
+        config = _build_embedding_training_config()
+        config.data_config.preprocessing.burn_in = True
+        torch.manual_seed(0)
+        model_dir = _write_embedding_model_dir(tmp_path / "embedding_model", config)
+        sess, log = self._export_embedding(model_dir, tmp_path / "export")
+
+        metadata = json.loads(
+            (tmp_path / "export" / "export_metadata.json").read_text()
+        )
+        assert metadata["burn_in"] is True
+        assert "Exporting a mask-burn-in embedding model" in log
+
+        layer = Predictor.from_model_paths([str(model_dir)], device="cpu").layer
+        assert layer.embedding_module.burn_in is True
+        crops = np.random.default_rng(0).integers(0, 256, (4, 1, 32, 32), np.uint8)
+        x = torch.from_numpy(crops).float()
+        mask = torch.zeros_like(x)
+        mask[..., 8:24, 8:24] = 1.0  # a foreground blob; background outside it
+        with torch.no_grad():
+            maskless = layer.predict(x).pred_embeddings[:, 0].numpy()
+            masked = layer.predict(x, masks=mask).pred_embeddings[:, 0].numpy()
+        onnx_out = sess.run(None, {sess.get_inputs()[0].name: crops})[0]
+
+        np.testing.assert_allclose(onnx_out, maskless, rtol=0, atol=1e-5)
+        assert np.abs(onnx_out - masked).max() > 1e-2
+
 
 class TestTwoCentroidGuard:
     """Two centroid directories is an error (no onnx dependency required).

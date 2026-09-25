@@ -14,9 +14,10 @@ Two pieces, mirroring the keypoint / segmentation top-down stacks:
 
 * :class:`TopDownEmbeddingLayer` — subclasses
   :class:`~sleap_nn.inference.layers.topdown.TopDownLayer` to reuse its stage-1
-  (centroid) + sizematch + crop machinery verbatim, overriding only stage 2 to
-  run the embedder on each crop and pack ``Outputs.pred_embeddings`` ``(B, I, D)``
-  (+ ``pred_centroids`` / ``instance_scores`` / ``instance_valid``). The
+  (centroid) + crop machinery verbatim, overriding stage 2 to run the embedder on
+  each crop and pack ``Outputs.pred_embeddings`` ``(B, I, D)`` (+
+  ``pred_centroids`` / ``instance_scores`` / ``instance_valid``), and the stage-2
+  frame sizing to the EMBEDDER's trained ``max_height``/``max_width``. The
   GT-centroid fallback (``CentroidLayer(use_gt_centroids=True)``) covers the
   mask-only data the same way :class:`TopDownSegmentationLayer` does -- available
   when this layer is built directly, since a lone embedding dir routes to the
@@ -28,6 +29,7 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 import torch
+from loguru import logger
 
 from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.inference.layers.backends.base import ModelBackend
@@ -199,10 +201,10 @@ class EmbeddingLayer(InferenceLayer):
 class TopDownEmbeddingLayer(TopDownLayer):
     """Composed centroid + per-crop-embedding two-stage layer.
 
-    Subclasses :class:`TopDownLayer` to reuse stage 1 (centroid) + sizematch +
-    crop extraction verbatim, overriding only :meth:`_run_stage_2` to emit one
-    appearance vector per crop into ``Outputs.pred_embeddings`` instead of
-    keypoints.
+    Subclasses :class:`TopDownLayer` to reuse stage 1 (centroid) + crop extraction
+    verbatim, overriding :meth:`_run_stage_2` to emit one appearance vector per
+    crop into ``Outputs.pred_embeddings`` instead of keypoints, and the stage-2
+    frame sizing so the crops are cut at the scale the EMBEDDER was trained on.
 
     Args:
         centroid_layer: Stage-1 :class:`CentroidLayer` (real model or
@@ -211,6 +213,12 @@ class TopDownEmbeddingLayer(TopDownLayer):
         crop_size: ``(crop_h, crop_w)`` of the per-instance crop.
         centroid_nms / centroid_nms_threshold: Optional centroid dedup
             (inherited).
+        max_hw: ``(max_height, max_width)`` the embedding model's training frames
+            were size-matched to before cropping (its saved
+            ``data_config.preprocessing``); either may be ``None``. The crops are cut
+            from the frame sized to THIS, not to the centroid model's target (see
+            :meth:`_sizematch_like_centroid_layer`). ``None`` (the default, for a
+            layer built without it) keeps the inherited centroid-layer sizing.
     """
 
     def __init__(
@@ -220,8 +228,9 @@ class TopDownEmbeddingLayer(TopDownLayer):
         crop_size: Tuple[int, int],
         centroid_nms: bool = False,
         centroid_nms_threshold: float = 0.5,
+        max_hw: Optional[Tuple[Optional[int], Optional[int]]] = None,
     ) -> None:
-        """Stash inner layers + crop size."""
+        """Stash inner layers + crop size; warn if the embedder expects masks."""
         super().__init__(
             centroid_layer=centroid_layer,
             centered_instance_layer=centered_instance_layer,
@@ -229,6 +238,57 @@ class TopDownEmbeddingLayer(TopDownLayer):
             centroid_nms=centroid_nms,
             centroid_nms_threshold=centroid_nms_threshold,
             return_crops=False,
+        )
+        self.max_hw = None if max_hw is None else tuple(max_hw)
+        # This layer crops raw frames and never has masks, so a burn-in embedder
+        # gets a whole-crop standardize with the background left in -- off its
+        # training distribution. `embed_labels` warns about the same case; say so
+        # here too instead of silently producing degraded vectors.
+        if getattr(
+            getattr(centered_instance_layer, "embedding_module", None),
+            "burn_in",
+            False,
+        ):
+            logger.warning(
+                "This embedding model was trained with mask burn-in, but the "
+                "composed centroid -> embedding path crops raw frames and has no "
+                "masks: the crops use a whole-crop standardize with the background "
+                "un-blanked, which diverges from the masked training standardize "
+                "and degrades the embeddings. For exact parity, embed a "
+                "mask-bearing .slp (e.g. the output of a segmentation model), or "
+                "train with burn_in=False."
+            )
+
+    def _sizematch_like_centroid_layer(
+        self, x_raw: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Size the frame the way the EMBEDDER was trained, not the centroid model.
+
+        Overrides the inherited stage-2 sizing (which re-applies the centroid
+        layer's sizematcher). ``EmbeddingDataset`` -- training, and the
+        ``embed_labels`` path the CLI uses -- size-matches each frame to the
+        embedding model's own ``max_height``/``max_width`` before cropping. The
+        centroid model's target is resolved from ITS training labels and can
+        differ; cropping at the centroid model's effective scale hands the
+        embedder a differently scaled animal than it was fitted on. Centroids and
+        outputs still round-trip through the returned ``eff_scale``, so they land
+        in original-image space as before.
+        """
+        if self.max_hw is None:
+            return super()._sizematch_like_centroid_layer(x_raw)
+        from sleap_nn.data.resizing import apply_sizematcher
+
+        max_h, max_w = self.max_hw
+        B = x_raw.shape[0]
+        if max_h is None and max_w is None:
+            return x_raw, torch.ones(B, dtype=torch.float32, device=x_raw.device)
+        sized, eff = [], []
+        for b in range(B):
+            r, scale = apply_sizematcher(x_raw[b], max_h, max_w)
+            sized.append(r)
+            eff.append(float(scale))
+        return torch.stack(sized, dim=0), torch.tensor(
+            eff, dtype=torch.float32, device=x_raw.device
         )
 
     def _run_stage_2(
