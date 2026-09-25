@@ -163,6 +163,18 @@ detection in the `.slp` carries its appearance vector. Track it (no model, no GP
 sleap-nn predict -i embedded.slp -t --features embeddings
 ```
 
+To produce `embedded.slp`, run the embedding model on any `.slp` of detections —
+tracked or untracked; every detection gets a vector, and any vectors the input
+already carried (e.g. from an earlier model) are replaced:
+
+```bash
+sleap-nn predict -m models/embedding/ -i detections.slp --save_embeddings slp -o embedded.slp
+```
+
+The default output is `<input>.embeddings.slp` (for a URL input, the URL's file name
+in the current directory). `-o` may not name the input when the input stores its own
+frames (a `.pkg.slp`): the frames would be destroyed, so the run is refused.
+
 `--features embeddings` auto-selects `--scoring_method cosine_sim`. This is the
 [track-only / retrack path](tracking.md#track-only-mode) — omit `--model_paths`. The
 prior tracks (if any) are reassigned from scratch by appearance.
@@ -225,6 +237,12 @@ This is exactly Workflow 2 with the detection step folded in — equivalent to r
 `sleap-nn predict -m embedding -i poses.slp -t -o tracked.slp`. `--save_embeddings slp`
 keeps the vectors in the output as above; a centroid-only detector (no
 centered-instance model) yields single-node detections to embed + track.
+
+The output is always a `.slp` that references the source video: `--output_format
+analysis_h5` and `--embed true|auto` are rejected on this route rather than ignored.
+With `--video_index` on a multi-video `.slp`, the default output name includes the
+video's name (`<input>.<video>.tracked.slp`), as with `predict`, so per-video runs do
+not overwrite each other.
 
 ---
 

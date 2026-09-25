@@ -192,8 +192,31 @@ def _multiclass_class_output(assets: Any, head_type: str) -> str:
     checkpoint trained before this field existed), which restores the track-only
     packaging — no global ``sio.Identity`` is fabricated unless the model
     explicitly declares its classes are unique individuals.
+
+    Raises:
+        NotImplementedError: For any other value. Validated here, while the layer
+            is built, so a hand-written config fails BEFORE the inference pass
+            rather than in ``to_labels`` after it.
     """
-    return str(_multiclass_head_field(assets, head_type, "class_output", "track"))
+    class_output = str(
+        _multiclass_head_field(assets, head_type, "class_output", "track")
+    )
+    if class_output not in _SUPPORTED_CLASS_OUTPUTS:
+        raise NotImplementedError(_unsupported_class_output_message(class_output))
+    return class_output
+
+
+_SUPPORTED_CLASS_OUTPUTS = ("track", "identity")
+
+
+def _unsupported_class_output_message(class_output: str) -> str:
+    return (
+        f"class_output={class_output!r} is not supported; predicted classes "
+        "can be emitted as 'track' (default) or 'identity'. Set the "
+        "multi-class head's class_output to one of those. (sleap-io does "
+        "have a Category data model, but mapping classes onto it is not "
+        "implemented.)"
+    )
 
 
 def _build_single_instance_layer(predictor: Any, device: str) -> SingleInstanceLayer:
@@ -2361,17 +2384,12 @@ class Predictor:
         # as unique individuals (``class_output == "identity"``). A ``"track"``
         # model (the default) emits only the per-video Track — no Identity is
         # fabricated. ``"category"`` (shared types/roles) is not implemented here;
-        # the head configs' validator rejects it at config load, so this only fires
-        # for a hand-written ``training_config.yaml`` that bypassed them.
+        # the head configs' validator rejects it at config load and
+        # `_multiclass_class_output` when the layer is built, so this only fires for
+        # a layer constructed by hand.
         class_output = getattr(self.layer, "class_output", "track")
-        if class_output not in ("track", "identity"):
-            raise NotImplementedError(
-                f"class_output={class_output!r} is not supported; predicted classes "
-                "can be emitted as 'track' (default) or 'identity'. Set the "
-                "multi-class head's class_output to one of those. (sleap-io does "
-                "have a Category data model, but mapping classes onto it is not "
-                "implemented.)"
-            )
+        if class_output not in _SUPPORTED_CLASS_OUTPUTS:
+            raise NotImplementedError(_unsupported_class_output_message(class_output))
         if class_output != "identity":
             return None
         return [sio.Identity(name=str(name)) for name in class_names]

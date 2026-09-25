@@ -367,8 +367,9 @@ def test_fused_detection_stage_is_not_told_to_write(embedding_model_dir, monkeyp
     `save_predictions` writes the .slp only `if "slp" in formats`, so
     `--output_format analysis_h5` ran the whole detection stage, wrote only an
     analysis h5 into the tmpdir, and then died in `sio.load_slp` with
-    FileNotFoundError. Nothing rejected it (`_reject_unsupported_embedding_options`
-    returns immediately in fused mode).
+    FileNotFoundError. (`--output_format` itself is now rejected on this route
+    before the detection stage runs -- see
+    `test_embedding_route_persistence.test_fused_route_rejects_output_shaping_flags`.)
     """
     import sleap_nn.cli as cli_mod
 
@@ -380,12 +381,10 @@ def test_fused_detection_stage_is_not_told_to_write(embedding_model_dir, monkeyp
         raise RuntimeError("stop after the detection stage")
 
     monkeypatch.setattr(cli_mod, "_run_in_memory_new_flow", _fake_detect)
-    result = _invoke(
-        [embedding_model_dir, CENTROID_CKPT], "--output_format", "analysis_h5"
-    )
+    result = _invoke([embedding_model_dir, CENTROID_CKPT])
 
     assert seen, "the detection stage never ran"
     assert seen["_save_output"] is False, "the detection stage still writes a file"
     assert seen["tracking"] is False
-    # The user's --output_format is no longer forwarded to the throwaway stage.
+    assert seen["output_path"] is None
     assert result.exit_code != 0  # our RuntimeError

@@ -247,6 +247,45 @@ class TestExportCommand:
         assert metadata["input_channels"] == 1
         assert metadata["n_nodes"] == 0
         assert metadata["node_names"] == []
+        # The rest of the crop geometry a runtime must reproduce: how crops are
+        # centered, and the frame size-matching applied before cropping.
+        assert metadata["crop_size"] == [32, 32]
+        assert metadata["crop_centering"] == "auto"
+        assert metadata["max_height"] == 64
+        assert metadata["max_width"] == 64
+
+    @pytest.mark.parametrize("crop_size,warns", [(48, True), (32, False)])
+    def test_export_embedding_warns_on_a_crop_size_unlike_training(
+        self, minimal_embedding_model_dir, tmp_path, crop_size, warns
+    ):
+        """`--crop-size` was baked into the embedding graph without comparing it to
+        the size the model was trained on (native inference always uses that)."""
+        from loguru import logger
+
+        from sleap_nn.export.cli import export
+
+        messages = []
+        handler_id = logger.add(messages.append, level="WARNING")
+        try:
+            result = CliRunner().invoke(
+                export,
+                [
+                    str(minimal_embedding_model_dir),
+                    "-o",
+                    str(tmp_path / f"export_{crop_size}"),
+                    "--format",
+                    "onnx",
+                    "--crop-size",
+                    str(crop_size),
+                ],
+                catch_exceptions=False,
+            )
+        finally:
+            logger.remove(handler_id)
+
+        assert result.exit_code == 0, result.output
+        text = " ".join(" ".join(str(m) for m in messages).split())
+        assert ("does not match the crop size" in text) is warns, text
 
     @requires_onnxruntime
     def test_export_command_embedding_onnxruntime_roundtrip(

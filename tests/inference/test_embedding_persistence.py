@@ -377,7 +377,8 @@ def test_cli_threads_save_embeddings(monkeypatch):
     out = cli._run_inference_impl(**_impl_kwargs(save_embeddings="slp"))
     assert out == "RET"
     assert captured["save_embeddings"] == "slp"
-    assert captured["output_path"] is None  # defaults derived in the writer
+    # One URL-aware default for the lone and fused routes, derived by the CLI.
+    assert captured["output_path"] == "d.slp.embeddings.slp"
 
 
 def test_cli_output_path_threads(monkeypatch):
