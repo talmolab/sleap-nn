@@ -7581,11 +7581,14 @@ appearance term is never computed, so a geometry-only run is unchanged.</p>
 (<code>fixed_window</code> / <code>local_queues</code>), windowing, score reduction, and Hungarian/greedy
 assignment. Only the per-detection feature and the pairwise score differ.</p>
 <div class="admonition tip">
-<p class="admonition-title">Pair with <code>local_queues</code></p>
-<p><code>--candidates_method local_queues</code> keeps a per-track deque of recent vectors — a
-lightweight appearance <em>gallery</em>. Matching a new detection against that window
-(reduced by <code>--scoring_reduction</code>, e.g. <code>mean</code> = soft prototype) is a robust,
-no-extra-infrastructure re-ID step.</p>
+<p class="admonition-title"><code>local_queues</code> is the default here</p>
+<p>With <code>--features embeddings</code> the candidate maker defaults to <code>local_queues</code>, which
+keeps a per-track deque of recent vectors — a lightweight appearance <em>gallery</em>.
+Matching a new detection against that window (reduced by <code>--scoring_reduction</code>,
+e.g. <code>mean</code> = soft prototype) is a robust, no-extra-infrastructure re-ID step,
+and unlike <code>fixed_window</code> it re-binds an animal that was absent for longer than
+<code>--tracking_window_size</code> frames. Pass <code>--candidates_method fixed_window</code> to opt
+out.</p>
 </div>
 <hr />
 <h2 id="blending-appearance-with-geometry">Blending appearance with geometry<a class="headerlink" href="#blending-appearance-with-geometry" title="Permanent link">&para;</a></h2>
@@ -7609,8 +7612,20 @@ no-extra-infrastructure re-ID step.</p>
 <li><strong>The blend cannot invent matches geometry rejected.</strong> Where geometry has no valid
   candidate (nothing passed <code>--min_match_points</code>), the pair stays unmatched.</li>
 </ul>
-<p>Pair it with a <em>geometric</em> <code>--features</code>; combining it with <code>--features embeddings</code> is
-rejected, since that would blend appearance with itself.</p>
+<p>Pair it with a <em>geometric</em> <code>--features</code> and <code>--scoring_method</code>; combining it with
+<code>--features embeddings</code> is rejected, since that would blend appearance with itself,
+and so is <code>--scoring_method cosine_sim</code> as the geometric score (it would score the
+cosine of raw coordinates, near 1 for any two poses).</p>
+<div class="admonition note">
+<p class="admonition-title">The blend reads the vectors of the detections it tracks</p>
+<p>On a pose + mask file (top-down segmentation, SAM output) the embedding model
+attaches the vectors to the <strong>masks</strong>, while pose tracking reads the poses — so
+<code>--appearance_weight</code> with a pose <code>--features</code> is rejected there rather than
+running as geometry only. Track the masks instead with <code>--features masks</code>
+(appearance blended into mask IoU): every pose linked to exactly one tracked
+mask inherits that mask's track. <code>--features embeddings</code> follows the vectors to
+whichever carrier holds more of them.</p>
+</div>
 <div class="admonition warning">
 <p class="admonition-title">Distance scores need <code>--euclidean_scale</code></p>
 <p>Blending only means something when both terms live on the same scale. <code>oks</code>,
@@ -7759,9 +7774,9 @@ separate, future step; multi_class models can emit <code>sio.Identity</code> via
 <td>—</td>
 </tr>
 <tr>
-<td><code>--candidates_method local_queues</code></td>
-<td>Per-track appearance gallery (recommended)</td>
-<td><code>fixed_window</code></td>
+<td><code>--candidates_method</code></td>
+<td><code>local_queues</code> = per-track appearance gallery</td>
+<td><code>local_queues</code> with <code>--features embeddings</code>, else <code>fixed_window</code></td>
 </tr>
 <tr>
 <td><code>--save_embeddings {none,slp}</code></td>
@@ -7798,7 +7813,7 @@ switch to a bounded metric (<code>oks</code> / <code>iou</code> / <code>mask_iou
 <li><strong>If your video is continuous, try the blend rather than appearance alone</strong>:
   a geometric <code>--features</code> with <code>--appearance_weight 0.3</code>. Appearance-only was
   measurably worse than geometry on dense video (227 ID switches against 32).</li>
-<li>Use <code>--candidates_method local_queues</code> with a larger <code>--tracking_window_size</code>.</li>
+<li>Keep the default <code>local_queues</code> candidate maker and raise <code>--tracking_window_size</code>.</li>
 <li>Check the embedding model actually separates your animals (validate retrieval
   metrics) — appearance tracking is only as good as the embeddings.</li>
 <li>Cap identities with <code>--max_tracks N</code> when the animal count is known.</li>

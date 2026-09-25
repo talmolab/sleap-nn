@@ -7675,7 +7675,7 @@
 <td><code>--candidates_method</code></td>
 <td>Candidate selection method</td>
 <td><code>fixed_window</code>, <code>local_queues</code></td>
-<td><code>fixed_window</code></td>
+<td><code>fixed_window</code> (<code>local_queues</code> for <code>--features embeddings</code> and mask tracking)</td>
 </tr>
 <tr>
 <td><code>--min_match_points</code></td>
@@ -7928,8 +7928,10 @@ guide</a> before choosing.</p>
 </span></code></pre></div>
 <p><code>--features embeddings</code> auto-pairs with <code>--scoring_method cosine_sim</code>. It works on
 both pose (<code>PredictedInstance</code>) and segmentation-mask (<code>PredictedSegmentationMask</code>)
-detections, and is image-free (no <code>--use_flow</code> / <code>--use_kalman</code>). <code>local_queues</code>
-(a per-track gallery of recent vectors) is a good pairing.</p>
+detections, and is image-free (no <code>--use_flow</code> / <code>--use_kalman</code>). It defaults to
+<code>--candidates_method local_queues</code> (a per-track gallery of recent vectors, which
+re-binds an animal that was absent for longer than the window); pass
+<code>--candidates_method fixed_window</code> to opt out.</p>
 <p><strong>Best for</strong>: re-identification across long occlusions, temporally sparse frames, and
 multi-session identity — the regimes where geometry has nothing to go on. On dense
 continuous video prefer a geometric <code>--features</code> with <code>--appearance_weight</code>. See the
@@ -7941,6 +7943,11 @@ including running the embedding model and tracking in one command.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>--tracking
 </span></code></pre></div>
 <p>Note: Omit <code>--model_paths</code> for track-only mode.</p>
+<p>Each video is tracked independently: a track never spans two videos, and track
+names continue across videos (<code>track_0</code>, <code>track_1</code> in the first; <code>track_2</code>, … in the
+next) so no two videos share one. Everything tracking does not assign -- masks
+on a pose-tracked file, ROIs, centroids, suggestions -- is carried through to the
+output unchanged.</p>
 <p>With specific frames:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span>predict<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>-t<span class="w"> </span>--frames<span class="w"> </span><span class="m">0</span>-100<span class="w"> </span>--video_index<span class="w"> </span><span class="m">0</span>
 </span></code></pre></div>
@@ -8105,7 +8112,17 @@ with the tracker.</p>
 </span></code></pre></div>
 <p>Always compare arms over the <strong>same</strong> detections -- retrack one prediction file
 with different tracker settings rather than re-running inference -- so the
-difference you read is the tracker's and not the detector's.</p>
+difference you read is the tracker's and not the detector's. In Python,
+<code>apply_tracking</code> / <code>Predictor.retrack</code> track the <code>Labels</code> you pass <strong>in place</strong>
+(and return it), so give each arm its own copy:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference.tracking</span><span class="w"> </span><span class="kn">import</span> <span class="n">TrackerConfig</span><span class="p">,</span> <span class="n">apply_tracking</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="n">untracked</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="n">arms</span> <span class="o">=</span> <span class="p">{</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>    <span class="n">w</span><span class="p">:</span> <span class="n">apply_tracking</span><span class="p">(</span><span class="n">untracked</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span> <span class="n">TrackerConfig</span><span class="p">(</span><span class="n">appearance_weight</span><span class="o">=</span><span class="n">w</span><span class="p">))</span>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>    <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">)</span>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="p">}</span>
+</span></code></pre></div>
 <hr />
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <details class="question">
