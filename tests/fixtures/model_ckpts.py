@@ -149,21 +149,30 @@ def minimal_embedding_model_dir(tmp_path):
     Mirrors what a real training run leaves on disk so the export CLI can load and
     export it. Built in-process (no training) for speed and portability.
     """
+    return _write_embedding_model_dir(
+        tmp_path / "embedding_model", _build_embedding_training_config()
+    )
+
+
+def _write_embedding_model_dir(model_dir, config):
+    """Write a random-weights embedding model built from ``config`` to ``model_dir``.
+
+    The ``best.ckpt`` + ``training_config.yaml`` pair a training run leaves on disk,
+    so any loader / the export CLI can consume it. Returns ``model_dir``.
+    """
     import torch
     from omegaconf import OmegaConf
 
     from sleap_nn.training.lightning_modules import EmbeddingLightningModule
 
-    config = _build_embedding_training_config()
     module = EmbeddingLightningModule(
         model_type="embedding",
-        backbone_type="unet",
+        backbone_type=config.model_config.backbone_type,
         backbone_config=config.model_config.backbone_config,
         head_configs=config.model_config.head_configs,
         init_weights="xavier",
     ).eval()
 
-    model_dir = tmp_path / "embedding_model"
     model_dir.mkdir(parents=True, exist_ok=True)
     torch.save(
         {

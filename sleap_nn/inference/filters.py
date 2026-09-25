@@ -363,6 +363,17 @@ class FilterPipeline:
             cvals = outputs.pred_centroid_values.clone()
             cvals[drop_mask] = float("nan")
             kwargs["pred_centroid_values"] = cvals
+        # Embedding outputs have no keypoints to NaN-skip on: a consumer enumerates
+        # them by `instance_valid`, so a dropped slot must lose its vector AND its
+        # valid flag, or it survives the filter.
+        if outputs.pred_embeddings is not None:
+            emb = outputs.pred_embeddings.clone()
+            emb[drop_mask] = float("nan")
+            kwargs["pred_embeddings"] = emb
+        if outputs.instance_valid is not None:
+            valid = outputs.instance_valid.clone()
+            valid[drop_mask] = False
+            kwargs["instance_valid"] = valid
         return attrs.evolve(outputs, **kwargs)
 
     @staticmethod
