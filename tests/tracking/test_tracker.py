@@ -199,6 +199,204 @@ def test_nms_instances_to_remove():
     assert to_remove[0].same_pose_as(instances[1])
 
 
+def test_nms_with_target_adds_back_exactly_to_target():
+    """NMS adds back only enough suppressed boxes to reach `target_count`.
+
+    Regression: the add-back count was `len(picked) - target_count` (negative), so
+    the slice `nms_idxs[:negative]` overshot the target.
+    """
+    # Boxes 0-3 coincide; box 4 is separate. NMS picks {0, 4}; target 3 needs one more.
+    boxes = np.array([[10, 10, 20, 20]] * 4 + [[50, 50, 60, 60]])
+    scores = np.array([0.9, 0.85, 0.8, 0.7, 0.1])
+    picks = nms_fast(boxes, scores, iou_threshold=0.5, target_count=3)
+    assert sorted(picks) == [0, 1, 4]
+
+
+_CULL_SKELETON = sio.Skeleton(["a", "b"])
+
+
+def _cull_instance(x, y, score, size=10.0):
+    """Two-node `PredictedInstance` whose bbox is `[x, y, x + size, y + size]`."""
+    return sio.PredictedInstance.from_numpy(
+        points_data=np.array([[x, y], [x + size, y + size]], dtype="float32"),
+        skeleton=_CULL_SKELETON,
+        score=score,
+    )
+
+
+def _scores(instances):
+    return [round(float(inst.score), 3) for inst in instances]
+
+
+def test_cull_frame_instances_score_keeps_top_n():
+    """Score-only cull keeps the `instance_count` highest-scoring instances.
+
+    Regression: the score branch kept ONLY the extras, so culling scores
+    [0.9, 0.8, 0.1] to 2 returned just the 0.1 detection.
+    """
+    a = _cull_instance(0, 0, 0.9)
+    b = _cull_instance(50, 0, 0.8)
+    c = _cull_instance(100, 0, 0.1)
+    assert _scores(cull_frame_instances([a, b, c], instance_count=2)) == [0.9, 0.8]
+
+    # The survivors keep their input order (they are not re-sorted by score).
+    d = _cull_instance(150, 0, 0.5)
+    kept = cull_frame_instances([c, b, d, a], instance_count=2)
+    assert _scores(kept) == [0.8, 0.9]
+
+
+def test_cull_frame_instances_nms_removes_only_overlapping():
+    """NMS cull removes the lower-scoring overlapping instances and keeps the rest.
+
+    Regression: for each NMS extra the old loop appended every *other* instance, so
+    two extras produced a list with duplicates that still held the extras, and zero
+    extras returned [] (every detection deleted).
+    """
+    a = _cull_instance(10, 10, 0.9)
+    a_dup1 = _cull_instance(11, 11, 0.5, size=9)  # inside `a`
+    a_dup2 = _cull_instance(10, 10, 0.4, size=9)  # inside `a`
+    b = _cull_instance(100, 100, 0.8)
+    kept = cull_frame_instances(
+        [a, a_dup1, a_dup2, b], instance_count=2, iou_threshold=0.5
+    )
+    assert _scores(kept) == [0.9, 0.8]
+
+    # No overlaps: NMS removes nothing and the cull falls back to score.
+    c = _cull_instance(200, 200, 0.1)
+    kept = cull_frame_instances([a, b, c], instance_count=2, iou_threshold=0.5)
+    assert _scores(kept) == [0.9, 0.8]
+
+    # NMS drops an overlapping duplicate even when it outscores a distinct
+    # detection (score alone would keep `a_dup` over `c`).
+    a_dup = _cull_instance(11, 11, 0.85, size=9)
+    kept = cull_frame_instances([a, a_dup, c], instance_count=2, iou_threshold=0.5)
+    assert _scores(kept) == [0.9, 0.1]
+
+
+def test_cull_frame_instances_nms_add_back_keeps_distinct_detection():
+    """When NMS leaves fewer than the target, the suppressed instances fill the gap.
+
+    Regression: `nms_fast` overshot the add-back, so the score pass then removed the
+    distinct low-score detection instead of a second overlapping duplicate.
+    """
+    a = _cull_instance(10, 10, 0.9)
+    dups = [_cull_instance(10, 10, s) for s in (0.85, 0.8, 0.7)]  # same box as `a`
+    e = _cull_instance(100, 100, 0.1)
+    kept = cull_frame_instances([a, *dups, e], instance_count=3, iou_threshold=0.5)
+    assert _scores(kept) == [0.9, 0.85, 0.1]
+
+
+@pytest.mark.parametrize("iou_threshold", [None, 0.5])
+@pytest.mark.parametrize("instance_count", [2, 3])
+def test_cull_frame_instances_noop_within_target(iou_threshold, instance_count):
+    """At or under the target count, every instance is kept in order."""
+    insts = [_cull_instance(0, 0, 0.1), _cull_instance(1, 1, 0.9, size=9)]  # overlap
+    kept = cull_frame_instances(insts, instance_count, iou_threshold)
+    assert [id(inst) for inst in kept] == [id(inst) for inst in insts]
+
+
+@pytest.mark.parametrize("iou_threshold", [None, 0.5])
+def test_cull_frame_instances_empty_returns_empty_list(iou_threshold):
+    """Regression: an empty input returned None instead of []."""
+    assert cull_frame_instances([], 2, iou_threshold) == []
+
+
+def test_cull_frame_instances_removes_by_identity():
+    """A kept instance whose pose equals a culled one is not removed with it."""
+    a = _cull_instance(0, 0, 0.9)
+    a_twin = _cull_instance(0, 0, 0.2)  # identical points, lower score
+    b = _cull_instance(50, 0, 0.8)
+    kept = cull_frame_instances([a, a_twin, b], instance_count=2)
+    assert [id(inst) for inst in kept] == [id(a), id(b)]
+
+
+def test_cull_instances_removes_by_identity():
+    """`cull_instances` removes exactly the culled predictions and keeps user labels.
+
+    Regression: removal matched by `same_pose_as`, so culling a prediction also
+    deleted a kept prediction with the identical pose.
+    """
+    a = _cull_instance(0, 0, 0.9)
+    a_twin = _cull_instance(0, 0, 0.2)  # identical points, lower score
+    b = _cull_instance(50, 0, 0.8)
+    user = sio.Instance.from_numpy(
+        np.array([[200, 0], [210, 10]], dtype="float32"), skeleton=_CULL_SKELETON
+    )
+    lf = sio.LabeledFrame(
+        video=sio.Video(filename="test.mp4"),
+        frame_idx=0,
+        instances=[a, a_twin, b, user],
+    )
+    (lf,) = cull_instances([lf], instance_count=2)
+    assert [id(inst) for inst in lf.instances] == [id(a), id(b), id(user)]
+
+
+@pytest.mark.parametrize("iou_threshold", [0, 0.5])
+def test_tracker_pre_cull_keeps_highest_scores(iou_threshold):
+    """`Tracker.track` with pre-cull keeps (and tracks) the top-scoring detections."""
+    tracker = Tracker.from_config(
+        tracking_target_instance_count=2,
+        tracking_pre_cull_to_target=1,
+        tracking_pre_cull_iou_threshold=iou_threshold,
+    )
+    for frame_idx in range(3):
+        a = _cull_instance(frame_idx, 0, 0.9)
+        low = _cull_instance(100 + frame_idx, 0, 0.1)
+        b = _cull_instance(200 + frame_idx, 0, 0.8)
+        tracked = tracker.track([a, low, b], frame_idx)
+        assert [id(inst) for inst in tracked] == [id(a), id(b)]
+        assert all(inst.track is not None for inst in tracked)
+    assert len({inst.track.name for inst in tracked}) == 2
+
+
+def _user_instance(x, y, size=10.0):
+    """Two-node user-labeled `Instance` (no score) with bbox `[x, y, x + size, y + size]`."""
+    return sio.Instance.from_numpy(
+        np.array([[x, y], [x + size, y + size]], dtype="float32"),
+        skeleton=_CULL_SKELETON,
+    )
+
+
+@pytest.mark.parametrize("iou_threshold", [None, 0.5])
+def test_cull_frame_instances_never_culls_user_instances(iou_threshold):
+    """Only predictions are culled; user labels are kept and not counted.
+
+    Regression: user `Instance`s have no `score`, so culling a user-labeled frame
+    over the target crashed with `AttributeError`.
+    """
+    users = [_user_instance(i * 50, 0) for i in range(3)]
+    kept = cull_frame_instances(users, instance_count=2, iou_threshold=iou_threshold)
+    assert [id(inst) for inst in kept] == [id(inst) for inst in users]
+
+    # Mixed input: the predictions are culled to the target, the labels all stay.
+    u1, u2 = _user_instance(300, 0), _user_instance(400, 0)
+    a = _cull_instance(0, 0, 0.9)
+    low = _cull_instance(100, 0, 0.1)
+    b = _cull_instance(200, 0, 0.8)
+    kept = cull_frame_instances(
+        [u1, a, low, u2, b], instance_count=2, iou_threshold=iou_threshold
+    )
+    assert [id(inst) for inst in kept] == [id(u1), id(a), id(u2), id(b)]
+
+
+@pytest.mark.parametrize("iou_threshold", [0, 0.5])
+def test_tracker_pre_cull_keeps_user_instances(iou_threshold):
+    """`Tracker.track` with pre-cull tracks every user label on a user-labeled frame.
+
+    `run_tracker` / `apply_tracking` pass `lf.user_instances` for frames with user
+    labels; with more labels than the target this used to crash in the cull.
+    """
+    tracker = Tracker.from_config(
+        tracking_target_instance_count=2,
+        tracking_pre_cull_to_target=1,
+        tracking_pre_cull_iou_threshold=iou_threshold,
+    )
+    users = [_user_instance(i * 50, 0) for i in range(3)]
+    tracked = tracker.track(users, 0)
+    assert [id(inst) for inst in tracked] == [id(inst) for inst in users]
+    assert all(inst.track is not None for inst in tracked)
+
+
 def test_tracker(
     caplog, minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
 ):
