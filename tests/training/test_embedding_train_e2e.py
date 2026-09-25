@@ -398,8 +398,9 @@ def _record_retrieval_evals(monkeypatch):
     """Record every call of the shared retrieval metric, tagged by its caller.
 
     The per-epoch callback (`_compute_metrics`) and the post-training eval
-    (`_run_embedding_split_eval`) both call it, so the recorded labels are exactly
-    the groups each one scored.
+    (`_run_embedding_split_eval`, tagged with its split name) both call it, so the
+    recorded labels are exactly the groups each one scored. Returns the calls and
+    the real metric function.
     """
     import sys
 
@@ -410,18 +411,21 @@ def _record_retrieval_evals(monkeypatch):
 
     def record(emb, y, **kwargs):
         metrics = real(emb, y, **kwargs)
+        caller = sys._getframe(1)
         calls.append(
             {
-                "caller": sys._getframe(1).f_code.co_name,
+                "caller": caller.f_code.co_name,
+                "split": caller.f_locals.get("d_name"),
                 "emb": np.asarray(emb, np.float64),
                 "y": np.asarray(y),
+                "kwargs": kwargs,
                 "metrics": metrics,
             }
         )
         return metrics
 
     monkeypatch.setattr(evaluation, "embedding_leave_self_out_eval", record)
-    return calls
+    return calls, real
 
 
 def _partition(y):
@@ -489,13 +493,14 @@ def test_post_training_eval_groups_like_the_selection_metric(
         "grouping",
         **{"trainer_config.val_data_loader.batch_size": 8, **objective},
     )
-    calls = _record_retrieval_evals(monkeypatch)
+    calls, retrieval_metric = _record_retrieval_evals(monkeypatch)
     run_training(cfg)
 
     per_epoch = [c for c in calls if c["caller"] == "_compute_metrics"]
     post = [c for c in calls if c["caller"] == "_run_embedding_split_eval"]
     assert len(per_epoch) == 1  # max_epochs=1
-    assert len(post) == 2  # train.0 and val.0 (both are `slp`)
+    # train.0 and val.0 (both are `slp`)
+    assert sorted(c["split"] for c in post) == ["train.0", "val.0"]
     selection = per_epoch[0]
     assert len(selection["y"]) == n_crops
     assert len(np.unique(selection["y"])) == n_groups
@@ -509,7 +514,19 @@ def test_post_training_eval_groups_like_the_selection_metric(
         # ...grouped the same way.
         assert _partition(split["y"]) == _partition(selection["y"])
 
-    # So the saved headline is the selection metric of the selected checkpoint.
+    # The metric values are NOT compared across the two forward passes: after one
+    # epoch the tiny model has near-tied similarities, and float noise within the
+    # tolerance above flips rankings differently per platform. Each check below
+    # stays within one pass.
+    val = next(c for c in post if c["split"] == "val.0")
+    # The saved headline is the metric of the post-training pass's own crops and
+    # groups...
     saved = np.load(tmp_path / "grouping" / "metrics.val.0.npz")
+    own = retrieval_metric(val["emb"], val["y"], **val["kwargs"])
     for key in ("rank1", "mAP", "auc", "eer", "knn_acc"):
-        assert float(saved[key]) == pytest.approx(selection["metrics"][key], abs=1e-6)
+        assert float(saved[key]) == pytest.approx(own[key], abs=1e-6)
+    # ...and its groups are interchangeable with the selection metric's: scoring
+    # the per-epoch embeddings with the post-training labels reproduces the
+    # selection metric exactly.
+    swapped = retrieval_metric(selection["emb"], val["y"], **selection["kwargs"])
+    assert swapped == selection["metrics"]
