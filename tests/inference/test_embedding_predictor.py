@@ -65,11 +65,13 @@ def test_pose_predictor_still_requires_a_skeleton(minimal_instance):
 def test_inference_dataset_inherits_the_trained_crop_geometry(
     minimal_embedding_model_dir, monkeypatch, tmp_path
 ):
-    """`max_hw` and `scale` must come off the saved training config.
+    """`max_hw` must come off the saved training config.
 
-    The fixture config sets max_height/max_width = 64; passing neither left the
-    inference dataset at `(None, None)` with `scale=1.0`, so a frame that
-    training would have sizematched to 64 px was cropped at full resolution.
+    The fixture config sets max_height/max_width = 64; not passing it left the
+    inference dataset at `(None, None)`, so a frame that training would have
+    sizematched to 64 px was cropped at full resolution. `scale` is NOT passed:
+    `EmbeddingDataset` never applies it to crops, at training or inference, so
+    forwarding it only fired a misleading warning on every inference.
     """
     from omegaconf import OmegaConf
 
@@ -118,4 +120,4 @@ def test_inference_dataset_inherits_the_trained_crop_geometry(
         )
 
     assert captured["max_hw"] == (64, 64)
-    assert captured["scale"] == 0.5
+    assert captured.get("scale", 1.0) == 1.0

@@ -47,6 +47,17 @@ if TYPE_CHECKING:
     from sleap_nn.inference.tracking import TrackerConfig
 
 
+class EmbeddingInputError(ValueError):
+    """A problem with the input handed to the embedding route, not a bug in it.
+
+    Raised for inputs the user can fix (a video where a ``.slp`` of detections is
+    expected, a file with no detections, an output path that would destroy the
+    input's frames, ...). ``sleap-nn predict`` surfaces it as a usage error
+    instead of a traceback. Subclasses ``ValueError`` so API callers catching that
+    keep working.
+    """
+
+
 @attrs.define(eq=False, repr=False)
 class EmbeddingInferenceModel:
     """Holder for a trained ``embedding`` model + the knobs its layer needs.
@@ -146,7 +157,7 @@ def embed_labels(
 
     class_names = resolve_embedding_class_names([labels])
     if not class_names and not include_untracked:
-        raise ValueError("No tracked detections found to embed.")
+        raise EmbeddingInputError("No tracked detections found to embed.")
     # No detections at all (e.g. a fused run whose detector found nothing).
     # `EmbeddingDataset` -> `BaseDataset.__init__` would otherwise raise the
     # training-flavored "none of the labeled frames contain user-labeled data",
@@ -156,7 +167,7 @@ def embed_labels(
         for lf in labels.labeled_frames
     )
     if n_detections == 0:
-        raise ValueError(
+        raise EmbeddingInputError(
             "No detections to embed: the labels contain "
             f"{len(labels.labeled_frames)} frame(s) and no instances or masks. "
             "An embedding (re-ID) model attaches vectors to detections that "
@@ -170,15 +181,13 @@ def embed_labels(
     )
     # Crop geometry must match TRAINING exactly, or the model sees a differently
     # scaled animal than it was fitted on. `EmbeddingDataset` sizematches the frame
-    # (max_hw) and applies `scale` BEFORE cropping, and both were being dropped
-    # here -- so any config with max_height/max_width or a non-unit scale embedded
-    # crops that training never produced. Read straight off the saved training
-    # config, the same values `get_train_val_datasets` used.
+    # (max_hw) before cropping, so read max_hw straight off the saved training
+    # config, the same values `get_train_val_datasets` used. (`scale` is not passed:
+    # the dataset ignores it for crops, at training and here alike.)
     max_hw = (
         OmegaConf.select(config, "data_config.preprocessing.max_height", default=None),
         OmegaConf.select(config, "data_config.preprocessing.max_width", default=None),
     )
-    emb_scale = OmegaConf.select(config, "data_config.preprocessing.scale", default=1.0)
     dataset = EmbeddingDataset(
         labels=[labels],
         crop_size=crop_size,
@@ -189,9 +198,11 @@ def embed_labels(
         include_untracked=include_untracked,
         ensure_rgb=emb_ensure_rgb,
         ensure_grayscale=emb_ensure_grayscale,
-        scale=emb_scale if emb_scale is not None else 1.0,
         max_hw=max_hw,
         cache_img=None,
+        # Samples are enumerated frame by frame (and the loader does not shuffle),
+        # so a one-frame cache decodes each frame once instead of once per crop.
+        frame_cache_size=1,
     )
     # A `burn_in` model was trained on MASKED crops (background blanked, standardize
     # over the foreground only). In pose mode there are no masks to burn in, so
@@ -244,10 +255,16 @@ def embed_labels(
             # is implicitly the appearance embedding; provenance / normalized-flag /
             # space-name no longer have a home on the bare `Embedding` value object.
             mask_obj.identity_embedding = sio.Embedding(emb[i])
-            g = int(batch["group_id"][i])
-            all_tracks.append(
-                class_names[g] if class_names and 0 <= g < len(class_names) else ""
-            )
+            if include_untracked:
+                # `group_id` is a placeholder 0 here, not an identity index; name
+                # the detection by its own track ("" when untracked).
+                track = getattr(mask_obj, "track", None)
+                all_tracks.append(track.name if track is not None else "")
+            else:
+                g = int(batch["group_id"][i])
+                all_tracks.append(
+                    class_names[g] if class_names and 0 <= g < len(class_names) else ""
+                )
             n_attached += 1
         all_emb.append(emb)
 
@@ -269,26 +286,31 @@ def predict_embeddings_to_slp(
     batch_size: int = 64,
     save_embeddings: str = "slp",
     tracker_config: Optional["TrackerConfig"] = None,  # noqa: F821
-    include_untracked: Optional[bool] = None,
+    include_untracked: Optional[bool] = True,
     labels: Optional[sio.Labels] = None,
     restore_source_videos: bool = False,
+    remote_kwargs: Optional[dict] = None,
 ) -> str:
     """Embed every detection in ``data_path`` and persist the vectors into a ``.slp``.
 
     The appearance vectors persist via the sleap-io ``sio.Embedding`` data model
     (in the ``identity_embedding`` slot of each detection's host ``sio.Instance`` /
     ``sio.SegmentationMask``). The crop pipeline matches the trained model's config
-    exactly (see :func:`embed_labels`).
+    exactly (see :func:`embed_labels`). Any vector the input already carried is
+    cleared first, so the output never mixes this model's vectors with another's.
 
     Args:
         model_paths: Trained ``embedding`` model directory (or a list; the embedding
             model is selected and any stray non-embedding dirs are ignored — the CLI
-            runs the detection stack separately for the fused path).
-        data_path: ``.slp`` file with the detections to embed. Optional when
-            ``labels`` is passed (it is then used only to derive the default
-            ``output_path``).
+            runs the detection stack separately for the fused path). Exactly one
+            embedding model may be given.
+        data_path: ``.slp`` file (local path or URL) with the detections to embed.
+            Optional when ``labels`` is passed (it is then used only to derive the
+            default ``output_path``).
         output_path: Output ``.slp`` path. Defaults to ``<data_path>.tracked.slp`` when
-            tracking, else ``<data_path>.embeddings.slp``.
+            tracking, else ``<data_path>.embeddings.slp`` (for a URL, the URL's file
+            name in the current directory). Required when ``labels`` is passed
+            without a ``data_path``.
         device: Torch device.
         batch_size: Crops per forward pass.
         save_embeddings: ``"slp"`` persists the appearance vectors in the output
@@ -297,16 +319,16 @@ def predict_embeddings_to_slp(
             tracker can consume them, then stripped before the tracked ``.slp`` is
             written (tracks only).
         tracker_config: Optional :class:`~sleap_nn.inference.tracking.TrackerConfig`.
-            When set (WF2), every detection — tracked OR untracked — is embedded and
-            :func:`~sleap_nn.inference.tracking.apply_tracking` assigns ``sio.Track``s by
-            appearance (``features="embeddings"`` / ``scoring_method="cosine_sim"``); the
-            tracked ``.slp`` is written. Emits ``sio.Track`` only (no global
-            ``sio.Identity`` — a track name is not a global animal identity).
-        include_untracked: Whether to embed untracked detections too. ``None``
-            (default) derives it from ``tracker_config`` (tracking embeds everything;
-            non-tracking embeds only tracked detections, keyed by identity). The fused
-            detect→embed path sets ``True`` because freshly-detected instances carry no
-            tracks yet.
+            When set (WF2), :func:`~sleap_nn.inference.tracking.apply_tracking`
+            assigns ``sio.Track``s (by appearance with ``features="embeddings"`` /
+            ``scoring_method="cosine_sim"``, or blended into a geometric score with
+            ``appearance_weight``); the tracked ``.slp`` is written. Emits
+            ``sio.Track`` only (no global ``sio.Identity`` — a track name is not a
+            global animal identity).
+        include_untracked: Whether to embed untracked detections too. ``True`` (the
+            default; ``None`` means the same) embeds EVERY detection, tracked or not,
+            so each one in the output carries a vector. ``False`` embeds only the
+            tracked detections (the rest are left without a vector).
         labels: Detections to embed, already in memory. When given, ``data_path`` is
             NOT loaded — the fused ``detect→embed`` route hands over the ``sio.Labels``
             its detection stage returned instead of round-tripping them through a
@@ -317,17 +339,23 @@ def predict_embeddings_to_slp(
             ``--restore_source_videos``) keeps references to an input ``.pkg.slp``,
             whose pixels are already present; ``True`` restores references to the
             pre-embedding source videos, which are often unavailable.
+        remote_kwargs: Options for loading a remote ``data_path`` (``headers``,
+            ``stream_mode``), forwarded to ``sio.load_slp``.
 
     Returns:
         The output ``.slp`` path.
 
     Raises:
-        ValueError: If neither ``data_path`` nor ``labels`` is given, if no
-            ``embedding`` model is among ``model_paths``, if there is nothing to
-            persist, or if no detections were found to embed.
+        ValueError: If no (or more than one) ``embedding`` model is among
+            ``model_paths``, or ``save_embeddings`` is invalid.
+        EmbeddingInputError: (a ``ValueError``) If neither ``data_path`` nor
+            ``labels`` is given, ``data_path`` is not a ``.slp``, there is nothing to
+            persist, no detections were found to embed, or the output would
+            overwrite the file the input's frames are stored in.
     """
     from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
     from sleap_nn.inference.loaders import _load_training_config
+    from sleap_nn.inference.run import _refuse_overwriting_frame_source
 
     if isinstance(model_paths, (str, bytes)):
         model_paths = [model_paths]
@@ -344,46 +372,72 @@ def predict_embeddings_to_slp(
     model_types = [
         get_model_type_from_cfg(config=_load_training_config(d)[0]) for d in model_dirs
     ]
-    if "embedding" not in model_types:
+    embedding_dirs = [d for d, t in zip(model_dirs, model_types) if t == "embedding"]
+    if not embedding_dirs:
         raise ValueError(
             "predict_embeddings_to_slp requires an `embedding` model directory."
         )
-    model_dir = model_dirs[model_types.index("embedding")]
+    if len(embedding_dirs) > 1:
+        raise ValueError(
+            f"Got {len(embedding_dirs)} `embedding` model directories "
+            f"({', '.join(str(d) for d in embedding_dirs)}); pass exactly one. "
+            "Each detection has a single appearance-vector slot."
+        )
+    model_dir = embedding_dirs[0]
 
     tracking = tracker_config is not None
-    inc_untracked = include_untracked if include_untracked is not None else tracking
+    inc_untracked = True if include_untracked is None else bool(include_untracked)
     start_time = datetime.now()
 
     if not tracking and save_embeddings == "none":
-        raise ValueError(
+        raise EmbeddingInputError(
             "Nothing to persist: save_embeddings='none' without tracking. Pass "
             "save_embeddings='slp' to write the vectors into a .slp, or a tracker_config "
             "to track by appearance."
         )
 
+    if output_path is None:
+        if not data_path:
+            raise EmbeddingInputError(
+                "output_path is required when the detections are passed as labels "
+                "without a data_path (there is no input file to name the output "
+                "after)."
+            )
+        output_path = _default_output_path(data_path, tracking)
+
     if labels is None:
         if not data_path:
-            raise ValueError(
+            raise EmbeddingInputError(
                 "predict_embeddings_to_slp requires either data_path (a .slp of "
                 "detections) or labels (detections already in memory)."
             )
         # A lone embedding model EMBEDS EXISTING detections, so its input must be a
         # .slp. Say so, instead of letting a video path die inside h5py with an
         # opaque "file signature not found" OSError.
-        if Path(str(data_path)).suffix.lower() != ".slp":
-            raise ValueError(
+        if _source_suffix(data_path) != ".slp":
+            raise EmbeddingInputError(
                 f"data_path must be a .slp of detections to embed, got {data_path!r}. "
                 "A lone embedding (re-ID) model attaches appearance vectors to "
                 "detections that already exist; to run on a video, pass a detection "
                 "model (centroid / centered_instance) alongside the embedding model "
                 "so the detections are produced first."
             )
-        labels = sio.load_slp(data_path)
+        labels = sio.load_slp(data_path, **(remote_kwargs or {}))
     source_name = data_path if data_path else "<in-memory labels>"
 
-    # Tracking (and the fused detect→embed path) embed EVERY detection — tracked or not —
-    # so untracked inputs can be tracked / persisted; otherwise only tracked detections
-    # are embedded (keyed by identity).
+    # Refuse BEFORE the embedding pass: writing over the file a video reads its
+    # frames from (e.g. `-o` naming the input .pkg.slp) destroys those frames.
+    try:
+        _refuse_overwriting_frame_source(labels, output_path)
+    except ValueError as e:
+        raise EmbeddingInputError(str(e)) from e
+
+    # Clear every vector the input already carries (both carriers) so that a
+    # detection this pass does not embed -- the carrier `EmbeddingDataset` did not
+    # pick, an all-NaN pose, an untracked one under include_untracked=False -- cannot
+    # keep a previous model's vector and be re-persisted next to this model's.
+    _strip_embeddings(labels)
+
     _, _, n_attached, embedding_dim = embed_labels(
         model_dir,
         labels,
@@ -392,18 +446,18 @@ def predict_embeddings_to_slp(
         include_untracked=inc_untracked,
     )
     if n_attached == 0:
-        raise ValueError(f"No detections found in {source_name} to embed.")
+        raise EmbeddingInputError(f"No detections found in {source_name} to embed.")
 
     if tracking:
-        # WF2: track by appearance on the freshly-attached vectors, then write the
-        # tracked .slp. apply_tracking re-assigns sio.Track from scratch (any prior
-        # tracks are overwritten); it emits Tracks only (no global sio.Identity — a
-        # track name is not a global animal identity).
+        # WF2: track on the freshly-attached vectors, then write the tracked .slp.
+        # apply_tracking re-assigns sio.Track from scratch (any prior tracks are
+        # overwritten); it emits Tracks only (no global sio.Identity — a track name
+        # is not a global animal identity).
         from sleap_nn.inference.tracking import apply_tracking
 
         logger.info(
-            f"Attached {n_attached} embeddings (dim={embedding_dim}); tracking by "
-            "appearance (cosine similarity)."
+            f"Attached {n_attached} embeddings (dim={embedding_dim}); "
+            f"{_describe_association(tracker_config)}."
         )
         tracked = apply_tracking(labels, tracker_config)
         # save_embeddings controls whether the vectors persist in the tracked .slp;
@@ -412,7 +466,6 @@ def predict_embeddings_to_slp(
         persist_vectors = save_embeddings == "slp"
         if not persist_vectors:
             _strip_embeddings(tracked)
-        tracked_out = output_path or f"{data_path}.tracked.slp"
         tracked.provenance = _embedding_provenance(
             labels,
             model_dir,
@@ -434,20 +487,19 @@ def predict_embeddings_to_slp(
         # so `lf.image` on the tracked output raised FileNotFoundError.
         sio.save_slp(
             tracked,
-            tracked_out,
+            output_path,
             embed=False,
             restore_original_videos=restore_source_videos,
             save_embedding_vectors=persist_vectors,
         )
-        logger.info(f"Wrote tracked labels to {tracked_out}")
-        return tracked_out
+        logger.info(f"Wrote tracked labels to {output_path}")
+        return output_path
 
     # Non-tracking: the .slp of attached vectors IS the output. The embedding model
     # produces appearance vectors, not identities. Any ``sio.Identity`` already on the
     # input labels passes through untouched; we do NOT fabricate identities from track
     # names (a track/class name is not a global animal identity). Both Instance and
     # SegmentationMask (owner_type=3, sleap-io#527) embeddings persist here.
-    slp_out = output_path or f"{data_path}.embeddings.slp"
     labels.provenance = _embedding_provenance(
         labels,
         model_dir,
@@ -463,15 +515,73 @@ def predict_embeddings_to_slp(
     # See the tracked save above for why `restore_original_videos` defaults to False.
     sio.save_slp(
         labels,
-        slp_out,
+        output_path,
         embed=False,
         restore_original_videos=restore_source_videos,
         save_embedding_vectors=True,
     )
     logger.info(
-        f"Attached {n_attached} embeddings (dim={embedding_dim}) and wrote {slp_out}"
+        f"Attached {n_attached} embeddings (dim={embedding_dim}) and wrote "
+        f"{output_path}"
     )
-    return slp_out
+    return output_path
+
+
+def _source_suffix(data_path) -> str:
+    """Lower-cased file suffix of a local path or URL (query string ignored).
+
+    ``Path('https://h/x.slp?sig=abc').suffix`` is ``'.slp?sig=abc'``, so a signed
+    URL to a ``.slp`` was rejected as "not a .slp".
+    """
+    from urllib.parse import urlparse
+
+    s = str(data_path)
+    parsed = urlparse(s)
+    # A one-letter "scheme" is a Windows drive (C:\\...), not a URL.
+    path = parsed.path if len(parsed.scheme) > 1 else s
+    return Path(path).suffix.lower()
+
+
+def _default_output_path(data_path, tracking: bool) -> str:
+    """``<data_path>.tracked.slp`` / ``<data_path>.embeddings.slp``.
+
+    A URL cannot be written next to, so a remote input names its output after the
+    URL's file name in the current directory (the ``sleap-nn predict`` convention).
+    """
+    from urllib.parse import urlparse
+
+    kind = "tracked" if tracking else "embeddings"
+    s = str(data_path)
+    parsed = urlparse(s)
+    if len(parsed.scheme) > 1:
+        s = Path(parsed.path).name or "predictions"
+    return f"{s}.{kind}.slp"
+
+
+def _describe_association(tracker_config) -> str:
+    """Say what the tracker will associate detections by, for the run log.
+
+    The log used to claim "tracking by appearance (cosine similarity)" whatever
+    ``--features`` said, so a ``--features keypoints`` run reported appearance
+    tracking while scoring by OKS. The geometric score itself may still be
+    re-resolved by ``apply_tracking`` (single-node / mask detections), which logs
+    that resolution.
+    """
+    features = tracker_config.features
+    weight = tracker_config.appearance_weight or 0.0
+    if features == "embeddings":
+        return (
+            "tracking by appearance alone "
+            f"(scoring_method={tracker_config.scoring_method!r})"
+        )
+    if weight:
+        return (
+            f"tracking by geometry blended with appearance (appearance_weight={weight})"
+        )
+    return (
+        f"tracking by geometry alone (features={features!r}); the appearance vectors "
+        "are not used for association"
+    )
 
 
 def _embedding_provenance(
@@ -521,7 +631,6 @@ def _embedding_provenance(
         # size-matching", and `build_inference_provenance` drops the null.
         for key, fallback in (
             ("crop_size", None),
-            ("scale", 1.0),
             ("max_height", None),
             ("max_width", None),
             ("crop_centering", "auto"),
@@ -530,6 +639,9 @@ def _embedding_provenance(
                 cfg, f"data_config.preprocessing.{key}", default=None
             )
             params[key] = fallback if value is None else value
+        # Embedding crops are never rescaled (the configured `scale` is ignored at
+        # training and inference alike), so the effective scale is always 1.0.
+        params["scale"] = 1.0
     except Exception:  # noqa: BLE001 -- provenance must never fail a run
         pass
 
@@ -556,7 +668,8 @@ def _embedding_provenance(
 def _strip_embeddings(labels: sio.Labels) -> None:
     """Drop the re-ID appearance embedding from a labels' detections in place.
 
-    Used when ``--tracking`` runs on an ``embedding`` model with
+    Used before embedding (so no detection keeps a vector from a previous model),
+    and when ``--tracking`` runs on an ``embedding`` model with
     ``save_embeddings="none"`` (the default): the vectors are attached only so the
     tracker can consume them, and are removed before the tracked ``.slp`` is written
     (tracks only). Both pose (``lf.instances``) and mask (``lf.masks``) carriers hold a

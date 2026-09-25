@@ -1133,7 +1133,8 @@ def _run_inference_impl(**kwargs):
     # through the normal Labels-producing flow; it attaches `sio.Embedding` vectors to
     # the source detections and writes a .slp. A fused
     # `-m centroid [-m centered_instance] -m <embedding>` command runs the detection
-    # stack first (to a temp .slp) and then embeds + (optionally) tracks those detections.
+    # stack first and then embeds + (optionally) tracks the detections it returns, in
+    # memory.
     save_embeddings = kwargs.pop("save_embeddings", "none") or "none"
     if _has_embedding_model(kwargs.get("model_paths")):
         # The embedding (re-ID) path is in-memory only; it does not stream to file and
@@ -1711,6 +1712,11 @@ _EMBEDDING_ROUTE_HONORED_OPTIONS = frozenset(
     }
 )
 
+# Crops per forward pass for the embedding stage when `-b` is not given (`-b`
+# defaults to 4 FRAMES for the detection stage). Matches
+# `predict_embeddings_to_slp`'s own default.
+_EMBEDDING_DEFAULT_CROP_BATCH = 64
+
 # Why each unhonored option is unhonored, for the error message. Anything not
 # listed falls back to the generic reason.
 _EMBEDDING_ROUTE_OPTION_REASONS = {
@@ -1734,6 +1740,23 @@ _EMBEDDING_ROUTE_OPTION_REASONS = {
 }
 
 
+# Output-shaping options the FUSED route cannot honor either: the detection stage
+# writes nothing (its detections are handed over in memory), and the final output
+# is always a `.slp` referencing the source video. Only values that would change
+# the output are rejected; restating the default is harmless.
+_FUSED_OUTPUT_OPTIONS = {
+    "output_format": (
+        lambda v: {str(f).lower() for f in (v or ("slp",))} != {"slp"},
+        "the embedding route writes a .slp only",
+    ),
+    "embed": (
+        lambda v: str(v or "false").lower() != "false",
+        "the embedding route's .slp references the source video; frames are not "
+        "embedded",
+    ),
+}
+
+
 def _reject_unsupported_embedding_options(fused: bool, tracking: bool = False) -> None:
     """Fail on explicitly-set options the embedding route cannot honor.
 
@@ -1742,16 +1765,34 @@ def _reject_unsupported_embedding_options(fused: bool, tracking: bool = False) -
     Args:
         fused: True when a detection stack was passed alongside the embedding
             model. The detection stage then receives the full option set, so
-            frame scoping and geometry ARE honored there and nothing is rejected.
+            frame scoping and geometry ARE honored there; only the output-shaping
+            options (``--output_format`` / ``--embed``), which no stage honors,
+            are rejected.
         tracking: True when ``--tracking`` is set, which makes every option
             `_build_tracker_config` reads honored.
     """
-    if fused:
-        return
     ctx = click.get_current_context(silent=True)
     if ctx is None:  # programmatic call, no CLI to police
         return
     from click.core import ParameterSource
+
+    if fused:
+        offenders = [
+            name
+            for name, (changes_output, _) in _FUSED_OUTPUT_OPTIONS.items()
+            if ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
+            and changes_output(ctx.params.get(name))
+        ]
+        if offenders:
+            detail = "; ".join(
+                f"--{name} ({_FUSED_OUTPUT_OPTIONS[name][1]})" for name in offenders
+            )
+            raise click.UsageError(
+                f"the fused detect->embed route does not support {detail}. Its "
+                "output is a .slp of the embedded (and optionally tracked) "
+                "detections; convert it afterwards if you need another format."
+            )
+        return
 
     honored = set(_EMBEDDING_ROUTE_HONORED_OPTIONS)
     if tracking:
@@ -1795,19 +1836,23 @@ def _run_embeddings(
 
     Attaches each detection's appearance vector (``sio.Embedding``, in the
     ``identity_embedding`` slot) to its
-    source detection and writes a ``.slp``. With
-    ``tracker_config`` (``--tracking``, WF2) every detection is embedded and tracked by
-    appearance (cosine similarity) into a tracked ``.slp``; ``save_embeddings`` then
+    source detection and writes a ``.slp``. Every detection is embedded, tracked or
+    not. With
+    ``tracker_config`` (``--tracking``, WF2) the detections are then tracked
+    into a tracked ``.slp``; ``save_embeddings`` then
     decides whether the vectors persist in it (``"slp"``) or are stripped (``"none"`` =
     tracks only).
 
     **Fused detect→embed:** when ``--model_paths`` carries a detection stack (centroid
     and/or centered_instance) ALONGSIDE the embedding model, the detection stack is run
-    first on ``--data_path`` (to a temporary ``.slp``) and those detections are then
-    embedded + (optionally) tracked — equivalent to the two-step
+    first on ``--data_path`` and the ``sio.Labels`` it returns are embedded +
+    (optionally) tracked in memory — equivalent to the two-step
     ``detect → .slp → embed+track``, fused into a single command.
     """
-    from sleap_nn.inference.embedding import predict_embeddings_to_slp
+    from sleap_nn.inference.embedding import (
+        EmbeddingInputError,
+        predict_embeddings_to_slp,
+    )
 
     if not kwargs.get("data_path"):
         raise click.UsageError(
@@ -1818,13 +1863,38 @@ def _run_embeddings(
     model_paths = list(kwargs["model_paths"])
     embedding_dirs = [m for m in model_paths if _is_embedding_model(m)]
     detection_dirs = [m for m in model_paths if not _is_embedding_model(m)]
-    _reject_unsupported_embedding_options(
-        fused=bool(detection_dirs), tracking=tracker_config is not None
-    )
+    if len(embedding_dirs) > 1:
+        raise click.UsageError(
+            f"got {len(embedding_dirs)} `embedding` (re-ID) models "
+            f"({', '.join(map(str, embedding_dirs))}); pass exactly one. Each "
+            "detection has a single appearance-vector slot."
+        )
+    tracking = tracker_config is not None
+    _reject_unsupported_embedding_options(fused=bool(detection_dirs), tracking=tracking)
+    if (
+        tracking
+        and save_embeddings == "none"
+        and tracker_config.features != "embeddings"
+        and not tracker_config.appearance_weight
+    ):
+        # Geometry-only tracking that neither uses nor keeps the vectors: the
+        # embedding pass would run and its output be thrown away. (With
+        # --save_embeddings slp, "persist vectors, track by geometry" is a real
+        # combination and is allowed.)
+        raise click.UsageError(
+            f"--features {tracker_config.features} tracks by geometry only, so the "
+            "embedding model's vectors would be computed and then discarded. Drop "
+            "--features to track by appearance, add --appearance_weight to blend "
+            "appearance into the geometric score, or add --save_embeddings slp to "
+            "keep the vectors."
+        )
 
     data_path = kwargs["data_path"]
+    src, src_suffix, src_is_url = _resolve_data_path(data_path)
+    remote_kwargs = _build_remote_kwargs(kwargs)
     output_path = kwargs.get("output_path")
     detections = None
+    scoped_video_name = None
     if detection_dirs:
         # FUSED: run the detection stack (centroid [+ centered_instance]) on the raw
         # input, then embed (+track) the detections it returns. Exactly the two-step
@@ -1854,32 +1924,56 @@ def _run_embeddings(
                 "the fused detect->embed route got no detections back from the "
                 "detection stage."
             )
-        # Default the final output off the ORIGINAL input, sharing
-        # `_default_predictions_path`'s URL handling and `<input>.<kind>.slp`
-        # convention with the lone route (a bare `Path()` here corrupted
-        # `scheme://` into `scheme:/`, so a remote --data_path ran detection and
-        # embedding and then failed on the final save).
-        if not output_path:
-            src, _, src_is_url = _resolve_data_path(kwargs["data_path"])
-            output_path = _default_embedding_output_path(
-                src, src_is_url, tracking=tracker_config is not None
-            )
+        video_index = kwargs.get("video_index")
+        if src_suffix == ".slp" and video_index is not None and detections.videos:
+            # Name the output after the scoped video, as `predict` does, so runs on
+            # different `--video_index` of one project do not overwrite each other.
+            scoped_video_name = _scoped_video_name(detections.videos[0], video_index)
+    elif src_suffix.lower() != ".slp":
+        # LONE: the embedding model embeds EXISTING detections, so the input must be
+        # a .slp. Checked on the URL's path, not the raw string, so a signed URL
+        # (`x.slp?sig=...`) is accepted.
+        raise click.UsageError(
+            f"--data_path must be a .slp of detections to embed, got {data_path!r}. "
+            "A lone embedding (re-ID) model attaches appearance vectors to "
+            "detections that already exist; to run on a video, pass a detection "
+            "model (centroid / centered_instance) alongside the embedding model so "
+            "the detections are produced first."
+        )
+    # One default for both routes, off the ORIGINAL input: `<input>.<kind>.slp`,
+    # URL-aware (`_default_predictions_path` drops a URL's directory -- it cannot
+    # be written next to -- and never lets `Path()` collapse `scheme://`).
+    if not output_path:
+        output_path = _default_embedding_output_path(
+            src, src_is_url, tracking=tracking, scoped_video_name=scoped_video_name
+        )
 
-    out = predict_embeddings_to_slp(
-        model_paths=embedding_dirs,
-        data_path=data_path,
-        labels=detections,
-        output_path=output_path,
-        device=_resolve_device(kwargs.get("device")),
-        batch_size=kwargs.get("batch_size", 4) or 4,
-        save_embeddings=save_embeddings,
-        tracker_config=tracker_config,
-        # Fused detections are freshly produced and carry no tracks yet, so embed
-        # them all (tracked-only would be empty); the lone-embedding path keeps the
-        # default (derive from tracking).
-        include_untracked=True if detection_dirs else None,
-        restore_source_videos=bool(kwargs.get("restore_source_videos", False)),
-    )
+    # The embedding stage batches CROPS, not frames: `-b` defaults to 4 for the
+    # detection stage's frames, which starves the embedder. Unless -b was given,
+    # use `predict_embeddings_to_slp`'s own crop batch.
+    batch_size = kwargs.get("batch_size", 4) or 4
+    ctx = click.get_current_context(silent=True)
+    if ctx is not None:
+        from click.core import ParameterSource
+
+        if ctx.get_parameter_source("batch_size") != ParameterSource.COMMANDLINE:
+            batch_size = _EMBEDDING_DEFAULT_CROP_BATCH
+
+    try:
+        out = predict_embeddings_to_slp(
+            model_paths=embedding_dirs,
+            data_path=src,
+            labels=detections,
+            output_path=output_path,
+            device=_resolve_device(kwargs.get("device")),
+            batch_size=batch_size,
+            save_embeddings=save_embeddings,
+            tracker_config=tracker_config,
+            restore_source_videos=bool(kwargs.get("restore_source_videos", False)),
+            remote_kwargs=remote_kwargs or None,
+        )
+    except EmbeddingInputError as e:
+        raise click.UsageError(str(e)) from e
 
     if tracker_config is not None:
         click.echo(f"Wrote tracked labels to {out}")
@@ -1960,21 +2054,43 @@ def _default_predictions_path(
 
 
 def _default_embedding_output_path(
-    source_str: str, is_url: bool, tracking: bool
+    source_str: str,
+    is_url: bool,
+    tracking: bool,
+    scoped_video_name: "Optional[str]" = None,
 ) -> str:
     """Derive the embedding route's default output path from the input source.
 
     ``<input>.tracked.slp`` when tracking, else ``<input>.embeddings.slp`` -- the
     SAME convention :func:`~sleap_nn.inference.embedding.predict_embeddings_to_slp`
-    uses for the lone route, so a fused run and a two-step run of the same input
-    land on the same filename. Remote inputs go through
-    :func:`_default_predictions_path`, which drops the URL's directory part (a URL
-    cannot be written next to, and ``Path()`` would collapse ``scheme://``).
+    uses, and the one default for both the lone and the fused route, so a fused
+    run and a two-step run of the same input land on the same filename. Remote
+    inputs go through :func:`_default_predictions_path`, which drops the URL's
+    directory part (a URL cannot be written next to, and ``Path()`` would collapse
+    ``scheme://``). A ``--video_index``-scoped run inserts the video's name, as
+    ``predict`` does (``<input stem>.<video>.tracked.slp``), so runs on different
+    videos of one project do not overwrite each other.
     """
+    from pathlib import Path
+
     kind = "tracked" if tracking else "embeddings"
     base = _default_predictions_path(source_str, is_url)
     stem = base[: -len(".slp")] if base.endswith(".slp") else base
+    if scoped_video_name is not None:
+        return f"{Path(stem).with_suffix('')}.{scoped_video_name}.{kind}.slp"
     return f"{stem}.{kind}.slp"
+
+
+def _scoped_video_name(video, video_index: int) -> str:
+    """The name a ``--video_index``-scoped run inserts into its default output path.
+
+    The video file's stem, or ``video_<index>`` when it has none. Shared by
+    ``predict`` and the fused embedding route so the two name a scoped run alike.
+    """
+    from pathlib import Path
+
+    filename = getattr(video, "filename", None)
+    return Path(str(filename)).stem if filename else f"video_{video_index}"
 
 
 def _build_remote_kwargs(kwargs: dict) -> dict:
@@ -2162,8 +2278,7 @@ def _run_in_memory_new_flow(
                 exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
                 only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
             )
-        _vfn = getattr(target_video, "filename", None)
-        scoped_video_name = Path(str(_vfn)).stem if _vfn else f"video_{video_index}"
+        scoped_video_name = _scoped_video_name(target_video, video_index)
     elif src_suffix == ".slp" and has_slp_filters:
         source = LabelsProvider(
             labels=source_str,

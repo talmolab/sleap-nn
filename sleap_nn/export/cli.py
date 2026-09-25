@@ -108,6 +108,7 @@ def export(
         resolve_burn_in,
         resolve_class_maps_output_stride,
         resolve_class_names,
+        resolve_crop_centering,
         resolve_crop_size,
         resolve_edge_inds,
         resolve_embedding_dim,
@@ -115,6 +116,7 @@ def export(
         resolve_input_channels,
         resolve_input_scale,
         resolve_input_shape,
+        resolve_max_hw,
         resolve_model_type,
         resolve_n_classes,
         resolve_node_names,
@@ -218,6 +220,8 @@ def export(
         metadata_backbone_source = None
         metadata_burn_in = None
         metadata_background_fill = None
+        metadata_crop_centering = None
+        metadata_max_hw = (None, None)
         metadata_normalization = "0_to_1"
 
         if model_type == "centroid":
@@ -328,7 +332,22 @@ def export(
             metadata_backbone_source = resolve_backbone_source(cfg)
             metadata_burn_in = resolve_burn_in(cfg)
             metadata_background_fill = resolve_background_fill(cfg)
+            metadata_crop_centering = resolve_crop_centering(cfg)
+            metadata_max_hw = resolve_max_hw(cfg)
             metadata_normalization = "per_crop_standardize"
+            trained_crop = resolve_crop_size(cfg)
+            if crop_size is not None and trained_crop != (crop_size, crop_size):
+                # Native inference always crops at the TRAINED size (it rejects
+                # overriding it); an export at another size feeds the embedder
+                # crops it was never fitted on.
+                logger.warning(
+                    f"--crop-size {crop_size} does not match the crop size this "
+                    f"embedding model was trained on ({trained_crop}). The exported "
+                    "graph will embed crops of a different size -- the animal "
+                    "appears at a different scale than in training -- and its "
+                    "vectors will not match native `sleap-nn predict` inference. "
+                    "Omit --crop-size to export at the trained size."
+                )
             if metadata_burn_in:
                 # The single-input ONNX graph standardizes over the WHOLE crop; a
                 # burn_in model's native inference standardizes over the foreground
@@ -420,6 +439,9 @@ def export(
             burn_in=metadata_burn_in,
             background_fill=metadata_background_fill,
             centroid_method=resolve_centroid_method(cfg, model_type),
+            crop_centering=metadata_crop_centering,
+            max_height=metadata_max_hw[0],
+            max_width=metadata_max_hw[1],
         )
 
         metadata.save(export_dir / "export_metadata.json")
@@ -501,6 +523,9 @@ def export(
                 burn_in=metadata_burn_in,
                 background_fill=metadata_background_fill,
                 centroid_method=resolve_centroid_method(cfg, model_type),
+                crop_centering=metadata_crop_centering,
+                max_height=metadata_max_hw[0],
+                max_width=metadata_max_hw[1],
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
         return

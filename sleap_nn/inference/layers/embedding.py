@@ -88,8 +88,10 @@ class EmbeddingLayer(InferenceLayer):
         embedding_dim: The output vector dimension ``D``.
         output_stride: Head map → crop-pixel stride (cosmetic for embeddings).
         max_stride: Backbone max stride.
-        preprocess_config / postprocess_config: Standard knobs. The crops are
-            already sized; only the model's own ``input_scale`` is applied.
+        preprocess_config / postprocess_config: Standard knobs, kept for the
+            ``InferenceLayer`` interface. :meth:`predict` applies no resizing: the
+            crops arrive already sized by ``EmbeddingDataset`` (which, like
+            training, does not apply the config's ``scale``).
     """
 
     _HEAD_OUTPUT_KEY: str = "EmbeddingHead"

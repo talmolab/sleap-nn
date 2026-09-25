@@ -2355,11 +2355,22 @@ class EmbeddingDataset(BaseDataset):
         rank: Optional[int] = None,
         parallel_caching: bool = True,
         cache_workers: int = 0,
+        frame_cache_size: int = 0,
     ) -> None:
-        """Initialize class attributes."""
+        """Initialize class attributes.
+
+        ``frame_cache_size`` keeps the last N decoded frames when ``cache_img`` is
+        ``None``. Inference enumerates samples frame by frame, so ``1`` decodes each
+        frame once instead of once per detection; ``0`` (default) keeps the
+        decode-per-sample behavior for training, whose sampler has no frame
+        locality.
+        """
         self.crop_size = crop_size
         self.class_names = list(class_names)
         self.embedding_head_config = embedding_head_config
+        self._frame_cache = (
+            _FrameLRU(int(frame_cache_size)) if frame_cache_size > 0 else None
+        )
         # `group_id` keying: global identity (global_id) vs per-(video, track)
         # tracklet. `_tracklet_vocab` lazily assigns a dense id per distinct tracklet.
         self.id_scope = id_scope
@@ -2383,16 +2394,17 @@ class EmbeddingDataset(BaseDataset):
         # where ``group_id`` is the real training-group key. Set before super().__init__
         # because the base ctor calls the overridden ``_get_lf_idx_list``.
         self.include_untracked = include_untracked
-        # `scale` is NOT applied to embedding crops (the crop path sizes via the
-        # centroid bbox + max_hw, then resizes to crop_size), but inference's
-        # EmbeddingLayer DOES scale its preprocess — so a non-1.0 scale would make the
-        # trained and inference crops disagree. Warn rather than silently diverge.
+        # `scale` is NOT applied to embedding crops, at training or at inference: the
+        # crop path sizes the frame via max_hw, crops crop_size around the detection,
+        # and never resizes by `scale` (inference reuses this dataset, and
+        # `EmbeddingLayer.predict` does no resizing of its own). Say so, since a
+        # non-1.0 value otherwise looks like it shrinks the animal in the crop.
         if float(scale) != 1.0:
             logger.warning(
-                f"data_config.preprocessing.scale={scale} is not applied to embedding "
-                "crops (only crop_size sizing is), but inference scales its crops — "
-                "leave scale=1.0 for the embedding model to keep train/inference crops "
-                "consistent."
+                f"data_config.preprocessing.scale={scale} is ignored for the embedding "
+                "model: crops are sized by max_height/max_width and crop_size only, "
+                "at training and inference alike. Use crop_size (or max_height/"
+                "max_width) to change how large the animal appears in the crop."
             )
         self._tracklet_vocab: Dict[tuple, int] = {}
         super().__init__(
@@ -2695,7 +2707,7 @@ class EmbeddingDataset(BaseDataset):
                 Image.open(f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg")
             )
         else:
-            img = self.labels_list[labels_idx][lf_idx].image
+            img = self._read_frame(labels_idx, lf_idx)
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
 
@@ -2707,6 +2719,21 @@ class EmbeddingDataset(BaseDataset):
         else:  # mask mode
             instance_image, instance_mask = self._crop_mask(image, meta)
         return self._pack_sample(instance_image, instance_mask, meta, index)
+
+    def _read_frame(self, labels_idx: int, lf_idx: int) -> np.ndarray:
+        """Decode one frame, reusing the last ``frame_cache_size`` decodes.
+
+        The returned array is shared with the cache; callers must not modify it in
+        place (``__getitem__`` copies before any transform).
+        """
+        if self._frame_cache is None:
+            return self.labels_list[labels_idx][lf_idx].image
+        key = (labels_idx, lf_idx)
+        img = self._frame_cache.get(key)
+        if img is None:
+            img = self.labels_list[labels_idx][lf_idx].image
+            self._frame_cache.put(key, img)
+        return img
 
     def _crop_mask(self, image, meta):
         """Crop centered on the mask COM; return ``(image_crop, mask_crop)``."""

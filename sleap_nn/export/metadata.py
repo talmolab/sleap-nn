@@ -70,6 +70,12 @@ class ExportMetadata:
     # DIVERGE from native masked inference — these fields make that detectable.
     burn_in: Optional[bool] = None
     background_fill: Optional[str] = None
+    # The crop geometry the embedder was trained on, which a runtime must
+    # reproduce to feed it matching crops: how the crop is centered on a detection
+    # and the frame size-matching applied before cropping (``None`` = none).
+    crop_centering: Optional[str] = None
+    max_height: Optional[int] = None
+    max_width: Optional[int] = None
 
     # Training config reference
     training_config_embedded: bool = False
@@ -121,6 +127,9 @@ class ExportMetadata:
             backbone_source=data.get("backbone_source"),
             burn_in=data.get("burn_in"),
             background_fill=data.get("background_fill"),
+            crop_centering=data.get("crop_centering"),
+            max_height=data.get("max_height"),
+            max_width=data.get("max_width"),
             centroid_method=data.get("centroid_method"),
             training_config_embedded=bool(data.get("training_config_embedded", False)),
             training_config_hash=data.get("training_config_hash", ""),
@@ -187,6 +196,9 @@ def build_base_metadata(
     burn_in: Optional[bool] = None,
     background_fill: Optional[str] = None,
     centroid_method: Optional[str] = None,
+    crop_centering: Optional[str] = None,
+    max_height: Optional[int] = None,
+    max_width: Optional[int] = None,
 ) -> ExportMetadata:
     """Create an ExportMetadata instance with standard defaults."""
     return ExportMetadata(
@@ -220,6 +232,9 @@ def build_base_metadata(
         backbone_source=backbone_source,
         burn_in=burn_in,
         background_fill=background_fill,
+        crop_centering=crop_centering,
+        max_height=max_height,
+        max_width=max_width,
         centroid_method=centroid_method,
         training_config_embedded=training_config_embedded,
         training_config_hash=training_config_hash,

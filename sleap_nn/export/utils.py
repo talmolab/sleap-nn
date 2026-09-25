@@ -128,6 +128,24 @@ def resolve_background_fill(cfg: DictConfig) -> str:
     )
 
 
+def resolve_crop_centering(cfg: DictConfig) -> str:
+    """Resolve how the trained embedder centered its crops (``auto`` when unset)."""
+    value = OmegaConf.select(
+        cfg, "data_config.preprocessing.crop_centering", default=None
+    )
+    return "auto" if value is None else str(value)
+
+
+def resolve_max_hw(cfg: DictConfig) -> Tuple[Optional[int], Optional[int]]:
+    """Resolve the frame size-matching (``max_height``, ``max_width``) before cropping."""
+
+    def _get(key: str) -> Optional[int]:
+        value = OmegaConf.select(cfg, f"data_config.preprocessing.{key}", default=None)
+        return None if value is None else int(value)
+
+    return _get("max_height"), _get("max_width")
+
+
 def resolve_embedding_input_channels(cfg: DictConfig) -> int:
     """Resolve the DATA channels an embedding crop is fed with (not the backbone).
 

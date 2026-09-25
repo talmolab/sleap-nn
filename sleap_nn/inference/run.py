@@ -152,6 +152,44 @@ def _video_has_embedded_images(video) -> bool:
     return bool(getattr(backend, "has_embedded_images", False))
 
 
+def _refuse_overwriting_frame_source(labels, output_path) -> None:
+    """Refuse to write ``output_path`` over a file a video reads its frames from.
+
+    ``-o`` naming the input ``.pkg.slp`` destroyed its stored frames: the output
+    either references itself as its own video source (``embed=False`` ->
+    ``FileNotFoundError ... (dataset: video0/video)`` on every reload) or, when
+    embedding, is truncated while its frames are still being read from it. Both
+    are unrecoverable, so fail before anything is written.
+
+    Raises:
+        ValueError: If ``output_path`` is the same file as any video's source.
+    """
+    import os
+    from urllib.parse import urlparse
+
+    out = str(output_path)
+    for i, video in enumerate(getattr(labels, "videos", None) or []):
+        names = video.filename
+        for name in names if isinstance(names, (list, tuple)) else [names]:
+            # Remote sources cannot be the local output file.
+            if not name or len(urlparse(str(name)).scheme) > 1:
+                continue
+            try:
+                same = (
+                    os.path.samefile(name, out)
+                    if os.path.exists(name) and os.path.exists(out)
+                    else Path(name).resolve() == Path(out).resolve()
+                )
+            except (OSError, ValueError):
+                same = False
+            if same:
+                raise ValueError(
+                    f"Refusing to write {out}: video {i} reads its frames from that "
+                    f"file ({name}), and overwriting it would destroy them. Write to "
+                    "a different output path."
+                )
+
+
 def _resolve_embed(embed, labels) -> bool:
     """Resolve the ``embed`` control (``"auto"``/``"true"``/``"false"`` or bool) to bool.
 
@@ -250,11 +288,14 @@ def save_predictions(
         was requested).
 
     Raises:
-        ValueError: If any requested format is not ``"slp"`` or ``"analysis_h5"``.
+        ValueError: If any requested format is not ``"slp"`` or ``"analysis_h5"``,
+            or if the ``.slp`` output would overwrite a video's frame source (e.g.
+            ``output_path`` is the input ``.pkg.slp``).
     """
     formats = _normalize_output_formats(output_format)
 
     if "slp" in formats:
+        _refuse_overwriting_frame_source(labels, output_path)
         if save_embedding_vectors is None:
             # Preserve appearance vectors iff the labels carry any: sleap-io
             # defaults this to False, so a tracked/re-saved .slp silently lost the
