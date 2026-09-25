@@ -790,8 +790,10 @@ def test_apply_tracking_masks_derived_cap_e2e(video):
     frames = [[(15, 15), (40, 40), (65, 65)] for _ in range(5)]
     labels = _make_mask_labels(video, frames)
 
+    # apply_tracking tracks IN PLACE (and the cap drops the third lane's masks from
+    # the frames), so the capped arm runs on a copy.
     capped = apply_tracking(
-        labels,
+        labels.copy(),
         _mask_cfg(candidates_method_explicit=False, tracking_target_instance_count=2),
     )
     n_capped = len(
@@ -799,10 +801,6 @@ def test_apply_tracking_masks_derived_cap_e2e(video):
     )
     assert n_capped == 2
 
-    # reset tracks (apply_tracking mutates the shared mask objects' .track)
-    for lf in labels.labeled_frames:
-        for m in lf.masks:
-            m.track = None
     uncapped = apply_tracking(labels, _mask_cfg(candidates_method_explicit=False))
     n_uncapped = len(
         {m.track.name for lf in uncapped.labeled_frames for m in lf.masks if m.track}

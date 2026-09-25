@@ -78,11 +78,14 @@ Everything else in the [tracker](tracking.md) is unchanged: the same candidate m
 (`fixed_window` / `local_queues`), windowing, score reduction, and Hungarian/greedy
 assignment. Only the per-detection feature and the pairwise score differ.
 
-!!! tip "Pair with `local_queues`"
-    `--candidates_method local_queues` keeps a per-track deque of recent vectors — a
-    lightweight appearance *gallery*. Matching a new detection against that window
-    (reduced by `--scoring_reduction`, e.g. `mean` = soft prototype) is a robust,
-    no-extra-infrastructure re-ID step.
+!!! tip "`local_queues` is the default here"
+    With `--features embeddings` the candidate maker defaults to `local_queues`, which
+    keeps a per-track deque of recent vectors — a lightweight appearance *gallery*.
+    Matching a new detection against that window (reduced by `--scoring_reduction`,
+    e.g. `mean` = soft prototype) is a robust, no-extra-infrastructure re-ID step,
+    and unlike `fixed_window` it re-binds an animal that was absent for longer than
+    `--tracking_window_size` frames. Pass `--candidates_method fixed_window` to opt
+    out.
 
 ---
 
@@ -110,8 +113,19 @@ Two properties worth knowing:
 - **The blend cannot invent matches geometry rejected.** Where geometry has no valid
   candidate (nothing passed `--min_match_points`), the pair stays unmatched.
 
-Pair it with a *geometric* `--features`; combining it with `--features embeddings` is
-rejected, since that would blend appearance with itself.
+Pair it with a *geometric* `--features` and `--scoring_method`; combining it with
+`--features embeddings` is rejected, since that would blend appearance with itself,
+and so is `--scoring_method cosine_sim` as the geometric score (it would score the
+cosine of raw coordinates, near 1 for any two poses).
+
+!!! note "The blend reads the vectors of the detections it tracks"
+    On a pose + mask file (top-down segmentation, SAM output) the embedding model
+    attaches the vectors to the **masks**, while pose tracking reads the poses — so
+    `--appearance_weight` with a pose `--features` is rejected there rather than
+    running as geometry only. Track the masks instead with `--features masks`
+    (appearance blended into mask IoU): every pose linked to exactly one tracked
+    mask inherits that mask's track. `--features embeddings` follows the vectors to
+    whichever carrier holds more of them.
 
 !!! warning "Distance scores need `--euclidean_scale`"
     Blending only means something when both terms live on the same scale. `oks`,
@@ -264,7 +278,7 @@ separate, future step; multi_class models can emit `sio.Identity` via
 | `--features embeddings` | Track by appearance ALONE (the sparse / post-occlusion regime) | — |
 | `--scoring_method cosine_sim` | Cosine similarity (auto-selected for embeddings; `euclidean_dist` also allowed) | auto |
 | `--euclidean_scale px` | Length scale for the distance→similarity kernel. Required with `--appearance_weight` when the geometric score is `euclidean_dist` (i.e. centroid-only detections); ignored otherwise | — |
-| `--candidates_method local_queues` | Per-track appearance gallery (recommended) | `fixed_window` |
+| `--candidates_method` | `local_queues` = per-track appearance gallery | `local_queues` with `--features embeddings`, else `fixed_window` |
 | `--save_embeddings {none,slp}` | Persist vectors in the tracked `.slp` (WF2/WF3) | `none` |
 
 All other [tracking parameters](tracking.md#tracking-parameters)
@@ -294,7 +308,7 @@ All other [tracking parameters](tracking.md#tracking-parameters)
     - **If your video is continuous, try the blend rather than appearance alone**:
       a geometric `--features` with `--appearance_weight 0.3`. Appearance-only was
       measurably worse than geometry on dense video (227 ID switches against 32).
-    - Use `--candidates_method local_queues` with a larger `--tracking_window_size`.
+    - Keep the default `local_queues` candidate maker and raise `--tracking_window_size`.
     - Check the embedding model actually separates your animals (validate retrieval
       metrics) — appearance tracking is only as good as the embeddings.
     - Cap identities with `--max_tracks N` when the animal count is known.

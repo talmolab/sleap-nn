@@ -1173,10 +1173,10 @@ def _run_inference_impl(**kwargs):
             # With --appearance_weight the appearance vector is a COMPLEMENTARY cue
             # blended into a GEOMETRIC score, so these defaults must NOT be
             # injected: `features="embeddings"` + a weight is rejected (blending
-            # appearance with itself), and injecting `cosine_sim` would score the
-            # geometric 1-w term by the cosine of ravel'd pixel coordinates --
-            # silent garbage. Leaving both unset lets apply_tracking's normal
-            # keypoints/oks (or single-node) resolution apply.
+            # appearance with itself), and `cosine_sim` as the geometric 1-w term
+            # would score the cosine of ravel'd pixel coordinates (also rejected).
+            # Leaving both unset lets apply_tracking's normal keypoints/oks (or
+            # single-node) resolution apply.
             if not kwargs.get("appearance_weight"):
                 if not kwargs.get("features"):
                     kwargs["features"] = "embeddings"

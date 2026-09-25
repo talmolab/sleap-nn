@@ -51,9 +51,11 @@ from sleap_nn.tracking.utils import (
 # mask-shaped and crash on an embedding vector.
 VECTOR_SCORING_METHODS = ("cosine_sim", "euclidean_dist")
 
-# Metrics whose output is already BOUNDED, so blending them with a cosine
-# similarity in [-1, 1] is meaningful as-is.
-BOUNDED_SCORING_METHODS = ("oks", "iou", "mask_iou", "cosine_sim")
+# GEOMETRIC metrics whose output is already BOUNDED, so blending them with a cosine
+# similarity in [-1, 1] is meaningful as-is. `cosine_sim` is bounded too but is not
+# geometric: as the geometric side of a blend it scores the cosine of raveled pixel
+# coordinates (poses ~190 px apart score ~0.98), so it is deliberately absent.
+BOUNDED_SCORING_METHODS = ("oks", "iou", "mask_iou")
 
 # Metrics that are UNBOUNDED but can be blended once mapped through a bounded
 # kernel with an explicit length scale. `euclidean_dist` returns negative PIXELS:
@@ -212,11 +214,17 @@ def validate_appearance_config(
                 logger.error(message)
                 raise ValueError(message)
         elif scoring_method not in BOUNDED_SCORING_METHODS:
+            reason = (
+                "cosine_sim is the APPEARANCE metric: as the geometric side of the "
+                "blend it would score the cosine of raw coordinates, which is near 1 "
+                "for any two poses"
+                if scoring_method == "cosine_sim"
+                else f"scoring_method={scoring_method!r} is neither"
+            )
             message = (
-                f"appearance_weight requires a geometric score that is bounded, or "
-                f"mappable to one; scoring_method={scoring_method!r} is neither. "
-                "Use 'oks' (poses), 'iou' (boxes), 'mask_iou' (masks), or "
-                "'euclidean_dist' with --euclidean_scale."
+                "appearance_weight requires a geometric score that is bounded, or "
+                f"mappable to one; {reason}. Use 'oks' (poses), 'iou' (boxes), "
+                "'mask_iou' (masks), or 'euclidean_dist' with --euclidean_scale."
             )
             logger.error(message)
             raise ValueError(message)
@@ -266,6 +274,11 @@ class Tracker:
         use_flow: If True, `FlowShiftTracker` is used, where the poses are matched using
             optical flow shifts. Default: `False`.
         is_local_queue: `True` if `LocalQueueCandidates` is used else `False`.
+        track_name_offset: Added to a new track's numeric ID when naming its
+            `sio.Track` (`track_{id + offset}`). Track IDs restart at 0 in every
+            tracker, so a caller that runs one fresh tracker per video (see
+            `apply_tracking`) sets this to keep names unique across videos. Names
+            only -- matching never reads it. Default: 0.
 
     """
 
@@ -286,6 +299,7 @@ class Tracker:
     tracking_target_instance_count: Optional[int] = None
     tracking_pre_cull_to_target: int = 0
     tracking_pre_cull_iou_threshold: float = 0
+    track_name_offset: int = 0
     _scoring_functions: Dict[str, Any] = {
         "oks": compute_oks,
         "iou": compute_iou,
@@ -671,7 +685,7 @@ class Tracker:
                 if instance.track_id is not None:
                     if instance.track_id not in self._track_objects:
                         self._track_objects[instance.track_id] = sio.Track(
-                            f"track_{instance.track_id}"
+                            f"track_{instance.track_id + self.track_name_offset}"
                         )
                     instance.src_instance.track = self._track_objects[instance.track_id]
                     instance.src_instance.tracking_score = instance.tracking_score
@@ -683,7 +697,9 @@ class Tracker:
                 track_id = current_tracked_instances.track_ids[idx]
                 if track_id is not None:
                     if track_id not in self._track_objects:
-                        self._track_objects[track_id] = sio.Track(f"track_{track_id}")
+                        self._track_objects[track_id] = sio.Track(
+                            f"track_{track_id + self.track_name_offset}"
+                        )
                     inst.track = self._track_objects[track_id]
                     inst.tracking_score = current_tracked_instances.tracking_scores[idx]
                     new_pred_instances.append(inst)
@@ -792,6 +808,22 @@ class Tracker:
             # `nanquantile` matches the NaN-handling of `nanmean`/`nanmax`.
             scoring_reduction = functools.partial(
                 np.nanquantile, q=self.robust_best_instance
+            )
+
+        if self.features == "embeddings" and self.scoring_method == "cosine_sim":
+            # Appearance-only association: the feature IS the detection's appearance
+            # vector, so the vectorized cosine matrix the blend uses computes the
+            # per-pair loop below (same `min_match_points` filter, same reduction,
+            # NaN for "no vector"; equal to ~1e-15), in one matmul instead of one
+            # Python call per (detection, candidate) pair -- ~10x faster at 10
+            # animals, and without the loop's "Mean of empty slice" warning on
+            # vector-less pairs. The one divergence: vectors of a dimension other
+            # than the frame's first query (two models' vectors mixed in one file)
+            # are NaN'd rather than scored against same-dimension candidates.
+            # (`appearance_weight` is rejected with `features="embeddings"`, so there
+            # is nothing to blend here.)
+            return self._appearance_scores(
+                current_instances, candidates_feature_dict, scoring_reduction
             )
 
         # Get list of features for the `current_instances`.
