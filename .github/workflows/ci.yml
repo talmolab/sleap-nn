@@ -63,7 +63,7 @@ jobs:
     # past 45 min because MPS compute intermittently hangs / OOMs on the
     # virtualized macos-14 runner; that is now neutralized by
     # SLEAP_NN_DISABLE_MPS below.)
-    timeout-minutes: 20
+    timeout-minutes: 75
     env:
       CUDA_VISIBLE_DEVICES: ""
       USE_CUDA: "0"
@@ -77,14 +77,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu", "windows", "mac"]  # "self-hosted-gpu" temporarily disabled
+        os: ["windows"]  # DIAGNOSTIC: windows only
         include:
-          - os: ubuntu
-            runs-on: ubuntu-latest
           - os: windows
             runs-on: windows-latest
-          - os: mac
-            runs-on: macos-14
           # - os: self-hosted-gpu
           #   runs-on: [self-hosted, puma, gpu, 2xgpu]
         python: [3.13]
@@ -159,12 +155,32 @@ jobs:
               print('MPS backend is not available on this macOS system')
           "
 
-      - name: Run pytest
-        run: |
-          echo "=== Final environment check before tests ==="
-          uv run --frozen --no-group gpu --extra torch-cpu python -c "import numpy, torch, lightning, skia; print(f'All packages available: numpy={numpy.__version__}, torch={torch.__version__}')"
-          echo "=== Running pytest ==="
-          uv run --frozen --no-group gpu --extra torch-cpu pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
+      # DIAGNOSTIC (emb-review F2 Windows hang): narrow repros first, each with a
+      # faulthandler stack dump of every thread when one test runs past the limit.
+      - name: "DIAG A: bottomup alone (control)"
+        continue-on-error: true
+        timeout-minutes: 8
+        run: uv run --frozen --no-group gpu --extra torch-cpu pytest -v -p no:cacheprovider -o faulthandler_timeout=150 tests/training/test_model_trainer.py -k "test_model_trainer_bottomup"
+
+      - name: "DIAG B: scatter e2e test, then bottomup"
+        continue-on-error: true
+        timeout-minutes: 8
+        run: uv run --frozen --no-group gpu --extra torch-cpu pytest -v -p no:cacheprovider -o faulthandler_timeout=150 tests/training/test_embedding_train_e2e.py tests/training/test_model_trainer.py -k "scatter or test_model_trainer_bottomup"
+
+      - name: "DIAG C: singleton e2e test, then bottomup"
+        continue-on-error: true
+        timeout-minutes: 8
+        run: uv run --frozen --no-group gpu --extra torch-cpu pytest -v -p no:cacheprovider -o faulthandler_timeout=150 tests/training/test_embedding_train_e2e.py tests/training/test_model_trainer.py -k "singleton or test_model_trainer_bottomup"
+
+      - name: "DIAG D: all of tests/training"
+        continue-on-error: true
+        timeout-minutes: 12
+        run: uv run --frozen --no-group gpu --extra torch-cpu pytest -v -p no:cacheprovider -o faulthandler_timeout=180 tests/training
+
+      - name: "DIAG E: full suite as in CI"
+        continue-on-error: true
+        timeout-minutes: 30
+        run: uv run --frozen --no-group gpu --extra torch-cpu pytest -p no:cacheprovider -o faulthandler_timeout=240 --durations=-1 tests/
 
       - name: Upload coverage
         if: github.repository == 'talmolab/sleap-nn'
