@@ -585,3 +585,59 @@ def test_fused_topdown_blend_end_to_end(embedding_model_dir, tmp_path):
     # embedding-less pairs is what wrote -inf.
     assert all(i.tracking_score is None or np.isfinite(i.tracking_score) for i in insts)
     assert not os.path.exists(STRAY_DETECTIONS_PATH)
+
+
+def test_wf2_cli_keeps_masks_and_suggestions(embedding_model_dir, tmp_path):
+    """WF2 through the CLI (`predict -m <embedding> -i x.slp -t`) writes
+    `apply_tracking`'s result straight to disk. Tracking the pose carrier used to
+    rebuild every frame with `masks=[]` and return a bare `Labels`, so a mask on the
+    input and its suggestions were silently deleted from the tracked file."""
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import cli
+
+    vid = _write_video(tmp_path / "mixed.mp4", n=4)
+    skel = sio.Skeleton(nodes=["a", "b"])
+    yy, xx = np.ogrid[:64, :64]
+    lfs = []
+    for fi in range(4):
+        insts = [
+            sio.PredictedInstance.from_numpy(
+                np.array([[x, 20.0], [x + 6, 28.0]]), skeleton=skel, score=0.9
+            )
+            for x in (16.0, 44.0)
+        ]
+        masks = []
+        if fi == 0:  # one mask, on one frame: the poses stay the dominant carrier
+            disk = ((yy - 20) ** 2 + (xx - 30) ** 2) <= 81
+            masks = [sio.PredictedSegmentationMask.from_numpy(disk, score=0.9)]
+        lfs.append(
+            sio.LabeledFrame(video=vid, frame_idx=fi, instances=insts, masks=masks)
+        )
+    labels = sio.Labels(labeled_frames=lfs, videos=[vid], skeletons=[skel])
+    labels.suggestions.append(sio.SuggestionFrame(video=vid, frame_idx=2))
+    src = tmp_path / "mixed.slp"
+    sio.save_slp(labels, src.as_posix(), embed=False)
+
+    out = tmp_path / "mixed.tracked.slp"
+    result = CliRunner().invoke(
+        cli,
+        [
+            "predict",
+            "-m",
+            embedding_model_dir,
+            "-i",
+            src.as_posix(),
+            "-t",
+            "--device",
+            "cpu",
+            "-o",
+            out.as_posix(),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    tracked = sio.load_slp(out.as_posix())
+    assert sum(len(lf.masks) for lf in tracked) == 1
+    assert [s.frame_idx for s in tracked.suggestions] == [2]
+    insts = [i for lf in tracked for i in lf.instances]
+    assert len(insts) == 8 and all(i.track is not None for i in insts)

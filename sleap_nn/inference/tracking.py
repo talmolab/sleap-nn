@@ -13,8 +13,10 @@ Why labels-in / labels-out: the tracker is stateful across frames and
 operates on ``sio.PredictedInstance`` objects, so the natural seam is
 *after* :meth:`Predictor.to_labels` converts ``Outputs`` to
 ``LabeledFrame``s. ``apply_tracking`` builds a fresh ``Tracker`` per
-call (no shared state across ``predict()`` invocations) and runs it
-in submission order.
+video (no shared state across ``predict()`` invocations, or across the
+videos of one ``Labels``), runs it in ``(video, frame_idx)`` order, and
+tracks the given ``Labels`` in place, so every field it does not track
+(the other carrier, ROIs, suggestions, ...) passes through untouched.
 
 What this does NOT cover:
 
@@ -104,38 +106,144 @@ class TrackerConfig:
     candidates_method_explicit: bool = True
 
 
-def _embedding_carriers(labels: sio.Labels) -> tuple[bool, bool]:
-    """Return ``(instances_have_embedding, masks_have_embedding)``.
+# The two detection carriers of a ``LabeledFrame``: pose instances (``lf.instances``)
+# and segmentation masks (``lf.masks``).
+POSE_CARRIER = "pose"
+MASK_CARRIER = "mask"
 
-    Scans both carriers — pose ``Instance`` / ``PredictedInstance`` on
-    ``lf.instances`` and ``PredictedSegmentationMask`` on ``lf.masks`` (both carry the
-    single ``identity_embedding`` slot, sleap-io #535) — for an appearance vector. Used
-    by :func:`apply_tracking` to (a) fail loudly when ``features="embeddings"`` is
-    requested on labels with none, and (b) route the tracker to the carrier the
-    embeddings actually ride on (not the pose/mask-presence heuristic).
+# Warn when at least this fraction of the tracked carrier's detections carries no
+# appearance vector: under appearance-only tracking each such detection can never
+# match and spawns a fresh track; under a blend it silently falls back to geometry.
+MISSING_VECTOR_WARN_FRACTION = 0.1
+
+
+@attrs.frozen
+class CarrierCounts:
+    """How many detections each carrier holds, and how many of them qualify.
+
+    A ``.slp`` can hold both carriers at once -- top-down segmentation and SAM output
+    are poses with linked masks -- so "which carrier?" questions (where are the
+    appearance vectors? which carrier was tracked?) are answered by COUNTING, never
+    by "any detection anywhere": a single stray mask or vector must not flip a whole
+    file. Built by :func:`count_carriers` with the qualifying predicate of the
+    question being asked (:func:`embedding_carriers` for appearance vectors).
     """
-    insts_have = False
-    masks_have = False
+
+    n_pose: int = 0
+    n_mask: int = 0
+    n_pose_with: int = 0
+    n_mask_with: int = 0
+
+    def total(self, carrier: str) -> int:
+        """Detections on ``carrier``."""
+        return self.n_mask if carrier == MASK_CARRIER else self.n_pose
+
+    def n_with(self, carrier: str) -> int:
+        """Qualifying detections on ``carrier``."""
+        return self.n_mask_with if carrier == MASK_CARRIER else self.n_pose_with
+
+    @property
+    def dominant(self) -> Optional[str]:
+        """The carrier holding MORE qualifying detections; ``None`` if neither holds any.
+
+        Ties go to the pose carrier, the one every tracker option supports (the
+        cull/clean/connect and motion-model options are pose-only).
+        """
+        if not (self.n_pose_with or self.n_mask_with):
+            return None
+        return MASK_CARRIER if self.n_mask_with > self.n_pose_with else POSE_CARRIER
+
+
+def count_carriers(
+    labels: sio.Labels, predicate: Callable[[object], bool]
+) -> CarrierCounts:
+    """Count each carrier's detections, and those satisfying ``predicate``.
+
+    Args:
+        labels: Labels to scan (every frame's ``instances`` and ``masks``).
+        predicate: ``detection -> bool``, e.g. "carries an appearance vector"
+            (:func:`embedding_carriers`) or "carries a track".
+    """
+    n_pose = n_mask = n_pose_with = n_mask_with = 0
     for lf in labels.labeled_frames:
-        if not insts_have:
-            for inst in lf.instances:
-                if getattr(inst, "identity_embedding", None) is not None:
-                    insts_have = True
-                    break
-        if not masks_have:
-            for m in getattr(lf, "masks", None) or []:
-                if getattr(m, "identity_embedding", None) is not None:
-                    masks_have = True
-                    break
-        if insts_have and masks_have:
-            break
-    return insts_have, masks_have
+        for inst in lf.instances:
+            n_pose += 1
+            n_pose_with += bool(predicate(inst))
+        for m in getattr(lf, "masks", None) or []:
+            n_mask += 1
+            n_mask_with += bool(predicate(m))
+    return CarrierCounts(
+        n_pose=n_pose, n_mask=n_mask, n_pose_with=n_pose_with, n_mask_with=n_mask_with
+    )
+
+
+def _has_embedding(detection) -> bool:
+    return getattr(detection, "identity_embedding", None) is not None
+
+
+def embedding_carriers(labels: sio.Labels) -> CarrierCounts:
+    """Where the appearance (re-ID) vectors are, per carrier.
+
+    Both carriers -- pose ``Instance`` / ``PredictedInstance`` and
+    ``PredictedSegmentationMask`` -- hold a vector in the single
+    ``identity_embedding`` slot (sleap-io #535). :func:`apply_tracking` routes
+    ``features="embeddings"`` to :attr:`CarrierCounts.dominant`, and checks that the
+    carrier an ``appearance_weight`` blend tracks actually holds vectors.
+    """
+    return count_carriers(labels, _has_embedding)
 
 
 def _labels_have_embeddings(labels: sio.Labels) -> bool:
     """``True`` if any detection (pose instance or mask) carries a re-ID vector."""
-    insts_have, masks_have = _embedding_carriers(labels)
-    return insts_have or masks_have
+    return embedding_carriers(labels).dominant is not None
+
+
+def _warn_missing_vectors(
+    counts: CarrierCounts, carrier: str, appearance_only: bool
+) -> None:
+    """Warn when a sizable fraction of the tracked carrier has no appearance vector."""
+    total = counts.total(carrier)
+    missing = total - counts.n_with(carrier)
+    if not total or missing / total < MISSING_VECTOR_WARN_FRACTION:
+        return
+    consequence = (
+        "can never match by appearance, so each one spawns a fresh track"
+        if appearance_only
+        else "are scored by geometry alone"
+    )
+    logger.warning(
+        f"{missing} of {total} {carrier} detection(s) ({missing / total:.0%}) carry "
+        f"no appearance vector; they {consequence}. Embed every detection before "
+        "tracking (`sleap-nn predict -m <embedding_model> -i <file>.slp -t` embeds "
+        "tracked and untracked detections alike)."
+    )
+
+
+def _inherit_mask_tracks(lf: sio.LabeledFrame) -> int:
+    """Copy each tracked mask's track onto the pose instance linked to it.
+
+    Mask-carrier tracking assigns tracks to ``lf.masks``; the poses those masks are
+    linked to (``mask.instance``) would otherwise come out untracked, so the poses of
+    a top-down-segmentation or SAM file could not be scored or proofread by track.
+    Copied only where the link is unambiguous: the instance is on this frame and
+    exactly one of the frame's tracked masks links to it.
+
+    Returns:
+        How many of the frame's instances inherited a track.
+    """
+    linked: dict = {}
+    for m in lf.masks:
+        inst = getattr(m, "instance", None)
+        if inst is not None:
+            linked.setdefault(id(inst), []).append(m)
+    n_inherited = 0
+    for inst in lf.instances:
+        masks = linked.get(id(inst), [])
+        if len(masks) == 1 and masks[0].track is not None:
+            inst.track = masks[0].track
+            inst.tracking_score = masks[0].tracking_score
+            n_inherited += 1
+    return n_inherited
 
 
 def apply_tracking(
@@ -143,30 +251,45 @@ def apply_tracking(
     config: TrackerConfig,
     progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> sio.Labels:
-    """Track predicted instances on every frame and run post-cleanup.
+    """Track predicted instances on every frame and run post-cleanup, IN PLACE.
 
-    Mirrors :func:`sleap_nn.tracking.tracker.run_tracker` but accepts
-    a ``sio.Labels`` directly (instead of a list of LabeledFrames),
-    builds a fresh ``Tracker`` per call, and returns a new ``Labels``
-    sharing the input's ``videos`` / ``skeletons``.
+    Mirrors :func:`sleap_nn.tracking.tracker.run_tracker` but accepts a
+    ``sio.Labels`` directly (instead of a list of LabeledFrames) and runs a fresh
+    ``Tracker`` per VIDEO: tracks never span two videos, and their names continue
+    across videos (video 2's first new track follows video 1's last) so no two
+    videos share a track name.
+
+    The input is modified and returned -- it is NOT copied. Tracks and tracking
+    scores are written onto the input's detections, each frame's tracked carrier
+    (``lf.instances`` or ``lf.masks``) is replaced by the tracker's output, frames
+    are reordered to ``(video, frame_idx)`` order, and ``labels.tracks`` is rebuilt
+    to the tracks the frames reference. Everything else passes through untouched:
+    the other carrier, ``lf.rois`` / ``lf.centroids`` / ``lf.bboxes``, suggestions,
+    sessions, identities, provenance. To keep the input (e.g. an in-memory sweep
+    over tracker settings), pass ``labels.copy()``. A lazy ``Labels`` is
+    materialized first, so for one the return value is a new object.
 
     Args:
         labels: Untracked predictions. Each ``LabeledFrame``'s
-            ``predicted_instances`` are tracked; ``user_instances`` (if
-            any) are passed through unchanged and are preferred when
-            both are present (matching ``run_tracker`` semantics).
+            ``predicted_instances`` are tracked, or its ``user_instances`` when it
+            has any (the predicted ones are then carried through untracked,
+            matching ``run_tracker`` semantics). In mask mode ``lf.masks`` is
+            tracked, and each pose linked to exactly one tracked mask
+            (``mask.instance``) inherits that mask's track.
         config: Tracking configuration.
         progress_callback: Optional ``(processed_frames, total_frames)``
             callback invoked after each frame is tracked.
 
     Returns:
-        ``sio.Labels`` with tracked instances. ``videos`` and
-        ``skeletons`` are reused; ``provenance`` is left to the caller
-        to attach (the CLI builds its own provenance).
+        ``labels`` itself, tracked. ``provenance`` is left to the caller to
+        attach (the CLI builds its own provenance).
 
     Raises:
         ValueError: ``post_connect_single_breaks=True`` requires
-            ``tracking_target_instance_count`` to be set.
+            ``tracking_target_instance_count`` to be set; incoherent
+            feature/scoring/appearance combinations; ``features="embeddings"``
+            or ``appearance_weight > 0`` when the tracked carrier holds no
+            appearance vectors.
     """
     from sleap_nn.tracking.tracker import (
         Tracker,
@@ -189,6 +312,11 @@ def apply_tracking(
             "post_connect_single_breaks=True and tracking_pre_cull_to_target "
             "require tracking_target_instance_count to be set."
         )
+
+    if labels.is_lazy:
+        # Tracking writes onto the detections; a lazy Labels re-materializes them
+        # from disk on every access, so the tracks would be lost.
+        labels = labels.materialize()
 
     # max_tracks is only honored by the local_queues candidate maker; the
     # fixed_window default silently ignores it. `Tracker.from_config` (the shared
@@ -244,14 +372,18 @@ def apply_tracking(
                 f"features={effective_features!r}."
             )
 
-    # Segmentation (mask-only) default resolution. A bottom-up segmentation
+    # Segmentation (mask carrier) default resolution. A bottom-up segmentation
     # model emits sio.PredictedSegmentationMask into LabeledFrame.masks and no
     # predicted keypoint instances (no skeleton); track masks by pixel mask-IoU.
     # Detect on the labels content (available here, after prediction), mirroring
-    # the single-node centroid branch.
-    is_mask_mode = any(
-        getattr(lf, "masks", None) for lf in labels.labeled_frames
-    ) and not any(lf.has_predicted_instances for lf in labels.labeled_frames)
+    # the single-node centroid branch. An explicit ``features="masks"`` also tracks
+    # the mask carrier when there are masks to track -- on a pose+mask file (top-down
+    # segmentation, SAM) it is the only way to track the masks by geometry.
+    has_masks = any(getattr(lf, "masks", None) for lf in labels.labeled_frames)
+    is_mask_mode = has_masks and (
+        not any(lf.has_predicted_instances for lf in labels.labeled_frames)
+        or (not is_embedding_mode and config.features == "masks")
+    )
     if is_mask_mode and not is_embedding_mode:
         if not config.scoring_method_explicit:
             effective_scoring_method = "mask_iou"
@@ -325,23 +457,27 @@ def apply_tracking(
         euclidean_scale=config.euclidean_scale,
     )
 
+    # Where the appearance vectors are, counted per carrier -- only when appearance
+    # is used, so a geometry-only run never pays for the scan.
+    uses_appearance = is_embedding_mode or config.appearance_weight > 0.0
+    vector_counts = embedding_carriers(labels) if uses_appearance else CarrierCounts()
+
     if is_embedding_mode:
         # Route to the carrier the embeddings actually ride on, NOT the pose/mask
         # presence heuristic: a .slp may have both pose instances and masks but carry
         # the appearance vectors on only one. The default `is_mask_mode` (masks present &&
         # no predicted instances) would, for masks-with-embeddings + pose-instances,
-        # track the embedding-less poses (all-NaN -> no association). Decide on
-        # embedding location: track masks only when the masks carry the embeddings and
-        # the instances do not.
-        insts_have_emb, masks_have_emb = _embedding_carriers(labels)
-        is_mask_mode = masks_have_emb and not insts_have_emb
+        # track the embedding-less poses (all-NaN -> no association). The carrier
+        # holding MORE vectors wins, so a few stray vectors on the other carrier
+        # cannot flip the run.
+        carrier = vector_counts.dominant
         # The appearance vectors must already ride on the detections'
         # ``identity_embedding`` slot (attached by the `embedding` model); apply_tracking
         # never computes them.
         # Fail loudly if none are present (the common "forgot to run / persist the
         # embedding model" mistake) rather than silently spawning a fresh track per
         # detection (every cosine is NaN -> inf cost -> no match).
-        if not (insts_have_emb or masks_have_emb):
+        if carrier is None:
             raise ValueError(
                 "features='embeddings' but no detection in the labels carries an "
                 "appearance embedding. Run the embedding (re-ID) model and "
@@ -349,6 +485,7 @@ def apply_tracking(
                 "<embedding_model> ... --save_embeddings slp`), then track the "
                 "resulting .slp."
             )
+        is_mask_mode = carrier == MASK_CARRIER
         # Mask-carried embeddings reuse the mask routing (track ``lf.masks``); the
         # pose-shaped cull/clean/connect ops crash on masks (same as mask_iou mode).
         if is_mask_mode and (
@@ -361,156 +498,218 @@ def apply_tracking(
                 "cull/clean/connect options (tracking_pre_cull_to_target / "
                 "tracking_clean_instance_count / post_connect_single_breaks)."
             )
-        carrier = "mask" if is_mask_mode else "pose"
+        # Appearance-only tracking is for re-identification after occlusions and
+        # across sparse frames. `fixed_window` forgets any track absent for more than
+        # `window_size` frames and mints a fresh id when the animal returns, which is
+        # exactly the case this mode exists for; `local_queues` keeps every track's
+        # own gallery of recent vectors and re-binds across the gap. Default to it
+        # unless the user explicitly chose a method (mask mode does the same).
+        if not config.candidates_method_explicit:
+            effective_candidates_method = "local_queues"
         logger.info(
             "Embedding (appearance) tracking: features='embeddings', "
-            f"scoring_method={effective_scoring_method!r}, carrier={carrier}."
+            f"scoring_method={effective_scoring_method!r}, carrier={carrier}, "
+            f"candidates_method={effective_candidates_method!r}."
         )
 
-    if config.appearance_weight > 0.0 and not _labels_have_embeddings(labels):
-        # `appearance_weight` says "use appearance as a complementary cue", so with
-        # no vectors anywhere the blend is a silent no-op byte-identical to weight 0
-        # -- the same "forgot to run / persist the embedding model" mistake
-        # `features='embeddings'` fails loudly on. Fail here too.
-        raise ValueError(
-            f"appearance_weight={config.appearance_weight} was requested but no "
-            "detection in the labels carries an appearance embedding, so the "
-            "blend would be a silent no-op. Run the embedding (re-ID) model and "
-            "persist the vectors first (e.g. `sleap-nn predict --model_paths "
-            "<detection_models> <embedding_model> ... --save_embeddings slp`), or "
-            "drop --appearance_weight to track on geometry alone."
-        )
-
-    tracker = Tracker.from_config(
-        window_size=effective_window_size,
-        min_new_track_points=config.min_new_track_points,
-        candidates_method=effective_candidates_method,
-        min_match_points=config.min_match_points,
-        features=effective_features,
-        scoring_method=effective_scoring_method,
-        scoring_reduction=config.scoring_reduction,
-        robust_best_instance=config.robust_best_instance,
-        oks_stddev=config.oks_stddev,
-        appearance_weight=config.appearance_weight,
-        euclidean_scale=config.euclidean_scale,
-        track_matching_method=config.track_matching_method,
-        max_tracks=effective_max_tracks,
-        use_flow=config.use_flow,
-        of_img_scale=config.of_img_scale,
-        of_window_size=config.of_window_size,
-        of_max_levels=config.of_max_levels,
-        use_kalman=config.use_kalman,
-        kf_track_features=config.kf_track_features,
-        kf_init_frame_count=config.kf_init_frame_count,
-        kf_node_indices=config.kf_node_indices,
-        kf_reset_gap_size=config.kf_reset_gap_size,
-        tracking_target_instance_count=config.tracking_target_instance_count,
-        tracking_pre_cull_to_target=config.tracking_pre_cull_to_target,
-        tracking_pre_cull_iou_threshold=config.tracking_pre_cull_iou_threshold,
-    )
-
-    if is_mask_mode:
-        n_pose = sum(
-            len(lf.instances)
-            for lf in labels.labeled_frames
-            if lf.has_predicted_instances
-        )
-        if n_pose:
-            logger.warning(
-                f"Tracking the MASK carrier, but {n_pose} pose instance(s) are also "
-                "present. They are carried through to the output UNTRACKED (no "
-                "track assigned) -- only the masks are tracked. Attach the "
-                "appearance vectors to the pose instances instead if the poses are "
-                "what should carry identity."
+    tracked_carrier = MASK_CARRIER if is_mask_mode else POSE_CARRIER
+    if config.appearance_weight > 0.0:
+        other_carrier = POSE_CARRIER if is_mask_mode else MASK_CARRIER
+        if vector_counts.dominant is None:
+            # `appearance_weight` says "use appearance as a complementary cue", so
+            # with no vectors anywhere the blend is a silent no-op byte-identical to
+            # weight 0 -- the same "forgot to run / persist the embedding model"
+            # mistake `features='embeddings'` fails loudly on. Fail here too.
+            raise ValueError(
+                f"appearance_weight={config.appearance_weight} was requested but no "
+                "detection in the labels carries an appearance embedding, so the "
+                "blend would be a silent no-op. Run the embedding (re-ID) model and "
+                "persist the vectors first (e.g. `sleap-nn predict --model_paths "
+                "<detection_models> <embedding_model> ... --save_embeddings slp`), "
+                "or drop --appearance_weight to track on geometry alone."
             )
+        if vector_counts.n_with(tracked_carrier) == 0:
+            # The blend reads each TRACKED detection's own vector. Vectors that ride
+            # on the other carrier (the embedding model puts them on the masks of a
+            # pose+mask file) are never read, so the blend would be just as inert.
+            way_out = (
+                "Track the masks instead (`--features masks`, blending appearance "
+                "into mask IoU), or track by appearance alone (`--features "
+                "embeddings`, which follows the vectors to their carrier)."
+                if other_carrier == MASK_CARRIER
+                else "Track the poses instead (a pose `--features`, e.g. "
+                "`keypoints`), or track by appearance alone (`--features "
+                "embeddings`, which follows the vectors to their carrier)."
+            )
+            raise ValueError(
+                f"appearance_weight={config.appearance_weight} was requested, but "
+                f"tracking follows the {tracked_carrier} carrier and none of its "
+                f"{vector_counts.total(tracked_carrier)} detection(s) carries an "
+                "appearance embedding: the vectors are on the "
+                f"{other_carrier} carrier ({vector_counts.n_with(other_carrier)} of "
+                f"{vector_counts.total(other_carrier)}), so the blend would be a "
+                f"silent no-op. {way_out}"
+            )
+    if uses_appearance:
+        _warn_missing_vectors(
+            vector_counts, tracked_carrier, appearance_only=is_embedding_mode
+        )
+
+    def _new_tracker(track_name_offset: int) -> "Tracker":
+        tracker = Tracker.from_config(
+            window_size=effective_window_size,
+            min_new_track_points=config.min_new_track_points,
+            candidates_method=effective_candidates_method,
+            min_match_points=config.min_match_points,
+            features=effective_features,
+            scoring_method=effective_scoring_method,
+            scoring_reduction=config.scoring_reduction,
+            robust_best_instance=config.robust_best_instance,
+            oks_stddev=config.oks_stddev,
+            appearance_weight=config.appearance_weight,
+            euclidean_scale=config.euclidean_scale,
+            track_matching_method=config.track_matching_method,
+            max_tracks=effective_max_tracks,
+            use_flow=config.use_flow,
+            of_img_scale=config.of_img_scale,
+            of_window_size=config.of_window_size,
+            of_max_levels=config.of_max_levels,
+            use_kalman=config.use_kalman,
+            kf_track_features=config.kf_track_features,
+            kf_init_frame_count=config.kf_init_frame_count,
+            kf_node_indices=config.kf_node_indices,
+            kf_reset_gap_size=config.kf_reset_gap_size,
+            tracking_target_instance_count=config.tracking_target_instance_count,
+            tracking_pre_cull_to_target=config.tracking_pre_cull_to_target,
+            tracking_pre_cull_iou_threshold=config.tracking_pre_cull_iou_threshold,
+        )
+        tracker.track_name_offset = track_name_offset
+        return tracker
+
+    # Built before the first frame so a config the tracker rejects fails before
+    # any work, even on zero frames.
+    tracker = _new_tracker(0)
 
     needs_image = config.use_flow
-    tracked_lfs: list = []
     # Track in temporal order. The tracker is stateful across frames (sliding
     # candidate window + optional flow), so frames MUST be visited sorted by
     # (video, frame_idx) — legacy sorted frames (in the predictors'
     # _make_labeled_frames_from_generator) before tracking. Iterating
     # in raw ``labeled_frames`` submission order (e.g. for a .slp whose frames
     # are unordered, or multi-video) produces wrong track assignments
-    # (#530 audit: tracking parity / track-only retrack ordering).
-    video_order = {id(v): i for i, v in enumerate(labels.videos)}
+    # (#530 audit: tracking parity / track-only retrack ordering). Frames of a
+    # video missing from ``labels.videos`` sort after the listed videos, as their
+    # own video.
+    video_rank = {id(v): i for i, v in enumerate(labels.videos)}
+    for lf in labels.labeled_frames:
+        video_rank.setdefault(id(lf.video), len(video_rank))
     ordered_lfs = sorted(
         labels.labeled_frames,
-        key=lambda lf: (video_order.get(id(lf.video), 0), lf.frame_idx),
+        key=lambda lf: (video_rank[id(lf.video)], lf.frame_idx),
     )
-    n_frames = len(ordered_lfs)
-    for i, lf in enumerate(ordered_lfs):
-        instances: list = []
-        masks: list = []
-        if is_mask_mode:
-            # Track segmentation masks: feed lf.masks through the same tracker
-            # (duck-typed), get back the same mask objects with track /
-            # tracking_score set, and preserve them on the rebuilt frame so
-            # they are NOT dropped (the #614 breakage).
-            if lf.masks:
-                masks = tracker.track(
-                    untracked_instances=list(lf.masks),
-                    frame_idx=lf.frame_idx,
-                    image=None,
-                )
-            # Carry any pose instances through UNTRACKED rather than dropping them.
-            # Mask mode is reachable on frames that also hold poses -- embedding
-            # tracking routes to whichever carrier holds the vectors, so a
-            # `centered_instance_segmentation` output (poses + linked masks whose
-            # masks carry the embeddings) lands here with instances present. Emitting
-            # `instances=[]` silently deleted every pose from the tracked .slp.
-            instances = list(lf.instances)
+    per_video: list = []
+    for lf in ordered_lfs:
+        if per_video and per_video[-1][0].video is lf.video:
+            per_video[-1].append(lf)
         else:
-            if lf.has_user_instances:
-                instances_to_track = lf.user_instances
-                if lf.has_predicted_instances:
-                    instances = list(lf.predicted_instances)
-            else:
-                instances_to_track = lf.predicted_instances
-            instances.extend(
-                tracker.track(
-                    untracked_instances=instances_to_track,
-                    frame_idx=lf.frame_idx,
-                    image=lf.image if needs_image else None,
-                )
-            )
-        tracked_lfs.append(
-            sio.LabeledFrame(
-                video=lf.video,
-                frame_idx=lf.frame_idx,
-                instances=instances,
-                masks=masks,
-            )
-        )
-        if progress_callback is not None:
-            progress_callback(i + 1, n_frames)
+            per_video.append([lf])
 
-    # Cull/connect cleanups are pose-only (and rejected above for mask mode).
-    if not tracked_lfs:
-        logger.info("0 frames to track; skipping tracking post-processing.")
-    else:
+    n_frames = len(ordered_lfs)
+    n_done = 0
+    n_poses_inherited = 0
+    n_poses_mask_mode = 0
+    track_name_offset = 0
+    for video_idx, video_lfs in enumerate(per_video):
+        if video_idx:
+            # A fresh tracker per video: a track is an identity WITHIN one video, so
+            # video 2's first frame must spawn new tracks rather than be matched to
+            # video 1's last frame. Names continue past the previous video's.
+            track_name_offset += max(tracker._track_objects, default=-1) + 1
+            tracker = _new_tracker(track_name_offset)
+        for lf in video_lfs:
+            if is_mask_mode:
+                # Track segmentation masks: feed lf.masks through the same tracker
+                # (duck-typed), get back the same mask objects with track /
+                # tracking_score set. Pose instances stay on the frame (they are
+                # not tracked here); each one linked to a single tracked mask
+                # inherits that mask's track.
+                if lf.masks:
+                    lf.masks = tracker.track(
+                        untracked_instances=list(lf.masks),
+                        frame_idx=lf.frame_idx,
+                        image=None,
+                    )
+                    n_poses_inherited += _inherit_mask_tracks(lf)
+                n_poses_mask_mode += len(lf.instances)
+            else:
+                instances: list = []
+                if lf.has_user_instances:
+                    instances_to_track = lf.user_instances
+                    if lf.has_predicted_instances:
+                        instances = list(lf.predicted_instances)
+                else:
+                    instances_to_track = lf.predicted_instances
+                instances.extend(
+                    tracker.track(
+                        untracked_instances=instances_to_track,
+                        frame_idx=lf.frame_idx,
+                        image=lf.image if needs_image else None,
+                    )
+                )
+                lf.instances = instances
+            n_done += 1
+            if progress_callback is not None:
+                progress_callback(n_done, n_frames)
+
+        # Cull/connect cleanups are pose-only (and rejected above for mask mode),
+        # and per video like the tracking itself: connecting a break across two
+        # videos would join two unrelated identities.
+        # Both edit the frames in place.
         if not is_mask_mode and config.tracking_clean_instance_count > 0:
-            tracked_lfs = cull_instances(
-                tracked_lfs,
+            cull_instances(
+                video_lfs,
                 config.tracking_clean_instance_count,
                 config.tracking_clean_iou_threshold,
             )
             if not config.post_connect_single_breaks:
-                tracked_lfs = connect_single_breaks(
-                    tracked_lfs, config.tracking_clean_instance_count
-                )
-
+                connect_single_breaks(video_lfs, config.tracking_clean_instance_count)
         if not is_mask_mode and config.post_connect_single_breaks:
-            tracked_lfs = connect_single_breaks(
-                tracked_lfs, max_instances=config.tracking_target_instance_count
+            connect_single_breaks(
+                video_lfs, max_instances=config.tracking_target_instance_count
             )
+
+    if not ordered_lfs:
+        logger.info("0 frames to track; skipping tracking post-processing.")
+
+    if n_poses_mask_mode:
+        if n_poses_inherited:
+            logger.info(
+                f"Tracking the MASK carrier: {n_poses_inherited} pose instance(s) "
+                "inherited the track of the mask linked to them."
+            )
+        n_left = n_poses_mask_mode - n_poses_inherited
+        if n_left:
+            logger.warning(
+                f"Tracking the MASK carrier, but {n_left} pose instance(s) are not "
+                "linked to exactly one tracked mask (`mask.instance`). They are "
+                "carried through to the output UNTRACKED by this run (any track "
+                "they already had is left as it was) -- only the masks are "
+                "tracked. Link each pose to its mask, or attach the appearance "
+                "vectors to the pose instances if the poses are what should carry "
+                "identity."
+            )
+
+    # The output IS the input: frames in tracking order, and a track catalog of
+    # exactly the tracks the frames reference (tracks the tracker replaced are
+    # dropped, as a freshly built Labels would). `reindex` because sleap-io caches
+    # a per-track index keyed on frame count, which retracking leaves unchanged.
+    labels.labeled_frames = ordered_lfs
+    labels.tracks = []
+    labels.update()
+    labels.reindex()
 
     finish_time = datetime.now()
     logger.info(f"Finished tracking at: {finish_time}")
     logger.info(f"Total runtime: {(finish_time - start_time).total_seconds()} secs")
 
-    return sio.Labels(
-        labeled_frames=tracked_lfs,
-        videos=list(labels.videos),
-        skeletons=list(labels.skeletons),
-    )
+    return labels

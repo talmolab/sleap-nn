@@ -1693,14 +1693,16 @@ class Predictor:
         """Retrack an existing ``sio.Labels`` without running inference.
 
         Pure tracking -- useful when you already have predicted instances
-        in a ``.slp`` and just want to (re)apply a tracker. The tracker
-        runs once over the full LabeledFrame list; post-tracking cleanup
-        (cull / connect-single-breaks) is applied per ``tracker_config``.
+        in a ``.slp`` and just want to (re)apply a tracker. A fresh tracker
+        runs over each video's frames; post-tracking cleanup (cull /
+        connect-single-breaks) is applied per ``tracker_config``.
 
         Args:
             labels: A ``sio.Labels`` whose ``predicted_instances`` are
-                tracked in-place semantics — this returns a new
-                ``Labels`` with tracked instances.
+                tracked. Tracked IN PLACE and returned, not copied (see
+                :func:`~sleap_nn.inference.tracking.apply_tracking`); pass
+                ``labels.copy()`` to keep the input, e.g. when retracking one
+                file with several settings.
             tracker_config: :class:`TrackerConfig` to drive the tracker.
             clean_empty_frames: When ``True``, drop empty frames from
                 the result (matches ``--no_empty_frames``).
@@ -1708,7 +1710,7 @@ class Predictor:
                 callback invoked after each frame is tracked.
 
         Returns:
-            New ``sio.Labels`` with tracks attached.
+            ``labels`` itself, with tracks attached.
         """
         out = apply_tracking(labels, tracker_config, progress_callback)
         if clean_empty_frames:

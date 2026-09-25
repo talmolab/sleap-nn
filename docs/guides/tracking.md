@@ -21,7 +21,7 @@ sleap-nn predict -i video.mp4 -m models/bottomup/ --tracking
 | `--tracking` / `-t` | Enable tracking | Flag | `False` |
 | `--tracking_window_size` | Frames to look back | `INT` | `5` |
 | `--min_new_track_points` | Min points for new track | `INT` | `0` |
-| `--candidates_method` | Candidate selection method | `fixed_window`, `local_queues` | `fixed_window` |
+| `--candidates_method` | Candidate selection method | `fixed_window`, `local_queues` | `fixed_window` (`local_queues` for `--features embeddings` and mask tracking) |
 | `--min_match_points` | Min non-NaN points for matching | `INT` | `0` |
 | `--features` | Features for matching | `keypoints`, `centroids`, `bboxes`, `masks`, `embeddings` | `keypoints` |
 | `--scoring_method` | Similarity scoring method | `oks`, `cosine_sim`, `iou`, `mask_iou`, `euclidean_dist` | `oks` |
@@ -186,8 +186,10 @@ sleap-nn predict -i embedded.slp -t --features embeddings
 
 `--features embeddings` auto-pairs with `--scoring_method cosine_sim`. It works on
 both pose (`PredictedInstance`) and segmentation-mask (`PredictedSegmentationMask`)
-detections, and is image-free (no `--use_flow` / `--use_kalman`). `local_queues`
-(a per-track gallery of recent vectors) is a good pairing.
+detections, and is image-free (no `--use_flow` / `--use_kalman`). It defaults to
+`--candidates_method local_queues` (a per-track gallery of recent vectors, which
+re-binds an animal that was absent for longer than the window); pass
+`--candidates_method fixed_window` to opt out.
 
 **Best for**: re-identification across long occlusions, temporally sparse frames, and
 multi-session identity — the regimes where geometry has nothing to go on. On dense
@@ -206,6 +208,12 @@ sleap-nn predict -i labels.slp --tracking
 ```
 
 Note: Omit `--model_paths` for track-only mode.
+
+Each video is tracked independently: a track never spans two videos, and track
+names continue across videos (`track_0`, `track_1` in the first; `track_2`, … in the
+next) so no two videos share one. Everything tracking does not assign -- masks
+on a pose-tracked file, ROIs, centroids, suggestions -- is carried through to the
+output unchanged.
 
 With specific frames:
 
@@ -378,7 +386,19 @@ print(compare_identity_metrics({
 
 Always compare arms over the **same** detections -- retrack one prediction file
 with different tracker settings rather than re-running inference -- so the
-difference you read is the tracker's and not the detector's.
+difference you read is the tracker's and not the detector's. In Python,
+`apply_tracking` / `Predictor.retrack` track the `Labels` you pass **in place**
+(and return it), so give each arm its own copy:
+
+```python
+from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
+
+untracked = sio.load_slp("predictions.slp")
+arms = {
+    w: apply_tracking(untracked.copy(), TrackerConfig(appearance_weight=w))
+    for w in (0.0, 0.3)
+}
+```
 
 ---
 

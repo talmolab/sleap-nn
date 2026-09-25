@@ -7,6 +7,11 @@ either cue alone. So appearance ships as a weight on top of a geometric score,
 not as a replacement — and at the default `0.0` it must be provably inert.
 """
 
+import copy
+import functools
+import warnings
+
+import attrs
 import numpy as np
 import pytest
 import sleap_io as sio
@@ -247,10 +252,15 @@ def test_appearance_weight_needs_a_scale_for_distance_scores():
         ).euclidean_scale
         == 25.0
     )
-    # Already-bounded metrics need no scale.
-    for method in ("oks", "iou", "mask_iou", "cosine_sim"):
+    # Already-bounded GEOMETRIC metrics need no scale. (`cosine_sim` is bounded but
+    # not geometric; it is rejected as the geometric side of a blend.)
+    for method in ("oks", "iou", "mask_iou"):
         assert Tracker.from_config(
             features="keypoints", scoring_method=method, appearance_weight=0.5
+        )
+    with pytest.raises(ValueError, match="cosine_sim is the APPEARANCE metric"):
+        Tracker.from_config(
+            features="keypoints", scoring_method="cosine_sim", appearance_weight=0.5
         )
 
 
@@ -426,3 +436,100 @@ def test_appearance_scores_match_the_per_pair_reference():
             if sims:
                 expected[f_idx][t_idx] = np.nanmean(sims)
     np.testing.assert_allclose(got, expected, rtol=1e-10, atol=1e-12)
+
+
+@attrs.define
+class _PerPairLoopTracker(Tracker):
+    """Reference: the per-pair Python loop `get_scores` ran for
+    `features="embeddings"` before it was routed through `_appearance_scores`."""
+
+    def get_scores(self, current_instances, candidates_feature_dict):
+        from sleap_nn.tracking.utils import compute_cosine_sim, count_valid_points
+
+        if self.scoring_reduction == "robust_quantile":
+            reduce = functools.partial(np.nanquantile, q=self.robust_best_instance)
+        else:
+            reduce = {"mean": np.nanmean, "max": np.nanmax}[self.scoring_reduction]
+        if self.is_local_queue:
+            features = [x.feature for x in current_instances]
+        else:
+            features = list(current_instances.features)
+        scores = np.zeros((len(features), len(self.candidate.current_tracks)))
+        for f_idx, f in enumerate(features):
+            for t_idx, track_id in enumerate(self.candidate.current_tracks):
+                sims = [
+                    compute_cosine_sim(f, x.feature)
+                    for x in candidates_feature_dict[track_id]
+                    if count_valid_points(x.src_predicted_instance)
+                    > self.min_match_points
+                ]
+                scores[f_idx][t_idx] = np.nan if not sims else reduce(sims)
+        return scores
+
+
+@pytest.mark.parametrize("candidates_method", ["fixed_window", "local_queues"])
+@pytest.mark.parametrize(
+    "reduction, q", [("mean", 1.0), ("max", 1.0), ("robust_quantile", 0.8)]
+)
+def test_embedding_scores_match_the_per_pair_loop(candidates_method, reduction, q):
+    """`features="embeddings"` now scores through the vectorized `_appearance_scores`.
+
+    Pinned against the loop it replaced, frame by frame on the SAME tracker state:
+    the score matrices agree to 1e-12 (NaN where the loop gave NaN) and every
+    assignment is identical. The fixture exercises the edge cases -- a detection
+    with no vector, a zero-norm vector, and a candidate the `min_match_points`
+    filter drops (all-NaN keypoints) -- over animals that cross and drift.
+    """
+    rng = np.random.default_rng(0)
+    n_animals, dim, n_frames = 6, 16, 12
+    protos = rng.normal(size=(n_animals, dim))
+
+    def frame(t):
+        dets = [
+            _instance(
+                20 * k + 3 * t * (-1) ** k, 20, protos[k] + 0.3 * rng.normal(size=dim)
+            )
+            for k in range(n_animals)
+        ]
+        if t % 3 == 1:
+            dets.append(_instance(150, 150))  # no vector
+        if t % 4 == 2:
+            dets.append(_instance(170, 170, np.zeros(dim)))  # zero-norm vector
+        if t % 5 == 3:
+            blind = _instance(190, 190, protos[0])
+            blind.points["xy"] = np.nan  # fails `min_match_points` as a candidate
+            dets.append(blind)
+        return dets
+
+    frames = [frame(t) for t in range(n_frames)]
+    kw = dict(
+        features="embeddings",
+        scoring_method="cosine_sim",
+        candidates_method=candidates_method,
+        window_size=4,
+        scoring_reduction=reduction,
+        robust_best_instance=q,
+    )
+    fast = Tracker.from_config(**kw)
+    loop = _PerPairLoopTracker.from_config(**kw)
+    assert type(loop) is _PerPairLoopTracker
+
+    for t, dets in enumerate(frames):
+        twin = copy.deepcopy(dets)
+        if fast.generate_candidates():
+            got = fast.get_scores(
+                fast.get_features(dets, t),
+                fast.update_candidates(fast.generate_candidates(), None),
+            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)  # the loop's
+                want = loop.get_scores(
+                    loop.get_features(twin, t),
+                    loop.update_candidates(loop.generate_candidates(), None),
+                )
+            np.testing.assert_allclose(got, want, rtol=0, atol=1e-12)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            ids_fast = [i.track.name if i.track else None for i in fast.track(dets, t)]
+            ids_loop = [i.track.name if i.track else None for i in loop.track(twin, t)]
+        assert ids_fast == ids_loop, f"frame {t}"
