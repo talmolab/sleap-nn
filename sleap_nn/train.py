@@ -339,14 +339,18 @@ def _run_embedding_split_eval(
 
     The ``embedding`` (re-ID) model is skeleton-less: it emits per-mask appearance
     vectors, not keypoints/masks, so it cannot use the keypoint/seg eval paths.
-    Instead embed every tracked mask crop in ``path`` via the embedding inference
-    kernel (:func:`sleap_nn.inference.embedding.embed_labels`) and compute
-    leave-self-out retrieval / verification / kNN over the split's own identities
-    (track names) — the same protocol the per-epoch ``EmbeddingEvaluationCallback``
-    uses to select the checkpoint, so the held-out **test** number is the headline.
+    Instead embed the detections in ``path`` via the embedding inference kernel
+    (:func:`sleap_nn.inference.embedding.embed_labels_for_eval`) and compute
+    leave-self-out retrieval / verification / kNN over the split's own identities.
+    The detections and their identity groups are the ones the per-epoch
+    ``EmbeddingEvaluationCallback`` scores to select the checkpoint: the training
+    config's ``track_names_are_global`` + ``positives.scope`` decide them (a per-video
+    track name is one identity per video unless track names are global), and the
+    grouping is the dataset's ``global_group_id``, not the track name. So the held-out
+    **test** number is the headline for the same metric.
 
-    Post-training eval is best-effort: a split with no tracked masks, fewer than two
-    crops, or fewer than two distinct identities is logged and skipped rather than
+    Post-training eval is best-effort: a split with no detections to group, fewer than
+    two crops, or fewer than two distinct identities is logged and skipped rather than
     aborting the run.
 
     Args:
@@ -363,15 +367,12 @@ def _run_embedding_split_eval(
     import numpy as np
 
     from sleap_nn.evaluation import embedding_leave_self_out_eval
-    from sleap_nn.inference.embedding import embed_labels
+    from sleap_nn.inference.embedding import embed_labels_for_eval
 
     try:
         labels = sio.load_slp(path)
-        emb, tracks, _, _ = embed_labels(
-            run_path.as_posix(),
-            labels,
-            device=device,
-            include_untracked=False,
+        emb, group_ids = embed_labels_for_eval(
+            run_path.as_posix(), labels, device=device
         )
     except Exception as e:  # noqa: BLE001 — eval is best-effort post-training.
         logger.warning(f"Skipping embedding eval on `{d_name}`: {e}")
@@ -380,8 +381,7 @@ def _run_embedding_split_eval(
     if emb.shape[0] < 2:
         logger.info(f"Skipping eval on `{d_name}` dataset: fewer than 2 embeddings.")
         return None
-    tracks = np.array([t.decode() if isinstance(t, bytes) else t for t in tracks])
-    _, y = np.unique(tracks, return_inverse=True)
+    _, y = np.unique(group_ids, return_inverse=True)
     if len(np.unique(y)) < 2:
         logger.info(
             f"Skipping eval on `{d_name}` dataset: fewer than 2 distinct identities."

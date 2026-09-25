@@ -619,6 +619,44 @@ def test_no_detections_says_so(embedding_model_dir, tmp_path):
         )
 
 
+def test_eval_embedding_reads_the_identity_semantics_from_the_model(
+    embedding_model_dir, pose_slp
+):
+    """The eval grouping is the training config's, not "any track name" (FINDINGS #7).
+
+    This model trained with `positives.scope=global_id` and the default
+    `track_names_are_global=False`: a track name is not an identity, so only
+    `sio.Identity`-carrying detections can be scored.
+    """
+    from sleap_nn.inference.embedding import (
+        EmbeddingInputError,
+        embed_labels,
+        embed_labels_for_eval,
+    )
+
+    # The embed route still embeds and names every tracked detection.
+    _, names, n_attached, _ = embed_labels(
+        embedding_model_dir, sio.load_slp(pose_slp), device="cpu"
+    )
+    assert n_attached == 6
+    assert sorted(set(names)) == ["animal0", "animal1"]
+
+    with pytest.raises(EmbeddingInputError, match="No detections carry a sio.Identity"):
+        embed_labels_for_eval(embedding_model_dir, sio.load_slp(pose_slp), device="cpu")
+
+    # With identities, it groups on them, whatever the track names say.
+    labels = sio.load_slp(pose_slp)
+    same_animal = sio.Identity(name="gerbil")
+    for lf in labels:
+        for instance in lf.instances:
+            instance.identity = same_animal
+    emb, group_ids = embed_labels_for_eval(embedding_model_dir, labels, device="cpu")
+    assert emb.shape[0] == 6
+    assert len(np.unique(group_ids)) == 1
+    # Attached in place, like `embed_labels`.
+    assert all(i.identity_embedding is not None for lf in labels for i in lf.instances)
+
+
 # ── Retracking must not destroy the vectors it tracked on (finding [5]) ───────
 
 
