@@ -407,7 +407,7 @@ def nms_fast(boxes, scores, iou_threshold, target_count=None) -> List[int]:
         # sort by descending score
         nms_idxs.sort(key=lambda idx: -scores[idx])
 
-        add_back_count = min(len(nms_idxs), len(picked_idxs) - target_count)
+        add_back_count = min(len(nms_idxs), target_count - len(picked_idxs))
         picked_idxs.extend(nms_idxs[:add_back_count])
 
     # return the list of picked boxes
@@ -427,6 +427,50 @@ def nms_instances(
     to_remove = [inst for i, inst in enumerate(instances) if i not in picks]
 
     return to_keep, to_remove
+
+
+def _instances_over_count(
+    instances: List[sio.PredictedInstance],
+    instance_count: int,
+    iou_threshold: Optional[float] = None,
+) -> List[sio.PredictedInstance]:
+    """Select the instances to remove to get down to `instance_count`.
+
+    Overlapping instances are removed first via NMS (if `iou_threshold` is set),
+    then the lowest-scoring of the remaining instances.
+
+    Args:
+        instances: The predicted instances for a single frame.
+        instance_count: The maximum number of instances we want per frame.
+        iou_threshold: Intersection over Union (IOU) threshold to use when
+            removing overlapping instances over target count; if None, then
+            only use score to determine which instances to remove.
+
+    Returns:
+        The instances to remove (empty if already within `instance_count`).
+    """
+    if len(instances) <= instance_count:
+        return []
+
+    keep_instances = instances
+    extra_instances = []
+
+    # Use NMS to remove overlapping instances over target count
+    if iou_threshold:
+        keep_instances, extra_instances = nms_instances(
+            keep_instances,
+            iou_threshold=iou_threshold,
+            target_count=instance_count,
+        )
+
+    # Use lower score to remove the remaining (post-NMS) instances over target count
+    if len(keep_instances) > instance_count:
+        by_score = sorted(keep_instances, key=operator.attrgetter("score"))
+        extra_instances = (
+            extra_instances + by_score[: len(keep_instances) - instance_count]
+        )
+
+    return extra_instances
 
 
 def cull_instances(
@@ -451,98 +495,53 @@ def cull_instances(
 
     frames.sort(key=lambda lf: lf.frame_idx)
 
-    lf_inst_list = []
-    # Find all frames with more instances than the desired threshold
     for lf in frames:
-        if len(lf.predicted_instances) > instance_count:
-            # List of instances which we'll pare down
-            keep_instances = lf.predicted_instances
-
-            # Use NMS to remove overlapping instances over target count
-            if iou_threshold:
-                keep_instances, extra_instances = nms_instances(
-                    keep_instances,
-                    iou_threshold=iou_threshold,
-                    target_count=instance_count,
-                )
-                # Mark for removal
-                lf_inst_list.extend([(lf, inst) for inst in extra_instances])
-
-            # Use lower score to remove instances over target count
-            if len(keep_instances) > instance_count:
-                # Sort by ascending score, get target number of instances
-                # from the end of list (i.e., with highest score)
-                extra_instances = sorted(
-                    keep_instances, key=operator.attrgetter("score")
-                )[:-instance_count]
-
-                # Mark for removal
-                lf_inst_list.extend([(lf, inst) for inst in extra_instances])
-
-    # Remove instances over per frame threshold
-    for lf, inst in lf_inst_list:
-        filtered_instances = []
-        for instance in lf.instances:
-            if not instance.same_pose_as(inst):
-                filtered_instances.append(instance)
-        lf.instances = filtered_instances
+        # Remove by identity (not `same_pose_as`) so a kept instance whose pose
+        # happens to equal a removed one is not deleted along with it.
+        extra_ids = {
+            id(inst)
+            for inst in _instances_over_count(
+                lf.predicted_instances, instance_count, iou_threshold
+            )
+        }
+        if extra_ids:
+            lf.instances = [inst for inst in lf.instances if id(inst) not in extra_ids]
 
     return frames
 
 
 def cull_frame_instances(
-    instances_list: List[sio.PredictedInstance],
+    instances_list: List[sio.Instance],
     instance_count: int,
     iou_threshold: Optional[float] = None,
-) -> List[sio.PredictedInstance]:
+) -> List[sio.Instance]:
     """Removes instances (for single frame) over instance per frame threshold.
+
+    Only `PredictedInstance`s are culled. User-labeled `Instance`s are always kept
+    and do not count toward `instance_count` (they have no score, and removing
+    human labels is never the intent of a prediction cleanup).
 
     Args:
         instances_list: The list of instances for a single frame.
-        instance_count: The maximum number of instances we want per frame.
+        instance_count: The maximum number of predicted instances we want per frame.
         iou_threshold: Intersection over Union (IOU) threshold to use when
             removing overlapping instances over target count; if None, then
             only use score to determine which instances to remove.
 
     Returns:
-        Updated list of frames, also modifies frames in place.
+        A new list with the predicted instances over `instance_count` removed, in
+        their original order. The input list is not modified.
     """
     if not instances_list:
-        return
+        return []
 
-    if len(instances_list) > instance_count:
-        # List of instances which we'll pare down
-        keep_instances = instances_list
-
-        # Use NMS to remove overlapping instances over target count
-        if iou_threshold:
-            keep_instances, extra_instances = nms_instances(
-                keep_instances,
-                iou_threshold=iou_threshold,
-                target_count=instance_count,
-            )
-            updated_instances_list = []
-            # Remove the extra instances
-            for inst in extra_instances:
-                for instance in instances_list:
-                    if not instance.same_pose_as(inst):
-                        updated_instances_list.append(instance)
-            instances_list = updated_instances_list
-
-        # Use lower score to remove instances over target count
-        if len(keep_instances) > instance_count:
-            # Sort by ascending score, get target number of instances
-            # from the end of list (i.e., with highest score)
-            extra_instances = sorted(keep_instances, key=operator.attrgetter("score"))[
-                :-instance_count
-            ]
-
-            # Remove the extra instances
-            updated_instances_list = []
-            for inst in extra_instances:
-                for instance in instances_list:
-                    if instance.same_pose_as(inst):
-                        updated_instances_list.append(instance)
-            instances_list = updated_instances_list
-
-    return instances_list
+    predicted_instances = [
+        inst for inst in instances_list if isinstance(inst, sio.PredictedInstance)
+    ]
+    extra_ids = {
+        id(inst)
+        for inst in _instances_over_count(
+            predicted_instances, instance_count, iou_threshold
+        )
+    }
+    return [inst for inst in instances_list if id(inst) not in extra_ids]

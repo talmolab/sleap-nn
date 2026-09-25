@@ -619,9 +619,11 @@ class Tracker:
         Returns:
             List of `sio.PredictedInstance` objects, each having an assigned track.
         """
-        # Pre-cull is pose-only (cull_frame_instances uses same_pose_as / bbox);
-        # segmentation masks are scoped out of cull for the MVP (apply_tracking
-        # rejects the pre-cull flags in mask mode, so this is belt-and-braces).
+        # Pre-cull is pose-only (cull_frame_instances uses score / bbox) and only
+        # ever removes predictions: user-labeled frames reach here with
+        # `lf.user_instances`, which are passed through untouched. Segmentation
+        # masks are scoped out of cull for the MVP (apply_tracking rejects the
+        # pre-cull flags in mask mode, so this is belt-and-braces).
         masks_input = bool(untracked_instances) and is_segmentation_mask(
             untracked_instances[0]
         )
