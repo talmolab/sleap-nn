@@ -31,7 +31,7 @@ data_config:
     max_height: null
     max_width: null
     scale: 1.0
-    crop_size: null         # auto-detected from instance extents + rotation padding
+    crop_size: null         # auto: sized to hold every training pose (keypoints) or mask (mask mode) around its crop center, + rotation padding
     min_crop_size: 100
     # crop_centering (mask data only): how the fixed square crop is centered.
     #   auto     -> mask center-of-mass (default); pose data uses anchor_part.

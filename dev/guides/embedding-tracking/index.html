@@ -7621,7 +7621,12 @@ cosine of raw coordinates, near 1 for any two poses).</p>
 <div class="admonition note">
 <p class="admonition-title">The blend reads the vectors of the detections it tracks</p>
 <p>On a pose + mask file (top-down segmentation, SAM output) the embedding model
-attaches the vectors to the <strong>masks</strong>, while pose tracking reads the poses — so
+attaches the vectors to <strong>the carrier it was trained on</strong>: training records it in
+the model's <code>head_configs.embedding.embedding.detection_mode</code> (<code>pose</code> or <code>mask</code>);
+a model saved before that field existed counts as mask-trained when it uses
+<code>burn_in</code>, and otherwise takes the carrier holding more detections (ties to
+masks). A file without that carrier gets its other carrier embedded. When the
+vectors land on the masks, pose tracking reads the poses — so
 <code>--appearance_weight</code> with a pose <code>--features</code> is rejected there rather than
 running as geometry only. Track the masks instead with <code>--features masks</code>
 (appearance blended into mask IoU): every pose linked to exactly one tracked

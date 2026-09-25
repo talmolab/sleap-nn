@@ -8065,7 +8065,7 @@
 <td><code>train_steps_per_epoch</code></td>
 <td>int</td>
 <td><code>null</code></td>
-<td>Exact steps per epoch (null = auto: one pass over the data; for <code>embedding</code>, in P×K batches)</td>
+<td>Exact steps per epoch (null = auto: one pass over the data; for <code>embedding</code>, in P×K batches — <code>min(P, groups in the video)</code>×K for <code>sampler.kind: within_video</code>)</td>
 </tr>
 <tr>
 <td><code>visualize_preds_during_training</code></td>
