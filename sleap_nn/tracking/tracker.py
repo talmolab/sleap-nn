@@ -199,8 +199,10 @@ def validate_appearance_config(
                     "kernel before appearance can be blended into it, and the "
                     "kernel needs a length scale. Pass the typical inter-frame "
                     "displacement of one animal, in pixels (the distance at which "
-                    "the geometric similarity falls to ~0.37); `motion_diagnostic` "
-                    "reports it for your data. Alternatively track by appearance "
+                    "the geometric similarity falls to ~0.37); "
+                    "`sleap_nn.evaluation.motion_diagnostic` on TRACKED labels "
+                    "(e.g. a geometry-only tracking run) reports it as "
+                    "`median_step_px`. Alternatively track by appearance "
                     "alone with features='embeddings', which is measured best "
                     "where geometry is weak."
                 )

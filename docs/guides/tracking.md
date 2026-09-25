@@ -25,6 +25,8 @@ sleap-nn predict -i video.mp4 -m models/bottomup/ --tracking
 | `--min_match_points` | Min non-NaN points for matching | `INT` | `0` |
 | `--features` | Features for matching | `keypoints`, `centroids`, `bboxes`, `masks`, `embeddings` | `keypoints` |
 | `--scoring_method` | Similarity scoring method | `oks`, `cosine_sim`, `iou`, `mask_iou`, `euclidean_dist` | `oks` |
+| `--appearance_weight` | Blend appearance (re-ID vector cosine) into the geometric score: `(1 - w) * geometry + w * appearance`. `0.15-0.5` is the measured range; needs embeddings in the input ([details](embedding-tracking.md#blending-appearance-with-geometry)) | `FLOAT` in `[0, 1]` | `0.0` (geometry only) |
+| `--euclidean_scale` | Pixel length scale mapping an `euclidean_dist` score to a bounded similarity, `exp(-distance / scale)`. Required with `--appearance_weight` when the score is `euclidean_dist` (centroid-only detections auto-select it); ignored otherwise | `FLOAT` (px) | `None` |
 | `--scoring_reduction` | Score reduction method | `mean`, `max`, `robust_quantile` | `mean` |
 | `--track_matching_method` | Assignment algorithm | `hungarian`, `greedy` | `hungarian` |
 | `--max_tracks` | Maximum track count (auto-selects `local_queues`) | `INT` | `None` |
@@ -277,17 +279,35 @@ sleap-nn eval-tracking -g ground_truth.slp -p tracked_predictions.slp
 
 Both files must be tracked: the ground truth needs `track` set on the detections
 you want scored, and the prediction needs tracks from `sleap-nn track` or
-`sleap-nn predict -t`. An untracked prediction is skipped with a message rather
-than scored as a failure.
+`sleap-nn predict -t`. When there is nothing to score -- an untracked
+prediction, no frame in common, or no tracked ground truth -- the command says
+why and exits non-zero rather than printing an empty result.
 
 Detections are matched to ground truth within each frame first (OKS for poses,
-mask IoU for segmentation masks), and identity is scored over those matches --
-so a tracker is never penalized for the detector's misses.
+mask IoU for segmentation masks, pixel distance for single-node skeletons), and
+identity is scored over those matches. What is scored:
+
+- **Per video.** A trajectory is a `(video, track name)` pair: trackers name
+  tracks per video, so the same name in two videos is two animals. Pass
+  `--global_identity` (`global_identity=True` in Python) when the names are
+  global identities (a multi-class ID model, or a project proofread with one
+  name per animal) and keeping an animal's name from one video to the next is
+  part of the score.
+- **Every ground-truth frame** of each video the prediction covers. A frame the
+  prediction does not have (dropped by `--no_empty_frames`, or never predicted)
+  counts as misses, exactly like a present frame with nothing detected on it. A
+  ground-truth video that shares no frame with the prediction is not scored,
+  and is named in `notes`.
+- **Untracked ground truth is don't-care.** It still takes part in matching,
+  and a prediction matched to it is neither a hit nor a false positive, so
+  ground truth that tracks only some of the animals does not turn correct
+  predictions on the others into false positives.
 
 | metric | what it measures | better |
 |---|---|---|
 | `id_switches` | Times a ground-truth trajectory changed which predicted track it matched (CLEAR-MOT). A change across a gap counts; the gap itself does not. | lower |
-| `idf1` / `idp` / `idr` | Identity F1 after a global best assignment of predicted identities to ground-truth ones (Ristani et al.). | higher |
+| `idf1` / `idp` / `idr` | Identity F1 after a global best assignment of predicted identities to ground-truth ones (Ristani et al.). **Includes detection errors**: every missed ground-truth detection is an IDFN, every unmatched prediction an IDFP. | higher |
+| `idf1_matched` | IDF1 over matched detections only (IDTP / `n_matched`): the share of matched detections carrying their trajectory's identity, with the detector's misses and false positives factored out. | higher |
 | `mostly_tracked` / `partly_tracked` / `mostly_lost` | Ground-truth trajectories bucketed by how much of them was matched at all. | MT higher |
 | `fragmentations` | Interruptions of a trajectory that later resumes. A trajectory that simply ends is not counted. | lower |
 | `mean_track_purity` | Per predicted track, the share of its matched detections belonging to its dominant ground-truth identity, length-weighted. | higher |
@@ -297,26 +317,42 @@ The coverage and purity columns are there on purpose: without them a tracker can
 "win" on ID switches by emitting fewer, shorter, more timid tracks. Read them
 together.
 
-Detection counts (`n_gt_dets`, `n_pred_dets`, `n_matched`, `n_pred_untracked`)
-are reported alongside but never folded into the identity scores -- which is why
-MOTA is deliberately absent. MOTA mixes detection false positives and misses
-into one number, so when two trackers are compared over the same detections a
-MOTA delta mostly reports detector noise.
+Detection counts (`n_gt_dets`, `n_pred_dets`, `n_matched`, `n_pred_untracked`,
+`n_gt_untracked`, `n_dont_care`, `n_frames_missing_pred`) are reported alongside.
+IDF1 is the standard definition, so a detector that misses animals lowers it
+even under a perfect tracker (a detector missing 5 of 20 detections caps IDF1 at
+0.857). The switch count, purity and `idf1_matched` are computed over matched
+detections only and do not move with the detector: over **frozen** detections
+-- the usual tracker A/B -- compare arms by those. MOTA is deliberately absent:
+it mixes every detection false positive and miss into one number, so a MOTA
+delta between two trackers mostly reports detector noise.
 
 ### What carries identity
 
 `--carrier` selects what is matched and scored:
 
-- `pose` -- instances, matched by OKS. The default for pose models.
+- `pose` -- instances, matched by OKS. Single-node (centroid) skeletons, on
+  either side, match by pixel distance between centroids instead: OKS
+  normalizes by the pose's area, which is zero for one node, so it would never
+  match a centroid that is off by even a pixel. A full-pose ground truth is
+  reduced to the mean of its visible nodes for that comparison.
 - `mask` -- `PredictedSegmentationMask`es, matched by mask IoU, for segmentation
   models. Scale-aware, so stride-resolution predicted masks and full-resolution
   ground-truth masks are compared on the same pixel grid.
-- `auto` (default) -- picks `mask` when the prediction carries masks but no
-  instances, else `pose`.
+- `auto` (default) -- the carrier the prediction's tracks are on: whichever holds
+  more tracked detections (ties go to `pose`). A pose + mask file tracked on its
+  masks is scored on its masks.
+
+A detection with no track of its own takes the track of its linked detection on
+the other carrier (`mask.instance`): ground truth proofread in the GUI carries its
+tracks on the instances, while mask tracking writes them onto the masks, and
+either can be scored against the other.
 
 `--match_threshold` is the minimum OKS or IoU for a pair to count as matched
-(default `0.5`), and `--mt_threshold` / `--ml_threshold` are the coverage cuts
-for MT and ML.
+(default `0.5`), or for single-node skeletons the maximum centroid distance in
+**pixels** (default `50`, as in `sleap-nn eval --match_method centroid`); a run
+where nothing matched says so in `notes`. `--mt_threshold` / `--ml_threshold`
+are the coverage cuts for MT and ML.
 
 !!! note "`--user_labels_only` is OFF here, unlike `sleap-nn eval`"
     Tracked ground truth usually *is* predicted: the normal workflow predicts
@@ -350,11 +386,18 @@ for MT and ML.
     # sparse training split: {'step_over_size': 8.74, 'is_continuous': False, ...}
     ```
 
-    `step_over_size` is how far the same animal moves between consecutive frames
-    relative to its own body size. At the high end, consecutive detections of one
-    animal do not even overlap, so geometric association has no signal to work
-    with and any IoU tracker must fail -- for reasons that have nothing to do
-    with the tracker.
+    `step_over_size` is how far the same animal moves per frame relative to its
+    own body size. At the high end, consecutive detections of one animal do not
+    even overlap, so geometric association has no signal to work with and any IoU
+    tracker must fail -- for reasons that have nothing to do with the tracker.
+
+    It follows each animal by its **track**, so it needs tracked labels, and it
+    follows each video separately. A step between two detections `k` frames
+    apart is divided by `k`, so ground truth labeled every 10th frame of a real
+    video is judged by its per-frame motion rather than flagged as sparse, while
+    a renumbered `.pkg.slp` split (every gap reads as 1) still is.
+    `median_step_px` is therefore the typical per-frame displacement of one
+    animal -- the value `--euclidean_scale` asks for.
 
 ### Python API
 
@@ -367,7 +410,7 @@ pred = sio.load_slp("tracked_predictions.slp")
 
 metrics = identity_metrics(gt, pred, "pose")
 print(metrics.summary())
-# IDSW=32  IDF1=0.8491 (P=0.8491 R=0.8491)  MT/PT/ML=5/0/0  Frag=0 ...
+# IDSW=32  IDF1=0.8491 (P=0.8491 R=0.8491; matched-only 0.8491)  MT/PT/ML=5/0/0 ...
 
 metrics.as_dict()["id_switches"]  # 32
 ```

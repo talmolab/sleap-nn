@@ -3478,7 +3478,9 @@ def _common_inference_options(f):
             "exp(-distance / scale), a bounded (0, 1] value comparable to the "
             "appearance cosine. Pass the typical inter-frame displacement of one "
             "animal (the distance at which geometric similarity falls to ~0.37); "
-            "`motion_diagnostic` reports it for your data. REQUIRED with "
+            "`sleap_nn.evaluation.motion_diagnostic` reports it as `median_step_px` "
+            "when run on TRACKED labels (tracked ground truth, or a geometry-only "
+            "tracking run). REQUIRED with "
             "--appearance_weight when the score is `euclidean_dist` (which is what "
             "single-node/centroid detections auto-select) and ignored otherwise -- "
             "a geometry-only distance run is unaffected.",
@@ -3717,18 +3719,24 @@ def info(path):
     type=click.Choice(["auto", "pose", "mask"]),
     default="auto",
     help=(
-        "What carries identity: 'pose' (instances, matched by OKS), 'mask' "
-        "(segmentation masks, matched by IoU), or 'auto' (mask when the "
-        "prediction has masks but no instances). Default: auto."
+        "What carries identity: 'pose' (instances, matched by OKS, or by "
+        "centroid distance for single-node skeletons), 'mask' (segmentation "
+        "masks, matched by IoU), or 'auto' (the carrier the prediction's tracks "
+        "are on -- the one with more tracked detections, ties to pose). A "
+        "detection without a track takes the track of its linked instance or "
+        "mask. Default: auto."
     ),
 )
 @click.option(
     "--match_threshold",
     type=float,
-    default=0.5,
+    default=None,
     help=(
-        "Minimum OKS (pose) or mask IoU (mask) for a predicted detection to "
-        "count as matched to a ground-truth one. Default: 0.5."
+        "Matching threshold for a predicted detection to count as matched to a "
+        "ground-truth one: minimum OKS (pose) or mask IoU (mask), or -- for "
+        "single-node (centroid) skeletons, which match by distance -- the "
+        "maximum centroid distance in PIXELS. Default: 0.5 for OKS/IoU, 50 px "
+        "for distance (as in `sleap-nn eval --match_method centroid`)."
     ),
 )
 @click.option(
@@ -3754,6 +3762,18 @@ def info(path):
         "stale predictions from an earlier run."
     ),
 )
+@click.option(
+    "--global_identity/--per_video_identity",
+    default=False,
+    help=(
+        "Score track names as GLOBAL identities shared across videos (names "
+        "from a multi-class ID model, or a project proofread with one name per "
+        "animal): a trajectory then spans every video, and keeping an animal's "
+        "name from one video to the next is part of the score. Default: per "
+        "video -- each (video, track name) is its own trajectory, since "
+        "trackers name tracks per video."
+    ),
+)
 def eval_tracking(**kwargs):
     """Evaluate identity persistence of a tracked prediction.
 
@@ -3764,16 +3784,20 @@ def eval_tracking(**kwargs):
 
     Both files must be tracked: ground truth needs `track` set on the detections
     to score, and the prediction needs tracks from `sleap-nn track` or
-    `sleap-nn predict -t`.
+    `sleap-nn predict -t`. Exits non-zero when nothing is scoreable (no tracked
+    prediction, no frame in common, or no tracked ground truth).
 
     Examples:
         sleap-nn eval-tracking -g gt.slp -p tracked.slp
 
         sleap-nn eval-tracking -g gt.slp -p tracked.slp --carrier mask -s ids.json
     """
-    from sleap_nn.evaluation import run_identity_evaluation
+    from sleap_nn.evaluation import NothingToScoreError, run_identity_evaluation
 
-    run_identity_evaluation(**kwargs)
+    try:
+        run_identity_evaluation(**kwargs, raise_if_empty=True)
+    except NothingToScoreError as e:
+        raise click.ClickException(str(e)) from e
 
 
 def _register_export_commands():
