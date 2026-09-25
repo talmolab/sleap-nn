@@ -7696,6 +7696,18 @@
 <td><code>oks</code></td>
 </tr>
 <tr>
+<td><code>--appearance_weight</code></td>
+<td>Blend appearance (re-ID vector cosine) into the geometric score: <code>(1 - w) * geometry + w * appearance</code>. <code>0.15-0.5</code> is the measured range; needs embeddings in the input (<a href="../embedding-tracking/#blending-appearance-with-geometry">details</a>)</td>
+<td><code>FLOAT</code> in <code>[0, 1]</code></td>
+<td><code>0.0</code> (geometry only)</td>
+</tr>
+<tr>
+<td><code>--euclidean_scale</code></td>
+<td>Pixel length scale mapping an <code>euclidean_dist</code> score to a bounded similarity, <code>exp(-distance / scale)</code>. Required with <code>--appearance_weight</code> when the score is <code>euclidean_dist</code> (centroid-only detections auto-select it); ignored otherwise</td>
+<td><code>FLOAT</code> (px)</td>
+<td><code>None</code></td>
+</tr>
+<tr>
 <td><code>--scoring_reduction</code></td>
 <td>Score reduction method</td>
 <td><code>mean</code>, <code>max</code>, <code>robust_quantile</code></td>
@@ -7987,11 +7999,29 @@ and where. It says nothing about whether a track kept the <strong>right</strong>
 </span></code></pre></div>
 <p>Both files must be tracked: the ground truth needs <code>track</code> set on the detections
 you want scored, and the prediction needs tracks from <code>sleap-nn track</code> or
-<code>sleap-nn predict -t</code>. An untracked prediction is skipped with a message rather
-than scored as a failure.</p>
+<code>sleap-nn predict -t</code>. When there is nothing to score -- an untracked
+prediction, no frame in common, or no tracked ground truth -- the command says
+why and exits non-zero rather than printing an empty result.</p>
 <p>Detections are matched to ground truth within each frame first (OKS for poses,
-mask IoU for segmentation masks), and identity is scored over those matches --
-so a tracker is never penalized for the detector's misses.</p>
+mask IoU for segmentation masks, pixel distance for single-node skeletons), and
+identity is scored over those matches. What is scored:</p>
+<ul>
+<li><strong>Per video.</strong> A trajectory is a <code>(video, track name)</code> pair: trackers name
+  tracks per video, so the same name in two videos is two animals. Pass
+  <code>--global_identity</code> (<code>global_identity=True</code> in Python) when the names are
+  global identities (a multi-class ID model, or a project proofread with one
+  name per animal) and keeping an animal's name from one video to the next is
+  part of the score.</li>
+<li><strong>Every ground-truth frame</strong> of each video the prediction covers. A frame the
+  prediction does not have (dropped by <code>--no_empty_frames</code>, or never predicted)
+  counts as misses, exactly like a present frame with nothing detected on it. A
+  ground-truth video that shares no frame with the prediction is not scored,
+  and is named in <code>notes</code>.</li>
+<li><strong>Untracked ground truth is don't-care.</strong> It still takes part in matching,
+  and a prediction matched to it is neither a hit nor a false positive, so
+  ground truth that tracks only some of the animals does not turn correct
+  predictions on the others into false positives.</li>
+</ul>
 <table>
 <thead>
 <tr>
@@ -8008,7 +8038,12 @@ so a tracker is never penalized for the detector's misses.</p>
 </tr>
 <tr>
 <td><code>idf1</code> / <code>idp</code> / <code>idr</code></td>
-<td>Identity F1 after a global best assignment of predicted identities to ground-truth ones (Ristani et al.).</td>
+<td>Identity F1 after a global best assignment of predicted identities to ground-truth ones (Ristani et al.). <strong>Includes detection errors</strong>: every missed ground-truth detection is an IDFN, every unmatched prediction an IDFP.</td>
+<td>higher</td>
+</tr>
+<tr>
+<td><code>idf1_matched</code></td>
+<td>IDF1 over matched detections only (IDTP / <code>n_matched</code>): the share of matched detections carrying their trajectory's identity, with the detector's misses and false positives factored out.</td>
 <td>higher</td>
 </tr>
 <tr>
@@ -8036,24 +8071,39 @@ so a tracker is never penalized for the detector's misses.</p>
 <p>The coverage and purity columns are there on purpose: without them a tracker can
 "win" on ID switches by emitting fewer, shorter, more timid tracks. Read them
 together.</p>
-<p>Detection counts (<code>n_gt_dets</code>, <code>n_pred_dets</code>, <code>n_matched</code>, <code>n_pred_untracked</code>)
-are reported alongside but never folded into the identity scores -- which is why
-MOTA is deliberately absent. MOTA mixes detection false positives and misses
-into one number, so when two trackers are compared over the same detections a
-MOTA delta mostly reports detector noise.</p>
+<p>Detection counts (<code>n_gt_dets</code>, <code>n_pred_dets</code>, <code>n_matched</code>, <code>n_pred_untracked</code>,
+<code>n_gt_untracked</code>, <code>n_dont_care</code>, <code>n_frames_missing_pred</code>) are reported alongside.
+IDF1 is the standard definition, so a detector that misses animals lowers it
+even under a perfect tracker (a detector missing 5 of 20 detections caps IDF1 at
+0.857). The switch count, purity and <code>idf1_matched</code> are computed over matched
+detections only and do not move with the detector: over <strong>frozen</strong> detections
+-- the usual tracker A/B -- compare arms by those. MOTA is deliberately absent:
+it mixes every detection false positive and miss into one number, so a MOTA
+delta between two trackers mostly reports detector noise.</p>
 <h3 id="what-carries-identity">What carries identity<a class="headerlink" href="#what-carries-identity" title="Permanent link">&para;</a></h3>
 <p><code>--carrier</code> selects what is matched and scored:</p>
 <ul>
-<li><code>pose</code> -- instances, matched by OKS. The default for pose models.</li>
+<li><code>pose</code> -- instances, matched by OKS. Single-node (centroid) skeletons, on
+  either side, match by pixel distance between centroids instead: OKS
+  normalizes by the pose's area, which is zero for one node, so it would never
+  match a centroid that is off by even a pixel. A full-pose ground truth is
+  reduced to the mean of its visible nodes for that comparison.</li>
 <li><code>mask</code> -- <code>PredictedSegmentationMask</code>es, matched by mask IoU, for segmentation
   models. Scale-aware, so stride-resolution predicted masks and full-resolution
   ground-truth masks are compared on the same pixel grid.</li>
-<li><code>auto</code> (default) -- picks <code>mask</code> when the prediction carries masks but no
-  instances, else <code>pose</code>.</li>
+<li><code>auto</code> (default) -- the carrier the prediction's tracks are on: whichever holds
+  more tracked detections (ties go to <code>pose</code>). A pose + mask file tracked on its
+  masks is scored on its masks.</li>
 </ul>
+<p>A detection with no track of its own takes the track of its linked detection on
+the other carrier (<code>mask.instance</code>): ground truth proofread in the GUI carries its
+tracks on the instances, while mask tracking writes them onto the masks, and
+either can be scored against the other.</p>
 <p><code>--match_threshold</code> is the minimum OKS or IoU for a pair to count as matched
-(default <code>0.5</code>), and <code>--mt_threshold</code> / <code>--ml_threshold</code> are the coverage cuts
-for MT and ML.</p>
+(default <code>0.5</code>), or for single-node skeletons the maximum centroid distance in
+<strong>pixels</strong> (default <code>50</code>, as in <code>sleap-nn eval --match_method centroid</code>); a run
+where nothing matched says so in <code>notes</code>. <code>--mt_threshold</code> / <code>--ml_threshold</code>
+are the coverage cuts for MT and ML.</p>
 <div class="admonition note">
 <p class="admonition-title"><code>--user_labels_only</code> is OFF here, unlike <code>sleap-nn eval</code></p>
 <p>Tracked ground truth usually <em>is</em> predicted: the normal workflow predicts
@@ -8082,11 +8132,17 @@ index-based check passes and the metrics come out looking authoritative.</p>
 </span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="c1"># continuous video:     {&#39;step_over_size&#39;: 0.06, &#39;is_continuous&#39;: True, ...}</span>
 </span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="c1"># sparse training split: {&#39;step_over_size&#39;: 8.74, &#39;is_continuous&#39;: False, ...}</span>
 </span></code></pre></div>
-<p><code>step_over_size</code> is how far the same animal moves between consecutive frames
-relative to its own body size. At the high end, consecutive detections of one
-animal do not even overlap, so geometric association has no signal to work
-with and any IoU tracker must fail -- for reasons that have nothing to do
-with the tracker.</p>
+<p><code>step_over_size</code> is how far the same animal moves per frame relative to its
+own body size. At the high end, consecutive detections of one animal do not
+even overlap, so geometric association has no signal to work with and any IoU
+tracker must fail -- for reasons that have nothing to do with the tracker.</p>
+<p>It follows each animal by its <strong>track</strong>, so it needs tracked labels, and it
+follows each video separately. A step between two detections <code>k</code> frames
+apart is divided by <code>k</code>, so ground truth labeled every 10<sup>th</sup> frame of a real
+video is judged by its per-frame motion rather than flagged as sparse, while
+a renumbered <code>.pkg.slp</code> split (every gap reads as 1) still is.
+<code>median_step_px</code> is therefore the typical per-frame displacement of one
+animal -- the value <code>--euclidean_scale</code> asks for.</p>
 </div>
 <h3 id="python-api">Python API<a class="headerlink" href="#python-api" title="Permanent link">&para;</a></h3>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
@@ -8097,7 +8153,7 @@ with the tracker.</p>
 </span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>
 </span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="n">metrics</span> <span class="o">=</span> <span class="n">identity_metrics</span><span class="p">(</span><span class="n">gt</span><span class="p">,</span> <span class="n">pred</span><span class="p">,</span> <span class="s2">&quot;pose&quot;</span><span class="p">)</span>
 </span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">metrics</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
-</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="c1"># IDSW=32  IDF1=0.8491 (P=0.8491 R=0.8491)  MT/PT/ML=5/0/0  Frag=0 ...</span>
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="c1"># IDSW=32  IDF1=0.8491 (P=0.8491 R=0.8491; matched-only 0.8491)  MT/PT/ML=5/0/0 ...</span>
 </span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a>
 </span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="n">metrics</span><span class="o">.</span><span class="n">as_dict</span><span class="p">()[</span><span class="s2">&quot;id_switches&quot;</span><span class="p">]</span>  <span class="c1"># 32</span>
 </span></code></pre></div>
