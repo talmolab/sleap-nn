@@ -61,7 +61,7 @@ class ModelCkptConfig:
 
     Attributes:
         save_top_k: (int) If save_top_k == k, the best k models according to the quantity monitored will be saved. If save_top_k == 0, no models are saved. If save_top_k == -1, all models are saved. Please note that the monitors are checked every every_n_epochs epochs. if save_top_k >= 2 and the callback is called multiple times inside an epoch, the name of the saved file will be appended with a version count starting with v1 unless enable_version_counter is set to False. *Default*: `1`.
-        save_last: (bool) When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. *Default*: `None`.
+        save_last: (bool) When True, also writes a last.ckpt at the end of every epoch (overwritten each time), so the most recent epoch can always be resumed from, whether or not it improved the monitored metric. *Default*: `None`.
         monitor: (str) Metric name the checkpoint tracks to pick the "best" model. Any key present in ``trainer.callback_metrics`` — e.g. ``"val/loss"`` (default), or, for segmentation runs with ``eval.enabled``, a full-resolution quality metric such as ``"eval/val/fg_mean_cldice"`` (semantic) or ``"eval/val/mask_mean_iou"`` (instance) logged by ``SegmentationEvaluationCallback``. *Default*: `"val/loss"`.
         mode: (str) ``"min"`` (default) or ``"max"`` — direction of improvement for ``monitor`` (use ``"max"`` for IoU/clDice metrics). *Default*: `"min"`.
     """
@@ -254,7 +254,7 @@ class EarlyStoppingConfig:
     Attributes:
         stop_training_on_plateau: (bool) True if early stopping should be enabled. *Default*: `True`.
         min_delta: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. *Default*: `1e-8`.
-        patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. *Default*: `10`.
+        patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. For the ``embedding`` model type, which selects on a retrieval metric measured every ``eval.frequency`` epochs, one check happens per evaluation, so patience counts evaluations. *Default*: `10`.
     """
 
     min_delta: float = field(default=1e-8, validator=validators.ge(0))
@@ -346,8 +346,8 @@ class TrainerConfig:
         profiler: (str) Profiler for pytorch Trainer. One of ["advanced", "passthrough", "pytorch", "simple"]. *Default*: `None`.
         trainer_strategy: (str) Training strategy, one of ["auto", "ddp", "fsdp", "ddp_find_unused_parameters_false", "ddp_find_unused_parameters_true", ...]. This supports any training strategy that is supported by `lightning.Trainer`. *Default*: `"auto"`.
         enable_progress_bar: (bool) When True, enables printing the logs during training. *Default*: `True`.
-        min_train_steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. *Default*: `200`.
-        train_steps_per_epoch: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data or `min_train_steps_per_epoch`, whichever is largest. *Default*: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.
+        min_train_steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. For ``embedding``, one iteration is a P x K batch (``objective.sampler``), not ``train_data_loader.batch_size`` samples. *Default*: `200`.
+        train_steps_per_epoch: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data (for ``embedding``, the number of P x K batches that covers it once) or `min_train_steps_per_epoch`, whichever is largest. *Default*: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.
         visualize_preds_during_training: (bool) If set to `True`, sample predictions (keypoints + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table. *Default*: `False`.
         keep_viz: (bool) If set to `True`, the `viz` folder will be kept after training. If `False`, the `viz` folder will be deleted after training. Only applies when `visualize_preds_during_training` is `True`. *Default*: `False`.
         viz_img_format: (str) Image format for the visualization figures saved to the local `viz` folder, one of `"png"` or `"jpg"`. `"jpg"` produces much smaller files, which helps when training a battery of models on the same dataset (#644). Only applies when `visualize_preds_during_training` is `True`. *Default*: `"png"`.

@@ -101,7 +101,7 @@ Choose **one** scheduler:
 trainer_config:
   early_stopping:
     stop_training_on_plateau: true
-    patience: 10        # Epochs without improvement
+    patience: 10        # Epochs without improvement (embedding: evaluations)
     min_delta: 1e-8     # Minimum improvement
 ```
 
@@ -152,7 +152,7 @@ trainer_config:
 trainer_config:
   model_ckpt:
     save_top_k: 1     # Keep N best models
-    save_last: false  # Also save last.ckpt
+    save_last: false  # Also save last.ckpt (every epoch)
   resume_ckpt_path: null  # Resume from this path
 ```
 
@@ -270,8 +270,8 @@ trainer_config:
 | `trainer_strategy` | str | `auto` | Strategy: `auto`, `ddp`, `fsdp` |
 | `profiler` | str | `null` | PyTorch profiler: `simple`, `advanced`, `pytorch` |
 | `enable_progress_bar` | bool | `true` | Show training progress |
-| `min_train_steps_per_epoch` | int | `200` | Minimum batches per epoch |
-| `train_steps_per_epoch` | int | `null` | Exact steps per epoch (null = auto) |
+| `min_train_steps_per_epoch` | int | `200` | Minimum batches per epoch (for `embedding`, P×K batches) |
+| `train_steps_per_epoch` | int | `null` | Exact steps per epoch (null = auto: one pass over the data; for `embedding`, in P×K batches) |
 | `visualize_preds_during_training` | bool | `false` | Save prediction visualizations |
 | `keep_viz` | bool | `false` | Keep viz folder after training |
 | `use_wandb` | bool | `false` | Enable WandB logging |
@@ -338,7 +338,7 @@ Only one scheduler should be set at a time.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `stop_training_on_plateau` | bool | `true` | Enable early stopping |
-| `patience` | int | `10` | Epochs without improvement |
+| `patience` | int | `10` | Epochs without improvement. For `embedding`, evaluations without improvement (one check every `eval.frequency` epochs) |
 | `min_delta` | float | `1e-8` | Minimum improvement |
 
 ### ModelCkptConfig
@@ -346,7 +346,7 @@ Only one scheduler should be set at a time.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `save_top_k` | int | `1` | Keep N best models |
-| `save_last` | bool | `null` | Also save last.ckpt |
+| `save_last` | bool | `null` | Also write last.ckpt at the end of every epoch |
 
 ### WandBConfig
 

@@ -3,7 +3,7 @@
 import zmq
 import jsonpickle
 from typing import Callable, Optional, Union
-from lightning.pytorch.callbacks import Callback
+from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from lightning.pytorch.callbacks.progress import TQDMProgressBar
 from loguru import logger
 import matplotlib
@@ -2410,6 +2410,66 @@ class TilingEpochCallback(Callback):
             self._set_loader_epoch(dl, epoch)
 
 
+class EvalCadenceEarlyStopping(EarlyStopping):
+    """``EarlyStopping`` that checks only on eval epochs, so patience counts evaluations.
+
+    A metric computed every ``eval_frequency`` epochs (the embedding retrieval metric)
+    is re-logged on the epochs in between -- NaN before the first eval, the last value
+    after it -- so that ``ModelCheckpoint`` always finds its key. A stock
+    ``EarlyStopping`` reads those placeholders as "no improvement", which made
+    ``patience`` mean roughly ``patience / eval_frequency`` evaluations and, with
+    ``eval_frequency > patience``, stopped the run before its first evaluation (so no
+    ``best.ckpt`` was ever written). Here the check runs on the same epochs the
+    metric is measured on (``(epoch + 1) % eval_frequency == 0``, the formula
+    ``EmbeddingEvaluationCallback`` and the checkpointer use), and ``patience`` is the
+    number of consecutive evaluations without improvement.
+
+    Attributes:
+        eval_frequency: Epochs between evaluations of the monitored metric.
+    """
+
+    def __init__(self, eval_frequency: int = 1, **kwargs):
+        """Initialize the callback; remaining kwargs go to ``EarlyStopping``."""
+        super().__init__(**kwargs)
+        self.eval_frequency = max(1, int(eval_frequency))
+
+    def _is_eval_epoch(self, trainer) -> bool:
+        return (trainer.current_epoch + 1) % self.eval_frequency == 0
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        """Check on eval epochs only (when checking at train-epoch end)."""
+        if self._is_eval_epoch(trainer):
+            super().on_train_epoch_end(trainer, pl_module)
+
+    def on_validation_end(self, trainer, pl_module):
+        """Check on eval epochs only (when checking at validation end)."""
+        if self._is_eval_epoch(trainer):
+            super().on_validation_end(trainer, pl_module)
+
+
+class LastEpochCheckpoint(ModelCheckpoint):
+    """Write ``last.ckpt`` at the end of EVERY epoch.
+
+    Lightning's ``ModelCheckpoint(save_last=True)`` only rewrites ``last.ckpt`` when it
+    also saved a top-k checkpoint on that step, so ``last.ckpt`` stopped at the last
+    *improving* epoch (or the last eval epoch, when the "best" checkpointer is pinned
+    to an eval cadence) and resuming from it silently lost the epochs after that. This
+    keeps no top-k set; it overwrites a single ``last.ckpt`` each epoch.
+    """
+
+    def __init__(self, dirpath: str):
+        """Initialize the callback to write ``<dirpath>/last.ckpt``."""
+        super().__init__(
+            dirpath=dirpath,
+            filename=self.CHECKPOINT_NAME_LAST,
+            monitor=None,
+            save_top_k=1,
+            save_last=False,
+            every_n_epochs=1,
+            enable_version_counter=False,
+        )
+
+
 class EmbeddingEvaluationCallback(Callback):
     """Per-epoch retrieval evaluation for the ``embedding`` model type.
 
@@ -2455,10 +2515,15 @@ class EmbeddingEvaluationCallback(Callback):
         return None
 
     def on_validation_epoch_start(self, trainer, pl_module):
-        """Enable per-crop embedding collection (skip sanity check)."""
+        """Enable per-crop embedding collection on rank 0 (skip sanity check).
+
+        Only rank 0 computes the metrics, and every rank runs the full val set (the
+        embedding val loader is not sharded), so collecting on other ranks would only
+        accumulate crops that nothing reads.
+        """
         if trainer.sanity_checking:
             return
-        pl_module._collect_val_predictions = True
+        pl_module._collect_val_predictions = bool(trainer.is_global_zero)
 
     def _compute_metrics(self, predictions: list, ground_truth: list) -> dict:
         """Leave-self-out retrieval/verification/kNN over the collected val embeddings.
@@ -2476,9 +2541,13 @@ class EmbeddingEvaluationCallback(Callback):
 
     def on_validation_epoch_end(self, trainer, pl_module):
         """Compute retrieval metrics; log to callback_metrics (selection) + wandb."""
+        # Nothing is collected during the sanity pass (see on_validation_epoch_start),
+        # so evaluating there would only warn about an empty val set.
         should_evaluate = (
-            trainer.current_epoch + 1
-        ) % self.eval_frequency == 0 and trainer.is_global_zero
+            (trainer.current_epoch + 1) % self.eval_frequency == 0
+            and trainer.is_global_zero
+            and not trainer.sanity_checking
+        )
 
         metrics = None
         if should_evaluate:
@@ -2546,7 +2615,8 @@ class EmbeddingEvaluationCallback(Callback):
             )
 
         pl_module._collect_val_predictions = False
-        if trainer.is_global_zero:
-            pl_module.val_predictions = []
-            pl_module.val_ground_truth = []
+        # Clear on every rank, not only rank 0, so nothing can accumulate across
+        # epochs on a rank whose collections are never consumed.
+        pl_module.val_predictions = []
+        pl_module.val_ground_truth = []
         trainer.strategy.barrier()

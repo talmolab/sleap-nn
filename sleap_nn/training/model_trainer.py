@@ -46,6 +46,7 @@ from sleap_nn.data.providers import get_max_height_width
 from sleap_nn.data.custom_datasets import (
     get_train_val_dataloaders,
     get_steps_per_epoch,
+    get_train_samples_per_step,
     get_train_val_datasets,
 )
 from sleap_nn.data.tiling import generate_tile_grid
@@ -80,6 +81,8 @@ from sleap_nn.training.callbacks import (
     SegmentationEvaluationCallback,
     TilingEpochCallback,
     EmbeddingEvaluationCallback,
+    EvalCadenceEarlyStopping,
+    LastEpochCheckpoint,
     UnifiedVizCallback,
 )
 from sleap_nn import RANK
@@ -1788,13 +1791,8 @@ class ModelTrainer:
         # Checkpoint/early-stop SELECTION metric. Contrastive (embedding) objectives
         # are NOT well-selected by val/loss, so select on a retrieval metric (SPEC §8).
         if self.model_type == "embedding":
-            # Touch the objective/sampler so a missing config fails loud here rather
-            # than deep in the dataloader.
-            OmegaConf.select(
-                self.config,
-                "model_config.head_configs.embedding.embedding.objective.sampler.kind",
-                default=None,
-            )
+            # (The objective itself is validated earlier, in `validate_embedding_identity`
+            # at config setup, before any dataset is built or cached.)
             emb_select = OmegaConf.select(
                 self.config, "trainer_config.eval.select_metric", default="rank1"
             )
@@ -1832,14 +1830,17 @@ class ModelTrainer:
             ckpt_every_n_epochs = 1
 
         if self.config.trainer_config.save_ckpt:
+            ckpt_dirpath = (
+                Path(self.config.trainer_config.ckpt_dir)
+                / self.config.trainer_config.run_name
+            ).as_posix()
             # checkpoint callback
             checkpoint_callback = ModelCheckpoint(
                 save_top_k=self.config.trainer_config.model_ckpt.save_top_k,
-                save_last=self.config.trainer_config.model_ckpt.save_last,
-                dirpath=(
-                    Path(self.config.trainer_config.ckpt_dir)
-                    / self.config.trainer_config.run_name
-                ).as_posix(),
+                # `last.ckpt` is written by its own every-epoch callback below: here it
+                # would only be refreshed when a new "best" is saved.
+                save_last=False,
+                dirpath=ckpt_dirpath,
                 filename="best",
                 # Config-driven monitor/mode (main #690/#692) wins when the user set
                 # it away from the "val/loss" schema default (e.g. a seg quality
@@ -1866,6 +1867,8 @@ class ModelTrainer:
                 ),
             )
             callbacks.append(checkpoint_callback)
+            if self.config.trainer_config.model_ckpt.save_last:
+                callbacks.append(LastEpochCheckpoint(dirpath=ckpt_dirpath))
 
             # csv log callback
             csv_log_keys = [
@@ -2115,13 +2118,21 @@ class ModelTrainer:
                 patience=self.config.trainer_config.early_stopping.patience,
             )
             if self.model_type == "embedding":
-                # The retrieval selection metric is logged only on eval epochs (so it is
-                # absent when eval.frequency > 1) and the verification metrics (auc/eer)
-                # can be NaN on a degenerate val set/shard. Don't let an absent/NaN value
-                # abort the run — pose/seg models keep the strict defaults.
+                # The verification metrics (auc/eer) can be NaN on a degenerate val
+                # set/shard; don't let that abort the run — pose/seg models keep the
+                # strict defaults.
                 es_kwargs["strict"] = False
                 es_kwargs["check_finite"] = False
-            callbacks.append(EarlyStopping(**es_kwargs))
+                # The retrieval metric is measured every `eval.frequency` epochs and
+                # only carried forward in between; check (and count patience) on
+                # eval epochs only, the same cadence the checkpointer selects on.
+                callbacks.append(
+                    EvalCadenceEarlyStopping(
+                        eval_frequency=ckpt_every_n_epochs, **es_kwargs
+                    )
+                )
+            else:
+                callbacks.append(EarlyStopping(**es_kwargs))
 
         if self.config.trainer_config.use_wandb:
             # wandb logger
@@ -2454,12 +2465,19 @@ class ModelTrainer:
                     f"train_steps_per_epoch not set; using tiling.steps_per_epoch={train_steps_per_epoch}"
                 )
             else:
+                # One pass over the data. `embedding` draws P x K crops per step, not
+                # `train_data_loader.batch_size`, so the step size comes from the
+                # dataset-aware helper the dataloader factory also uses.
+                samples_per_step = get_train_samples_per_step(
+                    train_dataset, self.config
+                )
                 train_steps_per_epoch = get_steps_per_epoch(
-                    dataset=train_dataset,
-                    batch_size=self.config.trainer_config.train_data_loader.batch_size,
+                    dataset=train_dataset, batch_size=samples_per_step
                 )
                 logger.info(
-                    f"train_steps_per_epoch not set; computed {train_steps_per_epoch} from training dataset"
+                    f"train_steps_per_epoch not set; computed {train_steps_per_epoch} "
+                    f"from training dataset ({len(train_dataset)} samples, "
+                    f"{samples_per_step} per step)"
                 )
         else:
             logger.info(

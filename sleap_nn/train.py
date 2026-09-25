@@ -841,10 +841,9 @@ def train(
             epochs. if save_top_k >= 2 and the callback is called multiple times inside an
             epoch, the name of the saved file will be appended with a version count starting
             with v1 unless enable_version_counter is set to False. Default: 1.
-        ckpt_save_last: When True, saves a last.ckpt whenever a checkpoint file gets saved.
-            On a local filesystem, this will be a symbolic link, and otherwise a copy of
-            the checkpoint file. This allows accessing the latest checkpoint in a deterministic
-            manner. Default: None.
+        ckpt_save_last: When True, also writes a last.ckpt at the end of every epoch
+            (overwritten each time), so the most recent epoch can always be resumed from,
+            whether or not it improved the monitored metric. Default: None.
         trainer_num_devices: Number of devices to use or "auto" to let Lightning decide. If `None`, it defaults to `"auto"` when `trainer_device_indices` is also `None`, otherwise its value is inferred from trainer_device_indices. Default: None.
         trainer_device_indices: List of device indices to use. For example, `[0, 1]` selects two devices and overrides `trainer_devices`, while `[2]` with `trainer_devices=2` still runs only on `device 2` (not two devices). If `None`, the number of devices is taken from `trainer_devices`, starting from index 0. Default: `None`.
         trainer_accelerator: One of the ("cpu", "gpu", "mps", "auto"). "auto" recognises
@@ -853,9 +852,10 @@ def train(
         enable_progress_bar: When True, enables printing the logs during training. Default: True.
         min_train_steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model
             is trained with very few data points). Refer `limit_train_batches` parameter
-            of Torch `Trainer`. Default: 200.
+            of Torch `Trainer`. For `embedding`, one iteration is a P x K batch. Default: 200.
         train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`,
-            this is set to the number of batches in the training data or `min_train_steps_per_epoch`,
+            this is set to the number of batches in the training data (for `embedding`,
+            the number of P x K batches that covers it once) or `min_train_steps_per_epoch`,
             whichever is largest. Default: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
             are saved to `viz` folder in the ckpt dir.
