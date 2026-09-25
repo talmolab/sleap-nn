@@ -7861,7 +7861,7 @@
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">trainer_config</span><span class="p">:</span>
 </span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">early_stopping</span><span class="p">:</span>
 </span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span><span class="nt">stop_training_on_plateau</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="nt">patience</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w">        </span><span class="c1"># Epochs without improvement</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="nt">patience</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w">        </span><span class="c1"># Epochs without improvement (embedding: evaluations)</span>
 </span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="nt">min_delta</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1e-8</span><span class="w">     </span><span class="c1"># Minimum improvement</span>
 </span></code></pre></div>
 <hr />
@@ -7896,7 +7896,7 @@
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">trainer_config</span><span class="p">:</span>
 </span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">model_ckpt</span><span class="p">:</span>
 </span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="nt">save_top_k</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">     </span><span class="c1"># Keep N best models</span>
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span><span class="nt">save_last</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">  </span><span class="c1"># Also save last.ckpt</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span><span class="nt">save_last</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">  </span><span class="c1"># Also save last.ckpt (every epoch)</span>
 </span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">  </span><span class="nt">resume_ckpt_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">  </span><span class="c1"># Resume from this path</span>
 </span></code></pre></div>
 <hr />
@@ -8059,13 +8059,13 @@
 <td><code>min_train_steps_per_epoch</code></td>
 <td>int</td>
 <td><code>200</code></td>
-<td>Minimum batches per epoch</td>
+<td>Minimum batches per epoch (for <code>embedding</code>, P×K batches)</td>
 </tr>
 <tr>
 <td><code>train_steps_per_epoch</code></td>
 <td>int</td>
 <td><code>null</code></td>
-<td>Exact steps per epoch (null = auto)</td>
+<td>Exact steps per epoch (null = auto: one pass over the data; for <code>embedding</code>, in P×K batches)</td>
 </tr>
 <tr>
 <td><code>visualize_preds_during_training</code></td>
@@ -8326,7 +8326,7 @@
 <td><code>patience</code></td>
 <td>int</td>
 <td><code>10</code></td>
-<td>Epochs without improvement</td>
+<td>Epochs without improvement. For <code>embedding</code>, evaluations without improvement (one check every <code>eval.frequency</code> epochs)</td>
 </tr>
 <tr>
 <td><code>min_delta</code></td>
@@ -8357,7 +8357,7 @@
 <td><code>save_last</code></td>
 <td>bool</td>
 <td><code>null</code></td>
-<td>Also save last.ckpt</td>
+<td>Also write last.ckpt at the end of every epoch</td>
 </tr>
 </tbody>
 </table>

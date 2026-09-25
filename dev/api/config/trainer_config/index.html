@@ -8124,7 +8124,7 @@ trainer's max_epochs if not specified. <em>Default</em>: <code>None</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. <em>Default</em>: <code>10</code>.</p>
+                <p>(int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. For the <code>embedding</code> model type, which selects on a retrieval metric measured every <code>eval.frequency</code> epochs, one check happens per evaluation, so patience counts evaluations. <em>Default</em>: <code>10</code>.</p>
               </div>
             </td>
           </tr>
@@ -8164,7 +8164,7 @@ trainer's max_epochs if not specified. <em>Default</em>: <code>None</code>.</p>
 </span><span id="__span-0-254"><a id="__codelineno-0-254" name="__codelineno-0-254"></a><span class="sd">    Attributes:</span>
 </span><span id="__span-0-255"><a id="__codelineno-0-255" name="__codelineno-0-255"></a><span class="sd">        stop_training_on_plateau: (bool) True if early stopping should be enabled. *Default*: `True`.</span>
 </span><span id="__span-0-256"><a id="__codelineno-0-256" name="__codelineno-0-256"></a><span class="sd">        min_delta: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. *Default*: `1e-8`.</span>
-</span><span id="__span-0-257"><a id="__codelineno-0-257" name="__codelineno-0-257"></a><span class="sd">        patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. *Default*: `10`.</span>
+</span><span id="__span-0-257"><a id="__codelineno-0-257" name="__codelineno-0-257"></a><span class="sd">        patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. For the ``embedding`` model type, which selects on a retrieval metric measured every ``eval.frequency`` epochs, one check happens per evaluation, so patience counts evaluations. *Default*: `10`.</span>
 </span><span id="__span-0-258"><a id="__codelineno-0-258" name="__codelineno-0-258"></a><span class="sd">    &quot;&quot;&quot;</span>
 </span><span id="__span-0-259"><a id="__codelineno-0-259" name="__codelineno-0-259"></a>
 </span><span id="__span-0-260"><a id="__codelineno-0-260" name="__codelineno-0-260"></a>    <span class="n">min_delta</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mf">1e-8</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">validators</span><span class="o">.</span><span class="n">ge</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
@@ -8920,7 +8920,7 @@ trainer's max_epochs if not specified. <em>Default</em>: <code>None</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(bool) When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. <em>Default</em>: <code>None</code>.</p>
+                <p>(bool) When True, also writes a last.ckpt at the end of every epoch (overwritten each time), so the most recent epoch can always be resumed from, whether or not it improved the monitored metric. <em>Default</em>: <code>None</code>.</p>
               </div>
             </td>
           </tr>
@@ -8987,7 +8987,7 @@ trainer's max_epochs if not specified. <em>Default</em>: <code>None</code>.</p>
 </span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61"></a>
 </span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62"></a><span class="sd">    Attributes:</span>
 </span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63"></a><span class="sd">        save_top_k: (int) If save_top_k == k, the best k models according to the quantity monitored will be saved. If save_top_k == 0, no models are saved. If save_top_k == -1, all models are saved. Please note that the monitors are checked every every_n_epochs epochs. if save_top_k &gt;= 2 and the callback is called multiple times inside an epoch, the name of the saved file will be appended with a version count starting with v1 unless enable_version_counter is set to False. *Default*: `1`.</span>
-</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">        save_last: (bool) When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. *Default*: `None`.</span>
+</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64"></a><span class="sd">        save_last: (bool) When True, also writes a last.ckpt at the end of every epoch (overwritten each time), so the most recent epoch can always be resumed from, whether or not it improved the monitored metric. *Default*: `None`.</span>
 </span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65"></a><span class="sd">        monitor: (str) Metric name the checkpoint tracks to pick the &quot;best&quot; model. Any key present in ``trainer.callback_metrics`` — e.g. ``&quot;val/loss&quot;`` (default), or, for segmentation runs with ``eval.enabled``, a full-resolution quality metric such as ``&quot;eval/val/fg_mean_cldice&quot;`` (semantic) or ``&quot;eval/val/mask_mean_iou&quot;`` (instance) logged by ``SegmentationEvaluationCallback``. *Default*: `&quot;val/loss&quot;`.</span>
 </span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66"></a><span class="sd">        mode: (str) ``&quot;min&quot;`` (default) or ``&quot;max&quot;`` — direction of improvement for ``monitor`` (use ``&quot;max&quot;`` for IoU/clDice metrics). *Default*: `&quot;min&quot;`.</span>
 </span><span id="__span-0-67"><a id="__codelineno-0-67" name="__codelineno-0-67"></a><span class="sd">    &quot;&quot;&quot;</span>
@@ -9780,7 +9780,7 @@ trainer's max_epochs if not specified. <em>Default</em>: <code>None</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. <em>Default</em>: <code>200</code>.</p>
+                <p>(int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. For <code>embedding</code>, one iteration is a P x K batch (<code>objective.sampler</code>), not <code>train_data_loader.batch_size</code> samples. <em>Default</em>: <code>200</code>.</p>
               </div>
             </td>
           </tr>
@@ -9791,7 +9791,7 @@ trainer's max_epochs if not specified. <em>Default</em>: <code>None</code>.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(int) Number of minibatches (steps) to train for in an epoch. If set to <code>None</code>, this is set to the number of batches in the training data or <code>min_train_steps_per_epoch</code>, whichever is largest. <em>Default</em>: <code>None</code>. <strong>Note</strong>: In a multi-gpu training setup, the effective steps during training would be the <code>trainer_steps_per_epoch</code> / <code>trainer_devices</code>.</p>
+                <p>(int) Number of minibatches (steps) to train for in an epoch. If set to <code>None</code>, this is set to the number of batches in the training data (for <code>embedding</code>, the number of P x K batches that covers it once) or <code>min_train_steps_per_epoch</code>, whichever is largest. <em>Default</em>: <code>None</code>. <strong>Note</strong>: In a multi-gpu training setup, the effective steps during training would be the <code>trainer_steps_per_epoch</code> / <code>trainer_devices</code>.</p>
               </div>
             </td>
           </tr>
@@ -10131,8 +10131,8 @@ trainer's max_epochs if not specified. <em>Default</em>: <code>None</code>.</p>
 </span><span id="__span-0-346"><a id="__codelineno-0-346" name="__codelineno-0-346"></a><span class="sd">        profiler: (str) Profiler for pytorch Trainer. One of [&quot;advanced&quot;, &quot;passthrough&quot;, &quot;pytorch&quot;, &quot;simple&quot;]. *Default*: `None`.</span>
 </span><span id="__span-0-347"><a id="__codelineno-0-347" name="__codelineno-0-347"></a><span class="sd">        trainer_strategy: (str) Training strategy, one of [&quot;auto&quot;, &quot;ddp&quot;, &quot;fsdp&quot;, &quot;ddp_find_unused_parameters_false&quot;, &quot;ddp_find_unused_parameters_true&quot;, ...]. This supports any training strategy that is supported by `lightning.Trainer`. *Default*: `&quot;auto&quot;`.</span>
 </span><span id="__span-0-348"><a id="__codelineno-0-348" name="__codelineno-0-348"></a><span class="sd">        enable_progress_bar: (bool) When True, enables printing the logs during training. *Default*: `True`.</span>
-</span><span id="__span-0-349"><a id="__codelineno-0-349" name="__codelineno-0-349"></a><span class="sd">        min_train_steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. *Default*: `200`.</span>
-</span><span id="__span-0-350"><a id="__codelineno-0-350" name="__codelineno-0-350"></a><span class="sd">        train_steps_per_epoch: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data or `min_train_steps_per_epoch`, whichever is largest. *Default*: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.</span>
+</span><span id="__span-0-349"><a id="__codelineno-0-349" name="__codelineno-0-349"></a><span class="sd">        min_train_steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. For ``embedding``, one iteration is a P x K batch (``objective.sampler``), not ``train_data_loader.batch_size`` samples. *Default*: `200`.</span>
+</span><span id="__span-0-350"><a id="__codelineno-0-350" name="__codelineno-0-350"></a><span class="sd">        train_steps_per_epoch: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data (for ``embedding``, the number of P x K batches that covers it once) or `min_train_steps_per_epoch`, whichever is largest. *Default*: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.</span>
 </span><span id="__span-0-351"><a id="__codelineno-0-351" name="__codelineno-0-351"></a><span class="sd">        visualize_preds_during_training: (bool) If set to `True`, sample predictions (keypoints + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table. *Default*: `False`.</span>
 </span><span id="__span-0-352"><a id="__codelineno-0-352" name="__codelineno-0-352"></a><span class="sd">        keep_viz: (bool) If set to `True`, the `viz` folder will be kept after training. If `False`, the `viz` folder will be deleted after training. Only applies when `visualize_preds_during_training` is `True`. *Default*: `False`.</span>
 </span><span id="__span-0-353"><a id="__codelineno-0-353" name="__codelineno-0-353"></a><span class="sd">        viz_img_format: (str) Image format for the visualization figures saved to the local `viz` folder, one of `&quot;png&quot;` or `&quot;jpg&quot;`. `&quot;jpg&quot;` produces much smaller files, which helps when training a battery of models on the same dataset (#644). Only applies when `visualize_preds_during_training` is `True`. *Default*: `&quot;png&quot;`.</span>

@@ -9982,10 +9982,9 @@ with v1 unless enable_version_counter is set to False. Default: 1.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>When True, saves a last.ckpt whenever a checkpoint file gets saved.
-On a local filesystem, this will be a symbolic link, and otherwise a copy of
-the checkpoint file. This allows accessing the latest checkpoint in a deterministic
-manner. Default: False.</p>
+                <p>When True, also writes a last.ckpt at the end of every epoch
+(overwritten each time), so the most recent epoch can always be resumed from,
+whether or not it improved the monitored metric. Default: False.</p>
               </div>
             </td>
             <td>
@@ -10069,7 +10068,7 @@ the <code>Trainer</code> to be connected to. Default: "auto".</p>
               <div class="doc-md-description">
                 <p>Minimum number of iterations in a single epoch. (Useful if model
 is trained with very few data points). Refer <code>limit_train_batches</code> parameter
-of Torch <code>Trainer</code>. Default: 200.</p>
+of Torch <code>Trainer</code>. For <code>embedding</code>, one iteration is a P x K batch. Default: 200.</p>
               </div>
             </td>
             <td>
@@ -10086,7 +10085,8 @@ of Torch <code>Trainer</code>. Default: 200.</p>
             <td>
               <div class="doc-md-description">
                 <p>Number of minibatches (steps) to train for in an epoch. If set to <code>None</code>,
-this is set to the number of batches in the training data or <code>min_train_steps_per_epoch</code>,
+this is set to the number of batches in the training data (for <code>embedding</code>,
+the number of P x K batches that covers it once) or <code>min_train_steps_per_epoch</code>,
 whichever is largest. Default: <code>None</code>. <strong>Note</strong>: In a multi-gpu training setup, the effective steps during training would be the <code>trainer_steps_per_epoch</code> / <code>trainer_devices</code>.</p>
               </div>
             </td>
@@ -10950,21 +10950,21 @@ should wait to receive a response and should be set to a small value to minimize
 </span><span id="__span-0-814"><a id="__codelineno-0-814" name="__codelineno-0-814"></a><span class="sd">            epochs. if save_top_k &gt;= 2 and the callback is called multiple times inside an</span>
 </span><span id="__span-0-815"><a id="__codelineno-0-815" name="__codelineno-0-815"></a><span class="sd">            epoch, the name of the saved file will be appended with a version count starting</span>
 </span><span id="__span-0-816"><a id="__codelineno-0-816" name="__codelineno-0-816"></a><span class="sd">            with v1 unless enable_version_counter is set to False. Default: 1.</span>
-</span><span id="__span-0-817"><a id="__codelineno-0-817" name="__codelineno-0-817"></a><span class="sd">        ckpt_save_last: When True, saves a last.ckpt whenever a checkpoint file gets saved.</span>
-</span><span id="__span-0-818"><a id="__codelineno-0-818" name="__codelineno-0-818"></a><span class="sd">            On a local filesystem, this will be a symbolic link, and otherwise a copy of</span>
-</span><span id="__span-0-819"><a id="__codelineno-0-819" name="__codelineno-0-819"></a><span class="sd">            the checkpoint file. This allows accessing the latest checkpoint in a deterministic</span>
-</span><span id="__span-0-820"><a id="__codelineno-0-820" name="__codelineno-0-820"></a><span class="sd">            manner. Default: False.</span>
-</span><span id="__span-0-821"><a id="__codelineno-0-821" name="__codelineno-0-821"></a><span class="sd">        trainer_num_devices: Number of devices to use or &quot;auto&quot; to let Lightning decide. If `None`, it defaults to `&quot;auto&quot;` when `trainer_device_indices` is also `None`, otherwise its value is inferred from trainer_device_indices. Default: None.</span>
-</span><span id="__span-0-822"><a id="__codelineno-0-822" name="__codelineno-0-822"></a><span class="sd">        trainer_device_indices: List of device indices to use. For example, `[0, 1]` selects two devices and overrides `trainer_devices`, while `[2]` with `trainer_devices=2` still runs only on `device 2` (not two devices). If `None`, the number of devices is taken from `trainer_devices`, starting from index 0. Default: `None`.</span>
-</span><span id="__span-0-823"><a id="__codelineno-0-823" name="__codelineno-0-823"></a><span class="sd">        trainer_accelerator: One of the (&quot;cpu&quot;, &quot;gpu&quot;, &quot;mps&quot;, &quot;auto&quot;). &quot;auto&quot; recognises</span>
-</span><span id="__span-0-824"><a id="__codelineno-0-824" name="__codelineno-0-824"></a><span class="sd">            the machine the model is running on and chooses the appropriate accelerator for</span>
-</span><span id="__span-0-825"><a id="__codelineno-0-825" name="__codelineno-0-825"></a><span class="sd">            the `Trainer` to be connected to. Default: &quot;auto&quot;.</span>
-</span><span id="__span-0-826"><a id="__codelineno-0-826" name="__codelineno-0-826"></a><span class="sd">        enable_progress_bar: When True, enables printing the logs during training. Default: False.</span>
-</span><span id="__span-0-827"><a id="__codelineno-0-827" name="__codelineno-0-827"></a><span class="sd">        min_train_steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model</span>
-</span><span id="__span-0-828"><a id="__codelineno-0-828" name="__codelineno-0-828"></a><span class="sd">            is trained with very few data points). Refer `limit_train_batches` parameter</span>
-</span><span id="__span-0-829"><a id="__codelineno-0-829" name="__codelineno-0-829"></a><span class="sd">            of Torch `Trainer`. Default: 200.</span>
-</span><span id="__span-0-830"><a id="__codelineno-0-830" name="__codelineno-0-830"></a><span class="sd">        train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`,</span>
-</span><span id="__span-0-831"><a id="__codelineno-0-831" name="__codelineno-0-831"></a><span class="sd">            this is set to the number of batches in the training data or `min_train_steps_per_epoch`,</span>
+</span><span id="__span-0-817"><a id="__codelineno-0-817" name="__codelineno-0-817"></a><span class="sd">        ckpt_save_last: When True, also writes a last.ckpt at the end of every epoch</span>
+</span><span id="__span-0-818"><a id="__codelineno-0-818" name="__codelineno-0-818"></a><span class="sd">            (overwritten each time), so the most recent epoch can always be resumed from,</span>
+</span><span id="__span-0-819"><a id="__codelineno-0-819" name="__codelineno-0-819"></a><span class="sd">            whether or not it improved the monitored metric. Default: False.</span>
+</span><span id="__span-0-820"><a id="__codelineno-0-820" name="__codelineno-0-820"></a><span class="sd">        trainer_num_devices: Number of devices to use or &quot;auto&quot; to let Lightning decide. If `None`, it defaults to `&quot;auto&quot;` when `trainer_device_indices` is also `None`, otherwise its value is inferred from trainer_device_indices. Default: None.</span>
+</span><span id="__span-0-821"><a id="__codelineno-0-821" name="__codelineno-0-821"></a><span class="sd">        trainer_device_indices: List of device indices to use. For example, `[0, 1]` selects two devices and overrides `trainer_devices`, while `[2]` with `trainer_devices=2` still runs only on `device 2` (not two devices). If `None`, the number of devices is taken from `trainer_devices`, starting from index 0. Default: `None`.</span>
+</span><span id="__span-0-822"><a id="__codelineno-0-822" name="__codelineno-0-822"></a><span class="sd">        trainer_accelerator: One of the (&quot;cpu&quot;, &quot;gpu&quot;, &quot;mps&quot;, &quot;auto&quot;). &quot;auto&quot; recognises</span>
+</span><span id="__span-0-823"><a id="__codelineno-0-823" name="__codelineno-0-823"></a><span class="sd">            the machine the model is running on and chooses the appropriate accelerator for</span>
+</span><span id="__span-0-824"><a id="__codelineno-0-824" name="__codelineno-0-824"></a><span class="sd">            the `Trainer` to be connected to. Default: &quot;auto&quot;.</span>
+</span><span id="__span-0-825"><a id="__codelineno-0-825" name="__codelineno-0-825"></a><span class="sd">        enable_progress_bar: When True, enables printing the logs during training. Default: False.</span>
+</span><span id="__span-0-826"><a id="__codelineno-0-826" name="__codelineno-0-826"></a><span class="sd">        min_train_steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model</span>
+</span><span id="__span-0-827"><a id="__codelineno-0-827" name="__codelineno-0-827"></a><span class="sd">            is trained with very few data points). Refer `limit_train_batches` parameter</span>
+</span><span id="__span-0-828"><a id="__codelineno-0-828" name="__codelineno-0-828"></a><span class="sd">            of Torch `Trainer`. For `embedding`, one iteration is a P x K batch. Default: 200.</span>
+</span><span id="__span-0-829"><a id="__codelineno-0-829" name="__codelineno-0-829"></a><span class="sd">        train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`,</span>
+</span><span id="__span-0-830"><a id="__codelineno-0-830" name="__codelineno-0-830"></a><span class="sd">            this is set to the number of batches in the training data (for `embedding`,</span>
+</span><span id="__span-0-831"><a id="__codelineno-0-831" name="__codelineno-0-831"></a><span class="sd">            the number of P x K batches that covers it once) or `min_train_steps_per_epoch`,</span>
 </span><span id="__span-0-832"><a id="__codelineno-0-832" name="__codelineno-0-832"></a><span class="sd">            whichever is largest. Default: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.</span>
 </span><span id="__span-0-833"><a id="__codelineno-0-833" name="__codelineno-0-833"></a><span class="sd">        visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)</span>
 </span><span id="__span-0-834"><a id="__codelineno-0-834" name="__codelineno-0-834"></a><span class="sd">            are saved to `viz` folder in the ckpt dir.</span>
