@@ -120,6 +120,11 @@ A ready-to-edit sample lives at
   automatically, and holds the encoder in eval mode for the whole run so a
   BatchNorm-bearing backbone (ResNet, BiT) does not drift its running statistics —
   "frozen" covers the statistics, not just the weights.
+- For the `embedding` model type, `head_configs.embedding.embedding.freeze_backbone:
+  true` does the same thing, and also works on the native `convnext` / `swint`
+  (their ImageNet encoder; the randomly initialized middle blocks still train) and
+  `unet` (stem + encoder blocks) backbones. Without pretrained weights it logs a
+  warning, since the encoder would then stay at its random initialization.
 
 ### Channels and normalization
 

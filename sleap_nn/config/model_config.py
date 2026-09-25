@@ -1441,6 +1441,21 @@ class EmbeddingHeadConfig:
         output_stride: Stride of the pooled feature. Should equal the backbone
             ``max_stride`` so the decoder is empty and the head taps ``middle_output``.
         loss_weight: Scalar loss weight.
+        freeze_backbone: (bool) Freeze the backbone's PRETRAINED ENCODER and train
+            only what sits on top of it. The encoder is the part pretrained weights
+            load into: the HuggingFace model of a ``pretrained`` backbone (the same
+            thing ``backbone_config.pretrained.freeze`` freezes), the ImageNet
+            encoder of a native ``convnext`` / ``swint`` with
+            ``pre_trained_weights``, the stem + encoder blocks of a ``unet``. The
+            frozen encoder gets no gradient AND stays in eval mode for the whole run,
+            so BatchNorm keeps its pretrained running statistics and dropout /
+            stochastic depth are off. Everything else stays trainable: the randomly
+            initialized middle blocks of a native ``convnext`` / ``swint``, any
+            decoder, the embedding head and the train-only projection head. Setting
+            it without pretrained weights (no ``pretrained.weights``, no
+            ``pre_trained_weights``, no ``model_config.pretrained_backbone_weights``)
+            logs a warning: the encoder would then stay at its random
+            initialization. Default is False.
         anchor_part: (str) Node name used to center the re-ID crop. ``None``
             (default) centers on the mean of each instance's visible nodes.
         centroid_method: (str) How the crop center is derived from the instance's

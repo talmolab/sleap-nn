@@ -132,6 +132,7 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
             "max_stride"
         ]
         config.model_config.head_configs.embedding.embedding.output_stride = max_stride
+        _check_embedding_backbone(config, backbone_type)
         if backbone_type == "pretrained":
             # The `pretrained` wrapper spells "no decoder" as `mode="encoder"`, not
             # with strides -- and it treats `output_stride == max_stride` as a user
@@ -145,6 +146,64 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
                 "output_stride"
             ] = max_stride
     return config
+
+
+def _has_pretrained_backbone_weights(config: OmegaConf, backbone_type: str) -> bool:
+    """Whether training starts the backbone from pretrained (not random) weights."""
+    if OmegaConf.select(config, "model_config.pretrained_backbone_weights") is not None:
+        return True
+    backbone_cfg = config.model_config.backbone_config[backbone_type]
+    if backbone_type == "pretrained":
+        return bool(OmegaConf.select(backbone_cfg, "weights", default=True))
+    if backbone_type in ("convnext", "swint"):
+        return OmegaConf.select(backbone_cfg, "pre_trained_weights") is not None
+    return False
+
+
+def _check_embedding_backbone(config: OmegaConf, backbone_type: str) -> None:
+    """Validate the backbone of an `embedding` model at config time.
+
+    Args:
+        config: The full training job config of an `embedding` model.
+        backbone_type: Its backbone type.
+
+    Raises:
+        ValueError: If a `unet` backbone sets `stem_stride`.
+    """
+    backbone_cfg = config.model_config.backbone_config[backbone_type]
+    if (
+        backbone_type == "unet"
+        and OmegaConf.select(backbone_cfg, "stem_stride") is not None
+    ):
+        # Same hazard as the rejected `pretrained.mode='decoder'`: a UNet with a stem
+        # builds `log2(stem_stride)` decoder blocks even when output_stride ==
+        # max_stride (up_blocks = log2(max/out) + stem_blocks), and the pooled head
+        # reads the bottleneck, so that decoder never receives gradient (33,138 of
+        # 90,936 parameters on a small UNet) -- dead weight and a DDP
+        # unused-parameter error.
+        message = (
+            "model_config.backbone_config.unet.stem_stride is not supported for the "
+            "`embedding` model type: a stem makes the UNet build decoder blocks that "
+            "its pooled head never reads, so they would receive no gradient. Unset "
+            "stem_stride (the stride the head pools at is max_stride)."
+        )
+        logger.error(message)
+        raise ValueError(message)
+
+    freeze = OmegaConf.select(
+        config,
+        "model_config.head_configs.embedding.embedding.freeze_backbone",
+        default=False,
+    )
+    if freeze and not _has_pretrained_backbone_weights(config, backbone_type):
+        logger.warning(
+            "head_configs.embedding.embedding.freeze_backbone=True, but the "
+            f"`{backbone_type}` backbone starts from random weights (no "
+            "pretrained.weights / pre_trained_weights / "
+            "model_config.pretrained_backbone_weights): its encoder will stay at its "
+            "random initialization for the whole run. This is almost certainly a "
+            "mistake -- load pretrained weights or set freeze_backbone=False."
+        )
 
 
 def _set_pretrained_encoder_mode(config: OmegaConf) -> None:

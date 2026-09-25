@@ -12,7 +12,10 @@ from sleap_nn.architectures.encoder_decoder import Decoder
 from omegaconf import OmegaConf
 from torchvision.ops.misc import Permute
 from sleap_nn.architectures.encoder_decoder import Decoder, SimpleConvBlock
-from sleap_nn.architectures.common import MaxPool2dWithSamePadding
+from sleap_nn.architectures.common import (
+    FreezableEncoderMixin,
+    MaxPool2dWithSamePadding,
+)
 
 from torchvision.utils import _log_api_usage_once
 from torchvision.models.swin_transformer import (
@@ -163,7 +166,7 @@ class SwinTransformerEncoder(nn.Module):
         return features_list
 
 
-class SwinTWrapper(nn.Module):
+class SwinTWrapper(FreezableEncoderMixin, nn.Module):
     """SwinT architecture for pose estimation.
 
     This class defines the SwinT architecture for pose estimation, combining an

@@ -27,6 +27,11 @@ transformers = pytest.importorskip("transformers")
 
 from sleap_nn.architectures.model import Model
 from sleap_nn.architectures.pretrained import PretrainedBackbone, _resolve_mode
+from tests.training.test_embedding_model_semantics import (  # noqa: F401 (fixture)
+    _config as _emb_train_config,
+    _train as _emb_train,
+    tracked_slp,
+)
 
 
 def _caseA_cfg(model_name, output_stride=2, max_stride=32, **kw):
@@ -526,3 +531,78 @@ def test_embedding_rejects_an_explicit_decoder_mode():
         check_output_strides(
             _embedding_cfg("facebook/convnextv2-nano-22k-224", mode="decoder")
         )
+
+
+def _bn_buffers(module):
+    """Every BatchNorm buffer (running mean/var, batch count) of `module`."""
+    return {
+        f"{name}.{key}": buf.detach().clone()
+        for name, m in module.named_modules()
+        if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)
+        for key, buf in m.named_buffers(recurse=False)
+    }
+
+
+def test_embedding_freeze_backbone_keeps_batchnorm_frozen_through_training(
+    tracked_slp, tmp_path, monkeypatch
+):
+    """`freeze_backbone` freezes a BatchNorm encoder for real, through `train()`.
+
+    It used to set `requires_grad=False` only: the encoder stayed in train mode, so
+    every training forward normalized with batch statistics and overwrote the
+    running statistics (measured on resnet-18: 20 forwards, zero optimizer steps,
+    eval embeddings of a fixed batch at cos 0.35 to the originals). Now it is the
+    `pretrained.freeze` mechanism: no gradient, eval mode for the whole run -- and
+    only the encoder is frozen.
+    """
+    from sleap_nn.training.lightning_modules import EmbeddingLightningModule
+
+    steps = []
+    original = EmbeddingLightningModule.training_step
+
+    def spy(self, batch, batch_idx):
+        enc = self.model.backbone.enc
+        steps.append(
+            {
+                "bn": _bn_buffers(enc),
+                "modes": {m.training for m in enc.modules()},
+                "enc": {n: p.detach().clone() for n, p in enc.named_parameters()},
+            }
+        )
+        return original(self, batch, batch_idx)
+
+    monkeypatch.setattr(EmbeddingLightningModule, "training_step", spy)
+
+    backbone = {
+        "pretrained": {
+            "model_name": "microsoft/resnet-18",
+            "weights": False,
+            "in_channels": 3,
+            "normalize": False,
+        }
+    }
+    cfg = _emb_train_config(
+        tracked_slp,
+        tmp_path,
+        "freeze_resnet",
+        backbone=backbone,
+        **{"model_config.head_configs.embedding.embedding.freeze_backbone": True},
+    )
+    module = _emb_train(cfg).lightning_model
+    enc = module.model.backbone.enc
+
+    assert len(steps) >= 2
+    first = steps[0]
+    assert first["bn"], "resnet-18 should have BatchNorm layers"
+    final_bn = _bn_buffers(enc)
+    for step, record in enumerate(steps):
+        assert record["modes"] == {False}, f"step {step}: encoder in train mode"
+    for key, value in first["bn"].items():
+        assert torch.equal(final_bn[key], value), f"BatchNorm {key} changed"
+    final_enc = dict(enc.named_parameters())
+    for name, value in first["enc"].items():
+        assert torch.equal(final_enc[name].detach(), value), f"{name} changed"
+
+    enc_ids = {id(p) for p in enc.parameters()}
+    for name, p in module.named_parameters():
+        assert p.requires_grad is (id(p) not in enc_ids), name

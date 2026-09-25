@@ -619,12 +619,64 @@ class ClassVectorsHead(Head):
         return nn.Sequential(module_dict)
 
 
+#: The range of GeM exponents the forward pass uses. ``p = 1`` is average pooling and
+#: ``p -> inf`` approaches max pooling. The floor keeps ``1/p`` finite and the mean a
+#: mean (``p <= 0`` explodes or inverts it). The cap is set by float32 underflow: a
+#: channel that is non-positive everywhere pools ``eps^p`` (``eps = 1e-6``), which
+#: leaves the normal float32 range (1.2e-38) above ``p ~ 6.3`` and flushes to 0 above
+#: ~7.5 -- and at 0 the gradient of the ``1/p``-th root is ``0 * log(0) = NaN``, which
+#: poisons ``p`` and then every weight (measured: ``p = 10`` gave a NaN ``p`` within
+#: one epoch). Every embedding checkpoint trained so far learned ``p`` within 0.07 of
+#: its initial 3.0.
+GEM_P_MIN = 1.0
+GEM_P_MAX = 6.0
+
+
+class _ClampStraightThrough(torch.autograd.Function):
+    """``p.clamp(lo, hi)`` whose gradient can always bring ``p`` back into range.
+
+    A plain clamp has zero gradient outside ``[lo, hi]``, so a learnable exponent that
+    steps below the floor never moves again. This passes the gradient straight
+    through instead, except the part that would push an out-of-range ``p`` further
+    out: a descent step moves ``p`` by ``-grad``, so below ``lo`` only a negative
+    gradient passes and above ``hi`` only a positive one. ``p`` therefore cannot drift
+    away while its clamped value is in use, and returns as soon as the loss asks.
+    """
+
+    @staticmethod
+    def forward(ctx, p: torch.Tensor, lo: float, hi: float) -> torch.Tensor:
+        """Clamp ``p`` to ``[lo, hi]``."""
+        ctx.save_for_backward(p)
+        ctx.lo, ctx.hi = lo, hi
+        return p.clamp(lo, hi)
+
+    @staticmethod
+    def backward(ctx, grad: torch.Tensor):
+        """Pass ``grad`` unless it would push an out-of-range ``p`` further out."""
+        (p,) = ctx.saved_tensors
+        outward = ((p < ctx.lo) & (grad > 0)) | ((p > ctx.hi) & (grad < 0))
+        return grad.masked_fill(outward, 0.0), None, None
+
+
 class GeM(nn.Module):
     """Generalized-mean pooling: ``(mean(x.clamp(min=eps)^p))^(1/p)`` over HxW.
 
     The exponent ``p`` is learnable (init 3.0). The ``clamp(min=eps)`` BEFORE the
     fractional power guards against NaNs (a fractional power of a negative/zero base).
     Returns a flattened ``[B, C]`` tensor.
+
+    The forward pass uses ``p`` clamped to ``[GEM_P_MIN, GEM_P_MAX]``; the stored
+    parameter is the raw exponent (same state-dict key and meaning as before the
+    upper bound existed, so a checkpoint whose ``p`` lies in that range produces
+    exactly the output it did). During training the clamp passes its gradient
+    straight through (``_ClampStraightThrough``), so ``p`` cannot get stuck at a
+    bound.
+
+    The ``eps`` floor also means a NEGATIVE activation contributes as if it were
+    ``eps``: GeM pools only the positive part of each channel. That is what the
+    native backbones feed it (their bottleneck ends in a ReLU). Pretrained encoders
+    end in a LayerNorm instead (about half their activations are negative) and keep
+    GeM as well; see the note on ``EmbeddingHeadConfig.pool`` for the measurement.
     """
 
     def __init__(self, p: float = 3.0, eps: float = 1e-6, learnable: bool = True):
@@ -645,15 +697,33 @@ class GeM(nn.Module):
             self.register_buffer("p", torch.tensor(float(p)))
         self.eps = eps
 
+    def exponent(self) -> torch.Tensor:
+        """The exponent the forward pass uses: ``p`` clamped to the valid range.
+
+        Training (train mode, autograd on, learnable ``p``) routes the clamp through
+        ``_ClampStraightThrough``; everywhere else it is a plain clamp with the same
+        value, which is also what ONNX export traces.
+        """
+        if self.training and torch.is_grad_enabled() and self.p.requires_grad:
+            return _ClampStraightThrough.apply(self.p, GEM_P_MIN, GEM_P_MAX)
+        return self.p.clamp(GEM_P_MIN, GEM_P_MAX)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Pool ``[B, C, H, W]`` to ``[B, C]`` by the generalized mean over ``HxW``."""
-        # Clamp the (learnable) exponent to a sane floor: p -> 0 makes ``1/p`` explode
-        # and a negative p inverts the mean — either can yield inf/NaN embeddings that
-        # corrupt the whole batch's contrastive loss. The activation eps-clamp guards
-        # the base; this guards the exponent.
-        p = self.p.clamp(min=1.0)
+        p = self.exponent()
         xp = x.clamp(min=self.eps).pow(p)
         return F.adaptive_avg_pool2d(xp, 1).pow(1.0 / p).flatten(1)
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        """Load as usual; warn if a stored exponent lies above the forward cap."""
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+        stored = state_dict.get(prefix + "p")
+        if stored is not None and float(stored) > GEM_P_MAX:
+            logger.warning(
+                f"GeM exponent p={float(stored):.4g} in this checkpoint is above the "
+                f"cap {GEM_P_MAX}; pooling now uses p={GEM_P_MAX}, so its embeddings "
+                "differ from the ones it was trained with."
+            )
 
 
 class L2Norm(nn.Module):

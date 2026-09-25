@@ -13,7 +13,10 @@ from torchvision.utils import _log_api_usage_once
 from sleap_nn.architectures.encoder_decoder import Decoder, SimpleConvBlock
 from torchvision.models.convnext import LayerNorm2d, CNBlock, CNBlockConfig
 from omegaconf import OmegaConf
-from sleap_nn.architectures.common import MaxPool2dWithSamePadding
+from sleap_nn.architectures.common import (
+    FreezableEncoderMixin,
+    MaxPool2dWithSamePadding,
+)
 
 
 class ConvNeXtEncoder(nn.Module):
@@ -130,7 +133,7 @@ class ConvNeXtEncoder(nn.Module):
         return self._forward_impl(x)
 
 
-class ConvNextWrapper(nn.Module):
+class ConvNextWrapper(FreezableEncoderMixin, nn.Module):
     """ConvNext architecture for pose estimation.
 
     This class defines the ConvNext architecture for pose estimation, combining an
