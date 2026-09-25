@@ -630,8 +630,15 @@ class UnifiedVizCallback(Callback):
         # `get_visualization_data`). Instead render a 2D embedding-scatter panel
         # (SPEC §9), handled by a dedicated branch in `on_train_epoch_end`.
         self.viz_embedding = model_type == "embedding"
-        # Max crops sampled per split for the scatter (spread across the dataset).
+        # Max points per split in the scatter (spread across the set).
         self.embedding_scatter_n = 256
+        # Crops per forward pass when the scatter embeds crops itself.
+        self.embedding_scatter_batch_size = 32
+        # Memory budget for the clean crops the scatter keeps between epochs (large
+        # crops -> fewer, still evenly spaced, points).
+        self.embedding_scatter_cache_bytes = 128 * 2**20
+        # Clean crops per split, decoded on first use: {"train"/"val": crops | None}.
+        self._embedding_crops = {}
 
         # Initialize renderers
         from sleap_nn.training.utils import MatplotlibRenderer, WandBRenderer
@@ -971,7 +978,7 @@ class UnifiedVizCallback(Callback):
                 # Skeleton-less embedder: render a 2D embedding-scatter panel instead
                 # of the per-sample keypoint viz (which has no meaning here and would
                 # crash on the missing `get_visualization_data`).
-                self._embedding_viz_epoch(epoch, wandb_logger)
+                self._embedding_viz_epoch(epoch, wandb_logger, trainer=trainer)
             else:
                 # Get ONE sample for train visualization
                 train_sample = next(self.train_pipeline)
@@ -991,53 +998,111 @@ class UnifiedVizCallback(Callback):
         trainer.strategy.barrier()
 
     # ── embedding-scatter viz (SPEC §9) ─────────────────────────────────────
-    def _embed_dataset_sample(self, module, dataset, n: int):
-        """Embed up to ``n`` crops spread evenly across ``dataset``.
+    # Val points are the embeddings the validation pass just computed (kept by
+    # `EmbeddingEvaluationCallback`), so plotting them costs no decode and no forward.
+    # Train points (and val points on an epoch with no validation pass to reuse) are
+    # embedded from clean crops, decoded once and kept, in chunks.
+    @staticmethod
+    def _evenly_spaced(total: int, n: int):
+        """Up to ``n`` unique indices spread evenly over ``range(total)``.
 
-        Returns ``(embeddings (M, D) float32, group_ids (M,) int)`` or ``(None,
-        None)`` if no crops could be sampled. Mirrors the eval embedding path
-        (mask burn-in + standardize -> EmbeddingHead, pre-projection) so the scatter
-        matches the retrieval metrics.
+        The index order may cluster by identity, so a prefix would not span the set.
         """
+        import numpy as np
+
+        return np.unique(np.linspace(0, total - 1, min(int(n), total)).astype(int))
+
+    @classmethod
+    def _sample_clean_crops(cls, dataset, n: int, max_bytes: Optional[int] = None):
+        """Decode up to ``n`` un-augmented crops spread evenly across ``dataset``.
+
+        The training dataset emits augmented contrastive views; the scatter reads a
+        shallow copy with augmentation off, so it shows what the model embeds at
+        eval / inference time. ``max_bytes`` caps the kept crops (fewer points for
+        large crops).
+
+        Returns:
+            ``(images (M, C, H, W) float32, masks (M, 1, H, W) bool, groups (M,))``,
+            or ``None`` if no crop could be read.
+        """
+        import copy
+
         import numpy as np
         import torch
 
         if dataset is None or not hasattr(dataset, "__len__") or len(dataset) == 0:
-            return None, None
-        total = len(dataset)
-        n = min(int(n), total)
-        # Evenly-spaced unique indices so the sample spans the whole set (the index
-        # order may cluster by identity).
-        idxs = sorted(set(np.linspace(0, total - 1, n).astype(int).tolist()))
+            return None
+        if getattr(dataset, "apply_aug", False):
+            dataset = copy.copy(dataset)
+            dataset.apply_aug = False
+        crop_size = getattr(dataset, "crop_size", None)
+        if max_bytes is not None and crop_size:
+            channels = 3 if getattr(dataset, "ensure_rgb", False) else 1
+            per_crop = crop_size * crop_size * (4 * channels + 1)  # float32 + bool
+            n = max(1, min(int(n), int(max_bytes) // per_crop))
 
-        grays, masks, groups = [], [], []
-        for i in idxs:
+        images, masks, groups = [], [], []
+        for i in cls._evenly_spaced(len(dataset), n):
             try:
-                s = dataset[i]
+                sample = dataset[int(i)]
             except Exception:  # noqa: BLE001 — skip an unreadable crop, keep going
                 continue
-            grays.append(s["instance_image"])
-            masks.append(s["instance_mask"])
+            images.append(sample["instance_image"].to(torch.float32))
+            masks.append(sample["instance_mask"] > 0.5)
             # Color by the same global identity the retrieval metric evaluates on
             # (track name), not the training group_id (which may be a per-video
             # tracklet), so the scatter matches the reported rank1/mAP.
-            groups.append(int(s.get("global_group_id", s["group_id"])))
-        if not grays:
-            return None, None
+            groups.append(int(sample.get("global_group_id", sample["group_id"])))
+        if not images:
+            return None
+        return torch.cat(images, 0), torch.cat(masks, 0), np.asarray(groups)
 
-        device = module.device
-        gray = torch.stack(grays, 0).squeeze(1).to(device=device, dtype=torch.float32)
-        mask = torch.stack(masks, 0).squeeze(1).to(device=device, dtype=torch.float32)
+    def _clean_crops(self, split: str):
+        """:meth:`_sample_clean_crops` of a split's viz dataset, decoded on first use."""
+        if split not in self._embedding_crops:
+            dataset = self.train_dataset if split == "train" else self.val_dataset
+            self._embedding_crops[split] = self._sample_clean_crops(
+                dataset, self.embedding_scatter_n, self.embedding_scatter_cache_bytes
+            )
+        return self._embedding_crops[split]
+
+    def _embed_crops(self, module, crops):
+        """Embed ``crops`` in chunks, as the val pass does (pre-projection).
+
+        Returns ``(embeddings (M, D) float32, groups (M,))``, or ``(None, None)``.
+        """
+        import torch
+
+        if crops is None:
+            return None, None
+        images, masks, groups = crops
+        out = []
         was_training = module.training
         module.eval()
         try:
             with torch.no_grad():
-                x = module._build_input(gray, mask)
-                emb = module.model(x)["EmbeddingHead"]
+                for start in range(0, len(images), self.embedding_scatter_batch_size):
+                    chunk = slice(start, start + self.embedding_scatter_batch_size)
+                    x = module._build_input(
+                        images[chunk].to(device=module.device),
+                        masks[chunk].to(device=module.device, dtype=torch.float32),
+                    )
+                    out.append(module.model(x)["EmbeddingHead"].float().cpu())
         finally:
             if was_training:
                 module.train()
-        return emb.detach().cpu().float().numpy(), np.asarray(groups)
+        return torch.cat(out, 0).numpy(), groups
+
+    def _collected_val_embeddings(self, trainer, epoch: int):
+        """This epoch's val-pass embeddings (evenly subsampled), or ``(None, None)``."""
+        for callback in getattr(trainer, "callbacks", None) or []:
+            if not isinstance(callback, EmbeddingEvaluationCallback):
+                continue
+            last = callback.last_val_embeddings
+            if last is not None and last["epoch"] == epoch:
+                idx = self._evenly_spaced(len(last["label"]), self.embedding_scatter_n)
+                return last["embedding"][idx], last["label"][idx]
+        return None, None
 
     @staticmethod
     def _reduce_to_2d(x):
@@ -1071,17 +1136,16 @@ class UnifiedVizCallback(Callback):
             proj = np.pad(proj, ((0, 0), (0, 2 - proj.shape[1])))
         return proj.astype(np.float32), "pca"
 
-    def _embedding_viz_epoch(self, epoch: int, wandb_logger):
+    def _embedding_viz_epoch(self, epoch: int, wandb_logger, trainer=None):
         """Render + save/log the 2D embedding scatter for this epoch."""
         import numpy as np
 
         module = self.model_trainer.lightning_model
-        tr_emb, tr_grp = self._embed_dataset_sample(
-            module, self.train_dataset, self.embedding_scatter_n
-        )
-        va_emb, va_grp = self._embed_dataset_sample(
-            module, self.val_dataset, self.embedding_scatter_n
-        )
+        tr_emb, tr_grp = self._embed_crops(module, self._clean_crops("train"))
+        va_emb, va_grp = self._collected_val_embeddings(trainer, epoch)
+        if va_emb is None:
+            # No validation pass this epoch to reuse.
+            va_emb, va_grp = self._embed_crops(module, self._clean_crops("val"))
         parts = [
             (e, g) for e, g in ((tr_emb, tr_grp), (va_emb, va_grp)) if e is not None
         ]
@@ -2477,7 +2541,10 @@ class EmbeddingEvaluationCallback(Callback):
     ``pl_module._collect_val_predictions`` on at validation start so the embedding
     ``validation_step`` collects per-crop ``{"embedding": vec}`` + ``{"label": id}``,
     then computes retrieval (rank-1 / mAP), verification (ROC-AUC / EER) and cosine-kNN
-    accuracy over the val set (leave-self-out gallery == query).
+    accuracy over the val set (leave-self-out gallery == query; see
+    :func:`sleap_nn.evaluation.embedding_leave_self_out_eval`). Crops whose identity
+    has no other val crop are not scored; their count goes to wandb as
+    ``eval/val/n_no_positive_queries``.
 
     Crucially it logs the selected metric BOTH via ``pl_module.log`` (so it lands in
     ``trainer.callback_metrics`` for ``ModelCheckpoint`` / ``EarlyStopping`` to select
@@ -2488,6 +2555,8 @@ class EmbeddingEvaluationCallback(Callback):
         eval_frequency: Run evaluation every N epochs (default: 1).
         select_metric: Metric to log for checkpoint selection (rank1|mAP|auc|knn_acc).
         knn_k: k for the cosine-kNN accuracy.
+        last_val_embeddings: The latest validation pass's embeddings (rank 0), which
+            the embedding scatter viz reuses.
     """
 
     def __init__(
@@ -2505,6 +2574,11 @@ class EmbeddingEvaluationCallback(Callback):
         # time it looks for a key that was never logged -- which, with
         # `eval.frequency > 1`, is the end of epoch 0.
         self._last_metrics = None
+        # The val embeddings of the latest validation pass, as
+        # ``{"epoch", "embedding" (N, D) float32, "label" (N,)}`` (rank 0 only). The
+        # embedding scatter (`UnifiedVizCallback`) plots these instead of decoding and
+        # embedding the val crops a second time.
+        self.last_val_embeddings = None
 
     def _get_wandb_logger(self, trainer):
         from lightning.pytorch.loggers import WandbLogger
@@ -2525,18 +2599,24 @@ class EmbeddingEvaluationCallback(Callback):
             return
         pl_module._collect_val_predictions = bool(trainer.is_global_zero)
 
-    def _compute_metrics(self, predictions: list, ground_truth: list) -> dict:
+    @staticmethod
+    def _stack_collected(predictions: list, ground_truth: list):
+        """The collected per-crop dicts as ``(embeddings (N, D), labels (N,))``."""
+        import numpy as np
+
+        emb = np.stack([p["embedding"].numpy() for p in predictions])
+        y = np.asarray([g["label"] for g in ground_truth])
+        return emb, y
+
+    def _compute_metrics(self, emb, y) -> dict:
         """Leave-self-out retrieval/verification/kNN over the collected val embeddings.
 
         Delegates to :func:`sleap_nn.evaluation.embedding_leave_self_out_eval` so the
         per-epoch selection metric and the post-training headline (train.py) use the
         exact same protocol.
         """
-        import numpy as np
         from sleap_nn.evaluation import embedding_leave_self_out_eval
 
-        emb = np.stack([p["embedding"].numpy() for p in predictions]).astype(np.float64)
-        y = np.asarray([g["label"] for g in ground_truth])
         return embedding_leave_self_out_eval(emb, y, k=self.knn_k)
 
     def on_validation_epoch_end(self, trainer, pl_module):
@@ -2549,19 +2629,40 @@ class EmbeddingEvaluationCallback(Callback):
             and not trainer.sanity_checking
         )
 
+        collected = None
+        if (
+            trainer.is_global_zero
+            and not trainer.sanity_checking
+            and pl_module.val_predictions
+            and pl_module.val_ground_truth
+        ):
+            collected = self._stack_collected(
+                pl_module.val_predictions, pl_module.val_ground_truth
+            )
+            self.last_val_embeddings = {
+                "epoch": trainer.current_epoch,
+                "embedding": collected[0],
+                "label": collected[1],
+            }
+
         metrics = None
         if should_evaluate:
-            if not pl_module.val_predictions or not pl_module.val_ground_truth:
+            if collected is None:
                 logger.warning("No embeddings collected for embedding evaluation.")
             else:
                 try:
-                    metrics = self._compute_metrics(
-                        pl_module.val_predictions, pl_module.val_ground_truth
-                    )
+                    metrics = self._compute_metrics(*collected)
+                    n_no_positive = metrics.get("n_no_positive_queries", 0)
                     logger.info(
                         f"Epoch {trainer.current_epoch} embedding eval: "
                         f"rank1={metrics['rank1']:.4f} mAP={metrics['mAP']:.4f} "
                         f"auc={metrics['auc']} knn_acc={metrics['knn_acc']:.4f}"
+                        + (
+                            f" ({n_no_positive} val crops have no other crop of "
+                            "their identity and are not scored)"
+                            if n_no_positive
+                            else ""
+                        )
                     )
                     wandb_logger = self._get_wandb_logger(trainer)
                     if wandb_logger is not None:

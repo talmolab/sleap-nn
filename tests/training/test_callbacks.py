@@ -2885,10 +2885,12 @@ class TestUnifiedVizCallbackEmbedding:
         assert fig is not None
         plt.close(fig)
 
-    def test_embed_dataset_sample_empty_dataset_returns_none(self):
-        """Embedding an empty / lenless dataset yields (None, None) (no crash)."""
+    def test_empty_dataset_yields_no_crops(self):
+        """An empty / lenless dataset yields no crops and no embeddings (no crash)."""
         cb = self._callback("embedding")
-        emb, grp = cb._embed_dataset_sample(MagicMock(), [], n=8)
+        assert cb._sample_clean_crops([], n=8) is None
+        assert cb._sample_clean_crops(None, n=8) is None
+        emb, grp = cb._embed_crops(MagicMock(), None)
         assert emb is None and grp is None
 
 
