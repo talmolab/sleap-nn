@@ -191,7 +191,8 @@ sleap-nn predict -m models/embedding/ -i detections.slp --save_embeddings slp -o
 
 The default output is `<input>.embeddings.slp` (for a URL input, the URL's file name
 in the current directory). `-o` may not name the input when the input stores its own
-frames (a `.pkg.slp`): the frames would be destroyed, so the run is refused.
+frames (a `.pkg.slp`): the frames would be destroyed, so the run is refused before
+anything is computed (on every `predict` route, including the fused one below).
 
 `--features embeddings` auto-selects `--scoring_method cosine_sim`. This is the
 [track-only / retrack path](tracking.md#track-only-mode) — omit `--model_paths`. The
@@ -215,7 +216,9 @@ sleap-nn predict -m models/embedding/ -i detections.slp -t
 
 - The output is a **tracked `.slp`** (default `<input>.tracked.slp`, or `-o out.slp`).
 - `--features` / `--scoring_method` default to `embeddings` / `cosine_sim` for an
-  embedding model; you can still override them.
+  embedding model; you can still override them. With `--appearance_weight` they
+  are not defaulted: the usual geometric resolution applies and appearance is
+  blended into it.
 - `--tracking` lifts the usual requirement to pass `--save_embeddings` for an embedding
   model (the tracked `.slp` is the output).
 
@@ -272,6 +275,11 @@ a global animal identity. (Persisting predicted global identities from appearanc
 separate, future step; multi_class models can emit `sio.Identity` via
 `class_output="identity"`.)
 
+Each video is tracked on its own, by a fresh tracker: a track never spans two videos,
+and track names continue across videos (`track_0`, `track_1` in the first;
+`track_2`, … in the next). So appearance tracking does not link one animal across
+the videos or sessions of a multi-video `.slp`.
+
 ---
 
 ## Parameters
@@ -282,7 +290,7 @@ separate, future step; multi_class models can emit `sio.Identity` via
 | `--features embeddings` | Track by appearance ALONE (the sparse / post-occlusion regime) | — |
 | `--scoring_method cosine_sim` | Cosine similarity (auto-selected for embeddings; `euclidean_dist` also allowed) | auto |
 | `--euclidean_scale px` | Length scale for the distance→similarity kernel. Required with `--appearance_weight` when the geometric score is `euclidean_dist` (i.e. centroid-only detections); ignored otherwise | — |
-| `--candidates_method` | `local_queues` = per-track appearance gallery | `local_queues` with `--features embeddings`, else `fixed_window` |
+| `--candidates_method` | `local_queues` = per-track appearance gallery | `local_queues` with `--features embeddings`, when tracking masks, or with `--max_tracks`; else `fixed_window` |
 | `--save_embeddings {none,slp}` | Persist vectors in the tracked `.slp` (WF2/WF3) | `none` |
 
 All other [tracking parameters](tracking.md#tracking-parameters)
@@ -328,6 +336,13 @@ All other [tracking parameters](tracking.md#tracking-parameters)
     weight can be chosen on evidence rather than by feel. Compare arms over the SAME
     detections (retrack one prediction file at several weights) so the difference you
     read is the tracker's and not the detector's.
+
+    Identity is scored per video (a trajectory is a `(video, track name)` pair, as
+    the tracker names tracks per video); pass `--global_identity` only when the
+    ground truth's names are global identities. Centroid-only detections are matched
+    to the ground truth by pixel distance (50 px by default; `--match_threshold` is
+    in pixels there). See [Evaluating Identity
+    Persistence](tracking.md#evaluating-identity-persistence) for what is scored.
 
     Retracking chains: a `.slp` that carries appearance vectors keeps them through
     a track-only run, so each arm can retrack the same embedded file. Pass
