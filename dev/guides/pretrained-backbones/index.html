@@ -7560,6 +7560,19 @@ weights are non-commercial).</p>
   automatically, and holds the encoder in eval mode for the whole run so a
   BatchNorm-bearing backbone (ResNet, BiT) does not drift its running statistics —
   "frozen" covers the statistics, not just the weights.</li>
+<li>For the <code>embedding</code> model type, <code>head_configs.embedding.embedding.freeze_backbone:
+  true</code> does the same thing, and also works on the native <code>convnext</code> / <code>swint</code>
+  (their ImageNet encoder; the randomly initialized middle blocks still train) and
+  <code>unet</code> (stem + encoder blocks) backbones. Without pretrained weights it logs a
+  warning, since the encoder would then stay at its random initialization.</li>
+<li>A frozen encoder also changes the <code>embedding</code> head's default pooling. With
+  <code>head_configs.embedding.embedding.pool</code> unset, a frozen pretrained encoder pools
+  with <code>avg</code> and everything else with <code>gem</code>. GeM pools only the positive part of
+  each channel, and a pretrained encoder's LayerNorm output is about half negative.
+  A fine-tuned encoder adapts to that; a frozen one cannot. On the gerbil re-ID
+  set, <code>avg</code> beat <code>gem</code> by about 0.04 val rank-1 on frozen DINOv2 and ConvNeXtV2
+  (8 seeds each) and tied when the encoder was fine-tuned. The resolved value is
+  written into the saved config, and an explicit <code>pool</code> always wins.</li>
 </ul>
 <h3 id="channels-and-normalization">Channels and normalization<a class="headerlink" href="#channels-and-normalization" title="Permanent link">&para;</a></h3>
 <p>Pretrained stems are <strong>3-channel</strong>. The trainer sets <code>in_channels=3</code> and

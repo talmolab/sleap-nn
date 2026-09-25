@@ -109,6 +109,8 @@ model_config:
         normalize: true
         output_stride: 32  # = backbone max_stride (lone pooled head taps middle_output)
         loss_weight: 1.0
+        # true = freeze the pretrained ENCODER (here the ImageNet convnext `enc`) in
+        # eval mode; the random-init middle blocks and the head still train.
         freeze_backbone: false
         # Crop centering for POSE data (mask data uses `crop_centering` above).
         anchor_part: null  # pose centering node; null -> mean of visible nodes
