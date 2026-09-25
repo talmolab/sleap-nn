@@ -1893,6 +1893,11 @@ def _run_embeddings(
     src, src_suffix, src_is_url = _resolve_data_path(data_path)
     remote_kwargs = _build_remote_kwargs(kwargs)
     output_path = kwargs.get("output_path")
+    if detection_dirs:
+        # `predict_embeddings_to_slp` refuses `-o` over the input's frame source
+        # before its embedding pass, but on the fused route the detection stack
+        # runs first -- check before it does.
+        _refuse_overwriting_input_early(src, output_path, "slp")
     detections = None
     scoped_video_name = None
     if detection_dirs:
@@ -2153,6 +2158,20 @@ def _warn_ignored_slp_filters_for_non_slp_source(kwargs: dict, src_suffix: str) 
             "to filter on, so these flags have no effect here. Running on all "
             "frames. Use --frames to subset a video by index instead."
         )
+
+
+def _refuse_overwriting_input_early(source, output_path, output_format) -> None:
+    """Refuse, as a usage error, an ``.slp`` output over the input's frame source.
+
+    Called before any model load, inference or tracking; see
+    :func:`sleap_nn.inference.run._refuse_overwriting_source_before_inference`.
+    """
+    from sleap_nn.inference.run import _refuse_overwriting_source_before_inference
+
+    try:
+        _refuse_overwriting_source_before_inference(source, output_path, output_format)
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
 
 
 def _run_in_memory_new_flow(
@@ -2442,6 +2461,13 @@ def _run_in_memory_new_flow(
         ):
             predict_kwargs.pop(_k, None)
 
+    # `-o` naming a file the input reads its frames from (e.g. the input .pkg.slp)
+    # would destroy those frames. Refuse before the model loads, not only in
+    # `save_predictions` after the whole pass (which stays as the backstop).
+    _refuse_overwriting_input_early(
+        source, predict_kwargs["output_path"], predict_kwargs["output_format"]
+    )
+
     if kwargs.get("gui"):
         predict_kwargs["progress_callback"] = _gui_progress_callback()
         if kwargs.get("tracking"):
@@ -2496,6 +2522,14 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
             provenance=dict(getattr(labels, "provenance", None) or {}),
         )
 
+    # Resolved up front so an output that would overwrite the input's frame source
+    # is refused before tracking runs, not only when the result is saved.
+    output_path = kwargs.get("output_path") or _default_predictions_path(
+        source_str, src_is_url
+    )
+    output_format = kwargs.get("output_format") or ("slp",)
+    _refuse_overwriting_input_early(labels, output_path, output_format)
+
     import attrs as _attrs
 
     from sleap_nn.inference.provenance import build_tracking_only_provenance
@@ -2536,13 +2570,10 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
     )
     from sleap_nn.inference.run import save_predictions
 
-    output_path = kwargs.get("output_path") or _default_predictions_path(
-        source_str, src_is_url
-    )
     save_predictions(
         out,
         output_path,
-        output_format=kwargs.get("output_format") or ("slp",),
+        output_format=output_format,
         embed=kwargs.get("embed") or "false",
         restore_source_videos=kwargs.get("restore_source_videos", False),
         save_embedding_vectors=kwargs.get("save_embedding_vectors"),
@@ -2789,8 +2820,11 @@ def _run_stream_to_file(
         raise click.UsageError("--data_path is required for --stream-to-file.")
     # Warn early (before loading a model) if a label-status frame filter is
     # set for a non-`.slp` source -- same check as the in-memory flow.
-    _, _early_src_suffix, _ = _resolve_data_path(data_path)
+    _early_source, _early_src_suffix, _ = _resolve_data_path(data_path)
     _warn_ignored_slp_filters_for_non_slp_source(kwargs, _early_src_suffix)
+    # Streaming over a file the input reads its frames from (e.g. the input
+    # .pkg.slp) destroys those frames, and this path has no save-time check.
+    _refuse_overwriting_input_early(_early_source, stream_to_file, "slp")
 
     from pathlib import Path
 
