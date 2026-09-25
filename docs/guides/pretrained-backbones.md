@@ -120,6 +120,19 @@ A ready-to-edit sample lives at
   automatically, and holds the encoder in eval mode for the whole run so a
   BatchNorm-bearing backbone (ResNet, BiT) does not drift its running statistics —
   "frozen" covers the statistics, not just the weights.
+- For the `embedding` model type, `head_configs.embedding.embedding.freeze_backbone:
+  true` does the same thing, and also works on the native `convnext` / `swint`
+  (their ImageNet encoder; the randomly initialized middle blocks still train) and
+  `unet` (stem + encoder blocks) backbones. Without pretrained weights it logs a
+  warning, since the encoder would then stay at its random initialization.
+- A frozen encoder also changes the `embedding` head's default pooling. With
+  `head_configs.embedding.embedding.pool` unset, a frozen pretrained encoder pools
+  with `avg` and everything else with `gem`. GeM pools only the positive part of
+  each channel, and a pretrained encoder's LayerNorm output is about half negative.
+  A fine-tuned encoder adapts to that; a frozen one cannot. On the gerbil re-ID
+  set, `avg` beat `gem` by about 0.04 val rank-1 on frozen DINOv2 and ConvNeXtV2
+  (8 seeds each) and tied when the encoder was fine-tuned. The resolved value is
+  written into the saved config, and an explicit `pool` always wins.
 
 ### Channels and normalization
 

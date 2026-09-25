@@ -224,6 +224,13 @@ jobs:
       - name: Set up Python
         run: uv python install 3.13
 
+      - name: Install graphics dependencies
+        # The embedding-model tests in test_pretrained.py import the training
+        # stack, whose video/rendering deps need libEGL (the other test jobs
+        # install the same packages).
+        run: |
+          sudo apt-get update && sudo apt-get install -y libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
+
       - name: Cache HuggingFace configs
         uses: actions/cache@v4
         with:

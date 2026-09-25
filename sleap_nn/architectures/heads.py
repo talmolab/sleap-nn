@@ -619,12 +619,66 @@ class ClassVectorsHead(Head):
         return nn.Sequential(module_dict)
 
 
+#: The range of GeM exponents the forward pass uses. ``p = 1`` is average pooling and
+#: ``p -> inf`` approaches max pooling. The floor keeps ``1/p`` finite and the mean a
+#: mean (``p <= 0`` explodes or inverts it). The cap is set by float32 underflow: a
+#: channel that is non-positive everywhere pools ``eps^p`` (``eps = 1e-6``), which
+#: leaves the normal float32 range (1.2e-38) above ``p ~ 6.3`` and flushes to 0 above
+#: ~7.5 -- and at 0 the gradient of the ``1/p``-th root is ``0 * log(0) = NaN``, which
+#: poisons ``p`` and then every weight (measured: ``p = 10`` gave a NaN ``p`` within
+#: one epoch). Every embedding checkpoint trained so far learned ``p`` within 0.07 of
+#: its initial 3.0.
+GEM_P_MIN = 1.0
+GEM_P_MAX = 6.0
+
+
+class _ClampStraightThrough(torch.autograd.Function):
+    """``p.clamp(lo, hi)`` whose gradient can always bring ``p`` back into range.
+
+    A plain clamp has zero gradient outside ``[lo, hi]``, so a learnable exponent that
+    steps below the floor never moves again. This passes the gradient straight
+    through instead, except the part that would push an out-of-range ``p`` further
+    out: a descent step moves ``p`` by ``-grad``, so below ``lo`` only a negative
+    gradient passes and above ``hi`` only a positive one. ``p`` therefore cannot drift
+    away while its clamped value is in use, and returns as soon as the loss asks.
+    """
+
+    @staticmethod
+    def forward(ctx, p: torch.Tensor, lo: float, hi: float) -> torch.Tensor:
+        """Clamp ``p`` to ``[lo, hi]``."""
+        ctx.save_for_backward(p)
+        ctx.lo, ctx.hi = lo, hi
+        return p.clamp(lo, hi)
+
+    @staticmethod
+    def backward(ctx, grad: torch.Tensor):
+        """Pass ``grad`` unless it would push an out-of-range ``p`` further out."""
+        (p,) = ctx.saved_tensors
+        outward = ((p < ctx.lo) & (grad > 0)) | ((p > ctx.hi) & (grad < 0))
+        return grad.masked_fill(outward, 0.0), None, None
+
+
 class GeM(nn.Module):
     """Generalized-mean pooling: ``(mean(x.clamp(min=eps)^p))^(1/p)`` over HxW.
 
     The exponent ``p`` is learnable (init 3.0). The ``clamp(min=eps)`` BEFORE the
     fractional power guards against NaNs (a fractional power of a negative/zero base).
     Returns a flattened ``[B, C]`` tensor.
+
+    The forward pass uses ``p`` clamped to ``[GEM_P_MIN, GEM_P_MAX]``; the stored
+    parameter is the raw exponent (same state-dict key and meaning as before the
+    upper bound existed, so a checkpoint whose ``p`` lies in that range produces
+    exactly the output it did). During training the clamp passes its gradient
+    straight through (``_ClampStraightThrough``), so ``p`` cannot get stuck at a
+    bound.
+
+    The ``eps`` floor also means a NEGATIVE activation contributes as if it were
+    ``eps``: GeM pools only the positive part of each channel. That is what the
+    native backbones feed it (their bottleneck ends in a ReLU). A pretrained encoder
+    ends in a LayerNorm instead (about half its activations are negative); when it
+    is fine-tuned it adapts and GeM costs nothing, but a FROZEN one cannot, so the
+    default pool for a frozen pretrained encoder is ``avg`` -- see
+    ``default_embedding_pool``.
     """
 
     def __init__(self, p: float = 3.0, eps: float = 1e-6, learnable: bool = True):
@@ -645,15 +699,83 @@ class GeM(nn.Module):
             self.register_buffer("p", torch.tensor(float(p)))
         self.eps = eps
 
+    def exponent(self) -> torch.Tensor:
+        """The exponent the forward pass uses: ``p`` clamped to the valid range.
+
+        Training (train mode, autograd on, learnable ``p``) routes the clamp through
+        ``_ClampStraightThrough``; everywhere else it is a plain clamp with the same
+        value, which is also what ONNX export traces.
+        """
+        if self.training and torch.is_grad_enabled() and self.p.requires_grad:
+            return _ClampStraightThrough.apply(self.p, GEM_P_MIN, GEM_P_MAX)
+        return self.p.clamp(GEM_P_MIN, GEM_P_MAX)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Pool ``[B, C, H, W]`` to ``[B, C]`` by the generalized mean over ``HxW``."""
-        # Clamp the (learnable) exponent to a sane floor: p -> 0 makes ``1/p`` explode
-        # and a negative p inverts the mean — either can yield inf/NaN embeddings that
-        # corrupt the whole batch's contrastive loss. The activation eps-clamp guards
-        # the base; this guards the exponent.
-        p = self.p.clamp(min=1.0)
+        p = self.exponent()
         xp = x.clamp(min=self.eps).pow(p)
         return F.adaptive_avg_pool2d(xp, 1).pow(1.0 / p).flatten(1)
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        """Load as usual; warn if a stored exponent lies above the forward cap."""
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+        stored = state_dict.get(prefix + "p")
+        if stored is not None and float(stored) > GEM_P_MAX:
+            logger.warning(
+                f"GeM exponent p={float(stored):.4g} in this checkpoint is above the "
+                f"cap {GEM_P_MAX}; pooling now uses p={GEM_P_MAX}, so its embeddings "
+                "differ from the ones it was trained with."
+            )
+
+
+def embedding_encoder_is_frozen(
+    backbone_type: str, backbone_config, embedding_config
+) -> bool:
+    """Whether an `embedding` model's pooled feature comes from a frozen pretrained encoder.
+
+    Args:
+        backbone_type: The backbone type (``unet`` / ``convnext`` / ``swint`` /
+            ``pretrained``).
+        backbone_config: That backbone's config leaf.
+        embedding_config: The ``head_configs.embedding.embedding`` leaf.
+
+    Returns:
+        ``True`` for a ``pretrained`` (HuggingFace) backbone frozen by
+        ``backbone_config.pretrained.freeze`` or by the head's ``freeze_backbone``.
+        The native backbones always return ``False``: their pooled feature is the
+        output of randomly initialized, trainable middle blocks ending in a ReLU,
+        frozen encoder or not.
+    """
+    from omegaconf import OmegaConf
+
+    if backbone_type != "pretrained":
+        return False
+    return bool(OmegaConf.select(backbone_config, "freeze", default=False)) or bool(
+        OmegaConf.select(embedding_config, "freeze_backbone", default=False)
+    )
+
+
+def default_embedding_pool(encoder_frozen: bool) -> str:
+    """The pooling an `embedding` head uses when its config leaves ``pool`` unset.
+
+    ``avg`` for a frozen pretrained encoder, ``gem`` for everything else. GeM floors
+    its input at ``eps``, so it pools only the positive part of each channel; a
+    pretrained encoder's bottleneck is LayerNorm output (DINOv2-with-registers-base
+    50% negative, ConvNeXtV2-nano 55%), and a frozen one cannot adapt to that.
+    Measured on the gerbil re-ID set (8 paired seeds, 3 epochs, val rank-1,
+    avg - gem): frozen DINOv2-reg-base +0.042 (7/8 seeds, paired t p=0.007), frozen
+    ConvNeXtV2-nano +0.046 (7/8, p=0.015); fine-tuned ConvNeXtV2-nano -0.001
+    (p=0.87) and fine-tuned DINOv2-reg-base -0.035 (p=0.31; one avg seed trained
+    to 0.65 against GeM's 0.91) -- so fine-tuned pretrained encoders keep GeM, as
+    do the native backbones, whose bottleneck ends in a ReLU.
+
+    Args:
+        encoder_frozen: ``embedding_encoder_is_frozen(...)`` for the model.
+
+    Returns:
+        ``"avg"`` or ``"gem"``.
+    """
+    return "avg" if encoder_frozen else "gem"
 
 
 class L2Norm(nn.Module):
@@ -685,6 +807,8 @@ class EmbeddingHead(Head):
         num_fc_layers: Number of FC layers before the embedding output.
         num_fc_units: Units in the pre-embedding FC layers.
         pool: Pooling over the encoder feature map: ``gem`` | ``max`` | ``avg``.
+            ``None`` means "the default for this backbone"; `Model` resolves it
+            with ``default_embedding_pool`` before building the head.
         normalize: L2-normalize the output embedding.
         output_stride: Should equal the backbone max_stride (so the decoder is empty
             and the head taps ``middle_output``).

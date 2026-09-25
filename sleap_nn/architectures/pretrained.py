@@ -41,6 +41,7 @@ from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
 
+from sleap_nn.architectures.common import FreezableEncoderMixin
 from sleap_nn.architectures.encoder_decoder import Decoder
 
 # ImageNet stats, used as a last-resort normalization default when a model does
@@ -142,7 +143,7 @@ def _resolve_backbone_class(config: Any):
         return AutoBackbone
 
 
-class PretrainedBackbone(nn.Module):
+class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
     """Wrap a HuggingFace pretrained backbone as a sleap-nn encoder.
 
     Args:
@@ -484,33 +485,14 @@ class PretrainedBackbone(nn.Module):
         logger.info(f"Restored pretrained weights for backbone '{self.model_name}'.")
 
     def freeze_encoder(self) -> None:
-        """Freeze the pretrained encoder (feature extraction; decoder/head train)."""
-        self.freeze = True
-        self.enc.eval()
-        self.enc.requires_grad_(False)
-        logger.info(f"Froze pretrained encoder '{self.model_name}'.")
+        """Freeze the pretrained encoder (feature extraction; decoder/head train).
 
-    def train(self, mode: bool = True) -> "PretrainedBackbone":
-        """Set train/eval mode, keeping a FROZEN encoder in eval.
-
-        ``freeze_encoder`` calls ``enc.eval()`` once, but Lightning calls
-        ``model.train()`` at the start of every training epoch and that recurses
-        into every submodule — so without this override the encoder goes back into
-        train mode and its normalization layers keep updating. Weights stay frozen
-        (``requires_grad_(False)``); the running statistics did not, which is not
-        what ``freeze: true`` promises and makes a "frozen" run irreproducible in a
-        way that looks like seed noise.
-
-        Only matters for a backbone with running stats (BatchNorm: ResNet, BiT —
-        measured on ``microsoft/resnet-18``, ``running_mean`` moved 0.63 in a
-        single forward). ConvNeXt / Swin / ViT use LayerNorm and are unaffected,
-        which is why this went unnoticed: the documented default backbone is
-        ConvNeXtV2.
+        The encoder stays in eval mode for the whole run (``FreezableEncoderMixin``
+        re-applies it on every ``train()``), so BatchNorm keeps its pretrained
+        running statistics.
         """
-        super().train(mode)
-        if getattr(self, "freeze", False):
-            self.enc.eval()
-        return self
+        super().freeze_encoder()
+        logger.info(f"Froze pretrained encoder '{self.model_name}'.")
 
     # ------------------------------------------------------------------ config
 

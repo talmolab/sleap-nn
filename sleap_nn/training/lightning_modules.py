@@ -3503,8 +3503,13 @@ class EmbeddingLightningModule(LightningModel):
             self.projection = None
 
         if self.freeze_backbone:
-            for p in self.model.backbone.parameters():
-                p.requires_grad_(False)
+            # Freeze the pretrained ENCODER only, in eval mode for the whole run (the
+            # mechanism `backbone_config.pretrained.freeze` uses). Setting
+            # `requires_grad=False` on the whole backbone instead left BatchNorm in
+            # train mode (running stats drifted, the train forward used batch stats)
+            # and froze the randomly initialized middle blocks of a native
+            # convnext/swint -- see `EmbeddingHeadConfig.freeze_backbone`.
+            self.model.backbone.freeze_encoder()
 
     # ---- objective helpers ----
     def _project(self, e: torch.Tensor) -> torch.Tensor:

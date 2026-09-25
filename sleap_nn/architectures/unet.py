@@ -10,10 +10,11 @@ from omegaconf import OmegaConf
 import torch
 from torch import nn
 
+from sleap_nn.architectures.common import FreezableEncoderMixin
 from sleap_nn.architectures.encoder_decoder import Decoder, Encoder, StemBlock
 
 
-class UNet(nn.Module):
+class UNet(FreezableEncoderMixin, nn.Module):
     """U-Net architecture for pose estimation.
 
     This class defines the U-Net architecture for pose estimation, combining an
@@ -226,6 +227,15 @@ class UNet(nn.Module):
             )
 
         self.decoder_stride_to_filters = self.decoders[-1].stride_to_filters
+
+    def encoder_modules(self) -> List[nn.Module]:
+        """Return the encoder: the stem (if any) and the encoder blocks.
+
+        The middle blocks and decoders are not part of it (see
+        ``FreezableEncoderMixin``).
+        """
+        stem = [self.stem] if self.stem is not None else []
+        return stem + list(self.encoders)
 
     @classmethod
     def from_config(cls, config: OmegaConf):

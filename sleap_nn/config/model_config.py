@@ -1436,11 +1436,36 @@ class EmbeddingHeadConfig:
         num_fc_layers: Number of FC layers before the embedding output.
         num_fc_units: Units in the pre-embedding FC layers.
         pool: Pooling over the encoder feature map. One of ``gem`` (generalized-mean,
-            learnable exponent), ``max``, ``avg``.
+            learnable exponent), ``max``, ``avg``, or ``None`` (default) for the
+            backbone's default, resolved at training setup and written into the
+            saved config: ``avg`` for a FROZEN ``pretrained`` encoder
+            (``pretrained.freeze`` or ``freeze_backbone``), ``gem`` otherwise. GeM
+            pools only the positive part of each channel, and a frozen pretrained
+            encoder's LayerNorm output is about half negative: on the gerbil re-ID
+            set avg beat GeM by +0.04 val rank-1 on frozen DINOv2 and ConvNeXtV2
+            (8 seeds each, p < 0.02) and tied when the encoder was fine-tuned (see
+            ``sleap_nn.architectures.heads.default_embedding_pool``). Configs saved
+            before this default existed carry an explicit ``gem`` and are
+            unchanged.
         normalize: L2-normalize the embedding (applied identically train + inference).
         output_stride: Stride of the pooled feature. Should equal the backbone
             ``max_stride`` so the decoder is empty and the head taps ``middle_output``.
         loss_weight: Scalar loss weight.
+        freeze_backbone: (bool) Freeze the backbone's PRETRAINED ENCODER and train
+            only what sits on top of it. The encoder is the part pretrained weights
+            load into: the HuggingFace model of a ``pretrained`` backbone (the same
+            thing ``backbone_config.pretrained.freeze`` freezes), the ImageNet
+            encoder of a native ``convnext`` / ``swint`` with
+            ``pre_trained_weights``, the stem + encoder blocks of a ``unet``. The
+            frozen encoder gets no gradient AND stays in eval mode for the whole run,
+            so BatchNorm keeps its pretrained running statistics and dropout /
+            stochastic depth are off. Everything else stays trainable: the randomly
+            initialized middle blocks of a native ``convnext`` / ``swint``, any
+            decoder, the embedding head and the train-only projection head. Setting
+            it without pretrained weights (no ``pretrained.weights``, no
+            ``pre_trained_weights``, no ``model_config.pretrained_backbone_weights``)
+            logs a warning: the encoder would then stay at its random
+            initialization. Default is False.
         anchor_part: (str) Node name used to center the re-ID crop. ``None``
             (default) centers on the mean of each instance's visible nodes.
         centroid_method: (str) How the crop center is derived from the instance's
@@ -1478,7 +1503,7 @@ class EmbeddingHeadConfig:
     embedding_dim: int = 128
     num_fc_layers: int = 1
     num_fc_units: int = 256
-    pool: str = "gem"
+    pool: Optional[str] = None
     normalize: bool = True
     output_stride: int = 32
     loss_weight: float = 1.0
