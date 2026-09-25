@@ -63,7 +63,7 @@ jobs:
     # past 45 min because MPS compute intermittently hangs / OOMs on the
     # virtualized macos-14 runner; that is now neutralized by
     # SLEAP_NN_DISABLE_MPS below.)
-    timeout-minutes: 75
+    timeout-minutes: 45
     env:
       CUDA_VISIBLE_DEVICES: ""
       USE_CUDA: "0"
@@ -77,20 +77,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["windows"]  # DIAGNOSTIC: windows only
-        include:
-          - os: windows
-            runs-on: windows-latest
-          # - os: self-hosted-gpu
-          #   runs-on: [self-hosted, puma, gpu, 2xgpu]
+        # DIAGNOSTIC: windows only, at two heads -- the one that hung twice
+        # (#756 rebased onto #755, 9f1ad78a) and its rebase onto D2 (3109a494).
+        os: ["windows"]
+        runs-on: ["windows-latest"]
+        ref:
+          - 9f1ad78a1626e052c522b6c8d1e1449dc90a33a9
+          - 3109a49473d76dacbd1f8cff3af5118f816fda18
         python: [3.13]
 
-    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    name: Tests (${{ matrix.os }}, ${{ matrix.ref }})
     runs-on: ${{ matrix.runs-on }}
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -155,32 +158,13 @@ jobs:
               print('MPS backend is not available on this macOS system')
           "
 
-      # DIAGNOSTIC (emb-review F2 Windows hang): narrow repros first, each with a
-      # faulthandler stack dump of every thread when one test runs past the limit.
-      - name: "DIAG A: bottomup alone (control)"
+      # DIAGNOSTIC (emb-review F2 Windows hang), round 2: the EXACT CI pytest command
+      # (coverage on), first thing on a fresh runner, with a faulthandler dump of every
+      # thread's stack when one test runs past 240 s.
+      - name: "DIAG F: exact CI pytest command + faulthandler"
         continue-on-error: true
-        timeout-minutes: 8
-        run: uv run --frozen --no-group gpu --extra torch-cpu pytest -v -p no:cacheprovider -o faulthandler_timeout=150 tests/training/test_model_trainer.py -k "test_model_trainer_bottomup"
-
-      - name: "DIAG B: scatter e2e test, then bottomup"
-        continue-on-error: true
-        timeout-minutes: 8
-        run: uv run --frozen --no-group gpu --extra torch-cpu pytest -v -p no:cacheprovider -o faulthandler_timeout=150 tests/training/test_embedding_train_e2e.py tests/training/test_model_trainer.py -k "scatter or test_model_trainer_bottomup"
-
-      - name: "DIAG C: singleton e2e test, then bottomup"
-        continue-on-error: true
-        timeout-minutes: 8
-        run: uv run --frozen --no-group gpu --extra torch-cpu pytest -v -p no:cacheprovider -o faulthandler_timeout=150 tests/training/test_embedding_train_e2e.py tests/training/test_model_trainer.py -k "singleton or test_model_trainer_bottomup"
-
-      - name: "DIAG D: all of tests/training"
-        continue-on-error: true
-        timeout-minutes: 12
-        run: uv run --frozen --no-group gpu --extra torch-cpu pytest -v -p no:cacheprovider -o faulthandler_timeout=180 tests/training
-
-      - name: "DIAG E: full suite as in CI"
-        continue-on-error: true
-        timeout-minutes: 30
-        run: uv run --frozen --no-group gpu --extra torch-cpu pytest -p no:cacheprovider -o faulthandler_timeout=240 --durations=-1 tests/
+        timeout-minutes: 32
+        run: uv run --frozen --no-group gpu --extra torch-cpu pytest --cov=sleap_nn --cov-report=xml --durations=-1 -o faulthandler_timeout=240 tests/
 
       - name: Upload coverage
         if: github.repository == 'talmolab/sleap-nn'
