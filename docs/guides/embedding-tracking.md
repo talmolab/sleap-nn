@@ -55,7 +55,9 @@ most pairs), appearance-only is transformative:
     and mechanical, since it turns on whether consecutive detections of one animal
     overlap at all — but the specific weights are not tuned for your data. Check where
     your own recording sits with
-    `sleap_nn.evaluation.motion_diagnostic(labels, "pose")`: a `step_over_size` well
+    `sleap_nn.evaluation.motion_diagnostic(tracked_labels, "pose")` (it follows
+    each animal by its track, so run it on tracked ground truth or on a
+    geometry-only tracking run): a `step_over_size` well
     below 0.5 is the dense regime (blend), well above it is the sparse regime
     (appearance-only), and `sleap-nn eval-tracking` will score any choice you make
     against tracked ground truth.
@@ -147,7 +149,9 @@ cosine of raw coordinates, near 1 for any two poses).
     `--euclidean_scale` is a length in **pixels** with no universal default, so it
     is **required** for this combination rather than guessed. Pass the typical
     inter-frame displacement of one animal — the distance at which geometric
-    similarity falls to ~0.37. `motion_diagnostic` reports it for your data.
+    similarity falls to ~0.37. `motion_diagnostic` reports it as
+    `median_step_px` (per frame) when run on **tracked** labels of your data —
+    tracked ground truth, or a geometry-only tracking run.
 
     This is the path **centroid-only detections** take: a single-node skeleton
     auto-selects `euclidean_dist`, so the guide's centroid + embedding fused
