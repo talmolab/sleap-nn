@@ -353,8 +353,23 @@ def apply_tracking(
         # explicit vector metric (``euclidean_dist``) is preserved.
         effective_scoring_method = "cosine_sim"
 
+    # Segmentation (mask carrier) detection. A bottom-up segmentation model emits
+    # sio.PredictedSegmentationMask into LabeledFrame.masks and no predicted keypoint
+    # instances (no skeleton); track masks by pixel mask-IoU. Detect on the labels
+    # content (available here, after prediction). An explicit ``features="masks"``
+    # also tracks the mask carrier when there are masks to track -- on a pose+mask
+    # file (top-down segmentation, SAM) it is the only way to track the masks by
+    # geometry. Decided BEFORE the single-node branch, which resolves POSE defaults
+    # and must not run (or log) for a mask-carrier run.
+    has_masks = any(getattr(lf, "masks", None) for lf in labels.labeled_frames)
+    is_mask_mode = has_masks and (
+        not any(lf.has_predicted_instances for lf in labels.labeled_frames)
+        or (not is_embedding_mode and config.features == "masks")
+    )
+
     if (
         not is_embedding_mode
+        and not is_mask_mode
         and len(labels.skeletons) == 1
         and len(labels.skeletons[0].nodes) == 1
     ):
@@ -372,18 +387,7 @@ def apply_tracking(
                 f"features={effective_features!r}."
             )
 
-    # Segmentation (mask carrier) default resolution. A bottom-up segmentation
-    # model emits sio.PredictedSegmentationMask into LabeledFrame.masks and no
-    # predicted keypoint instances (no skeleton); track masks by pixel mask-IoU.
-    # Detect on the labels content (available here, after prediction), mirroring
-    # the single-node centroid branch. An explicit ``features="masks"`` also tracks
-    # the mask carrier when there are masks to track -- on a pose+mask file (top-down
-    # segmentation, SAM) it is the only way to track the masks by geometry.
-    has_masks = any(getattr(lf, "masks", None) for lf in labels.labeled_frames)
-    is_mask_mode = has_masks and (
-        not any(lf.has_predicted_instances for lf in labels.labeled_frames)
-        or (not is_embedding_mode and config.features == "masks")
-    )
+    # Segmentation (mask carrier) default resolution.
     if is_mask_mode and not is_embedding_mode:
         if not config.scoring_method_explicit:
             effective_scoring_method = "mask_iou"

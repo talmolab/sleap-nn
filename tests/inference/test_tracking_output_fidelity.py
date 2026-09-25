@@ -242,6 +242,43 @@ def test_blend_on_the_mask_carrier_follows_appearance():
             assert m.instance.tracking_score == m.tracking_score
 
 
+def test_masks_on_a_centroid_file_skip_the_single_node_defaults(log_text):
+    """A centroid+segmentation file has a 1-node skeleton. `--features masks` tracks
+    its masks by mask IoU; the pose-only single-node defaults (euclidean_dist on
+    centroids) must neither apply nor be announced."""
+    centroid = sio.Skeleton(nodes=["centroid"])
+    video = sio.Video(filename="fake.mp4")
+    lfs = []
+    for t in range(3):
+        insts, masks = [], []
+        for x in (10 + t, 60 + t):
+            i = sio.PredictedInstance.from_numpy(
+                np.array([[x, 10.0]], dtype=np.float32),
+                skeleton=centroid,
+                point_scores=np.ones(1),
+                score=0.9,
+            )
+            m = _pmask(x, 10)
+            m.instance = i
+            insts.append(i)
+            masks.append(m)
+        lfs.append(
+            sio.LabeledFrame(video=video, frame_idx=t, instances=insts, masks=masks)
+        )
+    labels = sio.Labels(lfs, videos=[video], skeletons=[centroid])
+    out = apply_tracking(
+        labels,
+        TrackerConfig(
+            features="masks", scoring_method_explicit=False, features_explicit=True
+        ),
+    )
+    text = log_text()
+    assert "Single-node skeleton detected" not in text
+    assert "scoring_method='mask_iou'" in text
+    assert len({m.track for lf in out for m in lf.masks}) == 2
+    assert all(m.instance.track is m.track for lf in out for m in lf.masks)
+
+
 def test_embedding_mode_routes_to_the_carrier_holding_more_vectors():
     """Routing used "do the poses carry ANY vector?": one stray pose vector sent
     appearance tracking to the poses, and the masks' vectors were ignored."""
