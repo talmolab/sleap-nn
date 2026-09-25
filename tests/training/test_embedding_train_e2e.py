@@ -530,3 +530,189 @@ def test_post_training_eval_groups_like_the_selection_metric(
     # selection metric exactly.
     swapped = retrieval_metric(selection["emb"], val["y"], **selection["kwargs"])
     assert swapped == selection["metrics"]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# The per-epoch retrieval eval and the embedding scatter (emb-review F2).
+# ─────────────────────────────────────────────────────────────────────────
+SMALL_VAL_FRAMES = [(0, [0]), (1, [0]), (2, [0, 1])]  # (frame_idx, animals present)
+SMALL_VAL_CROPS = 4
+
+
+@pytest.fixture
+def small_val_slp(centered_instance_video, tmp_path):
+    """Four val crops: `animal_0` in three frames, `animal_1` in only one.
+
+    `animal_1` is a singleton identity: its one crop has nothing to retrieve.
+    """
+    video = sio.load_video(centered_instance_video.as_posix())
+    skeleton = sio.Skeleton(["a", "b"])
+    tracks = [sio.Track(name=f"track_{i}") for i in range(N_ANIMALS)]
+    identities = [sio.Identity(name=f"animal_{i}") for i in range(N_ANIMALS)]
+    centers = [(120, 180), (260, 200)]
+    frames = []
+    for frame_idx, animals in SMALL_VAL_FRAMES:
+        instances = []
+        for i in animals:
+            cx, cy = centers[i]
+            instance = sio.Instance.from_numpy(
+                np.array([[cx - 10, cy], [cx + 10, cy]], float),
+                skeleton=skeleton,
+                track=tracks[i],
+            )
+            instance.identity = identities[i]
+            instances.append(instance)
+        frames.append(
+            sio.LabeledFrame(video=video, frame_idx=frame_idx, instances=instances)
+        )
+    labels = sio.Labels(
+        labeled_frames=frames, videos=[video], skeletons=[skeleton], tracks=tracks
+    )
+    path = tmp_path / "small_val.slp"
+    labels.save(path.as_posix())
+    return path
+
+
+def test_per_epoch_retrieval_eval_leaves_out_singleton_identities(
+    tracked_slp, small_val_slp, tmp_path, monkeypatch
+):
+    """The selection metric scores only the val crops that have a positive (F8).
+
+    `animal_1`'s one val crop has no other crop of its identity to retrieve. It
+    used to count as a rank-1 / kNN miss (while mAP dropped it); it is now left
+    out of all three and counted.
+    """
+    cfg = _config(
+        tracked_slp,
+        tmp_path,
+        "singleton",
+        **{"data_config.val_labels_path": [small_val_slp.as_posix()]},
+    )
+    calls, _ = _record_retrieval_evals(monkeypatch)
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    trainer.train()
+
+    per_epoch = [c for c in calls if c["caller"] == "_compute_metrics"]
+    assert len(per_epoch) == 1
+    assert len(per_epoch[0]["y"]) == SMALL_VAL_CROPS
+    metrics = per_epoch[0]["metrics"]
+    # A fraction of the 3 scored queries, not of all 4 crops...
+    assert metrics["rank1"] * 3 == pytest.approx(round(metrics["rank1"] * 3), abs=1e-3)
+    # ...it is the value the checkpoint is selected on...
+    selected = float(trainer.trainer.callback_metrics["eval/val/rank1"])
+    assert selected == pytest.approx(metrics["rank1"], abs=1e-6)
+    # ...and the left-out crop is counted.
+    assert metrics["n_no_positive_queries"] == 1
+
+
+def test_embedding_scatter_reuses_the_val_pass_and_plots_clean_crops(
+    tracked_slp, small_val_slp, tmp_path, monkeypatch
+):
+    """The scatter plots the val pass's own embeddings and un-augmented crops (F7).
+
+    It used to re-decode and re-embed up to 256 val crops every epoch, and plot the
+    TRAIN crops as the augmented contrastive view the training dataset emits, all
+    in one forward pass. Now: the val points are the embeddings the validation pass
+    just computed, and the train crops are decoded once, un-augmented, and kept.
+    Few points (4 val crops) must work too, with wandb off.
+    """
+    from sleap_nn.data.custom_datasets import EmbeddingDataset
+    from sleap_nn.training.callbacks import (
+        EmbeddingEvaluationCallback,
+        UnifiedVizCallback,
+    )
+
+    in_viz = [False]
+    reads = []  # `apply_aug` of every crop the scatter decodes
+    scatters = []  # per scatter: embeddings, groups, n_train, the val pass's output
+
+    real_getitem = EmbeddingDataset.__getitem__
+
+    def getitem(self, index):
+        if in_viz[0]:
+            reads.append(bool(self.apply_aug))
+        return real_getitem(self, index)
+
+    real_epoch_end = UnifiedVizCallback.on_train_epoch_end
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        evaluator = next(
+            c for c in trainer.callbacks if isinstance(c, EmbeddingEvaluationCallback)
+        )
+        scatters.append({"val_pass": getattr(evaluator, "last_val_embeddings", None)})
+        in_viz[0] = True
+        try:
+            real_epoch_end(self, trainer, pl_module)
+        finally:
+            in_viz[0] = False
+
+    real_reduce = UnifiedVizCallback._reduce_to_2d
+    real_render = UnifiedVizCallback._render_embedding_scatter
+
+    def reduce_to_2d(x):
+        scatters[-1]["embedding"] = np.array(x)
+        return real_reduce(x)
+
+    def render(emb2d, groups, n_train, epoch, method):
+        scatters[-1].update(groups=np.array(groups), n_train=n_train)
+        return real_render(emb2d, groups, n_train, epoch, method)
+
+    monkeypatch.setattr(EmbeddingDataset, "__getitem__", getitem)
+    monkeypatch.setattr(UnifiedVizCallback, "on_train_epoch_end", on_train_epoch_end)
+    monkeypatch.setattr(UnifiedVizCallback, "_reduce_to_2d", staticmethod(reduce_to_2d))
+    monkeypatch.setattr(
+        UnifiedVizCallback, "_render_embedding_scatter", staticmethod(render)
+    )
+
+    cfg = _config(
+        tracked_slp,
+        tmp_path,
+        "scatter",
+        **{
+            "data_config.val_labels_path": [small_val_slp.as_posix()],
+            # The training views are really augmented.
+            "data_config.augmentation_config": {
+                "geometric": {"rotation_min": -180.0, "rotation_max": 180.0}
+            },
+            "trainer_config.max_epochs": 2,
+            "trainer_config.visualize_preds_during_training": True,
+            "trainer_config.keep_viz": True,
+        },
+    )
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    trainer.train()
+
+    # Over both epochs, the scatter decoded each train crop once, un-augmented, and
+    # no val crop at all.
+    assert not any(reads)
+    assert len(reads) == N_CROPS
+    assert len(scatters) == 2  # one per epoch
+    for epoch, scatter in enumerate(scatters):
+        val_pass = scatter["val_pass"]
+        assert val_pass["epoch"] == epoch
+        n_train = scatter["n_train"]
+        assert n_train == N_CROPS  # < 256: every train crop
+        # The val points ARE the val pass's embeddings (no second forward).
+        np.testing.assert_array_equal(
+            scatter["embedding"][n_train:], val_pass["embedding"]
+        )
+        np.testing.assert_array_equal(scatter["groups"][n_train:], val_pass["label"])
+        assert len(val_pass["label"]) == SMALL_VAL_CROPS
+    viz_dir = tmp_path / "scatter" / "viz"
+    assert (viz_dir / "embedding_scatter.0000.png").exists()
+    assert (viz_dir / "embedding_scatter.0001.png").exists()
+
+    # An epoch with no validation pass to reuse embeds clean val crops instead.
+    viz = next(
+        c for c in trainer.trainer.callbacks if isinstance(c, UnifiedVizCallback)
+    )
+    reads.clear()
+    in_viz[0] = True
+    scatters.append({})
+    try:
+        viz._embedding_viz_epoch(99, None, trainer=trainer.trainer)
+    finally:
+        in_viz[0] = False
+    assert len(reads) == SMALL_VAL_CROPS and not any(reads)
+    assert len(scatters[-1]["embedding"]) == N_CROPS + SMALL_VAL_CROPS
+    assert (viz_dir / "embedding_scatter.0099.png").exists()
