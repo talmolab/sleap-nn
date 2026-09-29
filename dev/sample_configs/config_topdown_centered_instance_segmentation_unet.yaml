@@ -146,9 +146,11 @@ trainer_config:
     max_hard_keypoints: null
     loss_scale: 5.0
   zmq:
-    controller_port: 9000
+    # ZMQ monitoring is off by default; the SLEAP GUI sets these ports when it
+    # launches training. Leave them unset (null) for CLI runs.
+    controller_port:
     controller_polling_timeout: 10
-    publish_port: 9001
+    publish_port:
   # Post-training mask-IoU eval (match_method="mask"). The seg model alone has
   # no instance detector, so eval crops the GT instances (GT-centroid fallback)
   # and compares predicted vs GT masks. `match_threshold` is the minimum mask
