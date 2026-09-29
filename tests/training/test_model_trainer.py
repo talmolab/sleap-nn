@@ -37,6 +37,7 @@ from sleap_nn.data.custom_datasets import (
     get_train_val_dataloaders,
 )
 from sleap_nn.config.training_job_config import TrainingJobConfig
+from sleap_nn.config.utils import MAX_AUTO_NUM_WORKERS
 
 
 @pytest.fixture
@@ -91,6 +92,48 @@ def test_cfg_without_val_labels_path(config, tmp_path, minimal_instance):
     assert np.all(trainer.val_labels[0][0].instances[0].numpy()) == np.all(
         labels[0].instances[0].numpy()
     )
+
+
+def test_auto_num_workers_resolved_in_setup_config(config, tmp_path):
+    """`num_workers: "auto"` is resolved to an int before datasets are built.
+
+    Downstream consumers (cache-memory estimation, `DataLoader(num_workers=...)`)
+    all assume an int, so resolution must happen in `setup_config()`.
+    """
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "test_auto_num_workers")
+    OmegaConf.update(
+        config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
+    )
+    OmegaConf.update(config, "trainer_config.train_data_loader.num_workers", "auto")
+    OmegaConf.update(config, "trainer_config.val_data_loader.num_workers", "auto")
+
+    trainer = ModelTrainer.get_model_trainer_from_config(config)
+
+    resolved = trainer.config.trainer_config.train_data_loader.num_workers
+    assert isinstance(resolved, int)
+    assert 0 <= resolved <= MAX_AUTO_NUM_WORKERS
+    assert trainer.config.trainer_config.val_data_loader.num_workers == resolved
+
+    # The literal is preserved in the initial config, so reusing it on another
+    # machine re-resolves there rather than baking in this machine's core count.
+    assert (
+        trainer._initial_config.trainer_config.train_data_loader.num_workers == "auto"
+    )
+
+
+def test_auto_num_workers_streaming_resolves_to_zero(config, tmp_path):
+    """Streaming can't pickle video backends, so `auto` must yield 0 workers."""
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "test_auto_num_workers_stream")
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
+    OmegaConf.update(config, "trainer_config.train_data_loader.num_workers", "auto")
+    OmegaConf.update(config, "trainer_config.val_data_loader.num_workers", "auto")
+
+    trainer = ModelTrainer.get_model_trainer_from_config(config)
+
+    assert trainer.config.trainer_config.train_data_loader.num_workers == 0
+    assert trainer.config.trainer_config.val_data_loader.num_workers == 0
 
 
 def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_instance):

@@ -755,7 +755,7 @@ def get_model_config(
 def get_trainer_config(
     batch_size: int = 1,
     shuffle_train: bool = True,
-    num_workers: int = 0,
+    num_workers: Union[int, str] = 0,
     ckpt_save_top_k: int = 1,
     ckpt_save_last: Optional[bool] = None,
     trainer_num_devices: Optional[Union[str, int]] = None,
@@ -807,7 +807,11 @@ def get_trainer_config(
         batch_size: Number of samples per batch or batch size for training data. Default: 4.
         shuffle_train: True to have the train data reshuffled at every epoch. Default: True.
         num_workers: Number of subprocesses to use for data loading. 0 means that the data
-            will be loaded in the main process. Default: 0.
+            will be loaded in the main process. Pass the string `"auto"` to size the
+            pool from the CPUs usable by this process (capped, leaving one core for the
+            main process); `"auto"` resolves to 0 for the `torch_dataset` (streaming)
+            pipeline, whose video backends cannot be pickled to worker processes.
+            Default: 0.
         ckpt_save_top_k: If save_top_k == k, the best k models according to the quantity
             monitored will be saved. If save_top_k == 0, no models are saved. If save_top_k == -1,
             all models are saved. Please note that the monitors are checked every every_n_epochs

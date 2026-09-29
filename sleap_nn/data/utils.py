@@ -221,6 +221,29 @@ def check_memory(
     return total_bytes
 
 
+def worker_memory_overhead_factor() -> float:
+    """Return the per-worker in-memory-cache overhead, as a fraction of the cache.
+
+    Each DataLoader worker adds a share of the image cache on top of the parent
+    process, and how big that share is depends on the multiprocessing start
+    method:
+
+    - **Linux** forks, so the cache starts out shared Copy-on-Write; Python
+      refcounting still dirties pages, costing roughly a quarter of it.
+    - **macOS / Windows** spawn (macOS has defaulted to spawn since Python 3.8),
+      so the cache dict is pickled into each worker — roughly half of it, and
+      genuinely additive.
+
+    Kept as a single named constant because both the memory *estimate* and the
+    ``num_workers: "auto"`` resolver (which inverts that estimate to find how
+    many workers fit) must agree on it.
+
+    Returns:
+        Fraction of ``raw_cache_bytes`` charged per worker.
+    """
+    return 0.25 if sys.platform == "linux" else 0.5
+
+
 def estimate_cache_memory(
     train_labels: List[sio.Labels],
     val_labels: List[sio.Labels],
@@ -289,7 +312,9 @@ def estimate_cache_memory(
             # Linux uses fork() with Copy-on-Write by default
             # Estimate 25% duplication per worker due to Python refcounting
             # triggering CoW page copies
-            worker_overhead_bytes = int(raw_cache_bytes * 0.25 * num_workers)
+            worker_overhead_bytes = int(
+                raw_cache_bytes * worker_memory_overhead_factor() * num_workers
+            )
             if num_workers >= 4:
                 logger.info(
                     f"Using in-memory caching with {num_workers} DataLoader workers. "
@@ -301,7 +326,9 @@ def estimate_cache_memory(
             # Since Python 3.8, macOS defaults to spawn due to fork safety issues
             # With caching enabled, we avoid pickling labels_list, but the cache
             # dict is still part of the dataset and gets copied to each worker
-            worker_overhead_bytes = int(raw_cache_bytes * 0.5 * num_workers)
+            worker_overhead_bytes = int(
+                raw_cache_bytes * worker_memory_overhead_factor() * num_workers
+            )
             platform_name = "macOS" if sys.platform == "darwin" else "Windows"
             logger.warning(
                 f"Using in-memory caching with {num_workers} DataLoader workers on {platform_name}. "

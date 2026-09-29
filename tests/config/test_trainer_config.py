@@ -469,3 +469,26 @@ def test_trainer_mapper_zmq_enabled_without_address():
 
     assert config.zmq.controller_port is None
     assert config.zmq.publish_port is None
+
+
+def test_dataloader_num_workers_accepts_auto():
+    """`num_workers` accepts a non-negative int or the string "auto"."""
+    assert TrainDataLoaderConfig(num_workers="auto").num_workers == "auto"
+    assert ValDataLoaderConfig(num_workers="AUTO").num_workers == "AUTO"
+    assert TrainDataLoaderConfig(num_workers=0).num_workers == 0
+    assert TrainDataLoaderConfig(num_workers=8).num_workers == 8
+
+
+@pytest.mark.parametrize("bad", [-1, "many", "", True, 1.5, None])
+def test_dataloader_num_workers_rejects_invalid(bad):
+    """Anything else is rejected at config construction."""
+    with pytest.raises(ValueError):
+        TrainDataLoaderConfig(num_workers=bad)
+
+
+def test_trainer_config_num_workers_auto_survives_omegaconf():
+    """`auto` round-trips through the structured OmegaConf schema."""
+    cfg = OmegaConf.structured(
+        TrainerConfig(train_data_loader=TrainDataLoaderConfig(num_workers="auto"))
+    )
+    assert cfg.train_data_loader.num_workers == "auto"

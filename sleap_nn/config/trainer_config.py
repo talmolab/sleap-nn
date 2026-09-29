@@ -19,12 +19,28 @@ class DataLoaderConfig:
     Attributes:
         batch_size: (int) Number of samples per batch or batch size for training/validation data. This is the per-GPU batch size; with multi-GPU (DDP) training the effective (global) batch size is `batch_size × num_GPUs`. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `False`.
-        num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: `0`.
+        num_workers: (int or "auto") Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. Set to `"auto"` to size the pool from the CPUs usable by this process (capped, and leaving one core for the main process); `"auto"` resolves to `0` for the `torch_dataset` (streaming) pipeline, whose video backends cannot be pickled to worker processes. The resolved integer is written back into the saved `training_config.yaml`. *Default*: `0`.
     """
 
     batch_size: int = 4
     shuffle: bool = False
-    num_workers: int = 0
+    num_workers: Any = field(
+        default=0,
+        validator=lambda inst, attr, val: DataLoaderConfig.validate_num_workers(val),
+    )
+
+    @staticmethod
+    def validate_num_workers(value):
+        """Validate the value of num_workers."""
+        if isinstance(value, bool):
+            pass
+        elif isinstance(value, int) and value >= 0:
+            return
+        elif isinstance(value, str) and value.lower() == "auto":
+            return
+        message = 'num_workers must be an integer >= 0, or the string "auto".'
+        logger.error(message)
+        raise ValueError(message)
 
 
 @define
@@ -34,7 +50,7 @@ class TrainDataLoaderConfig(DataLoaderConfig):
     Attributes:
         batch_size: (int) Number of samples per batch or batch size for training/validation data. This is the per-GPU batch size; with multi-GPU (DDP) training the effective (global) batch size is `batch_size × num_GPUs`. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `True`.
-        num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: `0`.
+        num_workers: (int or "auto") Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. Set to `"auto"` to size the pool from the CPUs usable by this process. *Default*: `0`.
     """
 
     shuffle: bool = True
@@ -47,7 +63,7 @@ class ValDataLoaderConfig(DataLoaderConfig):
     Attributes:
         batch_size: (int) Number of samples per batch or batch size for training/validation data. This is the per-GPU batch size; with multi-GPU (DDP) training the effective (global) batch size is `batch_size × num_GPUs`. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `False`.
-        num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: `0`.
+        num_workers: (int or "auto") Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. Set to `"auto"` to size the pool from the CPUs usable by this process. *Default*: `0`.
     """
 
     shuffle: bool = False

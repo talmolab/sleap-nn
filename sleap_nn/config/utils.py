@@ -1,11 +1,22 @@
 """Utilities for config building and validation."""
 
 import math
+import os
+import sys
 from pathlib import Path
 from typing import Optional, Union
 
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
+
+#: Upper bound on the worker count picked by ``num_workers: "auto"``.
+#:
+#: Dataloading here is dominated by decode + cache lookup rather than heavy CPU
+#: transforms, so returns flatten quickly, and with in-memory caching each extra
+#: worker adds a copy-on-write share of the image cache (see
+#: :func:`sleap_nn.data.utils.check_cache_memory`, which warns from 4 workers up).
+#: Capping at 4 keeps "auto" safe on a 64-core node rather than optimal on one.
+MAX_AUTO_NUM_WORKERS = 4
 
 
 def resolve_model_dir(model_path: Union[str, Path]) -> str:
@@ -326,6 +337,276 @@ def check_centroid_methods(config: OmegaConf) -> OmegaConf:
                 logger.error(message)
                 raise ValueError(message) from e
     return config
+
+
+def usable_cpu_count() -> int:
+    """Return the number of CPUs actually usable by this process.
+
+    Prefers the process's CPU affinity mask over the machine's total core count,
+    so a run confined to a subset of cores (cgroups/cpusets, SLURM, Docker
+    ``--cpuset-cpus``) sizes itself to its allocation instead of to the host.
+    Falls back to :func:`os.cpu_count` where affinity is unavailable (macOS,
+    Windows).
+
+    Returns:
+        The number of usable CPUs (at least 1).
+    """
+    count = None
+    try:
+        count = len(os.sched_getaffinity(0))
+    except AttributeError:  # pragma: no cover - platform-dependent
+        try:
+            import psutil
+
+            count = len(psutil.Process().cpu_affinity())
+        except (AttributeError, ImportError):  # pragma: no cover
+            count = None
+    if not count:
+        count = os.cpu_count()
+    return max(1, count or 1)
+
+
+def resolve_auto_num_workers(
+    data_pipeline_fw: str,
+    train_labels: Optional[list] = None,
+    val_labels: Optional[list] = None,
+    memory_buffer: float = 0.2,
+    log: bool = True,
+) -> int:
+    """Pick a dataloader worker count for ``num_workers: "auto"``.
+
+    Workers are bounded by two independent limits, and ``auto`` takes the
+    smaller:
+
+    **CPU.** One core is left for the main/training process and the result is
+    capped at :data:`MAX_AUTO_NUM_WORKERS`, since dataloading here is dominated
+    by decode and cache lookup rather than heavy CPU transforms.
+
+    **Memory.** Under ``torch_dataset_cache_img_memory`` every worker adds a
+    share of the image cache (see
+    :func:`sleap_nn.data.utils.worker_memory_overhead_factor` — ~25% of it per
+    worker when forking on Linux, ~50% when spawning on macOS/Windows). Workers
+    are therefore a *memory multiplier* on exactly the pipeline that is already
+    the most memory-hungry, so ``auto`` inverts the same estimate
+    ``_setup_datasets`` uses and returns the largest count that still fits in
+    available RAM. Without this, ``auto`` could itself push a run past the
+    memory check and silently downgrade it to disk caching.
+
+    Two cases short-circuit:
+
+    - ``torch_dataset`` (streaming) always resolves to ``0``: it reads frames
+      through the video backend inside the dataset, and those backends (e.g.
+      open ``h5py`` handles) cannot be pickled to worker processes. This is the
+      constraint documented on ``data_config.data_pipeline_fw``.
+    - If the cache does not fit even at zero workers, the run will fall back to
+      disk caching anyway, where workers are cheap — so the CPU bound applies
+      rather than a pointless ``0``.
+
+    ``torch_dataset_cache_img_disk`` holds no large in-process cache, so it is
+    CPU-bound only.
+
+    Args:
+        data_pipeline_fw: The configured ``data_config.data_pipeline_fw``.
+        train_labels: Training labels, used to size the in-memory cache. When
+            omitted, the memory bound is skipped and only the CPU bound applies.
+        val_labels: Validation labels, as above.
+        memory_buffer: Fraction of memory reserved for training overhead, matching
+            the value ``_setup_datasets`` passes to the memory check.
+        log: Whether to report when memory rather than CPU is the binding limit.
+            Set ``False`` when resolving speculatively (e.g. to suggest a count
+            to a user who did not ask for ``"auto"``), so the log does not claim
+            an ``"auto"`` that was never requested.
+
+    Returns:
+        The resolved worker count.
+    """
+    if data_pipeline_fw == "torch_dataset":
+        return 0
+
+    cpu_bound = max(0, min(MAX_AUTO_NUM_WORKERS, usable_cpu_count() - 1))
+
+    if (
+        data_pipeline_fw != "torch_dataset_cache_img_memory"
+        or not train_labels
+        or cpu_bound == 0
+    ):
+        return cpu_bound
+
+    # Imported here rather than at module scope: `sleap_nn.data.utils` imports
+    # from this module, so a top-level import would be circular.
+    from sleap_nn.data.utils import (
+        estimate_cache_memory,
+        worker_memory_overhead_factor,
+    )
+
+    estimate = estimate_cache_memory(
+        train_labels=train_labels,
+        val_labels=val_labels if val_labels is not None else [],
+        num_workers=0,
+        memory_buffer=memory_buffer,
+    )
+
+    raw_cache_bytes = estimate["raw_cache_bytes"]
+    if raw_cache_bytes <= 0:
+        return cpu_bound
+
+    # `estimate_cache_memory` computes
+    #   total(w) = (raw + python_overhead + raw * factor * w) * (1 + memory_buffer)
+    # which is linear in `w`, so solve `total(w) <= available` directly instead of
+    # re-estimating per candidate (each estimate walks every labeled frame).
+    headroom = (
+        estimate["available_bytes"] / (1.0 + memory_buffer)
+        - raw_cache_bytes
+        - estimate["python_overhead_bytes"]
+    )
+    if headroom < 0:
+        # Does not fit even with zero workers: the run downgrades to disk
+        # caching in `_setup_datasets`, where workers are cheap again.
+        return cpu_bound
+
+    memory_bound = int(headroom // (raw_cache_bytes * worker_memory_overhead_factor()))
+
+    resolved = max(0, min(cpu_bound, memory_bound))
+    if log and resolved < cpu_bound:
+        logger.info(
+            f"`num_workers: auto` limited to {resolved} worker(s) by available "
+            f"memory (CPU alone would allow {cpu_bound}): in-memory cache is "
+            f"{raw_cache_bytes / (1024**3):.2f} GB and each worker adds ~"
+            f"{worker_memory_overhead_factor() * 100:.0f}% of it on "
+            f"{sys.platform}."
+        )
+    return resolved
+
+
+def check_num_workers(
+    config: OmegaConf,
+    train_labels: Optional[list] = None,
+    val_labels: Optional[list] = None,
+    memory_buffer: float = 0.2,
+) -> OmegaConf:
+    """Resolve ``num_workers: "auto"`` on the train/val dataloader configs.
+
+    Resolution happens once, up front, and the resolved integer is written back
+    into the config so that every downstream consumer (dataloader construction,
+    cache-memory estimation) sees a plain ``int``, and the saved
+    ``training_config.yaml`` records the worker count the run actually used.
+    ``initial_config.yaml`` keeps the literal ``"auto"``, so a config reused on
+    another machine re-resolves there.
+
+    Args:
+        config: The full training job config.
+        train_labels: Training labels. Passing them lets ``auto`` apply the
+            memory bound described in :func:`resolve_auto_num_workers`; without
+            them only the CPU bound applies.
+        val_labels: Validation labels, as above.
+        memory_buffer: Fraction of memory reserved for training overhead.
+
+    Also emits a one-line hint when a caching pipeline is configured with fewer
+    workers than this machine could actually support — see
+    :func:`suggest_num_workers`.
+
+    Returns:
+        The config with any ``"auto"`` worker counts replaced by integers.
+    """
+    data_pipeline_fw = OmegaConf.select(
+        config, "data_config.data_pipeline_fw", default="torch_dataset"
+    )
+
+    requested_auto, explicit = [], {}
+    for loader in ("train_data_loader", "val_data_loader"):
+        num_workers = OmegaConf.select(
+            config, f"trainer_config.{loader}.num_workers", default=0
+        )
+        if isinstance(num_workers, str) and num_workers.lower() == "auto":
+            requested_auto.append(loader)
+        else:
+            explicit[loader] = num_workers
+
+    resolved = None
+
+    def _resolve():
+        """Resolve once; the memory estimate is the expensive part."""
+        nonlocal resolved
+        if resolved is None:
+            resolved = resolve_auto_num_workers(
+                data_pipeline_fw,
+                train_labels=train_labels,
+                val_labels=val_labels,
+                memory_buffer=memory_buffer,
+                # Only narrate the memory bound if someone actually asked for
+                # `auto`; otherwise this call is speculative, for the hint below.
+                log=bool(requested_auto),
+            )
+        return resolved
+
+    for loader in requested_auto:
+        config.trainer_config[loader].num_workers = _resolve()
+        logger.info(
+            f"`trainer_config.{loader}.num_workers` set to `auto`: using "
+            f"{resolved} worker(s) "
+            f"({usable_cpu_count()} usable CPU(s), "
+            f"data_pipeline_fw=`{data_pipeline_fw}`)."
+        )
+
+    suggest_num_workers(data_pipeline_fw, explicit, _resolve)
+
+    return config
+
+
+def suggest_num_workers(data_pipeline_fw: str, explicit: dict, resolve) -> None:
+    """Hint that a cached run is leaving dataloading throughput on the table.
+
+    Caching (memory or disk) is what makes ``num_workers > 0`` usable at all —
+    the streaming pipeline cannot fork its video backends — so a cached run left
+    at the default of 0 workers is decoding batches serially in the training
+    process for no reason. This nudges the user toward the worker count their
+    machine can actually support.
+
+    The suggested count is whatever ``num_workers: "auto"`` would pick here, not
+    a fixed "use 2-4": on the in-memory pipeline that number is already bounded
+    by the dataset's cache size and free RAM, so the hint can never talk a user
+    into a setting that would push their run past the memory check and downgrade
+    it to disk caching.
+
+    Silent when the pipeline is streaming, when every loader is already at or
+    above the suggestion, or when nothing could be suggested (``auto`` resolves
+    to 0 on this machine).
+
+    Args:
+        data_pipeline_fw: The configured ``data_config.data_pipeline_fw``.
+        explicit: Mapping of loader name to its explicitly-configured worker
+            count, i.e. the loaders that did *not* ask for ``"auto"``.
+        resolve: Zero-arg callable returning the resolved ``"auto"`` count.
+            Deferred so the memory estimate is skipped when no hint is possible.
+    """
+    if data_pipeline_fw == "torch_dataset":
+        return
+
+    # Only loaders with room to grow are worth estimating for.
+    candidates = {
+        loader: n
+        for loader, n in explicit.items()
+        if isinstance(n, int) and n < MAX_AUTO_NUM_WORKERS
+    }
+    if not candidates:
+        return
+
+    suggested = resolve()
+    below = {loader: n for loader, n in candidates.items() if n < suggested}
+    if not below:
+        return
+
+    fields = ", ".join(
+        f"`trainer_config.{loader}.num_workers` ({n})" for loader, n in below.items()
+    )
+    logger.info(
+        f"Data caching is enabled (`data_pipeline_fw={data_pipeline_fw}`), which "
+        f"supports parallel data loading, but {fields} "
+        f"{'is' if len(below) == 1 else 'are'} below what this machine can "
+        f"support. Consider setting {'it' if len(below) == 1 else 'them'} to "
+        f"{suggested} — or to `auto`, which picks this for you — to speed up "
+        f"training."
+    )
 
 
 def check_tiling(config: OmegaConf) -> OmegaConf:
