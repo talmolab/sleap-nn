@@ -707,17 +707,6 @@ def data_mapper(legacy_config: dict) -> DataConfig:
             "scale_max"
         ]
 
-    if (
-        legacy_config_optimization.get("augmentation_config", {}).get("scale", None)
-        is not None
-    ):
-        geometric_args["scale_min"] = legacy_config_optimization["augmentation_config"][
-            "scale_min"
-        ]
-        geometric_args["scale_max"] = legacy_config_optimization["augmentation_config"][
-            "scale_max"
-        ]
-
     if legacy_config_optimization.get("augmentation_config", {}).get(
         "random_flip", False
     ):
@@ -731,20 +720,25 @@ def data_mapper(legacy_config: dict) -> DataConfig:
                 "vertical flip is not supported in sleap-nn and will be dropped."
             )
 
-    geometric_args["affine_p"] = (
-        1.0
-        if any(
-            [
-                legacy_config_optimization.get("augmentation_config", {}).get(
-                    "rotate", False
-                ),
-                legacy_config_optimization.get("augmentation_config", {}).get(
-                    "scale", False
-                ),
-            ]
+    # Legacy SLEAP applies `rotate`, `translate` and `scale` as independent
+    # transforms, each with p=1.0 when its flag is on and not at all when off. Map
+    # them onto the per-transform probabilities rather than the bundled `affine_p`:
+    # `GeometricConfig` defaults `rotation_p`/`scale_p` to 1.0, and any non-None
+    # per-transform probability makes the augmenter ignore `affine_p`, so leaving
+    # them unset would apply rotation and scale regardless of the legacy flags.
+    legacy_aug = legacy_config_optimization.get("augmentation_config", {}) or {}
+    geometric_args["rotation_p"] = 1.0 if legacy_aug.get("rotate", False) else 0.0
+    geometric_args["scale_p"] = 1.0 if legacy_aug.get("scale", False) else 0.0
+    geometric_args["affine_p"] = 0.0
+
+    if legacy_aug.get("translate", False):
+        logger.warning(
+            "Legacy config has translation augmentation enabled; legacy translation "
+            "is specified in pixels while sleap-nn uses a fraction of the image size, "
+            "so it cannot be converted and will be dropped. Set "
+            "`data_config.augmentation_config.geometric.translate_width`/"
+            "`translate_height`/`translate_p` to enable translation."
         )
-        else 0.0
-    )
 
     data_cfg_args["preprocessing"] = PreprocessingConfig(**preprocessing_args)
     data_cfg_args["augmentation_config"] = AugmentationConfig(

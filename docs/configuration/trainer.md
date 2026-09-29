@@ -30,7 +30,7 @@ trainer_config:
   train_data_loader:
     batch_size: 4
     shuffle: true
-    num_workers: 0    # >0 only with caching
+    num_workers: 0    # int, or "auto"
   val_data_loader:
     batch_size: 4
     shuffle: false
@@ -38,7 +38,102 @@ trainer_config:
 ```
 
 !!! warning "Workers without caching"
-    Only use `num_workers > 0` with data caching enabled.
+    Only use `num_workers > 0` with data caching enabled. The `torch_dataset`
+    (streaming) pipeline reads frames through the video backend inside the
+    dataset, and those backends cannot be pickled to worker processes.
+
+### Automatic worker count
+
+Set `num_workers: "auto"` to size the pool for the machine the run lands on:
+
+```yaml
+trainer_config:
+  train_data_loader:
+    num_workers: auto
+  val_data_loader:
+    num_workers: auto
+```
+
+`auto` resolves once, at the start of training, taking the smaller of a **CPU
+bound** and a **memory bound**.
+
+**CPU bound** — `min(4, usable_cpus - 1)`, leaving one core for the main process.
+"Usable" CPUs come from the process's CPU affinity mask where the platform
+provides one (Linux cgroups/cpusets, SLURM, `docker --cpuset-cpus`), so a job
+confined to part of a node sizes itself to its allocation rather than to the
+host. The cap of 4 is there because dataloading here is dominated by decode and
+cache lookup rather than heavy CPU transforms, so returns flatten quickly.
+
+**Memory bound** — applies only to `torch_dataset_cache_img_memory`, and scales
+with **dataset size**. The cache holds every labeled frame decoded, so its size is
+`height x width x channels x labeled_frames` summed over your videos — a
+1024x1024 grayscale frame is 1 MB, so ~8,000 labeled frames is ~8 GB. Each worker
+then adds a share of that cache on top of the parent process: about **25%** per
+worker on Linux (fork + copy-on-write, dirtied by refcounting) and about **50%**
+on macOS and Windows (spawn, so the cache dict is pickled into each worker).
+
+Workers are therefore a memory *multiplier* on exactly the pipeline that is
+already the most memory-hungry, and the multiplier is proportional to your
+dataset. `auto` inverts the same estimate the memory check uses and picks the
+largest worker count that still fits in available RAM — without this, `auto`
+could itself push a run past the memory check and silently downgrade it to disk
+caching.
+
+On one fixed machine (16 cores, 16 GB free), varying only the dataset:
+
+| Labeled-image bytes | macOS / Windows | Linux |
+|---|---|---|
+| up to ~4 GB | 4 | 4 |
+| ~6 GB | 2 | 4 |
+| ~8 GB | 1 | 2 |
+| ~11-13 GB | 0 | 0 |
+| ~14 GB and up | 4 | 4 (falls back to disk caching) |
+
+The jump back to 4 at the bottom is intentional: past that size the cache does not
+fit at *any* worker count, so the run falls back to disk caching, where workers
+stop being a memory multiplier and the CPU bound applies again.
+
+When it is memory rather than CPU that binds, the log says so:
+
+```
+`num_workers: auto` limited to 1 worker(s) by available memory (CPU alone would
+allow 4): in-memory cache is 8.00 GB and each worker adds ~50% of it on darwin.
+```
+
+Two cases skip the memory bound:
+
+- **`torch_dataset` (streaming) → always `0`**, per the warning above, so `auto`
+  is safe to leave set regardless of pipeline.
+- **`torch_dataset_cache_img_disk`** keeps no large in-process cache, so it is
+  CPU-bound only.
+
+If the cache does not fit even at zero workers, the run falls back to disk
+caching anyway — where workers are cheap again — so the CPU bound applies rather
+than a pointless `0` (the last row of the table above).
+
+The resolved integer is written into the saved `training_config.yaml`, so the
+run records the worker count it actually used; `initial_config.yaml` keeps the
+literal `auto`, so reusing that config on another machine re-resolves there.
+
+### Low-worker hint
+
+Caching is what makes `num_workers > 0` usable at all, so a cached run left at the
+default of 0 is decoding batches serially in the training process for no reason.
+When either caching pipeline is configured with fewer workers than the machine can
+support, training logs a one-line hint:
+
+```
+Data caching is enabled (`data_pipeline_fw=torch_dataset_cache_img_memory`), which
+supports parallel data loading, but `trainer_config.train_data_loader.num_workers`
+(0) is below what this machine can support. Consider setting it to 4 — or to
+`auto`, which picks this for you — to speed up training.
+```
+
+The number it suggests is whatever `auto` would resolve to on this machine and
+dataset, not a fixed "use 2-4" — so on a memory-constrained run it suggests 1
+rather than 4, and it never suggests a count that would push the run past the
+memory check. It stays quiet when the pipeline is streaming, when the loaders are
+already at or above the suggestion, or when there is nothing to suggest.
 
 ---
 
@@ -188,15 +283,21 @@ trainer_config:
 
 ## ZMQ (GUI Integration)
 
-For SLEAP GUI communication:
+ZMQ monitoring is **off by default** and is intended only for training launched
+from the SLEAP GUI, which sets these ports itself. For CLI training leave both
+ports unset (`null`) — that is the default:
 
 ```yaml
 trainer_config:
   zmq:
-    publish_port: 9001
-    controller_port: 9000
+    publish_port: null
+    controller_port: null
     controller_polling_timeout: 10
 ```
+
+Setting a port opts that channel in: `publish_port` publishes training progress
+to `tcp://127.0.0.1:{publish_port}`, and `controller_port` subscribes to stop
+commands on `tcp://127.0.0.1:{controller_port}`. Each is enabled independently.
 
 ---
 
@@ -284,7 +385,7 @@ trainer_config:
 |--------|------|---------|-------------|
 | `batch_size` | int | `4` | Samples per batch (per-GPU; global batch = `batch_size × num_GPUs` with multi-GPU) |
 | `shuffle` | bool | `true` (train) / `false` (val) | Shuffle data each epoch |
-| `num_workers` | int | `0` | Parallel data loading workers (use with caching only) |
+| `num_workers` | int or `"auto"` | `0` | Parallel data loading workers (use with caching only). `"auto"` sizes from usable CPU count; see [Automatic worker count](#automatic-worker-count) |
 
 ### OptimizerConfig
 

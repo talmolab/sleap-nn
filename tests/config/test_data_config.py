@@ -4,7 +4,13 @@ These configuration classes are intended to specify all
 the parameters required to initialize the data config.
 """
 
+import json
+from pathlib import Path
+
+import attrs
+import numpy as np
 import pytest
+import torch
 from omegaconf import OmegaConf
 from loguru import logger
 
@@ -20,6 +26,8 @@ from sleap_nn.config.data_config import (
     validate_test_file_path,
     data_mapper,
 )
+from sleap_nn.config.training_job_config import TrainingJobConfig
+from sleap_nn.data.augmentation import apply_geometric_augmentation
 
 
 @pytest.fixture
@@ -182,7 +190,7 @@ def test_data_mapper():
                 "brightness": 0.6,
                 "rotation_min_angle": -90.0,
                 "rotation_max_angle": 90.0,
-                "rotation": True,
+                "rotate": True,
                 "scale_min": 0.8,
                 "scale_max": 1.2,
                 "scale": False,
@@ -226,6 +234,9 @@ def test_data_mapper():
     assert geometric.rotation_max == 90.0
     assert geometric.scale_min == 0.8
     assert geometric.scale_max == 1.2
+    assert geometric.rotation_p == 1.0
+    assert geometric.scale_p == 0.0
+    assert geometric.affine_p == 0.0
 
     # Test skeletons
     assert config.skeletons == None
@@ -313,6 +324,147 @@ def test_data_mapper_flip(caplog):
     config = data_mapper(vertical_config)
     assert config.augmentation_config.geometric.flip_p == 0.0
     assert "vertical flip" in caplog.text
+
+
+def _legacy_aug_config(augmentation_config):
+    """Wrap a legacy `augmentation_config` dict in a minimal legacy config."""
+    return {
+        "data": {
+            "labels": {
+                "training_labels": "notMISSING",
+                "validation_labels": "notMISSING",
+            },
+        },
+        "optimization": {"augmentation_config": augmentation_config},
+    }
+
+
+@pytest.mark.parametrize(
+    "rotate,scale,expected_rotation_p,expected_scale_p",
+    [
+        (False, False, 0.0, 0.0),
+        (True, False, 1.0, 0.0),
+        (False, True, 0.0, 1.0),
+        (True, True, 1.0, 1.0),
+    ],
+)
+def test_data_mapper_rotate_scale_flags(
+    rotate, scale, expected_rotation_p, expected_scale_p
+):
+    """Legacy `rotate`/`scale` flags map to independent per-transform probabilities.
+
+    Legacy SLEAP applies each enabled transform with p=1.0 and skips disabled ones.
+    `GeometricConfig` defaults `rotation_p`/`scale_p` to 1.0 and the augmenter ignores
+    `affine_p` whenever a per-transform probability is set, so the mapper must set
+    them explicitly or a disabled transform is still applied.
+    """
+    config = data_mapper(
+        _legacy_aug_config(
+            {
+                "rotate": rotate,
+                "rotation_min_angle": -45.0,
+                "rotation_max_angle": 45.0,
+                "scale": scale,
+                "scale_min": 0.5,
+                "scale_max": 1.5,
+            }
+        )
+    )
+    geometric = config.augmentation_config.geometric
+    assert geometric.rotation_p == expected_rotation_p
+    assert geometric.scale_p == expected_scale_p
+    assert geometric.affine_p == 0.0
+    # Ranges are carried over regardless of the flags; they are inert when p=0.
+    assert (geometric.rotation_min, geometric.rotation_max) == (-45.0, 45.0)
+    assert (geometric.scale_min, geometric.scale_max) == (0.5, 1.5)
+
+
+def test_data_mapper_rotate_scale_missing_keys():
+    """No geometric keys at all means legacy defaults: rotation and scale off."""
+    geometric = data_mapper(_legacy_aug_config({})).augmentation_config.geometric
+    assert geometric.rotation_p == 0.0
+    assert geometric.scale_p == 0.0
+    assert geometric.affine_p == 0.0
+
+
+@pytest.mark.parametrize("scale", [True, False, None])
+def test_data_mapper_scale_without_range(scale):
+    """A `scale` key without `scale_min`/`scale_max` falls back to defaults.
+
+    Previously any non-None `scale` (including `False`) indexed `scale_min`
+    directly and raised `KeyError`.
+    """
+    geometric = data_mapper(
+        _legacy_aug_config({"scale": scale})
+    ).augmentation_config.geometric
+    assert geometric.scale_p == (1.0 if scale else 0.0)
+    assert (geometric.scale_min, geometric.scale_max) == (0.9, 1.1)
+
+
+def test_data_mapper_translate_dropped(caplog):
+    """Legacy pixel translation cannot be converted, so it is dropped with a warning."""
+    geometric = data_mapper(
+        _legacy_aug_config({"translate": True, "translate_min": -5, "translate_max": 5})
+    ).augmentation_config.geometric
+    assert geometric.translate_width == 0.0
+    assert geometric.translate_height == 0.0
+    assert geometric.translate_p is None
+    assert "translation" in caplog.text
+
+    caplog.clear()
+    data_mapper(_legacy_aug_config({"translate": False}))
+    assert "translation" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    sorted(
+        (Path(__file__).parents[1] / "assets" / "legacy_sleap_json_configs").glob(
+            "*.json"
+        )
+    ),
+    ids=lambda p: p.stem,
+)
+def test_legacy_json_fixtures_respect_disabled_geometric_aug(fixture):
+    """Every bundled legacy config has rotate/scale off; loading must keep them off.
+
+    These configs carry `rotation_min_angle=-180`/`rotation_max_angle=180`, so a
+    mapping that ignores the flags trains with full random rotation.
+    """
+    with open(fixture) as f:
+        legacy_aug = json.load(f)["optimization"]["augmentation_config"]
+    config = TrainingJobConfig.load_sleap_config(str(fixture))
+    geometric = config.data_config.augmentation_config.geometric
+    assert geometric.rotation_p == (1.0 if legacy_aug["rotate"] else 0.0)
+    assert geometric.scale_p == (1.0 if legacy_aug["scale"] else 0.0)
+    assert geometric.affine_p == 0.0
+
+
+@pytest.mark.parametrize(
+    "rotate,scale,expect_moved", [(False, False, False), (True, False, True)]
+)
+def test_data_mapper_geometric_aug_runtime(rotate, scale, expect_moved):
+    """End-to-end: mapped legacy config drives the augmenter as the flags say."""
+    geometric = data_mapper(
+        _legacy_aug_config(
+            {
+                "rotate": rotate,
+                "rotation_min_angle": 30.0,
+                "rotation_max_angle": 60.0,
+                "scale": scale,
+                "scale_min": 0.9,
+                "scale_max": 1.1,
+            }
+        )
+    ).augmentation_config.geometric
+    image = torch.rand(1, 1, 64, 64)
+    instances = torch.tensor([[[[10.0, 10.0], [50.0, 40.0]]]])
+    np.random.seed(0)
+    for _ in range(10):
+        _, out = apply_geometric_augmentation(
+            image.clone(), instances.clone(), **attrs.asdict(geometric)
+        )
+        assert (not torch.allclose(out, instances, atol=1e-3)) == expect_moved
 
 
 def test_validate_test_file_path():

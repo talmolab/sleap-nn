@@ -381,3 +381,114 @@ def test_trainer_mapper():
     assert config.online_hard_keypoint_mining.min_hard_keypoints == 2
     assert config.online_hard_keypoint_mining.max_hard_keypoints is None
     assert config.online_hard_keypoint_mining.loss_scale == 5.0
+
+
+def _zmq_legacy_config(zmq_block):
+    """Minimal legacy config carrying only the `outputs.zmq` block under test."""
+    return {
+        "optimization": {},
+        "outputs": {"zmq": zmq_block},
+    }
+
+
+def test_trainer_mapper_zmq_disabled():
+    """ZMQ off in the legacy config must stay off in the converted config.
+
+    The legacy flags are booleans, so `False` must not be read as "port present".
+    """
+    config = trainer_mapper(
+        _zmq_legacy_config(
+            {
+                "subscribe_to_controller": False,
+                "controller_address": "tcp://127.0.0.1:9000",
+                "controller_polling_timeout": 10,
+                "publish_updates": False,
+                "publish_address": "tcp://127.0.0.1:9001",
+            }
+        )
+    )
+
+    assert config.zmq.controller_port is None
+    assert config.zmq.publish_port is None
+    assert config.zmq.controller_polling_timeout == 10
+
+
+def test_trainer_mapper_zmq_enabled():
+    """Ports are carried over only for the channels the legacy config enabled."""
+    config = trainer_mapper(
+        _zmq_legacy_config(
+            {
+                "subscribe_to_controller": True,
+                "controller_address": "tcp://127.0.0.1:9000",
+                "controller_polling_timeout": 20,
+                "publish_updates": True,
+                "publish_address": "tcp://127.0.0.1:9001",
+            }
+        )
+    )
+
+    assert config.zmq.controller_port == 9000
+    assert config.zmq.publish_port == 9001
+    assert config.zmq.controller_polling_timeout == 20
+
+
+def test_trainer_mapper_zmq_partially_enabled():
+    """Each ZMQ channel is opted into independently."""
+    config = trainer_mapper(
+        _zmq_legacy_config(
+            {
+                "subscribe_to_controller": False,
+                "controller_address": "tcp://127.0.0.1:9000",
+                "publish_updates": True,
+                "publish_address": "tcp://127.0.0.1:9001",
+            }
+        )
+    )
+
+    assert config.zmq.controller_port is None
+    assert config.zmq.publish_port == 9001
+
+
+def test_trainer_mapper_zmq_missing_or_empty():
+    """A missing/empty `zmq` block leaves ZMQ off rather than raising."""
+    for zmq_block in ({}, None):
+        config = trainer_mapper(_zmq_legacy_config(zmq_block))
+        assert config.zmq.controller_port is None
+        assert config.zmq.publish_port is None
+
+    config = trainer_mapper({"optimization": {}, "outputs": {}})
+    assert config.zmq.controller_port is None
+    assert config.zmq.publish_port is None
+
+
+def test_trainer_mapper_zmq_enabled_without_address():
+    """An enabled flag with no address must not crash; the channel stays off."""
+    config = trainer_mapper(
+        _zmq_legacy_config({"subscribe_to_controller": True, "publish_updates": True})
+    )
+
+    assert config.zmq.controller_port is None
+    assert config.zmq.publish_port is None
+
+
+def test_dataloader_num_workers_accepts_auto():
+    """`num_workers` accepts a non-negative int or the string "auto"."""
+    assert TrainDataLoaderConfig(num_workers="auto").num_workers == "auto"
+    assert ValDataLoaderConfig(num_workers="AUTO").num_workers == "AUTO"
+    assert TrainDataLoaderConfig(num_workers=0).num_workers == 0
+    assert TrainDataLoaderConfig(num_workers=8).num_workers == 8
+
+
+@pytest.mark.parametrize("bad", [-1, "many", "", True, 1.5, None])
+def test_dataloader_num_workers_rejects_invalid(bad):
+    """Anything else is rejected at config construction."""
+    with pytest.raises(ValueError):
+        TrainDataLoaderConfig(num_workers=bad)
+
+
+def test_trainer_config_num_workers_auto_survives_omegaconf():
+    """`auto` round-trips through the structured OmegaConf schema."""
+    cfg = OmegaConf.structured(
+        TrainerConfig(train_data_loader=TrainDataLoaderConfig(num_workers="auto"))
+    )
+    assert cfg.train_data_loader.num_workers == "auto"

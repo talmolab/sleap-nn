@@ -70,6 +70,7 @@ from sleap_nn.training.lightning_modules import (
 )
 from sleap_nn.config.utils import (
     check_centroid_methods,
+    check_num_workers,
     check_output_strides,
     check_tiling,
 )
@@ -1797,6 +1798,19 @@ class ModelTrainer:
 
         # verify the configured accelerator is available on this machine
         self._verify_accelerator_config()
+
+        # resolve `num_workers: "auto"` on the dataloaders into a concrete count.
+        # Must run before `_setup_datasets()`, which reads `num_workers` to size
+        # the in-memory cache budget, and before the dataloaders are built. The
+        # labels are passed so `auto` can bound itself by the memory each worker
+        # would add to the image cache, using the same estimate and buffer that
+        # `_setup_datasets` checks against.
+        self.config = check_num_workers(
+            self.config,
+            train_labels=self.train_labels,
+            val_labels=self.val_labels,
+            memory_buffer=MEMORY_BUFFER,
+        )
 
         # if trainer_devices is None, set it to "auto"
         if self.config.trainer_config.trainer_devices is None:
