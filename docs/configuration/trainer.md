@@ -188,15 +188,21 @@ trainer_config:
 
 ## ZMQ (GUI Integration)
 
-For SLEAP GUI communication:
+ZMQ monitoring is **off by default** and is intended only for training launched
+from the SLEAP GUI, which sets these ports itself. For CLI training leave both
+ports unset (`null`) — that is the default:
 
 ```yaml
 trainer_config:
   zmq:
-    publish_port: 9001
-    controller_port: 9000
+    publish_port: null
+    controller_port: null
     controller_polling_timeout: 10
 ```
+
+Setting a port opts that channel in: `publish_port` publishes training progress
+to `tcp://127.0.0.1:{publish_port}`, and `controller_port` subscribes to stop
+commands on `tcp://127.0.0.1:{controller_port}`. Each is enabled independently.
 
 ---
 

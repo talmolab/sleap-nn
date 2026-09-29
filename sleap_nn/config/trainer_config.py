@@ -321,10 +321,15 @@ class HardKeypointMiningConfig:
 class ZMQConfig:
     """Configuration of ZeroMQ-based monitoring of the training.
 
+    ZMQ monitoring is **disabled by default** and exists for training launched
+    from the SLEAP GUI, which supplies these ports itself. Each channel is
+    enabled independently by setting its port; leaving a port as `None` (the
+    default) keeps that channel off, and no ZMQ callback is attached.
+
     Attributes:
-        controller_port: Port number of the endpoint to listen for command messages from. "tcp://tcp://127.0.0.1:{port_number}". Set to `None` to disable log publishing. *Default*: `None`.
-        controller_polling_timeout: Polling timeout in microseconds specified as an integer. This controls how long the poller should wait to receive a response and should be set to a small value to minimize the impact on training speed. *Default*: `10`.
-        publish_port: Port number of the endpoint to publish updates to. "tcp://tcp://127.0.0.1:{port_number}". Set to `None` to disable log publishing. *Default*: `None`.
+        controller_port: Port number of the endpoint to listen for command messages from, i.e. "tcp://127.0.0.1:{port_number}". Leave as `None` to disable the controller (the default). *Default*: `None`.
+        controller_polling_timeout: Polling timeout in microseconds specified as an integer. This controls how long the poller should wait to receive a response and should be set to a small value to minimize the impact on training speed. Only used when `controller_port` is set. *Default*: `10`.
+        publish_port: Port number of the endpoint to publish updates to, i.e. "tcp://127.0.0.1:{port_number}". Leave as `None` to disable progress publishing (the default). *Default*: `None`.
     """
 
     controller_port: Optional[int] = None
@@ -687,24 +692,26 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         **online_hard_keypoint_mining_cfg_args
     )
 
-    if (
-        legacy_config_outputs.get("zmq", {}).get("subscribe_to_controller", None)
-        is not None
+    legacy_zmq = legacy_config_outputs.get("zmq", {}) or {}
+
+    # ZMQ monitoring is opt-in: only carry the ports over when the legacy config
+    # actually enabled the corresponding channel. `subscribe_to_controller` /
+    # `publish_updates` are booleans, so a `False` here must leave the port unset
+    # (i.e. ZMQ off) rather than being treated as "present".
+    if legacy_zmq.get("subscribe_to_controller", False) and legacy_zmq.get(
+        "controller_address", None
     ):
         zmq_cfg_args["controller_port"] = int(
-            legacy_config_outputs["zmq"]["controller_address"].split(":")[-1]
+            legacy_zmq["controller_address"].split(":")[-1]
         )
 
-    if legacy_config_outputs.get("zmq", {}).get("publish_updates", None) is not None:
-        zmq_cfg_args["publish_port"] = int(
-            legacy_config_outputs["zmq"]["publish_address"].split(":")[-1]
-        )
-
-    if (
-        legacy_config_outputs.get("zmq", {}).get("controller_polling_timeout", None)
-        is not None
+    if legacy_zmq.get("publish_updates", False) and legacy_zmq.get(
+        "publish_address", None
     ):
-        zmq_cfg_args["controller_polling_timeout"] = legacy_config_outputs["zmq"][
+        zmq_cfg_args["publish_port"] = int(legacy_zmq["publish_address"].split(":")[-1])
+
+    if legacy_zmq.get("controller_polling_timeout", None) is not None:
+        zmq_cfg_args["controller_polling_timeout"] = legacy_zmq[
             "controller_polling_timeout"
         ]
 
