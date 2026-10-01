@@ -2663,14 +2663,20 @@ class EmbeddingEvaluationCallback(Callback):
             and pl_module.val_predictions
             and pl_module.val_ground_truth
         ):
-            collected = self._stack_collected(
-                pl_module.val_predictions, pl_module.val_ground_truth
-            )
-            self.last_val_embeddings = {
-                "epoch": trainer.current_epoch,
-                "embedding": collected[0],
-                "label": collected[1],
-            }
+            # Rank 0 must reach the broadcasts below whatever happens here, or every
+            # other rank waits on them; a failure only skips this epoch's eval.
+            try:
+                collected = self._stack_collected(
+                    pl_module.val_predictions, pl_module.val_ground_truth
+                )
+            except Exception as e:
+                logger.warning(f"Could not stack the val embeddings: {e}")
+            else:
+                self.last_val_embeddings = {
+                    "epoch": trainer.current_epoch,
+                    "embedding": collected[0],
+                    "label": collected[1],
+                }
 
         metrics = None
         if should_evaluate:
