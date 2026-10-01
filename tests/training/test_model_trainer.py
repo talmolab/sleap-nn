@@ -820,6 +820,8 @@ def test_zmq_callbacks(config, tmp_path: str):
     model_trainer.train()
 
     listener_thread.join()
+    socket.close(linger=0)
+    context.term()
 
     # Verify at least one message was received
     assert any(

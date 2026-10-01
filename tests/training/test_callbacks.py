@@ -2,10 +2,17 @@
 
 import numpy as np
 import pytest
+import subprocess
+import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch, PropertyMock
 import torch
+import jsonpickle
+import lightning as L
+from lightning.pytorch.demos.boring_classes import BoringModel
 
 from sleap_nn.training.callbacks import (
     SleapProgressBar,
@@ -1125,7 +1132,7 @@ class TestTrainingControllerZMQ:
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
-            mock_zmq.Context.return_value = mock_context
+            mock_zmq.Context.instance.return_value = mock_context
             mock_context.socket.return_value = mock_socket
 
             callback = TrainingControllerZMQ(
@@ -1145,7 +1152,7 @@ class TestTrainingControllerZMQ:
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
-            mock_zmq.Context.return_value = mock_context
+            mock_zmq.Context.instance.return_value = mock_context
             mock_context.socket.return_value = mock_socket
             mock_zmq.POLLIN = 1
 
@@ -1173,7 +1180,7 @@ class TestTrainingControllerZMQ:
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
-            mock_zmq.Context.return_value = mock_context
+            mock_zmq.Context.instance.return_value = mock_context
             mock_context.socket.return_value = mock_socket
 
             callback = TrainingControllerZMQ()
@@ -1194,18 +1201,19 @@ class TestTrainingControllerZMQ:
             assert mock_trainer.should_stop is False
 
     def test_del_closes_socket(self):
-        """Destructor closes socket and context."""
+        """Destructor closes the socket once and leaves the shared context alone."""
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
-            mock_zmq.Context.return_value = mock_context
+            mock_socket.closed = False
+            mock_zmq.Context.instance.return_value = mock_context
             mock_context.socket.return_value = mock_socket
 
             callback = TrainingControllerZMQ()
             callback.__del__()
 
-            mock_socket.close.assert_called_once()
-            mock_context.term.assert_called_once()
+            mock_socket.close.assert_called_once_with(linger=0)
+            mock_context.term.assert_not_called()
 
 
 class TestProgressReporterZMQ:
@@ -1216,7 +1224,7 @@ class TestProgressReporterZMQ:
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
-            mock_zmq.Context.return_value = mock_context
+            mock_zmq.Context.instance.return_value = mock_context
             mock_context.socket.return_value = mock_socket
             mock_zmq.PUB = 1
 
@@ -1235,7 +1243,7 @@ class TestProgressReporterZMQ:
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
-            mock_zmq.Context.return_value = mock_context
+            mock_zmq.Context.instance.return_value = mock_context
             mock_context.socket.return_value = mock_socket
 
             callback = ProgressReporterZMQ(what="test_job")
@@ -1253,7 +1261,7 @@ class TestProgressReporterZMQ:
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
-            mock_zmq.Context.return_value = mock_context
+            mock_zmq.Context.instance.return_value = mock_context
             mock_context.socket.return_value = mock_socket
 
             callback = ProgressReporterZMQ()
@@ -1271,7 +1279,7 @@ class TestProgressReporterZMQ:
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
-            mock_zmq.Context.return_value = mock_context
+            mock_zmq.Context.instance.return_value = mock_context
             mock_context.socket.return_value = mock_socket
 
             callback = ProgressReporterZMQ()
@@ -1289,7 +1297,7 @@ class TestProgressReporterZMQ:
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
-            mock_zmq.Context.return_value = mock_context
+            mock_zmq.Context.instance.return_value = mock_context
             mock_context.socket.return_value = mock_socket
 
             callback = ProgressReporterZMQ()
@@ -1308,7 +1316,7 @@ class TestProgressReporterZMQ:
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
-            mock_zmq.Context.return_value = mock_context
+            mock_zmq.Context.instance.return_value = mock_context
             mock_context.socket.return_value = mock_socket
 
             callback = ProgressReporterZMQ()
@@ -1331,7 +1339,7 @@ class TestProgressReporterZMQ:
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
-            mock_zmq.Context.return_value = mock_context
+            mock_zmq.Context.instance.return_value = mock_context
             mock_context.socket.return_value = mock_socket
 
             callback = ProgressReporterZMQ()
@@ -1349,7 +1357,7 @@ class TestProgressReporterZMQ:
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
-            mock_zmq.Context.return_value = mock_context
+            mock_zmq.Context.instance.return_value = mock_context
             mock_context.socket.return_value = mock_socket
 
             callback = ProgressReporterZMQ()
@@ -1373,7 +1381,7 @@ class TestProgressReporterZMQ:
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
-            mock_zmq.Context.return_value = mock_context
+            mock_zmq.Context.instance.return_value = mock_context
             mock_context.socket.return_value = mock_socket
 
             callback = ProgressReporterZMQ()
@@ -1392,20 +1400,153 @@ class TestProgressReporterZMQ:
             assert sanitized["name"] == "test"
 
     def test_del_closes_socket(self):
-        """Destructor closes socket and context."""
+        """Destructor closes the socket once and leaves the shared context alone."""
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
-            mock_zmq.Context.return_value = mock_context
+            mock_socket.closed = False
+            mock_zmq.Context.instance.return_value = mock_context
             mock_context.socket.return_value = mock_socket
-            mock_zmq.LINGER = 0
 
             callback = ProgressReporterZMQ()
             callback.__del__()
 
-            mock_socket.setsockopt.assert_called()
-            mock_socket.close.assert_called_once()
-            mock_context.term.assert_called_once()
+            mock_socket.close.assert_called_once_with(linger=0)
+            mock_context.term.assert_not_called()
+
+
+class _FailingBoringModel(BoringModel):
+    def training_step(self, batch, batch_idx):
+        raise RuntimeError("boom")
+
+
+def _fit_with_zmq_callbacks(model):
+    """Fit `model` with both ZMQ callbacks; return them and the events a SUB received."""
+    import zmq
+
+    context = zmq.Context()
+    sub = context.socket(zmq.SUB)
+    sub.subscribe("")
+    sub.bind("tcp://127.0.0.1:*")
+    events, fit_done = [], threading.Event()
+
+    def listen():
+        # A bound SUB sends its subscription to a new peer only while it is being
+        # polled, so poll throughout the run (as the GUI does).
+        deadline = None
+        while "train_end" not in events:
+            if sub.poll(50):
+                events.append(jsonpickle.decode(sub.recv_string())["event"])
+            elif fit_done.is_set():
+                deadline = deadline or time.monotonic() + 2
+                if time.monotonic() > deadline:
+                    break
+
+    listener = threading.Thread(target=listen)
+    try:
+        reporter = ProgressReporterZMQ(address=sub.getsockopt_string(zmq.LAST_ENDPOINT))
+        # Nothing listens here: the controller just has to connect and close cleanly.
+        controller = TrainingControllerZMQ(address="tcp://127.0.0.1:1")
+        trainer = L.Trainer(
+            max_steps=3,
+            accelerator="cpu",
+            devices=1,
+            logger=False,
+            enable_checkpointing=False,
+            enable_progress_bar=False,
+            enable_model_summary=False,
+            callbacks=[reporter, controller],
+        )
+        listener.start()
+        error = None
+        try:
+            trainer.fit(model)
+        except RuntimeError as e:
+            error = e
+        fit_done.set()
+        listener.join()
+        return reporter, controller, events, error
+    finally:
+        fit_done.set()
+        if listener.is_alive():
+            listener.join()
+        sub.close(linger=0)
+        context.term()
+
+
+def test_zmq_callbacks_close_sockets_when_fit_ends():
+    """A finished run closes both sockets and still delivers its last message."""
+    reporter, controller, events, error = _fit_with_zmq_callbacks(BoringModel())
+
+    assert error is None
+    assert reporter.socket.closed
+    assert controller.socket.closed
+    # Closed right after `train_end` is queued, which must still go out.
+    assert "train_end" in events
+
+
+def test_zmq_callbacks_close_sockets_when_fit_fails():
+    """A failed run closes both sockets too (Lightning skips `teardown` then)."""
+    reporter, controller, _, error = _fit_with_zmq_callbacks(_FailingBoringModel())
+
+    assert isinstance(error, RuntimeError)
+    assert reporter.socket.closed
+    assert controller.socket.closed
+
+
+# The callbacks end up in a reference cycle (a Lightning Trainer is full of them), so
+# the cyclic GC frees them. It clears weak references before it runs finalizers, so a
+# `zmq.Context` finalized before the sockets it owns no longer sees them and its `term()`
+# blocks forever. This orders the GC list so each callback's zmq objects come first.
+_GC_ORDER_SCRIPT = """
+import gc, warnings
+import zmq
+from sleap_nn.training.callbacks import ProgressReporterZMQ, TrainingControllerZMQ
+
+warnings.simplefilter("ignore")
+gc.disable()
+
+
+def hold_and_collect(objs):
+    # A fast local is an external reference, so these stay put during the collection.
+    if objs:
+        head = objs[0]
+        return hold_and_collect(objs[1:])
+    gc.collect()
+
+
+def drop_in_cycle(cls, address):
+    cb = cls(address=address)
+    zmq_objs = [v for v in vars(cb).values() if isinstance(v, (zmq.Context, zmq.Socket))]
+    late = [cb]
+    del cb
+    # `cb` is reachable only through `late`, which the collector reaches after the
+    # zmq objects, so it moves behind them in the GC list.
+    hold_and_collect(zmq_objs)
+    del zmq_objs
+    late.append(late)
+
+
+drop_in_cycle(ProgressReporterZMQ, "tcp://127.0.0.1:1")
+drop_in_cycle(TrainingControllerZMQ, "tcp://127.0.0.1:2")
+gc.collect()
+print("collected")
+"""
+
+
+def test_zmq_callbacks_never_deadlock_the_garbage_collector():
+    """Callbacks that were never torn down are collected, whatever the GC order."""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", _GC_ORDER_SCRIPT],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail("garbage-collecting the ZMQ callbacks deadlocked in zmq term()")
+    assert result.returncode == 0, result.stderr
+    assert "collected" in result.stdout
 
 
 class TestEpochEndEvaluationCallback:
