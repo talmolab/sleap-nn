@@ -1583,6 +1583,38 @@ class TestEmbeddingRetrievalMetrics:
         assert m["knn_acc"] == 1.0
         assert m["rank1"] == 1.0
 
+    @pytest.mark.parametrize("corruption", ["all_nan", "some_nan", "one_inf"])
+    def test_nonfinite_embeddings_score_nan(self, corruption):
+        """A diverged model's NaN/inf embeddings score NaN, never a perfect match.
+
+        NaN similarities sort after every number, so a NaN query's self-match was
+        ranked first and counted as a hit: all-NaN embeddings scored rank-1 = kNN =
+        1.0 and would have been kept as the best checkpoint.
+        """
+        from sleap_nn.evaluation import (
+            embedding_full_eval,
+            embedding_leave_self_out_eval,
+        )
+
+        rng = np.random.default_rng(0)
+        y = np.repeat(np.arange(6), 5)
+        emb = rng.normal(size=(len(y), 16))
+        if corruption == "all_nan":
+            emb[:] = np.nan
+        elif corruption == "some_nan":
+            emb[::3] = np.nan
+        else:
+            emb[0, 0] = np.inf
+
+        for m in (
+            embedding_leave_self_out_eval(emb, y),
+            embedding_full_eval(emb, y, emb, y),
+        ):
+            assert all(
+                np.isnan(m[key]) for key in ("rank1", "mAP", "auc", "eer", "knn_acc")
+            ), m
+            assert m["n_no_positive_queries"] == 0
+
     @staticmethod
     def _reference_leave_self_out(emb, y, k=7):
         """The pre-F2 implementation (Python AP loop + sklearn ROC-AUC), inlined."""

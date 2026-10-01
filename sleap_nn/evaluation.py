@@ -2654,6 +2654,8 @@ def run_evaluation(
 #     for its own label with weight max(sim, 0); see `_knn_vote`.
 #   - AUC / EER score same- vs different-identity pairs exactly (no ROC curve is
 #     materialized); see `_auc_eer`.
+#   - A non-finite embedding (a diverged model) makes every metric NaN; see
+#     `_nonfinite_embeddings`.
 # ---------------------------------------------------------------------------
 
 # Query rows scored per block by `embedding_leave_self_out_eval`: bounds its peak
@@ -2664,6 +2666,24 @@ _RETRIEVAL_BLOCK_ROWS = 256
 def _l2_normalize(x: np.ndarray) -> np.ndarray:
     """Row-wise L2-normalize."""
     return x / np.maximum(np.linalg.norm(x, axis=1, keepdims=True), 1e-8)
+
+
+def _nonfinite_embeddings(*embeddings: np.ndarray) -> bool:
+    """``True`` (and a warning) if any embedding has a NaN or inf entry.
+
+    Ranking cannot score such a set: NaN similarities sort after every number, so a
+    NaN query's own self-match is ranked first and counted as a hit, and an all-NaN
+    set (a diverged model) scored a perfect rank-1. The metrics are NaN instead, the
+    worst value for checkpoint selection.
+    """
+    n_bad = sum(int((~np.isfinite(e)).any(axis=1).sum()) for e in embeddings)
+    if n_bad:
+        n = sum(len(e) for e in embeddings)
+        logger.warning(
+            f"{n_bad} of {n} embeddings have NaN/inf entries; "
+            "retrieval metrics are NaN."
+        )
+    return bool(n_bad)
 
 
 def _mean_or_nan(x: np.ndarray) -> float:
@@ -2801,10 +2821,18 @@ def retrieval_metrics(gallery_emb, gallery_y, query_emb, query_y):
     left out of both metrics (NaN when no query has a positive) and counted in
     ``n_no_positive_queries``.
     """
-    g, q = _l2_normalize(np.asarray(gallery_emb)), _l2_normalize(np.asarray(query_emb))
+    g, q = np.asarray(gallery_emb), np.asarray(query_emb)
     gy, qy = np.asarray(gallery_y), np.asarray(query_y)
-    top1, ap, _ = _score_queries(q @ g.T, qy, gy, k=1)
     has_pos = np.isin(qy, gy)
+    if _nonfinite_embeddings(g, q):
+        nan = float("nan")
+        return {
+            "rank1": nan,
+            "mAP": nan,
+            "n_no_positive_queries": int((~has_pos).sum()),
+        }
+    g, q = _l2_normalize(g), _l2_normalize(q)
+    top1, ap, _ = _score_queries(q @ g.T, qy, gy, k=1)
     return {
         "rank1": _mean_or_nan(top1[has_pos]),
         "mAP": _mean_or_nan(ap[has_pos]),
@@ -2822,7 +2850,10 @@ def verification_metrics(
     not optimistically biased by ``N`` perfect same-identity matches at sim=1.0.
     See :func:`_auc_eer` for the definitions.
     """
-    g, q = _l2_normalize(np.asarray(gallery_emb)), _l2_normalize(np.asarray(query_emb))
+    g, q = np.asarray(gallery_emb), np.asarray(query_emb)
+    if _nonfinite_embeddings(g, q):
+        return {"auc": float("nan"), "eer": float("nan")}
+    g, q = _l2_normalize(g), _l2_normalize(q)
     gy, qy = np.asarray(gallery_y), np.asarray(query_y)
     sim = q @ g.T
     same = qy[:, None] == gy[None, :]
@@ -2849,12 +2880,22 @@ def embedding_full_eval(gallery_emb, gallery_y, query_emb, query_y, k: int = 7):
     kNN accuracy, like rank-1 and mAP, leaves out the queries whose identity is
     absent from the gallery.
     """
+    qy = np.asarray(query_y)
+    has_pos = np.isin(qy, np.asarray(gallery_y))
+    if _nonfinite_embeddings(np.asarray(gallery_emb), np.asarray(query_emb)):
+        nan = float("nan")
+        return {
+            "rank1": nan,
+            "mAP": nan,
+            "n_no_positive_queries": int((~has_pos).sum()),
+            "auc": nan,
+            "eer": nan,
+            "knn_acc": nan,
+        }
     out = {}
     out.update(retrieval_metrics(gallery_emb, gallery_y, query_emb, query_y))
     out.update(verification_metrics(gallery_emb, gallery_y, query_emb, query_y))
     pred, _ = knn_classify(gallery_emb, gallery_y, query_emb, k=k)
-    qy = np.asarray(query_y)
-    has_pos = np.isin(qy, np.asarray(gallery_y))
     out["knn_acc"] = _mean_or_nan((pred == qy)[has_pos])
     return out
 
@@ -2892,7 +2933,8 @@ def embedding_leave_self_out_eval(emb, y, k: int = 7, max_n: int = 5000):
     Returns:
         dict with ``rank1``, ``mAP``, ``auc``, ``eer``, ``knn_acc`` (rank-1, mAP and
         kNN are NaN when no query has a positive; AUC/EER when no pair of either kind
-        exists) and ``n_no_positive_queries``.
+        exists; all five when any embedding is NaN/inf) and
+        ``n_no_positive_queries``.
     """
     emb = np.asarray(emb, dtype=np.float64)
     y = np.asarray(y)
@@ -2900,10 +2942,20 @@ def embedding_leave_self_out_eval(emb, y, k: int = 7, max_n: int = 5000):
         # Deterministic subsample so the N x N similarity + argsort stay bounded.
         keep = np.sort(np.random.default_rng(0).choice(len(emb), max_n, replace=False))
         emb, y = emb[keep], y[keep]
-    emb = _l2_normalize(emb)
     n = len(emb)
     _, identity, counts = np.unique(y, return_inverse=True, return_counts=True)
     has_pos = counts[identity.reshape(-1)] > 1
+    if _nonfinite_embeddings(emb):
+        nan = float("nan")
+        return {
+            "rank1": nan,
+            "mAP": nan,
+            "auc": nan,
+            "eer": nan,
+            "knn_acc": nan,
+            "n_no_positive_queries": int((~has_pos).sum()),
+        }
+    emb = _l2_normalize(emb)
 
     top1 = np.zeros(n, dtype=bool)
     ap = np.zeros(n)
