@@ -1373,6 +1373,101 @@ def _detection_stack_is_single_node(model_paths, centroid_only: bool = False) ->
     return types == {"centroid"}
 
 
+# Which carrier a detection stack's output holds, by model type, in the order
+# `load_model_assets` / `Predictor` dispatch a stack: the first type present picks
+# the layer that runs. The segmentation layers emit masks only (no keypoint
+# instances); every other layer emits poses only.
+_DETECTION_STACK_CARRIERS = (
+    ("single_instance", "pose"),
+    ("bottomup", "pose"),
+    ("multi_class_bottomup", "pose"),
+    ("bottomup_segmentation", "mask"),
+    ("semantic_segmentation", "mask"),
+    ("centered_instance_segmentation", "mask"),
+    ("centroid", "pose"),
+    ("centered_instance", "pose"),
+    ("multi_class_topdown", "pose"),
+)
+
+
+def _detection_stack_output(detection_dirs, centroid_only: bool = False):
+    """``(carrier, model_types)`` a fused route's detection stack will emit.
+
+    ``carrier`` is ``"pose"`` or ``"mask"`` (see ``_DETECTION_STACK_CARRIERS``), or
+    ``None`` when it cannot be determined (an export directory, an unreadable
+    config, an unknown model type): the early check it feeds then stays silent and
+    ``apply_tracking`` validates the real labels.
+    """
+    from sleap_nn.config.utils import get_model_type_from_cfg, resolve_model_dir
+    from sleap_nn.inference.loaders import _load_training_config
+
+    try:
+        if any(_is_export_dir(m) for m in detection_dirs):
+            return None, []
+        types = [
+            get_model_type_from_cfg(
+                config=_load_training_config(resolve_model_dir(m))[0]
+            )
+            for m in detection_dirs
+        ]
+    except Exception:  # noqa: BLE001 -- best effort; apply_tracking still validates
+        return None, []
+    if centroid_only:
+        # A centroid model's peaks, whatever else the stack holds.
+        return ("pose" if "centroid" in types else None), types
+    for model_type, carrier in _DETECTION_STACK_CARRIERS:
+        if model_type in types:
+            return carrier, types
+    return None, types
+
+
+def _check_fused_tracking_early(
+    tracker_config: "object", detection_dirs, embedding_dir, centroid_only: bool
+) -> None:
+    """Refuse a fused run that ``apply_tracking`` would refuse, BEFORE it detects.
+
+    The fused route tracks last, after the detection stack and the embedding pass.
+    What tracking will be handed is known up front: the carrier the detection stack
+    emits (its model types), and the carrier the embedder puts its vectors on (the
+    one the model was trained on when the output holds it, else the other; see
+    :func:`~sleap_nn.data.custom_datasets.predict_embedding_carrier`). So the
+    carrier rules :func:`~sleap_nn.inference.tracking.check_tracking_plan` shares
+    with ``apply_tracking`` -- e.g. a segmentation stack's masks cannot be tracked
+    with a pose ``--features`` -- fail here instead of after the inference.
+    """
+    from sleap_nn.config.utils import resolve_model_dir
+    from sleap_nn.data.custom_datasets import (
+        embedding_preferred_carrier,
+        predict_embedding_carrier,
+    )
+    from sleap_nn.inference.loaders import _load_training_config
+    from sleap_nn.inference.tracking import MASK_CARRIER, check_tracking_plan
+
+    carrier, types = _detection_stack_output(detection_dirs, centroid_only)
+    if carrier is None:
+        return
+    try:
+        preferred = embedding_preferred_carrier(
+            _load_training_config(resolve_model_dir(embedding_dir))[0]
+        )
+    except Exception:  # noqa: BLE001 -- best effort; the embedding pass loads it
+        preferred = None
+    try:
+        check_tracking_plan(
+            tracker_config,
+            has_masks=carrier == MASK_CARRIER,
+            has_predicted_instances=carrier != MASK_CARRIER,
+            vector_carrier=predict_embedding_carrier({carrier}, preferred),
+            vectors_from="the only carrier the detection stack emits",
+        )
+    except ValueError as e:
+        raise click.UsageError(
+            f"the fused route's detection stack ({', '.join(types)}) emits "
+            f"{carrier} detections only, and they cannot be tracked as configured: "
+            f"{e}"
+        ) from e
+
+
 def _validate_tracker_config_early(
     tracker_config: "object", single_node_detections: bool = False
 ) -> None:
@@ -1887,6 +1982,14 @@ def _run_embeddings(
             "--features to track by appearance, add --appearance_weight to blend "
             "appearance into the geometric score, or add --save_embeddings slp to "
             "keep the vectors."
+        )
+    if tracking and detection_dirs:
+        # Before the detection stack runs (`apply_tracking` is the last step).
+        _check_fused_tracking_early(
+            tracker_config,
+            detection_dirs,
+            embedding_dirs[0],
+            centroid_only=bool(kwargs.get("centroid_only")),
         )
 
     data_path = kwargs["data_path"]

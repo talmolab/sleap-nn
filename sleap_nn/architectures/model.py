@@ -162,7 +162,6 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
                 pool=emb.pool,
                 normalize=emb.normalize,
                 output_stride=emb.output_stride,
-                loss_weight=emb.loss_weight,
             )
         )
 

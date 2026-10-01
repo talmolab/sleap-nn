@@ -1,5 +1,6 @@
 """This module contains functions to get the configuration for the data, model, and trainer."""
 
+import copy
 from typing import Any, Dict, List, Optional, Tuple, Union
 from loguru import logger
 from sleap_nn.config.data_config import (
@@ -48,6 +49,7 @@ from sleap_nn.config.model_config import (
     NegativesConfig,
     LossConfig,
     SamplerConfig,
+    drop_removed_embedding_keys,
 )
 from sleap_nn.config.data_config import DataConfig, PreprocessingConfig
 from sleap_nn.config.model_config import ModelConfig
@@ -530,6 +532,8 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
                     "objective / ...); see "
                     "docs/sample_configs/config_embedding_convnext.yaml."
                 )
+            emb = copy.deepcopy(dict(emb))
+            drop_removed_embedding_keys(emb, where="head_configs.embedding.embedding")
             obj = emb.get("objective", {}) or {}
             objective = ObjectiveConfig(
                 positives=PositivesConfig(**(obj.get("positives", {}) or {})),

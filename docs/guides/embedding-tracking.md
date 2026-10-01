@@ -134,6 +134,12 @@ cosine of raw coordinates, near 1 for any two poses).
     mask inherits that mask's track. `--features embeddings` follows the vectors to
     whichever carrier holds more of them.
 
+    On the fused route a **segmentation** detection stack (`centroid` +
+    `centered_instance_segmentation`, `bottomup_segmentation`) emits masks only, so
+    tracking follows the masks: leave `--features` unset (or pass `--features
+    masks`). A pose `--features` or `--scoring_method` is refused before the
+    detection stack runs.
+
 !!! warning "Distance scores need `--euclidean_scale`"
     Blending only means something when both terms live on the same scale. `oks`,
     `iou` and `mask_iou` are already bounded, so they blend as-is.
