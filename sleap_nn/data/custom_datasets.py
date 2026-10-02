@@ -2966,7 +2966,9 @@ class EmbeddingDataset(BaseDataset):
                     )[
                         0
                     ]  # (x, y) in original image coords
-                    if torch.isnan(centroid).any():
+                    # NaN or inf (a node at inf, or past float32's range): no crop
+                    # window exists, so the detection is skipped like a NaN one.
+                    if not torch.isfinite(centroid).all():
                         skipped["no centroid"] = skipped.get("no centroid", 0) + 1
                         continue
                     group_id, global_group_id = self._resolve_group(

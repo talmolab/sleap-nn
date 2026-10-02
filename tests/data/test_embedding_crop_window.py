@@ -538,3 +538,26 @@ def test_resized_frames_still_take_the_full_frame_path(grey_labels, full_frame_w
     ds[0]
     assert full_frame_work["full_frame_crop"] == 2
     assert full_frame_work["mask_decode"] >= 1
+
+
+def test_non_finite_pose_centroids_are_skipped(tmp_path):
+    """A detection whose centroid is inf (or overflows float32) is skipped like a NaN
+    one; computing its crop window used to raise ``OverflowError`` on every sample."""
+    video = _frames(tmp_path, "inf", (40, 48), 1, rgb=False, seed=0)
+    skeleton = sio.Skeleton(nodes=["a"], name="s")
+    xs = (np.inf, 1e39, -np.inf, 20.0)
+    instances = [
+        sio.Instance.from_numpy(np.array([[x, 5.0]]), skeleton=skeleton) for x in xs
+    ]
+    labels = sio.Labels(
+        videos=[video],
+        labeled_frames=[
+            sio.LabeledFrame(video=video, frame_idx=0, instances=instances)
+        ],
+        skeletons=[skeleton],
+    )
+
+    ds = _dataset([labels], "pose", crop_size=32, include_untracked=True)
+
+    assert len(ds) == 1
+    assert ds[0]["instance_image"].shape[-2:] == (32, 32)
