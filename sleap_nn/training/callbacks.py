@@ -2580,19 +2580,19 @@ class EmbeddingEvaluationCallback(Callback):
 
     Attributes:
         eval_frequency: Run evaluation every N epochs (default: 1).
-        select_metric: Metric to log for checkpoint selection (rank1|mAP|auc|knn_acc).
         knn_k: k for the cosine-kNN accuracy.
         last_val_embeddings: The latest validation pass's embeddings (rank 0), which
             the embedding scatter viz reuses.
     """
 
-    def __init__(
-        self, eval_frequency: int = 1, select_metric: str = "rank1", knn_k: int = 7
-    ):
-        """Initialize the callback."""
+    def __init__(self, eval_frequency: int = 1, knn_k: int = 7):
+        """Initialize the callback.
+
+        It logs every selection metric (rank1 / mAP / auc / eer / knn_acc); which one
+        ModelCheckpoint and EarlyStopping monitor is ``trainer_config.eval.select_metric``.
+        """
         super().__init__()
         self.eval_frequency = eval_frequency
-        self.select_metric = select_metric
         self.knn_k = knn_k
         # Last successfully computed metrics, re-logged on epochs that do not
         # evaluate so the monitored key is never ABSENT from

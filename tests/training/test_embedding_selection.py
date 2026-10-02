@@ -291,6 +291,17 @@ def test_callback_survives_unstackable_val_embeddings():
     assert all(math.isnan(module.logged[k]) for k in SELECTION_KEYS)
 
 
+def test_callback_has_no_dead_select_metric_argument():
+    """The callback logs every selection metric and never read `select_metric`.
+
+    Which metric is monitored is `trainer_config.eval.select_metric`, applied to
+    ModelCheckpoint / EarlyStopping (`test_select_metric_drives_monitor_and_mode`);
+    the callback argument suggested it chose something.
+    """
+    with pytest.raises(TypeError):
+        EmbeddingEvaluationCallback(eval_frequency=1, select_metric="mAP")
+
+
 def test_only_rank_zero_collects_val_embeddings():
     """DDP: other ranks run the full val set too, and nothing reads theirs.
 
@@ -357,7 +368,6 @@ def test_embedding_model_gets_the_embedding_evaluator(
     ]
     assert len(embedding_callbacks) == 1
     assert embedding_callbacks[0].eval_frequency == 2
-    assert embedding_callbacks[0].select_metric == "rank1"
     assert not any(isinstance(c, EpochEndEvaluationCallback) for c in callbacks)
     assert not any(isinstance(c, CentroidEvaluationCallback) for c in callbacks)
 
@@ -381,24 +391,3 @@ def test_pose_model_gets_the_pose_evaluator(config, tmp_path, minimal_instance):
 
     assert any(isinstance(c, EpochEndEvaluationCallback) for c in callbacks)
     assert not any(isinstance(c, EmbeddingEvaluationCallback) for c in callbacks)
-
-
-def test_embedding_select_metric_reaches_the_callback(
-    config, tmp_path, minimal_instance
-):
-    """`select_metric` must reach the callback, not just the checkpointer."""
-    from sleap_nn.training.callbacks import EmbeddingEvaluationCallback
-
-    trainer = _trainer(
-        config,
-        tmp_path,
-        minimal_instance,
-        model_type="embedding",
-        **{"trainer_config.eval.select_metric": "knn_acc"},
-    )
-    _, callbacks = trainer._setup_loggers_callbacks(
-        viz_train_dataset=None, viz_val_dataset=None
-    )
-
-    callback = next(c for c in callbacks if isinstance(c, EmbeddingEvaluationCallback))
-    assert callback.select_metric == "knn_acc"
