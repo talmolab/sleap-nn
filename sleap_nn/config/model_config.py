@@ -1224,6 +1224,60 @@ EMBEDDING_LOSSES = ("supcon", "infonce", "triplet")
 EMBEDDING_SAMPLER_KINDS = ("pk", "within_video", "random")
 
 
+# Keys the embedding config carried but nothing read (the head's `loss_weight`: a
+# single-head model has no loss to weigh against; `negatives.proximity_filter_px`:
+# "reserved"). Removed in emb-review F9. Training wrote every field into
+# `training_config.yaml`, so every config saved before then still has them: loading
+# drops them with a warning (`drop_removed_embedding_keys`) instead of failing.
+REMOVED_EMBEDDING_HEAD_KEYS = ("loss_weight",)
+REMOVED_EMBEDDING_NEGATIVES_KEYS = ("proximity_filter_px",)
+_EMBEDDING_LEAF = "model_config.head_configs.embedding.embedding"
+
+
+def drop_removed_embedding_keys(leaf, where: str = _EMBEDDING_LEAF):
+    """Remove the removed embedding keys from an embedding head leaf, in place.
+
+    Logs a warning per key removed.
+
+    Args:
+        leaf: The ``head_configs.embedding.embedding`` node (a ``dict`` or
+            ``DictConfig``), or ``None``.
+        where: The leaf's config path, for the warning.
+
+    Returns:
+        The names of the keys removed (full config paths).
+    """
+    from omegaconf import DictConfig, open_dict
+
+    if leaf is None:
+        return []
+    removed = []
+
+    def pop(node, keys, path):
+        if node is None:
+            return
+        for key in keys:
+            if key in node:
+                if isinstance(node, DictConfig):
+                    with open_dict(node):
+                        node.pop(key)
+                else:
+                    node.pop(key)
+                removed.append(f"{path}.{key}")
+
+    pop(leaf, REMOVED_EMBEDDING_HEAD_KEYS, where)
+    objective = leaf.get("objective") if hasattr(leaf, "get") else None
+    negatives = objective.get("negatives") if hasattr(objective, "get") else None
+    pop(negatives, REMOVED_EMBEDDING_NEGATIVES_KEYS, f"{where}.objective.negatives")
+    for key in removed:
+        logger.warning(
+            f"Ignoring `{key}`: this option was never used and has been removed "
+            "(an embedding config saved by an older sleap-nn still carries it). "
+            "Delete it from the config to silence this warning."
+        )
+    return removed
+
+
 def _objective_option(section: str, options: tuple, many: bool = False):
     """Attrs validator: the value (each entry, if ``many``) must be one of ``options``.
 
@@ -1288,7 +1342,6 @@ class NegativesConfig:
             ``scope=tracklet`` (video-local ids): cross-video pairs are unknown and
             must not be used as negatives (avoids false negatives that push the same
             animal apart across videos).
-        proximity_filter_px: Reserved (P2); unused in P1.
     """
 
     # A tuple, not `field(factory=...)`: OmegaConf builds this class from its type
@@ -1300,7 +1353,6 @@ class NegativesConfig:
     )
     exclude_same_track: bool = True
     restrict_same_video: bool = False
-    proximity_filter_px: Optional[float] = None
 
 
 @define
@@ -1409,10 +1461,18 @@ def resolve_embedding_objective(objective) -> ObjectiveConfig:
             value = asdict(value)
         return cls(**{k: v for k, v in value.items() if v is not None})
 
+    negatives = objective.pop("negatives", None)
+    if isinstance(negatives, dict):
+        # A config saved before the removal still carries the removed keys.
+        negatives = {
+            k: v
+            for k, v in negatives.items()
+            if k not in REMOVED_EMBEDDING_NEGATIVES_KEYS
+        }
     try:
         return ObjectiveConfig(
             positives=build(PositivesConfig, objective.pop("positives", None)),
-            negatives=build(NegativesConfig, objective.pop("negatives", None)),
+            negatives=build(NegativesConfig, negatives),
             loss=build(LossConfig, objective.pop("loss", None)),
             sampler=build(SamplerConfig, objective.pop("sampler", None)),
             **{k: v for k, v in objective.items() if v is not None},
@@ -1450,7 +1510,6 @@ class EmbeddingHeadConfig:
         normalize: L2-normalize the embedding (applied identically train + inference).
         output_stride: Stride of the pooled feature. Should equal the backbone
             ``max_stride`` so the decoder is empty and the head taps ``middle_output``.
-        loss_weight: Scalar loss weight.
         freeze_backbone: (bool) Freeze the backbone's PRETRAINED ENCODER and train
             only what sits on top of it. The encoder is the part pretrained weights
             load into: the HuggingFace model of a ``pretrained`` backbone (the same
@@ -1506,7 +1565,6 @@ class EmbeddingHeadConfig:
     pool: Optional[str] = None
     normalize: bool = True
     output_stride: int = 32
-    loss_weight: float = 1.0
     freeze_backbone: bool = False
     anchor_part: Optional[str] = None
     centroid_method: Optional[str] = None

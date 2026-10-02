@@ -2485,14 +2485,9 @@ class ModelTrainer:
                 )
                 or 1
             )
-            emb_select = OmegaConf.select(
-                self.config, "trainer_config.eval.select_metric", default="rank1"
-            )
-            callbacks.append(
-                EmbeddingEvaluationCallback(
-                    eval_frequency=emb_freq, select_metric=emb_select
-                )
-            )
+            # It logs every selection metric; `trainer_config.eval.select_metric`
+            # picks which one ModelCheckpoint / EarlyStopping monitor (see above).
+            callbacks.append(EmbeddingEvaluationCallback(eval_frequency=emb_freq))
         elif self.config.trainer_config.eval.enabled:
             if self.model_type == "centroid":
                 # Use centroid-specific evaluation with distance-based metrics

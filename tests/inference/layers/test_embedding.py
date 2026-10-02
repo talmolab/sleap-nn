@@ -62,7 +62,6 @@ def _make_embedding_layer():
                     "pool": "gem",
                     "normalize": True,
                     "output_stride": _MAX_STRIDE,
-                    "loss_weight": 1.0,
                     "freeze_backbone": False,
                     "objective": objective,
                 }

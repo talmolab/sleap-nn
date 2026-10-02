@@ -1,6 +1,10 @@
 """Custom `torch.utils.data.Dataset`s for different model types."""
 
 from sleap_nn.data.skia_augmentation import crop_and_resize_skia as crop_and_resize
+from sleap_nn.data.skia_augmentation import (
+    crop_and_resize_skia_window,
+    crop_window_bounds,
+)
 
 import math
 import os
@@ -69,7 +73,13 @@ from sleap_nn.data.segmentation_maps import (
     generate_center_heatmap,
     generate_center_offsets,
 )
-from sleap_nn.data.instance_cropping import make_centered_bboxes
+from sleap_nn.data.instance_cropping import (
+    clip_rects,
+    make_centered_bboxes,
+    mask_foreground_rects,
+    mask_rects_center,
+    rasterize_rects,
+)
 from sleap_nn.data.tiling import (
     _FRAME_LRU_CAPACITY,
     _FrameLRU,
@@ -2427,6 +2437,29 @@ def resolve_embedding_detection_mode(
     return "mask" if n_mask >= n_pose else "pose"
 
 
+def predict_embedding_carrier(carriers, preferred: Optional[str] = None):
+    """The carrier :func:`resolve_embedding_detection_mode` will pick, before the labels exist.
+
+    Knowing only WHICH carriers will hold detections (e.g. from the model types of a
+    detection stack), not how many: the preferred (trained) carrier if it is among
+    them, else the only one there is.
+
+    Args:
+        carriers: The carriers (``pose`` / ``mask``) the labels will hold.
+        preferred: :func:`embedding_preferred_carrier` of the model.
+
+    Returns:
+        ``pose`` / ``mask``, or ``None`` when the choice depends on the counts (both
+        carriers and no preference) or there will be no carrier at all.
+    """
+    carriers = set(carriers)
+    if preferred in carriers:
+        return preferred
+    if len(carriers) == 1:
+        return next(iter(carriers))
+    return None
+
+
 class EmbeddingMembership:
     """Which detections an embedding dataset uses, and the groups they fall in.
 
@@ -2933,7 +2966,9 @@ class EmbeddingDataset(BaseDataset):
                     )[
                         0
                     ]  # (x, y) in original image coords
-                    if torch.isnan(centroid).any():
+                    # NaN or inf (a node at inf, or past float32's range): no crop
+                    # window exists, so the detection is skipped like a NaN one.
+                    if not torch.isfinite(centroid).all():
                         skipped["no centroid"] = skipped.get("no centroid", 0) + 1
                         continue
                     group_id, global_group_id = self._resolve_group(
@@ -3005,6 +3040,11 @@ class EmbeddingDataset(BaseDataset):
                     group_id, global_group_id = self._resolve_group(
                         mask_obj, labels_idx, video_idx
                     )
+                    # The crop center, once, from the run-length encoding (see
+                    # `_mask_crop_center`); `mask_image_hw` is how far the mask
+                    # reaches, to tell whether a frame clips it.
+                    rects = mask_foreground_rects(mask_obj)
+                    has_rects = rects.shape[0] > 0
                     mask_idx_list.append(
                         {
                             "labels_idx": labels_idx,
@@ -3015,6 +3055,16 @@ class EmbeddingDataset(BaseDataset):
                             "mask_obj": mask_obj,
                             "group_id": group_id,
                             "global_group_id": global_group_id,
+                            "mask_center": (
+                                mask_rects_center(rects, self.crop_centering)
+                                if has_rects
+                                else None
+                            ),
+                            "mask_image_hw": (
+                                (int(rects[:, 1].max()), int(rects[:, 3].max()))
+                                if has_rects
+                                else None
+                            ),
                         }
                     )
         self._warn_skipped(skipped, "mask")
@@ -3035,8 +3085,9 @@ class EmbeddingDataset(BaseDataset):
         meta = self.mask_idx_list[index]
         labels_idx, lf_idx = meta["labels_idx"], meta["lf_idx"]
 
+        # The frame is shared with the image caches: nothing below writes to it.
         if self.cache_img is not None and self.cache_img == "memory":
-            img = self.cache[(labels_idx, lf_idx)].copy()
+            img = self.cache[(labels_idx, lf_idx)]
         elif self.cache_img is not None and self.cache_img == "disk":
             img = np.array(
                 Image.open(f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg")
@@ -3045,6 +3096,15 @@ class EmbeddingDataset(BaseDataset):
             img = self._read_frame(labels_idx, lf_idx)
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
+
+        if self._is_size_matched(img.shape[0], img.shape[1]):
+            # The size matcher leaves this frame as it is: crop from the window the
+            # crop reads (the same bytes, see `_crop_window`).
+            if "centroid" in meta:  # pose mode
+                instance_image, instance_mask = self._crop_pose_window(img, meta)
+            else:  # mask mode
+                instance_image, instance_mask = self._crop_mask_window(img, meta)
+            return self._pack_sample(instance_image, instance_mask, meta, index)
 
         image = np.expand_dims(np.transpose(img, (2, 0, 1)), axis=0)  # (1, C, H, W)
         image = torch.from_numpy(image.copy())
@@ -3070,11 +3130,111 @@ class EmbeddingDataset(BaseDataset):
             self._frame_cache.put(key, img)
         return img
 
+    def _is_size_matched(self, height: int, width: int) -> bool:
+        """Whether the size matcher (``max_hw``) leaves a ``height x width`` frame as is."""
+        max_h, max_w = self.max_hw
+        return (max_h is None or int(max_h) == int(height)) and (
+            max_w is None or int(max_w) == int(width)
+        )
+
+    def _crop_window(self, frame: np.ndarray, cx: float, cy: float, mask_rects=None):
+        """Crop ``crop_size`` around ``(cx, cy)``, reading only the window it samples.
+
+        Returns what the size-matched case of :meth:`_crop_pose` / :meth:`_crop_mask`
+        returned, byte for byte: the same box and the same Skia transform, fed a
+        window of the frame (:func:`crop_and_resize_skia_window`), and the mask
+        rasterized over that window only. A crop no longer costs a full-frame
+        tensor copy, mask decode, colour conversion and RGBA copy.
+
+        The exception is an RGB frame converted to grey. torchvision's conversion
+        accumulates with ``add_(..., alpha=...)``, whose vectorized loop may use a
+        fused multiply-add and its scalar tail loop not, so a pixel's grey level can
+        depend on where it falls in the tensor. The conversion still runs on the
+        whole frame, as before, and the window is taken after it.
+
+        Args:
+            frame: The ``(H, W, C)`` frame; read, never written.
+            cx: Crop center x, in frame pixels.
+            cy: Crop center y, in frame pixels.
+            mask_rects: The mask's :func:`mask_foreground_rects` (mask mode), or
+                ``None`` for pose mode's all-ones mask.
+        """
+        frame_hw = (int(frame.shape[0]), int(frame.shape[1]))
+        size = (self.crop_size, self.crop_size)
+        bbox = make_centered_bboxes(
+            torch.tensor([cx, cy], dtype=torch.float32),
+            self.crop_size,
+            self.crop_size,
+        ).unsqueeze(0)
+        y0, y1, x0, x1 = crop_window_bounds(bbox, frame_hw)
+        if frame.shape[2] == 3 and self.ensure_grayscale and not self.ensure_rgb:
+            full = np.expand_dims(np.transpose(frame, (2, 0, 1)), axis=0)
+            window = convert_to_grayscale(torch.from_numpy(full.copy()))[
+                ..., y0:y1, x0:x1
+            ]
+        else:
+            # A copy, never a view: the frame can be a cache entry, and a decoded
+            # RGB frame has a negative channel stride (BGR -> RGB), which
+            # `ascontiguousarray` keeps on an EMPTY window (a crop off the frame).
+            window = np.transpose(frame[y0:y1, x0:x1], (2, 0, 1)).copy(order="C")
+            window = torch.from_numpy(window).unsqueeze(0)
+            if self.ensure_rgb:
+                window = convert_to_rgb(window)
+        instance_image = crop_and_resize_skia_window(
+            window, (x0, y0), frame_hw, bbox, size
+        )
+        if mask_rects is None:
+            # No segmentation in pose mode: an all-ones mask.
+            instance_mask = torch.ones((1, 1) + size, dtype=torch.float32)
+        else:
+            mask_window = rasterize_rects(mask_rects, y0, y1, x0, x1)
+            mask_window = torch.from_numpy(mask_window.astype(np.float32))[None, None]
+            instance_mask = crop_and_resize_skia_window(
+                mask_window, (x0, y0), frame_hw, bbox, size
+            )
+        return instance_image, instance_mask
+
+    def _mask_crop_center(self, meta, rects, frame_hw) -> Tuple[float, float]:
+        """The mask crop's center on a size-matched frame.
+
+        The one computed at index time, unless the frame clips the mask (a top-down
+        crop mask spilling off the frame, a mask grid larger than the frame): then
+        the center of the part inside the frame, as the full-frame path computes it.
+        """
+        reach = meta.get("mask_image_hw")
+        if (
+            meta.get("mask_center") is not None
+            and reach[0] <= frame_hw[0]
+            and reach[1] <= frame_hw[1]
+        ):
+            return meta["mask_center"]
+        return mask_rects_center(
+            clip_rects(rects, frame_hw), self.crop_centering, frame_hw
+        )
+
+    def _crop_mask_window(self, frame: np.ndarray, meta):
+        """:meth:`_crop_mask` of a size-matched ``(H, W, C)`` frame, from its window."""
+        rects = mask_foreground_rects(meta["mask_obj"])
+        cx, cy = self._mask_crop_center(meta, rects, frame.shape[:2])
+        return self._crop_window(frame, cx, cy, mask_rects=rects)
+
+    def _crop_pose_window(self, frame: np.ndarray, meta):
+        """:meth:`_crop_pose` of a size-matched ``(H, W, C)`` frame, from its window."""
+        cx, cy = float(meta["centroid"][0]), float(meta["centroid"][1])
+        return self._crop_window(frame, cx, cy)
+
     def _crop_mask(self, image, meta):
-        """Crop centered on the mask COM; return ``(image_crop, mask_crop)``."""
+        """Crop centered on the mask COM; return ``(image_crop, mask_crop)``.
+
+        ``image`` is the ``(1, C, H, W)`` frame. A frame the size matcher leaves as
+        is is cropped from its window (:meth:`_crop_mask_window`); one it resizes
+        is resized and cropped whole.
+        """
         from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
 
         orig_h, orig_w = image.shape[-2:]
+        if self._is_size_matched(orig_h, orig_w):
+            return self._crop_mask_window(image[0].permute(1, 2, 0).numpy(), meta)
         mask_np = decode_mask_to_image_res(meta["mask_obj"])
         if mask_np.shape[:2] != (orig_h, orig_w):
             full = np.zeros((orig_h, orig_w), dtype=bool)
@@ -3117,7 +3277,13 @@ class EmbeddingDataset(BaseDataset):
         return instance_image, instance_mask
 
     def _crop_pose(self, image, meta):
-        """Crop centered on the pose centroid; return ``(image_crop, ones_mask)``."""
+        """Crop centered on the pose centroid; return ``(image_crop, ones_mask)``.
+
+        ``image`` is the ``(1, C, H, W)`` frame; a size-matched one is cropped from
+        its window (:meth:`_crop_pose_window`).
+        """
+        if self._is_size_matched(*image.shape[-2:]):
+            return self._crop_pose_window(image[0].permute(1, 2, 0).numpy(), meta)
         if self.ensure_rgb:
             image = convert_to_rgb(image)
         elif self.ensure_grayscale:

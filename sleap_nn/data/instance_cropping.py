@@ -261,6 +261,163 @@ def count_clipped_instances(
     return n_clipped, n_total, max_required
 
 
+_NO_RECTS = np.zeros((0, 4), dtype=np.int64)
+
+
+def mask_foreground_rects(mask: "sio.SegmentationMask") -> np.ndarray:
+    """A mask's foreground on the image-pixel grid, as disjoint rectangles.
+
+    The union of the returned rectangles is exactly the foreground of
+    :func:`sleap_nn.inference.segmentation_convert.decode_mask_to_image_res`: the
+    stored grid, resampled nearest-neighbor to its image extent when ``scale`` is
+    not 1, placed at the rounded ``offset``, with pixels an offset puts above or left
+    of the image dropped. It is read off the run-length encoding, so the cost grows
+    with the number of runs, not with the frame; no full-grid decode is made.
+
+    Args:
+        mask: A ``sio.SegmentationMask``.
+
+    Returns:
+        An ``(n, 4)`` int64 array of half-open ``[y0, y1, x0, x1)`` rectangles in
+        image pixels, empty when the mask has no foreground pixel on the image.
+    """
+    height, width = int(mask.height), int(mask.width)
+    counts = np.asarray(mask.rle_counts, dtype=np.int64)
+    total = height * width
+    if total == 0 or counts.size < 2:
+        return _NO_RECTS
+    ends = np.cumsum(counts)
+    # Odd runs are foreground (the encoding starts with a background run); the
+    # decoder truncates the runs at the grid size.
+    run_start = np.minimum((ends - counts)[1::2], total)
+    run_end = np.minimum(ends[1::2], total)
+    keep = run_end > run_start
+    run_start, run_end = run_start[keep], run_end[keep]
+    if run_start.size == 0:
+        return _NO_RECTS
+
+    # Split each run (row-major) into one segment per row it covers.
+    first_row = run_start // width
+    n_rows = (run_end - 1) // width - first_row + 1
+    run = np.repeat(np.arange(run_start.size), n_rows)
+    rows = first_row[run] + (
+        np.arange(run.size) - np.repeat(np.cumsum(n_rows) - n_rows, n_rows)
+    )
+    col0 = np.maximum(run_start[run], rows * width) - rows * width
+    col1 = np.minimum(run_end[run], (rows + 1) * width) - rows * width
+
+    scale = tuple(getattr(mask, "scale", (1.0, 1.0)))
+    offset = tuple(getattr(mask, "offset", (0.0, 0.0)))
+    if scale == (1.0, 1.0):
+        y0, y1, x0, x1 = rows, rows + 1, col0, col1
+    else:
+        # `SegmentationMask.resampled`'s nearest-neighbor maps (image row i reads
+        # stored row row_idx[i]). They never decrease, so the image rows reading a
+        # stored row, and the image columns reading a stored column range, are
+        # contiguous.
+        img_h, img_w = (int(v) for v in mask.image_extent)
+        row_idx = (np.arange(img_h) * height / img_h).astype(int).clip(0, height - 1)
+        col_idx = (np.arange(img_w) * width / img_w).astype(int).clip(0, width - 1)
+        y0 = np.searchsorted(row_idx, rows, side="left")
+        y1 = np.searchsorted(row_idx, rows, side="right")
+        x0 = np.searchsorted(col_idx, col0, side="left")
+        x1 = np.searchsorted(col_idx, col1, side="left")
+    # The offset is baked in the way `decode_mask_to_image_res` bakes it.
+    ox, oy = int(round(offset[0])), int(round(offset[1]))
+    rects = np.stack(
+        [
+            np.maximum(y0 + oy, 0),
+            np.maximum(y1 + oy, 0),
+            np.maximum(x0 + ox, 0),
+            np.maximum(x1 + ox, 0),
+        ],
+        axis=1,
+    ).astype(np.int64)
+    return rects[(rects[:, 1] > rects[:, 0]) & (rects[:, 3] > rects[:, 2])]
+
+
+def clip_rects(rects: np.ndarray, frame_hw: Tuple[int, int]) -> np.ndarray:
+    """Clip ``[y0, y1, x0, x1)`` rectangles to a ``(height, width)`` frame."""
+    clipped = rects.copy()
+    clipped[:, 0:2] = np.clip(clipped[:, 0:2], 0, int(frame_hw[0]))
+    clipped[:, 2:4] = np.clip(clipped[:, 2:4], 0, int(frame_hw[1]))
+    return clipped[(clipped[:, 1] > clipped[:, 0]) & (clipped[:, 3] > clipped[:, 2])]
+
+
+def mask_rects_center(
+    rects: np.ndarray,
+    crop_centering: str = "auto",
+    frame_hw: Optional[Tuple[int, int]] = None,
+) -> Tuple[float, float]:
+    """The ``(cx, cy)`` a mask crop centers on, from the mask's rectangles.
+
+    ``auto`` / ``mask_com``: the center of mass; ``bbox``: the bounding-box
+    midpoint. Both are the values ``_compute_mask_centroids`` /
+    ``_mask_bbox_midpoint`` compute on the decoded mask, to the last bit: the
+    coordinate sums are exact integers, and the mean is their one rounded quotient,
+    as ``np.mean`` of the pixel coordinates is.
+
+    Args:
+        rects: :func:`mask_foreground_rects` output (clipped to the frame the crop
+            is taken from, see :func:`clip_rects`).
+        crop_centering: ``auto`` | ``mask_com`` | ``bbox``.
+        frame_hw: The frame ``(height, width)``, for an empty mask, which centers on
+            the frame like the decoded-mask helpers do. Required when ``rects`` can
+            be empty.
+    """
+    if rects.shape[0] == 0:
+        if frame_hw is None:
+            raise ValueError("An empty mask has no center without the frame size.")
+        return float(frame_hw[1]) / 2.0, float(frame_hw[0]) / 2.0
+    y0, y1, x0, x1 = rects[:, 0], rects[:, 1], rects[:, 2], rects[:, 3]
+    if crop_centering == "bbox":
+        return (
+            (float(x0.min()) + float(x1.max() - 1)) / 2.0,
+            (float(y0.min()) + float(y1.max() - 1)) / 2.0,
+        )
+    n, sum_x, sum_y = mask_rects_moments(rects)
+    return float(sum_x) / float(n), float(sum_y) / float(n)
+
+
+def mask_rects_moments(rects: np.ndarray) -> Tuple[int, int, int]:
+    """``(n, sum_x, sum_y)``: a mask's pixel count and coordinate sums, exactly.
+
+    Python integers, from the :func:`mask_foreground_rects` rectangles: no pixel is
+    enumerated.
+    """
+    y0, y1, x0, x1 = rects[:, 0], rects[:, 1], rects[:, 2], rects[:, 3]
+    heights, widths = y1 - y0, x1 - x0
+    n = int((heights * widths).sum())
+    # Sum of the integers a..b-1 is (a + b - 1) * (b - a) / 2, always whole.
+    sum_x = int((heights * ((x0 + x1 - 1) * widths // 2)).sum())
+    sum_y = int((widths * ((y0 + y1 - 1) * heights // 2)).sum())
+    return n, sum_x, sum_y
+
+
+def rasterize_rects(
+    rects: np.ndarray, y0: int, y1: int, x0: int, x1: int
+) -> np.ndarray:
+    """The ``[y0:y1, x0:x1]`` window of the mask ``rects`` cover, as a bool array."""
+    height, width = max(y1 - y0, 0), max(x1 - x0, 0)
+    if height == 0 or width == 0 or rects.shape[0] == 0:
+        return np.zeros((height, width), dtype=bool)
+    local = rects - np.array([y0, y0, x0, x0], dtype=np.int64)
+    local[:, 0:2] = np.clip(local[:, 0:2], 0, height)
+    local[:, 2:4] = np.clip(local[:, 2:4], 0, width)
+    local = local[(local[:, 1] > local[:, 0]) & (local[:, 3] > local[:, 2])]
+    # One segment per row a rectangle covers, then a per-row difference array: +1
+    # where a segment starts, -1 where it ends, a prefix sum along the row fills it.
+    n_rows = local[:, 1] - local[:, 0]
+    rect = np.repeat(np.arange(local.shape[0]), n_rows)
+    rows = local[rect, 0] + (
+        np.arange(rect.size) - np.repeat(np.cumsum(n_rows) - n_rows, n_rows)
+    )
+    diff = np.zeros((height, width + 1), dtype=np.int32)
+    np.add.at(diff, (rows, local[rect, 2]), 1)
+    np.add.at(diff, (rows, local[rect, 3]), -1)
+    return np.cumsum(diff, axis=1, dtype=np.int32)[:, :width] > 0
+
+
 def iter_mask_extents(
     labels: sio.Labels,
     max_hw: Optional[Tuple[Optional[int], Optional[int]]] = None,
@@ -289,31 +446,27 @@ def iter_mask_extents(
         min_mask_area: Skip masks with fewer foreground pixels (image pixels) than
             this, as the embedding dataset does.
     """
-    from sleap_nn.inference.segmentation_convert import decode_mask_to_image_res
-
     for lf in labels:
         eff_scale = None
         for mask in embedding_detections(lf, user_instances_only)[1]:
             sx, sy = tuple(getattr(mask, "scale", (1.0, 1.0)) or (1.0, 1.0))
             if mask.area / max(sx * sy, 1e-12) < max(min_mask_area, 1.0):
                 continue
-            arr = decode_mask_to_image_res(mask)
-            xs = np.flatnonzero(arr.any(axis=0))
-            ys = np.flatnonzero(arr.any(axis=1))
-            if xs.size == 0:
+            # From the run-length encoding: no full-frame decode per mask.
+            rects = mask_foreground_rects(mask)
+            if rects.shape[0] == 0:
                 continue
-            x0, x1, y0, y1 = int(xs[0]), int(xs[-1]), int(ys[0]), int(ys[-1])
+            y0, y1 = int(rects[:, 0].min()), int(rects[:, 1].max()) - 1
+            x0, x1 = int(rects[:, 2].min()), int(rects[:, 3].max()) - 1
             if crop_centering == "bbox":
                 cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
             else:
-                # Center of mass, summed over the bounding box only (a full-frame
-                # reduction per mask dominated the cost).
-                box = arr[y0 : y1 + 1, x0 : x1 + 1]
-                col_sums = np.count_nonzero(box, axis=0)
-                row_sums = np.count_nonzero(box, axis=1)
-                n = float(col_sums.sum())
-                cx = x0 + float(col_sums @ np.arange(col_sums.size)) / n
-                cy = y0 + float(row_sums @ np.arange(row_sums.size)) / n
+                # Center of mass, as offsets from the box corner (the arithmetic
+                # these extents were always computed with, so crop sizing does not
+                # move by a rounding step).
+                n, sum_x, sum_y = mask_rects_moments(rects)
+                cx = x0 + float(sum_x - n * x0) / float(n)
+                cy = y0 + float(sum_y - n * y0) / float(n)
             if eff_scale is None:
                 eff_scale = _frame_eff_scale(lf, max_hw)
             # Pixel centers sit at integer coordinates; +1 reaches their far edges.

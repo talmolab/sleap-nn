@@ -89,7 +89,6 @@ def _build_embedding_config(in_channels: int = 1):
                             "pool": "gem",
                             "normalize": True,
                             "output_stride": _MAX_STRIDE,
-                            "loss_weight": 1.0,
                             "freeze_backbone": False,
                             "objective": objective,
                         }
