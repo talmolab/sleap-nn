@@ -1482,6 +1482,12 @@ class Predictor:
         """Best-effort human label for a prediction source (#610)."""
         if isinstance(source, str):
             return source
+        from sleap_nn.inference.providers import VideoSelection
+
+        if isinstance(source, VideoSelection):
+            fn = source.video.filename
+            fn = fn[0] if isinstance(fn, list) and fn else fn
+            return f"{fn} (video_index={source.video_index})"
         filename = getattr(source, "filename", None)
         if filename:
             return str(filename)
@@ -1583,7 +1589,18 @@ class Predictor:
             LabelsProvider,
             NumpyProvider,
             VideoProvider,
+            VideoSelection,
         )
+
+        if isinstance(source, VideoSelection):
+            # Resolved here, not by the caller, because only the Predictor knows
+            # whether its layer needs GT instances (which restricts the
+            # selection to user-labeled frames).
+            provider = source.to_provider(
+                batch_size=self.batch_size,
+                needs_gt_instances=self._needs_gt_instances(),
+            )
+            return provider, source.videos
 
         if isinstance(source, (np.ndarray, torch.Tensor)):
             # In-memory frame stack ``(N, H, W, C)`` — the batch-oriented analog

@@ -706,7 +706,7 @@ def train(
     "--video_index",
     type=int,
     default=None,
-    help="Integer index of video in .slp file to predict on. To be used with an .slp path as an alternative to specifying the video path.",
+    help="Integer index of video in .slp file to predict on. To be used with an .slp path as an alternative to specifying the video path: predicts on every frame of that video (or --frames, as source frame indices), and --exclude_user_labeled / --only_* filter those frames using the .slp's annotations. A video embedded in a .pkg.slp is scoped to its labeled frames instead.",
 )
 @click.option(
     "--video_dataset", type=str, default=None, help="The dataset for HDF5 videos."
@@ -1612,6 +1612,40 @@ def _scope_labels_to_video(
     return scoped, target
 
 
+def _video_selection_from_kwargs(labels, video_index: int, kwargs: dict):
+    """``--data_path x.slp --video_index N`` as a :class:`VideoSelection`.
+
+    The selection is video ``N``'s own frames (all of them, or ``--frames``),
+    filtered by the ``.slp``'s annotations -- so e.g. ``--exclude_user_labeled``
+    means "every frame of the video except the user-labeled ones", matching the
+    legacy ``track`` pipeline, rather than a subset of the frames the ``.slp``
+    already holds. Raises ``click.UsageError`` for an out-of-range index.
+
+    Returns ``None`` for a video embedded in a ``.pkg.slp``: it has no frames
+    beyond those stored with its labels, so the caller keeps scoping it with
+    :func:`_scope_labels_to_video` + ``LabelsProvider``, unchanged.
+    """
+    from sleap_nn.inference.providers import VideoSelection
+    from sleap_nn.inference.run import _video_has_embedded_images
+
+    if video_index >= len(labels.videos):
+        raise click.UsageError(
+            f"--video_index {video_index} is out of range: the .slp has "
+            f"{len(labels.videos)} video(s)."
+        )
+    if _video_has_embedded_images(labels.videos[video_index]):
+        return None
+    return VideoSelection(
+        labels=labels,
+        video_index=video_index,
+        frames=kwargs.get("frames"),
+        only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
+        only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
+        exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
+        only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
+    )
+
+
 def _is_embedding_model(model_path) -> bool:
     """Return ``True`` if ``model_path`` is an ``embedding`` (re-ID) model directory.
 
@@ -2156,7 +2190,9 @@ def _warn_ignored_slp_filters_for_non_slp_source(kwargs: dict, src_suffix: str) 
             f"{', '.join(ignored)} require a `.slp` --data_path (they filter "
             "frames by annotation status); the given source has no annotations "
             "to filter on, so these flags have no effect here. Running on all "
-            "frames. Use --frames to subset a video by index instead."
+            "frames. Use --frames to subset a video by index instead, or pass "
+            "the project instead (--data_path project.slp --video_index N) to "
+            "filter the video's frames by its annotations."
         )
 
 
@@ -2278,25 +2314,36 @@ def _run_in_memory_new_flow(
         # already labeled so they're read straight from the video instead of
         # silently dropped (matches what `sleap-nn track` does when given a
         # model, minus its all-or-nothing failure mode -- see LabelsProvider).
-        scoped, target_video = _scope_labels_to_video(
-            sio.load_slp(source_str, **remote_kwargs),
-            video_index,
-            frames=kwargs.get("frames"),
-            synthesize_missing=not bool(kwargs.get("mask_backend")),
-        )
+        slp_labels = sio.load_slp(source_str, **remote_kwargs)
         if kwargs.get("mask_backend"):
             # run_sam_segmentation accepts a sio.Labels directly; pass the scoped
-            # Labels (not a LabelsProvider, which it cannot consume).
-            source = scoped
-        else:
-            source = LabelsProvider(
-                labels=scoped,
-                batch_size=kwargs.get("batch_size", 4),
-                only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
-                only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
-                exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
-                only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
+            # Labels (not a provider, which it cannot consume). Masking works on
+            # the poses already present, so no frames are synthesized.
+            source, target_video = _scope_labels_to_video(
+                slp_labels, video_index, frames=kwargs.get("frames")
             )
+        else:
+            # Real inference: the video's own frames, filtered by annotations.
+            source = _video_selection_from_kwargs(slp_labels, video_index, kwargs)
+            if source is not None:
+                target_video = source.video
+            else:
+                # Embedded .pkg.slp video: scope to its labeled frames, reading
+                # any --frames index that isn't labeled straight from the package.
+                scoped, target_video = _scope_labels_to_video(
+                    slp_labels,
+                    video_index,
+                    frames=kwargs.get("frames"),
+                    synthesize_missing=True,
+                )
+                source = LabelsProvider(
+                    labels=scoped,
+                    batch_size=kwargs.get("batch_size", 4),
+                    only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
+                    only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
+                    exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
+                    only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
+                )
         scoped_video_name = _scoped_video_name(target_video, video_index)
     elif src_suffix == ".slp" and has_slp_filters:
         source = LabelsProvider(
@@ -2885,28 +2932,30 @@ def _run_stream_to_file(
     remote_kwargs = _build_remote_kwargs(kwargs)
     video_index = kwargs.get("video_index")
     if src_suffix == ".slp" and video_index is not None:
-        # Scope streaming inference to the requested video of a multi-video .slp
-        # (re-indexed to videos[0] so frames map correctly). Carries suggestions
-        # + the --frames filter. #583. --stream-to-file always runs real model
-        # inference (--model_paths is required above), so synthesize
-        # placeholders for --frames indices that aren't already labeled --
-        # they're read straight from the video instead of silently dropped.
+        # Scope streaming inference to the requested video of a multi-video .slp:
+        # its own frames (all, or --frames), filtered by the .slp's annotations.
+        # --stream-to-file always runs real model inference (--model_paths is
+        # required above), so this is the same selection as the in-memory flow.
         import sleap_io as sio
 
-        scoped, _target_video = _scope_labels_to_video(
-            sio.load_slp(source_str, **remote_kwargs),
-            video_index,
-            frames=kwargs.get("frames"),
-            synthesize_missing=True,
-        )
-        provider = LabelsProvider(
-            labels=scoped,
-            batch_size=kwargs.get("batch_size", 4),
-            only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
-            only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
-            exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
-            only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
-        )
+        slp_labels = sio.load_slp(source_str, **remote_kwargs)
+        provider = _video_selection_from_kwargs(slp_labels, video_index, kwargs)
+        if provider is None:
+            # Embedded .pkg.slp video: scope to its labeled frames, as before.
+            scoped, _target_video = _scope_labels_to_video(
+                slp_labels,
+                video_index,
+                frames=kwargs.get("frames"),
+                synthesize_missing=True,
+            )
+            provider = LabelsProvider(
+                labels=scoped,
+                batch_size=kwargs.get("batch_size", 4),
+                only_labeled_frames=bool(kwargs.get("only_labeled_frames")),
+                only_suggested_frames=bool(kwargs.get("only_suggested_frames")),
+                exclude_user_labeled=bool(kwargs.get("exclude_user_labeled")),
+                only_predicted_frames=bool(kwargs.get("only_predicted_frames")),
+            )
     elif src_suffix == ".slp":
         provider = LabelsProvider(
             labels=source_str,
