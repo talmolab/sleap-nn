@@ -259,6 +259,38 @@ def test_callback_survives_an_empty_val_set():
     assert all(math.isnan(module.logged[k]) for k in SELECTION_KEYS)
 
 
+def test_callback_does_not_select_a_diverged_epoch():
+    """All-NaN val embeddings log NaN (worst for ModelCheckpoint), not rank-1 1.0."""
+    import torch
+
+    callback = EmbeddingEvaluationCallback(eval_frequency=1)
+    predictions, ground_truth = _embeddings()
+    predictions = [
+        {"embedding": torch.full_like(p["embedding"], float("nan"))}
+        for p in predictions
+    ]
+    module = _FakeModule(predictions, ground_truth)
+
+    callback.on_validation_epoch_end(_FakeTrainer(current_epoch=0), module)
+
+    assert all(math.isnan(module.logged[k]) for k in SELECTION_KEYS)
+
+
+def test_callback_survives_unstackable_val_embeddings():
+    """Rank 0 still logs (and reaches the DDP broadcasts) if stacking fails."""
+    import torch
+
+    callback = EmbeddingEvaluationCallback(eval_frequency=1)
+    predictions, ground_truth = _embeddings()
+    predictions[0] = {"embedding": torch.zeros(7)}  # ragged: np.stack raises
+    module = _FakeModule(predictions, ground_truth)
+
+    callback.on_validation_epoch_end(_FakeTrainer(current_epoch=0), module)
+
+    assert set(SELECTION_KEYS) <= set(module.logged)
+    assert all(math.isnan(module.logged[k]) for k in SELECTION_KEYS)
+
+
 def test_only_rank_zero_collects_val_embeddings():
     """DDP: other ranks run the full val set too, and nothing reads theirs.
 
