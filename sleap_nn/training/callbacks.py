@@ -1215,6 +1215,13 @@ class MatplotlibSaver(Callback):
         trainer.strategy.barrier()
 
 
+def _close_zmq_socket(callback: Callback, linger: int) -> None:
+    """Close a ZMQ callback's socket once; safe to repeat and to call from `__del__`."""
+    socket = getattr(callback, "socket", None)
+    if socket is not None and not socket.closed:
+        socket.close(linger=linger)
+
+
 class TrainingControllerZMQ(Callback):
     """Lightning callback to receive control commands during training via ZMQ.
 
@@ -1234,8 +1241,12 @@ class TrainingControllerZMQ(Callback):
         self.topic = topic
         self.timeout = poll_timeout
 
-        # Initialize ZMQ
-        self.context = zmq.Context()
+        # One process-wide context (the ZMQ convention), never terminated here. A
+        # context owned by this callback is finalized by the cyclic GC together with
+        # the Trainer that holds the callback. The GC clears the context's weak socket
+        # registry before running finalizers, so when the context's finalizer runs
+        # first, its `term()` waits forever for a socket it can no longer close.
+        self.context = zmq.Context.instance()
         self.socket = self.context.socket(zmq.SUB)
         self.socket.subscribe(self.topic)
         self.socket.connect(self.address)
@@ -1243,11 +1254,17 @@ class TrainingControllerZMQ(Callback):
             f"Training controller subscribed to: {self.address} (topic: {self.topic})"
         )
 
+    def teardown(self, trainer, pl_module, stage):
+        """Close the socket when the run ends."""
+        _close_zmq_socket(self, linger=0)
+
+    def on_exception(self, trainer, pl_module, exception):
+        """Close the socket when the run fails (Lightning skips `teardown` then)."""
+        _close_zmq_socket(self, linger=0)
+
     def __del__(self):
-        """Close zmq socket and context when callback is destroyed."""
-        logger.info("Closing the training controller socket/context.")
-        self.socket.close()
-        self.context.term()
+        """Close the socket if the run never got to close it."""
+        _close_zmq_socket(self, linger=0)
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         """Called at the end of each training batch."""
@@ -1301,7 +1318,8 @@ class ProgressReporterZMQ(Callback):
         self.address = address
         self.what = what
 
-        self.context = zmq.Context()
+        # Process-wide context; see `TrainingControllerZMQ.__init__` for why.
+        self.context = zmq.Context.instance()
         self.socket = self.context.socket(zmq.PUB)
         self.socket.connect(self.address)
 
@@ -1309,12 +1327,21 @@ class ProgressReporterZMQ(Callback):
             f"ProgressReporterZMQ publishing to {self.address} for '{self.what}'"
         )
 
+    # How long the shared context keeps delivering queued messages (e.g. "train_end")
+    # in the background after the socket is closed at the end of a run.
+    flush_ms = 1000
+
+    def teardown(self, trainer, pl_module, stage):
+        """Close the socket when the run ends; queued messages still go out."""
+        _close_zmq_socket(self, linger=self.flush_ms)
+
+    def on_exception(self, trainer, pl_module, exception):
+        """Close the socket when the run fails (Lightning skips `teardown` then)."""
+        _close_zmq_socket(self, linger=self.flush_ms)
+
     def __del__(self):
-        """Close zmq socket and context when callback is destroyed."""
-        logger.info(f"Closing ZMQ reporter.")
-        self.socket.setsockopt(zmq.LINGER, 0)
-        self.socket.close()
-        self.context.term()
+        """Close the socket if the run never got to close it."""
+        _close_zmq_socket(self, linger=0)
 
     def send(self, event: str, logs=None, **kwargs):
         """Send a message over ZMQ."""
