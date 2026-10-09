@@ -125,6 +125,31 @@ def _raise_cache_fill_error(
     )
 
 
+def _cache_progress() -> Progress:
+    """Return the progress bar shown while filling the image cache.
+
+    Rendering is forced so the bar also shows when stdout is not detected as a
+    terminal. Rich draws the bar itself in ASCII when the stream's encoding is not
+    UTF (e.g. output redirected to a file on Windows, which defaults to cp1252),
+    but its default `dots` spinner is Braille, which such a stream cannot encode,
+    so the spinner falls back to ASCII too instead of raising `UnicodeEncodeError`.
+
+    Returns:
+        A transient `rich.progress.Progress` for the cache fill.
+    """
+    console = Console(force_terminal=True)
+    spinner = "line" if console.options.ascii_only else "dots"
+    return Progress(
+        SpinnerColumn(spinner),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total}"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    )
+
+
 def _dist_failed_on_any_rank(failed: bool) -> bool:
     """Broadcast whether any rank hit `failed=True`, so every rank agrees.
 
@@ -951,15 +976,7 @@ class BaseDataset(Dataset):
                     progress.update(task, advance=1)
 
         if use_progress:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("{task.completed}/{task.total}"),
-                TimeElapsedColumn(),
-                console=Console(force_terminal=True),
-                transient=True,
-            ) as progress:
+            with _cache_progress() as progress:
                 task = progress.add_task(
                     f"Caching images to {cache_type}", total=total_samples
                 )
@@ -999,15 +1016,7 @@ class BaseDataset(Dataset):
         )
 
         if use_progress:
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("{task.completed}/{task.total}"),
-                TimeElapsedColumn(),
-                console=Console(force_terminal=True),
-                transient=True,
-            ) as progress:
+            with _cache_progress() as progress:
                 task = progress.add_task(
                     f"Caching images to {cache_type} (parallel, {num_workers} workers)",
                     total=total_samples,

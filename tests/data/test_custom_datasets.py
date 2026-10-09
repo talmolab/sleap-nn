@@ -1,7 +1,11 @@
+import io
+import sys
+
 from omegaconf import DictConfig, OmegaConf
 import sleap_io as sio
 import torch
 import pytest
+from sleap_nn.data import custom_datasets
 from sleap_nn.data.custom_datasets import (
     BottomUpDataset,
     BottomUpMultiClassDataset,
@@ -1140,6 +1144,38 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         assert gt_key == key
     assert sample["image"].shape == (1, 1, 384, 384)
     assert sample["centroids_confidence_maps"].shape == (1, 1, 192, 192)
+
+
+@pytest.mark.parametrize("parallel_caching", [False, True])
+def test_cache_progress_with_non_utf8_stdout(
+    minimal_instance, monkeypatch, parallel_caching
+):
+    """Caching must not crash when stdout cannot encode Unicode.
+
+    Output redirected to a file on Windows defaults to cp1252, which has no
+    glyphs for the Braille frames of Rich's default spinner.
+    """
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
+    # One labeled frame: let the parallel path run anyway.
+    monkeypatch.setattr(custom_datasets, "MIN_SAMPLES_FOR_PARALLEL_CACHING", 1)
+    buffer = io.BytesIO()
+    monkeypatch.setattr(
+        sys, "stdout", io.TextIOWrapper(buffer, encoding="cp1252", write_through=True)
+    )
+
+    dataset = CentroidDataset(
+        labels=[sio.load_slp(minimal_instance)],
+        confmap_head_config=DictConfig(
+            {"sigma": 1.5, "output_stride": 2, "anchor_part": None}
+        ),
+        max_stride=32,
+        cache_img="memory",
+        parallel_caching=parallel_caching,
+    )
+
+    assert len(dataset.cache) == 1
+    assert "Caching images to memory" in buffer.getvalue().decode("cp1252")
 
 
 def test_centroid_dataset_user_centroids(minimal_instance):
