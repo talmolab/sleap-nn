@@ -7875,7 +7875,8 @@ from the pixel to its instance's center. Only meaningful on foreground pixels.</
 
               <details class="mkdocstrings-source">
                 <summary>Source code in <code>sleap_nn/architectures/heads.py</code></summary>
-                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1036">1036</a></span>
+                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1035">1035</a></span>
+<span class="normal"><a href="#__codelineno-0-1036">1036</a></span>
 <span class="normal"><a href="#__codelineno-0-1037">1037</a></span>
 <span class="normal"><a href="#__codelineno-0-1038">1038</a></span>
 <span class="normal"><a href="#__codelineno-0-1039">1039</a></span>
@@ -7901,35 +7902,34 @@ from the pixel to its instance's center. Only meaningful on foreground pixels.</
 <span class="normal"><a href="#__codelineno-0-1059">1059</a></span>
 <span class="normal"><a href="#__codelineno-0-1060">1060</a></span>
 <span class="normal"><a href="#__codelineno-0-1061">1061</a></span>
-<span class="normal"><a href="#__codelineno-0-1062">1062</a></span>
-<span class="normal"><a href="#__codelineno-0-1063">1063</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1036"><a id="__codelineno-0-1036" name="__codelineno-0-1036"></a><span class="k">class</span><span class="w"> </span><span class="nc">CenterOffsetHead</span><span class="p">(</span><span class="n">Head</span><span class="p">):</span>
-</span><span id="__span-0-1037"><a id="__codelineno-0-1037" name="__codelineno-0-1037"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Head for predicting per-pixel offset vectors to instance centers.</span>
-</span><span id="__span-0-1038"><a id="__codelineno-0-1038" name="__codelineno-0-1038"></a>
-</span><span id="__span-0-1039"><a id="__codelineno-0-1039" name="__codelineno-0-1039"></a><span class="sd">    Outputs a 2-channel map where each pixel&#39;s value is (dx, dy) pointing</span>
-</span><span id="__span-0-1040"><a id="__codelineno-0-1040" name="__codelineno-0-1040"></a><span class="sd">    from the pixel to its instance&#39;s center. Only meaningful on foreground pixels.</span>
-</span><span id="__span-0-1041"><a id="__codelineno-0-1041" name="__codelineno-0-1041"></a>
-</span><span id="__span-0-1042"><a id="__codelineno-0-1042" name="__codelineno-0-1042"></a><span class="sd">    Attributes:</span>
-</span><span id="__span-0-1043"><a id="__codelineno-0-1043" name="__codelineno-0-1043"></a><span class="sd">        output_stride: Stride of the output head tensor.</span>
-</span><span id="__span-0-1044"><a id="__codelineno-0-1044" name="__codelineno-0-1044"></a><span class="sd">        loss_weight: Weight of the loss term for this head during optimization.</span>
-</span><span id="__span-0-1045"><a id="__codelineno-0-1045" name="__codelineno-0-1045"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-1046"><a id="__codelineno-0-1046" name="__codelineno-0-1046"></a>
-</span><span id="__span-0-1047"><a id="__codelineno-0-1047" name="__codelineno-0-1047"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-0-1048"><a id="__codelineno-0-1048" name="__codelineno-0-1048"></a>        <span class="bp">self</span><span class="p">,</span>
-</span><span id="__span-0-1049"><a id="__codelineno-0-1049" name="__codelineno-0-1049"></a>        <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
-</span><span id="__span-0-1050"><a id="__codelineno-0-1050" name="__codelineno-0-1050"></a>        <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>
-</span><span id="__span-0-1051"><a id="__codelineno-0-1051" name="__codelineno-0-1051"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-1052"><a id="__codelineno-0-1052" name="__codelineno-0-1052"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
-</span><span id="__span-0-1053"><a id="__codelineno-0-1053" name="__codelineno-0-1053"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
-</span><span id="__span-0-1054"><a id="__codelineno-0-1054" name="__codelineno-0-1054"></a>
-</span><span id="__span-0-1055"><a id="__codelineno-0-1055" name="__codelineno-0-1055"></a>    <span class="nd">@property</span>
-</span><span id="__span-0-1056"><a id="__codelineno-0-1056" name="__codelineno-0-1056"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-</span><span id="__span-0-1057"><a id="__codelineno-0-1057" name="__codelineno-0-1057"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the number of channels in the tensor output by this head.&quot;&quot;&quot;</span>
-</span><span id="__span-0-1058"><a id="__codelineno-0-1058" name="__codelineno-0-1058"></a>        <span class="k">return</span> <span class="mi">2</span>
-</span><span id="__span-0-1059"><a id="__codelineno-0-1059" name="__codelineno-0-1059"></a>
-</span><span id="__span-0-1060"><a id="__codelineno-0-1060" name="__codelineno-0-1060"></a>    <span class="nd">@property</span>
-</span><span id="__span-0-1061"><a id="__codelineno-0-1061" name="__codelineno-0-1061"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">loss_function</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="__span-0-1062"><a id="__codelineno-0-1062" name="__codelineno-0-1062"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the name of the loss function to use for this head.&quot;&quot;&quot;</span>
-</span><span id="__span-0-1063"><a id="__codelineno-0-1063" name="__codelineno-0-1063"></a>        <span class="k">return</span> <span class="s2">&quot;smooth_l1&quot;</span>
+<span class="normal"><a href="#__codelineno-0-1062">1062</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1035"><a id="__codelineno-0-1035" name="__codelineno-0-1035"></a><span class="k">class</span><span class="w"> </span><span class="nc">CenterOffsetHead</span><span class="p">(</span><span class="n">Head</span><span class="p">):</span>
+</span><span id="__span-0-1036"><a id="__codelineno-0-1036" name="__codelineno-0-1036"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Head for predicting per-pixel offset vectors to instance centers.</span>
+</span><span id="__span-0-1037"><a id="__codelineno-0-1037" name="__codelineno-0-1037"></a>
+</span><span id="__span-0-1038"><a id="__codelineno-0-1038" name="__codelineno-0-1038"></a><span class="sd">    Outputs a 2-channel map where each pixel&#39;s value is (dx, dy) pointing</span>
+</span><span id="__span-0-1039"><a id="__codelineno-0-1039" name="__codelineno-0-1039"></a><span class="sd">    from the pixel to its instance&#39;s center. Only meaningful on foreground pixels.</span>
+</span><span id="__span-0-1040"><a id="__codelineno-0-1040" name="__codelineno-0-1040"></a>
+</span><span id="__span-0-1041"><a id="__codelineno-0-1041" name="__codelineno-0-1041"></a><span class="sd">    Attributes:</span>
+</span><span id="__span-0-1042"><a id="__codelineno-0-1042" name="__codelineno-0-1042"></a><span class="sd">        output_stride: Stride of the output head tensor.</span>
+</span><span id="__span-0-1043"><a id="__codelineno-0-1043" name="__codelineno-0-1043"></a><span class="sd">        loss_weight: Weight of the loss term for this head during optimization.</span>
+</span><span id="__span-0-1044"><a id="__codelineno-0-1044" name="__codelineno-0-1044"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-1045"><a id="__codelineno-0-1045" name="__codelineno-0-1045"></a>
+</span><span id="__span-0-1046"><a id="__codelineno-0-1046" name="__codelineno-0-1046"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+</span><span id="__span-0-1047"><a id="__codelineno-0-1047" name="__codelineno-0-1047"></a>        <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-0-1048"><a id="__codelineno-0-1048" name="__codelineno-0-1048"></a>        <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-0-1049"><a id="__codelineno-0-1049" name="__codelineno-0-1049"></a>        <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>
+</span><span id="__span-0-1050"><a id="__codelineno-0-1050" name="__codelineno-0-1050"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-1051"><a id="__codelineno-0-1051" name="__codelineno-0-1051"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
+</span><span id="__span-0-1052"><a id="__codelineno-0-1052" name="__codelineno-0-1052"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
+</span><span id="__span-0-1053"><a id="__codelineno-0-1053" name="__codelineno-0-1053"></a>
+</span><span id="__span-0-1054"><a id="__codelineno-0-1054" name="__codelineno-0-1054"></a>    <span class="nd">@property</span>
+</span><span id="__span-0-1055"><a id="__codelineno-0-1055" name="__codelineno-0-1055"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+</span><span id="__span-0-1056"><a id="__codelineno-0-1056" name="__codelineno-0-1056"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the number of channels in the tensor output by this head.&quot;&quot;&quot;</span>
+</span><span id="__span-0-1057"><a id="__codelineno-0-1057" name="__codelineno-0-1057"></a>        <span class="k">return</span> <span class="mi">2</span>
+</span><span id="__span-0-1058"><a id="__codelineno-0-1058" name="__codelineno-0-1058"></a>
+</span><span id="__span-0-1059"><a id="__codelineno-0-1059" name="__codelineno-0-1059"></a>    <span class="nd">@property</span>
+</span><span id="__span-0-1060"><a id="__codelineno-0-1060" name="__codelineno-0-1060"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">loss_function</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+</span><span id="__span-0-1061"><a id="__codelineno-0-1061" name="__codelineno-0-1061"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the name of the loss function to use for this head.&quot;&quot;&quot;</span>
+</span><span id="__span-0-1062"><a id="__codelineno-0-1062" name="__codelineno-0-1062"></a>        <span class="k">return</span> <span class="s2">&quot;smooth_l1&quot;</span>
 </span></code></pre></div></td></tr></table></div>
               </details>
 
@@ -8006,19 +8006,19 @@ from the pixel to its instance's center. Only meaningful on foreground pixels.</
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/architectures/heads.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1047">1047</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1046">1046</a></span>
+<span class="normal"><a href="#__codelineno-0-1047">1047</a></span>
 <span class="normal"><a href="#__codelineno-0-1048">1048</a></span>
 <span class="normal"><a href="#__codelineno-0-1049">1049</a></span>
 <span class="normal"><a href="#__codelineno-0-1050">1050</a></span>
 <span class="normal"><a href="#__codelineno-0-1051">1051</a></span>
-<span class="normal"><a href="#__codelineno-0-1052">1052</a></span>
-<span class="normal"><a href="#__codelineno-0-1053">1053</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1047"><a id="__codelineno-0-1047" name="__codelineno-0-1047"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-0-1048"><a id="__codelineno-0-1048" name="__codelineno-0-1048"></a>    <span class="bp">self</span><span class="p">,</span>
-</span><span id="__span-0-1049"><a id="__codelineno-0-1049" name="__codelineno-0-1049"></a>    <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
-</span><span id="__span-0-1050"><a id="__codelineno-0-1050" name="__codelineno-0-1050"></a>    <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>
-</span><span id="__span-0-1051"><a id="__codelineno-0-1051" name="__codelineno-0-1051"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-1052"><a id="__codelineno-0-1052" name="__codelineno-0-1052"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
-</span><span id="__span-0-1053"><a id="__codelineno-0-1053" name="__codelineno-0-1053"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-1052">1052</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1046"><a id="__codelineno-0-1046" name="__codelineno-0-1046"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+</span><span id="__span-0-1047"><a id="__codelineno-0-1047" name="__codelineno-0-1047"></a>    <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-0-1048"><a id="__codelineno-0-1048" name="__codelineno-0-1048"></a>    <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-0-1049"><a id="__codelineno-0-1049" name="__codelineno-0-1049"></a>    <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>
+</span><span id="__span-0-1050"><a id="__codelineno-0-1050" name="__codelineno-0-1050"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-1051"><a id="__codelineno-0-1051" name="__codelineno-0-1051"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
+</span><span id="__span-0-1052"><a id="__codelineno-0-1052" name="__codelineno-0-1052"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -10879,8 +10879,7 @@ and the head taps <code>middle_output</code>).</p>
 <span class="normal"><a href="#__codelineno-0-897">897</a></span>
 <span class="normal"><a href="#__codelineno-0-898">898</a></span>
 <span class="normal"><a href="#__codelineno-0-899">899</a></span>
-<span class="normal"><a href="#__codelineno-0-900">900</a></span>
-<span class="normal"><a href="#__codelineno-0-901">901</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-798"><a id="__codelineno-0-798" name="__codelineno-0-798"></a><span class="k">class</span><span class="w"> </span><span class="nc">EmbeddingHead</span><span class="p">(</span><span class="n">Head</span><span class="p">):</span>
+<span class="normal"><a href="#__codelineno-0-900">900</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-798"><a id="__codelineno-0-798" name="__codelineno-0-798"></a><span class="k">class</span><span class="w"> </span><span class="nc">EmbeddingHead</span><span class="p">(</span><span class="n">Head</span><span class="p">):</span>
 </span><span id="__span-0-799"><a id="__codelineno-0-799" name="__codelineno-0-799"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Head for crop -&gt; embedding-vector (re-ID) models.</span>
 </span><span id="__span-0-800"><a id="__codelineno-0-800" name="__codelineno-0-800"></a>
 </span><span id="__span-0-801"><a id="__codelineno-0-801" name="__codelineno-0-801"></a><span class="sd">    Mirrors ``ClassVectorsHead`` (a pooled, non-spatial head): ``[pool] -&gt; Flatten -&gt;</span>
@@ -10947,43 +10946,42 @@ and the head taps <code>middle_output</code>).</p>
 </span><span id="__span-0-862"><a id="__codelineno-0-862" name="__codelineno-0-862"></a>            <span class="n">pool</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">pool</span><span class="p">,</span>
 </span><span id="__span-0-863"><a id="__codelineno-0-863" name="__codelineno-0-863"></a>            <span class="n">normalize</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">normalize</span><span class="p">,</span>
 </span><span id="__span-0-864"><a id="__codelineno-0-864" name="__codelineno-0-864"></a>            <span class="n">output_stride</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">output_stride</span><span class="p">,</span>
-</span><span id="__span-0-865"><a id="__codelineno-0-865" name="__codelineno-0-865"></a>            <span class="n">loss_weight</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">loss_weight</span><span class="p">,</span>
-</span><span id="__span-0-866"><a id="__codelineno-0-866" name="__codelineno-0-866"></a>        <span class="p">)</span>
-</span><span id="__span-0-867"><a id="__codelineno-0-867" name="__codelineno-0-867"></a>
-</span><span id="__span-0-868"><a id="__codelineno-0-868" name="__codelineno-0-868"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">make_head</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x_in</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">:</span>
-</span><span id="__span-0-869"><a id="__codelineno-0-869" name="__codelineno-0-869"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Make the head output module from the pooled-feature input channels.</span>
-</span><span id="__span-0-870"><a id="__codelineno-0-870" name="__codelineno-0-870"></a>
-</span><span id="__span-0-871"><a id="__codelineno-0-871" name="__codelineno-0-871"></a><span class="sd">        Args:</span>
-</span><span id="__span-0-872"><a id="__codelineno-0-872" name="__codelineno-0-872"></a><span class="sd">            x_in: Number of channels of the encoder feature map (its channel dim).</span>
-</span><span id="__span-0-873"><a id="__codelineno-0-873" name="__codelineno-0-873"></a>
-</span><span id="__span-0-874"><a id="__codelineno-0-874" name="__codelineno-0-874"></a><span class="sd">        Returns:</span>
-</span><span id="__span-0-875"><a id="__codelineno-0-875" name="__codelineno-0-875"></a><span class="sd">            An ``nn.Sequential`` mapping ``[B, x_in, H, W] -&gt; [B, embedding_dim]``.</span>
-</span><span id="__span-0-876"><a id="__codelineno-0-876" name="__codelineno-0-876"></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="__span-0-877"><a id="__codelineno-0-877" name="__codelineno-0-877"></a>        <span class="n">module_dict</span> <span class="o">=</span> <span class="n">OrderedDict</span><span class="p">()</span>
-</span><span id="__span-0-878"><a id="__codelineno-0-878" name="__codelineno-0-878"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pool</span> <span class="o">==</span> <span class="s2">&quot;gem&quot;</span><span class="p">:</span>
-</span><span id="__span-0-879"><a id="__codelineno-0-879" name="__codelineno-0-879"></a>            <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_pool&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">GeM</span><span class="p">()</span>
-</span><span id="__span-0-880"><a id="__codelineno-0-880" name="__codelineno-0-880"></a>        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">pool</span> <span class="o">==</span> <span class="s2">&quot;max&quot;</span><span class="p">:</span>
-</span><span id="__span-0-881"><a id="__codelineno-0-881" name="__codelineno-0-881"></a>            <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_pool&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">AdaptiveMaxPool2d</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-</span><span id="__span-0-882"><a id="__codelineno-0-882" name="__codelineno-0-882"></a>        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">pool</span> <span class="o">==</span> <span class="s2">&quot;avg&quot;</span><span class="p">:</span>
-</span><span id="__span-0-883"><a id="__codelineno-0-883" name="__codelineno-0-883"></a>            <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_pool&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">AdaptiveAvgPool2d</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-</span><span id="__span-0-884"><a id="__codelineno-0-884" name="__codelineno-0-884"></a>        <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-885"><a id="__codelineno-0-885" name="__codelineno-0-885"></a>            <span class="n">message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Unknown pool &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">pool</span><span class="si">}</span><span class="s2">&#39;; choose one of gem|max|avg.&quot;</span>
-</span><span id="__span-0-886"><a id="__codelineno-0-886" name="__codelineno-0-886"></a>            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
-</span><span id="__span-0-887"><a id="__codelineno-0-887" name="__codelineno-0-887"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
-</span><span id="__span-0-888"><a id="__codelineno-0-888" name="__codelineno-0-888"></a>
-</span><span id="__span-0-889"><a id="__codelineno-0-889" name="__codelineno-0-889"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_flatten&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Flatten</span><span class="p">(</span><span class="n">start_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-</span><span id="__span-0-890"><a id="__codelineno-0-890" name="__codelineno-0-890"></a>
-</span><span id="__span-0-891"><a id="__codelineno-0-891" name="__codelineno-0-891"></a>        <span class="n">d_in</span> <span class="o">=</span> <span class="n">x_in</span>
-</span><span id="__span-0-892"><a id="__codelineno-0-892" name="__codelineno-0-892"></a>        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_fc_layers</span><span class="p">):</span>
-</span><span id="__span-0-893"><a id="__codelineno-0-893" name="__codelineno-0-893"></a>            <span class="n">module_dict</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;pre_embedding</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">_fc&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_in</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_fc_units</span><span class="p">)</span>
-</span><span id="__span-0-894"><a id="__codelineno-0-894" name="__codelineno-0-894"></a>            <span class="n">module_dict</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;pre_embedding</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">_relu&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">get_act_fn</span><span class="p">(</span><span class="s2">&quot;relu&quot;</span><span class="p">)</span>
-</span><span id="__span-0-895"><a id="__codelineno-0-895" name="__codelineno-0-895"></a>            <span class="n">d_in</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_fc_units</span>
-</span><span id="__span-0-896"><a id="__codelineno-0-896" name="__codelineno-0-896"></a>
-</span><span id="__span-0-897"><a id="__codelineno-0-897" name="__codelineno-0-897"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;EmbeddingHead&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_in</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_dim</span><span class="p">)</span>
-</span><span id="__span-0-898"><a id="__codelineno-0-898" name="__codelineno-0-898"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">normalize</span><span class="p">:</span>
-</span><span id="__span-0-899"><a id="__codelineno-0-899" name="__codelineno-0-899"></a>            <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;l2norm&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">L2Norm</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-</span><span id="__span-0-900"><a id="__codelineno-0-900" name="__codelineno-0-900"></a>
-</span><span id="__span-0-901"><a id="__codelineno-0-901" name="__codelineno-0-901"></a>        <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">module_dict</span><span class="p">)</span>
+</span><span id="__span-0-865"><a id="__codelineno-0-865" name="__codelineno-0-865"></a>        <span class="p">)</span>
+</span><span id="__span-0-866"><a id="__codelineno-0-866" name="__codelineno-0-866"></a>
+</span><span id="__span-0-867"><a id="__codelineno-0-867" name="__codelineno-0-867"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">make_head</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x_in</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">:</span>
+</span><span id="__span-0-868"><a id="__codelineno-0-868" name="__codelineno-0-868"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Make the head output module from the pooled-feature input channels.</span>
+</span><span id="__span-0-869"><a id="__codelineno-0-869" name="__codelineno-0-869"></a>
+</span><span id="__span-0-870"><a id="__codelineno-0-870" name="__codelineno-0-870"></a><span class="sd">        Args:</span>
+</span><span id="__span-0-871"><a id="__codelineno-0-871" name="__codelineno-0-871"></a><span class="sd">            x_in: Number of channels of the encoder feature map (its channel dim).</span>
+</span><span id="__span-0-872"><a id="__codelineno-0-872" name="__codelineno-0-872"></a>
+</span><span id="__span-0-873"><a id="__codelineno-0-873" name="__codelineno-0-873"></a><span class="sd">        Returns:</span>
+</span><span id="__span-0-874"><a id="__codelineno-0-874" name="__codelineno-0-874"></a><span class="sd">            An ``nn.Sequential`` mapping ``[B, x_in, H, W] -&gt; [B, embedding_dim]``.</span>
+</span><span id="__span-0-875"><a id="__codelineno-0-875" name="__codelineno-0-875"></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="__span-0-876"><a id="__codelineno-0-876" name="__codelineno-0-876"></a>        <span class="n">module_dict</span> <span class="o">=</span> <span class="n">OrderedDict</span><span class="p">()</span>
+</span><span id="__span-0-877"><a id="__codelineno-0-877" name="__codelineno-0-877"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pool</span> <span class="o">==</span> <span class="s2">&quot;gem&quot;</span><span class="p">:</span>
+</span><span id="__span-0-878"><a id="__codelineno-0-878" name="__codelineno-0-878"></a>            <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_pool&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">GeM</span><span class="p">()</span>
+</span><span id="__span-0-879"><a id="__codelineno-0-879" name="__codelineno-0-879"></a>        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">pool</span> <span class="o">==</span> <span class="s2">&quot;max&quot;</span><span class="p">:</span>
+</span><span id="__span-0-880"><a id="__codelineno-0-880" name="__codelineno-0-880"></a>            <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_pool&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">AdaptiveMaxPool2d</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-881"><a id="__codelineno-0-881" name="__codelineno-0-881"></a>        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">pool</span> <span class="o">==</span> <span class="s2">&quot;avg&quot;</span><span class="p">:</span>
+</span><span id="__span-0-882"><a id="__codelineno-0-882" name="__codelineno-0-882"></a>            <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_pool&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">AdaptiveAvgPool2d</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-883"><a id="__codelineno-0-883" name="__codelineno-0-883"></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-884"><a id="__codelineno-0-884" name="__codelineno-0-884"></a>            <span class="n">message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Unknown pool &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">pool</span><span class="si">}</span><span class="s2">&#39;; choose one of gem|max|avg.&quot;</span>
+</span><span id="__span-0-885"><a id="__codelineno-0-885" name="__codelineno-0-885"></a>            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+</span><span id="__span-0-886"><a id="__codelineno-0-886" name="__codelineno-0-886"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+</span><span id="__span-0-887"><a id="__codelineno-0-887" name="__codelineno-0-887"></a>
+</span><span id="__span-0-888"><a id="__codelineno-0-888" name="__codelineno-0-888"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_flatten&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Flatten</span><span class="p">(</span><span class="n">start_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-889"><a id="__codelineno-0-889" name="__codelineno-0-889"></a>
+</span><span id="__span-0-890"><a id="__codelineno-0-890" name="__codelineno-0-890"></a>        <span class="n">d_in</span> <span class="o">=</span> <span class="n">x_in</span>
+</span><span id="__span-0-891"><a id="__codelineno-0-891" name="__codelineno-0-891"></a>        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_fc_layers</span><span class="p">):</span>
+</span><span id="__span-0-892"><a id="__codelineno-0-892" name="__codelineno-0-892"></a>            <span class="n">module_dict</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;pre_embedding</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">_fc&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_in</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_fc_units</span><span class="p">)</span>
+</span><span id="__span-0-893"><a id="__codelineno-0-893" name="__codelineno-0-893"></a>            <span class="n">module_dict</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;pre_embedding</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">_relu&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">get_act_fn</span><span class="p">(</span><span class="s2">&quot;relu&quot;</span><span class="p">)</span>
+</span><span id="__span-0-894"><a id="__codelineno-0-894" name="__codelineno-0-894"></a>            <span class="n">d_in</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_fc_units</span>
+</span><span id="__span-0-895"><a id="__codelineno-0-895" name="__codelineno-0-895"></a>
+</span><span id="__span-0-896"><a id="__codelineno-0-896" name="__codelineno-0-896"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;EmbeddingHead&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_in</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_dim</span><span class="p">)</span>
+</span><span id="__span-0-897"><a id="__codelineno-0-897" name="__codelineno-0-897"></a>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">normalize</span><span class="p">:</span>
+</span><span id="__span-0-898"><a id="__codelineno-0-898" name="__codelineno-0-898"></a>            <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;l2norm&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">L2Norm</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-899"><a id="__codelineno-0-899" name="__codelineno-0-899"></a>
+</span><span id="__span-0-900"><a id="__codelineno-0-900" name="__codelineno-0-900"></a>        <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">module_dict</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
               </details>
 
@@ -11153,8 +11151,7 @@ LightningModule's <code>objective</code>, not by this string.</p>
 <span class="normal"><a href="#__codelineno-0-862">862</a></span>
 <span class="normal"><a href="#__codelineno-0-863">863</a></span>
 <span class="normal"><a href="#__codelineno-0-864">864</a></span>
-<span class="normal"><a href="#__codelineno-0-865">865</a></span>
-<span class="normal"><a href="#__codelineno-0-866">866</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-855"><a id="__codelineno-0-855" name="__codelineno-0-855"></a><span class="nd">@classmethod</span>
+<span class="normal"><a href="#__codelineno-0-865">865</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-855"><a id="__codelineno-0-855" name="__codelineno-0-855"></a><span class="nd">@classmethod</span>
 </span><span id="__span-0-856"><a id="__codelineno-0-856" name="__codelineno-0-856"></a><span class="k">def</span><span class="w"> </span><span class="nf">from_config</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">DictConfig</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;EmbeddingHead&quot;</span><span class="p">:</span>
 </span><span id="__span-0-857"><a id="__codelineno-0-857" name="__codelineno-0-857"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create this head from a head-leaf configuration.&quot;&quot;&quot;</span>
 </span><span id="__span-0-858"><a id="__codelineno-0-858" name="__codelineno-0-858"></a>    <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
@@ -11164,8 +11161,7 @@ LightningModule's <code>objective</code>, not by this string.</p>
 </span><span id="__span-0-862"><a id="__codelineno-0-862" name="__codelineno-0-862"></a>        <span class="n">pool</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">pool</span><span class="p">,</span>
 </span><span id="__span-0-863"><a id="__codelineno-0-863" name="__codelineno-0-863"></a>        <span class="n">normalize</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">normalize</span><span class="p">,</span>
 </span><span id="__span-0-864"><a id="__codelineno-0-864" name="__codelineno-0-864"></a>        <span class="n">output_stride</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">output_stride</span><span class="p">,</span>
-</span><span id="__span-0-865"><a id="__codelineno-0-865" name="__codelineno-0-865"></a>        <span class="n">loss_weight</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">loss_weight</span><span class="p">,</span>
-</span><span id="__span-0-866"><a id="__codelineno-0-866" name="__codelineno-0-866"></a>    <span class="p">)</span>
+</span><span id="__span-0-865"><a id="__codelineno-0-865" name="__codelineno-0-865"></a>    <span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -11242,7 +11238,8 @@ LightningModule's <code>objective</code>, not by this string.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/architectures/heads.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-868">868</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-867">867</a></span>
+<span class="normal"><a href="#__codelineno-0-868">868</a></span>
 <span class="normal"><a href="#__codelineno-0-869">869</a></span>
 <span class="normal"><a href="#__codelineno-0-870">870</a></span>
 <span class="normal"><a href="#__codelineno-0-871">871</a></span>
@@ -11274,41 +11271,40 @@ LightningModule's <code>objective</code>, not by this string.</p>
 <span class="normal"><a href="#__codelineno-0-897">897</a></span>
 <span class="normal"><a href="#__codelineno-0-898">898</a></span>
 <span class="normal"><a href="#__codelineno-0-899">899</a></span>
-<span class="normal"><a href="#__codelineno-0-900">900</a></span>
-<span class="normal"><a href="#__codelineno-0-901">901</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-868"><a id="__codelineno-0-868" name="__codelineno-0-868"></a><span class="k">def</span><span class="w"> </span><span class="nf">make_head</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x_in</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">:</span>
-</span><span id="__span-0-869"><a id="__codelineno-0-869" name="__codelineno-0-869"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Make the head output module from the pooled-feature input channels.</span>
-</span><span id="__span-0-870"><a id="__codelineno-0-870" name="__codelineno-0-870"></a>
-</span><span id="__span-0-871"><a id="__codelineno-0-871" name="__codelineno-0-871"></a><span class="sd">    Args:</span>
-</span><span id="__span-0-872"><a id="__codelineno-0-872" name="__codelineno-0-872"></a><span class="sd">        x_in: Number of channels of the encoder feature map (its channel dim).</span>
-</span><span id="__span-0-873"><a id="__codelineno-0-873" name="__codelineno-0-873"></a>
-</span><span id="__span-0-874"><a id="__codelineno-0-874" name="__codelineno-0-874"></a><span class="sd">    Returns:</span>
-</span><span id="__span-0-875"><a id="__codelineno-0-875" name="__codelineno-0-875"></a><span class="sd">        An ``nn.Sequential`` mapping ``[B, x_in, H, W] -&gt; [B, embedding_dim]``.</span>
-</span><span id="__span-0-876"><a id="__codelineno-0-876" name="__codelineno-0-876"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-877"><a id="__codelineno-0-877" name="__codelineno-0-877"></a>    <span class="n">module_dict</span> <span class="o">=</span> <span class="n">OrderedDict</span><span class="p">()</span>
-</span><span id="__span-0-878"><a id="__codelineno-0-878" name="__codelineno-0-878"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pool</span> <span class="o">==</span> <span class="s2">&quot;gem&quot;</span><span class="p">:</span>
-</span><span id="__span-0-879"><a id="__codelineno-0-879" name="__codelineno-0-879"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_pool&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">GeM</span><span class="p">()</span>
-</span><span id="__span-0-880"><a id="__codelineno-0-880" name="__codelineno-0-880"></a>    <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">pool</span> <span class="o">==</span> <span class="s2">&quot;max&quot;</span><span class="p">:</span>
-</span><span id="__span-0-881"><a id="__codelineno-0-881" name="__codelineno-0-881"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_pool&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">AdaptiveMaxPool2d</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-</span><span id="__span-0-882"><a id="__codelineno-0-882" name="__codelineno-0-882"></a>    <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">pool</span> <span class="o">==</span> <span class="s2">&quot;avg&quot;</span><span class="p">:</span>
-</span><span id="__span-0-883"><a id="__codelineno-0-883" name="__codelineno-0-883"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_pool&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">AdaptiveAvgPool2d</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-</span><span id="__span-0-884"><a id="__codelineno-0-884" name="__codelineno-0-884"></a>    <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-885"><a id="__codelineno-0-885" name="__codelineno-0-885"></a>        <span class="n">message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Unknown pool &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">pool</span><span class="si">}</span><span class="s2">&#39;; choose one of gem|max|avg.&quot;</span>
-</span><span id="__span-0-886"><a id="__codelineno-0-886" name="__codelineno-0-886"></a>        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
-</span><span id="__span-0-887"><a id="__codelineno-0-887" name="__codelineno-0-887"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
-</span><span id="__span-0-888"><a id="__codelineno-0-888" name="__codelineno-0-888"></a>
-</span><span id="__span-0-889"><a id="__codelineno-0-889" name="__codelineno-0-889"></a>    <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_flatten&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Flatten</span><span class="p">(</span><span class="n">start_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-</span><span id="__span-0-890"><a id="__codelineno-0-890" name="__codelineno-0-890"></a>
-</span><span id="__span-0-891"><a id="__codelineno-0-891" name="__codelineno-0-891"></a>    <span class="n">d_in</span> <span class="o">=</span> <span class="n">x_in</span>
-</span><span id="__span-0-892"><a id="__codelineno-0-892" name="__codelineno-0-892"></a>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_fc_layers</span><span class="p">):</span>
-</span><span id="__span-0-893"><a id="__codelineno-0-893" name="__codelineno-0-893"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;pre_embedding</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">_fc&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_in</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_fc_units</span><span class="p">)</span>
-</span><span id="__span-0-894"><a id="__codelineno-0-894" name="__codelineno-0-894"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;pre_embedding</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">_relu&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">get_act_fn</span><span class="p">(</span><span class="s2">&quot;relu&quot;</span><span class="p">)</span>
-</span><span id="__span-0-895"><a id="__codelineno-0-895" name="__codelineno-0-895"></a>        <span class="n">d_in</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_fc_units</span>
-</span><span id="__span-0-896"><a id="__codelineno-0-896" name="__codelineno-0-896"></a>
-</span><span id="__span-0-897"><a id="__codelineno-0-897" name="__codelineno-0-897"></a>    <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;EmbeddingHead&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_in</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_dim</span><span class="p">)</span>
-</span><span id="__span-0-898"><a id="__codelineno-0-898" name="__codelineno-0-898"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">normalize</span><span class="p">:</span>
-</span><span id="__span-0-899"><a id="__codelineno-0-899" name="__codelineno-0-899"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;l2norm&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">L2Norm</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-</span><span id="__span-0-900"><a id="__codelineno-0-900" name="__codelineno-0-900"></a>
-</span><span id="__span-0-901"><a id="__codelineno-0-901" name="__codelineno-0-901"></a>    <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">module_dict</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-900">900</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-867"><a id="__codelineno-0-867" name="__codelineno-0-867"></a><span class="k">def</span><span class="w"> </span><span class="nf">make_head</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x_in</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">:</span>
+</span><span id="__span-0-868"><a id="__codelineno-0-868" name="__codelineno-0-868"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Make the head output module from the pooled-feature input channels.</span>
+</span><span id="__span-0-869"><a id="__codelineno-0-869" name="__codelineno-0-869"></a>
+</span><span id="__span-0-870"><a id="__codelineno-0-870" name="__codelineno-0-870"></a><span class="sd">    Args:</span>
+</span><span id="__span-0-871"><a id="__codelineno-0-871" name="__codelineno-0-871"></a><span class="sd">        x_in: Number of channels of the encoder feature map (its channel dim).</span>
+</span><span id="__span-0-872"><a id="__codelineno-0-872" name="__codelineno-0-872"></a>
+</span><span id="__span-0-873"><a id="__codelineno-0-873" name="__codelineno-0-873"></a><span class="sd">    Returns:</span>
+</span><span id="__span-0-874"><a id="__codelineno-0-874" name="__codelineno-0-874"></a><span class="sd">        An ``nn.Sequential`` mapping ``[B, x_in, H, W] -&gt; [B, embedding_dim]``.</span>
+</span><span id="__span-0-875"><a id="__codelineno-0-875" name="__codelineno-0-875"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-876"><a id="__codelineno-0-876" name="__codelineno-0-876"></a>    <span class="n">module_dict</span> <span class="o">=</span> <span class="n">OrderedDict</span><span class="p">()</span>
+</span><span id="__span-0-877"><a id="__codelineno-0-877" name="__codelineno-0-877"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pool</span> <span class="o">==</span> <span class="s2">&quot;gem&quot;</span><span class="p">:</span>
+</span><span id="__span-0-878"><a id="__codelineno-0-878" name="__codelineno-0-878"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_pool&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">GeM</span><span class="p">()</span>
+</span><span id="__span-0-879"><a id="__codelineno-0-879" name="__codelineno-0-879"></a>    <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">pool</span> <span class="o">==</span> <span class="s2">&quot;max&quot;</span><span class="p">:</span>
+</span><span id="__span-0-880"><a id="__codelineno-0-880" name="__codelineno-0-880"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_pool&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">AdaptiveMaxPool2d</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-881"><a id="__codelineno-0-881" name="__codelineno-0-881"></a>    <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">pool</span> <span class="o">==</span> <span class="s2">&quot;avg&quot;</span><span class="p">:</span>
+</span><span id="__span-0-882"><a id="__codelineno-0-882" name="__codelineno-0-882"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_pool&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">AdaptiveAvgPool2d</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-883"><a id="__codelineno-0-883" name="__codelineno-0-883"></a>    <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-884"><a id="__codelineno-0-884" name="__codelineno-0-884"></a>        <span class="n">message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Unknown pool &#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">pool</span><span class="si">}</span><span class="s2">&#39;; choose one of gem|max|avg.&quot;</span>
+</span><span id="__span-0-885"><a id="__codelineno-0-885" name="__codelineno-0-885"></a>        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+</span><span id="__span-0-886"><a id="__codelineno-0-886" name="__codelineno-0-886"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+</span><span id="__span-0-887"><a id="__codelineno-0-887" name="__codelineno-0-887"></a>
+</span><span id="__span-0-888"><a id="__codelineno-0-888" name="__codelineno-0-888"></a>    <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;pre_embedding_flatten&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Flatten</span><span class="p">(</span><span class="n">start_dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-889"><a id="__codelineno-0-889" name="__codelineno-0-889"></a>
+</span><span id="__span-0-890"><a id="__codelineno-0-890" name="__codelineno-0-890"></a>    <span class="n">d_in</span> <span class="o">=</span> <span class="n">x_in</span>
+</span><span id="__span-0-891"><a id="__codelineno-0-891" name="__codelineno-0-891"></a>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_fc_layers</span><span class="p">):</span>
+</span><span id="__span-0-892"><a id="__codelineno-0-892" name="__codelineno-0-892"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;pre_embedding</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">_fc&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_in</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_fc_units</span><span class="p">)</span>
+</span><span id="__span-0-893"><a id="__codelineno-0-893" name="__codelineno-0-893"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;pre_embedding</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">_relu&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">get_act_fn</span><span class="p">(</span><span class="s2">&quot;relu&quot;</span><span class="p">)</span>
+</span><span id="__span-0-894"><a id="__codelineno-0-894" name="__codelineno-0-894"></a>        <span class="n">d_in</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_fc_units</span>
+</span><span id="__span-0-895"><a id="__codelineno-0-895" name="__codelineno-0-895"></a>
+</span><span id="__span-0-896"><a id="__codelineno-0-896" name="__codelineno-0-896"></a>    <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;EmbeddingHead&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">nn</span><span class="o">.</span><span class="n">Linear</span><span class="p">(</span><span class="n">d_in</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">embedding_dim</span><span class="p">)</span>
+</span><span id="__span-0-897"><a id="__codelineno-0-897" name="__codelineno-0-897"></a>    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">normalize</span><span class="p">:</span>
+</span><span id="__span-0-898"><a id="__codelineno-0-898" name="__codelineno-0-898"></a>        <span class="n">module_dict</span><span class="p">[</span><span class="s2">&quot;l2norm&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">L2Norm</span><span class="p">(</span><span class="n">dim</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+</span><span id="__span-0-899"><a id="__codelineno-0-899" name="__codelineno-0-899"></a>
+</span><span id="__span-0-900"><a id="__codelineno-0-900" name="__codelineno-0-900"></a>    <span class="k">return</span> <span class="n">nn</span><span class="o">.</span><span class="n">Sequential</span><span class="p">(</span><span class="n">module_dict</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -12334,7 +12330,8 @@ mask centroid. Similar to CentroidConfmapsHead but for mask-derived centers.</p>
 
               <details class="mkdocstrings-source">
                 <summary>Source code in <code>sleap_nn/architectures/heads.py</code></summary>
-                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1008">1008</a></span>
+                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1007">1007</a></span>
+<span class="normal"><a href="#__codelineno-0-1008">1008</a></span>
 <span class="normal"><a href="#__codelineno-0-1009">1009</a></span>
 <span class="normal"><a href="#__codelineno-0-1010">1010</a></span>
 <span class="normal"><a href="#__codelineno-0-1011">1011</a></span>
@@ -12358,33 +12355,32 @@ mask centroid. Similar to CentroidConfmapsHead but for mask-derived centers.</p>
 <span class="normal"><a href="#__codelineno-0-1029">1029</a></span>
 <span class="normal"><a href="#__codelineno-0-1030">1030</a></span>
 <span class="normal"><a href="#__codelineno-0-1031">1031</a></span>
-<span class="normal"><a href="#__codelineno-0-1032">1032</a></span>
-<span class="normal"><a href="#__codelineno-0-1033">1033</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1008"><a id="__codelineno-0-1008" name="__codelineno-0-1008"></a><span class="k">class</span><span class="w"> </span><span class="nc">InstanceCenterHead</span><span class="p">(</span><span class="n">Head</span><span class="p">):</span>
-</span><span id="__span-0-1009"><a id="__codelineno-0-1009" name="__codelineno-0-1009"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Head for predicting instance center heatmaps.</span>
-</span><span id="__span-0-1010"><a id="__codelineno-0-1010" name="__codelineno-0-1010"></a>
-</span><span id="__span-0-1011"><a id="__codelineno-0-1011" name="__codelineno-0-1011"></a><span class="sd">    Outputs a single-channel Gaussian heatmap with peaks at each instance&#39;s</span>
-</span><span id="__span-0-1012"><a id="__codelineno-0-1012" name="__codelineno-0-1012"></a><span class="sd">    mask centroid. Similar to CentroidConfmapsHead but for mask-derived centers.</span>
-</span><span id="__span-0-1013"><a id="__codelineno-0-1013" name="__codelineno-0-1013"></a>
-</span><span id="__span-0-1014"><a id="__codelineno-0-1014" name="__codelineno-0-1014"></a><span class="sd">    Attributes:</span>
-</span><span id="__span-0-1015"><a id="__codelineno-0-1015" name="__codelineno-0-1015"></a><span class="sd">        sigma: Standard deviation of the Gaussian in pixels.</span>
-</span><span id="__span-0-1016"><a id="__codelineno-0-1016" name="__codelineno-0-1016"></a><span class="sd">        output_stride: Stride of the output head tensor.</span>
-</span><span id="__span-0-1017"><a id="__codelineno-0-1017" name="__codelineno-0-1017"></a><span class="sd">        loss_weight: Weight of the loss term for this head during optimization.</span>
-</span><span id="__span-0-1018"><a id="__codelineno-0-1018" name="__codelineno-0-1018"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-1019"><a id="__codelineno-0-1019" name="__codelineno-0-1019"></a>
-</span><span id="__span-0-1020"><a id="__codelineno-0-1020" name="__codelineno-0-1020"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-0-1021"><a id="__codelineno-0-1021" name="__codelineno-0-1021"></a>        <span class="bp">self</span><span class="p">,</span>
-</span><span id="__span-0-1022"><a id="__codelineno-0-1022" name="__codelineno-0-1022"></a>        <span class="n">sigma</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">4.0</span><span class="p">,</span>
-</span><span id="__span-0-1023"><a id="__codelineno-0-1023" name="__codelineno-0-1023"></a>        <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
-</span><span id="__span-0-1024"><a id="__codelineno-0-1024" name="__codelineno-0-1024"></a>        <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-</span><span id="__span-0-1025"><a id="__codelineno-0-1025" name="__codelineno-0-1025"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-1026"><a id="__codelineno-0-1026" name="__codelineno-0-1026"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
-</span><span id="__span-0-1027"><a id="__codelineno-0-1027" name="__codelineno-0-1027"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
-</span><span id="__span-0-1028"><a id="__codelineno-0-1028" name="__codelineno-0-1028"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">sigma</span> <span class="o">=</span> <span class="n">sigma</span>
-</span><span id="__span-0-1029"><a id="__codelineno-0-1029" name="__codelineno-0-1029"></a>
-</span><span id="__span-0-1030"><a id="__codelineno-0-1030" name="__codelineno-0-1030"></a>    <span class="nd">@property</span>
-</span><span id="__span-0-1031"><a id="__codelineno-0-1031" name="__codelineno-0-1031"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-</span><span id="__span-0-1032"><a id="__codelineno-0-1032" name="__codelineno-0-1032"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the number of channels in the tensor output by this head.&quot;&quot;&quot;</span>
-</span><span id="__span-0-1033"><a id="__codelineno-0-1033" name="__codelineno-0-1033"></a>        <span class="k">return</span> <span class="mi">1</span>
+<span class="normal"><a href="#__codelineno-0-1032">1032</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1007"><a id="__codelineno-0-1007" name="__codelineno-0-1007"></a><span class="k">class</span><span class="w"> </span><span class="nc">InstanceCenterHead</span><span class="p">(</span><span class="n">Head</span><span class="p">):</span>
+</span><span id="__span-0-1008"><a id="__codelineno-0-1008" name="__codelineno-0-1008"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Head for predicting instance center heatmaps.</span>
+</span><span id="__span-0-1009"><a id="__codelineno-0-1009" name="__codelineno-0-1009"></a>
+</span><span id="__span-0-1010"><a id="__codelineno-0-1010" name="__codelineno-0-1010"></a><span class="sd">    Outputs a single-channel Gaussian heatmap with peaks at each instance&#39;s</span>
+</span><span id="__span-0-1011"><a id="__codelineno-0-1011" name="__codelineno-0-1011"></a><span class="sd">    mask centroid. Similar to CentroidConfmapsHead but for mask-derived centers.</span>
+</span><span id="__span-0-1012"><a id="__codelineno-0-1012" name="__codelineno-0-1012"></a>
+</span><span id="__span-0-1013"><a id="__codelineno-0-1013" name="__codelineno-0-1013"></a><span class="sd">    Attributes:</span>
+</span><span id="__span-0-1014"><a id="__codelineno-0-1014" name="__codelineno-0-1014"></a><span class="sd">        sigma: Standard deviation of the Gaussian in pixels.</span>
+</span><span id="__span-0-1015"><a id="__codelineno-0-1015" name="__codelineno-0-1015"></a><span class="sd">        output_stride: Stride of the output head tensor.</span>
+</span><span id="__span-0-1016"><a id="__codelineno-0-1016" name="__codelineno-0-1016"></a><span class="sd">        loss_weight: Weight of the loss term for this head during optimization.</span>
+</span><span id="__span-0-1017"><a id="__codelineno-0-1017" name="__codelineno-0-1017"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-1018"><a id="__codelineno-0-1018" name="__codelineno-0-1018"></a>
+</span><span id="__span-0-1019"><a id="__codelineno-0-1019" name="__codelineno-0-1019"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+</span><span id="__span-0-1020"><a id="__codelineno-0-1020" name="__codelineno-0-1020"></a>        <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-0-1021"><a id="__codelineno-0-1021" name="__codelineno-0-1021"></a>        <span class="n">sigma</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">4.0</span><span class="p">,</span>
+</span><span id="__span-0-1022"><a id="__codelineno-0-1022" name="__codelineno-0-1022"></a>        <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-0-1023"><a id="__codelineno-0-1023" name="__codelineno-0-1023"></a>        <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-0-1024"><a id="__codelineno-0-1024" name="__codelineno-0-1024"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-1025"><a id="__codelineno-0-1025" name="__codelineno-0-1025"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
+</span><span id="__span-0-1026"><a id="__codelineno-0-1026" name="__codelineno-0-1026"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
+</span><span id="__span-0-1027"><a id="__codelineno-0-1027" name="__codelineno-0-1027"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">sigma</span> <span class="o">=</span> <span class="n">sigma</span>
+</span><span id="__span-0-1028"><a id="__codelineno-0-1028" name="__codelineno-0-1028"></a>
+</span><span id="__span-0-1029"><a id="__codelineno-0-1029" name="__codelineno-0-1029"></a>    <span class="nd">@property</span>
+</span><span id="__span-0-1030"><a id="__codelineno-0-1030" name="__codelineno-0-1030"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+</span><span id="__span-0-1031"><a id="__codelineno-0-1031" name="__codelineno-0-1031"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the number of channels in the tensor output by this head.&quot;&quot;&quot;</span>
+</span><span id="__span-0-1032"><a id="__codelineno-0-1032" name="__codelineno-0-1032"></a>        <span class="k">return</span> <span class="mi">1</span>
 </span></code></pre></div></td></tr></table></div>
               </details>
 
@@ -12439,23 +12435,23 @@ mask centroid. Similar to CentroidConfmapsHead but for mask-derived centers.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/architectures/heads.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1020">1020</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1019">1019</a></span>
+<span class="normal"><a href="#__codelineno-0-1020">1020</a></span>
 <span class="normal"><a href="#__codelineno-0-1021">1021</a></span>
 <span class="normal"><a href="#__codelineno-0-1022">1022</a></span>
 <span class="normal"><a href="#__codelineno-0-1023">1023</a></span>
 <span class="normal"><a href="#__codelineno-0-1024">1024</a></span>
 <span class="normal"><a href="#__codelineno-0-1025">1025</a></span>
 <span class="normal"><a href="#__codelineno-0-1026">1026</a></span>
-<span class="normal"><a href="#__codelineno-0-1027">1027</a></span>
-<span class="normal"><a href="#__codelineno-0-1028">1028</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1020"><a id="__codelineno-0-1020" name="__codelineno-0-1020"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-0-1021"><a id="__codelineno-0-1021" name="__codelineno-0-1021"></a>    <span class="bp">self</span><span class="p">,</span>
-</span><span id="__span-0-1022"><a id="__codelineno-0-1022" name="__codelineno-0-1022"></a>    <span class="n">sigma</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">4.0</span><span class="p">,</span>
-</span><span id="__span-0-1023"><a id="__codelineno-0-1023" name="__codelineno-0-1023"></a>    <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
-</span><span id="__span-0-1024"><a id="__codelineno-0-1024" name="__codelineno-0-1024"></a>    <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-</span><span id="__span-0-1025"><a id="__codelineno-0-1025" name="__codelineno-0-1025"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-1026"><a id="__codelineno-0-1026" name="__codelineno-0-1026"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
-</span><span id="__span-0-1027"><a id="__codelineno-0-1027" name="__codelineno-0-1027"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
-</span><span id="__span-0-1028"><a id="__codelineno-0-1028" name="__codelineno-0-1028"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">sigma</span> <span class="o">=</span> <span class="n">sigma</span>
+<span class="normal"><a href="#__codelineno-0-1027">1027</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-1019"><a id="__codelineno-0-1019" name="__codelineno-0-1019"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+</span><span id="__span-0-1020"><a id="__codelineno-0-1020" name="__codelineno-0-1020"></a>    <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-0-1021"><a id="__codelineno-0-1021" name="__codelineno-0-1021"></a>    <span class="n">sigma</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">4.0</span><span class="p">,</span>
+</span><span id="__span-0-1022"><a id="__codelineno-0-1022" name="__codelineno-0-1022"></a>    <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-0-1023"><a id="__codelineno-0-1023" name="__codelineno-0-1023"></a>    <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-0-1024"><a id="__codelineno-0-1024" name="__codelineno-0-1024"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-1025"><a id="__codelineno-0-1025" name="__codelineno-0-1025"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
+</span><span id="__span-0-1026"><a id="__codelineno-0-1026" name="__codelineno-0-1026"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
+</span><span id="__span-0-1027"><a id="__codelineno-0-1027" name="__codelineno-0-1027"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">sigma</span> <span class="o">=</span> <span class="n">sigma</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -13277,7 +13273,8 @@ be at the same stride.</p>
 
               <details class="mkdocstrings-source">
                 <summary>Source code in <code>sleap_nn/architectures/heads.py</code></summary>
-                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-904">904</a></span>
+                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-903">903</a></span>
+<span class="normal"><a href="#__codelineno-0-904">904</a></span>
 <span class="normal"><a href="#__codelineno-0-905">905</a></span>
 <span class="normal"><a href="#__codelineno-0-906">906</a></span>
 <span class="normal"><a href="#__codelineno-0-907">907</a></span>
@@ -13342,74 +13339,73 @@ be at the same stride.</p>
 <span class="normal"><a href="#__codelineno-0-966">966</a></span>
 <span class="normal"><a href="#__codelineno-0-967">967</a></span>
 <span class="normal"><a href="#__codelineno-0-968">968</a></span>
-<span class="normal"><a href="#__codelineno-0-969">969</a></span>
-<span class="normal"><a href="#__codelineno-0-970">970</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-904"><a id="__codelineno-0-904" name="__codelineno-0-904"></a><span class="k">class</span><span class="w"> </span><span class="nc">OffsetRefinementHead</span><span class="p">(</span><span class="n">Head</span><span class="p">):</span>
-</span><span id="__span-0-905"><a id="__codelineno-0-905" name="__codelineno-0-905"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Head for specifying offset refinement maps.</span>
-</span><span id="__span-0-906"><a id="__codelineno-0-906" name="__codelineno-0-906"></a>
-</span><span id="__span-0-907"><a id="__codelineno-0-907" name="__codelineno-0-907"></a><span class="sd">    Attributes:</span>
-</span><span id="__span-0-908"><a id="__codelineno-0-908" name="__codelineno-0-908"></a><span class="sd">        part_names: List of strings specifying the part names associated with channels.</span>
-</span><span id="__span-0-909"><a id="__codelineno-0-909" name="__codelineno-0-909"></a><span class="sd">        sigma_threshold: Threshold of confidence map values to use for defining the</span>
-</span><span id="__span-0-910"><a id="__codelineno-0-910" name="__codelineno-0-910"></a><span class="sd">            boundary of the offset maps.</span>
-</span><span id="__span-0-911"><a id="__codelineno-0-911" name="__codelineno-0-911"></a><span class="sd">        output_stride: Stride of the output head tensor. The input tensor is expected to</span>
-</span><span id="__span-0-912"><a id="__codelineno-0-912" name="__codelineno-0-912"></a><span class="sd">            be at the same stride.</span>
-</span><span id="__span-0-913"><a id="__codelineno-0-913" name="__codelineno-0-913"></a><span class="sd">        loss_weight: Weight of the loss term for this head during optimization.</span>
-</span><span id="__span-0-914"><a id="__codelineno-0-914" name="__codelineno-0-914"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-915"><a id="__codelineno-0-915" name="__codelineno-0-915"></a>
-</span><span id="__span-0-916"><a id="__codelineno-0-916" name="__codelineno-0-916"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-0-917"><a id="__codelineno-0-917" name="__codelineno-0-917"></a>        <span class="bp">self</span><span class="p">,</span>
-</span><span id="__span-0-918"><a id="__codelineno-0-918" name="__codelineno-0-918"></a>        <span class="n">part_names</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Text</span><span class="p">],</span>
-</span><span id="__span-0-919"><a id="__codelineno-0-919" name="__codelineno-0-919"></a>        <span class="n">sigma_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
-</span><span id="__span-0-920"><a id="__codelineno-0-920" name="__codelineno-0-920"></a>        <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
-</span><span id="__span-0-921"><a id="__codelineno-0-921" name="__codelineno-0-921"></a>        <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-</span><span id="__span-0-922"><a id="__codelineno-0-922" name="__codelineno-0-922"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-923"><a id="__codelineno-0-923" name="__codelineno-0-923"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
-</span><span id="__span-0-924"><a id="__codelineno-0-924" name="__codelineno-0-924"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
-</span><span id="__span-0-925"><a id="__codelineno-0-925" name="__codelineno-0-925"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">part_names</span> <span class="o">=</span> <span class="n">part_names</span>
-</span><span id="__span-0-926"><a id="__codelineno-0-926" name="__codelineno-0-926"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">sigma_threshold</span> <span class="o">=</span> <span class="n">sigma_threshold</span>
-</span><span id="__span-0-927"><a id="__codelineno-0-927" name="__codelineno-0-927"></a>
-</span><span id="__span-0-928"><a id="__codelineno-0-928" name="__codelineno-0-928"></a>    <span class="nd">@property</span>
-</span><span id="__span-0-929"><a id="__codelineno-0-929" name="__codelineno-0-929"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-</span><span id="__span-0-930"><a id="__codelineno-0-930" name="__codelineno-0-930"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the number of channels in the tensor output by this head.&quot;&quot;&quot;</span>
-</span><span id="__span-0-931"><a id="__codelineno-0-931" name="__codelineno-0-931"></a>        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">part_names</span><span class="p">)</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
-</span><span id="__span-0-932"><a id="__codelineno-0-932" name="__codelineno-0-932"></a>
-</span><span id="__span-0-933"><a id="__codelineno-0-933" name="__codelineno-0-933"></a>    <span class="nd">@classmethod</span>
-</span><span id="__span-0-934"><a id="__codelineno-0-934" name="__codelineno-0-934"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">from_config</span><span class="p">(</span>
-</span><span id="__span-0-935"><a id="__codelineno-0-935" name="__codelineno-0-935"></a>        <span class="bp">cls</span><span class="p">,</span>
-</span><span id="__span-0-936"><a id="__codelineno-0-936" name="__codelineno-0-936"></a>        <span class="n">config</span><span class="p">:</span> <span class="n">DictConfig</span><span class="p">,</span>
-</span><span id="__span-0-937"><a id="__codelineno-0-937" name="__codelineno-0-937"></a>        <span class="n">part_names</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Text</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-938"><a id="__codelineno-0-938" name="__codelineno-0-938"></a>        <span class="n">sigma_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
-</span><span id="__span-0-939"><a id="__codelineno-0-939" name="__codelineno-0-939"></a>        <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-</span><span id="__span-0-940"><a id="__codelineno-0-940" name="__codelineno-0-940"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;OffsetRefinementHead&quot;</span><span class="p">:</span>
-</span><span id="__span-0-941"><a id="__codelineno-0-941" name="__codelineno-0-941"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Create this head from a set of configurations.</span>
-</span><span id="__span-0-942"><a id="__codelineno-0-942" name="__codelineno-0-942"></a>
-</span><span id="__span-0-943"><a id="__codelineno-0-943" name="__codelineno-0-943"></a><span class="sd">        Attributes:</span>
-</span><span id="__span-0-944"><a id="__codelineno-0-944" name="__codelineno-0-944"></a><span class="sd">            config: A `DictConfig` instance specifying the head parameters.</span>
-</span><span id="__span-0-945"><a id="__codelineno-0-945" name="__codelineno-0-945"></a><span class="sd">            part_names: Text name of the body parts (nodes) that the head will be</span>
-</span><span id="__span-0-946"><a id="__codelineno-0-946" name="__codelineno-0-946"></a><span class="sd">                configured to produce. The number of parts determines the number of</span>
-</span><span id="__span-0-947"><a id="__codelineno-0-947" name="__codelineno-0-947"></a><span class="sd">                channels in the output. This must be provided if the `part_names`</span>
-</span><span id="__span-0-948"><a id="__codelineno-0-948" name="__codelineno-0-948"></a><span class="sd">                attribute of the configuration is not set.</span>
-</span><span id="__span-0-949"><a id="__codelineno-0-949" name="__codelineno-0-949"></a><span class="sd">            sigma_threshold: Minimum confidence map value below which offsets will be</span>
-</span><span id="__span-0-950"><a id="__codelineno-0-950" name="__codelineno-0-950"></a><span class="sd">                replaced with zeros.</span>
-</span><span id="__span-0-951"><a id="__codelineno-0-951" name="__codelineno-0-951"></a><span class="sd">            loss_weight: Weight of the loss associated with this head.</span>
-</span><span id="__span-0-952"><a id="__codelineno-0-952" name="__codelineno-0-952"></a>
-</span><span id="__span-0-953"><a id="__codelineno-0-953" name="__codelineno-0-953"></a><span class="sd">        Returns:</span>
-</span><span id="__span-0-954"><a id="__codelineno-0-954" name="__codelineno-0-954"></a><span class="sd">            The instantiated head with the specified configuration options.</span>
-</span><span id="__span-0-955"><a id="__codelineno-0-955" name="__codelineno-0-955"></a><span class="sd">        &quot;&quot;&quot;</span>
-</span><span id="__span-0-956"><a id="__codelineno-0-956" name="__codelineno-0-956"></a>        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;part_names&quot;</span><span class="p">):</span>
-</span><span id="__span-0-957"><a id="__codelineno-0-957" name="__codelineno-0-957"></a>            <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">part_names</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-958"><a id="__codelineno-0-958" name="__codelineno-0-958"></a>                <span class="n">part_names</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">part_names</span>
-</span><span id="__span-0-959"><a id="__codelineno-0-959" name="__codelineno-0-959"></a>        <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;anchor_part&quot;</span><span class="p">):</span>
-</span><span id="__span-0-960"><a id="__codelineno-0-960" name="__codelineno-0-960"></a>            <span class="n">part_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">config</span><span class="o">.</span><span class="n">anchor_part</span><span class="p">]</span>
-</span><span id="__span-0-961"><a id="__codelineno-0-961" name="__codelineno-0-961"></a>        <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-962"><a id="__codelineno-0-962" name="__codelineno-0-962"></a>            <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;Required attribute &#39;part_names&#39; is missing in the configuration.&quot;</span>
-</span><span id="__span-0-963"><a id="__codelineno-0-963" name="__codelineno-0-963"></a>            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
-</span><span id="__span-0-964"><a id="__codelineno-0-964" name="__codelineno-0-964"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
-</span><span id="__span-0-965"><a id="__codelineno-0-965" name="__codelineno-0-965"></a>        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
-</span><span id="__span-0-966"><a id="__codelineno-0-966" name="__codelineno-0-966"></a>            <span class="n">part_names</span><span class="o">=</span><span class="n">part_names</span><span class="p">,</span>
-</span><span id="__span-0-967"><a id="__codelineno-0-967" name="__codelineno-0-967"></a>            <span class="n">output_stride</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">output_stride</span><span class="p">,</span>
-</span><span id="__span-0-968"><a id="__codelineno-0-968" name="__codelineno-0-968"></a>            <span class="n">sigma_threshold</span><span class="o">=</span><span class="n">sigma_threshold</span><span class="p">,</span>
-</span><span id="__span-0-969"><a id="__codelineno-0-969" name="__codelineno-0-969"></a>            <span class="n">loss_weight</span><span class="o">=</span><span class="n">loss_weight</span><span class="p">,</span>
-</span><span id="__span-0-970"><a id="__codelineno-0-970" name="__codelineno-0-970"></a>        <span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-969">969</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-903"><a id="__codelineno-0-903" name="__codelineno-0-903"></a><span class="k">class</span><span class="w"> </span><span class="nc">OffsetRefinementHead</span><span class="p">(</span><span class="n">Head</span><span class="p">):</span>
+</span><span id="__span-0-904"><a id="__codelineno-0-904" name="__codelineno-0-904"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Head for specifying offset refinement maps.</span>
+</span><span id="__span-0-905"><a id="__codelineno-0-905" name="__codelineno-0-905"></a>
+</span><span id="__span-0-906"><a id="__codelineno-0-906" name="__codelineno-0-906"></a><span class="sd">    Attributes:</span>
+</span><span id="__span-0-907"><a id="__codelineno-0-907" name="__codelineno-0-907"></a><span class="sd">        part_names: List of strings specifying the part names associated with channels.</span>
+</span><span id="__span-0-908"><a id="__codelineno-0-908" name="__codelineno-0-908"></a><span class="sd">        sigma_threshold: Threshold of confidence map values to use for defining the</span>
+</span><span id="__span-0-909"><a id="__codelineno-0-909" name="__codelineno-0-909"></a><span class="sd">            boundary of the offset maps.</span>
+</span><span id="__span-0-910"><a id="__codelineno-0-910" name="__codelineno-0-910"></a><span class="sd">        output_stride: Stride of the output head tensor. The input tensor is expected to</span>
+</span><span id="__span-0-911"><a id="__codelineno-0-911" name="__codelineno-0-911"></a><span class="sd">            be at the same stride.</span>
+</span><span id="__span-0-912"><a id="__codelineno-0-912" name="__codelineno-0-912"></a><span class="sd">        loss_weight: Weight of the loss term for this head during optimization.</span>
+</span><span id="__span-0-913"><a id="__codelineno-0-913" name="__codelineno-0-913"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-914"><a id="__codelineno-0-914" name="__codelineno-0-914"></a>
+</span><span id="__span-0-915"><a id="__codelineno-0-915" name="__codelineno-0-915"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+</span><span id="__span-0-916"><a id="__codelineno-0-916" name="__codelineno-0-916"></a>        <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-0-917"><a id="__codelineno-0-917" name="__codelineno-0-917"></a>        <span class="n">part_names</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Text</span><span class="p">],</span>
+</span><span id="__span-0-918"><a id="__codelineno-0-918" name="__codelineno-0-918"></a>        <span class="n">sigma_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
+</span><span id="__span-0-919"><a id="__codelineno-0-919" name="__codelineno-0-919"></a>        <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-0-920"><a id="__codelineno-0-920" name="__codelineno-0-920"></a>        <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-0-921"><a id="__codelineno-0-921" name="__codelineno-0-921"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-922"><a id="__codelineno-0-922" name="__codelineno-0-922"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
+</span><span id="__span-0-923"><a id="__codelineno-0-923" name="__codelineno-0-923"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
+</span><span id="__span-0-924"><a id="__codelineno-0-924" name="__codelineno-0-924"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">part_names</span> <span class="o">=</span> <span class="n">part_names</span>
+</span><span id="__span-0-925"><a id="__codelineno-0-925" name="__codelineno-0-925"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">sigma_threshold</span> <span class="o">=</span> <span class="n">sigma_threshold</span>
+</span><span id="__span-0-926"><a id="__codelineno-0-926" name="__codelineno-0-926"></a>
+</span><span id="__span-0-927"><a id="__codelineno-0-927" name="__codelineno-0-927"></a>    <span class="nd">@property</span>
+</span><span id="__span-0-928"><a id="__codelineno-0-928" name="__codelineno-0-928"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+</span><span id="__span-0-929"><a id="__codelineno-0-929" name="__codelineno-0-929"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the number of channels in the tensor output by this head.&quot;&quot;&quot;</span>
+</span><span id="__span-0-930"><a id="__codelineno-0-930" name="__codelineno-0-930"></a>        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">part_names</span><span class="p">)</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
+</span><span id="__span-0-931"><a id="__codelineno-0-931" name="__codelineno-0-931"></a>
+</span><span id="__span-0-932"><a id="__codelineno-0-932" name="__codelineno-0-932"></a>    <span class="nd">@classmethod</span>
+</span><span id="__span-0-933"><a id="__codelineno-0-933" name="__codelineno-0-933"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">from_config</span><span class="p">(</span>
+</span><span id="__span-0-934"><a id="__codelineno-0-934" name="__codelineno-0-934"></a>        <span class="bp">cls</span><span class="p">,</span>
+</span><span id="__span-0-935"><a id="__codelineno-0-935" name="__codelineno-0-935"></a>        <span class="n">config</span><span class="p">:</span> <span class="n">DictConfig</span><span class="p">,</span>
+</span><span id="__span-0-936"><a id="__codelineno-0-936" name="__codelineno-0-936"></a>        <span class="n">part_names</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Text</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-937"><a id="__codelineno-0-937" name="__codelineno-0-937"></a>        <span class="n">sigma_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
+</span><span id="__span-0-938"><a id="__codelineno-0-938" name="__codelineno-0-938"></a>        <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-0-939"><a id="__codelineno-0-939" name="__codelineno-0-939"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;OffsetRefinementHead&quot;</span><span class="p">:</span>
+</span><span id="__span-0-940"><a id="__codelineno-0-940" name="__codelineno-0-940"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Create this head from a set of configurations.</span>
+</span><span id="__span-0-941"><a id="__codelineno-0-941" name="__codelineno-0-941"></a>
+</span><span id="__span-0-942"><a id="__codelineno-0-942" name="__codelineno-0-942"></a><span class="sd">        Attributes:</span>
+</span><span id="__span-0-943"><a id="__codelineno-0-943" name="__codelineno-0-943"></a><span class="sd">            config: A `DictConfig` instance specifying the head parameters.</span>
+</span><span id="__span-0-944"><a id="__codelineno-0-944" name="__codelineno-0-944"></a><span class="sd">            part_names: Text name of the body parts (nodes) that the head will be</span>
+</span><span id="__span-0-945"><a id="__codelineno-0-945" name="__codelineno-0-945"></a><span class="sd">                configured to produce. The number of parts determines the number of</span>
+</span><span id="__span-0-946"><a id="__codelineno-0-946" name="__codelineno-0-946"></a><span class="sd">                channels in the output. This must be provided if the `part_names`</span>
+</span><span id="__span-0-947"><a id="__codelineno-0-947" name="__codelineno-0-947"></a><span class="sd">                attribute of the configuration is not set.</span>
+</span><span id="__span-0-948"><a id="__codelineno-0-948" name="__codelineno-0-948"></a><span class="sd">            sigma_threshold: Minimum confidence map value below which offsets will be</span>
+</span><span id="__span-0-949"><a id="__codelineno-0-949" name="__codelineno-0-949"></a><span class="sd">                replaced with zeros.</span>
+</span><span id="__span-0-950"><a id="__codelineno-0-950" name="__codelineno-0-950"></a><span class="sd">            loss_weight: Weight of the loss associated with this head.</span>
+</span><span id="__span-0-951"><a id="__codelineno-0-951" name="__codelineno-0-951"></a>
+</span><span id="__span-0-952"><a id="__codelineno-0-952" name="__codelineno-0-952"></a><span class="sd">        Returns:</span>
+</span><span id="__span-0-953"><a id="__codelineno-0-953" name="__codelineno-0-953"></a><span class="sd">            The instantiated head with the specified configuration options.</span>
+</span><span id="__span-0-954"><a id="__codelineno-0-954" name="__codelineno-0-954"></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="__span-0-955"><a id="__codelineno-0-955" name="__codelineno-0-955"></a>        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;part_names&quot;</span><span class="p">):</span>
+</span><span id="__span-0-956"><a id="__codelineno-0-956" name="__codelineno-0-956"></a>            <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">part_names</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-957"><a id="__codelineno-0-957" name="__codelineno-0-957"></a>                <span class="n">part_names</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">part_names</span>
+</span><span id="__span-0-958"><a id="__codelineno-0-958" name="__codelineno-0-958"></a>        <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;anchor_part&quot;</span><span class="p">):</span>
+</span><span id="__span-0-959"><a id="__codelineno-0-959" name="__codelineno-0-959"></a>            <span class="n">part_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">config</span><span class="o">.</span><span class="n">anchor_part</span><span class="p">]</span>
+</span><span id="__span-0-960"><a id="__codelineno-0-960" name="__codelineno-0-960"></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-961"><a id="__codelineno-0-961" name="__codelineno-0-961"></a>            <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;Required attribute &#39;part_names&#39; is missing in the configuration.&quot;</span>
+</span><span id="__span-0-962"><a id="__codelineno-0-962" name="__codelineno-0-962"></a>            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+</span><span id="__span-0-963"><a id="__codelineno-0-963" name="__codelineno-0-963"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+</span><span id="__span-0-964"><a id="__codelineno-0-964" name="__codelineno-0-964"></a>        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+</span><span id="__span-0-965"><a id="__codelineno-0-965" name="__codelineno-0-965"></a>            <span class="n">part_names</span><span class="o">=</span><span class="n">part_names</span><span class="p">,</span>
+</span><span id="__span-0-966"><a id="__codelineno-0-966" name="__codelineno-0-966"></a>            <span class="n">output_stride</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">output_stride</span><span class="p">,</span>
+</span><span id="__span-0-967"><a id="__codelineno-0-967" name="__codelineno-0-967"></a>            <span class="n">sigma_threshold</span><span class="o">=</span><span class="n">sigma_threshold</span><span class="p">,</span>
+</span><span id="__span-0-968"><a id="__codelineno-0-968" name="__codelineno-0-968"></a>            <span class="n">loss_weight</span><span class="o">=</span><span class="n">loss_weight</span><span class="p">,</span>
+</span><span id="__span-0-969"><a id="__codelineno-0-969" name="__codelineno-0-969"></a>        <span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
               </details>
 
@@ -13464,7 +13460,8 @@ be at the same stride.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/architectures/heads.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-916">916</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-915">915</a></span>
+<span class="normal"><a href="#__codelineno-0-916">916</a></span>
 <span class="normal"><a href="#__codelineno-0-917">917</a></span>
 <span class="normal"><a href="#__codelineno-0-918">918</a></span>
 <span class="normal"><a href="#__codelineno-0-919">919</a></span>
@@ -13473,18 +13470,17 @@ be at the same stride.</p>
 <span class="normal"><a href="#__codelineno-0-922">922</a></span>
 <span class="normal"><a href="#__codelineno-0-923">923</a></span>
 <span class="normal"><a href="#__codelineno-0-924">924</a></span>
-<span class="normal"><a href="#__codelineno-0-925">925</a></span>
-<span class="normal"><a href="#__codelineno-0-926">926</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-916"><a id="__codelineno-0-916" name="__codelineno-0-916"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-0-917"><a id="__codelineno-0-917" name="__codelineno-0-917"></a>    <span class="bp">self</span><span class="p">,</span>
-</span><span id="__span-0-918"><a id="__codelineno-0-918" name="__codelineno-0-918"></a>    <span class="n">part_names</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Text</span><span class="p">],</span>
-</span><span id="__span-0-919"><a id="__codelineno-0-919" name="__codelineno-0-919"></a>    <span class="n">sigma_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
-</span><span id="__span-0-920"><a id="__codelineno-0-920" name="__codelineno-0-920"></a>    <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
-</span><span id="__span-0-921"><a id="__codelineno-0-921" name="__codelineno-0-921"></a>    <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-</span><span id="__span-0-922"><a id="__codelineno-0-922" name="__codelineno-0-922"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-923"><a id="__codelineno-0-923" name="__codelineno-0-923"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
-</span><span id="__span-0-924"><a id="__codelineno-0-924" name="__codelineno-0-924"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
-</span><span id="__span-0-925"><a id="__codelineno-0-925" name="__codelineno-0-925"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">part_names</span> <span class="o">=</span> <span class="n">part_names</span>
-</span><span id="__span-0-926"><a id="__codelineno-0-926" name="__codelineno-0-926"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">sigma_threshold</span> <span class="o">=</span> <span class="n">sigma_threshold</span>
+<span class="normal"><a href="#__codelineno-0-925">925</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-915"><a id="__codelineno-0-915" name="__codelineno-0-915"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+</span><span id="__span-0-916"><a id="__codelineno-0-916" name="__codelineno-0-916"></a>    <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-0-917"><a id="__codelineno-0-917" name="__codelineno-0-917"></a>    <span class="n">part_names</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">Text</span><span class="p">],</span>
+</span><span id="__span-0-918"><a id="__codelineno-0-918" name="__codelineno-0-918"></a>    <span class="n">sigma_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
+</span><span id="__span-0-919"><a id="__codelineno-0-919" name="__codelineno-0-919"></a>    <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-0-920"><a id="__codelineno-0-920" name="__codelineno-0-920"></a>    <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-0-921"><a id="__codelineno-0-921" name="__codelineno-0-921"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-922"><a id="__codelineno-0-922" name="__codelineno-0-922"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
+</span><span id="__span-0-923"><a id="__codelineno-0-923" name="__codelineno-0-923"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
+</span><span id="__span-0-924"><a id="__codelineno-0-924" name="__codelineno-0-924"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">part_names</span> <span class="o">=</span> <span class="n">part_names</span>
+</span><span id="__span-0-925"><a id="__codelineno-0-925" name="__codelineno-0-925"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">sigma_threshold</span> <span class="o">=</span> <span class="n">sigma_threshold</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -13592,7 +13588,8 @@ replaced with zeros.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/architectures/heads.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-933">933</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-932">932</a></span>
+<span class="normal"><a href="#__codelineno-0-933">933</a></span>
 <span class="normal"><a href="#__codelineno-0-934">934</a></span>
 <span class="normal"><a href="#__codelineno-0-935">935</a></span>
 <span class="normal"><a href="#__codelineno-0-936">936</a></span>
@@ -13628,45 +13625,44 @@ replaced with zeros.</p>
 <span class="normal"><a href="#__codelineno-0-966">966</a></span>
 <span class="normal"><a href="#__codelineno-0-967">967</a></span>
 <span class="normal"><a href="#__codelineno-0-968">968</a></span>
-<span class="normal"><a href="#__codelineno-0-969">969</a></span>
-<span class="normal"><a href="#__codelineno-0-970">970</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-933"><a id="__codelineno-0-933" name="__codelineno-0-933"></a><span class="nd">@classmethod</span>
-</span><span id="__span-0-934"><a id="__codelineno-0-934" name="__codelineno-0-934"></a><span class="k">def</span><span class="w"> </span><span class="nf">from_config</span><span class="p">(</span>
-</span><span id="__span-0-935"><a id="__codelineno-0-935" name="__codelineno-0-935"></a>    <span class="bp">cls</span><span class="p">,</span>
-</span><span id="__span-0-936"><a id="__codelineno-0-936" name="__codelineno-0-936"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">DictConfig</span><span class="p">,</span>
-</span><span id="__span-0-937"><a id="__codelineno-0-937" name="__codelineno-0-937"></a>    <span class="n">part_names</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Text</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-938"><a id="__codelineno-0-938" name="__codelineno-0-938"></a>    <span class="n">sigma_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
-</span><span id="__span-0-939"><a id="__codelineno-0-939" name="__codelineno-0-939"></a>    <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-</span><span id="__span-0-940"><a id="__codelineno-0-940" name="__codelineno-0-940"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;OffsetRefinementHead&quot;</span><span class="p">:</span>
-</span><span id="__span-0-941"><a id="__codelineno-0-941" name="__codelineno-0-941"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create this head from a set of configurations.</span>
-</span><span id="__span-0-942"><a id="__codelineno-0-942" name="__codelineno-0-942"></a>
-</span><span id="__span-0-943"><a id="__codelineno-0-943" name="__codelineno-0-943"></a><span class="sd">    Attributes:</span>
-</span><span id="__span-0-944"><a id="__codelineno-0-944" name="__codelineno-0-944"></a><span class="sd">        config: A `DictConfig` instance specifying the head parameters.</span>
-</span><span id="__span-0-945"><a id="__codelineno-0-945" name="__codelineno-0-945"></a><span class="sd">        part_names: Text name of the body parts (nodes) that the head will be</span>
-</span><span id="__span-0-946"><a id="__codelineno-0-946" name="__codelineno-0-946"></a><span class="sd">            configured to produce. The number of parts determines the number of</span>
-</span><span id="__span-0-947"><a id="__codelineno-0-947" name="__codelineno-0-947"></a><span class="sd">            channels in the output. This must be provided if the `part_names`</span>
-</span><span id="__span-0-948"><a id="__codelineno-0-948" name="__codelineno-0-948"></a><span class="sd">            attribute of the configuration is not set.</span>
-</span><span id="__span-0-949"><a id="__codelineno-0-949" name="__codelineno-0-949"></a><span class="sd">        sigma_threshold: Minimum confidence map value below which offsets will be</span>
-</span><span id="__span-0-950"><a id="__codelineno-0-950" name="__codelineno-0-950"></a><span class="sd">            replaced with zeros.</span>
-</span><span id="__span-0-951"><a id="__codelineno-0-951" name="__codelineno-0-951"></a><span class="sd">        loss_weight: Weight of the loss associated with this head.</span>
-</span><span id="__span-0-952"><a id="__codelineno-0-952" name="__codelineno-0-952"></a>
-</span><span id="__span-0-953"><a id="__codelineno-0-953" name="__codelineno-0-953"></a><span class="sd">    Returns:</span>
-</span><span id="__span-0-954"><a id="__codelineno-0-954" name="__codelineno-0-954"></a><span class="sd">        The instantiated head with the specified configuration options.</span>
-</span><span id="__span-0-955"><a id="__codelineno-0-955" name="__codelineno-0-955"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-956"><a id="__codelineno-0-956" name="__codelineno-0-956"></a>    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;part_names&quot;</span><span class="p">):</span>
-</span><span id="__span-0-957"><a id="__codelineno-0-957" name="__codelineno-0-957"></a>        <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">part_names</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-958"><a id="__codelineno-0-958" name="__codelineno-0-958"></a>            <span class="n">part_names</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">part_names</span>
-</span><span id="__span-0-959"><a id="__codelineno-0-959" name="__codelineno-0-959"></a>    <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;anchor_part&quot;</span><span class="p">):</span>
-</span><span id="__span-0-960"><a id="__codelineno-0-960" name="__codelineno-0-960"></a>        <span class="n">part_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">config</span><span class="o">.</span><span class="n">anchor_part</span><span class="p">]</span>
-</span><span id="__span-0-961"><a id="__codelineno-0-961" name="__codelineno-0-961"></a>    <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-962"><a id="__codelineno-0-962" name="__codelineno-0-962"></a>        <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;Required attribute &#39;part_names&#39; is missing in the configuration.&quot;</span>
-</span><span id="__span-0-963"><a id="__codelineno-0-963" name="__codelineno-0-963"></a>        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
-</span><span id="__span-0-964"><a id="__codelineno-0-964" name="__codelineno-0-964"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
-</span><span id="__span-0-965"><a id="__codelineno-0-965" name="__codelineno-0-965"></a>    <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
-</span><span id="__span-0-966"><a id="__codelineno-0-966" name="__codelineno-0-966"></a>        <span class="n">part_names</span><span class="o">=</span><span class="n">part_names</span><span class="p">,</span>
-</span><span id="__span-0-967"><a id="__codelineno-0-967" name="__codelineno-0-967"></a>        <span class="n">output_stride</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">output_stride</span><span class="p">,</span>
-</span><span id="__span-0-968"><a id="__codelineno-0-968" name="__codelineno-0-968"></a>        <span class="n">sigma_threshold</span><span class="o">=</span><span class="n">sigma_threshold</span><span class="p">,</span>
-</span><span id="__span-0-969"><a id="__codelineno-0-969" name="__codelineno-0-969"></a>        <span class="n">loss_weight</span><span class="o">=</span><span class="n">loss_weight</span><span class="p">,</span>
-</span><span id="__span-0-970"><a id="__codelineno-0-970" name="__codelineno-0-970"></a>    <span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-969">969</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-932"><a id="__codelineno-0-932" name="__codelineno-0-932"></a><span class="nd">@classmethod</span>
+</span><span id="__span-0-933"><a id="__codelineno-0-933" name="__codelineno-0-933"></a><span class="k">def</span><span class="w"> </span><span class="nf">from_config</span><span class="p">(</span>
+</span><span id="__span-0-934"><a id="__codelineno-0-934" name="__codelineno-0-934"></a>    <span class="bp">cls</span><span class="p">,</span>
+</span><span id="__span-0-935"><a id="__codelineno-0-935" name="__codelineno-0-935"></a>    <span class="n">config</span><span class="p">:</span> <span class="n">DictConfig</span><span class="p">,</span>
+</span><span id="__span-0-936"><a id="__codelineno-0-936" name="__codelineno-0-936"></a>    <span class="n">part_names</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Text</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-937"><a id="__codelineno-0-937" name="__codelineno-0-937"></a>    <span class="n">sigma_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
+</span><span id="__span-0-938"><a id="__codelineno-0-938" name="__codelineno-0-938"></a>    <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-0-939"><a id="__codelineno-0-939" name="__codelineno-0-939"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;OffsetRefinementHead&quot;</span><span class="p">:</span>
+</span><span id="__span-0-940"><a id="__codelineno-0-940" name="__codelineno-0-940"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create this head from a set of configurations.</span>
+</span><span id="__span-0-941"><a id="__codelineno-0-941" name="__codelineno-0-941"></a>
+</span><span id="__span-0-942"><a id="__codelineno-0-942" name="__codelineno-0-942"></a><span class="sd">    Attributes:</span>
+</span><span id="__span-0-943"><a id="__codelineno-0-943" name="__codelineno-0-943"></a><span class="sd">        config: A `DictConfig` instance specifying the head parameters.</span>
+</span><span id="__span-0-944"><a id="__codelineno-0-944" name="__codelineno-0-944"></a><span class="sd">        part_names: Text name of the body parts (nodes) that the head will be</span>
+</span><span id="__span-0-945"><a id="__codelineno-0-945" name="__codelineno-0-945"></a><span class="sd">            configured to produce. The number of parts determines the number of</span>
+</span><span id="__span-0-946"><a id="__codelineno-0-946" name="__codelineno-0-946"></a><span class="sd">            channels in the output. This must be provided if the `part_names`</span>
+</span><span id="__span-0-947"><a id="__codelineno-0-947" name="__codelineno-0-947"></a><span class="sd">            attribute of the configuration is not set.</span>
+</span><span id="__span-0-948"><a id="__codelineno-0-948" name="__codelineno-0-948"></a><span class="sd">        sigma_threshold: Minimum confidence map value below which offsets will be</span>
+</span><span id="__span-0-949"><a id="__codelineno-0-949" name="__codelineno-0-949"></a><span class="sd">            replaced with zeros.</span>
+</span><span id="__span-0-950"><a id="__codelineno-0-950" name="__codelineno-0-950"></a><span class="sd">        loss_weight: Weight of the loss associated with this head.</span>
+</span><span id="__span-0-951"><a id="__codelineno-0-951" name="__codelineno-0-951"></a>
+</span><span id="__span-0-952"><a id="__codelineno-0-952" name="__codelineno-0-952"></a><span class="sd">    Returns:</span>
+</span><span id="__span-0-953"><a id="__codelineno-0-953" name="__codelineno-0-953"></a><span class="sd">        The instantiated head with the specified configuration options.</span>
+</span><span id="__span-0-954"><a id="__codelineno-0-954" name="__codelineno-0-954"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-955"><a id="__codelineno-0-955" name="__codelineno-0-955"></a>    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;part_names&quot;</span><span class="p">):</span>
+</span><span id="__span-0-956"><a id="__codelineno-0-956" name="__codelineno-0-956"></a>        <span class="k">if</span> <span class="n">config</span><span class="o">.</span><span class="n">part_names</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-957"><a id="__codelineno-0-957" name="__codelineno-0-957"></a>            <span class="n">part_names</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">part_names</span>
+</span><span id="__span-0-958"><a id="__codelineno-0-958" name="__codelineno-0-958"></a>    <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="s2">&quot;anchor_part&quot;</span><span class="p">):</span>
+</span><span id="__span-0-959"><a id="__codelineno-0-959" name="__codelineno-0-959"></a>        <span class="n">part_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">config</span><span class="o">.</span><span class="n">anchor_part</span><span class="p">]</span>
+</span><span id="__span-0-960"><a id="__codelineno-0-960" name="__codelineno-0-960"></a>    <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-961"><a id="__codelineno-0-961" name="__codelineno-0-961"></a>        <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;Required attribute &#39;part_names&#39; is missing in the configuration.&quot;</span>
+</span><span id="__span-0-962"><a id="__codelineno-0-962" name="__codelineno-0-962"></a>        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+</span><span id="__span-0-963"><a id="__codelineno-0-963" name="__codelineno-0-963"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+</span><span id="__span-0-964"><a id="__codelineno-0-964" name="__codelineno-0-964"></a>    <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+</span><span id="__span-0-965"><a id="__codelineno-0-965" name="__codelineno-0-965"></a>        <span class="n">part_names</span><span class="o">=</span><span class="n">part_names</span><span class="p">,</span>
+</span><span id="__span-0-966"><a id="__codelineno-0-966" name="__codelineno-0-966"></a>        <span class="n">output_stride</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">output_stride</span><span class="p">,</span>
+</span><span id="__span-0-967"><a id="__codelineno-0-967" name="__codelineno-0-967"></a>        <span class="n">sigma_threshold</span><span class="o">=</span><span class="n">sigma_threshold</span><span class="p">,</span>
+</span><span id="__span-0-968"><a id="__codelineno-0-968" name="__codelineno-0-968"></a>        <span class="n">loss_weight</span><span class="o">=</span><span class="n">loss_weight</span><span class="p">,</span>
+</span><span id="__span-0-969"><a id="__codelineno-0-969" name="__codelineno-0-969"></a>    <span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -14225,7 +14221,8 @@ probability that each pixel belongs to any instance (foreground).</p>
 
               <details class="mkdocstrings-source">
                 <summary>Source code in <code>sleap_nn/architectures/heads.py</code></summary>
-                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-973"> 973</a></span>
+                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-972"> 972</a></span>
+<span class="normal"><a href="#__codelineno-0-973"> 973</a></span>
 <span class="normal"><a href="#__codelineno-0-974"> 974</a></span>
 <span class="normal"><a href="#__codelineno-0-975"> 975</a></span>
 <span class="normal"><a href="#__codelineno-0-976"> 976</a></span>
@@ -14256,40 +14253,39 @@ probability that each pixel belongs to any instance (foreground).</p>
 <span class="normal"><a href="#__codelineno-0-1001">1001</a></span>
 <span class="normal"><a href="#__codelineno-0-1002">1002</a></span>
 <span class="normal"><a href="#__codelineno-0-1003">1003</a></span>
-<span class="normal"><a href="#__codelineno-0-1004">1004</a></span>
-<span class="normal"><a href="#__codelineno-0-1005">1005</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-973"><a id="__codelineno-0-973" name="__codelineno-0-973"></a><span class="k">class</span><span class="w"> </span><span class="nc">SegmentationHead</span><span class="p">(</span><span class="n">Head</span><span class="p">):</span>
-</span><span id="__span-0-974"><a id="__codelineno-0-974" name="__codelineno-0-974"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Head for predicting binary foreground segmentation masks.</span>
-</span><span id="__span-0-975"><a id="__codelineno-0-975" name="__codelineno-0-975"></a>
-</span><span id="__span-0-976"><a id="__codelineno-0-976" name="__codelineno-0-976"></a><span class="sd">    Outputs a single-channel map with sigmoid activation representing the</span>
-</span><span id="__span-0-977"><a id="__codelineno-0-977" name="__codelineno-0-977"></a><span class="sd">    probability that each pixel belongs to any instance (foreground).</span>
-</span><span id="__span-0-978"><a id="__codelineno-0-978" name="__codelineno-0-978"></a>
-</span><span id="__span-0-979"><a id="__codelineno-0-979" name="__codelineno-0-979"></a><span class="sd">    Attributes:</span>
-</span><span id="__span-0-980"><a id="__codelineno-0-980" name="__codelineno-0-980"></a><span class="sd">        output_stride: Stride of the output head tensor.</span>
-</span><span id="__span-0-981"><a id="__codelineno-0-981" name="__codelineno-0-981"></a><span class="sd">        loss_weight: Weight of the loss term for this head during optimization.</span>
-</span><span id="__span-0-982"><a id="__codelineno-0-982" name="__codelineno-0-982"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-983"><a id="__codelineno-0-983" name="__codelineno-0-983"></a>
-</span><span id="__span-0-984"><a id="__codelineno-0-984" name="__codelineno-0-984"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-0-985"><a id="__codelineno-0-985" name="__codelineno-0-985"></a>        <span class="bp">self</span><span class="p">,</span>
-</span><span id="__span-0-986"><a id="__codelineno-0-986" name="__codelineno-0-986"></a>        <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
-</span><span id="__span-0-987"><a id="__codelineno-0-987" name="__codelineno-0-987"></a>        <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-</span><span id="__span-0-988"><a id="__codelineno-0-988" name="__codelineno-0-988"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-989"><a id="__codelineno-0-989" name="__codelineno-0-989"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
-</span><span id="__span-0-990"><a id="__codelineno-0-990" name="__codelineno-0-990"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
-</span><span id="__span-0-991"><a id="__codelineno-0-991" name="__codelineno-0-991"></a>
-</span><span id="__span-0-992"><a id="__codelineno-0-992" name="__codelineno-0-992"></a>    <span class="nd">@property</span>
-</span><span id="__span-0-993"><a id="__codelineno-0-993" name="__codelineno-0-993"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-</span><span id="__span-0-994"><a id="__codelineno-0-994" name="__codelineno-0-994"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the number of channels in the tensor output by this head.&quot;&quot;&quot;</span>
-</span><span id="__span-0-995"><a id="__codelineno-0-995" name="__codelineno-0-995"></a>        <span class="k">return</span> <span class="mi">1</span>
-</span><span id="__span-0-996"><a id="__codelineno-0-996" name="__codelineno-0-996"></a>
-</span><span id="__span-0-997"><a id="__codelineno-0-997" name="__codelineno-0-997"></a>    <span class="nd">@property</span>
-</span><span id="__span-0-998"><a id="__codelineno-0-998" name="__codelineno-0-998"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">activation</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="__span-0-999"><a id="__codelineno-0-999" name="__codelineno-0-999"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the activation function of the head output layer.&quot;&quot;&quot;</span>
-</span><span id="__span-0-1000"><a id="__codelineno-0-1000" name="__codelineno-0-1000"></a>        <span class="k">return</span> <span class="s2">&quot;identity&quot;</span>
-</span><span id="__span-0-1001"><a id="__codelineno-0-1001" name="__codelineno-0-1001"></a>
-</span><span id="__span-0-1002"><a id="__codelineno-0-1002" name="__codelineno-0-1002"></a>    <span class="nd">@property</span>
-</span><span id="__span-0-1003"><a id="__codelineno-0-1003" name="__codelineno-0-1003"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">loss_function</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
-</span><span id="__span-0-1004"><a id="__codelineno-0-1004" name="__codelineno-0-1004"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the name of the loss function to use for this head.&quot;&quot;&quot;</span>
-</span><span id="__span-0-1005"><a id="__codelineno-0-1005" name="__codelineno-0-1005"></a>        <span class="k">return</span> <span class="s2">&quot;bce_dice&quot;</span>
+<span class="normal"><a href="#__codelineno-0-1004">1004</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-972"><a id="__codelineno-0-972" name="__codelineno-0-972"></a><span class="k">class</span><span class="w"> </span><span class="nc">SegmentationHead</span><span class="p">(</span><span class="n">Head</span><span class="p">):</span>
+</span><span id="__span-0-973"><a id="__codelineno-0-973" name="__codelineno-0-973"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Head for predicting binary foreground segmentation masks.</span>
+</span><span id="__span-0-974"><a id="__codelineno-0-974" name="__codelineno-0-974"></a>
+</span><span id="__span-0-975"><a id="__codelineno-0-975" name="__codelineno-0-975"></a><span class="sd">    Outputs a single-channel map with sigmoid activation representing the</span>
+</span><span id="__span-0-976"><a id="__codelineno-0-976" name="__codelineno-0-976"></a><span class="sd">    probability that each pixel belongs to any instance (foreground).</span>
+</span><span id="__span-0-977"><a id="__codelineno-0-977" name="__codelineno-0-977"></a>
+</span><span id="__span-0-978"><a id="__codelineno-0-978" name="__codelineno-0-978"></a><span class="sd">    Attributes:</span>
+</span><span id="__span-0-979"><a id="__codelineno-0-979" name="__codelineno-0-979"></a><span class="sd">        output_stride: Stride of the output head tensor.</span>
+</span><span id="__span-0-980"><a id="__codelineno-0-980" name="__codelineno-0-980"></a><span class="sd">        loss_weight: Weight of the loss term for this head during optimization.</span>
+</span><span id="__span-0-981"><a id="__codelineno-0-981" name="__codelineno-0-981"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-982"><a id="__codelineno-0-982" name="__codelineno-0-982"></a>
+</span><span id="__span-0-983"><a id="__codelineno-0-983" name="__codelineno-0-983"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+</span><span id="__span-0-984"><a id="__codelineno-0-984" name="__codelineno-0-984"></a>        <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-0-985"><a id="__codelineno-0-985" name="__codelineno-0-985"></a>        <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-0-986"><a id="__codelineno-0-986" name="__codelineno-0-986"></a>        <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-0-987"><a id="__codelineno-0-987" name="__codelineno-0-987"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-988"><a id="__codelineno-0-988" name="__codelineno-0-988"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
+</span><span id="__span-0-989"><a id="__codelineno-0-989" name="__codelineno-0-989"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
+</span><span id="__span-0-990"><a id="__codelineno-0-990" name="__codelineno-0-990"></a>
+</span><span id="__span-0-991"><a id="__codelineno-0-991" name="__codelineno-0-991"></a>    <span class="nd">@property</span>
+</span><span id="__span-0-992"><a id="__codelineno-0-992" name="__codelineno-0-992"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">channels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+</span><span id="__span-0-993"><a id="__codelineno-0-993" name="__codelineno-0-993"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the number of channels in the tensor output by this head.&quot;&quot;&quot;</span>
+</span><span id="__span-0-994"><a id="__codelineno-0-994" name="__codelineno-0-994"></a>        <span class="k">return</span> <span class="mi">1</span>
+</span><span id="__span-0-995"><a id="__codelineno-0-995" name="__codelineno-0-995"></a>
+</span><span id="__span-0-996"><a id="__codelineno-0-996" name="__codelineno-0-996"></a>    <span class="nd">@property</span>
+</span><span id="__span-0-997"><a id="__codelineno-0-997" name="__codelineno-0-997"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">activation</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+</span><span id="__span-0-998"><a id="__codelineno-0-998" name="__codelineno-0-998"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the activation function of the head output layer.&quot;&quot;&quot;</span>
+</span><span id="__span-0-999"><a id="__codelineno-0-999" name="__codelineno-0-999"></a>        <span class="k">return</span> <span class="s2">&quot;identity&quot;</span>
+</span><span id="__span-0-1000"><a id="__codelineno-0-1000" name="__codelineno-0-1000"></a>
+</span><span id="__span-0-1001"><a id="__codelineno-0-1001" name="__codelineno-0-1001"></a>    <span class="nd">@property</span>
+</span><span id="__span-0-1002"><a id="__codelineno-0-1002" name="__codelineno-0-1002"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">loss_function</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+</span><span id="__span-0-1003"><a id="__codelineno-0-1003" name="__codelineno-0-1003"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Return the name of the loss function to use for this head.&quot;&quot;&quot;</span>
+</span><span id="__span-0-1004"><a id="__codelineno-0-1004" name="__codelineno-0-1004"></a>        <span class="k">return</span> <span class="s2">&quot;bce_dice&quot;</span>
 </span></code></pre></div></td></tr></table></div>
               </details>
 
@@ -14388,19 +14384,19 @@ probability that each pixel belongs to any instance (foreground).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/architectures/heads.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-984">984</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-983">983</a></span>
+<span class="normal"><a href="#__codelineno-0-984">984</a></span>
 <span class="normal"><a href="#__codelineno-0-985">985</a></span>
 <span class="normal"><a href="#__codelineno-0-986">986</a></span>
 <span class="normal"><a href="#__codelineno-0-987">987</a></span>
 <span class="normal"><a href="#__codelineno-0-988">988</a></span>
-<span class="normal"><a href="#__codelineno-0-989">989</a></span>
-<span class="normal"><a href="#__codelineno-0-990">990</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-984"><a id="__codelineno-0-984" name="__codelineno-0-984"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-0-985"><a id="__codelineno-0-985" name="__codelineno-0-985"></a>    <span class="bp">self</span><span class="p">,</span>
-</span><span id="__span-0-986"><a id="__codelineno-0-986" name="__codelineno-0-986"></a>    <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
-</span><span id="__span-0-987"><a id="__codelineno-0-987" name="__codelineno-0-987"></a>    <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-</span><span id="__span-0-988"><a id="__codelineno-0-988" name="__codelineno-0-988"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-989"><a id="__codelineno-0-989" name="__codelineno-0-989"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
-</span><span id="__span-0-990"><a id="__codelineno-0-990" name="__codelineno-0-990"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-989">989</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-983"><a id="__codelineno-0-983" name="__codelineno-0-983"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+</span><span id="__span-0-984"><a id="__codelineno-0-984" name="__codelineno-0-984"></a>    <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-0-985"><a id="__codelineno-0-985" name="__codelineno-0-985"></a>    <span class="n">output_stride</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+</span><span id="__span-0-986"><a id="__codelineno-0-986" name="__codelineno-0-986"></a>    <span class="n">loss_weight</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+</span><span id="__span-0-987"><a id="__codelineno-0-987" name="__codelineno-0-987"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-988"><a id="__codelineno-0-988" name="__codelineno-0-988"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the object with the specified attributes.&quot;&quot;&quot;</span>
+</span><span id="__span-0-989"><a id="__codelineno-0-989" name="__codelineno-0-989"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">output_stride</span><span class="p">,</span> <span class="n">loss_weight</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>

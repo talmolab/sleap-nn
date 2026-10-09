@@ -7632,6 +7632,11 @@ running as geometry only. Track the masks instead with <code>--features masks</c
 (appearance blended into mask IoU): every pose linked to exactly one tracked
 mask inherits that mask's track. <code>--features embeddings</code> follows the vectors to
 whichever carrier holds more of them.</p>
+<p>On the fused route a <strong>segmentation</strong> detection stack (<code>centroid</code> +
+<code>centered_instance_segmentation</code>, <code>bottomup_segmentation</code>) emits masks only, so
+tracking follows the masks: leave <code>--features</code> unset (or pass <code>--features
+masks</code>). A pose <code>--features</code> or <code>--scoring_method</code> is refused before the
+detection stack runs.</p>
 </div>
 <div class="admonition warning">
 <p class="admonition-title">Distance scores need <code>--euclidean_scale</code></p>

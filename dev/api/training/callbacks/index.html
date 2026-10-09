@@ -9293,16 +9293,6 @@ broadcast from rank 0 so every rank logs the same value (no DDP deadlock).</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="sleap_nn.training.callbacks.EmbeddingEvaluationCallback.select_metric">select_metric</span></code></td>
-            <td>
-            </td>
-            <td>
-              <div class="doc-md-description">
-                <p>Metric to log for checkpoint selection (rank1|mAP|auc|knn_acc).</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
             <td><code><span title="sleap_nn.training.callbacks.EmbeddingEvaluationCallback.knn_k">knn_k</span></code></td>
             <td>
             </td>
@@ -9347,7 +9337,7 @@ the embedding scatter viz reuses.</p>
       </thead>
       <tbody>
             <tr class="doc-section-item">
-              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;fm&quot;&gt;__init__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;eval_frequency&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;select_metric&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&amp;#39;rank1&amp;#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;knn_k&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;7&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.training.callbacks.EmbeddingEvaluationCallback.__init__&lt;/code&gt;)" href="#sleap_nn.training.callbacks.EmbeddingEvaluationCallback.__init__">__init__</a></code></td>
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;fm&quot;&gt;__init__&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;eval_frequency&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;knn_k&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;7&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.training.callbacks.EmbeddingEvaluationCallback.__init__&lt;/code&gt;)" href="#sleap_nn.training.callbacks.EmbeddingEvaluationCallback.__init__">__init__</a></code></td>
               <td>
                 <div class="doc-md-description">
                   <p>Initialize the callback.</p>
@@ -9588,19 +9578,19 @@ the embedding scatter viz reuses.</p>
 </span><span id="__span-0-2580"><a id="__codelineno-0-2580" name="__codelineno-0-2580"></a>
 </span><span id="__span-0-2581"><a id="__codelineno-0-2581" name="__codelineno-0-2581"></a><span class="sd">    Attributes:</span>
 </span><span id="__span-0-2582"><a id="__codelineno-0-2582" name="__codelineno-0-2582"></a><span class="sd">        eval_frequency: Run evaluation every N epochs (default: 1).</span>
-</span><span id="__span-0-2583"><a id="__codelineno-0-2583" name="__codelineno-0-2583"></a><span class="sd">        select_metric: Metric to log for checkpoint selection (rank1|mAP|auc|knn_acc).</span>
-</span><span id="__span-0-2584"><a id="__codelineno-0-2584" name="__codelineno-0-2584"></a><span class="sd">        knn_k: k for the cosine-kNN accuracy.</span>
-</span><span id="__span-0-2585"><a id="__codelineno-0-2585" name="__codelineno-0-2585"></a><span class="sd">        last_val_embeddings: The latest validation pass&#39;s embeddings (rank 0), which</span>
-</span><span id="__span-0-2586"><a id="__codelineno-0-2586" name="__codelineno-0-2586"></a><span class="sd">            the embedding scatter viz reuses.</span>
-</span><span id="__span-0-2587"><a id="__codelineno-0-2587" name="__codelineno-0-2587"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-2588"><a id="__codelineno-0-2588" name="__codelineno-0-2588"></a>
-</span><span id="__span-0-2589"><a id="__codelineno-0-2589" name="__codelineno-0-2589"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-0-2590"><a id="__codelineno-0-2590" name="__codelineno-0-2590"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">eval_frequency</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">select_metric</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;rank1&quot;</span><span class="p">,</span> <span class="n">knn_k</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">7</span>
-</span><span id="__span-0-2591"><a id="__codelineno-0-2591" name="__codelineno-0-2591"></a>    <span class="p">):</span>
-</span><span id="__span-0-2592"><a id="__codelineno-0-2592" name="__codelineno-0-2592"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the callback.&quot;&quot;&quot;</span>
-</span><span id="__span-0-2593"><a id="__codelineno-0-2593" name="__codelineno-0-2593"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-</span><span id="__span-0-2594"><a id="__codelineno-0-2594" name="__codelineno-0-2594"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">eval_frequency</span> <span class="o">=</span> <span class="n">eval_frequency</span>
-</span><span id="__span-0-2595"><a id="__codelineno-0-2595" name="__codelineno-0-2595"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">select_metric</span> <span class="o">=</span> <span class="n">select_metric</span>
+</span><span id="__span-0-2583"><a id="__codelineno-0-2583" name="__codelineno-0-2583"></a><span class="sd">        knn_k: k for the cosine-kNN accuracy.</span>
+</span><span id="__span-0-2584"><a id="__codelineno-0-2584" name="__codelineno-0-2584"></a><span class="sd">        last_val_embeddings: The latest validation pass&#39;s embeddings (rank 0), which</span>
+</span><span id="__span-0-2585"><a id="__codelineno-0-2585" name="__codelineno-0-2585"></a><span class="sd">            the embedding scatter viz reuses.</span>
+</span><span id="__span-0-2586"><a id="__codelineno-0-2586" name="__codelineno-0-2586"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-2587"><a id="__codelineno-0-2587" name="__codelineno-0-2587"></a>
+</span><span id="__span-0-2588"><a id="__codelineno-0-2588" name="__codelineno-0-2588"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">eval_frequency</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">knn_k</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">7</span><span class="p">):</span>
+</span><span id="__span-0-2589"><a id="__codelineno-0-2589" name="__codelineno-0-2589"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the callback.</span>
+</span><span id="__span-0-2590"><a id="__codelineno-0-2590" name="__codelineno-0-2590"></a>
+</span><span id="__span-0-2591"><a id="__codelineno-0-2591" name="__codelineno-0-2591"></a><span class="sd">        It logs every selection metric (rank1 / mAP / auc / eer / knn_acc); which one</span>
+</span><span id="__span-0-2592"><a id="__codelineno-0-2592" name="__codelineno-0-2592"></a><span class="sd">        ModelCheckpoint and EarlyStopping monitor is ``trainer_config.eval.select_metric``.</span>
+</span><span id="__span-0-2593"><a id="__codelineno-0-2593" name="__codelineno-0-2593"></a><span class="sd">        &quot;&quot;&quot;</span>
+</span><span id="__span-0-2594"><a id="__codelineno-0-2594" name="__codelineno-0-2594"></a>        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+</span><span id="__span-0-2595"><a id="__codelineno-0-2595" name="__codelineno-0-2595"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">eval_frequency</span> <span class="o">=</span> <span class="n">eval_frequency</span>
 </span><span id="__span-0-2596"><a id="__codelineno-0-2596" name="__codelineno-0-2596"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">knn_k</span> <span class="o">=</span> <span class="n">knn_k</span>
 </span><span id="__span-0-2597"><a id="__codelineno-0-2597" name="__codelineno-0-2597"></a>        <span class="c1"># Last successfully computed metrics, re-logged on epochs that do not</span>
 </span><span id="__span-0-2598"><a id="__codelineno-0-2598" name="__codelineno-0-2598"></a>        <span class="c1"># evaluate so the monitored key is never ABSENT from</span>
@@ -9782,7 +9772,7 @@ the embedding scatter viz reuses.</p>
 
 
 <h4 id="sleap_nn.training.callbacks.EmbeddingEvaluationCallback.__init__" class="doc doc-heading">
-            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">eval_frequency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">select_metric</span><span class="o">=</span><span class="s1">&#39;rank1&#39;</span><span class="p">,</span> <span class="n">knn_k</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="fm">__init__</span><span class="p">(</span><span class="n">eval_frequency</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">knn_k</span><span class="o">=</span><span class="mi">7</span><span class="p">)</span></code>
 
 <a href="#sleap_nn.training.callbacks.EmbeddingEvaluationCallback.__init__" class="headerlink" title="Permanent link">&para;</a></h4>
 
@@ -9790,11 +9780,14 @@ the embedding scatter viz reuses.</p>
     <div class="doc doc-contents ">
 
         <p>Initialize the callback.</p>
+<p>It logs every selection metric (rank1 / mAP / auc / eer / knn_acc); which one
+ModelCheckpoint and EarlyStopping monitor is <code>trainer_config.eval.select_metric</code>.</p>
 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/training/callbacks.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2589">2589</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-2588">2588</a></span>
+<span class="normal"><a href="#__codelineno-0-2589">2589</a></span>
 <span class="normal"><a href="#__codelineno-0-2590">2590</a></span>
 <span class="normal"><a href="#__codelineno-0-2591">2591</a></span>
 <span class="normal"><a href="#__codelineno-0-2592">2592</a></span>
@@ -9813,13 +9806,14 @@ the embedding scatter viz reuses.</p>
 <span class="normal"><a href="#__codelineno-0-2605">2605</a></span>
 <span class="normal"><a href="#__codelineno-0-2606">2606</a></span>
 <span class="normal"><a href="#__codelineno-0-2607">2607</a></span>
-<span class="normal"><a href="#__codelineno-0-2608">2608</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-2589"><a id="__codelineno-0-2589" name="__codelineno-0-2589"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
-</span><span id="__span-0-2590"><a id="__codelineno-0-2590" name="__codelineno-0-2590"></a>    <span class="bp">self</span><span class="p">,</span> <span class="n">eval_frequency</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">select_metric</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;rank1&quot;</span><span class="p">,</span> <span class="n">knn_k</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">7</span>
-</span><span id="__span-0-2591"><a id="__codelineno-0-2591" name="__codelineno-0-2591"></a><span class="p">):</span>
-</span><span id="__span-0-2592"><a id="__codelineno-0-2592" name="__codelineno-0-2592"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the callback.&quot;&quot;&quot;</span>
-</span><span id="__span-0-2593"><a id="__codelineno-0-2593" name="__codelineno-0-2593"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
-</span><span id="__span-0-2594"><a id="__codelineno-0-2594" name="__codelineno-0-2594"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">eval_frequency</span> <span class="o">=</span> <span class="n">eval_frequency</span>
-</span><span id="__span-0-2595"><a id="__codelineno-0-2595" name="__codelineno-0-2595"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">select_metric</span> <span class="o">=</span> <span class="n">select_metric</span>
+<span class="normal"><a href="#__codelineno-0-2608">2608</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-2588"><a id="__codelineno-0-2588" name="__codelineno-0-2588"></a><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">eval_frequency</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">knn_k</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">7</span><span class="p">):</span>
+</span><span id="__span-0-2589"><a id="__codelineno-0-2589" name="__codelineno-0-2589"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize the callback.</span>
+</span><span id="__span-0-2590"><a id="__codelineno-0-2590" name="__codelineno-0-2590"></a>
+</span><span id="__span-0-2591"><a id="__codelineno-0-2591" name="__codelineno-0-2591"></a><span class="sd">    It logs every selection metric (rank1 / mAP / auc / eer / knn_acc); which one</span>
+</span><span id="__span-0-2592"><a id="__codelineno-0-2592" name="__codelineno-0-2592"></a><span class="sd">    ModelCheckpoint and EarlyStopping monitor is ``trainer_config.eval.select_metric``.</span>
+</span><span id="__span-0-2593"><a id="__codelineno-0-2593" name="__codelineno-0-2593"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-2594"><a id="__codelineno-0-2594" name="__codelineno-0-2594"></a>    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+</span><span id="__span-0-2595"><a id="__codelineno-0-2595" name="__codelineno-0-2595"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">eval_frequency</span> <span class="o">=</span> <span class="n">eval_frequency</span>
 </span><span id="__span-0-2596"><a id="__codelineno-0-2596" name="__codelineno-0-2596"></a>    <span class="bp">self</span><span class="o">.</span><span class="n">knn_k</span> <span class="o">=</span> <span class="n">knn_k</span>
 </span><span id="__span-0-2597"><a id="__codelineno-0-2597" name="__codelineno-0-2597"></a>    <span class="c1"># Last successfully computed metrics, re-logged on epochs that do not</span>
 </span><span id="__span-0-2598"><a id="__codelineno-0-2598" name="__codelineno-0-2598"></a>    <span class="c1"># evaluate so the monitored key is never ABSENT from</span>
