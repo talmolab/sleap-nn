@@ -69,8 +69,8 @@ with **dataset size**. The cache holds every labeled frame decoded, so its size 
 `height x width x channels x labeled_frames` summed over your videos — a
 1024x1024 grayscale frame is 1 MB, so ~8,000 labeled frames is ~8 GB. Each worker
 then adds a share of that cache on top of the parent process: about **25%** per
-worker on Linux (fork + copy-on-write, dirtied by refcounting) and about **50%**
-on macOS and Windows (spawn, so the cache dict is pickled into each worker).
+worker on Linux (fork + copy-on-write, dirtied by refcounting) and a **full copy**
+(100%) on macOS and Windows (spawn, so the cache dict is pickled into each worker).
 
 Workers are therefore a memory *multiplier* on exactly the pipeline that is
 already the most memory-hungry, and the multiplier is proportional to your
@@ -83,9 +83,11 @@ On one fixed machine (16 cores, 16 GB free), varying only the dataset:
 
 | Labeled-image bytes | macOS / Windows | Linux |
 |---|---|---|
-| up to ~4 GB | 4 | 4 |
-| ~6 GB | 2 | 4 |
-| ~8 GB | 1 | 2 |
+| up to ~2.5 GB | 4 | 4 |
+| ~3 GB | 3 | 4 |
+| ~4 GB | 2 | 4 |
+| ~6 GB | 1 | 4 |
+| ~8 GB | 0 | 2 |
 | ~11-13 GB | 0 | 0 |
 | ~14 GB and up | 4 | 4 (falls back to disk caching) |
 
@@ -97,7 +99,7 @@ When it is memory rather than CPU that binds, the log says so:
 
 ```
 `num_workers: auto` limited to 1 worker(s) by available memory (CPU alone would
-allow 4): in-memory cache is 8.00 GB and each worker adds ~50% of it on darwin.
+allow 4): in-memory cache is 6.00 GB and each worker adds ~100% of it on darwin.
 ```
 
 Two cases skip the memory bound:

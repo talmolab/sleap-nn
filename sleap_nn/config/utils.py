@@ -385,7 +385,7 @@ def resolve_auto_num_workers(
     **Memory.** Under ``torch_dataset_cache_img_memory`` every worker adds a
     share of the image cache (see
     :func:`sleap_nn.data.utils.worker_memory_overhead_factor` — ~25% of it per
-    worker when forking on Linux, ~50% when spawning on macOS/Windows). Workers
+    worker when forking on Linux, a full copy when spawning on macOS/Windows). Workers
     are therefore a *memory multiplier* on exactly the pipeline that is already
     the most memory-hungry, so ``auto`` inverts the same estimate
     ``_setup_datasets`` uses and returns the largest count that still fits in
