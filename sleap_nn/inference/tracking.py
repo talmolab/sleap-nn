@@ -193,6 +193,163 @@ def embedding_carriers(labels: sio.Labels) -> CarrierCounts:
     return count_carriers(labels, _has_embedding)
 
 
+def resolve_tracked_carrier(
+    features: Optional[str], has_masks: bool, has_predicted_instances: bool
+) -> str:
+    """The carrier :func:`apply_tracking` tracks by geometry.
+
+    The masks (``lf.masks``) when the labels hold masks and either no predicted pose
+    or an explicit ``features="masks"``; the poses otherwise. It is also the carrier
+    an ``appearance_weight`` blend reads its vectors from. (``features="embeddings"``
+    instead follows the vectors to the carrier holding more of them.)
+
+    Args:
+        features: The tracker's ``features``.
+        has_masks: Whether any frame holds a mask.
+        has_predicted_instances: Whether any frame holds a predicted pose.
+    """
+    if has_masks and (not has_predicted_instances or features == "masks"):
+        return MASK_CARRIER
+    return POSE_CARRIER
+
+
+def _uses_pose_cleanup(config: TrackerConfig) -> bool:
+    """Whether ``config`` asks for the pose-only cull/clean/connect options."""
+    return bool(
+        config.tracking_pre_cull_to_target
+        or config.tracking_clean_instance_count
+        or config.post_connect_single_breaks
+    )
+
+
+def resolve_mask_tracking_options(config: TrackerConfig) -> "tuple[str, str]":
+    """``(features, scoring_method)`` for tracking the mask carrier by geometry.
+
+    Unset (non-explicit) options resolve to ``masks`` / ``mask_iou``.
+
+    Raises:
+        ValueError: An explicit option mask tracking cannot honor: another
+            ``features`` / ``scoring_method``, a motion model, or a pose
+            cull/clean/connect option.
+    """
+    scoring_method = (
+        config.scoring_method if config.scoring_method_explicit else "mask_iou"
+    )
+    features = config.features if config.features_explicit else "masks"
+    if features != "masks" or scoring_method != "mask_iou":
+        raise ValueError(
+            "Tracking a bottom-up segmentation (mask-only) model requires "
+            "features='masks' and scoring_method='mask_iou' (got features="
+            f"{features!r}, scoring_method={scoring_method!r}). "
+            "Leave --features/--scoring_method unset to auto-select them."
+        )
+    # Motion models and pose-shaped cull/clean ops are out of MVP scope for
+    # masks (they call .numpy()/same_pose_as on keypoint instances). Fail
+    # fast with a clear message rather than crash mid-stream.
+    if config.use_flow or config.use_kalman:
+        raise ValueError(
+            "Mask tracking does not support motion models "
+            "(--use_flow/--use_kalman); they are out of scope for the "
+            "segmentation tracker MVP."
+        )
+    if _uses_pose_cleanup(config):
+        raise ValueError(
+            "Mask tracking does not support the instance cull/clean/connect "
+            "options (tracking_pre_cull_to_target / "
+            "tracking_clean_instance_count / post_connect_single_breaks); "
+            "these operate on keypoint poses, not masks."
+        )
+    return features, scoring_method
+
+
+def check_embedding_mask_tracking_options(config: TrackerConfig) -> None:
+    """Refuse the pose-only options for appearance-only tracking of masks.
+
+    Raises:
+        ValueError: ``config`` sets a pose cull/clean/connect option.
+    """
+    if _uses_pose_cleanup(config):
+        raise ValueError(
+            "Embedding tracking on segmentation masks does not support the pose "
+            "cull/clean/connect options (tracking_pre_cull_to_target / "
+            "tracking_clean_instance_count / post_connect_single_breaks)."
+        )
+
+
+def appearance_blend_way_out(vector_carrier: str) -> str:
+    """How to make an ``appearance_weight`` blend read vectors on ``vector_carrier``.
+
+    For a blend that tracks the other carrier, whose detections carry no vector.
+    """
+    if vector_carrier == MASK_CARRIER:
+        return (
+            "Track the masks instead (`--features masks`, blending appearance "
+            "into mask IoU), or track by appearance alone (`--features "
+            "embeddings`, which follows the vectors to their carrier)."
+        )
+    return (
+        "Track the poses instead (a pose `--features`, e.g. "
+        "`keypoints`), or track by appearance alone (`--features "
+        "embeddings`, which follows the vectors to their carrier)."
+    )
+
+
+def check_tracking_plan(
+    config: TrackerConfig,
+    *,
+    has_masks: bool,
+    has_predicted_instances: bool,
+    vector_carrier: Optional[str],
+    vectors_from: str = "",
+) -> None:
+    """Raise what :func:`apply_tracking` will raise, before the labels are tracked.
+
+    For the embedding routes, which run a detection stack and/or an embedding pass
+    before they track: the carriers the labels will hold and the carrier the vectors
+    will be on are known (or predictable) beforehand, so the carrier rules of
+    :func:`apply_tracking` can fail first instead of after minutes of inference.
+    Checks, in :func:`apply_tracking`'s order: the options that tracking the mask
+    carrier cannot honor, then an ``appearance_weight`` blend whose tracked carrier
+    will hold no vector (a silent no-op: it reads only the tracked detections' own
+    vectors).
+
+    Args:
+        config: The tracker configuration.
+        has_masks: Whether the labels will hold masks.
+        has_predicted_instances: Whether they will hold predicted poses.
+        vector_carrier: The carrier the appearance vectors will be on, or ``None``
+            when that is not known yet (the carrier checks that need it are then
+            left to :func:`apply_tracking`).
+        vectors_from: Why the vectors land on ``vector_carrier``, for the message.
+
+    Raises:
+        ValueError: The plan cannot be tracked.
+    """
+    if config.features == "embeddings":
+        # Appearance alone follows the vectors to their carrier.
+        if vector_carrier == MASK_CARRIER:
+            check_embedding_mask_tracking_options(config)
+        return
+    tracked = resolve_tracked_carrier(
+        config.features, has_masks, has_predicted_instances
+    )
+    if tracked == MASK_CARRIER:
+        resolve_mask_tracking_options(config)
+    if (
+        config.appearance_weight > 0.0
+        and vector_carrier is not None
+        and vector_carrier != tracked
+    ):
+        why = f": {vectors_from}" if vectors_from else ""
+        raise ValueError(
+            f"appearance_weight={config.appearance_weight} would be a silent no-op. "
+            f"Tracking follows the {tracked} carrier, but the appearance vectors "
+            f"will be on the {vector_carrier} carrier{why}. The blend reads only the "
+            f"tracked detections' own vectors. "
+            f"{appearance_blend_way_out(vector_carrier)}"
+        )
+
+
 def _labels_have_embeddings(labels: sio.Labels) -> bool:
     """``True`` if any detection (pose instance or mask) carries a re-ID vector."""
     return embedding_carriers(labels).dominant is not None
@@ -362,9 +519,13 @@ def apply_tracking(
     # geometry. Decided BEFORE the single-node branch, which resolves POSE defaults
     # and must not run (or log) for a mask-carrier run.
     has_masks = any(getattr(lf, "masks", None) for lf in labels.labeled_frames)
-    is_mask_mode = has_masks and (
-        not any(lf.has_predicted_instances for lf in labels.labeled_frames)
-        or (not is_embedding_mode and config.features == "masks")
+    is_mask_mode = (
+        resolve_tracked_carrier(
+            config.features,
+            has_masks,
+            any(lf.has_predicted_instances for lf in labels.labeled_frames),
+        )
+        == MASK_CARRIER
     )
 
     if (
@@ -389,37 +550,11 @@ def apply_tracking(
 
     # Segmentation (mask carrier) default resolution.
     if is_mask_mode and not is_embedding_mode:
-        if not config.scoring_method_explicit:
-            effective_scoring_method = "mask_iou"
-        if not config.features_explicit:
-            effective_features = "masks"
-        if effective_features != "masks" or effective_scoring_method != "mask_iou":
-            raise ValueError(
-                "Tracking a bottom-up segmentation (mask-only) model requires "
-                "features='masks' and scoring_method='mask_iou' (got features="
-                f"{effective_features!r}, scoring_method={effective_scoring_method!r}). "
-                "Leave --features/--scoring_method unset to auto-select them."
-            )
-        # Motion models and pose-shaped cull/clean ops are out of MVP scope for
-        # masks (they call .numpy()/same_pose_as on keypoint instances). Fail
-        # fast with a clear message rather than crash mid-stream.
-        if config.use_flow or config.use_kalman:
-            raise ValueError(
-                "Mask tracking does not support motion models "
-                "(--use_flow/--use_kalman); they are out of scope for the "
-                "segmentation tracker MVP."
-            )
-        if (
-            config.tracking_pre_cull_to_target
-            or config.tracking_clean_instance_count
-            or config.post_connect_single_breaks
-        ):
-            raise ValueError(
-                "Mask tracking does not support the instance cull/clean/connect "
-                "options (tracking_pre_cull_to_target / "
-                "tracking_clean_instance_count / post_connect_single_breaks); "
-                "these operate on keypoint poses, not masks."
-            )
+        # masks / mask_iou, or a ValueError for an option mask tracking cannot
+        # honor (shared with the embedding routes' early `check_tracking_plan`).
+        effective_features, effective_scoring_method = resolve_mask_tracking_options(
+            config
+        )
         # Bottom-up segmentation is over-segmented; a larger candidate window
         # keeps identities across transient over-splits/misses. Bump the default
         # only (a non-default window_size is the user's explicit choice).
@@ -492,16 +627,8 @@ def apply_tracking(
         is_mask_mode = carrier == MASK_CARRIER
         # Mask-carried embeddings reuse the mask routing (track ``lf.masks``); the
         # pose-shaped cull/clean/connect ops crash on masks (same as mask_iou mode).
-        if is_mask_mode and (
-            config.tracking_pre_cull_to_target
-            or config.tracking_clean_instance_count
-            or config.post_connect_single_breaks
-        ):
-            raise ValueError(
-                "Embedding tracking on segmentation masks does not support the pose "
-                "cull/clean/connect options (tracking_pre_cull_to_target / "
-                "tracking_clean_instance_count / post_connect_single_breaks)."
-            )
+        if is_mask_mode:
+            check_embedding_mask_tracking_options(config)
         # Appearance-only tracking is for re-identification after occlusions and
         # across sparse frames. `fixed_window` forgets any track absent for more than
         # `window_size` frames and mints a fresh id when the animal returns, which is
@@ -536,15 +663,9 @@ def apply_tracking(
             # The blend reads each TRACKED detection's own vector. Vectors that ride
             # on the other carrier (the embedding model puts them on the masks of a
             # pose+mask file) are never read, so the blend would be just as inert.
-            way_out = (
-                "Track the masks instead (`--features masks`, blending appearance "
-                "into mask IoU), or track by appearance alone (`--features "
-                "embeddings`, which follows the vectors to their carrier)."
-                if other_carrier == MASK_CARRIER
-                else "Track the poses instead (a pose `--features`, e.g. "
-                "`keypoints`), or track by appearance alone (`--features "
-                "embeddings`, which follows the vectors to their carrier)."
-            )
+            # (The embedding routes refuse this before their inference runs; this
+            # catches labels that arrive with their vectors already attached.)
+            way_out = appearance_blend_way_out(other_carrier)
             raise ValueError(
                 f"appearance_weight={config.appearance_weight} was requested, but "
                 f"tracking follows the {tracked_carrier} carrier and none of its "

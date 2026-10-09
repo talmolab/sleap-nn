@@ -61,7 +61,6 @@ def _make_embedding_module(in_channels=1, objective_overrides=None):
                     "pool": "gem",
                     "normalize": True,
                     "output_stride": _MAX_STRIDE,
-                    "loss_weight": 1.0,
                     "freeze_backbone": False,
                     "objective": objective,
                 }

@@ -24,6 +24,7 @@ Conveniently, this format also provides a single location where all user-facing
 parameters are aggregated and documented for end users (as opposed to developers).
 """
 
+import copy
 from attrs import define, asdict, field
 from typing import Text, Optional
 from omegaconf import DictConfig, OmegaConf
@@ -32,7 +33,7 @@ import json
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.data_config import data_mapper
 from sleap_nn.config.model_config import ModelConfig
-from sleap_nn.config.model_config import model_mapper
+from sleap_nn.config.model_config import drop_removed_embedding_keys, model_mapper
 from sleap_nn.config.trainer_config import TrainerConfig
 from sleap_nn.config.trainer_config import trainer_mapper
 from sleap_nn.config.utils import get_output_strides_from_heads
@@ -112,7 +113,18 @@ class TrainingJobConfig:
 
 
 def verify_training_cfg(cfg: DictConfig) -> DictConfig:
-    """Get sleap-nn training config from a DictConfig object."""
+    """Get sleap-nn training config from a DictConfig object.
+
+    Keys the schema no longer has but older saved configs carry (see
+    :func:`~sleap_nn.config.model_config.drop_removed_embedding_keys`) are dropped
+    with a warning; ``cfg`` itself is not modified.
+    """
+    leaf_path = "model_config.head_configs.embedding.embedding"
+    if not isinstance(cfg, DictConfig):
+        cfg = OmegaConf.create(cfg)
+    if OmegaConf.select(cfg, leaf_path, default=None) is not None:
+        cfg = copy.deepcopy(cfg)
+        drop_removed_embedding_keys(OmegaConf.select(cfg, leaf_path))
     schema = OmegaConf.structured(TrainingJobConfig())
     config = OmegaConf.merge(schema, cfg)
     OmegaConf.to_container(config, resolve=True, throw_on_missing=True)

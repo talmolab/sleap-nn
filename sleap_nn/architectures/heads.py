@@ -862,7 +862,6 @@ class EmbeddingHead(Head):
             pool=config.pool,
             normalize=config.normalize,
             output_stride=config.output_stride,
-            loss_weight=config.loss_weight,
         )
 
     def make_head(self, x_in: int) -> nn.Sequential:

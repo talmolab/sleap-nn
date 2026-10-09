@@ -21,6 +21,8 @@ Usage:
     image, instances = apply_geometric_augmentation_skia(image, instances, **config)
 """
 
+import math
+import threading
 from typing import Optional, Sequence, Tuple
 import numpy as np
 import torch
@@ -581,6 +583,152 @@ def crop_and_resize_skia(
     surface.flushAndSubmit()
 
     # Extract appropriate channels from output array
+    if channels == 1:
+        result = output_rgba[:, :, 0:1]
+    else:
+        result = output_rgba[:, :, :3]
+
+    result_tensor = torch.from_numpy(result).permute(2, 0, 1).unsqueeze(0)
+    if is_float:
+        result_tensor = result_tensor.float() / 255.0
+
+    return result_tensor
+
+
+# Source pixels a crop's bilinear taps can reach beyond its box, per side (see
+# `crop_window_bounds`). One is the tap footprint; the second is slack.
+_CROP_WINDOW_MARGIN = 2
+
+# One frame-sized RGBA scratch buffer per thread for `crop_and_resize_skia_window`.
+_WINDOW_SCRATCH = threading.local()
+
+
+def _frame_rgba_scratch(height: int, width: int) -> np.ndarray:
+    """This thread's ``(height, width, 4)`` uint8 scratch buffer, reused across calls.
+
+    Allocating (and zeroing) a 4K RGBA buffer per crop cost more than the crop. Its
+    contents outside the window being drawn are stale and never read. One flat
+    buffer, grown to the largest frame seen, so videos of different sizes do not
+    reallocate it in turn; its prefix, reshaped, is C-contiguous.
+    """
+    n = int(height) * int(width) * 4
+    flat = getattr(_WINDOW_SCRATCH, "flat", None)
+    if flat is None or flat.size < n:
+        flat = np.zeros(n, dtype=np.uint8)
+        _WINDOW_SCRATCH.flat = flat
+    return flat[:n].reshape(int(height), int(width), 4)
+
+
+def crop_window_bounds(
+    boxes: torch.Tensor, frame_hw: Tuple[int, int]
+) -> Tuple[int, int, int, int]:
+    """The frame window ``(y0, y1, x0, x1)`` (half-open) a crop box samples from.
+
+    An output pixel center of :func:`crop_and_resize_skia` maps strictly inside the
+    box, and bilinear sampling reads the two source pixels around it, so every tap
+    lies within one pixel of the box. The window adds a margin of
+    ``_CROP_WINDOW_MARGIN`` pixels and is clipped to the frame; it can be empty
+    when the box lies entirely outside the frame.
+
+    Args:
+        boxes: Box corners of shape ``(1, 4, 2)``, as :func:`crop_and_resize_skia`
+            takes them.
+        frame_hw: The ``(height, width)`` of the frame the box is in.
+    """
+    box = boxes[0].numpy()
+    height, width = int(frame_hw[0]), int(frame_hw[1])
+    x0 = max(0, int(math.floor(float(box[:, 0].min()))) - _CROP_WINDOW_MARGIN)
+    y0 = max(0, int(math.floor(float(box[:, 1].min()))) - _CROP_WINDOW_MARGIN)
+    x1 = min(width, int(math.floor(float(box[:, 0].max()))) + _CROP_WINDOW_MARGIN + 1)
+    y1 = min(height, int(math.floor(float(box[:, 1].max()))) + _CROP_WINDOW_MARGIN + 1)
+    return y0, max(y0, y1), x0, max(x0, x1)
+
+
+def crop_and_resize_skia_window(
+    window: torch.Tensor,
+    origin: Tuple[int, int],
+    frame_hw: Tuple[int, int],
+    boxes: torch.Tensor,
+    size: Tuple[int, int],
+) -> torch.Tensor:
+    """:func:`crop_and_resize_skia` of a frame, given only a window of it.
+
+    Returns the same bytes :func:`crop_and_resize_skia` returns for the whole frame,
+    when ``window`` covers :func:`crop_window_bounds` of the box, in time that grows
+    with the crop instead of the frame.
+
+    Skia maps each output pixel to the source through the box's transform, in float32.
+    Cropping a window and shifting the box (or drawing the window at an offset) changes
+    that arithmetic, and crops can then differ by a grey level. So the
+    transform is left as it is: the window is written into a frame-sized RGBA buffer
+    (reused, one per thread) that Skia wraps without a copy. The rest of that buffer
+    is never sampled, so what it holds does not matter, and nothing frame-sized is
+    built or copied. Keep the transform and the drawing below in step with
+    :func:`crop_and_resize_skia`.
+
+    Args:
+        window: The frame window, ``(1, C, h, w)`` (``C`` is 1 or 3), uint8 or float32
+            in ``[0, 1]`` like :func:`crop_and_resize_skia`'s input.
+        origin: The window's top-left ``(x0, y0)`` in the frame.
+        frame_hw: The frame's ``(height, width)``.
+        boxes: Box corners ``(1, 4, 2)`` in frame coordinates.
+        size: Output size ``(height, width)``.
+
+    Returns:
+        The crop, ``(1, C, out_h, out_w)``, of the window's dtype.
+    """
+    is_float = window.dtype == torch.float32
+    if is_float:
+        win_np = (window[0].permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+    else:
+        win_np = window[0].permute(1, 2, 0).numpy()
+
+    frame_h, frame_w = int(frame_hw[0]), int(frame_hw[1])
+    out_h, out_w = size
+    channels = win_np.shape[2] if win_np.ndim == 3 else 1
+    if channels not in (1, 3):
+        raise ValueError(f"Unsupported channels: {channels}")
+
+    box = boxes[0].numpy()  # (4, 2)
+    x1, y1 = box[0]  # top-left
+    x2, y2 = box[2]  # bottom-right
+
+    crop_w = x2 - x1
+    crop_h = y2 - y1
+
+    matrix = skia.Matrix()
+    scale_x = out_w / crop_w
+    scale_y = out_h / crop_h
+    matrix.setScale(scale_x, scale_y)
+    matrix.preTranslate(-x1, -y1)
+
+    # Frame-sized RGBA source; only the window is written.
+    image_rgba = _frame_rgba_scratch(frame_h, frame_w)
+    ox, oy = int(origin[0]), int(origin[1])
+    h, w = win_np.shape[:2]
+    if h > 0 and w > 0:
+        target = image_rgba[oy : oy + h, ox : ox + w]
+        target[..., :3] = win_np
+        target[..., 3] = 255
+    skia_image = skia.Image.fromarray(
+        image_rgba, colorType=skia.ColorType.kRGBA_8888_ColorType, copy=False
+    )
+
+    output_rgba = np.zeros((out_h, out_w, 4), dtype=np.uint8)
+    output_rgba[:, :, 3] = 255  # Set alpha to opaque
+    surface = skia.Surface(output_rgba, colorType=skia.ColorType.kRGBA_8888_ColorType)
+    canvas = surface.getCanvas()
+    canvas.clear(skia.Color4f(0, 0, 0, 1))
+    canvas.setMatrix(matrix)
+
+    paint = skia.Paint()
+    paint.setAntiAlias(True)
+    sampling = skia.SamplingOptions(skia.FilterMode.kLinear)
+    canvas.drawImage(skia_image, 0, 0, sampling, paint)
+    surface.flushAndSubmit()
+    # `skia_image` borrows `image_rgba`; release it before the buffer goes.
+    del skia_image
+
     if channels == 1:
         result = output_rgba[:, :, 0:1]
     else:

@@ -188,6 +188,166 @@ def embed_labels_for_eval(
     return embedded.embeddings, embedded.group_ids
 
 
+class _SelectionRules(NamedTuple):
+    """Which detections an inference `EmbeddingDataset` embeds, and how it names them."""
+
+    track_names_are_global: bool
+    id_scope: str
+    user_instances_only: bool
+    min_mask_area: float
+    class_names: list
+
+
+def _selection_rules(config, labels: sio.Labels, group_as_trained: bool):
+    """The :class:`_SelectionRules` of :func:`_embed_detections`.
+
+    ``group_as_trained`` (the retrieval eval) uses what the per-epoch validation set
+    was built with (:func:`get_train_val_datasets`): its grouping, its
+    ``user_instances_only`` (predictions a user label on the same frame supersedes
+    left out) and its smallest mask. Otherwise every track or identity name is an
+    identity, and every detection, predicted ones included, gets a vector; only an
+    empty mask (nothing to center a crop on) does not.
+    """
+    from sleap_nn.data.custom_datasets import (
+        EMBEDDING_MIN_MASK_AREA,
+        resolve_embedding_class_names,
+        resolve_embedding_grouping,
+    )
+
+    if group_as_trained:
+        track_names_are_global, id_scope = resolve_embedding_grouping(config)
+        user_instances_only = bool(
+            OmegaConf.select(config, "data_config.user_instances_only", default=True)
+        )
+        min_mask_area = EMBEDDING_MIN_MASK_AREA
+    else:
+        track_names_are_global, id_scope = True, "global_id"
+        user_instances_only = False
+        min_mask_area = 1
+    class_names = resolve_embedding_class_names(
+        [labels],
+        track_names_are_global=track_names_are_global,
+        user_instances_only=user_instances_only,
+    )
+    return _SelectionRules(
+        track_names_are_global,
+        id_scope,
+        user_instances_only,
+        min_mask_area,
+        class_names,
+    )
+
+
+def embedded_carrier(config, labels: sio.Labels, include_untracked: bool = True):
+    """The carrier :func:`embed_labels` puts its vectors on, for these labels.
+
+    The rule the embedding dataset applies (:func:`~sleap_nn.data.custom_datasets.
+    resolve_embedding_detection_mode`): the carrier the model was trained on whenever
+    the labels hold one of its detections, else the other, counted over the
+    detections :func:`embed_labels` would embed. Computed from the labels and the
+    model config alone, before anything is embedded.
+
+    Args:
+        config: The embedding model's training config.
+        labels: The detections to embed.
+        include_untracked: As passed to :func:`embed_labels`.
+
+    Returns:
+        ``(carrier, n_detections)``: ``"pose"`` / ``"mask"``, and how many of its
+        detections would be embedded (``0``: nothing would be).
+    """
+    from sleap_nn.data.custom_datasets import (
+        EmbeddingMembership,
+        embedding_preferred_carrier,
+        resolve_embedding_detection_mode,
+    )
+    from sleap_nn.inference.tracking import MASK_CARRIER, count_carriers
+
+    rules = _selection_rules(config, labels, group_as_trained=False)
+    membership = EmbeddingMembership(
+        rules.class_names,
+        id_scope=rules.id_scope,
+        track_names_are_global=rules.track_names_are_global,
+        # As `EmbeddingDataset` builds it.
+        user_instances_only=rules.user_instances_only and not include_untracked,
+        include_untracked=include_untracked,
+        min_mask_area=rules.min_mask_area,
+        labels=[labels],
+    )
+    carrier = resolve_embedding_detection_mode(
+        [labels], membership.is_member, preferred=embedding_preferred_carrier(config)
+    )
+    counts = count_carriers(labels, membership.is_member)
+    n = counts.n_mask_with if carrier == MASK_CARRIER else counts.n_pose_with
+    return carrier, n
+
+
+def _why_this_carrier(config, carrier: str) -> str:
+    """Why an embedding model embeds ``carrier`` of some labels, for a message."""
+    from sleap_nn.data.custom_datasets import embedding_preferred_carrier
+
+    preferred = embedding_preferred_carrier(config)
+    if preferred is None:
+        return "the carrier holding more of the detections it embeds (ties: masks)"
+    if preferred != carrier:
+        return f"it was trained on the {preferred} carrier, which these labels lack"
+    recorded = OmegaConf.select(
+        config,
+        "model_config.head_configs.embedding.embedding.detection_mode",
+        default=None,
+    )
+    if recorded is not None:
+        return (
+            "the carrier it was trained on "
+            f"(head_configs.embedding.embedding.detection_mode={recorded})"
+        )
+    return "the carrier it was trained on (masks, under burn_in)"
+
+
+def _check_tracking_plan(
+    tracker_config, model_dir, labels: sio.Labels, include_untracked: bool
+) -> None:
+    """:func:`~sleap_nn.inference.tracking.check_tracking_plan` for these labels.
+
+    Before the embedding pass: the carriers come from ``labels``, the carrier the
+    vectors will land on from :func:`embedded_carrier`.
+
+    Raises:
+        EmbeddingInputError: The labels could not be tracked as configured.
+    """
+    from sleap_nn.inference.loaders import _load_training_config
+    from sleap_nn.inference.tracking import check_tracking_plan
+
+    config = _load_training_config(model_dir)[0]
+    vector_carrier, n_embedded = None, 0
+    if (
+        tracker_config.appearance_weight > 0.0
+        or tracker_config.features == "embeddings"
+    ):
+        # Only appearance reads the vectors; a geometric plan does not need them.
+        vector_carrier, n_embedded = embedded_carrier(
+            config, labels, include_untracked=include_untracked
+        )
+    try:
+        check_tracking_plan(
+            tracker_config,
+            has_masks=any(getattr(lf, "masks", None) for lf in labels.labeled_frames),
+            has_predicted_instances=any(
+                lf.has_predicted_instances for lf in labels.labeled_frames
+            ),
+            # Nothing embedded: the pass raises its own "no detections" error.
+            vector_carrier=vector_carrier if n_embedded else None,
+            vectors_from=(
+                "the embedding model embeds "
+                + _why_this_carrier(config, vector_carrier)
+                if n_embedded
+                else ""
+            ),
+        )
+    except ValueError as e:
+        raise EmbeddingInputError(str(e)) from e
+
+
 class _Embedded(NamedTuple):
     """One row per embedded detection (see :func:`_embed_detections`)."""
 
@@ -214,12 +374,9 @@ def _embed_detections(
     """
     from sleap_nn.config.utils import resolve_model_dir
     from sleap_nn.data.custom_datasets import (
-        EMBEDDING_MIN_MASK_AREA,
         EmbeddingDataset,
         _global_identity_label,
         embedding_preferred_carrier,
-        resolve_embedding_class_names,
-        resolve_embedding_grouping,
     )
     from sleap_nn.inference.loaders import (
         _load_training_config,
@@ -254,27 +411,10 @@ def _embed_detections(
     emb_head = config.model_config.head_configs.embedding.embedding
     embedding_dim = int(emb_head.embedding_dim)
 
-    if group_as_trained:
-        # What the per-epoch validation set was built with (get_train_val_datasets):
-        # its grouping, its `user_instances_only` (predictions a user label on the
-        # same frame supersedes left out) and its smallest mask.
-        track_names_are_global, id_scope = resolve_embedding_grouping(config)
-        user_instances_only = bool(
-            OmegaConf.select(config, "data_config.user_instances_only", default=True)
-        )
-        min_mask_area = EMBEDDING_MIN_MASK_AREA
-    else:
-        # Every track or identity name is an identity, and every detection --
-        # predicted ones included -- gets a vector; only an empty mask (nothing to
-        # center a crop on) does not.
-        track_names_are_global, id_scope = True, "global_id"
-        user_instances_only = False
-        min_mask_area = 1
-    class_names = resolve_embedding_class_names(
-        [labels],
-        track_names_are_global=track_names_are_global,
-        user_instances_only=user_instances_only,
-    )
+    rules = _selection_rules(config, labels, group_as_trained)
+    track_names_are_global, id_scope = rules.track_names_are_global, rules.id_scope
+    user_instances_only, min_mask_area = rules.user_instances_only, rules.min_mask_area
+    class_names = rules.class_names
     if not include_untracked and id_scope != "aug_view":
         # (Under `aug_view` every detection is a member; the no-detections check
         # below covers it.)
@@ -579,6 +719,11 @@ def predict_embeddings_to_slp(
         _refuse_overwriting_frame_source(labels, output_path)
     except ValueError as e:
         raise EmbeddingInputError(str(e)) from e
+    if tracking:
+        # What `apply_tracking` would refuse after the embedding pass, refused
+        # before it: the carriers these labels hold, and the one the vectors will
+        # land on, are known from the labels and the model config already.
+        _check_tracking_plan(tracker_config, model_dir, labels, inc_untracked)
 
     # Clear every vector the input already carries (both carriers) so that a
     # detection this pass does not embed -- the carrier `EmbeddingDataset` did not
