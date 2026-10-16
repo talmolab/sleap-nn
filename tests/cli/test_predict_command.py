@@ -1155,7 +1155,7 @@ def test_predict_stream_to_file_rejects_non_slp_format(tmp_path):
     assert "only supports --output_format slp" in result.exception.message
 
 
-def test_predict_stream_to_file_gui_uses_run_guarded(tmp_path):
+def test_predict_stream_to_file_gui_uses_run_guarded(tmp_path, centered_instance_video):
     """``--stream-to-file --gui`` routes ``predict_to_file`` through
     ``_run_guarded`` (Bug 2 covers this dispatch path too, not just the
     in-memory and retrack-only ones)."""
@@ -1171,7 +1171,9 @@ def test_predict_stream_to_file_gui_uses_run_guarded(tmp_path):
             [
                 "predict",
                 "--data_path",
-                "/fake/path.mp4",
+                # A real video: this path builds a VideoProvider, which now
+                # refuses a video it cannot read.
+                str(centered_instance_video),
                 "--model_paths",
                 "/fake/model",
                 "--stream-to-file",

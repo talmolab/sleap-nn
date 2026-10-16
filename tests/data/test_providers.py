@@ -1,14 +1,118 @@
+import pytest
 import torch
+from sleap_io.io.video_reading import MediaVideo
 
+from sleap_nn.data import providers
 from sleap_nn.data.providers import (
     LabelsReader,
     VideoReader,
+    check_video_readable,
     filter_oob_points,
     process_lf,
 )
 from queue import Queue
 import sleap_io as sio
 import numpy as np
+
+
+@pytest.fixture
+def undecodable_video_path(tmp_path):
+    """Path to a `.mp4` file that no video plugin can decode."""
+    path = tmp_path / "undecodable.mp4"
+    path.write_bytes(b"this is not a video")
+    return path
+
+
+def test_check_video_readable(centered_instance_video, undecodable_video_path):
+    """Test that undecodable videos raise instead of looking empty."""
+    video = sio.load_video(centered_instance_video)
+    check_video_readable(video)
+    assert video.backend.plugin == "opencv"
+
+    # sleap-io reports a video it cannot decode as having no frames.
+    video = sio.load_video(undecodable_video_path)
+    assert len(video) == 0
+    with pytest.raises(ValueError, match="with OpenCV or PyAV: it reports no frames"):
+        check_video_readable(video)
+
+    # With a stored shape (as for a video in a .slp), the frame read itself fails.
+    video = sio.Video(
+        filename=str(undecodable_video_path),
+        backend_metadata={"shape": (10, 64, 64, 1)},
+    )
+    assert len(video) == 10
+    with pytest.raises(ValueError, match="reading frame 0 failed"):
+        check_video_readable(video)
+
+
+def test_check_video_readable_suggests_pyav_when_missing(
+    undecodable_video_path, monkeypatch
+):
+    """Test that the error suggests installing PyAV only when it is missing."""
+    monkeypatch.setattr(providers, "_pyav_installed", lambda: False)
+    video = sio.load_video(undecodable_video_path)
+    with pytest.raises(ValueError, match="'opencv' video plugin") as e:
+        check_video_readable(video)
+    assert "pip install av" in str(e.value)
+
+
+@pytest.fixture
+def opencv_cannot_decode(monkeypatch):
+    """Make OpenCV fail to decode any frame, as it does for AV1 on Linux."""
+    read_frame = MediaVideo._read_frame
+
+    def _read_frame(self, frame_idx):
+        if self.plugin == "opencv":
+            raise IndexError(f"Failed to read frame index {frame_idx}.")
+        return read_frame(self, frame_idx)
+
+    monkeypatch.setattr(MediaVideo, "_read_frame", _read_frame)
+
+
+def test_check_video_readable_falls_back_to_pyav(
+    centered_instance_video, opencv_cannot_decode
+):
+    """Test that a video OpenCV cannot decode is switched to PyAV."""
+    video = sio.load_video(centered_instance_video)
+    assert len(video) == 0
+    check_video_readable(video)
+    assert video.backend.plugin == "pyav"
+    assert video.shape == (1100, 384, 384, 1)
+
+
+def test_videoreader_reads_with_pyav_fallback(
+    centered_instance_video, opencv_cannot_decode
+):
+    """Test that VideoReader's thread-local copy keeps the PyAV fallback."""
+    video = sio.load_video(centered_instance_video)
+    reader = VideoReader(video=video, frame_buffer=Queue(maxsize=4), frames=[0, 1])
+    reader.start()
+    frames = []
+    try:
+        while True:
+            frame = reader.frame_buffer.get(timeout=60)
+            if frame["image"] is None:  # end of stream, also sent after an error
+                break
+            frames.append(frame)
+    finally:
+        reader.join(timeout=60)
+    assert [int(f["frame_idx"]) for f in frames] == [0, 1]
+    assert frames[0]["image"].shape == (1, 1, 384, 384)
+
+
+@pytest.mark.parametrize("frames", [None, [0, 1, 2]])
+def test_videoreader_undecodable_video_raises(undecodable_video_path, frames):
+    """Test that VideoReader fails up front instead of reading nothing."""
+    video = sio.load_video(undecodable_video_path)
+    with pytest.raises(ValueError, match="it reports no frames"):
+        VideoReader(video=video, frame_buffer=Queue(maxsize=4), frames=frames)
+
+
+def test_videoreader_empty_frame_list_skips_check(undecodable_video_path):
+    """Test that an explicitly empty frame list reads nothing and does not raise."""
+    video = sio.load_video(undecodable_video_path)
+    reader = VideoReader(video=video, frame_buffer=Queue(maxsize=4), frames=[])
+    assert reader.total_len() == 0
 
 
 def test_videoreader_provider(centered_instance_video, minimal_instance):

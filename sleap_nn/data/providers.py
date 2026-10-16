@@ -1,9 +1,11 @@
 """This module implements pipeline blocks for reading input data such as labels."""
 
+import importlib.util
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import sleap_io as sio
+from sleap_io.io.video_reading import MediaVideo
 from queue import Queue
 from threading import Thread
 import torch
@@ -26,6 +28,63 @@ def get_max_instances(labels: sio.Labels):
         if num_inst > max_instances:
             max_instances = num_inst
     return max_instances
+
+
+def _video_read_error(video: sio.Video) -> Optional[str]:
+    """Return why frames cannot be read from `video`, or None if frame 0 reads."""
+    if len(video) == 0:
+        return "it reports no frames"
+    try:
+        video[0]
+    except Exception as e:
+        return f"reading frame 0 failed ({str(e).rstrip('.')})"
+    return None
+
+
+def _pyav_installed() -> bool:
+    """Return True if PyAV (the `av` package) is installed."""
+    return importlib.util.find_spec("av") is not None
+
+
+def check_video_readable(video: sio.Video) -> None:
+    """Make sure frames can be read from a video, falling back to PyAV if needed.
+
+    sleap-io reports a video it cannot decode as having no frames (its `shape`
+    swallows the read error), so inference on it would silently predict nothing.
+    The usual cause is a codec that OpenCV's wheels cannot decode, such as AV1 on
+    Linux before opencv-python 4.14.0.94. When OpenCV fails and PyAV is installed,
+    the video is switched to sleap-io's "pyav" plugin (for this session only).
+
+    Args:
+        video: The video to check. Its video plugin may be changed to "pyav".
+
+    Raises:
+        ValueError: If no available plugin can read the video's first frame.
+    """
+    error = _video_read_error(video)
+    if error is None:
+        return
+    plugin = getattr(video.backend, "plugin", None)
+    has_pyav = _pyav_installed()
+    if plugin == "opencv" and has_pyav and isinstance(video.backend, MediaVideo):
+        video.set_video_plugin("pyav")
+        if _video_read_error(video) is None:
+            logger.warning(
+                f"OpenCV could not read {video.filename} ({error}); reading it with "
+                "PyAV instead."
+            )
+            return
+        raise ValueError(
+            f"Could not read {video.filename} with OpenCV or PyAV: {error}."
+        )
+    reader = f" with sleap-io's {plugin!r} video plugin" if plugin else ""
+    hint = (
+        ""
+        if has_pyav
+        else " Installing PyAV (`pip install av`) may help: it reads codecs that "
+        "OpenCV's wheels cannot, such as AV1 on Linux."
+    )
+    raise ValueError(f"Could not read {video.filename}{reader}: {error}.{hint}")
 
 
 def get_max_height_width(labels: sio.Labels) -> Tuple[int, int]:
@@ -216,6 +275,9 @@ class VideoReader(Thread):
         self.frame_buffer = frame_buffer
         self.frames = frames
         self._daemonic = True  # needs to be set to True for graceful stop; all threads should be killed when main thread is killed
+        if self.frames is None or len(self.frames) > 0:
+            # Fail here, not in `run`, which logs read errors and stops quietly.
+            check_video_readable(self.video)
         if self.frames is None:
             self.frames = [x for x in range(0, len(self.video))]
 

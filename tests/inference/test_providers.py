@@ -45,6 +45,18 @@ def test_video_provider_yields_frames_in_batches():
     assert (batches[0].video_indices == 0).all()
 
 
+@pytest.mark.parametrize("frames", [None, [0, 1, 2]])
+def test_video_provider_undecodable_video_raises(tmp_path, frames):
+    """A video sleap-io can't decode reports 0 frames: raise, don't yield nothing."""
+    path = tmp_path / "undecodable.mp4"
+    path.write_bytes(b"this is not a video")
+    with pytest.raises(ValueError, match="it reports no frames"):
+        VideoProvider(video=str(path), frames=frames)
+
+    # An explicitly empty frame list asks for nothing, so there is nothing to check.
+    assert len(VideoProvider(video=str(path), frames=[])) == 0
+
+
 @pytest.mark.skipif(not VIDEO.exists(), reason="test video not present")
 def test_video_provider_uneven_last_batch():
     """5 frames + batch=3 → batches of sizes 3 + 2."""
