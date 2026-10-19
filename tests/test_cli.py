@@ -546,7 +546,9 @@ class TestPredictFrameFilterFlagsWarnForNonSlpSource:
             "--only_predicted_frames",
         ],
     )
-    def test_stream_to_file_warns_and_continues_for_video(self, flag, tmp_path):
+    def test_stream_to_file_warns_and_continues_for_video(
+        self, flag, tmp_path, centered_instance_video
+    ):
         """Same warning for --stream-to-file, logged before a model is loaded."""
         runner = CliRunner()
         with patch(
@@ -560,7 +562,7 @@ class TestPredictFrameFilterFlagsWarnForNonSlpSource:
                 [
                     "predict",
                     "-i",
-                    "x.mp4",
+                    centered_instance_video.as_posix(),
                     "--model_paths",
                     "/fake/model",
                     "--stream-to-file",

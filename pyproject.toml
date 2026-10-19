@@ -30,7 +30,7 @@ classifiers = [
 ]
 dependencies = [
     # Instance segmentation (SegmentationMask / Labels.get_masks) requires the
-    # sleap-io 0.8.0 annotation architecture. Audited through 0.9.2 (re-ID,
+    # sleap-io 0.8.0 annotation architecture. Audited through 0.9.3 (re-ID,
     # Category, Event annotations; the two breaking changes there —
     # Identity.color removed, .category str->Category — don't touch any API
     # sleap-nn uses).
@@ -41,7 +41,12 @@ dependencies = [
     # + `save_embedding_vectors` (talmolab/sleap-io #531/#535/#536, released in 0.9.0).
     #
     # Fenced below 0.10.0 so a future breaking bump is an explicit, audited upgrade.
-    "sleap-io>=0.9.2,<0.10.0",
+    #
+    # The `pyav` extra (PyAV, which ships libdav1d) is what sleap-io reads AV1 video
+    # with: the opencv-python wheels for Linux before 4.14.0.94 (and 5.0.0.93)
+    # cannot decode AV1, and the Windows wheels decode it 4-6x slower. 0.9.3 is the
+    # first sleap-io that reads AV1 with PyAV by default (talmolab/sleap-io#561).
+    "sleap-io[pyav]>=0.9.3,<0.10.0",
     "numpy",
     "torch",
     "torchvision>=0.20.0",

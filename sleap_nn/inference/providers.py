@@ -183,6 +183,8 @@ class VideoProvider:
         """Resolve the video path → ``sio.Video`` and stash frame indices."""
         import sleap_io as sio
 
+        from sleap_nn.data.providers import check_video_readable
+
         if isinstance(self.video, sio.Video):
             self._sio_video = self.video
         else:
@@ -194,6 +196,11 @@ class VideoProvider:
             if self.remote_kwargs:
                 kwargs.update(self.remote_kwargs)
             self._sio_video = sio.load_video(str(self.video), **kwargs)
+
+        if self.frames is None or len(self.frames) > 0:
+            # An undecodable video reports 0 frames: raise instead of yielding
+            # nothing.
+            check_video_readable(self._sio_video, self.frames)
 
         n_frames = len(self._sio_video)
         if self.frames is not None:
