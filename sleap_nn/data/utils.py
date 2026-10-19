@@ -231,8 +231,10 @@ def worker_memory_overhead_factor() -> float:
     - **Linux** forks, so the cache starts out shared Copy-on-Write; Python
       refcounting still dirties pages, costing roughly a quarter of it.
     - **macOS / Windows** spawn (macOS has defaulted to spawn since Python 3.8),
-      so the cache dict is pickled into each worker — roughly half of it, and
-      genuinely additive.
+      so the cache dict is pickled into each worker, which then holds its own
+      full copy: measured at 1.0x the cache per worker on both Windows 11 and
+      macOS (worker private memory with the in-memory cache minus with the
+      disk cache).
 
     Kept as a single named constant because both the memory *estimate* and the
     ``num_workers: "auto"`` resolver (which inverts that estimate to find how
@@ -241,7 +243,7 @@ def worker_memory_overhead_factor() -> float:
     Returns:
         Fraction of ``raw_cache_bytes`` charged per worker.
     """
-    return 0.25 if sys.platform == "linux" else 0.5
+    return 0.25 if sys.platform == "linux" else 1.0
 
 
 def estimate_cache_memory(
@@ -332,7 +334,7 @@ def estimate_cache_memory(
             platform_name = "macOS" if sys.platform == "darwin" else "Windows"
             logger.warning(
                 f"Using in-memory caching with {num_workers} DataLoader workers on {platform_name}. "
-                f"Memory usage may be significantly higher than estimated (~{worker_overhead_bytes / (1024**3):.1f} GB extra) "
+                f"Each worker holds its own copy of the image cache (~{worker_overhead_bytes / (1024**3):.1f} GB extra) "
                 f"due to spawn-based multiprocessing. "
                 f"Consider using disk caching or num_workers=0 for large datasets."
             )

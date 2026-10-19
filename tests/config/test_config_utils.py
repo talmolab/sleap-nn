@@ -368,7 +368,14 @@ def test_suggestion_respects_memory_bound(fake_memory, caplog):
     Otherwise it would talk users into a setting that pushes the run past the
     memory check and silently downgrades it to disk caching.
     """
-    fake_memory(raw_cache_gb=8, available_gb=16)
+    from sleap_nn.data.utils import worker_memory_overhead_factor
+
+    # Size the cache so RAM allows 2 workers on every platform: after the 20%
+    # buffer, (16 / 1.2 - raw) / (raw * factor) = 2.5.
+    fake_memory(
+        raw_cache_gb=(16 / 1.2) / (1 + 2.5 * worker_memory_overhead_factor()),
+        available_gb=16,
+    )
     utils.check_num_workers(
         _num_workers_cfg(0, 0), train_labels=[object()], val_labels=[]
     )
