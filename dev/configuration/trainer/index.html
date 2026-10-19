@@ -7889,8 +7889,8 @@ with <strong>dataset size</strong>. The cache holds every labeled frame decoded,
 <code>height x width x channels x labeled_frames</code> summed over your videos — a
 1024x1024 grayscale frame is 1 MB, so ~8,000 labeled frames is ~8 GB. Each worker
 then adds a share of that cache on top of the parent process: about <strong>25%</strong> per
-worker on Linux (fork + copy-on-write, dirtied by refcounting) and about <strong>50%</strong>
-on macOS and Windows (spawn, so the cache dict is pickled into each worker).</p>
+worker on Linux (fork + copy-on-write, dirtied by refcounting) and a <strong>full copy</strong>
+(100%) on macOS and Windows (spawn, so the cache dict is pickled into each worker).</p>
 <p>Workers are therefore a memory <em>multiplier</em> on exactly the pipeline that is
 already the most memory-hungry, and the multiplier is proportional to your
 dataset. <code>auto</code> inverts the same estimate the memory check uses and picks the
@@ -7908,18 +7908,28 @@ caching.</p>
 </thead>
 <tbody>
 <tr>
-<td>up to ~4 GB</td>
+<td>up to ~2.5 GB</td>
 <td>4</td>
 <td>4</td>
 </tr>
 <tr>
-<td>~6 GB</td>
+<td>~3 GB</td>
+<td>3</td>
+<td>4</td>
+</tr>
+<tr>
+<td>~4 GB</td>
 <td>2</td>
 <td>4</td>
 </tr>
 <tr>
-<td>~8 GB</td>
+<td>~6 GB</td>
 <td>1</td>
+<td>4</td>
+</tr>
+<tr>
+<td>~8 GB</td>
+<td>0</td>
 <td>2</td>
 </tr>
 <tr>
@@ -7939,7 +7949,7 @@ fit at <em>any</em> worker count, so the run falls back to disk caching, where w
 stop being a memory multiplier and the CPU bound applies again.</p>
 <p>When it is memory rather than CPU that binds, the log says so:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>`num_workers: auto` limited to 1 worker(s) by available memory (CPU alone would
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>allow 4): in-memory cache is 8.00 GB and each worker adds ~50% of it on darwin.
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>allow 4): in-memory cache is 6.00 GB and each worker adds ~100% of it on darwin.
 </span></code></pre></div>
 <p>Two cases skip the memory bound:</p>
 <ul>
