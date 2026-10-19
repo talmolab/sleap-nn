@@ -684,6 +684,221 @@ class LabelsProvider:
 
 
 @attrs.define
+class VideoSelection:
+    """Frames of one video of a ``Labels``, selected by index and annotation status.
+
+    What ``--data_path project.slp --video_index N`` means: predict on video
+    ``N`` itself -- every frame it has (or the ``frames`` subset), filtered by the
+    project's annotations (``exclude_user_labeled`` / ``only_*``) -- exactly as if
+    the video file had been passed, plus the annotation filters a raw video
+    cannot express. Not a ``Provider``; ``Predictor`` resolves it into one via
+    :meth:`to_provider` once it knows whether the layer needs GT instances.
+
+    Unlike a ``LabelsProvider`` over the project, the candidate frames are the
+    video's own frames, not only those that already have a ``LabeledFrame``, so
+    "all frames except the user-labeled ones" is expressible.
+
+    Only for videos backed by their own file (``.mp4``, ``.h5``, an image
+    sequence). A video embedded in a ``.pkg.slp`` has no frames beyond the ones
+    stored with its labels, so it is rejected here; the CLI keeps scoping those
+    to their existing labeled frames.
+
+    Args:
+        labels: The loaded project.
+        video_index: Index of the video in ``labels.videos``.
+        frames: Optional source frame indices (``LabeledFrame.frame_idx``
+            space) to restrict to. Indices the video doesn't have are skipped
+            with a warning.
+        only_labeled_frames / only_suggested_frames / exclude_user_labeled /
+        only_predicted_frames: Annotation-status filters, with the same
+            priority and meaning as :class:`LabelsProvider`.
+    """
+
+    labels: "sio.Labels"
+    video_index: int
+    frames: Optional[list] = None
+    only_labeled_frames: bool = False
+    only_suggested_frames: bool = False
+    exclude_user_labeled: bool = False
+    only_predicted_frames: bool = False
+
+    def __attrs_post_init__(self) -> None:
+        """Validate ``video_index`` and the filter combination."""
+        n = len(self.labels.videos)
+        if not 0 <= self.video_index < n:
+            raise IndexError(
+                f"video_index {self.video_index} is out of range: the labels "
+                f"have {n} video(s)."
+            )
+        if self.only_labeled_frames and self.exclude_user_labeled:
+            raise ValueError(
+                "only_labeled_frames=True and exclude_user_labeled=True are "
+                "mutually exclusive."
+            )
+        from sleap_nn.inference.run import _video_has_embedded_images
+
+        if _video_has_embedded_images(self.video):
+            raise ValueError(
+                f"Video {self.video_index} is embedded in a .pkg.slp; "
+                "VideoSelection needs a video with its own file."
+            )
+
+    @property
+    def video(self) -> "sio.Video":
+        """The selected video."""
+        return self.labels.videos[self.video_index]
+
+    @property
+    def videos(self) -> "list[sio.Video]":
+        """The source videos, for output packaging and overwrite checks."""
+        return [self.video]
+
+    def _user_labeled(self) -> set:
+        return {
+            lf.frame_idx
+            for lf in self.labels.find(video=self.video)
+            if lf.has_user_instances
+        }
+
+    def candidate_indices(self, warn: bool = True) -> "Union[range, list[int]]":
+        """The video's frames, restricted to ``frames`` if given."""
+        n_frames = len(self.video)
+        if self.frames is None:
+            return range(n_frames)
+        wanted = sorted(set(self.frames))
+        missing = [i for i in wanted if not 0 <= i < n_frames]
+        if missing and warn:
+            logger.warning(
+                f"{len(missing)} of {len(wanted)} requested frame index/indices "
+                f"for video {self.video_index} are out of range for a video with "
+                f"{n_frames} frame(s) and will be skipped: "
+                f"{missing[:20]}{', ...' if len(missing) > 20 else ''}"
+            )
+        return [i for i in wanted if 0 <= i < n_frames]
+
+    def frame_indices(self) -> "Union[range, list[int]]":
+        """Frame indices to predict, after the annotation-status filters.
+
+        Filter priority matches :class:`LabelsProvider` (and legacy
+        ``LabelsReader``): ``only_labeled_frames`` > ``only_suggested_frames``
+        > ``exclude_user_labeled`` > ``only_predicted_frames``.
+        """
+        candidates = self.candidate_indices()
+        if self.only_labeled_frames:
+            user = self._user_labeled()
+            return [i for i in candidates if i in user]
+        if self.only_suggested_frames:
+            user = self._user_labeled()
+            suggested = {
+                s.frame_idx
+                for s in (getattr(self.labels, "suggestions", None) or [])
+                if s.video is self.video
+            }
+            return [i for i in candidates if i in suggested and i not in user]
+        if self.exclude_user_labeled:
+            user = self._user_labeled()
+            if not user:
+                return candidates
+            return [i for i in candidates if i not in user]
+        if self.only_predicted_frames:
+            predicted = {
+                lf.frame_idx
+                for lf in self.labels.find(video=self.video)
+                if lf.has_predicted_instances
+            }
+            return [i for i in candidates if i in predicted]
+        return candidates
+
+    def to_provider(self, batch_size: int = 4, needs_gt_instances: bool = False):
+        """Build the provider that reads the selected frames.
+
+        Frames are read straight from the video (``VideoProvider``) -- no
+        placeholder ``LabeledFrame`` per frame, so an hour-long video costs a
+        list of ints, not a million attrs objects. Only when GT instances must
+        ride along (``only_labeled_frames``, or a GT-fallback layer) is a
+        ``LabelsProvider`` over the matching user-labeled frames used.
+
+        Args:
+            batch_size: Frames per yielded ``Batch``.
+            needs_gt_instances: Whether the layer consumes GT instances
+                (``Predictor._needs_gt_instances()``).
+        """
+        import sleap_io as sio
+
+        if needs_gt_instances or self.only_labeled_frames:
+            # GT instances must ride along, so only user-labeled frames can
+            # run. Honor the requested selection first, then intersect: an
+            # excluded frame is never predicted just because it has GT.
+            user = self._user_labeled()
+            requested = self.frame_indices()
+            lookup = requested if isinstance(requested, range) else set(requested)
+            wanted = {i for i in user if i in lookup}
+            if needs_gt_instances and len(wanted) < len(requested):
+                logger.warning(
+                    "This model uses ground-truth instances in place of a "
+                    "centroid model, so it can only run on user-labeled frames: "
+                    f"{len(requested) - len(wanted)} of {len(requested)} selected "
+                    f"frame(s) of video {self.video_index} have no user "
+                    "instances and will be skipped."
+                )
+            lfs = sorted(
+                (
+                    lf
+                    for lf in self.labels.find(video=self.video)
+                    if lf.frame_idx in wanted
+                ),
+                key=lambda lf: lf.frame_idx,
+            )
+            scoped = sio.Labels(
+                videos=[self.video],
+                skeletons=self.labels.skeletons,
+                labeled_frames=lfs,
+                provenance=dict(getattr(self.labels, "provenance", None) or {}),
+            )
+            provider = LabelsProvider(
+                labels=scoped, batch_size=batch_size, only_labeled_frames=True
+            )
+        else:
+            no_filters = not (
+                self.only_suggested_frames
+                or self.exclude_user_labeled
+                or self.only_predicted_frames
+            )
+            frames = (
+                None
+                if no_filters and self.frames is None
+                else list(self.frame_indices())
+            )
+            provider = VideoProvider(
+                video=self.video, batch_size=batch_size, frames=frames
+            )
+        if provider.num_frames() == 0:
+            logger.warning(
+                f"No frames selected for video {self.video_index}: "
+                + self._empty_reason(needs_gt_instances)
+            )
+        return provider
+
+    def _empty_reason(self, needs_gt_instances: bool = False) -> str:
+        if self.frames is not None and not self.candidate_indices(warn=False):
+            return "none of the requested --frames exist in this video."
+        if needs_gt_instances and not self.only_labeled_frames:
+            return (
+                "the model needs ground-truth instances and none of the "
+                "selected frames are user-labeled."
+            )
+        if self.only_labeled_frames:
+            return "it has no user-labeled frames in the requested range."
+        if self.only_suggested_frames:
+            return "it has no unlabeled suggested frames in the requested range."
+        if self.only_predicted_frames:
+            return "it has no predicted frames in the requested range."
+        if self.exclude_user_labeled:
+            return "every frame in the requested range is user-labeled."
+        return "the video has no readable frames."
+
+
+@attrs.define
 class MultiVideoProvider:
     """Concatenate several providers, OFFSETTING per-source video indices.
 

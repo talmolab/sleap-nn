@@ -990,7 +990,7 @@ def test_predict_video_index_scopes_and_names_output():
     """`predict --video_index 1` scopes to that video + suffixes the output. #583."""
     import sleap_io as sio
 
-    from sleap_nn.inference.providers import LabelsProvider
+    from sleap_nn.inference.providers import VideoSelection
 
     skel = sio.Skeleton(nodes=["a", "b"])
     v0 = sio.Video(filename="a.mp4")
@@ -1016,7 +1016,9 @@ def test_predict_video_index_scopes_and_names_output():
         )
         assert result.exit_code == 0, result.output
         source = mock_pred.call_args[0][0]
-        assert isinstance(source, LabelsProvider)
+        # A file-backed video is predicted on its own frames (#762).
+        assert isinstance(source, VideoSelection)
+        assert source.video_index == 1 and source.video is v1
         # Output filename is suffixed with the scoped video's name (legacy parity).
         assert mock_pred.call_args[1]["output_path"].endswith("b.predictions.slp")
 
