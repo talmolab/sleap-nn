@@ -1,3 +1,5 @@
+import sys
+
 import torch
 import pytest
 import sleap_io as sio
@@ -11,6 +13,7 @@ from sleap_nn.data.utils import (
     check_memory,
     check_cache_memory,
     estimate_cache_memory,
+    worker_memory_overhead_factor,
 )
 
 
@@ -197,3 +200,25 @@ def test_check_cache_memory_with_workers(minimal_instance, num_workers):
     # Should not raise - just verify it accepts the parameter
     result = check_cache_memory([labels], [labels], num_workers=num_workers)
     assert isinstance(result, bool)
+
+
+@pytest.mark.parametrize(
+    "platform, factor", [("linux", 0.25), ("darwin", 1.0), ("win32", 1.0)]
+)
+def test_worker_memory_overhead_factor(monkeypatch, platform, factor):
+    """Spawned workers each hold a full copy of the cache; forked ones share most."""
+    monkeypatch.setattr(sys, "platform", platform)
+    assert worker_memory_overhead_factor() == factor
+
+
+@pytest.mark.parametrize("platform", ["darwin", "win32"])
+def test_estimate_cache_memory_spawn_charges_full_copy(
+    minimal_instance, monkeypatch, platform
+):
+    """On spawn platforms every worker is charged the whole in-memory cache."""
+    labels = sio.load_slp(minimal_instance)
+    monkeypatch.setattr(sys, "platform", platform)
+
+    estimate = estimate_cache_memory([labels], [labels], num_workers=3)
+
+    assert estimate["worker_overhead_bytes"] == 3 * estimate["raw_cache_bytes"]
