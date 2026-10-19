@@ -30,15 +30,19 @@ def get_max_instances(labels: sio.Labels):
     return max_instances
 
 
-def _video_read_error(video: sio.Video) -> Optional[str]:
-    """Return why frames cannot be read from `video`, or None if frame 0 reads."""
+def _video_read_error(video: sio.Video, frame_inds: List[int]) -> Optional[str]:
+    """Return why `video` cannot be read, or None if any of `frame_inds` reads."""
     if len(video) == 0:
         return "it reports no frames"
-    try:
-        video[0]
-    except Exception as e:
-        return f"reading frame 0 failed ({str(e).rstrip('.')})"
-    return None
+    error = None
+    for frame_idx in frame_inds:
+        try:
+            video[frame_idx]
+        except Exception as e:
+            error = error or f"reading frame {frame_idx} failed ({str(e).rstrip('.')})"
+            continue
+        return None
+    return error
 
 
 def _pyav_installed() -> bool:
@@ -46,7 +50,7 @@ def _pyav_installed() -> bool:
     return importlib.util.find_spec("av") is not None
 
 
-def check_video_readable(video: sio.Video) -> None:
+def check_video_readable(video: sio.Video, frames: Optional[list] = None) -> None:
     """Make sure frames can be read from a video, falling back to PyAV if needed.
 
     sleap-io reports a video it cannot decode as having no frames (its `shape`
@@ -55,20 +59,29 @@ def check_video_readable(video: sio.Video) -> None:
     Linux before opencv-python 4.14.0.94. When OpenCV fails and PyAV is installed,
     the video is switched to sleap-io's "pyav" plugin (for this session only).
 
+    The video counts as readable if frame 0 or the first of `frames` reads. Frame
+    0 alone is not enough: a `.pkg.slp` embeds only some frames, often not 0.
+
     Args:
         video: The video to check. Its video plugin may be changed to "pyav".
+        frames: The frame indices that will be read, or None for all of them.
 
     Raises:
-        ValueError: If no available plugin can read the video's first frame.
+        ValueError: If no available plugin can read the video.
     """
-    error = _video_read_error(video)
+    frame_inds = [0]
+    if frames is not None and len(frames) > 0 and int(frames[0]) != 0:
+        frame_inds.append(int(frames[0]))
+    error = _video_read_error(video, frame_inds)
     if error is None:
         return
-    plugin = getattr(video.backend, "plugin", None)
+    is_media = isinstance(video.backend, MediaVideo)
+    # Only a MediaVideo's `plugin` is a video plugin; HDF5Video's is for images.
+    plugin = getattr(video.backend, "plugin", None) if is_media else None
     has_pyav = _pyav_installed()
-    if plugin == "opencv" and has_pyav and isinstance(video.backend, MediaVideo):
+    if plugin == "opencv" and has_pyav:
         video.set_video_plugin("pyav")
-        if _video_read_error(video) is None:
+        if _video_read_error(video, frame_inds) is None:
             logger.warning(
                 f"OpenCV could not read {video.filename} ({error}); reading it with "
                 "PyAV instead."
@@ -277,7 +290,7 @@ class VideoReader(Thread):
         self._daemonic = True  # needs to be set to True for graceful stop; all threads should be killed when main thread is killed
         if self.frames is None or len(self.frames) > 0:
             # Fail here, not in `run`, which logs read errors and stops quietly.
-            check_video_readable(self.video)
+            check_video_readable(self.video, self.frames)
         if self.frames is None:
             self.frames = [x for x in range(0, len(self.video))]
 

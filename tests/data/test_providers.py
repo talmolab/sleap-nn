@@ -100,6 +100,58 @@ def test_videoreader_reads_with_pyav_fallback(
     assert frames[0]["image"].shape == (1, 1, 384, 384)
 
 
+@pytest.fixture
+def pkg_video_without_frame_0(centered_instance_video, tmp_path):
+    """A `.pkg.slp` video that embeds frames 3 and 7 only (not frame 0)."""
+    video = sio.load_video(centered_instance_video)
+    skeleton = sio.Skeleton(["a"])
+    labeled_frames = [
+        sio.LabeledFrame(
+            video=video,
+            frame_idx=frame_idx,
+            instances=[sio.Instance(np.array([[5.0, 5.0]]), skeleton=skeleton)],
+        )
+        for frame_idx in (3, 7)
+    ]
+    path = tmp_path / "frame_0_not_embedded.pkg.slp"
+    sio.Labels(labeled_frames, videos=[video], skeletons=[skeleton]).save(
+        path, embed="user"
+    )
+    return sio.load_slp(path).videos[0]
+
+
+def test_check_video_readable_first_requested_frame(pkg_video_without_frame_0):
+    """Test that a video is readable if the first requested frame reads."""
+    video = pkg_video_without_frame_0
+    check_video_readable(video, frames=[3, 7])
+
+    # Without requested frames, only frame 0 is tried. The error names no video
+    # plugin: HDF5Video's `plugin` is an image plugin.
+    with pytest.raises(ValueError, match="reading frame 0 failed") as e:
+        check_video_readable(video)
+    assert "video plugin" not in str(e.value)
+
+
+def test_videoreader_pkg_without_frame_0(pkg_video_without_frame_0):
+    """Test that VideoReader reads embedded frames when frame 0 is not embedded."""
+    reader = VideoReader(
+        video=pkg_video_without_frame_0,
+        frame_buffer=Queue(maxsize=4),
+        frames=[3, 7],
+    )
+    reader.start()
+    frames = []
+    try:
+        while True:
+            frame = reader.frame_buffer.get(timeout=60)
+            if frame["image"] is None:
+                break
+            frames.append(frame)
+    finally:
+        reader.join(timeout=60)
+    assert [int(f["frame_idx"]) for f in frames] == [3, 7]
+
+
 @pytest.mark.parametrize("frames", [None, [0, 1, 2]])
 def test_videoreader_undecodable_video_raises(undecodable_video_path, frames):
     """Test that VideoReader fails up front instead of reading nothing."""

@@ -200,7 +200,7 @@ class VideoProvider:
         if self.frames is None or len(self.frames) > 0:
             # An undecodable video reports 0 frames: raise instead of yielding
             # nothing.
-            check_video_readable(self._sio_video)
+            check_video_readable(self._sio_video, self.frames)
 
         n_frames = len(self._sio_video)
         if self.frames is not None:
