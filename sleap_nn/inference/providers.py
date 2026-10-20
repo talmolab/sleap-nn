@@ -850,8 +850,21 @@ class VideoSelection:
             batch_size: Frames per yielded ``Batch``.
             needs_gt_instances: Whether the layer consumes GT instances
                 (``Predictor._needs_gt_instances()``).
+
+        Raises:
+            ValueError: If the video can't be decoded with any available plugin.
         """
         import sleap_io as sio
+
+        from sleap_nn.data.providers import check_video_readable
+
+        if self.frames is None or len(self.frames) > 0:
+            # An undecodable video reports 0 frames, which would make every
+            # requested index "out of range" and predict nothing. Check (and fall
+            # back to PyAV) before anything reads the video's length. Done here
+            # rather than at construction so the CLI's `--gui` error reporting,
+            # which wraps prediction, sees the error.
+            check_video_readable(self.video, self.frames)
 
         if needs_gt_instances or self.only_labeled_frames:
             # GT instances must ride along, so only user-labeled frames can
