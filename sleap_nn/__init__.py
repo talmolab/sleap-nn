@@ -105,7 +105,7 @@ def redirect_logs_to_stderr() -> None:
     _add_default_sink("stderr")
 
 
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 
 # Public API
 from sleap_nn.evaluation import load_metrics
