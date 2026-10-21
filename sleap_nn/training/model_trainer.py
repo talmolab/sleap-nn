@@ -682,6 +682,46 @@ class ModelTrainer:
             for labels in label_list or []:
                 add_bboxes_to_labels(labels, source=source, padding=padding)
 
+    # Box metrics a `bbox_*` model can select checkpoints on (all higher-is-better).
+    _BBOX_SELECT_METRICS = ("bbox_mAP", "bbox_AP50", "bbox_AP75", "bbox_AR", "bbox_f1")
+
+    def _bbox_select_metric(self) -> Optional[str]:
+        """The eval metric a ``bbox_*`` model selects checkpoints on, or ``None``.
+
+        ``trainer_config.eval.select_metric`` names one of ``_BBOX_SELECT_METRICS``,
+        or ``val_loss`` for the loss. Left at its schema default (``"rank1"``, an
+        embedding metric), detectors select on ``bbox_mAP`` when
+        ``trainer_config.eval.enabled`` (the metric only exists then) and on the
+        val loss otherwise.
+
+        Raises:
+            ValueError: For an unknown metric name, or a box metric requested with
+                evaluation disabled (the metric would never be logged).
+        """
+        select = OmegaConf.select(
+            self.config, "trainer_config.eval.select_metric", default="rank1"
+        )
+        eval_enabled = bool(
+            OmegaConf.select(self.config, "trainer_config.eval.enabled", default=False)
+        )
+        if select in ("rank1", None):
+            return "bbox_mAP" if eval_enabled else None
+        if select == "val_loss":
+            return None
+        if select not in self._BBOX_SELECT_METRICS:
+            raise ValueError(
+                f"trainer_config.eval.select_metric='{select}' is not a valid "
+                "selection metric for a bounding-box model; choose one of "
+                f"{'|'.join(self._BBOX_SELECT_METRICS + ('val_loss',))}."
+            )
+        if not eval_enabled:
+            raise ValueError(
+                f"trainer_config.eval.select_metric='{select}' needs "
+                "trainer_config.eval.enabled=true (box metrics are only computed "
+                "by the epoch-end evaluation)."
+            )
+        return select
+
     def _setup_bbox_head_config(self):
         """Fill in a ``bbox_*`` model's categories (and SSD's anchor sizes) from labels.
 
@@ -2129,6 +2169,20 @@ class ModelTrainer:
                     self.config, "trainer_config.eval.frequency", default=1
                 )
             )
+        elif self.model_type in BBOX_MODEL_TYPES:
+            bbox_select = self._bbox_select_metric()
+            if bbox_select is None:
+                ckpt_monitor, ckpt_mode = "val/loss", "min"
+                ckpt_every_n_epochs = 1
+            else:
+                # Box quality is measured every `eval.frequency` epochs; select and
+                # early-stop on those epochs only (as for the embedding metric).
+                ckpt_monitor, ckpt_mode = f"eval/val/{bbox_select}", "max"
+                ckpt_every_n_epochs = int(
+                    OmegaConf.select(
+                        self.config, "trainer_config.eval.frequency", default=1
+                    )
+                )
         else:
             ckpt_monitor, ckpt_mode = "val/loss", "min"
             ckpt_every_n_epochs = 1
@@ -2439,10 +2493,12 @@ class ModelTrainer:
                 min_delta=self.config.trainer_config.early_stopping.min_delta,
                 patience=self.config.trainer_config.early_stopping.patience,
             )
-            if self.model_type == "embedding":
+            if self.model_type == "embedding" or ckpt_monitor.startswith(
+                "eval/val/bbox_"
+            ):
                 # The verification metrics (auc/eer) can be NaN on a degenerate val
                 # set/shard; don't let that abort the run — pose/seg models keep the
-                # strict defaults.
+                # strict defaults. Box metrics likewise exist on eval epochs only.
                 es_kwargs["strict"] = False
                 es_kwargs["check_finite"] = False
                 # The retrieval metric is measured every `eval.frequency` epochs and

@@ -386,6 +386,7 @@ def export(
             )
             metadata_n_classes = len(metadata_class_names)
             metadata_max_instances = max_instances
+            metadata_max_hw = resolve_max_hw(cfg)
         else:
             raise click.ClickException(
                 f"Model type '{model_type}' is not supported for export yet."

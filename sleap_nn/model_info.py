@@ -23,7 +23,16 @@ def _format_model_type(model_type: Optional[str]) -> str:
     """Format model type to human-readable string."""
     if model_type is None:
         return "Unknown"
+    if model_type in _MODEL_TYPE_NAMES:
+        return _MODEL_TYPE_NAMES[model_type]
     return model_type.replace("_", " ").title()
+
+
+# Display names that title-casing would mangle.
+_MODEL_TYPE_NAMES = {
+    "bbox_centernet": "Bounding Box (CenterNet)",
+    "bbox_ssd": "Bounding Box (SSD)",
+}
 
 
 def _format_file_size(size_bytes: int) -> str:
@@ -80,6 +89,19 @@ def _format_head_summary(cfg, model_type: str) -> str:
     if head_cfg is None:
         return _format_model_type(model_type)
 
+    if model_type in ("bbox_centernet", "bbox_ssd"):
+        leaf = head_cfg.center if model_type == "bbox_centernet" else head_cfg.ssd
+        if leaf is not None:
+            n = len(leaf.categories or [])
+            parts = [f"output_stride={leaf.output_stride}"]
+            if model_type == "bbox_ssd":
+                anchors = len(leaf.anchor_scales) * len(leaf.aspect_ratios)
+                parts.append(f"{leaf.num_levels} levels, {anchors} anchors/cell")
+            if n:
+                parts.append(f"{n} {'category' if n == 1 else 'categories'}")
+            style = "CenterNet" if model_type == "bbox_centernet" else "SSD"
+            return f"{style} boxes ({', '.join(parts)})"
+
     parts = []
 
     # Confidence maps info
@@ -99,6 +121,19 @@ def _format_head_summary(cfg, model_type: str) -> str:
     if parts:
         return f"ConfMaps ({', '.join(parts)})"
     return _format_model_type(model_type)
+
+
+# (metrics key, label) rows of the eval table for a bounding-box detector.
+_BBOX_METRIC_ROWS = (
+    ("bbox_mAP", "mAP@[.50:.95] (box IoU)"),
+    ("bbox_AP50", "AP50"),
+    ("bbox_AP75", "AP75"),
+    ("bbox_AR", "AR"),
+    ("bbox_f1", "Best F1 (IoU 0.5)"),
+    ("bbox_precision", "Precision at best F1"),
+    ("bbox_recall", "Recall at best F1"),
+    ("bbox_f1_threshold", "Score threshold at best F1"),
+)
 
 
 def _load_training_log(model_dir: Path) -> Optional[dict]:
@@ -395,31 +430,36 @@ def print_model_info(path: str) -> None:
             except (TypeError, ValueError):
                 return str(val)
 
-        # mOKS
-        moks = metrics.get("mOKS", {})
-        metrics_table.add_row("mOKS", _fmt(moks.get("mOKS")))
+        if "bbox_mAP" in metrics:
+            # Bounding-box detector: COCO-style box metrics, no pose metrics.
+            for key, label in _BBOX_METRIC_ROWS:
+                metrics_table.add_row(label, _fmt(metrics.get(key)))
+        else:
+            # mOKS
+            moks = metrics.get("mOKS", {})
+            metrics_table.add_row("mOKS", _fmt(moks.get("mOKS")))
 
-        # VOC metrics
-        voc = metrics.get("voc_metrics", {})
-        metrics_table.add_row("mAP (OKS)", _fmt(voc.get("oks_voc.mAP")))
-        metrics_table.add_row("mAR (OKS)", _fmt(voc.get("oks_voc.mAR")))
+            # VOC metrics
+            voc = metrics.get("voc_metrics", {})
+            metrics_table.add_row("mAP (OKS)", _fmt(voc.get("oks_voc.mAP")))
+            metrics_table.add_row("mAR (OKS)", _fmt(voc.get("oks_voc.mAR")))
 
-        # Distance metrics
-        dist = metrics.get("distance_metrics", {})
-        metrics_table.add_row("Avg distance (px)", _fmt(dist.get("avg"), ".2f"))
-        metrics_table.add_row("Median distance (px)", _fmt(dist.get("p50"), ".2f"))
-        metrics_table.add_row("P95 distance (px)", _fmt(dist.get("p95"), ".2f"))
+            # Distance metrics
+            dist = metrics.get("distance_metrics", {})
+            metrics_table.add_row("Avg distance (px)", _fmt(dist.get("avg"), ".2f"))
+            metrics_table.add_row("Median distance (px)", _fmt(dist.get("p50"), ".2f"))
+            metrics_table.add_row("P95 distance (px)", _fmt(dist.get("p95"), ".2f"))
 
-        # PCK metrics
-        pck = metrics.get("pck_metrics", {})
-        metrics_table.add_row("mPCK", _fmt(pck.get("mPCK")))
-        metrics_table.add_row("PCK@5", _fmt(pck.get("PCK@5")))
-        metrics_table.add_row("PCK@10", _fmt(pck.get("PCK@10")))
+            # PCK metrics
+            pck = metrics.get("pck_metrics", {})
+            metrics_table.add_row("mPCK", _fmt(pck.get("mPCK")))
+            metrics_table.add_row("PCK@5", _fmt(pck.get("PCK@5")))
+            metrics_table.add_row("PCK@10", _fmt(pck.get("PCK@10")))
 
-        # Visibility metrics
-        vis = metrics.get("visibility_metrics", {})
-        metrics_table.add_row("Vis. precision", _fmt(vis.get("precision")))
-        metrics_table.add_row("Vis. recall", _fmt(vis.get("recall")))
+            # Visibility metrics
+            vis = metrics.get("visibility_metrics", {})
+            metrics_table.add_row("Vis. precision", _fmt(vis.get("precision")))
+            metrics_table.add_row("Vis. recall", _fmt(vis.get("recall")))
 
         console.print(metrics_table)
 

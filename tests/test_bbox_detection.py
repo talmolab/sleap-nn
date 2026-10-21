@@ -568,9 +568,11 @@ def _bbox_train_config(config, model_type, tmp_path):
 
 
 @pytest.mark.parametrize("model_type", ["bbox_centernet", "bbox_ssd"])
-def test_bbox_train_predict_eval(config, minimal_instance, tmp_path, model_type):
+def test_bbox_train_predict_eval(
+    config, minimal_instance, tmp_path, model_type, capsys
+):
     """Train on pose labels (boxes derived), reload, predict boxes, evaluate."""
-    from sleap_nn.evaluation import run_evaluation
+    from sleap_nn.evaluation import _write_metrics, run_evaluation
     from sleap_nn.inference.layers.bbox import BBoxLayer
     from sleap_nn.inference.predictor import Predictor
     from sleap_nn.training.model_trainer import ModelTrainer
@@ -578,7 +580,10 @@ def test_bbox_train_predict_eval(config, minimal_instance, tmp_path, model_type)
     cfg = _bbox_train_config(config, model_type, tmp_path)
     trainer = ModelTrainer.get_model_trainer_from_config(cfg)
     trainer.train()
+    # Eval is on, so the best checkpoint is picked on box mAP, not val loss.
+    assert trainer.trainer.checkpoint_callback.monitor == "eval/val/bbox_mAP"
     run_dir = tmp_path / model_type
+    assert (run_dir / "best.ckpt").exists()
     saved = OmegaConf.load(run_dir / "training_config.yaml")
     leaf = (
         saved.model_config.head_configs.bbox_centernet.center
@@ -609,6 +614,27 @@ def test_bbox_train_predict_eval(config, minimal_instance, tmp_path, model_type)
     m = run_evaluation(minimal_instance.as_posix(), out.as_posix(), match_method="bbox")
     assert m is not None and 0.0 <= m["bbox_mAP"] <= 1.0 and m["n_gt"] == 2
 
+    # `sleap-nn model-info` shows the box head and box metrics.
+    from sleap_nn.model_info import print_model_info
+
+    _write_metrics(run_dir / "metrics.val.0.npz", m)
+    capsys.readouterr()
+    print_model_info(run_dir.as_posix())
+    info = capsys.readouterr().out
+    style = "CenterNet" if model_type == "bbox_centernet" else "SSD"
+    assert f"Bounding Box ({style})" in info and f"{style} boxes" in info
+    assert "AP50" in info and "mOKS" not in info
+
+    # The legacy pose pipeline points at `sleap-nn predict` instead.
+    from sleap_nn.legacy_predict import run_inference
+
+    with pytest.raises(ValueError, match="Bounding-box models are not supported"):
+        run_inference(
+            data_path=minimal_instance.as_posix(),
+            model_paths=[run_dir.as_posix()],
+            make_labels=True,
+        )
+
     # The NMS knob reaches the decoder; tracking is refused (boxes only).
     nms = Predictor.from_model_paths(
         [run_dir.as_posix()], device="cpu", bbox_nms_iou=0.3
@@ -632,7 +658,7 @@ def _check_onnx_export_parity(run_dir, slp_path, torch_labels, tmp_path):
 
     from sleap_nn.evaluation import bbox_iou_matrix
     from sleap_nn.export.cli import export
-    from sleap_nn.inference.layers.exported import ExportedBBoxLayer
+    from sleap_nn.inference.layers.bbox import ExportedBBoxLayer
     from sleap_nn.inference.predictor import Predictor
 
     out_dir = tmp_path / "exported"
@@ -804,39 +830,40 @@ def _tiny_ssd_module():
     ).eval()
 
 
-def test_exported_layer_matches_native_at_input_scale():
-    """Host-side scale + pad in ExportedBBoxLayer reproduces the native layer.
+@pytest.mark.parametrize("max_hw", [(None, None), (200, 300)])
+def test_exported_layer_matches_native_preprocessing(max_hw):
+    """ExportedBBoxLayer reproduces the native layer, size matcher included.
 
-    A frame that is not a stride multiple, at input_scale 0.5: the export graph
-    takes model-input-sized frames, so nothing is frozen to the trace size.
+    A frame that is not a stride multiple, at input_scale 0.5, optionally
+    letterboxed by the size matcher: the export graph takes model-input-sized
+    frames, so nothing is frozen to the trace size.
     """
     from sleap_nn.evaluation import bbox_iou_matrix
     from sleap_nn.export.wrappers.bbox import BBoxONNXWrapper
     from sleap_nn.inference.layers.backends import TorchBackend
-    from sleap_nn.inference.layers.bbox import BBoxLayer
+    from sleap_nn.inference.layers.bbox import BBoxLayer, ExportedBBoxLayer
     from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
-    from sleap_nn.inference.layers.exported import ExportedBBoxLayer
 
     module = _tiny_ssd_module()
     decoder = BBoxDecoder.from_head_configs(
         "bbox_ssd", module.head_configs, score_threshold=0.0, max_detections=20
     )
     frame = (np.random.default_rng(1).random((1, 1, 150, 230)) * 255).astype(np.uint8)
-    native = BBoxLayer(
-        backend=TorchBackend(model=module, device="cpu"),
+    kwargs = dict(
         decoder=decoder,
         output_stride=8,
         max_stride=16,
-        preprocess_config=PreprocessConfig(scale=0.5),
+        preprocess_config=PreprocessConfig(
+            scale=0.5, max_height=max_hw[0], max_width=max_hw[1]
+        ),
         postprocess_config=PostprocessConfig(peak_threshold=0.0, max_instances=20),
+    )
+    native = BBoxLayer(
+        backend=TorchBackend(model=module, device="cpu"), **kwargs
     ).predict(torch.from_numpy(frame))
     wrapper = BBoxONNXWrapper(module.model, model_type="bbox_ssd").eval()
     exported = ExportedBBoxLayer(
-        backend=lambda x: {k: v.detach() for k, v in wrapper(x).items()},
-        decoder=decoder,
-        input_scale=0.5,
-        max_stride=16,
-        postprocess_config=PostprocessConfig(peak_threshold=0.0, max_instances=20),
+        backend=TorchBackend(model=wrapper, device="cpu"), **kwargs
     ).predict(frame)
     a = native.pred_bboxes[0][torch.isfinite(native.pred_bbox_scores[0])].numpy()
     b = exported.pred_bboxes[0][torch.isfinite(exported.pred_bbox_scores[0])].numpy()
@@ -879,3 +906,122 @@ def test_bbox_eval_single_named_class_and_unknown_video_shape():
     # Explicitly class-aware: the names differ, so nothing matches.
     frames, categories = bbox_frame_pairs(gt, pr, class_agnostic=False)
     assert compute_bbox_metrics(frames, num_classes=len(categories))["bbox_mAP"] == 0.0
+
+
+@pytest.mark.parametrize(
+    "eval_cfg, expected",
+    [
+        ({"enabled": True}, "bbox_mAP"),
+        ({"enabled": False}, None),
+        ({"enabled": True, "select_metric": "bbox_AP50"}, "bbox_AP50"),
+        ({"enabled": True, "select_metric": "val_loss"}, None),
+    ],
+)
+def test_bbox_select_metric(eval_cfg, expected):
+    """Detectors select checkpoints on box mAP when eval is on, else on val loss."""
+    from types import SimpleNamespace
+
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    trainer = SimpleNamespace(
+        config=OmegaConf.create({"trainer_config": {"eval": eval_cfg}}),
+        _BBOX_SELECT_METRICS=ModelTrainer._BBOX_SELECT_METRICS,
+    )
+    assert ModelTrainer._bbox_select_metric(trainer) == expected
+
+
+@pytest.mark.parametrize(
+    "eval_cfg, match",
+    [
+        ({"enabled": True, "select_metric": "auc"}, "not a valid selection metric"),
+        ({"enabled": False, "select_metric": "bbox_mAP"}, "eval.enabled=true"),
+    ],
+)
+def test_bbox_select_metric_errors(eval_cfg, match):
+    from types import SimpleNamespace
+
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    trainer = SimpleNamespace(
+        config=OmegaConf.create({"trainer_config": {"eval": eval_cfg}}),
+        _BBOX_SELECT_METRICS=ModelTrainer._BBOX_SELECT_METRICS,
+    )
+    with pytest.raises(ValueError, match=match):
+        ModelTrainer._bbox_select_metric(trainer)
+
+
+def _eval_callback_trainer(is_global_zero, broadcast=None):
+    """A stand-in Lightning trainer whose broadcast hands out ``broadcast``."""
+    from types import SimpleNamespace
+
+    strategy = SimpleNamespace(
+        broadcast=lambda obj, src=0: obj if broadcast is None else broadcast,
+        barrier=lambda: None,
+    )
+    return SimpleNamespace(
+        current_epoch=0,
+        sanity_checking=False,
+        is_global_zero=is_global_zero,
+        world_size=1,
+        loggers=[],
+        callback_metrics={},
+        strategy=strategy,
+    )
+
+
+def _eval_callback_module(frames=()):
+    from types import SimpleNamespace
+
+    gts = [
+        {
+            "video_idx": 0,
+            "frame_idx": i,
+            "gt_bboxes": f["gt_bboxes"],
+            "gt_classes": f["gt_classes"],
+        }
+        for i, f in enumerate(frames)
+    ]
+    preds = [
+        {k: f[k] for k in ("pred_bboxes", "pred_scores", "pred_classes")}
+        for f in frames
+    ]
+    return SimpleNamespace(
+        val_ground_truth=gts,
+        val_predictions=preds,
+        categories=["object"],
+        decoder=SimpleNamespace(max_detections=100),
+        _collect_val_predictions=True,
+    )
+
+
+def test_bbox_eval_callback_always_fills_monitored_metrics():
+    """Each rank gets every box metric on a scored epoch, also when the eval fails.
+
+    The checkpointer may monitor ``eval/val/bbox_mAP`` on every DDP rank and raises
+    on a missing key, so a failed eval falls back to each metric's worst value and
+    the other ranks take rank 0's broadcast values.
+    """
+    from sleap_nn.training.callbacks import BBoxEvaluationCallback
+
+    cb = BBoxEvaluationCallback(eval_frequency=1)
+    box = [0, 0, 10, 10]
+
+    trainer = _eval_callback_trainer(is_global_zero=True)
+    cb.on_validation_epoch_end(
+        trainer, _eval_callback_module([_frame(box, box, [0.9])])
+    )
+    assert float(trainer.callback_metrics["eval/val/bbox_mAP"]) == pytest.approx(1.0)
+
+    # Nothing collected: worst values, never a missing key.
+    trainer = _eval_callback_trainer(is_global_zero=True)
+    module = _eval_callback_module()
+    cb.on_validation_epoch_end(trainer, module)
+    assert float(trainer.callback_metrics["eval/val/bbox_mAP"]) == 0.0
+    assert math.isinf(float(trainer.callback_metrics["eval/val/bbox_n_fp"]))
+    assert module.val_predictions == [] and not module._collect_val_predictions
+
+    # A non-zero rank computes nothing itself and logs rank 0's values.
+    trainer = _eval_callback_trainer(is_global_zero=False, broadcast={"bbox_mAP": 0.7})
+    cb.on_validation_epoch_end(trainer, _eval_callback_module())
+    assert float(trainer.callback_metrics["eval/val/bbox_mAP"]) == pytest.approx(0.7)
+    assert float(trainer.callback_metrics["eval/val/bbox_AP50"]) == 0.0

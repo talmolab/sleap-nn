@@ -753,6 +753,8 @@ def train(
     use_augmentations_train: bool = True,
     intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
     geometry_aug: Optional[Union[str, List[str], Dict[str, Any]]] = "rotation",
+    bbox_source: str = "auto",
+    bbox_padding: float = 0.0,
     init_weight: str = "default",
     pretrained_backbone_weights: Optional[str] = None,
     pretrained_head_weights: Optional[str] = None,
@@ -869,6 +871,14 @@ def train(
                         "rotation_max": 45,
                         "affine_p": 1.0
                     }
+        bbox_source: Where bounding-box models (`bbox_centernet`, `bbox_ssd`) take
+            their ground-truth boxes from: "auto" (the file's user boxes if it has
+            any, else the tight box of each user instance's visible points, else of
+            each mask), "bboxes", "instances" or "masks". Ignored by other model
+            types.
+            Default: "auto".
+        bbox_padding: Pixels added on every side of boxes derived from instances or
+            masks. Default: 0.0.
         init_weight: model weights initialization method. "default" uses kaiming uniform
             initialization and "xavier" uses Xavier initialization method. Default: "default".
         pretrained_backbone_weights: Path of the `ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file with which the backbone is
@@ -1037,6 +1047,8 @@ def train(
         use_augmentations_train=use_augmentations_train,
         intensity_aug=intensity_aug,
         geometry_aug=geometry_aug,
+        bbox_source=bbox_source,
+        bbox_padding=bbox_padding,
     )
 
     model_config = get_model_config(

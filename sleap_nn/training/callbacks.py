@@ -2478,13 +2478,16 @@ class BBoxEvaluationCallback(Callback):
 
     def on_validation_epoch_end(self, trainer, pl_module):
         """Score the collected detections and log the metrics."""
-        from sleap_nn.evaluation import compute_bbox_metrics
+        from sleap_nn.evaluation import BBOX_EVAL_LOG_KEYS, compute_bbox_metrics
 
-        scored = (trainer.current_epoch + 1) % self.eval_frequency == 0
+        scored = (
+            trainer.current_epoch + 1
+        ) % self.eval_frequency == 0 and not trainer.sanity_checking
         gts, preds = pl_module.val_ground_truth, pl_module.val_predictions
-        if scored and not trainer.sanity_checking:
+        if scored:
             gts, preds = self._gather(trainer, gts, preds)
-        if scored and not trainer.sanity_checking and trainer.is_global_zero:
+        metrics = None
+        if scored and trainer.is_global_zero:
             if not gts:
                 logger.warning("No detections collected for bbox epoch-end evaluation")
             else:
@@ -2495,7 +2498,6 @@ class BBoxEvaluationCallback(Callback):
                         num_classes=len(pl_module.categories),
                         max_detections=pl_module.decoder.max_detections,
                     )
-                    self._log_metrics(trainer, metrics, trainer.current_epoch)
                     logger.info(
                         f"Epoch {trainer.current_epoch} bbox evaluation: "
                         f"mAP={metrics['bbox_mAP']:.4f}, "
@@ -2503,7 +2505,17 @@ class BBoxEvaluationCallback(Callback):
                         f"F1@0.5={metrics['bbox_f1']:.4f}"
                     )
                 except Exception as e:
+                    metrics = None
                     logger.warning(f"Bbox epoch-end evaluation failed: {e}")
+        if scored:
+            # `ModelCheckpoint` / `EarlyStopping` run on every rank and may monitor a
+            # box metric (`eval.select_metric`); the checkpointer raises on a missing
+            # monitor, so every rank gets rank 0's values, even after a failed eval.
+            values = None
+            if metrics is not None:
+                values = {key: metrics.get(key) for key in BBOX_EVAL_LOG_KEYS}
+            values = trainer.strategy.broadcast(values, src=0)
+            self._log_metrics(trainer, values or {}, trainer.current_epoch)
 
         # Every rank clears its own lists (they only fill on scored epochs).
         pl_module._collect_val_predictions = False
@@ -2538,7 +2550,12 @@ class BBoxEvaluationCallback(Callback):
         return out_gts, out_preds
 
     def _log_metrics(self, trainer, metrics: dict, epoch: int):
-        """Expose metrics to callback_metrics and log them to wandb."""
+        """Expose metrics to callback_metrics (every rank) and log them to wandb.
+
+        Every ``BBOX_EVAL_LOG_KEYS`` key lands in ``callback_metrics``; a missing or
+        NaN value becomes the metric's worst value, so a monitored key never goes
+        missing and a failed evaluation is never selected as best.
+        """
         import numpy as np
         import torch
         from lightning.pytorch.loggers import WandbLogger
@@ -2548,8 +2565,6 @@ class BBoxEvaluationCallback(Callback):
         for key in BBOX_EVAL_LOG_KEYS:
             raw_value = metrics.get(key, float("nan"))
             lower_is_better = key in self._LOWER_IS_BETTER
-            # Always populate callback_metrics so a monitored key never goes
-            # missing (a NaN falls back to the metric's worst value).
             if raw_value is None or np.isnan(raw_value):
                 fv = float("inf") if lower_is_better else 0.0
             else:
@@ -2560,7 +2575,7 @@ class BBoxEvaluationCallback(Callback):
         wandb_logger = next(
             (log for log in trainer.loggers if isinstance(log, WandbLogger)), None
         )
-        if wandb_logger is None:
+        if wandb_logger is None or not trainer.is_global_zero or not log_dict:
             return
         wandb_logger.experiment.log({"epoch": epoch, **log_dict}, commit=False)
         summary = wandb_logger.experiment.summary

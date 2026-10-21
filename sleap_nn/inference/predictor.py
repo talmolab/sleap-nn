@@ -944,7 +944,6 @@ def _select_export_layer(
 ):
     """Dispatch on ``metadata.model_type`` to build the right export adapter."""
     from sleap_nn.inference.layers.exported import (
-        ExportedBBoxLayer,
         ExportedBottomUpLayer,
         ExportedBottomUpMultiClassLayer,
         ExportedCenteredInstanceLayer,
@@ -1026,11 +1025,13 @@ def _select_export_layer(
         )
 
     if model_type in ("bbox_centernet", "bbox_ssd"):
-        # Decoding is not baked into a detector's graph: rebuild its BBoxDecoder
-        # (categories, anchors, NMS) from the training config copied next to it.
+        # Decoding and preprocessing are not baked into a detector's graph: rebuild
+        # its BBoxDecoder (categories, anchors, NMS) and preprocessing from the
+        # training config copied next to it.
         from omegaconf import OmegaConf
 
         from sleap_nn.inference.bbox import BBoxDecoder
+        from sleap_nn.inference.layers.bbox import ExportedBBoxLayer
 
         cfg_path = Path(export_dir) / "training_config.yaml" if export_dir else None
         if cfg_path is None or not cfg_path.exists():
@@ -1043,6 +1044,7 @@ def _select_export_layer(
         backbone_cfg = next(
             v for v in cfg.model_config.backbone_config.values() if v is not None
         )
+        pre = cfg.data_config.preprocessing
         score = peak_conf_threshold if peak_conf_threshold is not None else 0.2
         decoder = BBoxDecoder.from_head_configs(
             model_type,
@@ -1053,8 +1055,16 @@ def _select_export_layer(
         return ExportedBBoxLayer(
             backend=backend,
             decoder=decoder,
-            input_scale=float(metadata.input_scale),
+            output_stride=int(metadata.output_stride),
             max_stride=int(backbone_cfg.max_stride),
+            preprocess_config=PreprocessConfig(
+                # The export's own scale (`--input-scale` may override training's).
+                scale=float(metadata.input_scale),
+                max_height=pre.get("max_height"),
+                max_width=pre.get("max_width"),
+                ensure_rgb=pre.get("ensure_rgb") or None,
+                ensure_grayscale=pre.get("ensure_grayscale") or None,
+            ),
             postprocess_config=PostprocessConfig(
                 peak_threshold=score, max_instances=max_instances
             ),
@@ -2574,9 +2584,7 @@ class Predictor:
         Detectors are skeleton-less: they emit ``Outputs.pred_bboxes`` packaged as
         ``sio.PredictedBoundingBox`` on ``LabeledFrame.bboxes``.
         """
-        from sleap_nn.inference.layers.exported import ExportedBBoxLayer
-
-        return isinstance(self.layer, (BBoxLayer, ExportedBBoxLayer))
+        return isinstance(self.layer, BBoxLayer)
 
     def _bbox_categories(self) -> Optional[List[str]]:
         """The detector's ordered class names (``None`` for non-detection layers)."""

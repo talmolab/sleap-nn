@@ -93,3 +93,33 @@ class BBoxLayer(InferenceLayer):
             pred_bbox_classes=classes.detach(),
             preprocess_info=info,
         )
+
+
+class ExportedBBoxLayer(BBoxLayer):
+    """``BBoxLayer`` for an ONNX/TRT-exported detector.
+
+    The exported graph (:class:`~sleap_nn.export.wrappers.bbox.BBoxONNXWrapper`)
+    holds only the network: it maps a model-input-sized uint8 frame to the
+    decoder-ready head outputs. Everything else is this layer's -- the same
+    ``preprocess`` chain as the checkpoint path (channel coercion, size matcher,
+    ``input_scale`` resize, stride padding; a resize traced into the graph would be
+    frozen to the trace input's size) and the same ``postprocess`` (decoder, coord
+    ladder, clipping) -- so exported and native boxes match by construction. Only
+    the frames handed to the backend differ: rounded to uint8 and without the
+    ``n_samples`` axis, as the graph expects.
+    """
+
+    def preprocess(self, image):
+        """Native preprocessing, emitted as the graph's ``(B, C, H, W)`` uint8 input."""
+        x = self._to_4d_tensor(image).float()
+        x, eff_scale, orig_hw = self._apply_full_preprocess(
+            x, max_stride=self.max_stride, unsqueeze_n_samples=False
+        )
+        info = PreprocInfo(
+            original_size=orig_hw,
+            processed_size=tuple(x.shape[-2:]),
+            eff_scale=eff_scale,
+            input_scale=self.preprocess_config.scale,
+            output_stride=self.output_stride,
+        )
+        return x.round().clamp(0, 255).to(torch.uint8), info

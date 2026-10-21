@@ -598,6 +598,8 @@ def get_data_config(
     use_augmentations_train: bool = True,
     intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
     geometry_aug: Optional[Union[str, List[str], Dict[str, Any]]] = "rotation",
+    bbox_source: str = "auto",
+    bbox_padding: float = 0.0,
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
 
@@ -665,6 +667,14 @@ def get_data_config(
                         "rotation_max": 45,
                         "affine_p": 1.0
                     }
+        bbox_source: Where bounding-box models (`bbox_centernet`, `bbox_ssd`) take
+            their ground-truth boxes from: "auto" (the file's user boxes if it has
+            any, else the tight box of each user instance's visible points, else of
+            each mask), "bboxes", "instances" or "masks". Ignored by other model
+            types.
+            Default: "auto".
+        bbox_padding: Pixels added on every side of boxes derived from instances or
+            masks. Default: 0.0.
     """
     preprocessing_config = PreprocessingConfig(
         ensure_rgb=ensure_rgb,
@@ -698,6 +708,8 @@ def get_data_config(
         preprocessing=preprocessing_config,
         use_augmentations_train=use_augmentations_train,
         augmentation_config=augmentation_config,
+        bbox_source=bbox_source,
+        bbox_padding=bbox_padding,
     )
 
     return data_config

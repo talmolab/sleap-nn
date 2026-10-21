@@ -23,17 +23,17 @@ class BBoxONNXWrapper(BaseExportWrapper):
     exactly what the detector's LightningModule ``forward`` returns (CenterNet's
     center heatmap as probabilities plus raw size/offset maps; SSD's raw
     per-anchor logits + deltas), and
-    :class:`~sleap_nn.inference.layers.exported.ExportedBBoxLayer` decodes it
+    :class:`~sleap_nn.inference.layers.bbox.ExportedBBoxLayer` decodes it
     with the same :class:`~sleap_nn.inference.bbox.BBoxDecoder` as the
     checkpoint path. That keeps exported and native predictions identical
     (anchors, NMS and thresholds live in one place) and keeps the graph free of
     size-dependent anchor constants, so its spatial axes stay dynamic.
 
     Expects ``(B, C, H, W)`` uint8 images (or float in ``[0, 255]``) that are
-    already at the model's input size: ``input_scale``-resized and padded to the
-    backbone's max stride. ``ExportedBBoxLayer`` does that on the host, with the
-    checkpoint path's own helpers, because a resize traced into the graph would be
-    frozen to the size of the trace input.
+    already at the model's input size (size-matched, ``input_scale``-resized and
+    padded to the backbone's max stride). ``ExportedBBoxLayer`` does that on the
+    host with the checkpoint path's own preprocessing, because a resize traced into
+    the graph would be frozen to the size of the trace input.
     """
 
     def __init__(self, model: nn.Module, model_type: str):
