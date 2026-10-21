@@ -290,6 +290,26 @@ class ModelSelectScreen(Widget):
             id="opt-bottomup",
         )
 
+        # Bounding-box detectors: trained on the tight box of each pose.
+        yield ModelTypeOption(
+            pipeline_type="bbox_centernet",
+            title="Bounding Boxes (CenterNet)",
+            description="Detect one box per animal from a center heatmap + size.",
+            details="Best for: Animal detection/counting when you need extents, not keypoints.",
+            is_recommended=False,
+            classes="model-option",
+            id="opt-bbox-centernet",
+        )
+        yield ModelTypeOption(
+            pipeline_type="bbox_ssd",
+            title="Bounding Boxes (SSD)",
+            description="Detect boxes from multi-scale anchors (SSD-style).",
+            details="Best for: Boxes when animal sizes vary a lot within or across frames.",
+            is_recommended=False,
+            classes="model-option",
+            id="opt-bbox-ssd",
+        )
+
     def on_mount(self) -> None:
         """Handle mount - preselect recommended option."""
         selected_type = None
@@ -350,6 +370,20 @@ class ModelSelectScreen(Widget):
                 "centered_instance",
                 "multi_class_topdown",
             ]
+            is_bbox = self._state._pipeline in ("bbox_centernet", "bbox_ssd")
+            if is_bbox and self._state._pre_bbox_settings is None:
+                # Remember what the box defaults override, for a later pose pick.
+                self._state._pre_bbox_settings = {
+                    "output_stride": self._state._output_stride,
+                    "rotation_enabled": self._state._augmentation.rotation_enabled,
+                    "eval_enabled": self._state._evaluation.enabled,
+                }
+            elif not is_bbox and self._state._pre_bbox_settings is not None:
+                saved = self._state._pre_bbox_settings
+                self._state._output_stride = saved["output_stride"]
+                self._state._augmentation.rotation_enabled = saved["rotation_enabled"]
+                self._state._evaluation.enabled = saved["eval_enabled"]
+                self._state._pre_bbox_settings = None
             if is_topdown:
                 self._state._input_scale = 0.5  # Lower scale for centroid
                 self._state._sigma = 5.0  # Larger sigma for centroid
@@ -359,6 +393,15 @@ class ModelSelectScreen(Widget):
                 self._state._input_scale = 1.0
                 self._state._sigma = 2.5
                 self._state._output_stride = 2
+            elif is_bbox:
+                # Box detectors: half resolution; eval on so checkpoints are picked
+                # on box mAP; no rotation (rotated corners inflate the boxes).
+                self._state._input_scale = 0.5
+                self._state._output_stride = (
+                    4 if pipeline_type == "bbox_centernet" else 8
+                )
+                self._state._evaluation.enabled = True
+                self._state._augmentation.rotation_enabled = False
             else:
                 self._state._input_scale = 1.0  # Full scale for other models
 
@@ -375,6 +418,9 @@ class ModelSelectScreen(Widget):
             self._state._max_stride = max(
                 base_stride, coverage_stride, self._state._max_stride
             )
+            if self._state._pipeline == "bbox_ssd":
+                # Anchor levels at strides 8/16/32 read the bottleneck at 32.
+                self._state._max_stride = max(self._state._max_stride, 32)
 
     def _update_pipeline_info(self, pipeline_type: PipelineType) -> None:
         """Update the pipeline info box based on selected type."""
@@ -406,6 +452,14 @@ class ModelSelectScreen(Widget):
                 "[bold cyan]Bottom-Up Pipeline[/bold cyan]\n"
                 "Trains one model that detects all keypoints and uses Part Affinity Fields\n"
                 "to group them into animal instances. You'll get [bold]1 YAML config[/bold] file."
+            )
+        elif pipeline_type in ("bbox_centernet", "bbox_ssd"):
+            style = "CenterNet" if pipeline_type == "bbox_centernet" else "SSD"
+            info_widget.update(
+                f"[bold cyan]Bounding-Box Pipeline ({style})[/bold cyan]\n"
+                "Trains one detector on the tight box around each labeled pose\n"
+                "(or your own boxes, if the project has them). Rotation augmentation\n"
+                "is turned off. You'll get [bold]1 YAML config[/bold] file."
             )
 
     @on(Checkbox.Changed, "#identity-checkbox")

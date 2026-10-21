@@ -4052,13 +4052,16 @@ def _register_export_commands():
             "topdown",
             "multi_class_bottomup",
             "multi_class_topdown",
+            "bbox_centernet",
+            "bbox_ssd",
         ]
     ),
     default=None,
     help=(
         "Override model pipeline type. 'centroid' generates a single STANDALONE "
         "centroid config (one point per animal); 'topdown' generates paired "
-        "centroid + centered_instance configs."
+        "centroid + centered_instance configs; 'bbox_centernet' / 'bbox_ssd' "
+        "generate a bounding-box detector trained on boxes derived from the poses."
     ),
 )
 @click.option(
