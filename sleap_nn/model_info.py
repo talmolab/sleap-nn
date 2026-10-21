@@ -114,32 +114,38 @@ def _load_training_log(model_dir: Path) -> Optional[dict]:
     if not rows:
         return None
 
-    # Parse val_loss values, skipping empty strings
+    # The trainer logs `train/loss` / `val/loss`; logs from older versions used
+    # `train_loss` / `val_loss`. Prefer the current names and fall back to the old.
+    train_loss_keys = ("train/loss", "train_loss")
+    val_loss_keys = ("val/loss", "val_loss")
+
+    def _safe_float(row, *keys):
+        for key in keys:
+            v = row.get(key, "")
+            if v:
+                try:
+                    return float(v)
+                except ValueError:
+                    pass
+        return None
+
+    # Parse val loss values, skipping empty strings
     val_losses = []
     for row in rows:
-        vl = row.get("val_loss", "")
-        if vl:
+        vl = _safe_float(row, *val_loss_keys)
+        if vl is not None:
             try:
-                val_losses.append((int(row["epoch"]), float(vl)))
+                val_losses.append((int(row["epoch"]), vl))
             except (ValueError, KeyError):
                 continue
 
     last_row = rows[-1]
     best_val = min(val_losses, key=lambda x: x[1]) if val_losses else (None, None)
 
-    def _safe_float(row, key):
-        v = row.get(key, "")
-        if v:
-            try:
-                return float(v)
-            except ValueError:
-                pass
-        return None
-
     return {
         "epochs_trained": int(last_row["epoch"]) + 1 if "epoch" in last_row else None,
-        "final_train_loss": _safe_float(last_row, "train_loss"),
-        "final_val_loss": _safe_float(last_row, "val_loss"),
+        "final_train_loss": _safe_float(last_row, *train_loss_keys),
+        "final_val_loss": _safe_float(last_row, *val_loss_keys),
         "best_val_loss": best_val[1],
         "best_val_epoch": best_val[0],
         "final_lr": _safe_float(last_row, "learning_rate"),

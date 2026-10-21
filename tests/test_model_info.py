@@ -1,5 +1,6 @@
 """Tests for sleap_nn.model_info module."""
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -52,6 +53,42 @@ class TestLoadTrainingLog:
     def test_load_missing_log(self, tmp_path):
         assert _load_training_log(tmp_path) is None
 
+    def test_load_slash_named_log(self, tmp_path):
+        """Current trainer logs use `train/loss` / `val/loss` column names."""
+        (tmp_path / "training_log.csv").write_text(
+            "epoch,train/loss,val/loss,learning_rate,train/time,val/time\n"
+            "0,0.5,0.4,0.001,1.0,0.5\n"
+            "1,0.3,0.1,0.001,1.0,0.5\n"
+            "2,0.2,0.2,0.0005,1.0,0.5\n"
+        )
+        stats = _load_training_log(tmp_path)
+        assert stats["epochs_trained"] == 3
+        assert stats["final_train_loss"] == pytest.approx(0.2)
+        assert stats["final_val_loss"] == pytest.approx(0.2)
+        assert stats["best_val_loss"] == pytest.approx(0.1)
+        assert stats["best_val_epoch"] == 1
+        assert stats["final_lr"] == pytest.approx(0.0005)
+
+    def test_slash_names_preferred_over_underscore(self, tmp_path):
+        (tmp_path / "training_log.csv").write_text(
+            "epoch,train_loss,val_loss,train/loss,val/loss\n" "0,9.0,9.0,0.3,0.2\n"
+        )
+        stats = _load_training_log(tmp_path)
+        assert stats["final_train_loss"] == pytest.approx(0.3)
+        assert stats["final_val_loss"] == pytest.approx(0.2)
+        assert stats["best_val_loss"] == pytest.approx(0.2)
+
+    def test_slash_named_log_skips_empty_val_rows(self, tmp_path):
+        (tmp_path / "training_log.csv").write_text(
+            "epoch,train/loss,val/loss,learning_rate\n"
+            "0,,0.4,0.001\n"
+            "0,0.5,,0.001\n"
+            "1,0.3,0.1,0.001\n"
+        )
+        stats = _load_training_log(tmp_path)
+        assert stats["best_val_loss"] == pytest.approx(0.1)
+        assert stats["best_val_epoch"] == 1
+
 
 class TestPrintModelInfo:
     def test_model_dir_with_metrics(self, capsys):
@@ -63,6 +100,25 @@ class TestPrintModelInfo:
         assert "Training Results" in output
         assert "Evaluation Metrics" in output
         assert "Files" in output
+
+    def test_model_dir_slash_named_log(self, tmp_path, capsys):
+        """`info` shows loss rows for logs written with `train/loss`/`val/loss`."""
+        shutil.copy(
+            MODEL_NO_METRICS / "training_config.yaml", tmp_path / "training_config.yaml"
+        )
+        (tmp_path / "training_log.csv").write_text(
+            "epoch,train/loss,val/loss,learning_rate,train/time,val/time\n"
+            "0,0.5,0.4,0.001,1.0,0.5\n"
+            "1,0.3,0.1,0.001,1.0,0.5\n"
+            "2,0.2,0.2,0.001,1.0,0.5\n"
+        )
+        print_model_info(str(tmp_path))
+        output = capsys.readouterr().out
+        assert "Training Results" in output
+        assert "Final train loss" in output
+        assert "Final val loss" in output
+        assert "Best val loss" in output
+        assert "0.100000 (epoch 1)" in output
 
     def test_config_yaml_only(self, capsys):
         print_model_info(str(MODEL_NO_METRICS / "training_config.yaml"))
