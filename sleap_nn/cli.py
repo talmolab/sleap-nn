@@ -3827,6 +3827,15 @@ def infer(**kwargs):
     ),
 )
 @click.option(
+    "--bbox_source",
+    type=click.Choice(["auto", "bboxes", "instances", "masks"]),
+    default="auto",
+    help=(
+        "bbox mode: where ground-truth boxes come from (user boxes, or derived "
+        "from poses / masks). Pass the model's data_config.bbox_source."
+    ),
+)
+@click.option(
     "--bbox_padding",
     type=float,
     default=0.0,

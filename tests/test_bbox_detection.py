@@ -775,3 +775,99 @@ def test_centernet_module_loss_is_per_sample(n_classes):
     loss, terms = module._compute_losses(raw, batch)
     assert terms["center_loss"] < 1e-4
     assert loss < 1e-3
+
+
+def _tiny_ssd_module():
+    from sleap_nn.training.lightning_modules import BBoxSSDLightningModule
+
+    hc = _head_configs(
+        "bbox_ssd",
+        categories=["object"],
+        output_stride=8,
+        num_levels=2,
+        anchor_sizes=[24.0, 48.0],
+    )
+    torch.manual_seed(0)
+    return BBoxSSDLightningModule(
+        model_type="bbox_ssd",
+        backbone_type="unet",
+        backbone_config={"unet": {"filters": 8, "max_stride": 16, "output_stride": 8}},
+        head_configs=hc,
+    ).eval()
+
+
+def test_exported_layer_matches_native_at_input_scale():
+    """Host-side scale + pad in ExportedBBoxLayer reproduces the native layer.
+
+    A frame that is not a stride multiple, at input_scale 0.5: the export graph
+    takes model-input-sized frames, so nothing is frozen to the trace size.
+    """
+    from sleap_nn.evaluation import bbox_iou_matrix
+    from sleap_nn.export.wrappers.bbox import BBoxONNXWrapper
+    from sleap_nn.inference.layers.backends import TorchBackend
+    from sleap_nn.inference.layers.bbox import BBoxLayer
+    from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
+    from sleap_nn.inference.layers.exported import ExportedBBoxLayer
+
+    module = _tiny_ssd_module()
+    decoder = BBoxDecoder.from_head_configs(
+        "bbox_ssd", module.head_configs, score_threshold=0.0, max_detections=20
+    )
+    frame = (np.random.default_rng(1).random((1, 1, 150, 230)) * 255).astype(np.uint8)
+    native = BBoxLayer(
+        backend=TorchBackend(model=module, device="cpu"),
+        decoder=decoder,
+        output_stride=8,
+        max_stride=16,
+        preprocess_config=PreprocessConfig(scale=0.5),
+        postprocess_config=PostprocessConfig(peak_threshold=0.0, max_instances=20),
+    ).predict(torch.from_numpy(frame))
+    wrapper = BBoxONNXWrapper(module.model, model_type="bbox_ssd").eval()
+    exported = ExportedBBoxLayer(
+        backend=lambda x: {k: v.detach() for k, v in wrapper(x).items()},
+        decoder=decoder,
+        input_scale=0.5,
+        max_stride=16,
+        postprocess_config=PostprocessConfig(peak_threshold=0.0, max_instances=20),
+    ).predict(frame)
+    a = native.pred_bboxes[0][torch.isfinite(native.pred_bbox_scores[0])].numpy()
+    b = exported.pred_bboxes[0][torch.isfinite(exported.pred_bbox_scores[0])].numpy()
+    assert len(a) and len(a) == len(b)
+    assert (bbox_iou_matrix(b, a).max(axis=1) > 0.95).mean() >= 0.9
+    for boxes in (a, b):  # clipped to the 150 x 230 frame, positive area
+        assert boxes[:, [0, 2]].max() <= 229 and boxes[:, [1, 3]].max() <= 149
+        assert (boxes[:, 2] > boxes[:, 0]).all() and (boxes[:, 3] > boxes[:, 1]).all()
+
+
+def test_bbox_eval_single_named_class_and_unknown_video_shape():
+    """A one-class detector named "mouse" scores against uncategorized GT; a
+    matched video with no known shape still pairs its frames."""
+    from sleap_nn.evaluation import bbox_frame_pairs
+
+    video = sio.Video(filename="not_on_this_machine.mp4", open_backend=False)
+    box = (10.0, 20.0, 60.0, 80.0)
+    gt = sio.Labels(
+        videos=[video],
+        labeled_frames=[
+            sio.LabeledFrame(
+                video=video, frame_idx=3, bboxes=[sio.UserBoundingBox.from_xyxy(*box)]
+            )
+        ],
+    )
+    pr = sio.Labels(
+        videos=[video],
+        labeled_frames=[
+            sio.LabeledFrame(
+                video=video,
+                frame_idx=3,
+                bboxes=[sio.PredictedBoundingBox(*box, score=0.9, category="mouse")],
+            )
+        ],
+    )
+    frames, categories = bbox_frame_pairs(gt, pr)
+    assert categories == ["object"] and len(frames) == 1
+    assert len(frames[0]["pred_bboxes"]) == 1
+    assert compute_bbox_metrics(frames)["bbox_mAP"] == pytest.approx(1.0)
+    # Explicitly class-aware: the names differ, so nothing matches.
+    frames, categories = bbox_frame_pairs(gt, pr, class_agnostic=False)
+    assert compute_bbox_metrics(frames, num_classes=len(categories))["bbox_mAP"] == 0.0

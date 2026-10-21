@@ -6,7 +6,6 @@ from typing import Dict
 
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from sleap_nn.export.wrappers.base import BaseExportWrapper
 
@@ -30,35 +29,28 @@ class BBoxONNXWrapper(BaseExportWrapper):
     (anchors, NMS and thresholds live in one place) and keeps the graph free of
     size-dependent anchor constants, so its spatial axes stay dynamic.
 
-    Expects ``(B, C, H, W)`` uint8 images (or float in ``[0, 255]``) whose
-    ``input_scale``-resized size is divisible by the backbone's max stride (the
-    exported layer pads frames to guarantee it).
+    Expects ``(B, C, H, W)`` uint8 images (or float in ``[0, 255]``) that are
+    already at the model's input size: ``input_scale``-resized and padded to the
+    backbone's max stride. ``ExportedBBoxLayer`` does that on the host, with the
+    checkpoint path's own helpers, because a resize traced into the graph would be
+    frozen to the size of the trace input.
     """
 
-    def __init__(self, model: nn.Module, model_type: str, input_scale: float = 1.0):
+    def __init__(self, model: nn.Module, model_type: str):
         """Initialize.
 
         Args:
             model: The underlying ``Model`` (backbone + detector heads).
             model_type: ``"bbox_centernet"`` or ``"bbox_ssd"``.
-            input_scale: Input scaling factor applied before the network.
         """
         super().__init__(model)
         if model_type not in BBOX_EXPORT_OUTPUTS:
             raise ValueError(f"{model_type} is not a bounding-box model type.")
         self.model_type = model_type
-        self.input_scale = input_scale
 
     def forward(self, image: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Run the network and return the decoder-ready head outputs."""
-        image = self._normalize_uint8(image)
-        if self.input_scale != 1.0:
-            height = int(image.shape[-2] * self.input_scale)
-            width = int(image.shape[-1] * self.input_scale)
-            image = F.interpolate(
-                image, size=(height, width), mode="bilinear", align_corners=False
-            )
-        out = self.model(image)
+        out = self.model(self._normalize_uint8(image))
         if self.model_type == "bbox_centernet":
             return {
                 "BBoxCenterHead": torch.sigmoid(out["BBoxCenterHead"]),

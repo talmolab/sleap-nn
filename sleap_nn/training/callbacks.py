@@ -2480,20 +2480,16 @@ class BBoxEvaluationCallback(Callback):
         """Score the collected detections and log the metrics."""
         from sleap_nn.evaluation import compute_bbox_metrics
 
-        should_evaluate = (
-            trainer.current_epoch + 1
-        ) % self.eval_frequency == 0 and trainer.is_global_zero
-        if should_evaluate:
-            if not pl_module.val_ground_truth:
+        scored = (trainer.current_epoch + 1) % self.eval_frequency == 0
+        gts, preds = pl_module.val_ground_truth, pl_module.val_predictions
+        if scored and not trainer.sanity_checking:
+            gts, preds = self._gather(trainer, gts, preds)
+        if scored and not trainer.sanity_checking and trainer.is_global_zero:
+            if not gts:
                 logger.warning("No detections collected for bbox epoch-end evaluation")
             else:
                 try:
-                    frames = [
-                        {**gt, **pred}
-                        for gt, pred in zip(
-                            pl_module.val_ground_truth, pl_module.val_predictions
-                        )
-                    ]
+                    frames = [{**gt, **pred} for gt, pred in zip(gts, preds)]
                     metrics = compute_bbox_metrics(
                         frames,
                         num_classes=len(pl_module.categories),
@@ -2509,11 +2505,37 @@ class BBoxEvaluationCallback(Callback):
                 except Exception as e:
                     logger.warning(f"Bbox epoch-end evaluation failed: {e}")
 
+        # Every rank clears its own lists (they only fill on scored epochs).
         pl_module._collect_val_predictions = False
-        if trainer.is_global_zero:
-            pl_module.val_predictions = []
-            pl_module.val_ground_truth = []
+        pl_module.val_predictions = []
+        pl_module.val_ground_truth = []
         trainer.strategy.barrier()
+
+    @staticmethod
+    def _gather(trainer, gts: list, preds: list):
+        """All ranks' val detections (DDP shards the val set), de-duplicated.
+
+        A collective: every rank must call it. The distributed sampler pads the
+        last shard by repeating frames, so frames are kept once by
+        ``(video_idx, frame_idx)``. A single process returns its own lists.
+        """
+        import torch.distributed as dist
+
+        if not (dist.is_available() and dist.is_initialized()) or (
+            trainer.world_size <= 1
+        ):
+            return gts, preds
+        gathered = [None] * trainer.world_size
+        dist.all_gather_object(gathered, (gts, preds))
+        seen, out_gts, out_preds = set(), [], []
+        for rank_gts, rank_preds in gathered:
+            for gt, pred in zip(rank_gts, rank_preds):
+                key = (gt["video_idx"], gt["frame_idx"])
+                if key not in seen:
+                    seen.add(key)
+                    out_gts.append(gt)
+                    out_preds.append(pred)
+        return out_gts, out_preds
 
     def _log_metrics(self, trainer, metrics: dict, epoch: int):
         """Expose metrics to callback_metrics and log them to wandb."""

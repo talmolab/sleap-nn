@@ -639,38 +639,26 @@ class ExportedBottomUpMultiClassLayer:
         )
 
 
-def _scaled_padded_size(size: int, input_scale: float, max_stride: int) -> tuple:
-    """Pad a frame dimension so the graph's resize lands on the max stride.
-
-    Returns ``(raw_size, scaled_size)``: the smallest raw size >= ``size`` whose
-    ``int(raw * input_scale)`` (the graph's resize) is a multiple of ``max_stride``.
-    """
-    scaled = int(np.ceil(size * input_scale / max_stride) * max_stride)
-    raw = int(np.ceil(scaled / input_scale))
-    while int(raw * input_scale) > scaled:
-        raw -= 1
-    while int(raw * input_scale) < scaled:
-        raw += 1
-    return max(raw, size), int(max(raw, size) * input_scale)
-
-
 @attrs.define
 class ExportedBBoxLayer:
     """Adapter for an ONNX/TRT-exported bounding-box detector.
 
-    Unlike the pose adapters, decoding is not baked into the graph: the wrapper
-    (:class:`~sleap_nn.export.wrappers.bbox.BBoxONNXWrapper`) returns the
-    decoder-ready head outputs, and this adapter decodes them with the model's
-    :class:`~sleap_nn.inference.bbox.BBoxDecoder` -- the same decoder the
-    checkpoint path uses -- then maps the boxes back to original-image pixels.
-    Frames are zero-padded (bottom/right) so the graph's ``input_scale`` resize
-    lands on a multiple of the backbone's max stride.
+    Unlike the pose adapters, neither the ``input_scale`` resize nor decoding is
+    baked into the graph: the wrapper
+    (:class:`~sleap_nn.export.wrappers.bbox.BBoxONNXWrapper`) maps a
+    model-input-sized uint8 image to the decoder-ready head outputs. This adapter
+    applies the SAME host-side preprocessing as the checkpoint path (``input_scale``
+    resize with :func:`~sleap_nn.data.resizing.resize_image`, bottom-right padding
+    to the backbone's max stride), decodes with the model's
+    :class:`~sleap_nn.inference.bbox.BBoxDecoder` -- the decoder the checkpoint path
+    uses -- and maps the boxes back to the original frame. A resize traced into the
+    graph would be frozen to the trace input's size, so it is kept out of it.
 
     Args:
         backend: The ONNX / TensorRT backend.
         decoder: The detector's ``BBoxDecoder`` (rebuilt from the exported
             training config).
-        input_scale: The resize the graph applies (``ExportMetadata.input_scale``).
+        input_scale: The model's input scale (``ExportMetadata.input_scale``).
         max_stride: Backbone max stride.
         postprocess_config: ``peak_threshold`` is the score threshold and
             ``max_instances`` the per-frame cap (overridable per predict call).
@@ -688,32 +676,28 @@ class ExportedBBoxLayer:
         return self.decoder.categories
 
     def predict(self, image: Any, **_kwargs: Any) -> Outputs:
-        """Pad, run the backend, decode, and translate to :class:`Outputs`."""
+        """Scale + pad, run the backend, decode, and translate to :class:`Outputs`."""
+        from sleap_nn.data.resizing import apply_pad_to_stride, resize_image
+        from sleap_nn.inference.bbox import clip_boxes_to_frame
+
         x = _to_4d_tensor_for_export(image)
-        h, w = int(x.shape[-2]), int(x.shape[-1])
-        raw_h, scaled_h = _scaled_padded_size(h, self.input_scale, self.max_stride)
-        raw_w, scaled_w = _scaled_padded_size(w, self.input_scale, self.max_stride)
-        if (raw_h, raw_w) != (h, w):
-            x = torch.nn.functional.pad(x, (0, raw_w - w, 0, raw_h - h))
-        raw = _raw_to_cpu(self.backend(x))
+        frame_hw = (int(x.shape[-2]), int(x.shape[-1]))
+        x = x.float()
+        if self.input_scale != 1.0:
+            x = resize_image(x, self.input_scale)
+        x = apply_pad_to_stride(x, max_stride=self.max_stride)
+        model_hw = (int(x.shape[-2]), int(x.shape[-1]))
+        # The graph takes uint8 [0, 255] (it normalizes to [0, 1] itself).
+        raw = _raw_to_cpu(self.backend(x.round().clamp(0, 255).to(torch.uint8)))
         pp = self.postprocess_config
         boxes, scores, classes = self.decoder(
             raw,
-            img_hw=(scaled_h, scaled_w),
+            img_hw=model_hw,
             score_threshold=getattr(pp, "peak_threshold", None),
             max_detections=getattr(pp, "max_instances", None),
         )
         boxes = boxes / self.input_scale
-        # Clip to the unpadded frame (the decoder clipped to the padded input).
-        boxes = torch.stack(
-            [
-                boxes[..., 0].clamp(0, w - 1),
-                boxes[..., 1].clamp(0, h - 1),
-                boxes[..., 2].clamp(0, w - 1),
-                boxes[..., 3].clamp(0, h - 1),
-            ],
-            dim=-1,
-        )
+        boxes, scores, classes = clip_boxes_to_frame(boxes, scores, classes, frame_hw)
         return Outputs(
             pred_bboxes=boxes,
             pred_bbox_scores=scores,

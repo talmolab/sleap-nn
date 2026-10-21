@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 import json
+import math
 import shutil
 
 import click
@@ -373,9 +374,10 @@ def export(
             from sleap_nn.data.bboxes import bbox_head_categories
             from sleap_nn.export.wrappers.bbox import BBOX_EXPORT_OUTPUTS
 
-            wrapper = BBoxONNXWrapper(
-                torch_model, model_type=model_type, input_scale=resolved_scale
-            )
+            # The graph takes model-input-sized frames; `ExportedBBoxLayer` applies
+            # `input_scale` and the stride padding on the host (the metadata keeps
+            # the scale for it).
+            wrapper = BBoxONNXWrapper(torch_model, model_type=model_type)
             output_names = BBOX_EXPORT_OUTPUTS[model_type]
             node_names = []
             edge_inds = []
@@ -408,6 +410,15 @@ def export(
             crop_h, crop_w = resolved_crop_size
             input_channels = resolve_embedding_input_channels(cfg)
             input_shape = (1, input_channels, crop_h, crop_w)
+        if model_type in ("bbox_centernet", "bbox_ssd"):
+            # Trace on a model-input-sized frame (scaled, stride-padded).
+            max_stride = int(
+                cfg.model_config.backbone_config[backbone_type]["max_stride"]
+            )
+            _, c, h, w = input_shape
+            h = math.ceil(h * resolved_scale / max_stride) * max_stride
+            w = math.ceil(w * resolved_scale / max_stride) * max_stride
+            input_shape = (1, c, h, w)
         model_out_path = export_dir / "model.onnx"
 
         export_to_onnx(

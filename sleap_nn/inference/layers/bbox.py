@@ -14,7 +14,7 @@ from typing import List, Optional
 
 import torch
 
-from sleap_nn.inference.bbox import BBoxDecoder
+from sleap_nn.inference.bbox import BBoxDecoder, clip_boxes_to_frame
 from sleap_nn.inference.layers.backends.base import ModelBackend
 from sleap_nn.inference.layers.base import InferenceLayer
 from sleap_nn.inference.layers.configs import PostprocessConfig, PreprocessConfig
@@ -84,6 +84,9 @@ class BBoxLayer(InferenceLayer):
         corners = undo_input_scale(corners, info.input_scale)
         corners = undo_eff_scale(corners, info.eff_scale)
         boxes = corners.reshape(boxes.shape)
+        boxes, scores, classes = clip_boxes_to_frame(
+            boxes, scores, classes, info.original_size
+        )
         return Outputs(
             pred_bboxes=boxes.detach(),
             pred_bbox_scores=scores.detach(),

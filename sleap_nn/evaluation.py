@@ -2560,7 +2560,7 @@ def _frame_bbox_arrays_by_name(
 def bbox_frame_pairs(
     labels_gt: sio.Labels,
     labels_pr: sio.Labels,
-    class_agnostic: bool = False,
+    class_agnostic: Optional[bool] = None,
 ) -> Tuple[List[Dict[str, np.ndarray]], List[str]]:
     """Build :func:`compute_bbox_metrics` frames from GT and predicted labels.
 
@@ -2572,16 +2572,38 @@ def bbox_frame_pairs(
     Args:
         labels_gt: Ground truth with user boxes on ``LabeledFrame.bboxes``.
         labels_pr: Predictions with ``PredictedBoundingBox``es.
-        class_agnostic: Score every box as one class.
+        class_agnostic: Score every box as one class. ``None`` (default) decides
+            from the data: class-agnostic when the GT and the predictions each
+            carry at most one category name -- a single-class detector maps every
+            box to its one class whatever it is called, so an uncategorized GT
+            (``"object"``, e.g. boxes derived from poses) and predictions named
+            after the model's one class (``"mouse"``) are the same class.
 
     Returns:
         ``(frames, categories)``.
     """
-    from sleap_nn.data.bboxes import frame_user_bboxes
+    from sleap_nn.data.bboxes import bbox_category_name, frame_user_bboxes
 
     categories: List[str] = []
     match_result = labels_gt.match(labels_pr)
-    gt_to_pr = {id(v_gt): v_pr for v_pr, v_gt in match_result.video_map.items() if v_gt}
+    # `sio.Video` defines `__len__` but not `__bool__`: a matched video whose
+    # shape is unknown is falsy, so test against None explicitly.
+    gt_to_pr = {
+        id(v_gt): v_pr
+        for v_pr, v_gt in match_result.video_map.items()
+        if v_gt is not None
+    }
+    if class_agnostic is None:
+        gt_names = {
+            bbox_category_name(b) for lf in labels_gt for b in frame_user_bboxes(lf)
+        }
+        pr_names = {
+            bbox_category_name(b)
+            for lf in labels_pr
+            for b in lf.bboxes
+            if b.is_predicted
+        }
+        class_agnostic = len(gt_names) <= 1 and len(pr_names) <= 1
     frames = []
     for lf in labels_gt.labeled_frames:
         gt_boxes = frame_user_bboxes(lf)
@@ -2618,7 +2640,7 @@ def _run_bbox_evaluation(
     save_metrics: Optional[str] = None,
     bbox_source: str = "auto",
     bbox_padding: float = 0.0,
-    class_agnostic: bool = False,
+    class_agnostic: Optional[bool] = None,
 ) -> Optional[Dict[str, Any]]:
     """``run_evaluation(match_method="bbox")``: COCO box metrics of two label sets."""
     from sleap_nn.data.bboxes import add_bboxes_to_labels
@@ -2672,6 +2694,7 @@ def run_evaluation(
     anchor_part: Optional[str] = None,
     centroid_method: Optional[str] = None,
     centroid_fallback: Optional[str] = None,
+    bbox_source: str = "auto",
     bbox_padding: float = 0.0,
 ):
     """Evaluate SLEAP-NN model predictions against ground truth labels.
@@ -2715,6 +2738,9 @@ def run_evaluation(
             metric scores predictions against a different centroid than the one
             they were trained to predict.
         centroid_fallback: Reduce method used when the anchor node is not visible.
+        bbox_source: ``"bbox"`` mode only: where GT boxes come from (``auto``,
+            ``bboxes``, ``instances``, ``masks``; pass the model's
+            ``data_config.bbox_source``).
         bbox_padding: ``"bbox"`` mode only: pixels of padding on GT boxes derived
             from poses/masks (pass the model's ``data_config.bbox_padding``).
 
@@ -2751,6 +2777,7 @@ def run_evaluation(
             ground_truth_instances,
             predicted_instances,
             save_metrics=save_metrics,
+            bbox_source=bbox_source,
             bbox_padding=bbox_padding,
         )
 

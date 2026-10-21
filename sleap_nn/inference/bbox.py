@@ -72,6 +72,40 @@ def _clip_to_image(boxes: torch.Tensor, img_hw: Tuple[int, int]) -> torch.Tensor
     )
 
 
+def clip_boxes_to_frame(
+    boxes: torch.Tensor,
+    scores: torch.Tensor,
+    classes: torch.Tensor,
+    frame_hw: Tuple[int, int],
+) -> _Decoded:
+    """Clip padded ``(B, K, 4)`` boxes to the original frame.
+
+    The decoder clips to the padded model input; mapped back to the frame, a box
+    can still reach into the stride padding or the size-matcher's letterbox. Boxes
+    left with no area (predicted wholly outside the frame) become empty slots
+    (NaN box and score, class ``-1``).
+    """
+    h, w = frame_hw
+    clipped = torch.stack(
+        [
+            boxes[..., 0].clamp(0, w - 1),
+            boxes[..., 1].clamp(0, h - 1),
+            boxes[..., 2].clamp(0, w - 1),
+            boxes[..., 3].clamp(0, h - 1),
+        ],
+        dim=-1,
+    )
+    valid = (
+        (clipped[..., 2] > clipped[..., 0])
+        & (clipped[..., 3] > clipped[..., 1])
+        & torch.isfinite(scores)
+    )
+    clipped = clipped.masked_fill(~valid[..., None], float("nan"))
+    scores = scores.masked_fill(~valid, float("nan"))
+    classes = classes.masked_fill(~valid, -1)
+    return clipped, scores, classes
+
+
 def _nms(boxes, scores, classes, iou_threshold: Optional[float]):
     # Boxes clipped to nothing (predicted wholly outside the frame) are dropped.
     keep = (boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])

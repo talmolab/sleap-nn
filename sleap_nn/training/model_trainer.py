@@ -1972,6 +1972,10 @@ class ModelTrainer:
                     if test_path.endswith(".slp") or test_path.endswith(".pkg.slp"):
                         try:
                             test_labels = sio.load_slp(test_path)
+                            # Same GT boxes as training/eval derive (no-op for
+                            # non-bbox models), or the bbox filter drops every
+                            # frame of a pose/mask test file.
+                            self._apply_bbox_source([test_labels])
                             if user_instances_only:
                                 test_filtered = self._filter_to_user_labeled(
                                     test_labels

@@ -373,6 +373,9 @@ def _run_bbox_split_eval(
             predicted_path=pred_path.as_posix(),
             match_method="bbox",
             save_metrics=metrics_path.as_posix(),
+            bbox_source=OmegaConf.select(
+                config, "data_config.bbox_source", default="auto"
+            ),
             bbox_padding=float(
                 OmegaConf.select(config, "data_config.bbox_padding", default=0.0)
             ),
