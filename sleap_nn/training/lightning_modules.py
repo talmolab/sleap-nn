@@ -4643,7 +4643,10 @@ class BBoxCenterNetLightningModule(_BBoxLightningModel):
         return heatmap.cpu().numpy().transpose(1, 2, 0)
 
     def _compute_losses(self, raw, batch):
-        heatmap_target = torch.squeeze(batch["center_heatmap"], dim=1)
+        # `BBoxDataset` targets are (B, C, h, w) -- no n_samples axis to squeeze.
+        # (Squeezing dim 1 of a 1-class target would broadcast it against the
+        # (B, 1, h, w) logits into a (B, B, h, w) cross-sample loss.)
+        heatmap_target = batch["center_heatmap"]
         reg_mask = batch["reg_mask"]
         center_loss = compute_centernet_focal_loss(
             raw["BBoxCenterHead"],

@@ -737,3 +737,41 @@ def test_bbox_multiclass_and_negatives(config, tmp_path, model_type):
     classes = torch.cat([o.pred_bbox_classes.flatten() for o in outputs])
     scores = torch.cat([o.pred_bbox_scores.flatten() for o in outputs])
     assert set(classes[torch.isfinite(scores)].tolist()) <= {0, 1}
+
+
+@pytest.mark.parametrize("n_classes", [1, 2])
+def test_centernet_module_loss_is_per_sample(n_classes):
+    """Perfect logits for a batch of DIFFERENT targets give ~zero losses.
+
+    Guards against broadcasting a (B, h, w) target against (B, 1, h, w) logits,
+    which scores every image against every other image's heatmap.
+    """
+    from sleap_nn.training.lightning_modules import BBoxCenterNetLightningModule
+
+    cats = ["a", "b"][:n_classes]
+    hc = _head_configs("bbox_centernet", categories=cats)
+    module = BBoxCenterNetLightningModule(
+        model_type="bbox_centernet",
+        backbone_type="unet",
+        backbone_config={"unet": {"filters": 8, "max_stride": 16, "output_stride": 4}},
+        head_configs=hc,
+    )
+    enc = CenterNetTargetEncoder(n_classes, 4)
+    targets = [
+        enc(torch.tensor([[8.0, 8.0, 30.0, 30.0]]), torch.tensor([0]), (64, 64)),
+        enc(
+            torch.tensor([[34.0, 30.0, 60.0, 62.0]]),
+            torch.tensor([n_classes - 1]),
+            (64, 64),
+        ),
+    ]
+    batch = {k: torch.stack([t[k] for t in targets]) for k in targets[0]}
+    logits = torch.where(batch["center_heatmap"] == 1.0, 20.0, -20.0)
+    raw = {
+        "BBoxCenterHead": logits,
+        "BBoxSizeHead": batch["size_target"],
+        "BBoxOffsetHead": batch["offset_target"],
+    }
+    loss, terms = module._compute_losses(raw, batch)
+    assert terms["center_loss"] < 1e-4
+    assert loss < 1e-3
