@@ -136,3 +136,33 @@ def test_rope_backbones_are_detected_for_static_export():
     assert not _has_rope(
         timm.create_model("vit_small_patch14_reg4_dinov2", pretrained=False)
     )
+
+
+class RotaryEmbeddingStub(torch.nn.Module):
+    """Stands in for a RoPE module: the exporter detects RoPE by class name."""
+
+
+class _RopeNet(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.rope = RotaryEmbeddingStub()
+        self.conv = torch.nn.Conv2d(3, 2, kernel_size=1)
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+def test_rope_backbone_exports_with_static_height_and_width(tmp_path):
+    """A RoPE grid is baked into the trace, so only the batch stays dynamic."""
+    import onnx
+
+    onnx_path = export_to_onnx(
+        _RopeNet(),
+        tmp_path / "rope.onnx",
+        input_shape=(1, 3, 64, 48),
+        input_dtype=torch.float32,
+        output_names=["out"],
+    )
+    dims = onnx.load(onnx_path.as_posix()).graph.input[0].type.tensor_type.shape.dim
+    assert dims[0].dim_param  # batch stays dynamic
+    assert [d.dim_value for d in dims[2:]] == [64, 48]

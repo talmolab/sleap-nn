@@ -255,7 +255,20 @@ jobs:
       - name: Run pretrained backbone tests
         run: |
           uv run --frozen --no-group gpu --extra torch-cpu --extra backbones \
-            pytest tests/architectures/test_pretrained.py -v --durations=10
+            pytest tests/architectures/test_pretrained.py -v --durations=10 \
+              --cov=sleap_nn --cov-report=xml
+
+      - name: Upload coverage
+        # Without this, codecov only sees the main matrix, where these tests are
+        # skipped, and reports the code they exercise as uncovered.
+        if: github.repository == 'talmolab/sleap-nn'
+        uses: codecov/codecov-action@v5
+        with:
+          # Never gate merges on the uploader (see the main test job).
+          fail_ci_if_error: false
+          verbose: false
+          flags: pretrained-backbones
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   # Same gap as `pretrained-backbones`, for the `export` extra (onnx, onnxruntime,
   # onnxscript): no other job installs it, so every ONNX test -- `@requires_onnx` /
@@ -285,8 +298,10 @@ jobs:
       - name: Set up Python
         run: uv python install 3.13
 
-      - name: Install dev dependencies, torch and the export extra
-        run: uv sync --no-group gpu --extra torch-cpu --extra export
+      - name: Install dev dependencies, torch and the export + backbones extras
+        # `backbones` too, so the plain-ViT export tests
+        # (tests/export/test_pretrained_vit_export.py) run instead of skipping.
+        run: uv sync --no-group gpu --extra torch-cpu --extra export --extra backbones
 
       - name: Install graphics dependencies
         run: |
@@ -296,19 +311,19 @@ jobs:
         # Without this the suite would silently skip back to zero ONNX coverage --
         # the failure mode this job exists to close.
         run: |
-          uv run --frozen --no-group gpu --extra torch-cpu --extra export python -c "
+          uv run --frozen --no-group gpu --extra torch-cpu --extra export --extra backbones python -c "
           import onnx, onnxruntime
           print('onnx', onnx.__version__, 'onnxruntime', onnxruntime.__version__)
           "
 
       - name: Run ONNX export tests
         run: |
-          uv run --frozen --no-group gpu --extra torch-cpu --extra export \
+          uv run --frozen --no-group gpu --extra torch-cpu --extra export --extra backbones \
             pytest tests/export \
               tests/inference/layers/backends/test_onnx_backend.py \
               tests/inference/test_factory_export.py \
               tests/inference/ops/test_onnx_export.py \
-              -v --durations=10
+              -v --durations=10 --cov=sleap_nn --cov-report=xml
 
       - name: Assert the tests left no stray files in the checkout
         # tests/export/test_export_accuracy.py used to write
@@ -321,3 +336,16 @@ jobs:
             echo "$stray"
             exit 1
           fi
+
+      - name: Upload coverage
+        # After the stray-file check: the uploader may write into the checkout.
+        # Without this, codecov only sees the main matrix, where these tests are
+        # skipped, and reports the code they exercise as uncovered.
+        if: github.repository == 'talmolab/sleap-nn'
+        uses: codecov/codecov-action@v5
+        with:
+          # Never gate merges on the uploader (see the main test job).
+          fail_ci_if_error: false
+          verbose: false
+          flags: export-onnx
+          token: ${{ secrets.CODECOV_TOKEN }}

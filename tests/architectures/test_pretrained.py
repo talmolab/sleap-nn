@@ -1516,3 +1516,84 @@ def test_resolve_mode_isotropic_override_beats_the_config():
     assert _resolve_mode(_Cfg(), "encoder", spatial_heads=True, isotropic=False) == (
         "encoder"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Remaining Case C / timm paths: hierarchical timm models, misconfiguration
+# errors, fixed-resolution models, and knobs a backbone ignores.
+# ─────────────────────────────────────────────────────────────────────────
+
+# A hierarchical `timm/...` checkpoint (stride 4-32), so it takes Case A.
+TIMM_CNN = "timm/convnext_tiny.dinov3_lvd1689m"
+
+
+@pytest.fixture
+def loguru_caplog(caplog):
+    """Route loguru records into pytest's caplog."""
+    from loguru import logger
+
+    handler_id = logger.add(caplog.handler, format="{message}", level="WARNING")
+    yield caplog
+    logger.remove(handler_id)
+
+
+@requires_timm
+def test_timm_hierarchical_checkpoint_takes_the_decoder_path():
+    """A timm ConvNeXt is not a plain ViT: Case A on its stage outputs.
+
+    timm's ConvNeXt rejects `dynamic_img_size`, so the wrapper must retry the
+    build without it.
+    """
+    model = _vit_model(TIMM_CNN, output_stride=2)
+    bb = model.backbone
+    assert bb.is_timm and not bb.token_path and bb.mode == "decoder"
+    assert bb._pyramid_strides == [4, 8, 16, 32]
+    out = model(torch.rand(1, 1, 64, 96))["SingleInstanceConfmapsHead"]
+    assert out.shape == (1, 2, 32, 48)
+
+
+@requires_timm
+def test_timm_hierarchical_checkpoint_honours_out_indices():
+    bb = _vit_backbone(TIMM_CNN, out_indices=[1, 2, 3])
+    assert bb._timm_stage_indices == [1, 2, 3]
+    assert bb._pyramid_strides == [8, 16, 32]
+
+
+@requires_timm
+def test_timm_vit_gradient_checkpointing_uses_timm_switch():
+    bb = _vit_backbone(TIMM_VIT, gradient_checkpointing=True)
+    assert bb.enc.timm_model.grad_checkpointing
+
+
+def test_vit_knobs_on_a_hierarchical_backbone_warn(loguru_caplog):
+    """`token_stride` etc. do nothing on Case A, so say so instead of ignoring them."""
+    _vit_backbone("facebook/convnextv2-nano-22k-224", token_stride=8, vit_neck="sfp")
+    assert "only apply to plain-ViT backbones" in loguru_caplog.text
+    assert "token_stride" in loguru_caplog.text and "vit_neck" in loguru_caplog.text
+
+
+def test_output_stride_coarser_than_the_pyramid_raises():
+    with pytest.raises(ValueError, match="coarser than the deepest pyramid level"):
+        _vit_backbone(VIT, output_stride=64, max_stride=64)
+
+
+def test_patch_size_reading():
+    from sleap_nn.architectures.pretrained import _patch_size
+
+    class _Cfg:
+        def __init__(self, patch_size):
+            self.patch_size = patch_size
+
+    assert _patch_size(_Cfg(14)) == 14
+    assert _patch_size(_Cfg([16, 16])) == 16
+    with pytest.raises(ValueError, match="Non-square patch size"):
+        _patch_size(_Cfg((16, 8)))
+    with pytest.raises(ValueError, match="does not look like a ViT"):
+        _patch_size(_Cfg(None))
+
+
+def test_fixed_resolution_vit_fails_at_construction():
+    """SAM's ViT only runs at 1024 px: refused when the model is built, with a
+    message that says why, not at the first training step."""
+    with pytest.raises(ValueError, match="Could not extract a dense token grid"):
+        _vit_backbone("facebook/sam-vit-base")
