@@ -2468,10 +2468,13 @@ class BBoxEvaluationCallback(Callback):
         self.eval_frequency = eval_frequency
 
     def on_validation_epoch_start(self, trainer, pl_module):
-        """Enable detection collection (skipped during the sanity check)."""
+        """Enable detection collection on scored epochs (not the sanity check)."""
         if trainer.sanity_checking:
             return
-        pl_module._collect_val_predictions = True
+        # Decoding every val batch costs time; only collect when this epoch scores.
+        pl_module._collect_val_predictions = (
+            trainer.current_epoch + 1
+        ) % self.eval_frequency == 0
 
     def on_validation_epoch_end(self, trainer, pl_module):
         """Score the collected detections and log the metrics."""

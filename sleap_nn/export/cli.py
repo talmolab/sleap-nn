@@ -125,6 +125,7 @@ def export(
         resolve_pafs_output_stride,
     )
     from sleap_nn.export.wrappers import (
+        BBoxONNXWrapper,
         BottomUpMultiClassONNXWrapper,
         BottomUpONNXWrapper,
         CenteredInstanceONNXWrapper,
@@ -180,6 +181,8 @@ def export(
             "multi_class_topdown",
             "multi_class_bottomup",
             "embedding",
+            "bbox_centernet",
+            "bbox_ssd",
         ):
             raise click.ClickException(
                 f"Model type '{model_type}' is not supported for export yet."
@@ -363,6 +366,24 @@ def export(
                     "parity, or train/export a burn_in=False model for a faithful "
                     "single-input ONNX embedder."
                 )
+        elif model_type in ("bbox_centernet", "bbox_ssd"):
+            # Detectors export the network only (decoder-ready head outputs);
+            # `ExportedBBoxLayer` decodes with the same BBoxDecoder as the
+            # checkpoint path, rebuilt from the copied training config.
+            from sleap_nn.data.bboxes import bbox_head_categories
+            from sleap_nn.export.wrappers.bbox import BBOX_EXPORT_OUTPUTS
+
+            wrapper = BBoxONNXWrapper(
+                torch_model, model_type=model_type, input_scale=resolved_scale
+            )
+            output_names = BBOX_EXPORT_OUTPUTS[model_type]
+            node_names = []
+            edge_inds = []
+            metadata_class_names = bbox_head_categories(
+                model_type, cfg.model_config.head_configs
+            )
+            metadata_n_classes = len(metadata_class_names)
+            metadata_max_instances = max_instances
         else:
             raise click.ClickException(
                 f"Model type '{model_type}' is not supported for export yet."
@@ -989,6 +1010,8 @@ def _load_lightning_model(
     device: str,
 ):
     from sleap_nn.training.lightning_modules import (
+        BBoxCenterNetLightningModule,
+        BBoxSSDLightningModule,
         BottomUpLightningModule,
         BottomUpMultiClassLightningModule,
         CentroidLightningModule,
@@ -1006,6 +1029,8 @@ def _load_lightning_model(
         "multi_class_topdown": TopDownCenteredInstanceMultiClassLightningModule,
         "multi_class_bottomup": BottomUpMultiClassLightningModule,
         "embedding": EmbeddingLightningModule,
+        "bbox_centernet": BBoxCenterNetLightningModule,
+        "bbox_ssd": BBoxSSDLightningModule,
     }.get(model_type)
 
     if lightning_cls is None:

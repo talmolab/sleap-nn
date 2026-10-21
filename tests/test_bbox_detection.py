@@ -600,3 +600,140 @@ def test_bbox_train_predict_eval(config, minimal_instance, tmp_path, model_type)
 
     m = run_evaluation(minimal_instance.as_posix(), out.as_posix(), match_method="bbox")
     assert m is not None and 0.0 <= m["bbox_mAP"] <= 1.0 and m["n_gt"] == 2
+
+    # The NMS knob reaches the decoder; tracking is refused (boxes only).
+    nms = Predictor.from_model_paths(
+        [run_dir.as_posix()], device="cpu", bbox_nms_iou=0.3
+    )
+    assert nms.layer.decoder.iou_threshold == pytest.approx(0.3)
+    default_iou = 0.45 if model_type == "bbox_ssd" else None
+    assert pred.layer.decoder.iou_threshold == default_iou
+    from sleap_nn.inference.tracking import TrackerConfig
+
+    nms.tracker_config = TrackerConfig()
+    with pytest.raises(ValueError, match="not supported for bounding-box"):
+        nms.predict(minimal_instance.as_posix())
+
+    _check_onnx_export_parity(run_dir, minimal_instance, labels, tmp_path)
+
+
+def _check_onnx_export_parity(run_dir, slp_path, torch_labels, tmp_path):
+    """ONNX export decodes (with the shared BBoxDecoder) to the PyTorch boxes."""
+    pytest.importorskip("onnxruntime")
+    from click.testing import CliRunner
+
+    from sleap_nn.evaluation import bbox_iou_matrix
+    from sleap_nn.export.cli import export
+    from sleap_nn.inference.layers.exported import ExportedBBoxLayer
+    from sleap_nn.inference.predictor import Predictor
+
+    out_dir = tmp_path / "exported"
+    result = CliRunner().invoke(
+        export, [str(run_dir), "-o", str(out_dir), "--peak-threshold", "0.0"]
+    )
+    assert result.exit_code == 0, result.output
+    meta = __import__("json").loads((out_dir / "export_metadata.json").read_text())
+    assert meta["class_names"] == ["object"]
+
+    pred = Predictor.from_export_dir(out_dir, runtime="onnx", device="cpu")
+    assert isinstance(pred.layer, ExportedBBoxLayer)
+    onnx_labels = pred.predict(slp_path.as_posix())
+    a = np.array([b.xyxy for b in torch_labels[0].bboxes]).reshape(-1, 4)
+    b = np.array([b.xyxy for b in onnx_labels[0].bboxes]).reshape(-1, 4)
+    assert len(a) == len(b)
+    if len(a):
+        # Each exported box has a near-identical native box.
+        assert (bbox_iou_matrix(b, a).max(axis=1) > 0.99).mean() >= 0.9
+
+
+def _synthetic_two_class_labels(tmp_path, n_frames=6):
+    """Image-sequence labels: a bright square ("a") and a dim one ("b") per frame,
+    plus one user-confirmed negative frame with nothing in it."""
+    from PIL import Image
+
+    rng = np.random.default_rng(0)
+    paths, lfs = [], []
+    for i in range(n_frames + 1):
+        img = rng.integers(0, 20, size=(128, 128), dtype=np.uint8)
+        boxes = []
+        if i < n_frames:
+            for name, value in (("a", 250), ("b", 120)):
+                x, y = rng.integers(5, 90, size=2)
+                s = int(rng.integers(16, 30))
+                img[y : y + s, x : x + s] = value
+                boxes.append(
+                    sio.UserBoundingBox.from_xyxy(
+                        float(x),
+                        float(y),
+                        float(x + s - 1),
+                        float(y + s - 1),
+                        category=name,
+                    )
+                )
+        path = tmp_path / f"frame_{i:02d}.png"
+        Image.fromarray(img).save(path)
+        paths.append(path.as_posix())
+        lfs.append((i, boxes))
+    video = sio.Video.from_filename(paths)
+    frames = []
+    for i, boxes in lfs:
+        lf = sio.LabeledFrame(video=video, frame_idx=i, bboxes=boxes)
+        if not boxes:
+            lf.is_negative = True
+        frames.append(lf)
+    labels = sio.Labels(videos=[video], labeled_frames=frames)
+    out = tmp_path / "boxes.slp"
+    labels.save(out.as_posix())
+    return out
+
+
+@pytest.mark.parametrize("model_type", ["bbox_centernet", "bbox_ssd"])
+def test_bbox_multiclass_and_negatives(config, tmp_path, model_type):
+    """Categories become classes end to end; negative frames are background samples."""
+    from sleap_nn.data.custom_datasets import get_train_val_datasets
+    from sleap_nn.inference.predictor import Predictor
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    path = _synthetic_two_class_labels(tmp_path)
+    cfg = _bbox_train_config(config, model_type, tmp_path)
+    cfg.data_config.train_labels_path = [path.as_posix()]
+    cfg.data_config.val_labels_path = [path.as_posix()]
+    cfg.data_config.use_negative_frames = True
+    cfg.data_config.augmentation_config = None
+    cfg.trainer_config.max_epochs = 1
+    trainer = ModelTrainer.get_model_trainer_from_config(cfg)
+    trainer.train()
+
+    saved = OmegaConf.load(tmp_path / model_type / "training_config.yaml")
+    leaf = (
+        saved.model_config.head_configs.bbox_centernet.center
+        if model_type == "bbox_centernet"
+        else saved.model_config.head_configs.bbox_ssd.ssd
+    )
+    assert list(leaf.categories) == ["a", "b"]
+
+    train_ds, _ = get_train_val_datasets(
+        [sio.load_slp(path.as_posix())], [sio.load_slp(path.as_posix())], saved
+    )
+    assert len(train_ds) == 7  # 6 positives + 1 negative
+    neg = train_ds[6]
+    assert neg["num_instances"] == 0 and neg["is_negative"]
+    pos = train_ds[0]
+    assert sorted(pos["bbox_classes"][: pos["num_instances"]].tolist()) == [0, 1]
+    if model_type == "bbox_centernet":
+        assert pos["center_heatmap"].shape[0] == 2
+        assert neg["center_heatmap"].sum() == 0
+    else:
+        assert (neg["ssd_cls_target"] > 0).sum() == 0
+        assert set(pos["ssd_cls_target"].unique().tolist()) >= {0, 1, 2}
+
+    pred = Predictor.from_model_paths(
+        [(tmp_path / model_type).as_posix()], device="cpu", peak_threshold=0.0
+    )
+    assert pred.layer.categories == ["a", "b"]
+    # Raw outputs: an untrained size head may regress ~0-size boxes, which the
+    # decoder drops after clipping, so check class ids before box filtering.
+    outputs = pred.predict(path.as_posix(), make_labels=False)
+    classes = torch.cat([o.pred_bbox_classes.flatten() for o in outputs])
+    scores = torch.cat([o.pred_bbox_scores.flatten() for o in outputs])
+    assert set(classes[torch.isfinite(scores)].tolist()) <= {0, 1}

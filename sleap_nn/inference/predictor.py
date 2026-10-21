@@ -940,9 +940,11 @@ def _select_export_layer(
     min_instance_peaks: float = 0,
     min_line_scores: float = 0.25,
     peak_conf_threshold: Optional[float] = None,
+    export_dir: Optional[Path] = None,
 ):
     """Dispatch on ``metadata.model_type`` to build the right export adapter."""
     from sleap_nn.inference.layers.exported import (
+        ExportedBBoxLayer,
         ExportedBottomUpLayer,
         ExportedBottomUpMultiClassLayer,
         ExportedCenteredInstanceLayer,
@@ -1021,6 +1023,41 @@ def _select_export_layer(
             n_classes=int(metadata.n_classes),
             input_scale=float(metadata.input_scale),
             peak_conf_threshold=peak_conf_threshold,
+        )
+
+    if model_type in ("bbox_centernet", "bbox_ssd"):
+        # Decoding is not baked into a detector's graph: rebuild its BBoxDecoder
+        # (categories, anchors, NMS) from the training config copied next to it.
+        from omegaconf import OmegaConf
+
+        from sleap_nn.inference.bbox import BBoxDecoder
+
+        cfg_path = Path(export_dir) / "training_config.yaml" if export_dir else None
+        if cfg_path is None or not cfg_path.exists():
+            raise ValueError(
+                f"A {model_type} export needs its training_config.yaml next to "
+                "export_metadata.json to rebuild the box decoder. Re-export the "
+                "model with `sleap-nn export`."
+            )
+        cfg = OmegaConf.load(cfg_path.as_posix())
+        backbone_cfg = next(
+            v for v in cfg.model_config.backbone_config.values() if v is not None
+        )
+        score = peak_conf_threshold if peak_conf_threshold is not None else 0.2
+        decoder = BBoxDecoder.from_head_configs(
+            model_type,
+            cfg.model_config.head_configs,
+            score_threshold=score,
+            max_detections=max_instances,
+        )
+        return ExportedBBoxLayer(
+            backend=backend,
+            decoder=decoder,
+            input_scale=float(metadata.input_scale),
+            max_stride=int(backbone_cfg.max_stride),
+            postprocess_config=PostprocessConfig(
+                peak_threshold=score, max_instances=max_instances
+            ),
         )
 
     raise ValueError(f"Unrecognized model_type {model_type!r} in export_metadata.json.")
@@ -1144,6 +1181,7 @@ class Predictor:
         full_res_masks: bool = False,
         mask_output: str = "mask",
         polygon_epsilon: float = 0.01,
+        bbox_nms_iou: Optional[float] = None,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1219,6 +1257,9 @@ class Predictor:
                 ``"both"`` (bottom-up segmentation only).
             polygon_epsilon: Douglas-Peucker tolerance (fraction of perimeter)
                 for ``mask_output`` polygon/both (bottom-up segmentation only).
+            bbox_nms_iou: Class-wise IoU-NMS threshold for ``bbox_*`` detectors.
+                ``None`` (default) uses the style's default (0.45 for SSD, off for
+                CenterNet, whose peak NMS already dedupes); ``1.0`` disables it.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
@@ -1257,6 +1298,7 @@ class Predictor:
             full_res_masks=full_res_masks,
             mask_output=mask_output,
             polygon_epsilon=polygon_epsilon,
+            bbox_nms_iou=bbox_nms_iou,
         )
 
         if centroid_only:
@@ -1312,6 +1354,8 @@ class Predictor:
         if "centered_instance_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"mask_output={mask_output}")
+        if "bbox_centernet" in model_types or "bbox_ssd" in model_types:
+            spec.append(f"bbox_nms_iou={loaded.inference_model.decoder.iou_threshold}")
         if "semantic_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")
@@ -1398,6 +1442,7 @@ class Predictor:
             min_instance_peaks=min_instance_peaks,
             min_line_scores=min_line_scores,
             peak_conf_threshold=resolved_peak_conf,
+            export_dir=export_dir,
         )
 
         skeleton = _skeleton_from_export(export_dir, metadata)
@@ -2529,7 +2574,9 @@ class Predictor:
         Detectors are skeleton-less: they emit ``Outputs.pred_bboxes`` packaged as
         ``sio.PredictedBoundingBox`` on ``LabeledFrame.bboxes``.
         """
-        return isinstance(self.layer, BBoxLayer)
+        from sleap_nn.inference.layers.exported import ExportedBBoxLayer
+
+        return isinstance(self.layer, (BBoxLayer, ExportedBBoxLayer))
 
     def _bbox_categories(self) -> Optional[List[str]]:
         """The detector's ordered class names (``None`` for non-detection layers)."""

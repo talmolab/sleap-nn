@@ -2527,6 +2527,7 @@ def _run_in_memory_new_flow(
         "min_line_scores": kwargs.get("min_line_scores", 0.25),
         # Bottom-up segmentation knobs (inert for non-segmentation models).
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
+        "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
@@ -2999,6 +3000,7 @@ def _run_stream_to_file(
         "min_line_scores": kwargs.get("min_line_scores", 0.25),
         # Bottom-up segmentation knobs (inert for non-segmentation models).
         "fg_threshold": kwargs.get("fg_threshold", 0.5),
+        "bbox_nms_iou": kwargs.get("bbox_nms_iou"),
         "min_mask_area": kwargs.get("min_mask_area", 0),
         "center_nms_kernel": kwargs.get("center_nms_kernel", 3),
         "mask_cleanup": kwargs.get("mask_cleanup", False),
@@ -3316,6 +3318,17 @@ def _common_inference_options(f):
         click.option("--n_points", type=int, default=10),
         click.option("--min_instance_peaks", type=float, default=0),
         click.option("--min_line_scores", type=float, default=0.25),
+        click.option(
+            "--bbox_nms_iou",
+            "--bbox-nms-iou",
+            "bbox_nms_iou",
+            type=float,
+            default=None,
+            help="Class-wise IoU-NMS threshold for bounding-box detectors "
+            "(bbox_centernet / bbox_ssd). Default: 0.45 for SSD, off for "
+            "CenterNet; 1.0 disables it. --peak_threshold is the detection "
+            "score threshold and --max_instances the per-frame cap.",
+        ),
         click.option(
             "--fg_threshold",
             "--fg-threshold",

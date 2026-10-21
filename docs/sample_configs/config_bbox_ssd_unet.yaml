@@ -1,0 +1,111 @@
+# SSD-style bounding-box detector (model type `bbox_ssd`).
+# One multi-scale anchor head over pyramid levels at strides 8/16/32 (decoder
+# outputs + the bottleneck): per anchor, class logits (background first) + SSD box
+# deltas; softmax CE with hard-negative mining + smooth L1. `anchor_sizes: null`
+# sizes the anchors from the training boxes at setup (written into the saved
+# config). Boxes come from `LabeledFrame.bboxes` or `data_config.bbox_source`.
+# See docs/guides/bbox-detection.md.
+data_config:
+  train_labels_path: null
+  val_labels_path: null
+  test_file_path: null
+  data_pipeline_fw: torch_dataset_cache_img_memory
+  preprocessing:
+    scale: 0.5
+  use_augmentations_train: true
+  augmentation_config:
+    intensity:
+      contrast_min: 0.8
+      contrast_max: 1.2
+      contrast_p: 0.5
+      brightness_min: 0.8
+      brightness_max: 1.2
+      brightness_p: 0.5
+    geometric:
+      rotation_min: 0.0
+      rotation_max: 0.0
+      scale_min: 0.85
+      scale_max: 1.15
+      translate_width: 0.1
+      translate_height: 0.1
+      affine_p: 1.0
+      flip_p: 0.5
+  validation_fraction: 0.1
+  bbox_source: auto
+  bbox_padding: 0.0
+model_config:
+  init_weights: xavier
+  backbone_config:
+    unet:
+      in_channels: 1
+      filters: 32
+      filters_rate: 1.5
+      max_stride: 32
+      convs_per_block: 2
+      middle_block: true
+      up_interpolate: true
+      output_stride: 8
+  head_configs:
+    bbox_ssd:
+      ssd:
+        output_stride: 8
+        num_levels: 3
+        anchor_sizes: null
+        anchor_scales:
+        - 1.0
+        - 1.26
+        - 1.587
+        aspect_ratios:
+        - 0.5
+        - 1.0
+        - 2.0
+        pos_iou_threshold: 0.5
+        neg_iou_threshold: 0.4
+        neg_pos_ratio: 3.0
+trainer_config:
+  train_data_loader:
+    batch_size: 8
+    shuffle: true
+    num_workers: 4
+  val_data_loader:
+    batch_size: 8
+    shuffle: false
+    num_workers: 4
+  model_ckpt:
+    save_top_k: 1
+    save_last: false
+  trainer_devices: 1
+  trainer_accelerator: gpu
+  enable_progress_bar: true
+  min_train_steps_per_epoch: 100
+  visualize_preds_during_training: true
+  keep_viz: false
+  max_epochs: 200
+  seed: 0
+  use_wandb: false
+  save_ckpt: true
+  ckpt_dir: models
+  run_name: null
+  wandb:
+    entity: null
+    project: null
+    name: null
+    group: null
+  optimizer_name: Adam
+  optimizer:
+    lr: 0.0005
+  lr_scheduler:
+    reduce_lr_on_plateau:
+      threshold: 1.0e-06
+      threshold_mode: abs
+      cooldown: 3
+      patience: 8
+      factor: 0.5
+      min_lr: 1.0e-06
+  early_stopping:
+    stop_training_on_plateau: true
+    min_delta: 1.0e-06
+    patience: 20
+  eval:
+    enabled: true
+    frequency: 5

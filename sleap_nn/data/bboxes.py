@@ -666,6 +666,13 @@ def get_bbox_target_encoder(model_type: str, head_configs):
         )
     if model_type == "bbox_ssd":
         ssd = head_configs.bbox_ssd.ssd
+        if ssd.anchor_sizes is None:
+            raise ValueError(
+                "model_config.head_configs.bbox_ssd.ssd.anchor_sizes is unset. "
+                "Training setup sizes the anchors from the labels (ModelTrainer); "
+                "set them explicitly (one size per pyramid level, model-input px) "
+                "to build an SSD model outside of it."
+            )
         return SSDTargetEncoder(
             num_classes=len(bbox_head_categories(model_type, head_configs)),
             strides=ssd_level_strides(ssd),

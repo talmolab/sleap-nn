@@ -637,11 +637,14 @@ def _build_bbox(
     return_confmaps: bool,
     preprocess_config: Any,
     max_instances: Optional[int] = None,
+    nms_iou: Optional[float] = None,
 ) -> LoadedAssets:
     """Load a ``bbox_centernet`` / ``bbox_ssd`` detector and wrap it for inference.
 
     ``peak_threshold`` is the detection score threshold and ``max_instances`` caps
-    detections per frame (default 100). ``integral_refinement`` /
+    detections per frame (default 100). ``nms_iou`` is the class-wise IoU-NMS
+    threshold (``None``: the style's default, 0.45 for SSD and off for CenterNet;
+    ``1.0`` suppresses nothing). ``integral_refinement`` /
     ``integral_patch_size`` / ``return_confmaps`` are accepted for the uniform
     ``common_kwargs`` call signature but unused (detectors have no keypoints).
     The decoder (style, categories, anchors, NMS) is rebuilt from the saved head
@@ -678,6 +681,7 @@ def _build_bbox(
         model_type,
         head_configs,
         score_threshold=float(peak_threshold),
+        iou_threshold="default" if nms_iou is None else float(nms_iou),
         max_detections=max_instances,
     )
     output_stride = min(
@@ -1482,6 +1486,7 @@ def load_model_assets(
     full_res_masks: bool = False,
     mask_output: str = "mask",
     polygon_epsilon: float = 0.01,
+    bbox_nms_iou: Optional[float] = None,
 ) -> tuple[LoadedAssets, List[str]]:
     """Load checkpoints and build inference models.
 
@@ -1494,7 +1499,8 @@ def load_model_assets(
     ``min_line_scores``) are forwarded ONLY to the plain bottom-up builder
     (legacy applied them only to ``BottomUpPredictor``); they are inert for
     other model types. Likewise ``fg_threshold`` / ``min_mask_area`` are
-    forwarded ONLY to the bottom-up segmentation builder.
+    forwarded ONLY to the bottom-up segmentation builder, and ``bbox_nms_iou``
+    only to the ``bbox_*`` detector builder.
 
     Returns:
         ``(loaded_assets, model_types)`` — *model_types* is the list of
@@ -1629,6 +1635,7 @@ def load_model_assets(
             path,
             model_type=model_type,
             max_instances=max_instances,
+            nms_iou=bbox_nms_iou,
             **common_kwargs,
         )
 
