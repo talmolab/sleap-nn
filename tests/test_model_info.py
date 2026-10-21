@@ -89,6 +89,20 @@ class TestLoadTrainingLog:
         assert stats["best_val_loss"] == pytest.approx(0.1)
         assert stats["best_val_epoch"] == 1
 
+    def test_unparseable_loss_value_falls_back(self, tmp_path):
+        """A non-numeric value is ignored, falling through to the old column name."""
+        (tmp_path / "training_log.csv").write_text(
+            "epoch,train/loss,val/loss,train_loss,val_loss\n"
+            "0,oops,bad,0.3,0.2\n"
+            "1,oops,bad,,\n"
+        )
+        stats = _load_training_log(tmp_path)
+        assert stats["best_val_loss"] == pytest.approx(0.2)
+        assert stats["best_val_epoch"] == 0
+        # Last row has no parseable value under either name.
+        assert stats["final_train_loss"] is None
+        assert stats["final_val_loss"] is None
+
 
 class TestPrintModelInfo:
     def test_model_dir_with_metrics(self, capsys):
