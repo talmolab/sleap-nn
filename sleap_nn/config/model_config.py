@@ -1586,6 +1586,182 @@ class EmbeddingConfig:
     embedding: Optional[EmbeddingHeadConfig] = None
 
 
+# ---------------------------------------------------------------------------
+# Bounding-box detection head configs (the `bbox_*` model family). Two detection
+# styles share one data pipeline (`sleap_nn.data.bboxes`), one output type
+# (`sio.PredictedBoundingBox` on `LabeledFrame.bboxes`) and one COCO-style eval
+# (`match_method="bbox"`); they differ only in their heads, targets and decoder.
+# ---------------------------------------------------------------------------
+BBOX_MODEL_TYPES = ("bbox_centernet", "bbox_ssd")
+
+# Class name given to boxes that carry no `sio.Category`.
+DEFAULT_BBOX_CATEGORY = "object"
+
+
+@define
+class BBoxCenterHeadConfig:
+    """Center-heatmap head of a ``bbox_centernet`` model.
+
+    One sigmoid heatmap channel per category with a Gaussian peak at each box
+    center (CenterNet, Zhou et al. 2019), trained with the penalty-reduced pixelwise
+    focal loss of CornerNet/CenterNet.
+
+    Attributes:
+        categories: (List[str]) Ordered class names; one heatmap channel per entry.
+            ``None`` (default) is filled in at training setup from the categories of
+            the training boxes, in first-seen order; boxes without a category belong
+            to the single class ``"object"``.
+        sigma: (float) Fixed Gaussian sigma in input pixels. ``None`` (default) uses
+            CenterNet's size-adaptive radius instead: the largest radius at which a
+            box whose corners move by that much still has IoU >= ``min_overlap``
+            with the GT box, and ``sigma = (2 * radius + 1) / 6``.
+        min_overlap: (float) IoU used by the size-adaptive radius. *Default*: ``0.7``.
+        output_stride: (int) Stride of the heatmap relative to the input image.
+            Must equal the ``size`` and ``offset`` strides. *Default*: ``4``.
+        loss_weight: (float) Weight of the heatmap focal loss. *Default*: ``1.0``.
+        focal_alpha: (float) Focal exponent on the prediction error. *Default*:
+            ``2.0``.
+        focal_beta: (float) Exponent of the penalty reduction around GT peaks.
+            *Default*: ``4.0``.
+    """
+
+    categories: Optional[List[str]] = None
+    sigma: Optional[float] = None
+    min_overlap: float = 0.7
+    output_stride: int = 4
+    loss_weight: float = 1.0
+    focal_alpha: float = 2.0
+    focal_beta: float = 4.0
+
+
+@define
+class BBoxSizeHeadConfig:
+    """Box-size regression head of a ``bbox_centernet`` model.
+
+    Two channels (width, height) regressed at each box's center cell, in units of
+    output-grid cells, with an L1 loss masked to center cells.
+
+    Attributes:
+        output_stride: (int) Must equal the center head's stride. *Default*: ``4``.
+        loss_weight: (float) Weight of the size L1 loss. *Default*: ``0.1``
+            (CenterNet's value; sizes are large numbers next to the focal loss).
+    """
+
+    output_stride: int = 4
+    loss_weight: float = 0.1
+
+
+@define
+class BBoxOffsetHeadConfig:
+    """Sub-cell center offset head of a ``bbox_centernet`` model.
+
+    Two channels recovering the center's position inside its output-grid cell,
+    i.e. the quantization error of the stride, with an L1 loss masked to center
+    cells.
+
+    Attributes:
+        output_stride: (int) Must equal the center head's stride. *Default*: ``4``.
+        loss_weight: (float) Weight of the offset L1 loss. *Default*: ``1.0``.
+    """
+
+    output_stride: int = 4
+    loss_weight: float = 1.0
+
+
+@define
+class BBoxCenterNetConfig:
+    """Head config for the ``bbox_centernet`` (CenterNet-style) model type.
+
+    A whole-frame, anchor-free detector: a center heatmap plus per-center size and
+    offset regression. Decoding takes the heatmap's local maxima as detections and
+    reads each one's box from the size/offset maps (no anchors, no grouping).
+    """
+
+    center: Optional[BBoxCenterHeadConfig] = None
+    size: Optional[BBoxSizeHeadConfig] = None
+    offset: Optional[BBoxOffsetHeadConfig] = None
+
+
+@define
+class SSDHeadConfig:
+    """Multi-scale anchor head of a ``bbox_ssd`` (SSD-style) model.
+
+    Binds to ``num_levels`` feature maps of the backbone at strides
+    ``output_stride * 2**i`` (the decoder's top-down path is the feature pyramid;
+    the bottleneck supplies the deepest level). Each level runs a small conv tower
+    and predicts, for each of its anchors, ``len(categories) + 1`` class logits
+    (index 0 is background) and 4 box deltas in SSD's ``(cx, cy, w, h)`` encoding.
+    Training matches anchors to boxes by IoU and uses softmax cross-entropy with
+    hard negative mining plus smooth-L1 on the positives (Liu et al. 2016).
+
+    Attributes:
+        categories: (List[str]) Ordered class names (background excluded). ``None``
+            (default) is filled in at training setup, as for ``bbox_centernet``.
+        output_stride: (int) Stride of the finest pyramid level. *Default*: ``8``.
+        num_levels: (int) Number of pyramid levels. The deepest one,
+            ``output_stride * 2**(num_levels - 1)``, must not exceed the backbone's
+            ``max_stride`` (it is raised to fit, as for any head stride). *Default*:
+            ``3``.
+        anchor_sizes: (List[float]) Base anchor size (sqrt of the area, in input
+            pixels) per level, finest first. ``None`` (default) sizes them at
+            training setup from the training boxes: geometrically spaced between the
+            5th and 95th percentile of ``sqrt(w * h)``. The resolved sizes are
+            written into the saved config so inference uses the same anchors.
+        anchor_scales: (List[float]) Multipliers on each level's base size.
+            *Default*: ``(1.0, 1.26, 1.587)`` (``2 ** (0, 1/3, 2/3)``).
+        aspect_ratios: (List[float]) Anchor ``h / w`` ratios. *Default*:
+            ``(0.5, 1.0, 2.0)``.
+        pos_iou_threshold: (float) An anchor with IoU >= this with some box is a
+            positive for it. Each box's best anchor is always a positive too.
+            *Default*: ``0.5``.
+        neg_iou_threshold: (float) Anchors whose best IoU is below this are
+            background; those in between are ignored. *Default*: ``0.4``.
+        neg_pos_ratio: (float) Hard negative mining keeps this many of the
+            highest-loss background anchors per positive. *Default*: ``3.0``.
+        box_variances: (List[float]) SSD's ``(cx, cy, w, h)`` encoding variances.
+            *Default*: ``(0.1, 0.1, 0.2, 0.2)``.
+        head_channels: (int) Channels of each level's conv tower. *Default*:
+            ``128``.
+        head_convs: (int) 3x3 conv + ReLU layers in each level's tower before the
+            predictors. *Default*: ``1``.
+        loss_weight: (float) Weight of the box regression loss relative to the
+            classification loss. *Default*: ``1.0``.
+    """
+
+    categories: Optional[List[str]] = None
+    output_stride: int = 8
+    num_levels: int = field(default=3, validator=validators.ge(1))
+    anchor_sizes: Optional[List[float]] = None
+    # Tuples, not `field(factory=...)`: OmegaConf cannot call an attrs Factory when
+    # it builds this class from its type (see `NegativesConfig.sources`).
+    anchor_scales: List[float] = (1.0, 1.26, 1.587)
+    aspect_ratios: List[float] = (0.5, 1.0, 2.0)
+    pos_iou_threshold: float = 0.5
+    neg_iou_threshold: float = 0.4
+    neg_pos_ratio: float = 3.0
+    box_variances: List[float] = (0.1, 0.1, 0.2, 0.2)
+    head_channels: int = 128
+    head_convs: int = 1
+    loss_weight: float = 1.0
+
+
+def ssd_level_strides(ssd_config) -> List[int]:
+    """Pyramid level strides of an ``SSDHeadConfig`` (or its DictConfig), finest first."""
+    return [
+        int(ssd_config.output_stride) * 2**i for i in range(int(ssd_config.num_levels))
+    ]
+
+
+@define
+class BBoxSSDConfig:
+    """Head config for the ``bbox_ssd`` (SSD-style, anchor-based) model type.
+
+    Wraps the single multi-scale ``ssd`` leaf (mirrors ``SemanticSegmentationConfig``).
+    """
+
+    ssd: Optional[SSDHeadConfig] = None
+
+
 @oneof
 @define
 class HeadConfig:
@@ -1605,6 +1781,8 @@ class HeadConfig:
             `CenteredInstanceSegmentationConfig`.
         semantic_segmentation: An instance of `SemanticSegmentationConfig`.
         embedding: An instance of `EmbeddingConfig`.
+        bbox_centernet: An instance of `BBoxCenterNetConfig`.
+        bbox_ssd: An instance of `BBoxSSDConfig`.
     """
 
     single_instance: Optional[SingleInstanceConfig] = None
@@ -1617,6 +1795,8 @@ class HeadConfig:
     centered_instance_segmentation: Optional[CenteredInstanceSegmentationConfig] = None
     semantic_segmentation: Optional[SemanticSegmentationConfig] = None
     embedding: Optional[EmbeddingConfig] = None
+    bbox_centernet: Optional[BBoxCenterNetConfig] = None
+    bbox_ssd: Optional[BBoxSSDConfig] = None
 
 
 @define

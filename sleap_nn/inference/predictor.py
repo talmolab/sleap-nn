@@ -42,6 +42,7 @@ from loguru import logger
 from sleap_nn.inference.filters import FilterConfig, FilterPipeline
 from sleap_nn.config.utils import check_tiling_parity
 from sleap_nn.inference.layers.backends import TorchBackend
+from sleap_nn.inference.layers.bbox import BBoxLayer
 from sleap_nn.inference.layers.base import InferenceLayer
 from sleap_nn.inference.layers.bottomup import BottomUpLayer
 from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLayer
@@ -484,6 +485,29 @@ def _build_semantic_segmentation_layer(
     )
 
 
+def _build_bbox_layer(predictor: Any, device: str) -> BBoxLayer:
+    """Wrap a ``BBoxInferenceModel`` in a ``BBoxLayer``."""
+    inf = predictor.inference_model
+    max_stride = getattr(predictor, "max_stride", 1) or 1
+    return BBoxLayer(
+        backend=TorchBackend(model=inf.torch_model, device=device),
+        decoder=inf.decoder,
+        output_stride=inf.output_stride,
+        max_stride=max_stride,
+        preprocess_config=PreprocessConfig(
+            scale=inf.input_scale,
+            max_height=_pp_field(predictor, "max_height"),
+            max_width=_pp_field(predictor, "max_width"),
+            ensure_rgb=_pp_field(predictor, "ensure_rgb"),
+            ensure_grayscale=_pp_field(predictor, "ensure_grayscale"),
+        ),
+        postprocess_config=PostprocessConfig(
+            peak_threshold=inf.decoder.score_threshold,
+            max_instances=getattr(predictor, "max_instances", None),
+        ),
+    )
+
+
 def _build_centroid_layer(
     centroid_model: Any,
     device: str,
@@ -765,6 +789,8 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
             check_tiling_parity(_tiling_source_cfg(assets))
             return _build_tiled_semantic_segmentation_layer(inner, tiling)
         return inner
+    if "bbox_centernet" in model_types or "bbox_ssd" in model_types:
+        return _build_bbox_layer(assets, device)
     # Appearance-embedding (re-ID). Checked BEFORE the centroid / centered_instance
     # / topdown family so a centroid + embedding pair isn't swallowed by the
     # centroid-only branch.
@@ -1847,6 +1873,15 @@ class Predictor:
                 "for tracking."
             )
 
+        # The tracker operates on poses and masks; a detector emits boxes only.
+        if self.tracker_config is not None and self._is_bbox_layer():
+            raise ValueError(
+                "Tracking is not supported for bounding-box detectors (bbox_*): "
+                "the tracker operates on sio.PredictedInstance / "
+                "sio.PredictedSegmentationMask objects, and this model emits "
+                "sio.PredictedBoundingBox objects."
+            )
+
         # Segmentation emits sio.PredictedSegmentationMask objects to
         # LabeledFrame.masks; apply_tracking auto-detects the mask-only labels
         # and tracks them by pixel mask-IoU (#619), so tracking is supported.
@@ -1899,7 +1934,11 @@ class Predictor:
                 "vector to its source detection via `sio.Embedding`, or pass "
                 "`make_labels=False` for the raw `Outputs`."
             )
-        if self.skeleton is None and not self._is_segmentation_layer():
+        if (
+            self.skeleton is None
+            and not self._is_segmentation_layer()
+            and not self._is_bbox_layer()
+        ):
             raise ValueError(
                 "make_labels=True requires a skeleton. Either pass "
                 "`skeleton=...` or build the Predictor via Predictor.from_model_paths() "
@@ -1941,6 +1980,9 @@ class Predictor:
                 len(getattr(lf, "masks", None) or []) for lf in labels.labeled_frames
             )
             object_label = "masks"
+        elif self._is_bbox_layer():
+            n_objects = sum(len(lf.bboxes) for lf in labels.labeled_frames)
+            object_label = "boxes"
         else:
             n_objects = sum(len(lf.instances) for lf in labels.labeled_frames)
             object_label = "instances"
@@ -2082,7 +2124,11 @@ class Predictor:
                 "(or `sleap-nn predict --save_embeddings slp`) instead."
             )
 
-        if self.skeleton is None and not self._is_segmentation_layer():
+        if (
+            self.skeleton is None
+            and not self._is_segmentation_layer()
+            and not self._is_bbox_layer()
+        ):
             raise ValueError(
                 "predict_to_file requires a skeleton. Either pass "
                 "`skeleton=...` or build the Predictor via Predictor.from_model_paths() "
@@ -2119,6 +2165,7 @@ class Predictor:
             source=pkg.source,
             mask_output=getattr(self.layer, "mask_output", "mask"),
             polygon_epsilon=getattr(self.layer, "polygon_epsilon", 0.01),
+            bbox_categories=self._bbox_categories(),
         )
         _prov_start = datetime.now()
         with writer:
@@ -2354,6 +2401,7 @@ class Predictor:
                 mask_output=mask_output,
                 polygon_epsilon=polygon_epsilon,
                 keep_empty_frames=keep_empty_frames,
+                bbox_categories=self._bbox_categories(),
             )
             all_lf.extend(sub.labeled_frames)
             for trk in sub.tracks:
@@ -2371,7 +2419,7 @@ class Predictor:
         labels = sio.Labels(
             labeled_frames=all_lf,
             videos=valid_videos,
-            skeletons=[out_skeleton],
+            skeletons=[out_skeleton] if out_skeleton is not None else [],
         )
         if used_tracks:
             labels.tracks = used_tracks
@@ -2474,6 +2522,18 @@ class Predictor:
                 TiledSemanticSegmentationLayer,
             ),
         )
+
+    def _is_bbox_layer(self) -> bool:
+        """``True`` iff ``layer`` is a bounding-box detection layer.
+
+        Detectors are skeleton-less: they emit ``Outputs.pred_bboxes`` packaged as
+        ``sio.PredictedBoundingBox`` on ``LabeledFrame.bboxes``.
+        """
+        return isinstance(self.layer, BBoxLayer)
+
+    def _bbox_categories(self) -> Optional[List[str]]:
+        """The detector's ordered class names (``None`` for non-detection layers)."""
+        return self.layer.categories if self._is_bbox_layer() else None
 
     def _is_embedding_layer(self) -> bool:
         """``True`` iff ``layer`` is an appearance-embedding (re-ID) layer.

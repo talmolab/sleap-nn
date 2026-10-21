@@ -39,6 +39,12 @@ from sleap_nn.config.model_config import (
     CenteredInstanceSegmentationConfig,
     CenteredInstanceSegmentationHeadConfig,
     SemanticSegmentationConfig,
+    BBoxCenterNetConfig,
+    BBoxCenterHeadConfig,
+    BBoxSizeHeadConfig,
+    BBoxOffsetHeadConfig,
+    BBoxSSDConfig,
+    SSDHeadConfig,
     SegmentationHeadConfig,
     InstanceCenterConfig,
     CenterOffsetConfig,
@@ -436,9 +442,17 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
                     )
                 )
             )
+        elif head_cfg == "bbox_centernet":
+            head_configs.bbox_centernet = BBoxCenterNetConfig(
+                center=BBoxCenterHeadConfig(),
+                size=BBoxSizeHeadConfig(),
+                offset=BBoxOffsetHeadConfig(),
+            )
+        elif head_cfg == "bbox_ssd":
+            head_configs.bbox_ssd = BBoxSSDConfig(ssd=SSDHeadConfig())
         else:
             raise ValueError(
-                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown', 'bottomup_segmentation', 'centered_instance_segmentation', 'semantic_segmentation', 'embedding']"
+                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown', 'bottomup_segmentation', 'centered_instance_segmentation', 'semantic_segmentation', 'embedding', 'bbox_centernet', 'bbox_ssd']"
             )
 
     elif isinstance(head_cfg, dict):
@@ -545,6 +559,17 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
             leaf_scalars = {k: v for k, v in emb.items() if k != "objective"}
             head_configs.embedding = EmbeddingConfig(
                 embedding=EmbeddingHeadConfig(objective=objective, **leaf_scalars)
+            )
+        elif "bbox_centernet" in head_cfg and head_cfg["bbox_centernet"] is not None:
+            cn = head_cfg["bbox_centernet"]
+            head_configs.bbox_centernet = BBoxCenterNetConfig(
+                center=BBoxCenterHeadConfig(**(cn.get("center") or {})),
+                size=BBoxSizeHeadConfig(**(cn.get("size") or {})),
+                offset=BBoxOffsetHeadConfig(**(cn.get("offset") or {})),
+            )
+        elif "bbox_ssd" in head_cfg and head_cfg["bbox_ssd"] is not None:
+            head_configs.bbox_ssd = BBoxSSDConfig(
+                ssd=SSDHeadConfig(**(head_cfg["bbox_ssd"].get("ssd") or {}))
             )
 
     return head_configs

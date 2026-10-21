@@ -3802,13 +3802,25 @@ def infer(**kwargs):
 )
 @click.option(
     "--match_method",
-    type=click.Choice(["oks", "centroid", "mask", "semantic", "auto"]),
+    type=click.Choice(["oks", "centroid", "mask", "semantic", "bbox", "auto"]),
     default="auto",
     help=(
         "Matching method: 'oks' (full-skeleton), 'centroid' (single-point "
         "pixel-distance), 'mask' (instance-segmentation mask IoU), 'semantic' "
-        "(whole-frame foreground IoU/clDice, no matching), or 'auto' (centroid "
-        "when the prediction skeleton is single-node). Default: auto."
+        "(whole-frame foreground IoU/clDice, no matching), 'bbox' (COCO box AP of "
+        "predicted bounding boxes), or 'auto' (bbox when the predictions are "
+        "boxes only, centroid when the prediction skeleton is single-node). "
+        "Default: auto."
+    ),
+)
+@click.option(
+    "--bbox_padding",
+    type=float,
+    default=0.0,
+    help=(
+        "bbox mode: pixels of padding on ground-truth boxes derived from poses or "
+        "masks (when the ground truth has no boxes). Pass the model's "
+        "data_config.bbox_padding."
     ),
 )
 @click.option(

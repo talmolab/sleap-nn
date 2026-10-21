@@ -327,6 +327,80 @@ def _run_segmentation_split_eval(
     return metrics
 
 
+def _run_bbox_split_eval(
+    config,
+    d_name: str,
+    path: str,
+    run_path: Path,
+    pred_path: Path,
+    metrics_path: Path,
+    device: str,
+):
+    """Run post-training eval for a single split of a ``bbox_*`` detector.
+
+    Predicts with the NEW inference flow (the detector is auto-detected from its
+    run dir) at a low score threshold so COCO AP sees the whole precision-recall
+    curve, then scores the boxes with ``run_evaluation(match_method="bbox")``. GT
+    files without boxes get them derived from their poses/masks with the model's
+    own ``data_config.bbox_padding``. Best-effort: a model predicting no boxes is
+    logged and skipped. Metrics (and the inference throughput) go to the wandb
+    summary as ``eval/<split>/bbox_*``.
+
+    Returns:
+        The metrics dict, or ``None`` if eval was skipped.
+    """
+    import time
+
+    from sleap_nn.inference.run import predict as predict_new
+
+    start = time.perf_counter()
+    pred_labels = predict_new(
+        path,
+        model_paths=[run_path],
+        peak_threshold=0.05,
+        device=device,
+        output_path=pred_path,
+    )
+    elapsed = time.perf_counter() - start
+    if not len(pred_labels) or not any(len(lf.bboxes) for lf in pred_labels):
+        logger.info(
+            f"Skipping eval on `{d_name}` dataset as there are no predicted boxes..."
+        )
+        return None
+    try:
+        metrics = run_evaluation(
+            ground_truth_path=path,
+            predicted_path=pred_path.as_posix(),
+            match_method="bbox",
+            save_metrics=metrics_path.as_posix(),
+            bbox_padding=float(
+                OmegaConf.select(config, "data_config.bbox_padding", default=0.0)
+            ),
+        )
+    except Exception as e:  # noqa: BLE001 — eval is best-effort post-training.
+        logger.warning(f"Skipping bbox eval on `{d_name}`: {e}")
+        return None
+    if metrics is None:
+        return None
+    metrics["predict_fps"] = len(pred_labels) / elapsed if elapsed > 0 else None
+    from sleap_nn.evaluation import _write_metrics
+
+    _write_metrics(metrics_path, metrics)
+
+    logger.info(f"---------Evaluation on `{d_name}` dataset (bbox detection)---------")
+    for key in ("bbox_mAP", "bbox_AP50", "bbox_AP75", "bbox_AR", "bbox_f1"):
+        logger.info(f"{key}: {metrics.get(key)}")
+    if config.trainer_config.use_wandb:
+        import wandb
+
+        if wandb.run is not None:
+            from sleap_nn.evaluation import BBOX_EVAL_LOG_KEYS
+
+            for key in BBOX_EVAL_LOG_KEYS + ("predict_fps",):
+                wandb.run.summary[f"eval/{d_name}/{key}"] = metrics.get(key)
+    return metrics
+
+
 def _run_embedding_split_eval(
     config: DictConfig,
     d_name: str,
@@ -498,6 +572,18 @@ def run_training(
 
                 if model_type == "centroid":
                     _run_centroid_split_eval(
+                        config=trainer.config,
+                        d_name=d_name,
+                        path=path,
+                        run_path=run_path,
+                        pred_path=pred_path,
+                        metrics_path=metrics_path,
+                        device=str(trainer.trainer.strategy.root_device),
+                    )
+                    continue
+
+                if model_type in ("bbox_centernet", "bbox_ssd"):
+                    _run_bbox_split_eval(
                         config=trainer.config,
                         d_name=d_name,
                         path=path,
