@@ -25,6 +25,7 @@ Two-stage: centroid detection + pose estimation.
 | [centroid_swint](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_centroid_swint.yaml) | Swin-T | Stage 1 |
 | [centered_instance_unet_medium](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_centered_instance_unet_medium_rf.yaml) | UNet | Stage 2, Medium |
 | [centered_instance_unet_large](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_centered_instance_unet_large_rf.yaml) | UNet | Stage 2, Large |
+| [centered_instance_pretrained_vit](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_centered_instance_pretrained_vit.yaml) | Pretrained (DINOv3 ViT-S/16 via timm) | Stage 2; plain ViT + feature-pyramid neck; see the [Pretrained Backbones guide](../guides/pretrained-backbones.md) |
 
 ### Centroid-Only (points)
 
