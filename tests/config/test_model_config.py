@@ -344,6 +344,45 @@ def test_get_head_configs_embedding_missing_leaf_raises():
             get_head_configs(bad)
 
 
+class TestPretrainedDecoderModeIsRecorded:
+    """Training setup writes what `mode: auto` means for a spatial-head model."""
+
+    @staticmethod
+    def _cfg(mode):
+        return OmegaConf.create(
+            {
+                "model_config": {
+                    "backbone_config": {
+                        "pretrained": {
+                            "model_name": "facebook/dinov2-with-registers-small",
+                            "mode": mode,
+                            "max_stride": 32,
+                            "output_stride": 2,
+                        }
+                    },
+                    "head_configs": {
+                        "single_instance": {
+                            "confmaps": {"part_names": ["a"], "output_stride": 4}
+                        }
+                    },
+                }
+            }
+        )
+
+    def test_auto_becomes_decoder(self):
+        from sleap_nn.config.utils import check_output_strides
+
+        cfg = check_output_strides(self._cfg("auto"))
+        assert cfg.model_config.backbone_config.pretrained.mode == "decoder"
+
+    def test_an_explicit_mode_is_left_alone(self):
+        """`encoder` under a spatial head is the user's call (and errors in Model)."""
+        from sleap_nn.config.utils import check_output_strides
+
+        cfg = check_output_strides(self._cfg("encoder"))
+        assert cfg.model_config.backbone_config.pretrained.mode == "encoder"
+
+
 class TestEmbeddingPretrainedEncoderMode:
     """`embedding` + `pretrained` must be configurable through the DEFAULT path.
 

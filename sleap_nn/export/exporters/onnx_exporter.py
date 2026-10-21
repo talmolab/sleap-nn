@@ -55,12 +55,29 @@ def _upsample_bicubic2d_aa_symbolic(g, input, output_size, align_corners, scales
     )
 
 
-def _has_rope(model: torch.nn.Module) -> bool:
-    """Whether a model contains a rotary position embedding module."""
+def has_rope(model: torch.nn.Module) -> bool:
+    """Whether a model contains a rotary position embedding module.
+
+    Rotary position embeddings (timm DINOv3 / EVA02 / PE) compute their grid from
+    Python floats of the input size, which tracing freezes, so a traced graph is
+    only correct at the size it was traced at.
+    """
     return any(
         "rope" in name or "rotary" in name
         for name in (type(m).__name__.lower() for m in model.modules())
     )
+
+
+def _without_spatial_axes(
+    dynamic_axes: Dict[str, Dict[int, str]], input_name: str
+) -> Dict[str, Dict[int, str]]:
+    """Copy of ``dynamic_axes`` with the input's height/width (axes 2, 3) static."""
+    axes = {name: dict(spec) for name, spec in dynamic_axes.items()}
+    if input_name in axes:
+        axes[input_name] = {
+            k: v for k, v in axes[input_name].items() if k not in (2, 3)
+        }
+    return axes
 
 
 def export_to_onnx(
@@ -77,6 +94,7 @@ def export_to_onnx(
     numerical_check: bool = False,
     numerical_atol: float = 1e-3,
     numerical_rtol: float = 1e-3,
+    static_hw: Optional[bool] = None,
 ) -> Path:
     """Export a PyTorch model to ONNX.
 
@@ -103,6 +121,12 @@ def export_to_onnx(
             extra); degrades to a warning if it is unavailable.
         numerical_atol: Absolute tolerance for the numerical parity check.
         numerical_rtol: Relative tolerance for the numerical parity check.
+        static_hw: If ``True``, export the input's height and width as static
+            (the traced ``input_shape``); only the batch stays dynamic. ``None``
+            (default) does so when the model contains a rotary position embedding
+            (`has_rope`), whose grid tracing freezes. Pass ``False`` when the RoPE
+            module only ever sees a fixed size anyway -- e.g. the instance model
+            inside a top-down wrapper, which receives fixed-size crops.
     """
     save_path = Path(save_path)
     model.eval()
@@ -111,18 +135,18 @@ def export_to_onnx(
         input_names = ["image"]
     if dynamic_axes is None:
         dynamic_axes = {"image": {0: "batch", 2: "height", 3: "width"}}
-        if _has_rope(model):
-            # Rotary position embeddings (timm DINOv3 / EVA02 / PE) compute their
-            # grid from Python floats of the input size, which tracing freezes, so
-            # the graph is only correct at the traced size. Export it static in
-            # H/W: onnxruntime then rejects other sizes instead of returning
-            # silently wrong confidence maps.
-            dynamic_axes = {"image": {0: "batch"}}
-            logger.warning(
-                "The backbone uses rotary position embeddings, which trace to a "
-                "fixed token grid: exporting with static height/width "
-                f"{tuple(input_shape)[2:]}; feed the ONNX model inputs of that size."
-            )
+    if static_hw is None:
+        static_hw = has_rope(model)
+    if static_hw:
+        # A RoPE grid is only correct at the traced size. Export H/W static so
+        # onnxruntime / TensorRT reject other sizes instead of returning silently
+        # wrong outputs.
+        dynamic_axes = _without_spatial_axes(dynamic_axes, input_names[0])
+        logger.warning(
+            "The backbone uses rotary position embeddings, which trace to a fixed "
+            "token grid: exporting with static height/width "
+            f"{tuple(input_shape)[2:]}; feed the ONNX model inputs of that size."
+        )
 
     device = None
     try:

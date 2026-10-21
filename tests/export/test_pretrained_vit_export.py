@@ -129,11 +129,11 @@ def test_caseC_vit_onnx_export_parity(tmp_path, kind):
 def test_rope_backbones_are_detected_for_static_export():
     """RoPE ViTs trace to a fixed grid, so the exporter must export them static."""
     timm = pytest.importorskip("timm")
-    from sleap_nn.export.exporters.onnx_exporter import _has_rope
+    from sleap_nn.export.exporters.onnx_exporter import has_rope
 
-    assert _has_rope(timm.create_model("vit_small_patch16_dinov3", pretrained=False))
-    assert _has_rope(timm.create_model("eva02_small_patch14_224", pretrained=False))
-    assert not _has_rope(
+    assert has_rope(timm.create_model("vit_small_patch16_dinov3", pretrained=False))
+    assert has_rope(timm.create_model("eva02_small_patch14_224", pretrained=False))
+    assert not has_rope(
         timm.create_model("vit_small_patch14_reg4_dinov2", pretrained=False)
     )
 
@@ -166,3 +166,51 @@ def test_rope_backbone_exports_with_static_height_and_width(tmp_path):
     dims = onnx.load(onnx_path.as_posix()).graph.input[0].type.tensor_type.shape.dim
     assert dims[0].dim_param  # batch stays dynamic
     assert [d.dim_value for d in dims[2:]] == [64, 48]
+
+
+def _input_dims(onnx_path):
+    import onnx
+
+    dims = onnx.load(onnx_path.as_posix()).graph.input[0].type.tensor_type.shape.dim
+    return [d.dim_param or d.dim_value for d in dims]
+
+
+def test_rope_static_export_also_applies_to_caller_dynamic_axes(tmp_path):
+    """The TensorRT exporter passes its own input name and dynamic axes."""
+    onnx_path = export_to_onnx(
+        _RopeNet(),
+        tmp_path / "rope.onnx",
+        input_shape=(1, 3, 64, 48),
+        input_dtype=torch.float32,
+        input_names=["images"],
+        dynamic_axes={"images": {0: "batch", 2: "height", 3: "width"}},
+        output_names=["out"],
+        verify=False,
+    )
+    assert _input_dims(onnx_path)[2:] == [64, 48]
+
+
+def test_static_hw_false_keeps_a_rope_model_dynamic(tmp_path):
+    """A RoPE instance model inside a top-down wrapper only ever sees fixed-size
+    crops, so the caller can keep the frame size dynamic."""
+    onnx_path = export_to_onnx(
+        _RopeNet(),
+        tmp_path / "rope.onnx",
+        input_shape=(1, 3, 64, 48),
+        input_dtype=torch.float32,
+        output_names=["out"],
+        static_hw=False,
+    )
+    assert _input_dims(onnx_path)[2:] == ["height", "width"]
+
+
+def test_tensorrt_profile_is_clamped_to_static_dims():
+    """A profile range across a static dim fails the engine build."""
+    from sleap_nn.export.exporters.tensorrt_exporter import _pin_static_dims
+
+    lo, opt, hi = _pin_static_dims(
+        (-1, 3, 96, 96), (1, 3, 48, 48), (1, 3, 96, 96), (8, 3, 192, 192)
+    )
+    assert (lo, opt, hi) == ((1, 3, 96, 96), (1, 3, 96, 96), (8, 3, 96, 96))
+    # Fully dynamic: unchanged.
+    assert _pin_static_dims((-1, -1, -1, -1), lo, opt, hi) == (lo, opt, hi)

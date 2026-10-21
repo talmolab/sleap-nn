@@ -16,26 +16,18 @@ The pyramid then feeds the existing
 outputs of a hierarchical backbone, so heads need no changes.
 """
 
+from functools import partial
 from typing import List, Sequence
 
 import torch
 from torch import nn
+from torchvision.models.convnext import LayerNorm2d as _TorchvisionLayerNorm2d
 
 # Relative scale of each pyramid level w.r.t. the token grid: x4, x2, x1, x0.5.
 PYRAMID_SCALES = (4.0, 2.0, 1.0, 0.5)
 
-
-class LayerNorm2d(nn.Module):
-    """LayerNorm over the channel dimension of an NCHW tensor."""
-
-    def __init__(self, num_channels: int, eps: float = 1e-6) -> None:
-        """Initialize the norm."""
-        super().__init__()
-        self.norm = nn.LayerNorm(num_channels, eps=eps)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Normalize each spatial location across channels."""
-        return self.norm(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+# LayerNorm over the channels of an NCHW map (as the native ConvNeXt backbone uses).
+LayerNorm2d = partial(_TorchvisionLayerNorm2d, eps=1e-6)
 
 
 def _resample(in_channels: int, scale: float) -> nn.Module:

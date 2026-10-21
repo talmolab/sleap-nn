@@ -455,23 +455,23 @@ External HuggingFace / timm backbone (`backbone_config.pretrained`). See the
 | `normalize` | bool | `true` | Apply the model's mean/std inside the backbone (forced off for `embedding`) |
 | `image_mean` | list[float] | `null` | Explicit per-channel mean; `null` = timm `pretrained_cfg` / `AutoImageProcessor` / ImageNet |
 | `image_std` | list[float] | `null` | Explicit per-channel std |
-| `out_indices` | list[int] | `null` | Hierarchical stage indices to tap; `null` = all stages, deduplicated by stride |
+| `out_indices` | list[int] | `null` | Hierarchical stage indices to tap; `null` = all stages, deduplicated by stride. HF backbones index `stage_names` (`0` is the stem: a ConvNeXt's stages are `[1, 2, 3, 4]`); `timm/...` checkpoints index `feature_info` (`0` is the first stage) |
 | `in_channels` | int | `3` | Stem input channels (set to 3 by the trainer) |
 | `filters_rate` | float | `2.0` | Decoder filter growth factor |
 | `convs_per_block` | int | `2` | Convolutions per decoder block |
 | `kernel_size` | int | `3` | Decoder conv kernel size |
 | `up_interpolate` | bool | `true` | Bilinear upsampling (vs. transposed conv) in the decoder |
-| `output_stride` | int | `2` | Finest decoder output stride |
+| `output_stride` | int | `2` | Finest decoder output stride (plain ViT: at most `token_stride`) |
 | `max_stride` | int | `32` | Deepest encoder stride: 32 for hierarchical backbones; for a plain ViT a multiple of `2 × token_stride` |
 | `token_stride` | int | `null` | Plain ViT: stride of the token grid (power of two ≥ 4; the input is resized to match). `null` = power of two nearest the patch size (16 for patch 14 or 16). `8` = finer grid, ~4× encoder cost |
 | `layers` | list[int] | `null` | Plain ViT: layers to tap, 1-indexed (`-1` = last). `null` = one evenly spaced tap per built pyramid level, ending at the last, for `dpt` (`[3, 6, 9, 12]` for 12 layers); the last layer for `sfp` / encoder mode (which take exactly one) |
 | `vit_neck` | str | `dpt` | Plain ViT: `dpt` (one tapped layer per pyramid level) or `sfp` (ViTDet Simple Feature Pyramid from the last tap) |
 | `neck_channels` | list[int] | `null` | Plain ViT: channels of the 4 neck levels, finest first. `null` = `[h/8, h/4, h/2, h]` for hidden size `h` |
-| `gradient_checkpointing` | bool | `false` | Enable gradient checkpointing in the encoder (less memory, slower) |
+| `gradient_checkpointing` | bool | `false` | Enable gradient checkpointing in the encoder during training (less memory, slower) |
 | `encoder_lr_scale` | float | `1.0` | LR multiplier for the pretrained encoder relative to the neck/decoder/heads |
-| `layer_decay` | float | `null` | Plain ViT: layer-wise LR decay; block `i` of `L` trains at `encoder_lr_scale · layer_decay^(L+1−i)` × base LR |
+| `layer_decay` | float | `null` | Plain ViT: layer-wise LR decay; block `i` of `L` trains at `encoder_lr_scale · layer_decay^(L+1−i)` × base LR (LR-schedule floors scale with it) |
 | `detail_stem` | bool | `false` | Plain ViT: add a light conv stream whose stride-2/4/8 features join the pyramid as decoder skips |
-| `detail_channels` | list[int] | `null` | Detail-stem channels at strides 2, 4, 8. `null` = `[32, 64, 128]` |
+| `detail_channels` | list[int] | `null` | Detail-stem channels at strides 2, 4, 8 (exactly three). `null` = `[32, 64, 128]` |
 
 ### single_instance.confmaps
 

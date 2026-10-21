@@ -157,6 +157,8 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
             config.model_config.backbone_config[f"{backbone_type}"][
                 "output_stride"
             ] = max_stride
+    elif backbone_type == "pretrained":
+        _set_pretrained_decoder_mode(config, model_type)
     return config
 
 
@@ -283,6 +285,33 @@ def _set_pretrained_encoder_mode(config: OmegaConf) -> None:
             "Setting `model_config.backbone_config.pretrained.mode` to 'encoder' "
             "for the `embedding` model type (its pooled head taps the encoder "
             "bottleneck; there is nothing for a decoder to do)."
+        )
+
+
+def _set_pretrained_decoder_mode(config: OmegaConf, model_type: str) -> None:
+    """Record `mode: decoder` for a `pretrained` backbone under a spatial head.
+
+    ``mode: auto`` means "decoder" whenever the model has a spatial head (for a
+    plain ViT, the feature-pyramid neck), which the backbone would otherwise work
+    out from the heads at construction. Writing it here makes the saved training
+    config say which integration the checkpoint was trained with.
+
+    Args:
+        config: The full training job config, with `backbone_type == "pretrained"`.
+        model_type: The model type (its heads decide).
+    """
+    pretrained_cfg = config.model_config.backbone_config.pretrained
+    if OmegaConf.select(pretrained_cfg, "mode", default="auto") != "auto":
+        return
+    heads = config.model_config.head_configs[model_type] or {}
+    if any(
+        heads[name] is not None and name not in ("class_vectors", "embedding")
+        for name in heads
+    ):
+        pretrained_cfg.mode = "decoder"
+        logger.info(
+            "Setting `model_config.backbone_config.pretrained.mode` to 'decoder' "
+            f"(`auto` with the spatial heads of a `{model_type}` model)."
         )
 
 

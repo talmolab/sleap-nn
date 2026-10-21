@@ -1661,6 +1661,9 @@ class PretrainedConfig:
             *Default*: ``None``.
         out_indices: (List[int]) Optional explicit stage indices to tap (Case A).
             If ``None``, all stages are requested and deduplicated by stride.
+            Indices follow the source: an HF backbone's ``stage_names`` (``0`` is
+            the stem, so a ConvNeXt's stages are ``[1, 2, 3, 4]``) or a
+            ``timm/...`` checkpoint's ``feature_info`` (``0`` is the first stage).
             *Default*: ``None``.
         in_channels: (int) Number of input channels the stem expects. Pretrained
             stems are 3-channel; grayscale is replicated upstream. *Default*: ``3``.
@@ -1692,8 +1695,8 @@ class PretrainedConfig:
             nearest the patch size (16 for a patch-14 DINOv2). Use ``8`` for a
             finer grid at ~4x encoder cost (then ``max_stride: 16`` suffices).
             *Default*: ``None``.
-        gradient_checkpointing: (bool) Enable HuggingFace gradient checkpointing in
-            the encoder (less memory, slower). *Default*: ``False``.
+        gradient_checkpointing: (bool) Enable gradient checkpointing in the
+            encoder while training (less memory, slower). *Default*: ``False``.
         encoder_lr_scale: (float) Learning-rate multiplier for the pretrained
             encoder relative to the neck/decoder/heads. *Default*: ``1.0``.
         layer_decay: (float) Optional layer-wise LR decay for a plain ViT
@@ -1703,8 +1706,8 @@ class PretrainedConfig:
         detail_stem: (bool) Add a light conv stream on the image whose stride
             2/4/8 features join a plain ViT's pyramid as decoder skips (real
             high-resolution detail below the token stride). *Default*: ``False``.
-        detail_channels: (List[int]) Detail-stem channels at strides 2, 4, 8.
-            ``None`` uses ``[32, 64, 128]``. *Default*: ``None``.
+        detail_channels: (List[int]) Detail-stem channels at strides 2, 4, 8
+            (exactly three). ``None`` uses ``[32, 64, 128]``. *Default*: ``None``.
     """
 
     source: str = "hf"

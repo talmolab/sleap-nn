@@ -277,7 +277,8 @@ PE-Spatial, EVA02, and DINOv3-ConvNeXt.
 
 `token_stride`, `layers`, `vit_neck`, `neck_channels`, and `detail_stem` shape
 the plain-ViT path (Case C, and the token path of Case B); a hierarchical
-backbone logs a warning that it ignores them. `freeze`, `encoder_lr_scale`, and
+backbone logs a warning that it ignores them, and so does the plain-ViT path for
+the knobs it cannot use (`out_indices`; the neck knobs in encoder-only mode). `freeze`, `encoder_lr_scale`, and
 `gradient_checkpointing` apply to every encoder. `layer_decay` applies to plain
 ViTs (including DINOv2 in encoder-only mode); on a hierarchical backbone it logs
 a warning and applies only `encoder_lr_scale`.
@@ -285,15 +286,15 @@ a warning and applies only `encoder_lr_scale`.
 | Field | Default | What it does |
 |-------|---------|--------------|
 | `token_stride` | `null` → power of two nearest the patch size (16 for patch 14 or 16) | Stride of the token grid. The input is resized to `(H/s·p, W/s·p)` for patch size `p`, so the grid is `H/s × W/s`. Must be a power of two ≥ 4. `8` gives a 2× finer grid at 4× the tokens (roughly 4× the encoder cost or more, since attention is quadratic in token count). |
-| `layers` | `null` → one evenly spaced layer per pyramid level, ending at the last (`dpt`): `[3, 6, 9, 12]` for 12 layers, `[6, 12, 18, 24]` for 24; the last layer for `sfp` and encoder mode | Transformer layers to tap, 1-indexed (`-1` = last). `dpt` needs one per built level (4 unless `output_stride` is coarser than `token_stride/4`); `sfp` and encoder mode take exactly one. |
+| `layers` | `null` → one evenly spaced layer per pyramid level, ending at the last (`dpt`): `[3, 6, 9, 12]` for 12 layers, `[6, 12, 18, 24]` for 24; the last layer for `sfp` and encoder mode | Transformer layers to tap, 1-indexed (`-1` = last). `dpt` needs one per built level (4 unless `output_stride` is coarser than `token_stride/4`), and a layer may repeat; `sfp` and encoder mode take exactly one. |
 | `vit_neck` | `dpt` | `dpt`: one tapped layer per pyramid level, shallowest tap → finest level. `sfp`: ViTDet Simple Feature Pyramid; every level is built from the last tap. |
 | `neck_channels` | `null` → `[h/8, h/4, h/2, h]` for hidden size `h` (ViT-S: `[48, 96, 192, 384]`; ViT-B: `[96, 192, 384, 768]`) | Channels of the 4 neck levels, finest first. |
 | `detail_stem` | `false` | Add a light conv stream on the image (ViTMatte-style) whose stride-2/4/8 features are concatenated into the pyramid as decoder skips, so the decoder sees real image detail below the token stride. ~0.3 M parameters. |
-| `detail_channels` | `null` → `[32, 64, 128]` | Detail-stem channels at strides 2, 4, 8. |
+| `detail_channels` | `null` → `[32, 64, 128]` | Detail-stem channels at strides 2, 4, 8 (exactly three values). |
 | `freeze` | `false` | Freeze the ViT. The tap LayerNorms, neck, decoder, and heads still train. |
 | `encoder_lr_scale` | `1.0` | Learning-rate multiplier for the pretrained encoder; the neck, decoder, and heads train at the base LR. |
-| `layer_decay` | `null` (off) | Layer-wise LR decay: block `i` of `L` trains at `encoder_lr_scale · layer_decay^(L+1−i)` × base LR. Everything registered before the first block (patch/position embeddings, prefix tokens, CLIP's pre-norm) gets `layer_decay^(L+1)`; everything after the last block (final norm) gets `encoder_lr_scale`. |
-| `gradient_checkpointing` | `false` | Recompute encoder activations in the backward pass: less memory, slower steps. Logs a warning and does nothing on a model that does not support it. |
+| `layer_decay` | `null` (off) | Layer-wise LR decay: block `i` of `L` trains at `encoder_lr_scale · layer_decay^(L+1−i)` × base LR. Everything registered before the first block (patch/position embeddings, prefix tokens, CLIP's pre-norm) gets `layer_decay^(L+1)`; everything after the last block (final norm) gets `encoder_lr_scale`. An LR schedule's absolute values (`warmup_start_lr`, `eta_min`, `end_lr`, `min_lr`) are scaled by each group's factor too, so the ratios hold for the whole run. |
+| `gradient_checkpointing` | `false` | Recompute encoder activations in the backward pass: less memory, slower steps. Only active in training (off for inference and export). Logs a warning and does nothing on a model that does not support it. |
 
 **Strides.** The neck emits strides `s/4, s/2, s, 2s`: 4/8/16/32 at the default
 `s = 16`, 2/4/8/16 at `token_stride: 8`. `max_stride` must be a multiple of
@@ -302,10 +303,12 @@ works for both, and anything else fails at construction with a message naming
 the required multiple. `output_stride` is the finest decoder output, as for
 Case A: at `s = 16`, `output_stride: 4` has a skip connection at every level and
 `output_stride: 2` adds one upsampling block without a skip; at `s = 8` the neck
-reaches stride 2 itself.
+reaches stride 2 itself. `output_stride` can be at most `s`: the decoder needs at
+least two pyramid levels.
 
-**Unused parameters.** The encoder still runs every block, but only the tapped
-layers feed the neck. On the plain-ViT path (Case C and the Case B token path),
+**Unused parameters.** Only the tapped layers feed the neck, and the encoder
+stops after the deepest tap (timm's `stop_early`; an HF encoder's block loop is
+cut short, with every block kept in the state dict). On the plain-ViT path (Case C and the Case B token path),
 encoder parameters that cannot receive a gradient — blocks after the deepest
 tap, final/pooler norms, pooling heads (CLIP's `post_layernorm`, SigLIP's
 attention-pool head), unused mask tokens — are found by a dummy backward pass at
@@ -472,13 +475,23 @@ checkpoint's timm `pretrained_cfg` (`timm/...` models) or its
 - **Memory.** A ViT-L at large crops, or any ViT at `token_stride: 8`, is much
   heavier than a ConvNeXtV2-nano. `gradient_checkpointing: true` and
   `freeze: true` are the main levers.
-- **ONNX export.** ViT/DINOv2/ConvNeXt/ResNet encoders export cleanly
-  (opset-17). Swin is export-fragile: a graph can pass the structural
-  `onnx.checker` yet be numerically wrong. The exporter's optional
-  `numerical_check` runs a torch-vs-onnxruntime parity assert for exactly this
-  case — enable it when exporting transformer backbones. The Case C path (ViT +
-  neck) and `timm/...` checkpoints are not covered by the export tests yet, so
-  use `numerical_check` there too.
+- **ONNX export.** ConvNeXt/ResNet encoders and plain ViTs (the Case C neck
+  included) export at opset 17; DINOv2-with-registers resamples its positional
+  embeddings with an antialiased bicubic resize, so the exporter retries it at
+  opset 18. The export tests check Case C graphs (DINOv2-reg, CLIP) against
+  PyTorch at batch and input sizes other than the traced ones. Swin is
+  export-fragile: a graph can pass the structural `onnx.checker` yet be
+  numerically wrong, so enable the exporter's `numerical_check` (a
+  torch-vs-onnxruntime parity assert) when exporting transformer backbones.
+- **RoPE models export at a fixed input size.** Rotary position embeddings
+  (`timm/` DINOv3, EVA02, PE-Spatial) bake the traced token grid into the
+  graph, so their ONNX/TensorRT models take only the traced height and width
+  (the batch stays dynamic), and other sizes are rejected rather than silently
+  wrong. Crop models (`centered_instance`, `multi_class_topdown`) are traced
+  at their crop size, so this costs nothing there; a combined top-down export
+  is fixed only when its centroid model uses RoPE. For a whole-frame RoPE
+  model, set `--input-height`/`--input-width` to your frame size. TensorRT
+  profiles are clamped to the fixed size.
 - **`dtype`.** `transformers` v5 defaults to `dtype="auto"`, which can silently
   load fp16/bf16. sleap-nn forces `float32` in the backbone factory.
 - **Re-ID (`embedding`) has three trainer-applied overrides.** `mode` resolves to

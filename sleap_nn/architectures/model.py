@@ -51,7 +51,9 @@ def get_backbone(
         spatial_heads (bool): Whether the model has a spatial head (confidence
             maps, PAFs, segmentation, ...). Only the `pretrained` backbone reads
             it: under `mode: auto` a plain ViT then gets its feature-pyramid neck
-            and decoder instead of staying encoder-only.
+            and decoder instead of staying encoder-only. Training setup records
+            the resolved mode in the config (`check_output_strides`); this covers
+            a `Model` built from a config that did not go through it.
 
     Returns:
         nn.Module: An instance of the requested backbone model.

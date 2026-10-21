@@ -8,6 +8,33 @@ from typing import Iterable, Optional, Tuple
 import torch
 from torch import nn
 
+from sleap_nn.export.exporters.onnx_exporter import export_to_onnx, has_rope
+
+
+def _pin_static_dims(
+    network_dims: Tuple[int, ...],
+    min_shape: Tuple[int, ...],
+    opt_shape: Tuple[int, ...],
+    max_shape: Tuple[int, ...],
+) -> Tuple[Tuple[int, ...], Tuple[int, ...], Tuple[int, ...]]:
+    """Clamp a TensorRT profile to a network input's static dimensions.
+
+    Args:
+        network_dims: The parsed network input's dims; ``-1`` marks a dynamic one.
+        min_shape: Requested minimum input shape.
+        opt_shape: Requested optimal input shape.
+        max_shape: Requested maximum input shape.
+
+    Returns:
+        ``(min_shape, opt_shape, max_shape)`` with every static dimension set to
+        its fixed value.
+    """
+    lo, opt, hi = (
+        tuple(int(d) if d >= 0 else s for d, s in zip(network_dims, shape))
+        for shape in (min_shape, opt_shape, max_shape)
+    )
+    return lo, opt, hi
+
 
 def export_to_tensorrt(
     model: nn.Module,
@@ -65,6 +92,12 @@ def export_to_tensorrt(
         opt_shape = input_shape
     if max_shape is None:
         max_shape = (min(16, B * 4), C, H * 2, W * 2)
+    if method == "jit" and has_rope(model):
+        # The traced RoPE grid is only correct at the traced size (the ONNX route
+        # gets the same restriction from the static ONNX input instead).
+        min_shape, opt_shape, max_shape = (
+            (s[0], s[1], H, W) for s in (min_shape, opt_shape, max_shape)
+        )
 
     if verbose:
         print(f"Exporting model to TensorRT...")
@@ -127,46 +160,21 @@ def _export_tensorrt_onnx(
             print(f"  Using existing ONNX file: {onnx_path}")
     else:
         # Need to export to ONNX first
-        device = next(model.parameters()).device
-
         if verbose:
             print("  Exporting to ONNX first...")
 
-        # Create example input with correct dtype
-        if input_dtype == torch.uint8:
-            example_input = torch.randint(
-                0, 255, input_shape, dtype=torch.uint8, device=device
-            )
-        else:
-            example_input = torch.randn(*input_shape, dtype=input_dtype, device=device)
-
-        # Export to ONNX. Default to the legacy exporter, falling back to the
-        # torch.export-based one for ops it cannot trace (e.g. the antialiased resize
-        # ``aten::_upsample_bilinear2d_aa`` that downscaling wrappers use) — mirroring
-        # ``export_to_onnx``.
-        onnx_kwargs = dict(
+        # Same exporter as `sleap-nn export --format onnx`: its fallbacks for ops
+        # the legacy exporter cannot lower (antialiased resizes) and its static
+        # height/width for RoPE backbones apply here too.
+        export_to_onnx(
+            model,
+            onnx_path,
+            input_shape=input_shape,
+            input_dtype=input_dtype,
             input_names=["images"],
             dynamic_axes={"images": {0: "batch", 2: "height", 3: "width"}},
+            verify=False,
         )
-        try:
-            torch.onnx.export(
-                model,
-                example_input,
-                onnx_path,
-                opset_version=17,
-                do_constant_folding=True,
-                dynamo=False,
-                **onnx_kwargs,
-            )
-        except torch.onnx.errors.UnsupportedOperatorError:
-            torch.onnx.export(
-                model,
-                example_input,
-                onnx_path,
-                opset_version=18,
-                dynamo=True,
-                **onnx_kwargs,
-            )
 
         if verbose:
             print(f"  ONNX export complete: {onnx_path}")
@@ -220,6 +228,14 @@ def _export_tensorrt_onnx(
     profile = builder.create_optimization_profile()
     input_name = network.get_input(0).name
 
+    # A static ONNX dimension (a RoPE backbone's height/width, or a batch the
+    # torch.export fallback pinned) admits only its own value; a profile range
+    # across it fails the engine build.
+    min_shape, opt_shape, max_shape = _pin_static_dims(
+        tuple(network.get_input(0).shape), min_shape, opt_shape, max_shape
+    )
+    if verbose:
+        print(f"  Profile Min/Opt/Max: {min_shape} / {opt_shape} / {max_shape}")
     profile.set_shape(input_name, min_shape, opt_shape, max_shape)
     config.add_optimization_profile(profile)
 

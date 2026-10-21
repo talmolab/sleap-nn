@@ -823,6 +823,21 @@ class LightningModel(L.LightningModule):
                 "optimizer": optimizer,
             }
 
+        # Encoder param groups train at a fraction of `self.lr` (encoder_lr_scale /
+        # layer_decay). A schedule's absolute LRs (warmup start, floor, end) are set
+        # against `self.lr`, so give each group the same fraction of them; applied
+        # as-is, a floor above a deep-decayed group's LR would raise that group.
+        group_ratios = [
+            g["lr"] / self.lr if self.lr else 1.0 for g in optimizer.param_groups
+        ]
+
+        def _per_group_lr(value):
+            if all(r == 1.0 for r in group_ratios) or not isinstance(
+                value, (int, float)
+            ):
+                return value
+            return [value * r for r in group_ratios]
+
         scheduler = None
         if isinstance(self.lr_scheduler, str):
             if self.lr_scheduler == "step_lr":
@@ -903,8 +918,8 @@ class LightningModel(L.LightningModule):
                 optimizer=optimizer,
                 warmup_epochs=cfg.warmup_epochs,
                 max_epochs=max_epochs,
-                warmup_start_lr=cfg.warmup_start_lr,
-                eta_min=cfg.eta_min,
+                warmup_start_lr=_per_group_lr(cfg.warmup_start_lr),
+                eta_min=_per_group_lr(cfg.eta_min),
             )
         elif _sched("linear_warmup_linear_decay") is not None:
             cfg = _sched("linear_warmup_linear_decay")
@@ -918,8 +933,8 @@ class LightningModel(L.LightningModule):
                 optimizer=optimizer,
                 warmup_epochs=cfg.warmup_epochs,
                 max_epochs=max_epochs,
-                warmup_start_lr=cfg.warmup_start_lr,
-                end_lr=cfg.end_lr,
+                warmup_start_lr=_per_group_lr(cfg.warmup_start_lr),
+                end_lr=_per_group_lr(cfg.end_lr),
             )
         elif _sched("step_lr") is not None:
             scheduler = torch.optim.lr_scheduler.StepLR(
@@ -936,7 +951,7 @@ class LightningModel(L.LightningModule):
                 cooldown=_sched("reduce_lr_on_plateau").cooldown,
                 patience=_sched("reduce_lr_on_plateau").patience,
                 factor=_sched("reduce_lr_on_plateau").factor,
-                min_lr=_sched("reduce_lr_on_plateau").min_lr,
+                min_lr=_per_group_lr(_sched("reduce_lr_on_plateau").min_lr),
             )
         if scheduler is None:
             return {

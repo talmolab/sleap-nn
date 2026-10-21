@@ -1027,6 +1027,9 @@ def test_default_layer_taps():
     assert _default_layers(12, 4) == [3, 6, 9, 12]
     assert _default_layers(24, 4) == [6, 12, 18, 24]
     assert _default_layers(12, 1) == [12]
+    # Fewer layers than taps: layers repeat, and layer 0 (the embeddings) is never
+    # a default tap (round(0.5) == 0 used to yield one).
+    assert _default_layers(2, 4) == [1, 1, 2, 2]
 
 
 def test_caseC_default_taps(caseC_model):
@@ -1394,6 +1397,99 @@ def test_optimizer_covers_every_trainable_parameter_exactly_once(overrides):
     assert sorted(id(p) for g in groups[1:] for p in g["params"]) == sorted(enc)
 
 
+@pytest.mark.parametrize(
+    "scheduler, floors",
+    [
+        (
+            {
+                "cosine_annealing_warmup": {
+                    "warmup_epochs": 2,
+                    "max_epochs": 10,
+                    "warmup_start_lr": 1e-6,
+                    "eta_min": 1e-6,
+                }
+            },
+            ("warmup_start_lr", "eta_min"),
+        ),
+        (
+            {
+                "linear_warmup_linear_decay": {
+                    "warmup_epochs": 2,
+                    "max_epochs": 10,
+                    "warmup_start_lr": 1e-6,
+                    "end_lr": 1e-6,
+                }
+            },
+            ("warmup_start_lr", "end_lr"),
+        ),
+        (
+            {
+                "reduce_lr_on_plateau": {
+                    "threshold": 1e-4,
+                    "threshold_mode": "rel",
+                    "cooldown": 0,
+                    "patience": 1,
+                    "factor": 0.5,
+                    "min_lr": 1e-6,
+                }
+            },
+            ("min_lrs",),
+        ),
+    ],
+    ids=["cosine", "linear", "plateau"],
+)
+def test_schedule_floors_scale_with_the_encoder_lr_groups(scheduler, floors):
+    """An absolute warmup start / floor is set against the base LR; each layer-
+    decayed encoder group gets its own share of it, so the decay ratios hold for
+    the whole run (one 1e-6 floor would lift a 1e-8 group 100x)."""
+    from sleap_nn.training.lightning_modules import SingleInstanceLightningModule
+
+    lr = 1e-3
+    module = SingleInstanceLightningModule(
+        model_type="single_instance",
+        backbone_type="pretrained",
+        backbone_config={
+            "pretrained": {
+                "model_name": VIT,
+                "weights": False,
+                "in_channels": 3,
+                "output_stride": 2,
+                "max_stride": 32,
+                "layer_decay": 0.5,
+            }
+        },
+        head_configs=OmegaConf.create(
+            {
+                "single_instance": {
+                    "confmaps": {
+                        "part_names": ["a", "b"],
+                        "sigma": 2.5,
+                        "output_stride": 2,
+                        "loss_weight": 1.0,
+                    }
+                }
+            }
+        ),
+        lr_scheduler=scheduler,
+        learning_rate=lr,
+    )
+    out = module.configure_optimizers()
+    optimizer, sched = out["optimizer"], out["lr_scheduler"]["scheduler"]
+    base = [g.get("initial_lr", g["lr"]) for g in optimizer.param_groups]
+    ratios = [b / lr for b in base]
+    assert min(ratios) * lr < 1e-6  # the deepest groups sit below the 1e-6 floor
+    if floors == ("min_lrs",):
+        assert sched.min_lrs == pytest.approx([1e-6 * r for r in ratios])
+        return
+    for name in floors:
+        assert getattr(sched, f"_{name}s") == pytest.approx([1e-6 * r for r in ratios])
+    for _ in range(10):
+        current = [g["lr"] for g in optimizer.param_groups]
+        assert [c / current[0] for c in current] == pytest.approx(ratios)
+        optimizer.step()
+        sched.step()
+
+
 def test_embedding_module_optimizer_uses_the_encoder_lr_groups():
     """The embedding module's own `configure_optimizers` honors the LR groups."""
     from sleap_nn.training.lightning_modules import EmbeddingLightningModule
@@ -1561,8 +1657,83 @@ def test_timm_hierarchical_checkpoint_honours_out_indices():
 
 @requires_timm
 def test_timm_vit_gradient_checkpointing_uses_timm_switch():
+    """timm's switch is not gated on training (HF's is): it must follow the mode,
+    off for inference/export and for a frozen encoder."""
     bb = _vit_backbone(TIMM_VIT, gradient_checkpointing=True)
     assert bb.enc.timm_model.grad_checkpointing
+    bb.eval()
+    assert not bb.enc.timm_model.grad_checkpointing
+    bb.train()
+    assert bb.enc.timm_model.grad_checkpointing
+    bb.freeze_encoder()
+    bb.train()
+    assert not bb.enc.timm_model.grad_checkpointing
+
+
+@requires_timm
+def test_timm_repeated_layer_taps_are_mapped_back():
+    """timm returns one map per distinct block; a repeated tap reuses it."""
+    bb = _vit_backbone(TIMM_VIT, layers=[6, 6, 9, 12]).eval()
+    assert bb._timm_kwargs == {"stop_early": True}
+    with torch.no_grad():
+        maps = bb._tap_tokens(torch.rand(1, 3, 64, 96))
+    assert len(maps) == 4
+    # Fresh tap LayerNorms are identical, so the two layer-6 maps are too.
+    assert torch.equal(maps[0], maps[1])
+    with torch.no_grad():
+        out = bb(torch.rand(1, 3, 64, 96))
+    assert out["outputs"][-1].shape[-2:] == (32, 48)
+
+
+def test_caseC_hf_encoder_stops_after_the_last_tap():
+    """Blocks after the deepest tap are skipped, not just frozen, and stay in the
+    state dict (checkpoints load unchanged)."""
+    from sleap_nn.architectures.pretrained import _LeadingBlocks
+
+    bb = _vit_backbone(VIT, layers=[3, 6, 9], output_stride=8).eval()
+    (blocks,) = [m for m in bb.enc.modules() if isinstance(m, _LeadingBlocks)]
+    assert (len(blocks), blocks.num_active) == (12, 9)
+    assert any(".layer.11." in k for k in bb.enc.state_dict())
+
+    ran = []
+    hooks = [
+        blk.register_forward_hook(lambda *_, i=i: ran.append(i))
+        for i, blk in enumerate(blocks._modules.values())
+    ]
+    x = torch.rand(1, 3, 64, 96)
+    try:
+        with torch.no_grad():
+            early = bb(x)["outputs"][-1]
+        assert ran == list(range(9))
+        blocks.num_active = None  # run every block
+        with torch.no_grad():
+            full = bb(x)["outputs"][-1]
+    finally:
+        for h in hooks:
+            h.remove()
+    torch.testing.assert_close(early, full)
+
+
+def test_detail_channels_needs_one_count_per_stride():
+    """A 4th stage would run without reaching the decoder (no gradient: DDP)."""
+    with pytest.raises(ValueError, match="detail_channels must give 3"):
+        _vit_backbone(VIT, detail_stem=True, detail_channels=[16, 32, 64, 128])
+
+
+def test_token_path_warns_about_knobs_it_ignores(loguru_caplog):
+    """CLIP pooled-only takes the token path in encoder mode: no neck, no stem,
+    no stages -- say so instead of ignoring them."""
+    bb = PretrainedBackbone.from_config(
+        _caseA_cfg(
+            CLIP, out_indices=[1], vit_neck="sfp", detail_stem=True, neck_channels=[8]
+        ),
+        spatial_heads=False,
+    )
+    assert bb.token_path and bb.mode == "encoder"
+    text = loguru_caplog.text
+    assert "do not apply to the plain-ViT encoder-only path" in text
+    for knob in ("out_indices", "vit_neck", "detail_stem", "neck_channels"):
+        assert knob in text
 
 
 def test_vit_knobs_on_a_hierarchical_backbone_warn(loguru_caplog):
@@ -1572,9 +1743,12 @@ def test_vit_knobs_on_a_hierarchical_backbone_warn(loguru_caplog):
     assert "token_stride" in loguru_caplog.text and "vit_neck" in loguru_caplog.text
 
 
-def test_output_stride_coarser_than_the_pyramid_raises():
-    with pytest.raises(ValueError, match="coarser than the deepest pyramid level"):
-        _vit_backbone(VIT, output_stride=64, max_stride=64)
+@pytest.mark.parametrize("output_stride", [32, 64])
+def test_output_stride_coarser_than_the_token_stride_raises(output_stride):
+    """One pyramid level (output_stride 32) is as unusable as none; the message
+    names the fix instead of Case A's "use a hierarchical backbone"."""
+    with pytest.raises(ValueError, match="Use output_stride <= 16"):
+        _vit_backbone(VIT, output_stride=output_stride, max_stride=64)
 
 
 def test_patch_size_reading():
