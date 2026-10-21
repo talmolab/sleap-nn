@@ -8,6 +8,60 @@ from typing import Dict, Iterable, List, Optional
 import torch
 from loguru import logger
 
+# ONNX ``Resize`` gained the ``antialias`` attribute in opset 18.
+_ANTIALIAS_OPSET = 18
+
+
+def _upsample_bicubic2d_aa_symbolic(g, input, output_size, align_corners, scales):
+    """TorchScript-exporter symbolic for ``aten::_upsample_bicubic2d_aa``.
+
+    Plain-ViT backbones (HF DINOv2-with-registers, timm abs-pos-embed ViTs)
+    resample their positional embeddings to the token grid with an antialiased
+    bicubic resize, which the TorchScript exporter has no symbolic for. PyTorch's
+    antialiased bicubic is PIL's kernel -- ``a = -0.5`` with the weights
+    renormalized over in-bounds taps -- i.e. ONNX ``Resize(mode="cubic",
+    antialias=1, cubic_coeff_a=-0.5, exclude_outside=1)``. (The dynamo exporter's
+    lowering keeps ONNX's ``-0.75`` / ``exclude_outside=0`` defaults instead.)
+    """
+    from torch.onnx import symbolic_helper
+
+    if symbolic_helper._is_none(output_size):
+        return symbolic_helper._unimplemented(
+            "_upsample_bicubic2d_aa", "scale_factor (only size= is supported)", input
+        )
+    align = symbolic_helper._maybe_get_const(align_corners, "b")
+    batch_channels = symbolic_helper._slice_helper(
+        g, g.op("Shape", input), axes=[0], starts=[0], ends=[2]
+    )
+    sizes = g.op(
+        "Concat",
+        batch_channels,
+        g.op("Cast", output_size, to_i=torch.onnx.TensorProtoDataType.INT64),
+        axis_i=0,
+    )
+    return g.op(
+        "Resize",
+        input,
+        symbolic_helper._optional_input_placeholder_tensor(g),
+        symbolic_helper._optional_input_placeholder_tensor(g),
+        sizes,
+        mode_s="cubic",
+        coordinate_transformation_mode_s=(
+            "align_corners" if align else "pytorch_half_pixel"
+        ),
+        cubic_coeff_a_f=-0.5,
+        exclude_outside_i=1,
+        antialias_i=1,
+    )
+
+
+def _has_rope(model: torch.nn.Module) -> bool:
+    """Whether a model contains a rotary position embedding module."""
+    return any(
+        "rope" in name or "rotary" in name
+        for name in (type(m).__name__.lower() for m in model.modules())
+    )
+
 
 def export_to_onnx(
     model: torch.nn.Module,
@@ -57,6 +111,18 @@ def export_to_onnx(
         input_names = ["image"]
     if dynamic_axes is None:
         dynamic_axes = {"image": {0: "batch", 2: "height", 3: "width"}}
+        if _has_rope(model):
+            # Rotary position embeddings (timm DINOv3 / EVA02 / PE) compute their
+            # grid from Python floats of the input size, which tracing freezes, so
+            # the graph is only correct at the traced size. Export it static in
+            # H/W: onnxruntime then rejects other sizes instead of returning
+            # silently wrong confidence maps.
+            dynamic_axes = {"image": {0: "batch"}}
+            logger.warning(
+                "The backbone uses rotary position embeddings, which trace to a "
+                "fixed token grid: exporting with static height/width "
+                f"{tuple(input_shape)[2:]}; feed the ONNX model inputs of that size."
+            )
 
     device = None
     try:
@@ -84,7 +150,8 @@ def export_to_onnx(
         output_names=output_names,
         dynamic_axes=dynamic_axes,
     )
-    try:
+
+    def _export_torchscript(opset: int) -> None:
         # Default to the legacy TorchScript exporter: it is fast and exports every
         # current wrapper (including the multi-stage top-down / multi-class ones that
         # the torch.export-based exporter cannot trace).
@@ -92,25 +159,47 @@ def export_to_onnx(
             model,
             dummy_input,
             save_path.as_posix(),
-            opset_version=opset_version,
+            opset_version=opset,
             do_constant_folding=do_constant_folding,
             dynamo=False,
             **common,
         )
-    except torch.onnx.errors.UnsupportedOperatorError:
-        # A few ops have no symbolic in the legacy exporter — notably the antialiased
-        # resize (``aten::_upsample_bilinear2d_aa``) that single-instance / other
-        # downscaling wrappers use to match the PyTorch inference resize. The
-        # torch.export-based exporter supports them, so fall back to it for those
-        # models (it needs opset >= 18 for the antialias Resize attribute).
-        torch.onnx.export(
-            model,
-            dummy_input,
-            save_path.as_posix(),
-            opset_version=max(opset_version, 18),
-            dynamo=True,
-            **common,
-        )
+
+    torch.onnx.register_custom_op_symbolic(
+        "aten::_upsample_bicubic2d_aa",
+        _upsample_bicubic2d_aa_symbolic,
+        _ANTIALIAS_OPSET,
+    )
+    try:
+        _export_torchscript(opset_version)
+    except torch.onnx.errors.UnsupportedOperatorError as err:
+        try:
+            if (
+                opset_version >= _ANTIALIAS_OPSET
+                or "_upsample_bicubic2d_aa" not in str(err)
+            ):
+                raise
+            # A plain-ViT backbone's positional-embedding resample (antialiased
+            # bicubic) lowers at opset 18 via the symbolic registered above. Stay on
+            # the TorchScript exporter for it: it traces HF's shape arithmetic
+            # dynamically, whereas torch.export pins the token grid (and, through
+            # the [1, 3, 1, 1] mean/std broadcast, the batch) to the dummy input.
+            _export_torchscript(_ANTIALIAS_OPSET)
+        except torch.onnx.errors.UnsupportedOperatorError:
+            # A few ops have no symbolic in the legacy exporter — notably the
+            # antialiased resize (``aten::_upsample_bilinear2d_aa``) that
+            # single-instance / other downscaling wrappers use to match the PyTorch
+            # inference resize. The torch.export-based exporter supports them, so
+            # fall back to it for those models (it needs opset >= 18 for the
+            # antialias Resize attribute).
+            torch.onnx.export(
+                model,
+                dummy_input,
+                save_path.as_posix(),
+                opset_version=max(opset_version, _ANTIALIAS_OPSET),
+                dynamo=True,
+                **common,
+            )
 
     if verify:
         _verify_onnx(save_path)
