@@ -133,6 +133,7 @@ sam3 = [
 # Gated foundation weights (DINOv3, SAM3) additionally require `HF_TOKEN` + accepted
 # terms. See docs/guides/pretrained-backbones.md.
 backbones = [
+    "timm>=1.0.20",
     "transformers>=5.0",
 ]
 

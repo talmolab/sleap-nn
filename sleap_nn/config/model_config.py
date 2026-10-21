@@ -1623,10 +1623,14 @@ class HeadConfig:
 class PretrainedConfig:
     """Configuration for an external pretrained backbone (HuggingFace).
 
-    Reuses an external pretrained image encoder (ConvNeXtV2, ResNet, Swinv2,
-    DINOv2, ...) as the model backbone via `transformers` `AutoBackbone`. See
-    ``sleap_nn.architectures.pretrained.PretrainedBackbone`` for the two
-    integration surfaces (hierarchical decoder vs. encoder-only pooled).
+    Reuses an external pretrained image encoder from the HuggingFace Hub as the
+    model backbone: hierarchical encoders (ConvNeXtV2, ResNet, Swinv2, DINOv3
+    ConvNeXt, ...) via `transformers` `AutoBackbone`, and plain ViTs (DINOv2/v3,
+    CLIP, SigLIP, MAE, ...) via `AutoModel` hidden states; ``timm/...`` ids load
+    through transformers' `TimmWrapperModel`. See
+    ``sleap_nn.architectures.pretrained.PretrainedBackbone`` for the three
+    integration surfaces (hierarchical decoder, encoder-only pooled, plain ViT +
+    pyramid neck + decoder).
 
     Attributes:
         source: (str) Backbone source. Only ``"hf"`` (HuggingFace `transformers`)
@@ -1639,9 +1643,10 @@ class PretrainedConfig:
             config (no network) — useful for tests and cold-start training.
             *Default*: ``True``.
         mode: (str) One of ``"auto"``, ``"decoder"`` (Case A: hierarchical encoder
-            + sleap decoder for spatial heads), ``"encoder"`` (Case B: encoder-only
-            pooled bottleneck for class-vectors/embedding heads). *Default*:
-            ``"auto"``.
+            + sleap decoder; Case C for a plain ViT: pyramid neck + decoder),
+            ``"encoder"`` (Case B: encoder-only pooled bottleneck for
+            class-vectors/embedding heads). ``"auto"`` picks the decoder whenever
+            the model has a spatial head. *Default*: ``"auto"``.
         freeze: (bool) If ``True``, freeze the pretrained encoder (feature
             extraction; only the decoder/head train). *Default*: ``False``.
         revision: (str) Optional HuggingFace revision (commit sha / tag) to pin for
@@ -1668,7 +1673,38 @@ class PretrainedConfig:
         output_stride: (int) Stride of the finest decoder output (Case A).
             *Default*: ``2``.
         max_stride: (int) Deepest stride the encoder reaches (``32`` for
-            hierarchical CNN/Swin; patch size for a ViT). *Default*: ``32``.
+            hierarchical CNN/Swin; twice the token stride for a plain ViT, i.e.
+            ``32`` at the default token stride of 16). *Default*: ``32``.
+        layers: (List[int]) Plain-ViT layers to tap for the feature-pyramid neck,
+            1-indexed (negative counts from the last). ``None`` taps 4 evenly
+            spaced layers ending at the last (``vit_neck: dpt``) or the last layer
+            (``sfp``). *Default*: ``None``.
+        vit_neck: (str) How a plain ViT's single-stride token maps become the
+            stride ``s/4..2s`` pyramid the decoder needs: ``"dpt"`` (one tapped
+            layer per level) or ``"sfp"`` (ViTDet Simple Feature Pyramid from the
+            last tapped layer). *Default*: ``"dpt"``.
+        neck_channels: (List[int]) Channels of the 4 neck levels, finest first.
+            ``None`` uses ``[h/8, h/4, h/2, h]`` for ViT hidden size ``h``.
+            *Default*: ``None``.
+        token_stride: (int) Effective stride of a plain ViT's token grid; the
+            input is resampled so the grid is ``H / token_stride`` tokens tall
+            whatever the patch size (power of two). ``None`` uses the power of two
+            nearest the patch size (16 for a patch-14 DINOv2). Use ``8`` for a
+            finer grid at ~4x encoder cost (then ``max_stride: 16`` suffices).
+            *Default*: ``None``.
+        gradient_checkpointing: (bool) Enable HuggingFace gradient checkpointing in
+            the encoder (less memory, slower). *Default*: ``False``.
+        encoder_lr_scale: (float) Learning-rate multiplier for the pretrained
+            encoder relative to the neck/decoder/heads. *Default*: ``1.0``.
+        layer_decay: (float) Optional layer-wise LR decay for a plain ViT
+            encoder: block ``i`` of ``L`` trains at
+            ``encoder_lr_scale * layer_decay**(L + 1 - i)`` times the base LR.
+            *Default*: ``None`` (off).
+        detail_stem: (bool) Add a light conv stream on the image whose stride
+            2/4/8 features join a plain ViT's pyramid as decoder skips (real
+            high-resolution detail below the token stride). *Default*: ``False``.
+        detail_channels: (List[int]) Detail-stem channels at strides 2, 4, 8.
+            ``None`` uses ``[32, 64, 128]``. *Default*: ``None``.
     """
 
     source: str = "hf"
@@ -1688,6 +1724,15 @@ class PretrainedConfig:
     up_interpolate: bool = True
     output_stride: int = 2
     max_stride: int = 32
+    layers: Optional[List[int]] = None
+    vit_neck: str = "dpt"
+    neck_channels: Optional[List[int]] = None
+    token_stride: Optional[int] = None
+    gradient_checkpointing: bool = False
+    encoder_lr_scale: float = 1.0
+    layer_decay: Optional[float] = None
+    detail_stem: bool = False
+    detail_channels: Optional[List[int]] = None
 
 
 @oneof
