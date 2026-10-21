@@ -57,6 +57,19 @@ marked as empty are added as all-background samples.
 
 ## Configuration
 
+The quickest start is the config generator, which writes a detector config for any
+pose project (boxes are derived from the poses):
+
+```bash
+sleap-nn config labels.slp --auto --pipeline bbox_ssd -o detector.yaml   # or bbox_centernet
+sleap-nn config labels.slp   # interactive: pick "Bounding Boxes (CenterNet / SSD)"
+```
+
+It uses `preprocessing.scale: 0.5`, `output_stride` 4 (CenterNet) / 8 (SSD, with
+`max_stride` >= 32), turns rotation augmentation off and evaluation on (so the best
+checkpoint is picked on box mAP, see below). The sample configs
+`docs/sample_configs/config_bbox_{centernet,ssd}_unet.yaml` spell out every knob:
+
 ```yaml
 model_config:
   backbone_config:
@@ -119,6 +132,18 @@ inference and scored with COCO-style metrics, logged to the CSV log, wandb and
 draw ground-truth boxes in green and predictions in red (CenterNet also overlays its
 center heatmap).
 
+**Checkpoint selection.** With evaluation on, `best.ckpt` and early stopping follow
+`eval/val/bbox_mAP` (checked on evaluation epochs, so early-stopping `patience` counts
+evaluations), not the validation loss: the loss tracks box quality only loosely, and
+in the benchmark several runs were still improving their mAP when the loss stopped
+them. Choose another metric with `trainer_config.eval.select_metric`: `bbox_mAP`,
+`bbox_AP50`, `bbox_AP75`, `bbox_AR`, `bbox_f1`, or `val_loss` for the old behavior.
+With evaluation off, detectors select on `val/loss`.
+
+From Python, `sleap_nn.train.train(..., head_configs="bbox_ssd")` builds the same
+config; it takes `bbox_source=` / `bbox_padding=` and, like `sleap-nn train`, defaults
+`geometry_aug` to rotation, so pass e.g. `geometry_aug="scale"` for a detector.
+
 After training, every split (and `data_config.test_file_path`) is predicted and
 evaluated automatically; metrics are saved as `metrics.<split>.npz/.json` and
 logged to the wandb summary as `eval/<split>/bbox_*` (plus `predict_fps`).
@@ -146,7 +171,8 @@ boxes = labels[0].bboxes
 ```
 
 Tracking is not supported for detector output (the tracker works on poses and
-masks).
+masks). The legacy `sleap-nn track` / `run_inference` pipeline refuses detectors and
+points to `sleap-nn predict`.
 
 ### Export (ONNX / TensorRT)
 
@@ -163,9 +189,9 @@ copied into the export directory. Anchors, NMS and thresholds therefore live in 
 place, exported and native boxes match, and the graph's spatial axes stay dynamic.
 The `input_scale` resize and the max-stride padding also stay out of the graph (a
 resize traced into it would be frozen to the trace input's size): the adapter applies
-them on the host with the checkpoint path's own helpers, then clips boxes to the
-frame. Like every exported model, the size matcher (`max_height` / `max_width`) is not
-applied, so export videos of one resolution together.
+them on the host with the checkpoint path's own preprocessing (including the size
+matcher, `max_height` / `max_width`, so mixed-resolution videos work as they do for
+the checkpoint), then clips boxes to the frame.
 
 ## Evaluation
 
@@ -190,6 +216,9 @@ classes; `bbox_AR` is the matching max recall. The operating point
 (`bbox_precision/recall/f1`, `bbox_mean_iou` of the matches) is reported at IoU 0.5
 and the score threshold that maximizes F1 (`bbox_f1_threshold`), so models are
 compared at their own best threshold rather than an arbitrary fixed one.
+
+`sleap-nn info models/my_detector` shows the detector's head and these metrics for a
+trained model directory.
 
 ## How it fits together
 
