@@ -116,8 +116,7 @@ class MOTParams:
         min_match_similarity: Minimum geometric similarity for a first-stage
             match (cost cap ``1 - min_match_similarity``).
         low_stage_min_similarity: ByteTrack/BoT-SORT second (low-score) stage.
-        unconfirmed_min_similarity: ByteTrack/BoT-SORT unconfirmed-track stage;
-            DeepSORT/StrongSORT IoU stage.
+        unconfirmed_min_similarity: ByteTrack/BoT-SORT unconfirmed-track stage.
         duplicate_similarity: ByteTrack/BoT-SORT tracked-vs-lost duplicate removal.
         fuse_score: Multiply the geometric similarity by the detection score
             (ByteTrack ``fuse_score``).
@@ -313,7 +312,7 @@ _PAPER: Dict[str, Dict[str, Any]] = {
         track_high_threshold=0.8,
         track_low_threshold=0.8,
         new_track_threshold=0.8,
-        unconfirmed_min_similarity=0.3,  # max_iou_distance 0.7
+        min_match_similarity=0.3,  # max_iou_distance 0.7 (geometric stage)
         appearance_threshold=0.8,  # max_cosine_distance 0.2
         gallery_budget=100,
         fuse_score=False,
@@ -325,7 +324,7 @@ _PAPER: Dict[str, Dict[str, Any]] = {
         track_high_threshold=0.6,
         track_low_threshold=0.6,
         new_track_threshold=0.6,
-        unconfirmed_min_similarity=0.3,
+        min_match_similarity=0.3,
         appearance_threshold=0.7,  # max_cosine_distance 0.3 (+0.05 under MC)
         ema_alpha=0.9,
         mc_lambda=0.98,

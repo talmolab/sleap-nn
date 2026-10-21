@@ -320,10 +320,7 @@ def _check_tracking_plan(
 
     config = _load_training_config(model_dir)[0]
     vector_carrier, n_embedded = None, 0
-    if (
-        tracker_config.appearance_weight > 0.0
-        or tracker_config.features == "embeddings"
-    ):
+    if tracker_config.uses_appearance:
         # Only appearance reads the vectors; a geometric plan does not need them.
         vector_carrier, n_embedded = embedded_carrier(
             config, labels, include_untracked=include_untracked
@@ -860,20 +857,37 @@ def _describe_association(tracker_config) -> str:
     re-resolved by ``apply_tracking`` (single-node / mask detections), which logs
     that resolution.
     """
+    # Identity linking (after either tracker family) reads the vectors too.
+    linking = (
+        "; identity linking reads the vectors where present"
+        if tracker_config.link_tracklets
+        or (tracker_config.is_mot and tracker_config.max_tracks is not None)
+        else ""
+    )
+    if tracker_config.is_mot:
+        name = tracker_config.tracker
+        if tracker_config.requires_vectors:
+            return (
+                f"tracking with {name} by geometry and appearance (appearance "
+                f"inside the geometric gate){linking}"
+            )
+        return f"tracking with {name} by geometry alone" + (
+            linking or "; the appearance vectors are not used"
+        )
     features = tracker_config.features
     weight = tracker_config.appearance_weight or 0.0
     if features == "embeddings":
         return (
             "tracking by appearance alone "
-            f"(scoring_method={tracker_config.scoring_method!r})"
+            f"(scoring_method={tracker_config.scoring_method!r}){linking}"
         )
     if weight:
         return (
-            f"tracking by geometry blended with appearance (appearance_weight={weight})"
+            "tracking by geometry blended with appearance "
+            f"(appearance_weight={weight}){linking}"
         )
-    return (
-        f"tracking by geometry alone (features={features!r}); the appearance vectors "
-        "are not used for association"
+    return f"tracking by geometry alone (features={features!r})" + (
+        linking or "; the appearance vectors are not used for association"
     )
 
 
@@ -907,7 +921,10 @@ def _embedding_provenance(
     from omegaconf import OmegaConf
 
     from sleap_nn.inference.loaders import _load_training_config
-    from sleap_nn.inference.provenance import build_inference_provenance
+    from sleap_nn.inference.provenance import (
+        build_inference_provenance,
+        carry_tracking_record,
+    )
 
     params: dict = {
         "batch_size": batch_size,
@@ -940,11 +957,11 @@ def _embedding_provenance(
 
     tracking_params = None
     if tracker_config is not None:
-        import attrs
+        from sleap_nn.inference.tracking import tracker_config_params
 
-        tracking_params = attrs.asdict(tracker_config)
+        tracking_params = tracker_config_params(tracker_config)
 
-    return build_inference_provenance(
+    provenance = build_inference_provenance(
         model_paths=[str(model_dir)],
         model_type="embedding",
         start_time=start_time,
@@ -956,6 +973,8 @@ def _embedding_provenance(
         tracking_params=tracking_params,
         device=device,
     )
+    # Keep the record a MOT / identity-linking run wrote on the (tracked) labels.
+    return carry_tracking_record(provenance, labels, tracker_config)
 
 
 def _strip_embeddings(labels: sio.Labels) -> None:

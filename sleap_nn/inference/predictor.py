@@ -70,7 +70,11 @@ from sleap_nn.inference.layers.topdown_segmentation import (
 )
 from sleap_nn.inference.outputs import Outputs
 from sleap_nn.inference.providers import Provider
-from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
+from sleap_nn.inference.tracking import (
+    TrackerConfig,
+    apply_tracking,
+    tracker_config_params,
+)
 
 
 class _CentroidPackaging(NamedTuple):
@@ -1461,7 +1465,7 @@ class Predictor:
         from sleap_nn.inference.provenance import build_inference_provenance
 
         tracking_params = (
-            attrs.asdict(self.tracker_config)
+            tracker_config_params(self.tracker_config)
             if self.tracker_config is not None
             else None
         )
@@ -1916,7 +1920,7 @@ class Predictor:
             )
         if clean_empty_frames:
             labels.clean(frames=True, skeletons=False)
-        labels.provenance = self._build_inference_provenance(
+        provenance = self._build_inference_provenance(
             source=source,
             start_time=_prov_start,
             end_time=_prov_end,
@@ -1931,6 +1935,12 @@ class Predictor:
                 "batch_size": self.batch_size,
                 **self._preprocess_provenance_params(),
             },
+        )
+        # Keep the record a MOT / identity-linking run wrote (apply_tracking).
+        from sleap_nn.inference.provenance import carry_tracking_record
+
+        labels.provenance = carry_tracking_record(
+            provenance, labels, self.tracker_config
         )
 
         # Post-run summary (#610). Segmentation emits masks (LabeledFrame.masks);

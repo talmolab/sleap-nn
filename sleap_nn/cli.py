@@ -88,6 +88,60 @@ class _CommaFloatTuple(click.ParamType):
             )
 
 
+# `--tracker` choices: kept literal so importing the CLI does not import the
+# trackers; pinned to `sleap_nn.inference.tracking.TRACKER_NAMES` by a test.
+_TRACKER_CHOICES = (
+    "classic",
+    "sort",
+    "deepsort",
+    "strongsort",
+    "bytetrack",
+    "botsort",
+    "ocsort",
+    "deepocsort",
+)
+
+# MOT-only `predict` options (rejected with `--tracker classic`). `--link_tracklets`
+# is shared by both tracker families.
+_MOT_ONLY_FLAGS = (
+    "track_buffer",
+    "min_hits",
+    "track_high_threshold",
+    "track_low_threshold",
+    "new_track_threshold",
+    "min_match_similarity",
+    "appearance_threshold",
+    "mot_param",
+)
+
+
+class _AppearanceThreshold(click.ParamType):
+    """Click type for ``--appearance_threshold``: ``auto`` or a cosine in [-1, 1]."""
+
+    name = "auto|float"
+
+    def convert(self, value, param, ctx):
+        if value is None or isinstance(value, float):
+            return value
+        if str(value).strip().lower() == "auto":
+            return "auto"
+        try:
+            number = float(value)
+        except ValueError:
+            self.fail(
+                f"must be 'auto' or a cosine similarity in [-1, 1], got {value!r}",
+                param,
+                ctx,
+            )
+        if not -1.0 <= number <= 1.0:
+            self.fail(
+                f"must be 'auto' or a cosine similarity in [-1, 1], got {number}",
+                param,
+                ctx,
+            )
+        return number
+
+
 def is_config_path(arg: str) -> bool:
     """Check if an argument looks like a config file path.
 
@@ -1128,6 +1182,9 @@ def _run_inference_impl(**kwargs):
     else:
         kwargs["frames"] = None
 
+    # Tracker flags the selected tracker family would ignore, on every route.
+    _check_tracker_flags(kwargs)
+
     # ── Embedding (re-ID) path: persist appearance vectors into a .slp ──
     # An `embedding` model emits appearance vectors, not poses/masks, so it does not go
     # through the normal Labels-producing flow; it attaches `sio.Embedding` vectors to
@@ -1177,7 +1234,12 @@ def _run_inference_impl(**kwargs):
             # would score the cosine of ravel'd pixel coordinates (also rejected).
             # Leaving both unset lets apply_tracking's normal keypoints/oks (or
             # single-node) resolution apply.
-            if not kwargs.get("appearance_weight"):
+            #
+            # Classic tracker only: a MOT --tracker has its own appearance trackers
+            # (`features="embeddings"` is a classic-tracker mode it refuses).
+            if (kwargs.get("tracker") or "classic") == "classic" and not kwargs.get(
+                "appearance_weight"
+            ):
                 if not kwargs.get("features"):
                     kwargs["features"] = "embeddings"
                 if not kwargs.get("scoring_method"):
@@ -1192,6 +1254,8 @@ def _run_inference_impl(**kwargs):
                 single_node_detections=_detection_stack_is_single_node(
                     kwargs.get("model_paths"), bool(kwargs.get("centroid_only"))
                 ),
+                data_path=kwargs.get("data_path"),
+                model_paths=kwargs.get("model_paths"),
             )
         return _run_embeddings(
             kwargs,
@@ -1468,8 +1532,80 @@ def _check_fused_tracking_early(
         ) from e
 
 
+def _check_tracker_flags(kwargs: dict) -> None:
+    """Refuse tracker flags the selected tracker family would silently ignore.
+
+    Runs before any route (embedding, retrack, inference): ``--tracker`` other than
+    classic (or ``--link_tracklets``) without ``--tracking``; MOT-only flags with
+    the classic tracker; and classic-only flags given on the command line with a
+    MOT tracker (their defaults are not an error, so this needs the click
+    context; a programmatic call without one leaves it to
+    :func:`~sleap_nn.inference.tracking.validate_mot_config`).
+
+    Raises:
+        click.UsageError: Naming the offending flags.
+    """
+    tracker = kwargs.get("tracker") or "classic"
+    tracking = bool(kwargs.get("tracking"))
+    if not tracking:
+        if tracker != "classic":
+            raise click.UsageError(
+                f"--tracker {tracker} only applies with --tracking (-t); add -t to "
+                "track, or drop --tracker."
+            )
+        if kwargs.get("link_tracklets"):
+            raise click.UsageError(
+                "--link_tracklets only applies with --tracking (-t); add -t to "
+                "track, or drop --link_tracklets."
+            )
+    mot_given = [
+        name for name in _MOT_ONLY_FLAGS if kwargs.get(name) not in (None, (), [])
+    ]
+    if tracker == "classic":
+        if mot_given:
+            raise click.UsageError(
+                f"{', '.join('--' + n for n in mot_given)} only appl"
+                f"{'ies' if len(mot_given) == 1 else 'y'} to the MOT trackers; pass "
+                f"--tracker ({' / '.join(_TRACKER_CHOICES[1:])}) or drop "
+                f"{'it' if len(mot_given) == 1 else 'them'}."
+            )
+        return
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return
+    from click.core import ParameterSource
+
+    from sleap_nn.inference.tracking import CLASSIC_ONLY_OPTIONS
+
+    classic_flags = ["candidates_method"] + [
+        "tracking_window_size" if name == "window_size" else name
+        for name in CLASSIC_ONLY_OPTIONS
+    ]
+    given = [
+        name
+        for name in classic_flags
+        if name in ctx.params
+        and ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
+    ]
+    if given:
+        raise click.UsageError(
+            f"{', '.join('--' + n for n in given)} "
+            f"{'is an option' if len(given) == 1 else 'are options'} of the classic "
+            f"tracker; --tracker {tracker} would ignore "
+            f"{'it' if len(given) == 1 else 'them'}. Tune a MOT tracker with "
+            "--track_buffer, --min_hits, --track_high_threshold, "
+            "--track_low_threshold, --new_track_threshold, --min_match_similarity, "
+            "--appearance_threshold, --link_tracklets, --max_tracks and --mot_param."
+        )
+
+
 def _validate_tracker_config_early(
-    tracker_config: "object", single_node_detections: bool = False
+    tracker_config: "object",
+    single_node_detections: bool = False,
+    *,
+    data_path: Optional[str] = None,
+    model_paths=None,
+    check_appearance: bool = True,
 ) -> None:
     """Fail on an incoherent appearance/tracker config BEFORE any inference runs.
 
@@ -1482,8 +1618,46 @@ def _validate_tracker_config_early(
     ``--scoring_method`` is resolved the way ``apply_tracking`` would for the
     detections we know are coming. Rules that need the labels (do any detections
     carry a vector? which carrier?) necessarily stay in ``apply_tracking``.
+
+    Every route also runs :func:`~sleap_nn.inference.tracking.validate_mot_config`
+    (options the tracker family would ignore, invalid MOT parameters), and refuses
+    an appearance MOT tracker whose detections cannot carry re-ID vectors: no
+    ``embedding`` model among ``model_paths`` while the detections are produced
+    here (a video input, or any input with detection models).
+
+    Args:
+        tracker_config: The tracker configuration.
+        single_node_detections: Whether the detection stack emits a single-node
+            skeleton (resolves an unset ``--scoring_method``).
+        data_path: The ``--data_path`` (enables the re-ID vector check).
+        model_paths: The ``--model_paths``.
+        check_appearance: Run the classic appearance rules (the embedding route);
+            the other routes leave them to ``apply_tracking``.
     """
+    from sleap_nn.inference.tracking import validate_mot_config
     from sleap_nn.tracking.tracker import validate_appearance_config
+
+    try:
+        validate_mot_config(tracker_config)
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
+    if tracker_config.is_mot:
+        if tracker_config.requires_vectors and data_path is not None:
+            _, src_suffix, _ = _resolve_data_path(data_path)
+            detects_here = bool(model_paths) or src_suffix.lower() != ".slp"
+            if detects_here and not _has_embedding_model(model_paths):
+                raise click.UsageError(
+                    f"--tracker {tracker_config.tracker} associates by appearance, "
+                    "which needs a re-ID vector on every detection, but no "
+                    "`embedding` model is among --model_paths, so the detections "
+                    "this run produces carry none. Add an embedding model "
+                    "(detect + embed + track in one command), retrack a .slp that "
+                    "already carries vectors, or track by geometry (--tracker "
+                    "bytetrack / ocsort / sort)."
+                )
+        return
+    if not check_appearance:
+        return
 
     scoring_method = tracker_config.scoring_method
     if not tracker_config.scoring_method_explicit:
@@ -1520,8 +1694,16 @@ def _build_tracker_config(kwargs: dict) -> "object":
       silently no-op'ing.
     * ``--post_connect_single_breaks`` with no ``--max_tracks`` derives
       ``max_tracks`` from ``max_instances`` (legacy track-only default).
+
+    None of that applies to a MOT ``--tracker``: ``max_tracks`` is then the known
+    animal count (closed-set identity linking) and is taken only from an explicit
+    ``--max_tracks``. Every key is read unconditionally, before any conversion,
+    so :func:`_tracker_option_keys` derives the full set of honored options.
+
+    Raises:
+        click.UsageError: A malformed ``--mot_param``.
     """
-    from sleap_nn.inference.tracking import TrackerConfig
+    from sleap_nn.inference.tracking import CLASSIC_TRACKER, TrackerConfig
 
     max_instances = kwargs.get("max_instances")
     target = kwargs.get("tracking_target_instance_count")
@@ -1529,6 +1711,35 @@ def _build_tracker_config(kwargs: dict) -> "object":
     pre_cull = kwargs.get("tracking_pre_cull_to_target", 0)
     pcsb = kwargs.get("post_connect_single_breaks", False)
     use_kalman = kwargs.get("use_kalman", False)
+    # MOT tracker options (read here, unconditionally -- see the docstring).
+    tracker = kwargs.get("tracker") or CLASSIC_TRACKER
+    mot_options = {
+        name: kwargs.get(name)
+        for name in (
+            "track_buffer",
+            "min_hits",
+            "track_high_threshold",
+            "track_low_threshold",
+            "new_track_threshold",
+            "min_match_similarity",
+            "appearance_threshold",
+        )
+    }
+    link_tracklets = bool(kwargs.get("link_tracklets", False))
+    mot_param = kwargs.get("mot_param") or ()
+    is_mot = tracker != CLASSIC_TRACKER
+
+    mot_params = None
+    if mot_param:
+        from sleap_nn.tracking.mot.params import parse_mot_param
+
+        mot_params = {}
+        for text in mot_param:
+            try:
+                key, value = parse_mot_param(text)
+            except ValueError as e:
+                raise click.UsageError(f"--mot_param {text!r}: {e}") from e
+            mot_params[key] = value
 
     # max_tracks is only honored by the local_queues candidate maker; fixed_window
     # silently ignores it. Whenever a track cap is requested, use local_queues so
@@ -1536,10 +1747,10 @@ def _build_tracker_config(kwargs: dict) -> "object":
     # that combination is non-functional (the cap would be dropped). Logged at INFO
     # (sleap#2720, #582). Record explicitness so apply_tracking can default
     # mask-mode tracking to local_queues (much better identity on over-segmented
-    # masks) unless the user explicitly picked a method.
+    # masks) unless the user explicitly picked a method. (Classic tracker only.)
     candidates_method_explicit = kwargs.get("candidates_method") is not None
     candidates_method = kwargs.get("candidates_method") or "fixed_window"
-    if max_tracks is not None and candidates_method == "fixed_window":
+    if not is_mot and max_tracks is not None and candidates_method == "fixed_window":
         logger.info(
             f"max_tracks={max_tracks} requested; using "
             "candidates_method='local_queues' (fixed_window ignores max_tracks)."
@@ -1547,14 +1758,14 @@ def _build_tracker_config(kwargs: dict) -> "object":
         candidates_method = "local_queues"
 
     # Legacy: post_connect_single_breaks defaults max_tracks from max_instances.
-    if pcsb and max_tracks is None:
+    if not is_mot and pcsb and max_tracks is None:
         max_tracks = max_instances
 
     # Legacy: post_connect / pre_cull derive the target count from max_instances
     # when not given explicitly (leaves target=None when both are None, so the
     # apply_tracking gate raises exactly as legacy did). Kalman tracking also
     # requires a target identity count, so derive it from max_instances too.
-    if (pcsb or pre_cull or use_kalman) and target is None:
+    if not is_mot and (pcsb or pre_cull or use_kalman) and target is None:
         target = max_instances
 
     # --features / --scoring_method default to None (sentinel for "user left the
@@ -1570,41 +1781,53 @@ def _build_tracker_config(kwargs: dict) -> "object":
     if scoring_method is None:
         scoring_method = "oks"
 
-    return TrackerConfig(
-        window_size=kwargs.get("tracking_window_size", 5),
-        min_new_track_points=kwargs.get("min_new_track_points", 0),
-        candidates_method=candidates_method,
-        min_match_points=kwargs.get("min_match_points", 0),
-        features=features,
-        scoring_method=scoring_method,
-        features_explicit=features_explicit,
-        scoring_method_explicit=scoring_method_explicit,
-        candidates_method_explicit=candidates_method_explicit,
-        scoring_reduction=kwargs.get("scoring_reduction", "mean"),
-        robust_best_instance=kwargs.get("robust_best_instance", 1.0),
-        oks_stddev=kwargs.get("oks_stddev", 0.025),
-        appearance_weight=kwargs.get("appearance_weight", 0.0) or 0.0,
-        euclidean_scale=kwargs.get("euclidean_scale"),
-        track_matching_method=kwargs.get("track_matching_method", "hungarian"),
-        max_tracks=max_tracks,
-        use_flow=kwargs.get("use_flow", False),
-        of_img_scale=kwargs.get("of_img_scale", 1.0),
-        of_window_size=kwargs.get("of_window_size", 21),
-        of_max_levels=kwargs.get("of_max_levels", 3),
-        use_kalman=use_kalman,
-        kf_track_features=kwargs.get("kf_track_features", "centroid"),
-        kf_init_frame_count=kwargs.get("kf_init_frame_count", 10),
-        kf_node_indices=kwargs.get("kf_node_indices"),
-        kf_reset_gap_size=kwargs.get("kf_reset_gap_size", 5),
-        tracking_target_instance_count=target,
-        tracking_pre_cull_to_target=pre_cull,
-        tracking_pre_cull_iou_threshold=kwargs.get(
-            "tracking_pre_cull_iou_threshold", 0.0
-        ),
-        tracking_clean_instance_count=kwargs.get("tracking_clean_instance_count", 0),
-        tracking_clean_iou_threshold=kwargs.get("tracking_clean_iou_threshold", 0.0),
-        post_connect_single_breaks=pcsb,
-    )
+    try:
+        return TrackerConfig(
+            window_size=kwargs.get("tracking_window_size", 5),
+            min_new_track_points=kwargs.get("min_new_track_points", 0),
+            candidates_method=candidates_method,
+            min_match_points=kwargs.get("min_match_points", 0),
+            features=features,
+            scoring_method=scoring_method,
+            features_explicit=features_explicit,
+            scoring_method_explicit=scoring_method_explicit,
+            candidates_method_explicit=candidates_method_explicit,
+            scoring_reduction=kwargs.get("scoring_reduction", "mean"),
+            robust_best_instance=kwargs.get("robust_best_instance", 1.0),
+            oks_stddev=kwargs.get("oks_stddev", 0.025),
+            appearance_weight=kwargs.get("appearance_weight", 0.0) or 0.0,
+            euclidean_scale=kwargs.get("euclidean_scale"),
+            track_matching_method=kwargs.get("track_matching_method", "hungarian"),
+            max_tracks=max_tracks,
+            use_flow=kwargs.get("use_flow", False),
+            of_img_scale=kwargs.get("of_img_scale", 1.0),
+            of_window_size=kwargs.get("of_window_size", 21),
+            of_max_levels=kwargs.get("of_max_levels", 3),
+            use_kalman=use_kalman,
+            kf_track_features=kwargs.get("kf_track_features", "centroid"),
+            kf_init_frame_count=kwargs.get("kf_init_frame_count", 10),
+            kf_node_indices=kwargs.get("kf_node_indices"),
+            kf_reset_gap_size=kwargs.get("kf_reset_gap_size", 5),
+            tracking_target_instance_count=target,
+            tracking_pre_cull_to_target=pre_cull,
+            tracking_pre_cull_iou_threshold=kwargs.get(
+                "tracking_pre_cull_iou_threshold", 0.0
+            ),
+            tracking_clean_instance_count=kwargs.get(
+                "tracking_clean_instance_count", 0
+            ),
+            tracking_clean_iou_threshold=kwargs.get(
+                "tracking_clean_iou_threshold", 0.0
+            ),
+            post_connect_single_breaks=pcsb,
+            tracker=tracker,
+            link_tracklets=link_tracklets,
+            mot_params=mot_params,
+            **mot_options,
+        )
+    except ValueError as e:
+        # An out-of-range MOT option or an unknown --tracker / --mot_param key.
+        raise click.UsageError(str(e)) from e
 
 
 def _scope_labels_to_video(
@@ -2003,18 +2226,28 @@ def _run_embeddings(
     if (
         tracking
         and save_embeddings == "none"
-        and tracker_config.features != "embeddings"
-        and not tracker_config.appearance_weight
+        and not (tracker_config.uses_appearance or tracker_config.link_tracklets)
     ):
         # Geometry-only tracking that neither uses nor keeps the vectors: the
         # embedding pass would run and its output be thrown away. (With
         # --save_embeddings slp, "persist vectors, track by geometry" is a real
         # combination and is allowed.)
+        if tracker_config.is_mot:
+            raise click.UsageError(
+                f"--tracker {tracker_config.tracker} tracks by geometry only, so the "
+                "embedding model's vectors would be computed and then discarded. "
+                "Use an appearance tracker (--tracker botsort / deepocsort / "
+                "deepsort / strongsort), add --link_tracklets (or --max_tracks N) "
+                "for appearance-based identity linking, or add --save_embeddings "
+                "slp to keep the vectors."
+            )
         raise click.UsageError(
             f"--features {tracker_config.features} tracks by geometry only, so the "
             "embedding model's vectors would be computed and then discarded. Drop "
             "--features to track by appearance, add --appearance_weight to blend "
-            "appearance into the geometric score, or add --save_embeddings slp to "
+            "appearance into the geometric score, add --link_tracklets for "
+            "appearance-based identity linking, use an appearance tracker "
+            "(--tracker botsort / deepocsort), or add --save_embeddings slp to "
             "keep the vectors."
         )
     if tracking and detection_dirs:
@@ -2568,7 +2801,17 @@ def _run_in_memory_new_flow(
     if kwargs.get("head_ckpt_path"):
         predict_kwargs["head_ckpt_path"] = kwargs["head_ckpt_path"]
     if kwargs.get("tracking"):
-        predict_kwargs["tracker_config"] = _build_tracker_config(kwargs)
+        tracker_config = _build_tracker_config(kwargs)
+        # Before the models load: options the tracker family would ignore, and an
+        # appearance MOT tracker whose detections cannot carry re-ID vectors. (The
+        # classic appearance rules stay in apply_tracking on this route.)
+        _validate_tracker_config_early(
+            tracker_config,
+            data_path=kwargs.get("data_path"),
+            model_paths=kwargs.get("model_paths"),
+            check_appearance=False,
+        )
+        predict_kwargs["tracker_config"] = tracker_config
     if kwargs.get("centroid_only"):
         predict_kwargs["centroid_only"] = True
     if kwargs.get("centroid_output") and kwargs["centroid_output"] != "instance":
@@ -2680,11 +2923,19 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
     output_format = kwargs.get("output_format") or ("slp",)
     _refuse_overwriting_input_early(labels, output_path, output_format)
 
-    import attrs as _attrs
-
-    from sleap_nn.inference.provenance import build_tracking_only_provenance
+    from sleap_nn.inference.provenance import (
+        build_tracking_only_provenance,
+        carry_tracking_record,
+    )
+    from sleap_nn.inference.tracking import tracker_config_params
 
     tracker_config = _build_tracker_config(kwargs)
+    _validate_tracker_config_early(
+        tracker_config,
+        data_path=source_str,
+        model_paths=None,
+        check_appearance=False,
+    )
 
     if kwargs.get("gui"):
         tracking_cb = _gui_progress_callback()
@@ -2710,13 +2961,17 @@ def _run_retrack_only(kwargs: dict, predictor_cls) -> "object":
     # Attach tracking-only provenance to the retracked .slp (legacy parity —
     # apply_tracking leaves provenance to the caller, and the legacy track path
     # set it; the new retrack flow previously saved with empty provenance). #583.
-    out.provenance = build_tracking_only_provenance(
-        input_labels=labels,
-        input_path=source_str,
-        start_time=_start,
-        end_time=datetime.now(),
-        tracking_params=_attrs.asdict(tracker_config),
-        frames_processed=len(out.labeled_frames),
+    out.provenance = carry_tracking_record(
+        build_tracking_only_provenance(
+            input_labels=labels,
+            input_path=source_str,
+            start_time=_start,
+            end_time=datetime.now(),
+            tracking_params=tracker_config_params(tracker_config),
+            frames_processed=len(out.labeled_frames),
+        ),
+        out,
+        tracker_config,
     )
     from sleap_nn.inference.run import save_predictions
 
@@ -3674,7 +3929,15 @@ def _common_inference_options(f):
         click.option("--scoring_reduction", type=str, default="mean"),
         click.option("--robust_best_instance", type=float, default=1.0),
         click.option("--track_matching_method", type=str, default="hungarian"),
-        click.option("--max_tracks", type=int, default=None),
+        click.option(
+            "--max_tracks",
+            type=int,
+            default=None,
+            help="Classic tracker: cap on the number of tracks (forces "
+            "--candidates_method local_queues). MOT trackers: the known number of "
+            "animals; identity linking then leaves at most this many tracks per "
+            "video (closed set).",
+        ),
         click.option("--use_flow", is_flag=True, default=False),
         click.option("--of_img_scale", type=float, default=1.0),
         click.option("--of_window_size", type=int, default=21),
@@ -3685,7 +3948,13 @@ def _common_inference_options(f):
             type=click.Choice(["centroid", "keypoints"]),
             default="centroid",
         ),
-        click.option("--oks_stddev", type=float, default=None),
+        click.option(
+            "--oks_stddev",
+            type=float,
+            default=None,
+            help="Per-keypoint spread of the OKS track-association score. Unset: "
+            "0.025 for the classic tracker, 0.1 for the MOT trackers.",
+        ),
         click.option("--kf_init_frame_count", type=int, default=10),
         click.option(
             "--kf_node_indices", type=str, default=None, callback=_parse_int_list
@@ -3697,6 +3966,90 @@ def _common_inference_options(f):
         click.option("--tracking_pre_cull_iou_threshold", type=float, default=0),
         click.option("--tracking_clean_instance_count", type=int, default=0),
         click.option("--tracking_clean_iou_threshold", type=float, default=0),
+        # Modern MOT trackers (`--tracker` other than classic) ────────────
+        # All default None ("the tracker's preset") so that `_build_tracker_config`
+        # passes only what the user set.
+        click.option(
+            "--tracker",
+            type=click.Choice(_TRACKER_CHOICES),
+            default="classic",
+            show_default=True,
+            help="Tracker run by --tracking. 'classic': the candidate-window "
+            "tracker (--tracking_window_size, --candidates_method, ...). Modern MOT "
+            "trackers (Kalman motion model; they never drop a detection): sort, "
+            "bytetrack, ocsort associate by geometry; deepsort, strongsort, "
+            "botsort, deepocsort also by appearance and need re-ID vectors from an "
+            "`embedding` model. Tune them with --track_buffer ... --mot_param.",
+        ),
+        click.option(
+            "--track_buffer",
+            type=int,
+            default=None,
+            help="MOT trackers: frames a lost track is kept for re-association "
+            "(preset: 30).",
+        ),
+        click.option(
+            "--min_hits",
+            type=int,
+            default=None,
+            help="MOT trackers: matches before a new track is confirmed; its "
+            "earlier detections are then labeled too (preset: 2-3 per tracker).",
+        ),
+        click.option(
+            "--track_high_threshold",
+            type=float,
+            default=None,
+            help="MOT trackers: detection score (mean point confidence) above "
+            "which a detection is high-confidence, in [0, 1].",
+        ),
+        click.option(
+            "--track_low_threshold",
+            type=float,
+            default=None,
+            help="MOT trackers: detections scoring at or below this are ignored, "
+            "in [0, 1].",
+        ),
+        click.option(
+            "--new_track_threshold",
+            type=float,
+            default=None,
+            help="MOT trackers: minimum score for an unmatched detection to start "
+            "a track, in [0, 1].",
+        ),
+        click.option(
+            "--min_match_similarity",
+            type=float,
+            default=None,
+            help="MOT trackers: minimum geometric similarity (IoU / OKS / centroid, "
+            "in [0, 1]) for a first-stage match.",
+        ),
+        click.option(
+            "--appearance_threshold",
+            type=_AppearanceThreshold(),
+            default=None,
+            help="Appearance MOT trackers: minimum cosine similarity for appearance "
+            "to support a match, or 'auto' (the default preset's): calibrated per "
+            "video, and appearance is not used where it does not tell the animals "
+            "apart.",
+        ),
+        click.option(
+            "--link_tracklets",
+            is_flag=True,
+            default=False,
+            help="Identity linking after tracking each video (any --tracker): "
+            "re-joins tracks broken by gaps or occlusions (by appearance where the "
+            "video's calibration allows, else by position) and corrects identity "
+            "swaps at crossings. Implied by --max_tracks with a MOT tracker.",
+        ),
+        click.option(
+            "--mot_param",
+            "mot_param",
+            multiple=True,
+            metavar="KEY=VALUE",
+            help="MOT trackers: override any MOT parameter (repeatable), e.g. "
+            "--mot_param preset=paper --mot_param gallery_size=50 (see "
+            "sleap_nn.tracking.mot.params.MOTParams).",
+        ),
         click.option("--gui", is_flag=True, default=False),
         # New PR 10 flags ─────────────────────────────────────────────
         click.option(
@@ -3960,6 +4313,17 @@ def info(path):
         "trackers name tracks per video."
     ),
 )
+@click.option(
+    "--oks_stddev",
+    type=float,
+    default=0.025,
+    show_default=True,
+    help=(
+        "Per-keypoint spread of the OKS used to match poses (both the identity "
+        "and the MOT metrics). Larger values match looser poses. Ignored for "
+        "masks and single-node skeletons."
+    ),
+)
 def eval_tracking(**kwargs):
     """Evaluate identity persistence of a tracked prediction.
 
@@ -3967,6 +4331,11 @@ def eval_tracking(**kwargs):
     IDF1, MT/PT/ML, fragmentation and track purity -- against tracked ground
     truth. Complements `sleap-nn eval`, which scores detection and localization
     but says nothing about identity.
+
+    Also reports TrackEval-faithful CLEAR-MOT, IDF1 and HOTA (the "mot" block of
+    the saved JSON), numbers comparable to published MOT results. Where both
+    blocks name the same metric they can differ: the legacy identity block uses
+    sleap-nn's own definitions.
 
     Both files must be tracked: ground truth needs `track` set on the detections
     to score, and the prediction needs tracks from `sleap-nn track` or

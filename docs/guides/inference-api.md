@@ -340,6 +340,7 @@ tracker_config = TrackerConfig(
     track_matching_method="hungarian",
     max_tracks=None,
 )
+# Or a modern MOT tracker (see below): TrackerConfig(tracker="bytetrack")
 
 predictor = Predictor.from_model_paths(
     ["models/centroid/", "models/centered_instance/"],
@@ -357,14 +358,17 @@ labels = predictor.predict("video.mp4")   # tracked
 ### Tracking existing labels with `apply_tracking`
 
 `apply_tracking` is the labels-in / labels-out tracking function. It builds a
-fresh `Tracker` per call (no shared state) and tracks frames in temporal order.
+fresh tracker for each video, tracks the frames in `(video, frame_idx)` order, and
+works **in place**: it writes tracks onto the detections of the `Labels` you pass
+and returns that same object. Pass `labels.copy()` to keep the input, for example
+when comparing settings.
 
 ```python
 import sleap_io as sio
 from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
 
 labels = sio.load_slp("predictions.slp")
-tracked = apply_tracking(labels, TrackerConfig(window_size=5))
+tracked = apply_tracking(labels, TrackerConfig(window_size=5))   # tracked is labels
 tracked.save("tracked.slp")
 ```
 
@@ -373,8 +377,84 @@ tracked.save("tracked.slp")
 
 !!! note "post_connect_single_breaks"
     Setting `post_connect_single_breaks=True` requires
-    `tracking_target_instance_count` (or `max_tracks`) to be set, otherwise
-    `apply_tracking` raises `ValueError`.
+    `tracking_target_instance_count` to be set; otherwise `apply_tracking` raises
+    `ValueError`. `max_tracks` is not a substitute.
+
+### Modern MOT trackers
+
+`TrackerConfig.tracker` selects the tracker. `"classic"` is the default: the
+candidate-window tracker configured by the fields above. The other values are
+`"sort"`, `"deepsort"`, `"strongsort"`, `"bytetrack"`, `"botsort"`, `"ocsort"`
+and `"deepocsort"`, the [modern MOT trackers](tracking.md#modern-mot-trackers).
+They read these fields:
+
+| Field | Meaning | Default |
+|---|---|---|
+| `tracker` | `"classic"` or a MOT tracker name | `"classic"` |
+| `track_buffer` | Steps a lost track is kept for re-association | `None` (preset: 30) |
+| `min_hits` | Matches before a track is confirmed | `None` (preset) |
+| `track_high_threshold` / `track_low_threshold` / `new_track_threshold` | Detection-score thresholds, in `[0, 1]` | `None` (preset) |
+| `min_match_similarity` | Minimum geometric similarity for a first-stage match | `None` (preset) |
+| `appearance_threshold` | Appearance trackers: `"auto"` (calibrated per video) or a minimum cosine in `[-1, 1]` | `None` (preset: `"auto"`) |
+| `link_tracklets` | Identity linking after each video; also works with `"classic"` | `False` |
+| `mot_params` | Overrides for any `sleap_nn.tracking.mot.params.MOTParams` field, including `"preset"` (`"animal"` / `"paper"`) and `"similarity"` | `None` |
+| `max_tracks` | Shared field. For a MOT tracker it is the known animal count: closed-set identity linking | `None` |
+| `oks_stddev` | Shared field. OKS spread for the `oks` similarity | `None` (MOT: 0.1) |
+| `features` | Shared field. Carrier to track: `"keypoints"` or `"masks"` | `"keypoints"` |
+
+`None` means the tracker's preset value. `apply_tracking` validates the config
+with `validate_mot_config` before tracking, and you can call it yourself. It
+raises `ValueError` for a MOT tracker with any classic-only field away from its
+default (`window_size`, `candidates_method`, `use_flow`, `use_kalman`,
+`appearance_weight`, the cull / clean / connect options, ...). It also raises for
+the classic tracker with any MOT-only field set. The properties `is_mot`, `uses_appearance`, `requires_vectors` and
+`follows_vector_carrier` describe what a config will do.
+
+```python
+import sleap_io as sio
+from sleap_nn.inference.tracking import (
+    TrackerConfig,
+    apply_tracking,
+    resolve_mot_params,
+)
+
+labels = sio.load_slp("predictions.slp")
+config = TrackerConfig(
+    tracker="ocsort",
+    track_buffer=60,           # keep lost tracks for 60 steps
+    max_tracks=4,              # 4 animals: closed-set identity linking
+    mot_params={"similarity": "oks", "delta_t": 3},
+)
+print(resolve_mot_params(config))  # the resolved MOTParams (preset + overrides)
+
+tracked = apply_tracking(labels, config)  # in place; returns `labels`
+record = tracked.provenance["tracking"]   # resolved params, calibration, linking
+print(record["videos"][0]["linking"])
+tracked.save("tracked_ocsort.slp")
+```
+
+!!! note "Set the MOT similarity with `mot_params`"
+    `scoring_method="oks"` is `TrackerConfig`'s default value, so for a MOT
+    tracker it counts as *unset*, and the similarity stays `"auto"`. Pass
+    `mot_params={"similarity": "oks"}`, which also accepts `"iou"`,
+    `"centroid"` and `"auto"`. An explicit non-default `scoring_method`
+    (`"iou"`, `"euclidean_dist"`) also works.
+
+The trackers can also be driven frame by frame without `apply_tracking`:
+
+```python
+from sleap_nn.tracking.mot import MOTParams, build_mot_tracker
+
+tracker = build_mot_tracker(MOTParams.for_tracker("bytetrack"), carrier="pose")
+frames = [(lf.frame_idx, lf.predicted_instances) for lf in labels.labeled_frames]
+tracker.prepare(frames)       # optional: calibration and time base
+for frame_idx, instances in frames:
+    tracker.track(instances, frame_idx)   # sets .track / .tracking_score in place
+tracker.finalize()            # optional: identity linking, if enabled
+```
+
+`prepare()` and `finalize()` are optional. Without `prepare()`, an `"auto"`
+appearance threshold disables appearance, because there is no calibration.
 
 ---
 

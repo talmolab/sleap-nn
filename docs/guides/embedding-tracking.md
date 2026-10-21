@@ -6,13 +6,23 @@ learned appearance vector; the tracker can then score detection-to-track associa
 the **cosine similarity** of those vectors, rather than only by where the animal was.
 
 This is the tracker-side counterpart of the embedding model: the model produces the
-vectors (`--save_embeddings`), and the tracker consumes them either as a blend weight
-on top of a geometric score (`--appearance_weight`) or as the sole feature
-(`--features embeddings`, auto-paired with `--scoring_method cosine_sim`).
+vectors (`--save_embeddings`), and the tracker consumes them in one of these ways:
+
+- With the default `classic` tracker, as a blend weight on top of a geometric score
+  (`--appearance_weight`), or as the sole feature (`--features embeddings`,
+  auto-paired with `--scoring_method cosine_sim`).
+- Through an [appearance-aware MOT tracker](#appearance-aware-mot-trackers)
+  (`--tracker botsort` / `deepocsort` / `deepsort` / `strongsort`). These use
+  appearance inside a Kalman-predicted geometric gate, with thresholds calibrated
+  per video.
+- Through [identity linking](#identity-linking-vs-the-appearance_weight-blend)
+  (`--link_tracklets`, `--max_tracks N`), which joins whole tracklets after
+  tracking, with any tracker.
 
 It works on **both** carriers — pose `PredictedInstance`s and segmentation
-`PredictedSegmentationMask`s. Appearance matching is image-free, so the motion models
-(`--use_flow` / `--use_kalman`) do not apply.
+`PredictedSegmentationMask`s. Appearance matching is image-free, so the classic
+tracker's motion models (`--use_flow` / `--use_kalman`) do not apply. The MOT
+trackers have their own Kalman motion model.
 
 ---
 
@@ -27,6 +37,11 @@ how much, depends on how informative geometry already is — which is a property
 | **Blended** (recommended) | a geometric `--features` + `--appearance_weight 0.15-0.5` | dense continuous video, where geometry is informative and appearance breaks its ties |
 | **Appearance-only** | `--features embeddings` | sparse frames and post-occlusion recovery, where geometry has *no* signal |
 | **Geometry-only** | the default; no embeddings needed | when identities never need recovering — and as the baseline you should beat |
+| **Appearance-aware MOT tracker** | `--tracker botsort` / `deepocsort` (or `deepsort` / `strongsort`) | continuous video with a motion model; appearance is used only where this video's calibration shows it separates the animals ([below](#appearance-aware-mot-trackers)) |
+| **+ identity linking** | `--link_tracklets` or `--max_tracks N`, with any of the above | animals that leave, hide for long stretches or cross; links whole tracklets after tracking |
+
+The measurements below compare the first three regimes. They predate the MOT
+trackers.
 
 ### What was measured
 
@@ -183,6 +198,101 @@ detection stack and embedding pass have run.
 
 ---
 
+## Appearance-aware MOT trackers
+
+Four of the [modern MOT trackers](tracking.md#modern-mot-trackers) read the same
+`identity_embedding` vectors as the classic tracker, and combine them with a
+per-track Kalman motion model:
+
+| `--tracker` | how appearance is used |
+|---|---|
+| `botsort` | Appearance can support a match only when the pair is already geometrically close (`proximity_threshold`). The cosine to the track's appearance EMA must also clear the gate, and the pair must lead the next-best candidate in its row and column by a calibrated margin. |
+| `deepocsort` | A standardized appearance term is added to OC-SORT's objective, weighted more where it is discriminative. A match with weak geometry can be rescued when appearance is decisive. |
+| `deepsort` | Appearance is the primary cue: a matching cascade on the best cosine to each track's gallery, inside a Mahalanobis motion gate. |
+| `strongsort` | Appearance is the primary cue: one assignment on the EMA cosine blended with motion (`mc_lambda` 0.98). |
+
+They plug into the same three workflows:
+
+```bash
+# Workflow 1: retrack a .slp that already carries vectors (no model, no GPU)
+sleap-nn predict -i embedded.slp -t --tracker botsort
+
+# Workflow 2: embed the detections of a .slp, then track them
+sleap-nn predict -m models/embedding/ -i detections.slp -t --tracker deepocsort
+
+# Workflow 3: detect + embed + track a video, 4 animals, with identity linking
+sleap-nn predict -i video.mp4 \
+    -m models/centroid/ -m models/centered_instance/ -m models/embedding/ \
+    -t --tracker botsort --link_tracklets --max_tracks 4 -o tracked.slp
+```
+
+How they differ from the classic appearance options:
+
+- **Calibrated, not hand-set.** The default `--appearance_threshold auto`
+  measures the cosine gates, margins and linking thresholds on each video's own
+  detections before tracking. When the measurements show that appearance does not
+  separate the animals, appearance is turned off and a warning says so; the run
+  does not fall back to a constant tuned on person re-ID. See [Per-video
+  calibration](tracking.md#per-video-calibration-of-appearance-thresholds),
+  including the *"embedding may encode class/sex rather than identity"* warning.
+  A number, such as `--appearance_threshold 0.6`, sets a fixed minimum cosine
+  for association instead. Linking keeps its calibrated thresholds.
+- **Only quality-gated vectors update a track's appearance.** The detection must
+  be confident (`--track_high_threshold`), at least half visible, and not
+  overlapping another detection or another track's predicted box. Once the
+  track's gallery holds 3 vectors, the detection must also favor this track over
+  the other nearby tracks by the calibrated margin. Crops taken during a crossing
+  would otherwise pull the track's appearance toward the wrong animal.
+- **`--appearance_weight` and `--features embeddings` belong to the classic
+  tracker.** A MOT tracker refuses both and suggests an appearance tracker
+  instead. Pick the carrier with `--features keypoints` or `masks`. Left unset,
+  an appearance tracker follows the carrier that holds more vectors.
+  `deepsort` / `strongsort` refuse vectors that are on the other carrier;
+  `botsort` / `deepocsort` warn and track on geometry alone.
+- **Vectors are required.** With no vector on any detection, all four refuse to
+  run. When the run produces its own detections (a video input, or detection
+  models in `-m`), it also needs an `embedding` model among `-m`. A run in which
+  at least 10% of the tracked detections lack a vector logs a warning. Those
+  detections are scored on geometry alone.
+
+A geometry-only MOT tracker (`sort`, `bytetrack`, `ocsort`) can still use the
+vectors for identity linking:
+
+```bash
+sleap-nn predict -m models/embedding/ -i detections.slp -t --tracker bytetrack --link_tracklets
+```
+
+Without `--link_tracklets`, `--max_tracks` or `--save_embeddings slp`, that
+combination is refused, because the vectors would be computed and then thrown
+away.
+
+### Identity linking vs the `appearance_weight` blend
+
+The two options answer different questions. Use either one, or both
+(`--appearance_weight` with `--link_tracklets` on the classic tracker).
+
+| | `--appearance_weight w` (classic) | identity linking (`--link_tracklets`, `--max_tracks N`) |
+|---|---|---|
+| decides | every detection-to-candidate match, frame by frame | whether two whole tracks are the same animal, after the video is tracked |
+| evidence | one detection's vector against the candidate window | up to 30 gated vectors at each end of a track (mean of the top-5 cosines per query) |
+| threshold | your fixed weight `w` | calibrated per video: a linking threshold and the smallest margin that reaches 99% precision on the video's own trials |
+| when appearance does not discriminate | the blend still applies | spatial rules only: a link is made only when it is the unique candidate within 4 × `--track_buffer` steps |
+| also does | — | corrects identity swaps at crossings; with `--max_tracks N`, merges or untracks identities down to N |
+| works with | `classic` only | every tracker |
+
+The blend breaks ties between nearby candidates while tracking. Linking repairs
+what the tracker could not: an animal that returns after a long absence under a
+new name, two identities swapped at a crossing, or more tracks than animals. A
+link must beat every competing candidate that provably is another animal (they
+appear in the same frame), so a link the margin does not support is not made.
+See [Identity linking](tracking.md#identity-linking-long-term-identity-memory) for
+the full rules.
+
+Linking is per video, like tracking. It does not carry an identity from one
+video or session to the next (see [Output](#output-tracks-not-global-identities)).
+
+---
+
 ## Workflow 1 — track an existing `.slp` of embeddings
 
 You already ran an embedding model with `--save_embeddings slp`, so each
@@ -289,7 +399,8 @@ separate, future step; multi_class models can emit `sio.Identity` via
 Each video is tracked on its own, by a fresh tracker: a track never spans two videos,
 and track names continue across videos (`track_0`, `track_1` in the first;
 `track_2`, … in the next). So appearance tracking does not link one animal across
-the videos or sessions of a multi-video `.slp`.
+the videos or sessions of a multi-video `.slp`. Identity linking
+(`--link_tracklets`) also works within one video.
 
 ---
 
@@ -303,11 +414,16 @@ the videos or sessions of a multi-video `.slp`.
 | `--euclidean_scale px` | Length scale for the distance→similarity kernel. Required with `--appearance_weight` when the geometric score is `euclidean_dist` (i.e. centroid-only detections); ignored otherwise | — |
 | `--candidates_method` | `local_queues` = per-track appearance gallery | `local_queues` with `--features embeddings`, when tracking masks, or with `--max_tracks`; else `fixed_window` |
 | `--save_embeddings {none,slp}` | Persist vectors in the tracked `.slp` (WF2/WF3) | `none` |
+| `--tracker {botsort,deepocsort,deepsort,strongsort}` | An [appearance-aware MOT tracker](#appearance-aware-mot-trackers) in place of the classic tracker. The classic options above (`--appearance_weight`, `--features embeddings`, `--candidates_method`, …) do not apply to it | `classic` |
+| `--appearance_threshold {auto,FLOAT}` | MOT appearance trackers: the minimum cosine for appearance to support a match, or `auto` to calibrate it per video | `auto` |
+| `--link_tracklets` | [Identity linking](#identity-linking-vs-the-appearance_weight-blend) after tracking each video, with any tracker | off |
+| `--max_tracks N` | Classic: caps the number of tracks. MOT trackers: the known animal count, giving closed-set identity linking | — |
 
 All other [tracking parameters](tracking.md#tracking-parameters)
-(`--tracking_window_size`, `--scoring_reduction`, `--max_tracks`,
-`--track_matching_method`, …) apply unchanged. Motion models (`--use_flow`,
-`--use_kalman`) are not supported with appearance features.
+(`--tracking_window_size`, `--scoring_reduction`, `--track_matching_method`, …)
+apply unchanged to the classic tracker. Its motion models (`--use_flow`,
+`--use_kalman`) are not supported with appearance features. The MOT trackers take
+[their own options](tracking.md#options).
 
 ---
 
@@ -335,6 +451,12 @@ All other [tracking parameters](tracking.md#tracking-parameters)
     - Check the embedding model actually separates your animals (validate retrieval
       metrics) — appearance tracking is only as good as the embeddings.
     - Cap identities with `--max_tracks N` when the animal count is known.
+    - Try an [appearance-aware MOT tracker](#appearance-aware-mot-trackers) with
+      identity linking, e.g. `--tracker botsort --link_tracklets` (add
+      `--max_tracks N` for a known count). Read the `MOT calibration: ...` log
+      line first. If appearance comes out "off", or the *"embedding may encode
+      class/sex rather than identity"* warning appears, the embedder does not
+      separate these animals, and no tracker setting will fix that.
 
 ??? question "How do I know whether the blend helped?"
     Score it against tracked ground truth:

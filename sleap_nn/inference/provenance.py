@@ -269,6 +269,53 @@ def build_tracking_only_provenance(
     return provenance
 
 
+# Key under which `sleap_nn.inference.tracking.apply_tracking` records what a MOT /
+# identity-linking run resolved (per-video parameters, calibration, linking).
+TRACKING_RECORD_KEY = "tracking"
+
+
+def carry_tracking_record(
+    provenance: dict[str, Any],
+    tracked_labels: Any,
+    tracker_config: Any = None,
+) -> dict[str, Any]:
+    """Keep the tracking record ``apply_tracking`` left on the labels.
+
+    The provenance builders return a FRESH dict that callers assign to
+    ``labels.provenance``, which would drop the ``"tracking"`` record a MOT
+    tracker (or identity linking) wrote there. This copies it into
+    ``provenance``, only when ``tracker_config`` is such a run (a stale record
+    an input file carried is not this run's). Because tracking is in place, the
+    record also shows up in the copied ``input_provenance``; it is removed there.
+
+    Args:
+        provenance: The freshly built provenance dict (modified and returned).
+        tracked_labels: The labels ``apply_tracking`` tracked.
+        tracker_config: The run's ``TrackerConfig`` (``None``: no tracking).
+
+    Returns:
+        ``provenance``, with ``"tracking"`` set when this run recorded one.
+    """
+    if tracker_config is None or not (
+        getattr(tracker_config, "is_mot", False)
+        or getattr(tracker_config, "link_tracklets", False)
+    ):
+        return provenance
+    source = getattr(tracked_labels, "provenance", None)
+    record = source.get(TRACKING_RECORD_KEY) if isinstance(source, dict) else None
+    if record is None:
+        return provenance
+    provenance[TRACKING_RECORD_KEY] = record
+    input_prov = provenance.get("input_provenance")
+    if isinstance(input_prov, dict) and input_prov.get(TRACKING_RECORD_KEY) is record:
+        input_prov = {k: v for k, v in input_prov.items() if k != TRACKING_RECORD_KEY}
+        if input_prov:
+            provenance["input_provenance"] = input_prov
+        else:
+            provenance.pop("input_provenance")
+    return provenance
+
+
 def merge_provenance(
     base_provenance: dict[str, Any],
     additional: dict[str, Any],

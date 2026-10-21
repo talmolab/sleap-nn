@@ -2,7 +2,11 @@
 
 Wraps :class:`sleap_nn.tracking.tracker.Tracker` (and its post-processing
 helpers ``cull_instances`` / ``connect_single_breaks``) as a value-typed
-config + a labels-in / labels-out function.
+config + a labels-in / labels-out function. ``TrackerConfig.tracker`` selects the
+tracker: ``"classic"`` (the default, the tracker above) or one of the modern MOT
+trackers of :mod:`sleap_nn.tracking.mot` (SORT, DeepSORT, StrongSORT, ByteTrack,
+BoT-SORT, OC-SORT, Deep OC-SORT), which share the same labels-in / labels-out
+contract and the same per-video track naming.
 
 Why a config: keeps :class:`~sleap_nn.inference.predictor.Predictor`
 picklable and lets the CLI / factory layer build the tracking
@@ -32,13 +36,18 @@ What this does NOT cover:
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import attrs
 from loguru import logger
 
+import numpy as np
 import sleap_io as sio
+
+from sleap_nn.tracking.mot import APPEARANCE_TRACKERS, VECTOR_REQUIRED_TRACKERS
+from sleap_nn.tracking.mot.params import MOT_TRACKER_NAMES, MOTParams
 
 # Default candidate window. Mask tracking uses a larger default than the
 # pose/centroid default because bottom-up segmentation is over-segmented (a
@@ -46,6 +55,147 @@ import sleap_io as sio
 # identity); the cropped mask-IoU (`MaskFeature`) makes the larger window cheap.
 DEFAULT_WINDOW_SIZE = 5
 DEFAULT_MASK_WINDOW_SIZE = 25
+
+# The tracker families `TrackerConfig.tracker` selects: the classic
+# (candidate-window) tracker, then the modern MOT trackers.
+CLASSIC_TRACKER = "classic"
+TRACKER_NAMES = (CLASSIC_TRACKER,) + MOT_TRACKER_NAMES
+
+# `labels.provenance` key holding what a MOT / identity-linking run resolved (see
+# `apply_tracking`).
+TRACKING_PROVENANCE_KEY = "tracking"
+
+# TrackerConfig options that only the MOT trackers read (`link_tracklets` is
+# shared: it also runs identity linking after the classic tracker).
+MOT_ONLY_OPTIONS = (
+    "track_buffer",
+    "min_hits",
+    "track_high_threshold",
+    "track_low_threshold",
+    "new_track_threshold",
+    "min_match_similarity",
+    "appearance_threshold",
+    "mot_params",
+)
+
+# TrackerConfig options that only the classic tracker reads; a MOT tracker refuses
+# any of them away from its default (they would be silently ignored).
+# `features` / `scoring_method` / `candidates_method` are checked separately.
+CLASSIC_ONLY_OPTIONS = (
+    "window_size",
+    "min_new_track_points",
+    "min_match_points",
+    "scoring_reduction",
+    "robust_best_instance",
+    "appearance_weight",
+    "euclidean_scale",
+    "track_matching_method",
+    "use_flow",
+    "of_img_scale",
+    "of_window_size",
+    "of_max_levels",
+    "use_kalman",
+    "kf_track_features",
+    "kf_init_frame_count",
+    "kf_node_indices",
+    "kf_reset_gap_size",
+    "tracking_target_instance_count",
+    "tracking_pre_cull_to_target",
+    "tracking_pre_cull_iou_threshold",
+    "tracking_clean_instance_count",
+    "tracking_clean_iou_threshold",
+    "post_connect_single_breaks",
+)
+
+# CLI flag of a TrackerConfig option, where the names differ (for messages).
+_OPTION_FLAGS = {"window_size": "tracking_window_size", "mot_params": "mot_param"}
+
+# `--scoring_method` -> MOT geometric similarity (`MOTParams.similarity`).
+_MOT_SIMILARITY = {"oks": "oks", "iou": "iou", "euclidean_dist": "centroid"}
+
+# `--features` values a MOT tracker honors: they pick the carrier.
+_MOT_FEATURES = ("keypoints", "masks")
+
+
+def _flag(name: str) -> str:
+    """``--<cli flag>`` of a TrackerConfig option."""
+    return "--" + _OPTION_FLAGS.get(name, name)
+
+
+def _check_tracker(instance, attribute, value) -> None:
+    if value not in TRACKER_NAMES:
+        raise ValueError(
+            f"tracker must be one of {list(TRACKER_NAMES)}, got {value!r}."
+        )
+
+
+def _check_optional_unit(instance, attribute, value) -> None:
+    if value is not None and not 0.0 <= float(value) <= 1.0:
+        raise ValueError(f"{attribute.name} must be in [0, 1], got {value!r}.")
+
+
+def _check_optional_min(minimum: int):
+    def _validator(instance, attribute, value) -> None:
+        if value is not None and int(value) < minimum:
+            raise ValueError(f"{attribute.name} must be >= {minimum}, got {value!r}.")
+
+    return _validator
+
+
+def _convert_appearance_threshold(value: Any) -> Optional[Union[float, str]]:
+    """``None`` (preset), ``"auto"`` or a minimum cosine similarity in ``[-1, 1]``."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        if value.strip().lower() == "auto":
+            return "auto"
+        try:
+            value = float(value)
+        except ValueError:
+            raise ValueError(
+                "appearance_threshold must be 'auto' or a cosine similarity in "
+                f"[-1, 1], got {value!r}."
+            ) from None
+    value = float(value)
+    if not -1.0 <= value <= 1.0:
+        raise ValueError(
+            "appearance_threshold must be 'auto' or a cosine similarity in [-1, 1], "
+            f"got {value!r}."
+        )
+    return value
+
+
+def _convert_mot_params(value: Any) -> Optional[dict]:
+    """Copy a ``{MOTParams field: value}`` override dict, checking its keys."""
+    if value is None:
+        return None
+    value = dict(value)
+    if not value:
+        return None
+    valid = (set(MOTParams.field_names()) - {"tracker"}) | {"preset"}
+    unknown = sorted(set(value) - valid)
+    if unknown:
+        raise ValueError(
+            f"Unknown MOT parameter(s) {unknown} in mot_params; valid parameters "
+            f"are {sorted(valid)}."
+        )
+    return value
+
+
+def _explicit_unless_default(name: str, default: Any):
+    """Default of a ``*_explicit`` flag, depending on the tracker family.
+
+    Always explicit for the classic tracker (direct constructors keep their
+    behavior); for a MOT tracker, explicit only when ``name`` differs from its
+    ``TrackerConfig`` default, so that ``TrackerConfig(tracker="sort")`` gets the
+    tracker's preset similarity / carrier rather than the classic tracker's
+    ``oks`` / ``keypoints`` defaults.
+    """
+
+    def _default(self) -> bool:
+        return self.tracker == CLASSIC_TRACKER or getattr(self, name) != default
+
+    return attrs.Factory(_default, takes_self=True)
 
 
 @attrs.frozen(eq=False)
@@ -55,6 +205,17 @@ class TrackerConfig:
     Mirrors :func:`sleap_nn.tracking.tracker.run_tracker`'s signature.
     Picklable so it can sit on :class:`Predictor` without compromising
     the picklability contract from PR 2.
+
+    ``tracker`` selects the tracker family. ``"classic"`` (the default) reads the
+    candidate-window options; a modern MOT tracker (:data:`MOT_TRACKER_NAMES`)
+    reads the MOT options (``None`` = the tracker's preset, see
+    :meth:`~sleap_nn.tracking.mot.params.MOTParams.for_tracker`) plus the shared
+    ``max_tracks`` (the known animal count: closed-set identity linking),
+    ``oks_stddev`` (``None`` = the MOT default), ``scoring_method`` (when
+    explicit: ``oks`` / ``iou`` / ``euclidean_dist`` -> ``centroid`` similarity)
+    and ``features`` (``keypoints`` / ``masks``: the carrier). Every option of the
+    other family must stay at its default (see :func:`validate_mot_config`).
+    ``link_tracklets`` runs identity linking after either family.
     """
 
     # Tracker.from_config kwargs ────────────────────────────────────────
@@ -91,19 +252,111 @@ class TrackerConfig:
     tracking_clean_iou_threshold: float = 0.0
     post_connect_single_breaks: bool = False
 
+    # Tracker family ─────────────────────────────────────────────────────
+    # "classic" or a MOT tracker name. Declared before the `*_explicit` flags,
+    # whose defaults depend on it.
+    tracker: str = attrs.field(default=CLASSIC_TRACKER, validator=_check_tracker)
+
     # Single-node (centroid) / segmentation (mask) default resolution ───
-    # True (the default) means the user explicitly chose ``scoring_method`` /
-    # ``features`` — direct constructors keep current behavior. The CLI sets
-    # these False when the corresponding flag was left at its sentinel, which
-    # lets ``apply_tracking`` substitute task-appropriate defaults:
-    # ``euclidean_dist``/``centroids`` for a 1-node skeleton, and
+    # True (the default for the classic tracker) means the user explicitly chose
+    # ``scoring_method`` / ``features`` — direct constructors keep current
+    # behavior. The CLI sets these False when the corresponding flag was left at
+    # its sentinel, which lets ``apply_tracking`` substitute task-appropriate
+    # defaults: ``euclidean_dist``/``centroids`` for a 1-node skeleton, and
     # ``mask_iou``/``masks`` for a bottom-up segmentation (mask-only) model.
     # ``candidates_method_explicit`` lets mask mode default the candidate maker to
     # ``local_queues`` (far better identity on over-segmented masks than the
-    # ``fixed_window`` default) unless the user explicitly chose a method.
-    scoring_method_explicit: bool = True
-    features_explicit: bool = True
-    candidates_method_explicit: bool = True
+    # ``fixed_window`` default) unless the user explicitly chose a method. For a
+    # MOT tracker they default to "differs from the default value" (see
+    # `_explicit_unless_default`).
+    scoring_method_explicit: bool = attrs.field(
+        default=_explicit_unless_default("scoring_method", "oks")
+    )
+    features_explicit: bool = attrs.field(
+        default=_explicit_unless_default("features", "keypoints")
+    )
+    candidates_method_explicit: bool = attrs.field(
+        default=_explicit_unless_default("candidates_method", "fixed_window")
+    )
+
+    # Modern MOT trackers (tracker != "classic") ──────────────────────────
+    # `None` = the tracker's preset. Thresholds are scores / similarities in
+    # [0, 1]; `appearance_threshold` is a minimum cosine or "auto" (calibrated per
+    # video). `mot_params` holds `MOTParams` overrides (`--mot_param KEY=VALUE`,
+    # `preset` included).
+    track_buffer: Optional[int] = attrs.field(
+        default=None, validator=_check_optional_min(0)
+    )
+    min_hits: Optional[int] = attrs.field(
+        default=None, validator=_check_optional_min(1)
+    )
+    track_high_threshold: Optional[float] = attrs.field(
+        default=None, validator=_check_optional_unit
+    )
+    track_low_threshold: Optional[float] = attrs.field(
+        default=None, validator=_check_optional_unit
+    )
+    new_track_threshold: Optional[float] = attrs.field(
+        default=None, validator=_check_optional_unit
+    )
+    min_match_similarity: Optional[float] = attrs.field(
+        default=None, validator=_check_optional_unit
+    )
+    appearance_threshold: Optional[Union[float, str]] = attrs.field(
+        default=None, converter=_convert_appearance_threshold
+    )
+    # Identity linking (long-term identity memory) at the end of each video;
+    # works after the classic tracker too.
+    link_tracklets: bool = False
+    mot_params: Optional[dict] = attrs.field(
+        default=None, converter=_convert_mot_params
+    )
+
+    @property
+    def is_mot(self) -> bool:
+        """Whether a modern MOT tracker (not the classic tracker) runs."""
+        return self.tracker != CLASSIC_TRACKER
+
+    @property
+    def uses_appearance(self) -> bool:
+        """Whether the run reads the detections' appearance (re-ID) vectors.
+
+        Classic: ``features="embeddings"`` or an ``appearance_weight`` blend. MOT:
+        an appearance tracker, or identity linking (``link_tracklets`` or a known
+        ``max_tracks``), which uses vectors where they are present.
+        """
+        if self.is_mot:
+            return (
+                self.tracker in APPEARANCE_TRACKERS
+                or self.link_tracklets
+                or self.max_tracks is not None
+            )
+        return self.features == "embeddings" or self.appearance_weight > 0.0
+
+    @property
+    def follows_vector_carrier(self) -> bool:
+        """Whether the tracked carrier is the one holding the appearance vectors.
+
+        Classic: ``features="embeddings"``. MOT: an appearance tracker whose
+        ``features`` were not chosen explicitly. Otherwise the carrier follows
+        the geometry (:func:`resolve_tracked_carrier`).
+        """
+        if self.is_mot:
+            return self.tracker in APPEARANCE_TRACKERS and not self.features_explicit
+        return self.features == "embeddings"
+
+    @property
+    def requires_vectors(self) -> bool:
+        """Whether a run without any appearance vector is refused.
+
+        Classic: ``features="embeddings"`` or ``appearance_weight > 0``. MOT: the
+        appearance trackers (deepsort, strongsort, botsort, deepocsort); for
+        deepsort / strongsort the TRACKED carrier must hold them, botsort /
+        deepocsort only warn when the vectors ride on the other carrier.
+        """
+        if self.is_mot:
+            return self.tracker in APPEARANCE_TRACKERS
+        return self.features == "embeddings" or self.appearance_weight > 0.0
 
 
 # The two detection carriers of a ``LabeledFrame``: pose instances (``lf.instances``)
@@ -325,7 +578,16 @@ def check_tracking_plan(
     Raises:
         ValueError: The plan cannot be tracked.
     """
-    if config.features == "embeddings":
+    if config.is_mot:
+        _check_mot_tracking_plan(
+            config,
+            has_masks=has_masks,
+            has_predicted_instances=has_predicted_instances,
+            vector_carrier=vector_carrier,
+            vectors_from=vectors_from,
+        )
+        return
+    if config.follows_vector_carrier:
         # Appearance alone follows the vectors to their carrier.
         if vector_carrier == MASK_CARRIER:
             check_embedding_mask_tracking_options(config)
@@ -348,6 +610,534 @@ def check_tracking_plan(
             f"tracked detections' own vectors. "
             f"{appearance_blend_way_out(vector_carrier)}"
         )
+
+
+def _other_carrier(carrier: str) -> str:
+    return POSE_CARRIER if carrier == MASK_CARRIER else MASK_CARRIER
+
+
+def _vectors_elsewhere_message(
+    config: TrackerConfig, tracked: str, vector_carrier: str, detail: str = ""
+) -> str:
+    """Why an appearance tracker cannot read vectors that ride on another carrier."""
+    way_out = (
+        "Drop --features so the tracker follows the vectors to their carrier, or "
+        f"pass `--features {'masks' if vector_carrier == MASK_CARRIER else 'keypoints'}`."
+    )
+    return (
+        f"--tracker {config.tracker} associates by appearance, but it tracks the "
+        f"{tracked} carrier (--features {config.features}) while the appearance "
+        f"vectors are on the {vector_carrier} carrier{detail}. {way_out}"
+    )
+
+
+def _check_mot_tracking_plan(
+    config: TrackerConfig,
+    *,
+    has_masks: bool,
+    has_predicted_instances: bool,
+    vector_carrier: Optional[str],
+    vectors_from: str = "",
+) -> None:
+    """The MOT half of :func:`check_tracking_plan` (see there for the arguments).
+
+    Raises:
+        ValueError: An option of the classic tracker, an invalid MOT parameter, or
+            (deepsort / strongsort) vectors that will not be on the tracked
+            carrier.
+    """
+    validate_mot_config(config)
+    tracked = resolve_tracked_carrier(
+        config.features, has_masks, has_predicted_instances
+    )
+    if config.follows_vector_carrier and vector_carrier is not None:
+        tracked = vector_carrier
+    if (
+        config.tracker in VECTOR_REQUIRED_TRACKERS
+        and vector_carrier is not None
+        and vector_carrier != tracked
+    ):
+        why = f" ({vectors_from})" if vectors_from else ""
+        raise ValueError(
+            _vectors_elsewhere_message(config, tracked, vector_carrier, why)
+        )
+
+
+def resolve_mot_params(config: TrackerConfig) -> MOTParams:
+    """The :class:`~sleap_nn.tracking.mot.params.MOTParams` a MOT config runs with.
+
+    Starts from the tracker's preset (``mot_params["preset"]``, default
+    ``"animal"``) and applies, on top, every MOT option that is set (``None`` =
+    preset), the shared options (``max_tracks``; ``oks_stddev`` when set; an
+    explicit ``scoring_method`` as the geometric similarity: ``oks`` -> ``oks``,
+    ``iou`` -> ``iou``, ``euclidean_dist`` -> ``centroid``) and the
+    ``mot_params`` overrides.
+
+    Args:
+        config: A configuration with ``tracker != "classic"``.
+
+    Returns:
+        The resolved, validated parameters.
+
+    Raises:
+        ValueError: The classic tracker, an option given both as a flag and in
+            ``mot_params``, an unsupported ``scoring_method``, or an invalid
+            value.
+    """
+    if not config.is_mot:
+        raise ValueError("resolve_mot_params needs a MOT tracker, got 'classic'.")
+    overrides = dict(config.mot_params or {})
+    preset = overrides.pop("preset", "animal")
+    similarity = None
+    if config.scoring_method_explicit:
+        if config.scoring_method not in _MOT_SIMILARITY:
+            raise ValueError(
+                f"--tracker {config.tracker} scores geometry by oks, iou or "
+                f"euclidean_dist (--scoring_method), got {config.scoring_method!r}."
+            )
+        similarity = _MOT_SIMILARITY[config.scoring_method]
+    named = {
+        "track_buffer": config.track_buffer,
+        "min_hits": config.min_hits,
+        "track_high_threshold": config.track_high_threshold,
+        "track_low_threshold": config.track_low_threshold,
+        "new_track_threshold": config.new_track_threshold,
+        "min_match_similarity": config.min_match_similarity,
+        "appearance_threshold": config.appearance_threshold,
+        "similarity": similarity,
+        "oks_stddev": config.oks_stddev,
+        "link_tracklets": True if config.link_tracklets else None,
+        "max_tracks": config.max_tracks,
+    }
+    named = {k: v for k, v in named.items() if v is not None}
+    twice = sorted(set(named) & set(overrides))
+    if twice:
+        raise ValueError(
+            f"MOT parameter(s) {twice} given both as an option and in mot_params "
+            "(--mot_param); give each once."
+        )
+    return MOTParams.for_tracker(config.tracker, preset=preset, **named, **overrides)
+
+
+def validate_mot_config(config: TrackerConfig) -> None:
+    """Refuse options the selected tracker family would silently ignore.
+
+    For the classic tracker: any MOT-only option (``track_buffer``, ...,
+    ``mot_params``; ``link_tracklets`` is shared). For a MOT tracker: every
+    classic-only option away from its default (the candidate window, the scoring
+    knobs, motion models, ``appearance_weight``, the pre-cull / clean / connect
+    cleanups -- identity linking covers what those do), ``features`` other than
+    ``keypoints`` / ``masks``, an explicit ``candidates_method``, and the MOT
+    parameters themselves (resolved with :func:`resolve_mot_params`).
+
+    Args:
+        config: The tracker configuration.
+
+    Raises:
+        ValueError: Naming every offending option and the way out.
+    """
+    if not config.is_mot:
+        set_mot = [
+            name for name in MOT_ONLY_OPTIONS if getattr(config, name) is not None
+        ]
+        if set_mot:
+            raise ValueError(
+                f"{', '.join(_flag(n) for n in set_mot)} only appl"
+                f"{'ies' if len(set_mot) == 1 else 'y'} to the MOT trackers "
+                f"(--tracker {' / '.join(MOT_TRACKER_NAMES)}); the classic "
+                "tracker would ignore them. (--link_tracklets works with both.)"
+            )
+        return
+
+    fields = attrs.fields_dict(TrackerConfig)
+    offenders = [
+        name
+        for name in CLASSIC_ONLY_OPTIONS
+        if getattr(config, name) != fields[name].default
+    ]
+    if config.candidates_method_explicit or config.candidates_method != (
+        fields["candidates_method"].default
+    ):
+        offenders.insert(0, "candidates_method")
+    if offenders:
+        hints = []
+        if {"window_size", "candidates_method"} & set(offenders):
+            hints.append("--track_buffer sets how long a lost track is kept")
+        if {"use_flow", "use_kalman"} & set(offenders):
+            hints.append("the MOT trackers have their own Kalman motion model")
+        if "appearance_weight" in offenders:
+            hints.append(
+                "the appearance trackers (--tracker "
+                f"{' / '.join(APPEARANCE_TRACKERS)}) use appearance"
+            )
+        if {
+            "post_connect_single_breaks",
+            "tracking_clean_instance_count",
+            "tracking_pre_cull_to_target",
+            "tracking_target_instance_count",
+        } & set(offenders):
+            hints.append(
+                "identity linking (--link_tracklets, or --max_tracks N for a "
+                "known animal count) replaces the cull / clean / connect cleanups"
+            )
+        raise ValueError(
+            f"{', '.join(_flag(n) for n in offenders)} "
+            f"{'is an option' if len(offenders) == 1 else 'are options'} of the "
+            f"classic tracker; --tracker {config.tracker} would ignore "
+            f"{'it' if len(offenders) == 1 else 'them'}."
+            + (f" ({'; '.join(hints)}.)" if hints else "")
+        )
+    if config.features == "embeddings":
+        raise ValueError(
+            f"--features embeddings is the classic tracker's appearance-only mode; "
+            f"with --tracker {config.tracker} use an appearance tracker instead "
+            f"(--tracker {' / '.join(APPEARANCE_TRACKERS)})."
+        )
+    if (
+        config.appearance_threshold is not None
+        and config.tracker not in APPEARANCE_TRACKERS
+    ):
+        raise ValueError(
+            f"--appearance_threshold only applies to the appearance trackers "
+            f"(--tracker {' / '.join(APPEARANCE_TRACKERS)}); --tracker "
+            f"{config.tracker} associates by geometry alone."
+        )
+    if config.features_explicit and config.features not in _MOT_FEATURES:
+        raise ValueError(
+            f"--tracker {config.tracker} takes --features keypoints or masks (the "
+            f"carrier to track), got {config.features!r}. Choose the geometric "
+            "similarity with --scoring_method oks / iou / euclidean_dist."
+        )
+    # Resolves (and so validates) the MOT parameters, scoring_method included.
+    resolve_mot_params(config)
+
+
+def tracker_config_params(config: TrackerConfig) -> Dict[str, Any]:
+    """``config`` as a dict for the ``tracking_config`` provenance record.
+
+    For a classic run the MOT options are left out (all unset by
+    :func:`validate_mot_config`), so a classic run's provenance is what it was
+    before the MOT trackers existed; ``link_tracklets`` is kept when it ran.
+
+    Args:
+        config: The tracker configuration.
+
+    Returns:
+        ``attrs.asdict(config)``, minus the MOT options of a classic run.
+    """
+    params = attrs.asdict(config)
+    if not config.is_mot:
+        params.pop("tracker", None)
+        for name in MOT_ONLY_OPTIONS:
+            params.pop(name, None)
+        if not config.link_tracklets:
+            params.pop("link_tracklets", None)
+    return params
+
+
+def _json_safe(value: Any) -> Any:
+    """Python-only, JSON-serializable copy of ``value``.
+
+    sleap-io ``json.dumps`` the provenance with no ``default=``: numpy
+    scalars/arrays become Python numbers/lists, tuples lists, non-finite floats
+    ``None``, keys strings.
+    """
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return _json_safe(value.tolist())
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    if isinstance(value, (float, np.floating)):
+        value = float(value)
+        return value if math.isfinite(value) else None
+    if value is None or isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _objects_to_track(lf: sio.LabeledFrame, carrier: str) -> list:
+    """The detections of ``lf`` a tracker of ``carrier`` is given.
+
+    Shared by the MOT pre-pass (``prepare``) and the tracking loop, so both see
+    exactly the same objects. Masks: every mask of the frame. Poses: the user
+    instances when the frame has any (the predicted ones are passed through
+    untracked), else the predicted instances.
+    """
+    if carrier == MASK_CARRIER:
+        return list(getattr(lf, "masks", None) or [])
+    if lf.has_user_instances:
+        return list(lf.user_instances)
+    return list(lf.predicted_instances)
+
+
+def _order_frames(labels: sio.Labels) -> "tuple[list, list]":
+    """Frames in ``(video, frame_idx)`` order, and split into one list per video.
+
+    Returns:
+        ``(ordered_lfs, per_video)``.
+    """
+    # Track in temporal order. The tracker is stateful across frames (sliding
+    # candidate window + optional flow), so frames MUST be visited sorted by
+    # (video, frame_idx) — legacy sorted frames (in the predictors'
+    # _make_labeled_frames_from_generator) before tracking. Iterating
+    # in raw ``labeled_frames`` submission order (e.g. for a .slp whose frames
+    # are unordered, or multi-video) produces wrong track assignments
+    # (#530 audit: tracking parity / track-only retrack ordering). Frames of a
+    # video missing from ``labels.videos`` sort after the listed videos, as their
+    # own video.
+    video_rank = {id(v): i for i, v in enumerate(labels.videos)}
+    for lf in labels.labeled_frames:
+        video_rank.setdefault(id(lf.video), len(video_rank))
+    ordered_lfs = sorted(
+        labels.labeled_frames,
+        key=lambda lf: (video_rank[id(lf.video)], lf.frame_idx),
+    )
+    per_video: list = []
+    for lf in ordered_lfs:
+        if per_video and per_video[-1][0].video is lf.video:
+            per_video[-1].append(lf)
+        else:
+            per_video.append([lf])
+    return ordered_lfs, per_video
+
+
+def _finish_tracked_labels(labels: sio.Labels, ordered_lfs: list) -> None:
+    """Frames in tracking order and a track catalog of the tracks they reference."""
+    # The output IS the input: frames in tracking order, and a track catalog of
+    # exactly the tracks the frames reference (tracks the tracker replaced are
+    # dropped, as a freshly built Labels would). `reindex` because sleap-io caches
+    # a per-track index keyed on frame count, which retracking leaves unchanged.
+    labels.labeled_frames = ordered_lfs
+    labels.tracks = []
+    labels.update()
+    labels.reindex()
+
+
+def _log_mask_inheritance(n_poses_inherited: int, n_poses_mask_mode: int) -> None:
+    """Report how many poses of a mask-carrier run inherited their mask's track."""
+    if not n_poses_mask_mode:
+        return
+    if n_poses_inherited:
+        logger.info(
+            f"Tracking the MASK carrier: {n_poses_inherited} pose instance(s) "
+            "inherited the track of the mask linked to them."
+        )
+    n_left = n_poses_mask_mode - n_poses_inherited
+    if n_left:
+        logger.warning(
+            f"Tracking the MASK carrier, but {n_left} pose instance(s) are not "
+            "linked to exactly one tracked mask (`mask.instance`). They are "
+            "carried through to the output UNTRACKED by this run (any track "
+            "they already had is left as it was) -- only the masks are "
+            "tracked. Link each pose to its mask, or attach the appearance "
+            "vectors to the pose instances if the poses are what should carry "
+            "identity."
+        )
+
+
+def _link_tracked_video(
+    video_lfs: list,
+    carrier: str,
+    track_objects: dict,
+    max_tracks: Optional[int],
+) -> Dict[str, Any]:
+    """Identity linking over one video tracked by the classic tracker, in place.
+
+    Calibrates the video from its tracked detections and runs
+    :func:`~sleap_nn.tracking.mot.linking.link_tracklets` with the MOT defaults
+    (:class:`~sleap_nn.tracking.mot.params.MOTParams`).
+
+    Returns:
+        ``{"calibration": ..., "linking": ...}`` for the provenance record.
+    """
+    from sleap_nn.tracking.mot.calibration import calibrate
+    from sleap_nn.tracking.mot.detections import extract_detections
+    from sleap_nn.tracking.mot.linking import link_tracklets
+
+    defaults = {a.name: a.default for a in attrs.fields(MOTParams)}
+    frames = [(lf.frame_idx, _objects_to_track(lf, carrier)) for lf in video_lfs]
+    dets = [
+        extract_detections(
+            objs,
+            frame_idx,
+            carrier=carrier,
+            box_padding=defaults["box_padding"],
+            score_mode=defaults["score_mode"],
+        )
+        for frame_idx, objs in frames
+    ]
+    calibration = calibrate(
+        dets,
+        track_buffer=defaults["track_buffer"],
+        gallery_size=defaults["gallery_size"],
+        ema_alpha=defaults["ema_alpha"],
+    )
+    result = link_tracklets(
+        frames,
+        carrier=carrier,
+        calibration=calibration,
+        max_tracks=max_tracks,
+        track_buffer=defaults["track_buffer"],
+        swap_correction=defaults["link_swap_correction"],
+        spatial_gate_frames=defaults["link_spatial_gate_frames"],
+        box_padding=defaults["box_padding"],
+        high_threshold=defaults["track_high_threshold"],
+        score_mode=defaults["score_mode"],
+        track_objects=track_objects,
+    )
+    return {"calibration": calibration.as_dict(), "linking": result.as_dict()}
+
+
+def _check_mot_vectors(
+    config: TrackerConfig, counts: CarrierCounts, carrier: str
+) -> None:
+    """The appearance-vector rules of a MOT run (on the labels' actual vectors).
+
+    Raises:
+        ValueError: An appearance tracker with no vector anywhere, or deepsort /
+            strongsort tracking a carrier that holds none (the vectors are on the
+            other carrier). botsort / deepocsort then warn and associate on
+            geometry alone.
+    """
+    if not config.requires_vectors:
+        # Identity linking uses vectors where present; spatial rules otherwise.
+        if config.uses_appearance and counts.n_with(carrier):
+            _warn_missing_vectors(counts, carrier, appearance_only=False)
+        return
+    if counts.dominant is None:
+        raise ValueError(
+            f"--tracker {config.tracker} associates by appearance, but no "
+            "detection in the labels carries an appearance embedding. Run the "
+            "embedding (re-ID) model and persist the vectors first (e.g. "
+            "`sleap-nn predict --model_paths <embedding_model> ... "
+            "--save_embeddings slp`), or use a geometry-only tracker (--tracker "
+            "bytetrack / ocsort / sort)."
+        )
+    if counts.n_with(carrier) == 0:
+        other = _other_carrier(carrier)
+        detail = f" ({counts.n_with(other)} of {counts.total(other)})"
+        message = _vectors_elsewhere_message(config, carrier, other, detail)
+        if config.tracker in VECTOR_REQUIRED_TRACKERS:
+            raise ValueError(message)
+        logger.warning(message + " Associating on geometry alone.")
+        return
+    _warn_missing_vectors(counts, carrier, appearance_only=False)
+
+
+def _apply_mot_tracking(
+    labels: sio.Labels,
+    config: TrackerConfig,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+) -> sio.Labels:
+    """:func:`apply_tracking` for a modern MOT tracker (see there for the contract).
+
+    Per video: a fresh tracker, ``prepare`` (calibration + time base) over exactly
+    the objects the loop then tracks, ``track`` per frame in temporal order,
+    ``finalize`` (identity linking when enabled) and only THEN, on the mask
+    carrier, the poses inherit their mask's track -- so retroactive labels of
+    tentative tracks and linking decisions reach the poses too. What each video
+    resolved is recorded in ``labels.provenance["tracking"]``.
+    """
+    from sleap_nn.tracking.mot import build_mot_tracker
+
+    # (`apply_tracking` already ran `validate_mot_config`.)
+    params = resolve_mot_params(config)
+
+    has_masks = any(getattr(lf, "masks", None) for lf in labels.labeled_frames)
+    has_predicted = any(lf.has_predicted_instances for lf in labels.labeled_frames)
+    if config.features == "masks" and config.features_explicit and not has_masks:
+        raise ValueError(
+            "--features masks asks to track the segmentation masks, but no frame "
+            "holds a mask."
+        )
+    counts = embedding_carriers(labels) if config.uses_appearance else CarrierCounts()
+    carrier = resolve_tracked_carrier(config.features, has_masks, has_predicted)
+    if config.follows_vector_carrier and counts.dominant is not None:
+        # An appearance tracker follows its vectors (a pose+mask file may carry
+        # them on either carrier) unless --features chose the carrier.
+        carrier = counts.dominant
+    _check_mot_vectors(config, counts, carrier)
+
+    # Skeleton size (pose carrier) decides the "auto" similarity: a single-node
+    # (centroid) skeleton is tracked by centroid distance.
+    n_nodes = None
+    if carrier == POSE_CARRIER and len(labels.skeletons) == 1:
+        n_nodes = len(labels.skeletons[0].nodes)
+
+    logger.info(
+        f"MOT tracking: tracker={params.tracker!r} (preset={params.preset!r}), "
+        f"carrier={carrier}, similarity={params.similarity!r}, "
+        f"track_buffer={params.track_buffer}, min_hits={params.min_hits}, "
+        f"identity linking={'on' if params.link else 'off'}"
+        + (f" (max_tracks={params.max_tracks})" if params.max_tracks else "")
+        + "."
+    )
+
+    ordered_lfs, per_video = _order_frames(labels)
+    record: Dict[str, Any] = {
+        "tracker": params.tracker,
+        "carrier": carrier,
+        "params": params.as_dict(),
+        "videos": [],
+    }
+    n_frames = len(ordered_lfs)
+    n_done = 0
+    n_poses_inherited = 0
+    n_poses_mask_mode = 0
+    track_name_offset = 0
+    tracker = None
+    for video_idx, video_lfs in enumerate(per_video):
+        if tracker is not None:
+            # A fresh tracker per video; names continue past the previous video's.
+            track_name_offset += max(tracker._track_objects, default=-1) + 1
+        tracker = build_mot_tracker(params, carrier=carrier, n_nodes=n_nodes)
+        tracker.track_name_offset = track_name_offset
+
+        frames = [(lf.frame_idx, _objects_to_track(lf, carrier)) for lf in video_lfs]
+        tracker.prepare(frames)
+        for lf, (frame_idx, objs) in zip(video_lfs, frames):
+            tracked = tracker.track(objs, frame_idx, image=None)
+            if carrier == MASK_CARRIER:
+                if objs:
+                    lf.masks = tracked
+                n_poses_mask_mode += len(lf.instances)
+            else:
+                passed_through: list = []
+                if lf.has_user_instances:
+                    # Predicted instances are carried through UNTRACKED: clear any
+                    # stale track so the output never mixes two runs' identities.
+                    passed_through = list(lf.predicted_instances)
+                    for inst in passed_through:
+                        inst.track = None
+                        inst.tracking_score = 0.0
+                lf.instances = passed_through + list(tracked)
+            n_done += 1
+            if progress_callback is not None:
+                progress_callback(n_done, n_frames)
+
+        # Linking (when enabled) relabels detections of earlier frames, so the
+        # poses inherit their mask's track only after it.
+        tracker.finalize()
+        if carrier == MASK_CARRIER:
+            for lf in video_lfs:
+                n_poses_inherited += _inherit_mask_tracks(lf)
+
+        resolved = {
+            k: v for k, v in tracker.resolved.items() if k not in ("tracker", "params")
+        }
+        record["videos"].append({"video": video_idx, **resolved})
+
+    if not ordered_lfs:
+        logger.info("0 frames to track; skipping tracking post-processing.")
+    _log_mask_inheritance(n_poses_inherited, n_poses_mask_mode)
+    _finish_tracked_labels(labels, ordered_lfs)
+    labels.provenance[TRACKING_PROVENANCE_KEY] = _json_safe(record)
+    return labels
 
 
 def _labels_have_embeddings(labels: sio.Labels) -> bool:
@@ -426,27 +1216,41 @@ def apply_tracking(
     over tracker settings), pass ``labels.copy()``. A lazy ``Labels`` is
     materialized first, so for one the return value is a new object.
 
+    ``config.tracker`` selects the tracker: the classic tracker (default), or a
+    modern MOT tracker (:mod:`sleap_nn.tracking.mot`), which tracks every
+    detection it is given without dropping any (unconfirmed ones come out with
+    ``track=None``), runs identity linking at the end of each video when
+    ``link_tracklets`` / ``max_tracks`` ask for it, and records what each video
+    resolved (parameters, calibration, linking) in
+    ``labels.provenance["tracking"]``. ``link_tracklets`` with the classic tracker
+    links each video's tracks after tracking it (recorded the same way).
+
     Args:
         labels: Untracked predictions. Each ``LabeledFrame``'s
             ``predicted_instances`` are tracked, or its ``user_instances`` when it
             has any (the predicted ones are then carried through untracked,
-            matching ``run_tracker`` semantics). In mask mode ``lf.masks`` is
-            tracked, and each pose linked to exactly one tracked mask
-            (``mask.instance``) inherits that mask's track.
+            matching ``run_tracker`` semantics; a MOT tracker also clears their
+            stale tracks). In mask mode ``lf.masks`` is tracked, and each pose
+            linked to exactly one tracked mask (``mask.instance``) inherits that
+            mask's track.
         config: Tracking configuration.
         progress_callback: Optional ``(processed_frames, total_frames)``
             callback invoked after each frame is tracked.
 
     Returns:
         ``labels`` itself, tracked. ``provenance`` is left to the caller to
-        attach (the CLI builds its own provenance).
+        attach (the CLI builds its own provenance), except the
+        ``provenance["tracking"]`` record of a MOT / identity-linking run, which
+        the provenance builders carry over.
 
     Raises:
         ValueError: ``post_connect_single_breaks=True`` requires
             ``tracking_target_instance_count`` to be set; incoherent
             feature/scoring/appearance combinations; ``features="embeddings"``
             or ``appearance_weight > 0`` when the tracked carrier holds no
-            appearance vectors.
+            appearance vectors; an option the selected tracker family would
+            ignore (:func:`validate_mot_config`); an appearance MOT tracker
+            without appearance vectors.
     """
     from sleap_nn.tracking.tracker import (
         Tracker,
@@ -457,6 +1261,10 @@ def apply_tracking(
 
     start_time = datetime.now()
     logger.info(f"Started tracking at: {start_time}")
+
+    # Options of the other tracker family would be silently ignored: refuse them
+    # (for the classic tracker this only looks at the MOT-only options).
+    validate_mot_config(config)
 
     # Both post_connect_single_breaks and a non-zero pre-cull target require an
     # explicit tracking_target_instance_count (legacy parity — max_tracks was
@@ -474,6 +1282,13 @@ def apply_tracking(
         # Tracking writes onto the detections; a lazy Labels re-materializes them
         # from disk on every access, so the tracks would be lost.
         labels = labels.materialize()
+
+    if config.is_mot:
+        # Before the classic single-node / mask / appearance resolution below: a
+        # MOT tracker resolves its own carrier, similarity and vector rules.
+        labels = _apply_mot_tracking(labels, config, progress_callback)
+        _log_tracking_runtime(start_time)
+        return labels
 
     # max_tracks is only honored by the local_queues candidate maker; the
     # fixed_window default silently ignores it. `Tracker.from_config` (the shared
@@ -598,7 +1413,7 @@ def apply_tracking(
 
     # Where the appearance vectors are, counted per carrier -- only when appearance
     # is used, so a geometry-only run never pays for the scan.
-    uses_appearance = is_embedding_mode or config.appearance_weight > 0.0
+    uses_appearance = config.uses_appearance
     vector_counts = embedding_carriers(labels) if uses_appearance else CarrierCounts()
 
     if is_embedding_mode:
@@ -716,34 +1531,14 @@ def apply_tracking(
     tracker = _new_tracker(0)
 
     needs_image = config.use_flow
-    # Track in temporal order. The tracker is stateful across frames (sliding
-    # candidate window + optional flow), so frames MUST be visited sorted by
-    # (video, frame_idx) — legacy sorted frames (in the predictors'
-    # _make_labeled_frames_from_generator) before tracking. Iterating
-    # in raw ``labeled_frames`` submission order (e.g. for a .slp whose frames
-    # are unordered, or multi-video) produces wrong track assignments
-    # (#530 audit: tracking parity / track-only retrack ordering). Frames of a
-    # video missing from ``labels.videos`` sort after the listed videos, as their
-    # own video.
-    video_rank = {id(v): i for i, v in enumerate(labels.videos)}
-    for lf in labels.labeled_frames:
-        video_rank.setdefault(id(lf.video), len(video_rank))
-    ordered_lfs = sorted(
-        labels.labeled_frames,
-        key=lambda lf: (video_rank[id(lf.video)], lf.frame_idx),
-    )
-    per_video: list = []
-    for lf in ordered_lfs:
-        if per_video and per_video[-1][0].video is lf.video:
-            per_video[-1].append(lf)
-        else:
-            per_video.append([lf])
+    ordered_lfs, per_video = _order_frames(labels)
 
     n_frames = len(ordered_lfs)
     n_done = 0
     n_poses_inherited = 0
     n_poses_mask_mode = 0
     track_name_offset = 0
+    linked_videos: list = []
     for video_idx, video_lfs in enumerate(per_video):
         if video_idx:
             # A fresh tracker per video: a track is an identity WITHIN one video, so
@@ -757,14 +1552,13 @@ def apply_tracking(
                 # (duck-typed), get back the same mask objects with track /
                 # tracking_score set. Pose instances stay on the frame (they are
                 # not tracked here); each one linked to a single tracked mask
-                # inherits that mask's track.
+                # inherits that mask's track once the video is tracked (below).
                 if lf.masks:
                     lf.masks = tracker.track(
                         untracked_instances=list(lf.masks),
                         frame_idx=lf.frame_idx,
                         image=None,
                     )
-                    n_poses_inherited += _inherit_mask_tracks(lf)
                 n_poses_mask_mode += len(lf.instances)
             else:
                 instances: list = []
@@ -786,6 +1580,24 @@ def apply_tracking(
             if progress_callback is not None:
                 progress_callback(n_done, n_frames)
 
+        # Identity linking (long-term identity memory) over the tracked video,
+        # before anything reads its tracks: the mask inheritance and the cleanups.
+        if config.link_tracklets:
+            linked_videos.append(
+                {
+                    "video": video_idx,
+                    **_link_tracked_video(
+                        video_lfs,
+                        tracked_carrier,
+                        tracker._track_objects,
+                        effective_max_tracks,
+                    ),
+                }
+            )
+        if is_mask_mode:
+            for lf in video_lfs:
+                n_poses_inherited += _inherit_mask_tracks(lf)
+
         # Cull/connect cleanups are pose-only (and rejected above for mask mode),
         # and per video like the tracking itself: connecting a break across two
         # videos would join two unrelated identities.
@@ -806,35 +1618,24 @@ def apply_tracking(
     if not ordered_lfs:
         logger.info("0 frames to track; skipping tracking post-processing.")
 
-    if n_poses_mask_mode:
-        if n_poses_inherited:
-            logger.info(
-                f"Tracking the MASK carrier: {n_poses_inherited} pose instance(s) "
-                "inherited the track of the mask linked to them."
-            )
-        n_left = n_poses_mask_mode - n_poses_inherited
-        if n_left:
-            logger.warning(
-                f"Tracking the MASK carrier, but {n_left} pose instance(s) are not "
-                "linked to exactly one tracked mask (`mask.instance`). They are "
-                "carried through to the output UNTRACKED by this run (any track "
-                "they already had is left as it was) -- only the masks are "
-                "tracked. Link each pose to its mask, or attach the appearance "
-                "vectors to the pose instances if the poses are what should carry "
-                "identity."
-            )
+    _log_mask_inheritance(n_poses_inherited, n_poses_mask_mode)
+    _finish_tracked_labels(labels, ordered_lfs)
+    if config.link_tracklets:
+        labels.provenance[TRACKING_PROVENANCE_KEY] = _json_safe(
+            {
+                "tracker": CLASSIC_TRACKER,
+                "carrier": tracked_carrier,
+                "link_tracklets": True,
+                "videos": linked_videos,
+            }
+        )
 
-    # The output IS the input: frames in tracking order, and a track catalog of
-    # exactly the tracks the frames reference (tracks the tracker replaced are
-    # dropped, as a freshly built Labels would). `reindex` because sleap-io caches
-    # a per-track index keyed on frame count, which retracking leaves unchanged.
-    labels.labeled_frames = ordered_lfs
-    labels.tracks = []
-    labels.update()
-    labels.reindex()
+    _log_tracking_runtime(start_time)
+    return labels
 
+
+def _log_tracking_runtime(start_time: datetime) -> None:
+    """Log the end of a tracking run and its runtime."""
     finish_time = datetime.now()
     logger.info(f"Finished tracking at: {finish_time}")
     logger.info(f"Total runtime: {(finish_time - start_time).total_seconds()} secs")
-
-    return labels
