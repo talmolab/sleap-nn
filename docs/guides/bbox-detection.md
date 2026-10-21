@@ -160,11 +160,12 @@ outputs (CenterNet's center probabilities + size/offset maps; SSD's per-anchor
 logits + deltas), and the exported-model adapter decodes them with the same
 `BBoxDecoder` as checkpoint inference, rebuilt from the `training_config.yaml`
 copied into the export directory. Anchors, NMS and thresholds therefore live in one
-place, exported and native boxes match, and the graph's spatial axes stay dynamic
-(frames are zero-padded so the in-graph `input_scale` resize lands on a multiple of
-the backbone's max stride). The exported graph resizes with plain bilinear
-interpolation (as the other exporters do) rather than the antialiased resize of the
-checkpoint path, so boxes can differ slightly when `input_scale != 1`.
+place, exported and native boxes match, and the graph's spatial axes stay dynamic.
+The `input_scale` resize and the max-stride padding also stay out of the graph (a
+resize traced into it would be frozen to the trace input's size): the adapter applies
+them on the host with the checkpoint path's own helpers, then clips boxes to the
+frame. Like every exported model, the size matcher (`max_height` / `max_width`) is not
+applied, so export videos of one resolution together.
 
 ## Evaluation
 
@@ -175,8 +176,11 @@ sleap-nn eval --ground_truth_path test.pkg.slp --predicted_path preds.slp \
 
 `--match_method auto` picks `bbox` when the predictions hold boxes only. Ground
 truth without boxes (e.g. the pose file a detector was trained from) has them
-derived first, like training does; pass `--bbox_padding` to match the model's
-`data_config.bbox_padding`.
+derived first, like training does; pass `--bbox_source` / `--bbox_padding` to match
+the model's `data_config.bbox_source` / `bbox_padding` (post-training eval does this
+itself). Classes are matched by category name, except that when the ground truth and
+the predictions each carry at most one name the comparison is class-agnostic: a
+single-class detector maps every box to its one class whatever it is called.
 
 Metrics follow the COCO protocol: per class and IoU threshold, each frame's top-100
 detections are greedily matched (in descending score order) to the highest-IoU
