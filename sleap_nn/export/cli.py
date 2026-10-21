@@ -716,6 +716,8 @@ def export(
                 max_shape=(max_batch_size, C, H * 2, W * 2),
                 **trt_workspace_kwargs,
                 verbose=True,
+                # As for the ONNX graph: only the centroid model sees the frame.
+                static_hw=has_rope(centroid_model),
             )
             # Update metadata for TensorRT
             trt_metadata = build_base_metadata(
@@ -926,6 +928,8 @@ def export(
                 max_shape=(max_batch_size, C, H * 2, W * 2),
                 **trt_workspace_kwargs,
                 verbose=True,
+                # As for the ONNX graph: only the centroid model sees the frame.
+                static_hw=has_rope(centroid_model),
             )
             trt_metadata = build_base_metadata(
                 export_format="tensorrt",

@@ -491,7 +491,7 @@ checkpoint's timm `pretrained_cfg` (`timm/...` models) or its
   at their crop size, so this costs nothing there; a combined top-down export
   is fixed only when its centroid model uses RoPE. For a whole-frame RoPE
   model, set `--input-height`/`--input-width` to your frame size. TensorRT
-  profiles are clamped to the fixed size.
+  profiles are clamped to the fixed size, with a warning.
 - **`dtype`.** `transformers` v5 defaults to `dtype="auto"`, which can silently
   load fp16/bf16. sleap-nn forces `float32` in the backbone factory.
 - **Re-ID (`embedding`) has three trainer-applied overrides.** `mode` resolves to

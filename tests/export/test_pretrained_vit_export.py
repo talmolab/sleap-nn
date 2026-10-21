@@ -214,3 +214,35 @@ def test_tensorrt_profile_is_clamped_to_static_dims():
     assert (lo, opt, hi) == ((1, 3, 96, 96), (1, 3, 96, 96), (8, 3, 96, 96))
     # Fully dynamic: unchanged.
     assert _pin_static_dims((-1, -1, -1, -1), lo, opt, hi) == (lo, opt, hi)
+
+
+def test_tensorrt_profile_refuses_to_shrink_a_static_batch():
+    """A batch-1 graph would silently become a batch-1 engine, while the export
+    metadata still advertises the requested max batch."""
+    from sleap_nn.export.exporters.tensorrt_exporter import _pin_static_dims
+
+    with pytest.raises(ValueError, match="static batch size of 1"):
+        _pin_static_dims((1, 3, -1, -1), (1, 3, 48, 48), (1, 3, 96, 96), (8, 3, 96, 96))
+    # Requesting exactly the static batch is fine.
+    _pin_static_dims((1, 3, -1, -1), (1, 3, 48, 48), (1, 3, 96, 96), (1, 3, 96, 96))
+
+
+def test_explicit_static_hw_does_not_blame_rope(tmp_path):
+    """The log names the real reason when a caller asks for static H/W."""
+    from loguru import logger
+
+    messages = []
+    handler = logger.add(messages.append, level="WARNING", format="{message}")
+    try:
+        export_to_onnx(
+            torch.nn.Conv2d(3, 2, kernel_size=1),
+            tmp_path / "conv.onnx",
+            input_shape=(1, 3, 32, 32),
+            input_dtype=torch.float32,
+            output_names=["out"],
+            static_hw=True,
+        )
+    finally:
+        logger.remove(handler)
+    text = "".join(messages)
+    assert "static_hw=True" in text and "rotary" not in text

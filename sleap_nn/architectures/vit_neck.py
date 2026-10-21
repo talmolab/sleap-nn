@@ -16,7 +16,6 @@ The pyramid then feeds the existing
 outputs of a hierarchical backbone, so heads need no changes.
 """
 
-from functools import partial
 from typing import List, Sequence
 
 import torch
@@ -26,8 +25,25 @@ from torchvision.models.convnext import LayerNorm2d as _TorchvisionLayerNorm2d
 # Relative scale of each pyramid level w.r.t. the token grid: x4, x2, x1, x0.5.
 PYRAMID_SCALES = (4.0, 2.0, 1.0, 0.5)
 
-# LayerNorm over the channels of an NCHW map (as the native ConvNeXt backbone uses).
-LayerNorm2d = partial(_TorchvisionLayerNorm2d, eps=1e-6)
+
+class LayerNorm2d(_TorchvisionLayerNorm2d):
+    """LayerNorm over the channels of an NCHW map (torchvision's, as ConvNeXt uses).
+
+    Checkpoints saved when this was a wrapper around an inner ``nn.LayerNorm``
+    store its parameters as ``<prefix>norm.weight`` / ``norm.bias``; they are
+    renamed on load so those models keep loading.
+    """
+
+    def __init__(self, num_channels: int, eps: float = 1e-6) -> None:
+        """Initialize the norm."""
+        super().__init__(num_channels, eps=eps)
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        for name in ("weight", "bias"):
+            old = f"{prefix}norm.{name}"
+            if old in state_dict:
+                state_dict[prefix + name] = state_dict.pop(old)
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
 
 def _resample(in_channels: int, scale: float) -> nn.Module:

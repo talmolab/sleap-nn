@@ -1,6 +1,6 @@
 """This module has the LightningModule classes for all model types."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Optional, Union, Dict, Any, List, Tuple
 import math
 import time
@@ -832,11 +832,20 @@ class LightningModel(L.LightningModule):
         ]
 
         def _per_group_lr(value):
-            if all(r == 1.0 for r in group_ratios) or not isinstance(
-                value, (int, float)
-            ):
+            if all(r == 1.0 for r in group_ratios):
                 return value
-            return [value * r for r in group_ratios]
+            if isinstance(value, Sequence) and not isinstance(value, str):
+                if len(value) == len(group_ratios):
+                    return list(value)  # already one per param group
+                if len(value) != 1:
+                    raise ValueError(
+                        f"An LR schedule value {list(value)} gives {len(value)} "
+                        "entries, but encoder_lr_scale / layer_decay split the "
+                        f"optimizer into {len(group_ratios)} param groups. Give one "
+                        "value; it is scaled for each group."
+                    )
+                value = value[0]
+            return [float(value) * r for r in group_ratios]
 
         scheduler = None
         if isinstance(self.lr_scheduler, str):

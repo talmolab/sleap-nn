@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable, Optional, Tuple
 
 import torch
+from loguru import logger
 from torch import nn
 
 from sleap_nn.export.exporters.onnx_exporter import export_to_onnx, has_rope
@@ -27,12 +28,29 @@ def _pin_static_dims(
 
     Returns:
         ``(min_shape, opt_shape, max_shape)`` with every static dimension set to
-        its fixed value.
+        its fixed value. A fixed height/width (a RoPE backbone) is logged.
+
+    Raises:
+        ValueError: If the batch is static and the requested batch range differs
+            from it: the engine would silently accept only that batch size.
     """
     lo, opt, hi = (
         tuple(int(d) if d >= 0 else s for d, s in zip(network_dims, shape))
         for shape in (min_shape, opt_shape, max_shape)
     )
+    if (lo[0], hi[0]) != (min_shape[0], max_shape[0]):
+        raise ValueError(
+            f"The ONNX graph has a static batch size of {lo[0]}, so a TensorRT "
+            f"engine for batches {min_shape[0]}..{max_shape[0]} cannot be built. "
+            f"Export with a max batch size of {lo[0]}, or from a graph with a "
+            "dynamic batch."
+        )
+    if (lo, opt, hi) != (tuple(min_shape), tuple(opt_shape), tuple(max_shape)):
+        logger.warning(
+            f"The ONNX input has static dims {tuple(network_dims)}: TensorRT profile "
+            f"narrowed from {tuple(min_shape)}/{tuple(opt_shape)}/{tuple(max_shape)} "
+            f"to {lo}/{opt}/{hi}; the engine accepts only those sizes."
+        )
     return lo, opt, hi
 
 
@@ -48,6 +66,7 @@ def export_to_tensorrt(
     workspace_size: int = 2 << 30,  # 2GB default
     method: str = "onnx",
     verbose: bool = True,
+    static_hw: Optional[bool] = None,
 ) -> Path:
     """Export a PyTorch model to TensorRT format.
 
@@ -67,6 +86,11 @@ def export_to_tensorrt(
         workspace_size: TensorRT workspace size in bytes (default 2GB).
         method: Compilation method - "onnx" or "jit".
         verbose: Print export info.
+        static_hw: Whether the engine takes only the traced height/width (a RoPE
+            backbone's grid is fixed at trace time). ``None`` detects RoPE in
+            ``model`` (`has_rope`); pass ``False`` for a wrapper whose RoPE model
+            only sees fixed-size crops (a top-down instance model). For the
+            ``"onnx"`` method an existing ONNX file's own static dims win.
 
     Returns:
         Path to the exported TensorRT engine.
@@ -92,12 +116,18 @@ def export_to_tensorrt(
         opt_shape = input_shape
     if max_shape is None:
         max_shape = (min(16, B * 4), C, H * 2, W * 2)
-    if method == "jit" and has_rope(model):
+    if static_hw is None:
+        static_hw = has_rope(model)
+    if method == "jit" and static_hw:
         # The traced RoPE grid is only correct at the traced size (the ONNX route
         # gets the same restriction from the static ONNX input instead).
-        min_shape, opt_shape, max_shape = (
-            (s[0], s[1], H, W) for s in (min_shape, opt_shape, max_shape)
-        )
+        pinned = tuple((s[0], s[1], H, W) for s in (min_shape, opt_shape, max_shape))
+        if pinned != (tuple(min_shape), tuple(opt_shape), tuple(max_shape)):
+            logger.warning(
+                "The backbone uses rotary position embeddings, which trace to a "
+                f"fixed token grid: TensorRT profile height/width pinned to {H}x{W}."
+            )
+        min_shape, opt_shape, max_shape = pinned
 
     if verbose:
         print(f"Exporting model to TensorRT...")
@@ -119,6 +149,7 @@ def export_to_tensorrt(
             precision,
             workspace_size,
             verbose,
+            static_hw,
         )
     elif method == "jit":
         return _export_tensorrt_jit(
@@ -148,6 +179,7 @@ def _export_tensorrt_onnx(
     precision: str,
     workspace_size: int,
     verbose: bool,
+    static_hw: Optional[bool] = None,
 ) -> Path:
     """Export via ONNX, then compile to TensorRT engine."""
     import tensorrt as trt
@@ -174,6 +206,7 @@ def _export_tensorrt_onnx(
             input_names=["images"],
             dynamic_axes={"images": {0: "batch", 2: "height", 3: "width"}},
             verify=False,
+            static_hw=static_hw,
         )
 
         if verbose:

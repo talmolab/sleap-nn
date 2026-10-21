@@ -143,6 +143,18 @@ class _LeadingBlocks(nn.ModuleList):
         return iter(blocks if self.num_active is None else blocks[: self.num_active])
 
 
+def _warn_ignored(knobs: Dict[str, Any], why: str) -> None:
+    """Warn about config knobs this backbone does not use.
+
+    Args:
+        knobs: Knob name -> value, with ``None`` standing for "left at default".
+        why: Why they do nothing here (completes "<names> ...").
+    """
+    names = [k for k, v in knobs.items() if v is not None]
+    if names:
+        logger.warning(f"{', '.join(names)} {why}; ignored.")
+
+
 def _is_isotropic(config: Any) -> bool:
     """Whether an HF config describes a single-stride (plain ViT) encoder."""
     model_type = getattr(config, "model_type", "") or ""
@@ -477,15 +489,6 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         self.layer_decay = layer_decay
         self.detail_stem = detail_stem
         self.detail_channels = list(detail_channels or [32, 64, 128])
-        if len(self.detail_channels) != 3:
-            # One stage per stride 2, 4, 8: an extra stage would run without ever
-            # reaching the decoder (parameters with no gradient, a DDP error).
-            message = (
-                f"detail_channels must give 3 channel counts (strides 2, 4, 8), got "
-                f"{self.detail_channels}."
-            )
-            logger.error(message)
-            raise ValueError(message)
 
         _import_transformers()  # actionable error if the extra is missing
         from transformers import AutoBackbone, AutoConfig
@@ -522,21 +525,20 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             or _backbone_class_or_none(hf_config) is None
         )
         if self.token_path:
-            ignored = {"out_indices": out_indices}
+            knobs = {"out_indices": out_indices}
             if self.mode == "encoder":
                 # Encoder-only pools one tapped layer: there is no neck or decoder.
-                ignored.update(
+                knobs.update(
                     neck_channels=neck_channels,
                     detail_stem=detail_stem or None,
                     vit_neck=None if vit_neck == "dpt" else vit_neck,
                 )
-            ignored = [k for k, v in ignored.items() if v is not None]
-            if ignored:
-                path = "encoder-only" if self.mode == "encoder" else "pyramid-neck"
-                logger.warning(
-                    f"{', '.join(ignored)} do not apply to the plain-ViT {path} path "
-                    f"'{model_name}' takes in mode '{self.mode}'; ignored."
-                )
+            path = "encoder-only" if self.mode == "encoder" else "pyramid-neck"
+            _warn_ignored(
+                knobs,
+                f"do not apply to the plain-ViT {path} path '{model_name}' takes in "
+                f"mode '{self.mode}'",
+            )
             self._init_token_encoder(
                 hf_config,
                 layers=layers,
@@ -564,6 +566,15 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
                     )
                     self.detail_stem = False
                 if self.detail_stem:
+                    if len(self.detail_channels) != 3:
+                        # One stage per stride 2, 4, 8: an extra stage would run
+                        # without reaching the decoder (no gradient: a DDP error).
+                        message = (
+                            "detail_channels must give 3 channel counts (strides "
+                            f"2, 4, 8), got {self.detail_channels}."
+                        )
+                        logger.error(message)
+                        raise ValueError(message)
                     self.stem = DetailStem(self.in_channels, self.detail_channels)
                     by_stride = dict(zip(strides, channels))
                     for st, c in zip((2, 4, 8), self.detail_channels):
@@ -575,20 +586,18 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             self.enc.train()
             return
 
-        ignored = {
-            "layers": layers,
-            "token_stride": token_stride,
-            "neck_channels": neck_channels,
-            "detail_stem": detail_stem or None,
-            "vit_neck": None if vit_neck == "dpt" else vit_neck,
-        }
-        ignored = [k for k, v in ignored.items() if v is not None]
-        if ignored:
-            logger.warning(
-                f"{', '.join(ignored)} only apply to plain-ViT backbones on the "
-                f"hidden-state path (Case C, or encoder-only without a `*Backbone` "
-                f"class); ignored for '{model_name}' in mode '{self.mode}'."
-            )
+        _warn_ignored(
+            {
+                "layers": layers,
+                "token_stride": token_stride,
+                "neck_channels": neck_channels,
+                "detail_stem": detail_stem or None,
+                "vit_neck": None if vit_neck == "dpt" else vit_neck,
+            },
+            "only apply to plain-ViT backbones on the hidden-state path (Case C, or "
+            f"encoder-only without a `*Backbone` class), not to '{model_name}' in "
+            f"mode '{self.mode}'",
+        )
 
         # Build the HF backbone module (`self.enc`); timm models are already built.
         if self.is_timm:
@@ -694,10 +703,9 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
     def _enable_gradient_checkpointing(self) -> None:
         """Turn on HF gradient checkpointing for the encoder, if it supports it."""
         if self.is_timm and hasattr(self.enc.timm_model, "set_grad_checkpointing"):
-            # Unlike HF's, timm's switch is not gated on training; `train` keeps it
-            # off in eval (inference, export).
+            # Switched on per call by `_timm_intermediates` (timm's flag is not
+            # gated on training the way HF's is).
             self._timm_grad_ckpt = True
-            self.enc.timm_model.set_grad_checkpointing(self.enc.training)
         elif getattr(self.enc, "supports_gradient_checkpointing", False):
             self.enc.gradient_checkpointing_enable(
                 gradient_checkpointing_kwargs={"use_reentrant": False}
@@ -808,7 +816,6 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             self.enc = AutoModel.from_config(vision_config)
         if gradient_checkpointing:
             self._enable_gradient_checkpointing()
-        self._skip_blocks_after_last_tap()
 
         # Forward kwargs: always hidden states; turn on positional-embedding
         # interpolation where the model gates it behind a flag (CLIP, SigLIP, ViT,
@@ -825,14 +832,17 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         self.tap_norms = nn.ModuleList(
             [nn.LayerNorm(self.hidden_size, eps=1e-6) for _ in self.layers]
         )
+        self._skip_blocks_after_last_tap()
 
     def _skip_blocks_after_last_tap(self) -> None:
         """Stop the encoder after the last tapped layer instead of running them all.
 
         timm takes ``stop_early`` in ``forward_intermediates``. An HF encoder loops
         over its block list, so that list (the one ``nn.ModuleList`` with one entry
-        per layer) is swapped for a `_LeadingBlocks` over the same blocks. Left
-        alone when the last layer is tapped or the list cannot be found.
+        per layer) is swapped for a `_LeadingBlocks` over the same blocks -- kept
+        only if a test forward shows the encoder then runs exactly those leading
+        blocks and returns one hidden state per run block. Left alone when the
+        last layer is tapped or the list cannot be found or confirmed.
         """
         last = max(self.layers)
         if self.is_timm or last == self.num_layers:
@@ -851,7 +861,44 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         name, blocks = found[0]
         parent_name, _, attr = name.rpartition(".")
         parent = self.enc.get_submodule(parent_name) if parent_name else self.enc
-        setattr(parent, attr, _LeadingBlocks(blocks, num_active=last))
+        leading = _LeadingBlocks(blocks, num_active=last)
+        setattr(parent, attr, leading)
+        if not self._runs_leading_blocks(leading, last):
+            setattr(parent, attr, blocks)
+            logger.debug(
+                f"'{self.model_name}': '{name}' is not the block loop behind its "
+                f"hidden states; blocks after layer {last} still run."
+            )
+
+    def _runs_leading_blocks(self, blocks: nn.ModuleList, last: int) -> bool:
+        """Whether ``blocks`` is the encoder's block loop, cut after ``last``.
+
+        True when a test forward runs exactly ``blocks[:last]`` and returns
+        ``last + 1`` hidden states (the embeddings plus one per run block).
+        """
+        ran: List[int] = []
+        hooks = [
+            block.register_forward_hook(lambda *_, i=i: ran.append(i))
+            for i, block in enumerate(blocks._modules.values())
+        ]
+        size = 2 * self.patch_size
+        was_training = self.enc.training
+        self.enc.eval()
+        try:
+            with torch.no_grad():
+                out = self.enc(
+                    pixel_values=torch.zeros(1, self.in_channels, size, size),
+                    **self._call_kwargs,
+                )
+            hidden_states = out.hidden_states
+        except Exception:  # noqa: BLE001 - unconfirmed: keep the full loop
+            return False
+        finally:
+            for hook in hooks:
+                hook.remove()
+            if was_training:
+                self.enc.train()
+        return ran == list(range(last)) and len(hidden_states) == last + 1
 
     def _build_vit_neck(
         self, neck_channels: Optional[List[int]], max_stride: int
@@ -1126,18 +1173,6 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
         self.enc.load_state_dict(self._pretrained_sd)
         logger.info(f"Restored pretrained weights for backbone '{self.model_name}'.")
 
-    def train(self, mode: bool = True):
-        """Set train/eval mode; timm gradient checkpointing runs only in training.
-
-        HF gates its gradient checkpointing on ``self.training``; timm checks only
-        its flag, so it is switched to follow the encoder's mode (eval for
-        inference/export, and for a frozen encoder that has nothing to backprop).
-        """
-        super().train(mode)
-        if getattr(self, "_timm_grad_ckpt", False):
-            self.enc.timm_model.set_grad_checkpointing(self.enc.training)
-        return self
-
     def freeze_encoder(self) -> None:
         """Freeze the pretrained encoder (feature extraction; decoder/head train).
 
@@ -1278,16 +1313,35 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             for st in sorted(by_stride)
         ]
 
+    def _timm_intermediates(
+        self, x: torch.Tensor, indices: List[int]
+    ) -> List[torch.Tensor]:
+        """Run timm's ``forward_intermediates`` (NCHW, stopping after the last index).
+
+        Gradient checkpointing, when enabled, is switched per call from the
+        encoder's mode and the grad state: timm checks only its own flag (HF also
+        checks ``self.training``), and Lightning restores module modes by setting
+        ``.training`` directly, so a ``train()`` hook would never see them.
+        Inference, export and a frozen encoder therefore run without it.
+        """
+        timm_model = self.enc.timm_model
+        if getattr(self, "_timm_grad_ckpt", False):
+            on = self.enc.training and torch.is_grad_enabled()
+            if getattr(self, "_timm_grad_ckpt_on", None) != on:
+                timm_model.set_grad_checkpointing(on)
+                self._timm_grad_ckpt_on = on
+        return timm_model.forward_intermediates(
+            x,
+            indices=indices,
+            output_fmt="NCHW",
+            intermediates_only=True,
+            **self._timm_kwargs,
+        )
+
     def _stage_maps(self, x: torch.Tensor) -> List[torch.Tensor]:
         """Stage outputs of a hierarchical encoder (Case A/B), finest first."""
         if self.is_timm:
-            return self.enc.timm_model.forward_intermediates(
-                x,
-                indices=self._timm_stage_indices,
-                output_fmt="NCHW",
-                intermediates_only=True,
-                **self._timm_kwargs,
-            )
+            return self._timm_intermediates(x, self._timm_stage_indices)
         return self.enc(x).feature_maps
 
     def _tap_tokens(self, x: torch.Tensor) -> List[torch.Tensor]:
@@ -1306,13 +1360,7 @@ class PretrainedBackbone(FreezableEncoderMixin, nn.Module):
             # timm strips prefix tokens and returns NCHW grids itself, one per
             # distinct block (a repeated tap is looked up again below).
             unique = sorted(set(self.layers))
-            maps = self.enc.timm_model.forward_intermediates(
-                x,
-                indices=[layer - 1 for layer in unique],
-                output_fmt="NCHW",
-                intermediates_only=True,
-                **self._timm_kwargs,
-            )
+            maps = self._timm_intermediates(x, [layer - 1 for layer in unique])
             by_layer = dict(zip(unique, maps))
             return [
                 norm(by_layer[layer].permute(0, 2, 3, 1)).permute(0, 3, 1, 2)

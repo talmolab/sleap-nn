@@ -1490,6 +1490,62 @@ def test_schedule_floors_scale_with_the_encoder_lr_groups(scheduler, floors):
         sched.step()
 
 
+@pytest.mark.parametrize(
+    "min_lr, ok", [([1e-6], True), ([1e-6, 1e-7], False)], ids=["one", "two"]
+)
+def test_list_min_lr_with_encoder_lr_groups(min_lr, ok):
+    """A one-entry `min_lr` list means one floor, scaled per group; a list that
+    cannot match the (unknowable) group count is refused with a reason."""
+    from sleap_nn.training.lightning_modules import SingleInstanceLightningModule
+
+    module = SingleInstanceLightningModule(
+        model_type="single_instance",
+        backbone_type="pretrained",
+        backbone_config={
+            "pretrained": {
+                "model_name": VIT,
+                "weights": False,
+                "in_channels": 3,
+                "output_stride": 2,
+                "max_stride": 32,
+                "layer_decay": 0.5,
+            }
+        },
+        head_configs=OmegaConf.create(
+            {
+                "single_instance": {
+                    "confmaps": {
+                        "part_names": ["a", "b"],
+                        "sigma": 2.5,
+                        "output_stride": 2,
+                        "loss_weight": 1.0,
+                    }
+                }
+            }
+        ),
+        lr_scheduler={
+            "reduce_lr_on_plateau": {
+                "threshold": 1e-4,
+                "threshold_mode": "rel",
+                "cooldown": 0,
+                "patience": 1,
+                "factor": 0.5,
+                "min_lr": min_lr,
+            }
+        },
+        learning_rate=1e-3,
+    )
+    if not ok:
+        with pytest.raises(ValueError, match="param groups"):
+            module.configure_optimizers()
+        return
+    out = module.configure_optimizers()
+    groups = out["optimizer"].param_groups
+    assert out["lr_scheduler"]["scheduler"].min_lrs == pytest.approx(
+        [1e-6 * g["lr"] / 1e-3 for g in groups]
+    )
+
+
 def test_embedding_module_optimizer_uses_the_encoder_lr_groups():
     """The embedding module's own `configure_optimizers` honors the LR groups."""
     from sleap_nn.training.lightning_modules import EmbeddingLightningModule
@@ -1656,18 +1712,42 @@ def test_timm_hierarchical_checkpoint_honours_out_indices():
 
 
 @requires_timm
-def test_timm_vit_gradient_checkpointing_uses_timm_switch():
-    """timm's switch is not gated on training (HF's is): it must follow the mode,
-    off for inference/export and for a frozen encoder."""
+def test_timm_gradient_checkpointing_is_set_per_forward():
+    """timm's switch is not gated on training (HF's is), and Lightning restores
+    module modes by assigning `.training` (no `train()` call), so the backbone
+    sets the switch from the encoder's mode and grad state on every forward."""
+    from lightning.pytorch.utilities.model_helpers import _ModuleMode
+
     bb = _vit_backbone(TIMM_VIT, gradient_checkpointing=True)
-    assert bb.enc.timm_model.grad_checkpointing
+    x = torch.rand(1, 3, 64, 96)
+
+    def on():
+        return bb.enc.timm_model.grad_checkpointing
+
+    # `from_pretrained` hands back an eval-mode model; construction must not
+    # leave that baked into the switch.
+    bb.enc.eval()
+    bb.enc.train()
+    bb(x)
+    assert on()
+
+    # A validation pass the way Lightning runs it: capture, eval, restore.
+    modes = _ModuleMode()
+    modes.capture(bb)
     bb.eval()
-    assert not bb.enc.timm_model.grad_checkpointing
-    bb.train()
-    assert bb.enc.timm_model.grad_checkpointing
-    bb.freeze_encoder()
-    bb.train()
-    assert not bb.enc.timm_model.grad_checkpointing
+    with torch.no_grad():
+        bb(x)
+    assert not on()
+    modes.restore(bb)
+    bb(x)
+    assert on()
+
+    with torch.no_grad():  # inference / export
+        bb(x)
+    assert not on()
+    bb.freeze_encoder()  # a frozen encoder has nothing to recompute
+    bb(x)
+    assert not on()
 
 
 @requires_timm
@@ -1714,10 +1794,31 @@ def test_caseC_hf_encoder_stops_after_the_last_tap():
     torch.testing.assert_close(early, full)
 
 
+def test_caseC_block_list_swap_is_kept_only_when_confirmed(monkeypatch):
+    """The block list is found by length; a test forward must confirm that the
+    encoder runs exactly its leading blocks, or the full list is put back."""
+    from sleap_nn.architectures.pretrained import _LeadingBlocks
+
+    bb = _vit_backbone(VIT, layers=[3, 6, 9], output_stride=8)
+    # A same-length list the encoder never runs is not confirmed.
+    stray = _LeadingBlocks([torch.nn.Identity() for _ in range(12)], num_active=9)
+    assert not bb._runs_leading_blocks(stray, 9)
+
+    monkeypatch.setattr(
+        PretrainedBackbone, "_runs_leading_blocks", lambda self, blocks, last: False
+    )
+    bb = _vit_backbone(VIT, layers=[3, 6, 9], output_stride=8)
+    assert not any(isinstance(m, _LeadingBlocks) for m in bb.enc.modules())
+    with torch.no_grad():
+        bb.eval()(torch.rand(1, 3, 64, 96))
+
+
 def test_detail_channels_needs_one_count_per_stride():
     """A 4th stage would run without reaching the decoder (no gradient: DDP)."""
     with pytest.raises(ValueError, match="detail_channels must give 3"):
         _vit_backbone(VIT, detail_stem=True, detail_channels=[16, 32, 64, 128])
+    # Unused (no detail stem): not validated, like any other ignored knob.
+    _vit_backbone(VIT, detail_channels=[16, 32])
 
 
 def test_token_path_warns_about_knobs_it_ignores(loguru_caplog):
@@ -1771,3 +1872,27 @@ def test_fixed_resolution_vit_fails_at_construction():
     message that says why, not at the first training step."""
     with pytest.raises(ValueError, match="Could not extract a dense token grid"):
         _vit_backbone("facebook/sam-vit-base")
+
+
+def test_neck_loads_checkpoints_from_the_wrapper_layernorm():
+    """`LayerNorm2d` used to wrap an inner `nn.LayerNorm` (`.norm.weight`); models
+    saved then (the benchmark runs) still load into the torchvision-based class."""
+    from sleap_nn.architectures.vit_neck import LayerNorm2d, ViTPyramidNeck
+
+    torch.manual_seed(0)
+    neck = ViTPyramidNeck(in_channels=16, out_channels=[4, 8, 16, 16])
+    norms = {n for n, m in neck.named_modules() if isinstance(m, LayerNorm2d)}
+    assert norms
+    old_style = {}
+    for key, value in neck.state_dict().items():
+        module, _, param = key.rpartition(".")
+        if module in norms:
+            key = f"{module}.norm.{param}"
+        old_style[key] = value.clone() + 1  # distinguishable from the init
+
+    fresh = ViTPyramidNeck(in_channels=16, out_channels=[4, 8, 16, 16])
+    fresh.load_state_dict(old_style, strict=True)
+    some_norm = sorted(norms)[0]
+    torch.testing.assert_close(
+        fresh.get_submodule(some_norm).weight, old_style[f"{some_norm}.norm.weight"]
+    )

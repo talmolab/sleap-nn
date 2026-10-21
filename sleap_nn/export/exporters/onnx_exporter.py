@@ -135,16 +135,22 @@ def export_to_onnx(
         input_names = ["image"]
     if dynamic_axes is None:
         dynamic_axes = {"image": {0: "batch", 2: "height", 3: "width"}}
+    rope = has_rope(model)
     if static_hw is None:
-        static_hw = has_rope(model)
+        static_hw = rope
     if static_hw:
         # A RoPE grid is only correct at the traced size. Export H/W static so
         # onnxruntime / TensorRT reject other sizes instead of returning silently
         # wrong outputs.
         dynamic_axes = _without_spatial_axes(dynamic_axes, input_names[0])
-        logger.warning(
+        reason = (
             "The backbone uses rotary position embeddings, which trace to a fixed "
-            "token grid: exporting with static height/width "
+            "token grid"
+            if rope
+            else "static_hw=True"
+        )
+        logger.warning(
+            f"{reason}: exporting with static height/width "
             f"{tuple(input_shape)[2:]}; feed the ONNX model inputs of that size."
         )
 
