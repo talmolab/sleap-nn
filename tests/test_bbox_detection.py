@@ -247,6 +247,14 @@ def test_match_anchors_forces_best_anchor():
     idx, state = match_anchors(torch.zeros((0, 4)), anchors)
     assert state.tolist() == [0, 0]
 
+    # Two boxes sharing a best anchor: the better-fitting one keeps it, the other
+    # takes its next-best anchor, so neither is left without a positive.
+    anchors = torch.tensor([[0.0, 0.0, 10.0, 10.0], [0.0, 0.0, 14.0, 14.0]])
+    boxes = torch.tensor([[0.0, 0.0, 9.0, 9.0], [0.0, 0.0, 11.0, 11.0]])
+    idx, state = match_anchors(boxes, anchors, 0.99, 0.0)
+    assert state.tolist() == [1, 1]
+    assert sorted(idx.tolist()) == [0, 1]
+
 
 def test_ssd_targets():
     enc = SSDTargetEncoder(2, [8], [16.0], [1.0], [1.0])

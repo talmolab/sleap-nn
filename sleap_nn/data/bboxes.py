@@ -531,7 +531,9 @@ def match_anchors(
     An anchor is positive for the box it overlaps most if that IoU is >=
     ``pos_iou_threshold``, background if its best IoU is < ``neg_iou_threshold``, and
     ignored in between. Each box's highest-IoU anchor is forced positive for it, so
-    no box goes unmatched however poorly the anchors fit.
+    no box goes unmatched however poorly the anchors fit; when two boxes share a
+    best anchor, the one that overlaps it more keeps it and the other takes its
+    best anchor not already claimed.
 
     Returns:
         ``(matched_idx, state)``: ``(A,)`` index of each anchor's box, and ``(A,)``
@@ -548,9 +550,17 @@ def match_anchors(
     state = torch.full((num_anchors,), -1, dtype=torch.long)
     state[best_iou < neg_iou_threshold] = 0
     state[best_iou >= pos_iou_threshold] = 1
-    best_anchor = iou.argmax(dim=0)  # (n,)
-    matched_idx[best_anchor] = torch.arange(boxes.shape[0])
-    state[best_anchor] = 1
+    # Forced matches, best-fitting boxes first. A stable descending sort ranks
+    # ties like argmax, so without conflicts each box gets exactly its argmax.
+    claimed = set()
+    for g in iou.max(dim=0).values.argsort(descending=True, stable=True).tolist():
+        ranked = iou[:, g].argsort(descending=True, stable=True)
+        a = next((a for a in ranked.tolist() if a not in claimed), None)
+        if a is None:
+            break
+        claimed.add(a)
+        matched_idx[a] = g
+        state[a] = 1
     return matched_idx, state
 
 
