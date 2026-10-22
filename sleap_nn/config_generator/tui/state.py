@@ -23,6 +23,7 @@ from sleap_nn.config_generator.architecture_estimates import (
 from sleap_nn.config_generator.generator import ConfigGenerator
 from sleap_nn.config_generator.memory import MemoryEstimate, estimate_memory
 from sleap_nn.config_generator.recommender import (
+    TOPDOWN_BBOX_DETECTORS,
     BackboneType,
     ConfigRecommendation,
     PipelineType,
@@ -329,11 +330,28 @@ class ConfigState:
     @property
     def is_topdown(self) -> bool:
         """Check if current pipeline is top-down (requires dual config)."""
-        return self._pipeline in [
-            "centroid",
-            "centered_instance",
-            "multi_class_topdown",
-        ]
+        return (
+            self._pipeline
+            in [
+                "centroid",
+                "centered_instance",
+                "multi_class_topdown",
+            ]
+            or self.is_topdown_bbox
+        )
+
+    @property
+    def is_topdown_bbox(self) -> bool:
+        """Check if current pipeline is top-down with a box detector as stage 1."""
+        return self._pipeline in TOPDOWN_BBOX_DETECTORS
+
+    @property
+    def first_stage_name(self) -> str:
+        """Stage-1 model of a top-down pair: ``centroid`` or the box detector.
+
+        Also the suffix of its config file (``{base}_{first_stage_name}.yaml``).
+        """
+        return TOPDOWN_BBOX_DETECTORS.get(self._pipeline, "centroid")
 
     @property
     def is_bottomup(self) -> bool:
@@ -528,6 +546,12 @@ class ConfigState:
             self._input_scale = 0.5
             self._sigma = 5.0
             self._output_stride = 2
+            if self.is_topdown_bbox:
+                # Box detector stage 1: CenterNet heads at stride 4, SSD at 8
+                # (its anchor levels at 8/16/32 need max_stride 32, below).
+                self._output_stride = (
+                    4 if self.first_stage_name == "bbox_centernet" else 8
+                )
 
             # The web app does NOT recompute max_stride after switching to
             # centroid (it stays as picked at scale=1.0). Match that behavior:
@@ -539,6 +563,8 @@ class ConfigState:
                 scaled_max_animal_size
             )
             self._max_stride = max(self._max_stride, coverage_stride)
+            if self.first_stage_name == "bbox_ssd":
+                self._max_stride = max(self._max_stride, 32)
 
             # Centered instance model defaults
             # Always use max_stride=16 for instance - crops are sized appropriately
@@ -585,17 +611,23 @@ class ConfigState:
         return OmegaConf.to_container(cfg, resolve=True)
 
     def build_centroid_config(self) -> Dict[str, Any]:
-        """Build the centroid-stage config for a top-down pipeline.
+        """Build the stage-1 config for a top-down pipeline.
 
-        Always emits a ``centroid`` head — regardless of whether the user
-        selected ``centroid`` or ``multi_class_topdown`` as the pipeline,
-        the first stage of top-down is always centroid detection.
+        Emits a ``centroid`` head — regardless of whether the user selected
+        ``centroid`` or ``multi_class_topdown`` as the pipeline, the first stage
+        of top-down is centroid detection — except for ``topdown_bbox_*``,
+        whose first stage is the box detector (built from the main settings,
+        which the model picker set to the detector defaults).
         """
         if not self.is_topdown:
             raise ValueError("Centroid config only for top-down pipelines")
 
         self._apply_to_generator(self._generator, ci_mode=False)
-        cfg = self._generator.build_centroid()
+        if self.is_topdown_bbox:
+            self._generator._pipeline = self.first_stage_name
+            cfg = self._generator.build()
+        else:
+            cfg = self._generator.build_centroid()
         return OmegaConf.to_container(cfg, resolve=True)
 
     def build_centered_instance_config(self) -> Dict[str, Any]:
@@ -611,7 +643,11 @@ class ConfigState:
             else "centered_instance"
         )
         self._generator._pipeline = ci_pipeline
-        cfg = self._generator.build()
+        if self.is_topdown_bbox:
+            # Box-scaled crops: the detector's boxes, auto-sized at train time.
+            cfg = self._generator._build_bbox_crop_instance()
+        else:
+            cfg = self._generator.build()
         return OmegaConf.to_container(cfg, resolve=True)
 
     def _apply_to_generator(self, gen: "ConfigGenerator", *, ci_mode: bool) -> None:
@@ -803,11 +839,13 @@ class ConfigState:
             base_path: Base path for output files (without extension).
 
         Returns:
-            Tuple of (centroid_path, centered_instance_path).
+            Tuple of (stage-1 path, centered_instance_path). Stage 1 is
+            ``{base_path}_centroid.yaml``, or ``{base_path}_bbox_centernet.yaml`` /
+            ``{base_path}_bbox_ssd.yaml`` for a ``topdown_bbox_*`` pipeline.
         """
         from omegaconf import OmegaConf
 
-        centroid_path = f"{base_path}_centroid.yaml"
+        centroid_path = f"{base_path}_{self.first_stage_name}.yaml"
         ci_path = f"{base_path}_centered_instance.yaml"
 
         OmegaConf.save(OmegaConf.create(self.build_centroid_config()), centroid_path)

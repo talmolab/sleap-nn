@@ -4054,6 +4054,8 @@ def _register_export_commands():
             "multi_class_topdown",
             "bbox_centernet",
             "bbox_ssd",
+            "topdown_bbox_centernet",
+            "topdown_bbox_ssd",
         ]
     ),
     default=None,
@@ -4061,7 +4063,10 @@ def _register_export_commands():
         "Override model pipeline type. 'centroid' generates a single STANDALONE "
         "centroid config (one point per animal); 'topdown' generates paired "
         "centroid + centered_instance configs; 'bbox_centernet' / 'bbox_ssd' "
-        "generate a bounding-box detector trained on boxes derived from the poses."
+        "generate a bounding-box detector trained on boxes derived from the poses; "
+        "'topdown_bbox_centernet' / 'topdown_bbox_ssd' generate paired detector + "
+        "centered_instance configs whose crops are the detected boxes "
+        "(crop_mode: bbox)."
     ),
 )
 @click.option(
@@ -4093,6 +4098,9 @@ def config(
 
         # Auto-generate with overrides
         sleap-nn config labels.slp --auto --pipeline bottomup
+
+        # Box detector + box-scaled centered-instance pair
+        sleap-nn config labels.slp --auto --pipeline topdown_bbox_centernet -o cfg.yaml
     """
     from sleap_nn.config_generator.generator import ConfigGenerator
 
@@ -4123,16 +4131,9 @@ def config(
         elif output:
             gen.save(output)
             if gen.is_topdown:
-                path_obj = Path(output)
-                stem = path_obj.stem
-                suffix = path_obj.suffix or ".yaml"
-                parent = path_obj.parent
-                click.echo(
-                    f"Saved centroid config to: {parent / f'{stem}_centroid{suffix}'}"
-                )
-                click.echo(
-                    f"Saved instance config to: {parent / f'{stem}_centered_instance{suffix}'}"
-                )
+                # "centroid" (or "detector" for topdown_bbox_*), then "instance".
+                for stage, stage_path in gen.topdown_paths(output):
+                    click.echo(f"Saved {stage} config to: {stage_path}")
             else:
                 click.echo(f"Saved config to: {output}")
         else:
@@ -4141,12 +4142,8 @@ def config(
             output_path = Path(slp_path).parent / f"{slp_stem}_config.yaml"
             gen.save(str(output_path))
             if gen.is_topdown:
-                click.echo(
-                    f"Saved centroid config to: {output_path.parent / f'{slp_stem}_config_centroid.yaml'}"
-                )
-                click.echo(
-                    f"Saved instance config to: {output_path.parent / f'{slp_stem}_config_centered_instance.yaml'}"
-                )
+                for stage, stage_path in gen.topdown_paths(str(output_path)):
+                    click.echo(f"Saved {stage} config to: {stage_path}")
             else:
                 click.echo(f"Saved config to: {output_path}")
         return
