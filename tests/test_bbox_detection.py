@@ -1025,3 +1025,46 @@ def test_bbox_eval_callback_always_fills_monitored_metrics():
     cb.on_validation_epoch_end(trainer, _eval_callback_module())
     assert float(trainer.callback_metrics["eval/val/bbox_mAP"]) == pytest.approx(0.7)
     assert float(trainer.callback_metrics["eval/val/bbox_AP50"]) == 0.0
+
+
+def test_bbox_run_training_evaluates_every_split(config, minimal_instance, tmp_path):
+    """`run_training` (the `sleap-nn train` path) evaluates each split with box metrics."""
+    import json
+
+    from sleap_nn.train import run_training
+
+    cfg = _bbox_train_config(config, "bbox_centernet", tmp_path)
+    cfg.data_config.test_file_path = (
+        minimal_instance.as_posix()
+    )  # pose GT: boxes derived
+    run_training(cfg)
+    run_dir = tmp_path / "bbox_centernet"
+    for split in ("train.0", "val.0", "test.0"):
+        metrics = json.loads((run_dir / f"metrics.{split}.json").read_text())
+        assert 0.0 <= metrics["bbox_mAP"] <= 1.0 and metrics["predict_fps"] > 0
+        pred = sio.load_slp((run_dir / f"labels_pr.{split}.slp").as_posix())
+        assert any(lf.bboxes for lf in pred)
+
+
+def test_bbox_split_eval_skips_without_boxes(monkeypatch, tmp_path):
+    """A detector that predicts no boxes is skipped, not scored as all-misses."""
+    import sleap_nn.inference.run as run_mod
+    import sleap_nn.train as train_mod
+
+    video = sio.Video(filename="video.mp4", open_backend=False)
+    empty = sio.Labels(videos=[video], labeled_frames=[sio.LabeledFrame(video, 0)])
+    monkeypatch.setattr(run_mod, "predict", lambda *args, **kwargs: empty)
+    called = []
+    monkeypatch.setattr(train_mod, "run_evaluation", lambda **kw: called.append(kw))
+
+    metrics_path = tmp_path / "metrics.val.0.npz"
+    out = train_mod._run_bbox_split_eval(
+        config=OmegaConf.create({"trainer_config": {"use_wandb": False}}),
+        d_name="val.0",
+        path="gt.slp",
+        run_path=tmp_path,
+        pred_path=tmp_path / "labels_pr.val.0.slp",
+        metrics_path=metrics_path,
+        device="cpu",
+    )
+    assert out is None and not called and not metrics_path.exists()
