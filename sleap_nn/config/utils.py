@@ -130,6 +130,29 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
             )
 
     model_type = get_model_type_from_cfg(config)
+    if model_type == "bbox_centernet":
+        # The three heads read one target grid: a size/offset at a different stride
+        # than the heatmap would regress values for cells that are not centers.
+        head_strides = {
+            leaf: config.model_config.head_configs.bbox_centernet[leaf].output_stride
+            for leaf in config.model_config.head_configs.bbox_centernet
+        }
+        if len(set(head_strides.values())) != 1:
+            message = (
+                "model_config.head_configs.bbox_centernet heads must share one "
+                f"output_stride, got {head_strides}."
+            )
+            logger.error(message)
+            raise ValueError(message)
+    if model_type == "bbox_ssd":
+        # Only the finest level's stride is an `output_stride` field; the deepest
+        # pyramid level must also be one the backbone produces.
+        from sleap_nn.config.model_config import ssd_level_strides
+
+        deepest = max(ssd_level_strides(config.model_config.head_configs.bbox_ssd.ssd))
+        backbone_cfg = config.model_config.backbone_config[f"{backbone_type}"]
+        if backbone_cfg["max_stride"] < deepest:
+            backbone_cfg["max_stride"] = deepest
     if model_type == "multi_class_topdown":
         config.model_config.head_configs.multi_class_topdown.class_vectors.output_stride = config.model_config.backbone_config[
             f"{backbone_type}"
@@ -157,6 +180,8 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
             config.model_config.backbone_config[f"{backbone_type}"][
                 "output_stride"
             ] = max_stride
+    elif backbone_type == "pretrained":
+        _set_pretrained_decoder_mode(config, model_type)
     return config
 
 
@@ -283,6 +308,33 @@ def _set_pretrained_encoder_mode(config: OmegaConf) -> None:
             "Setting `model_config.backbone_config.pretrained.mode` to 'encoder' "
             "for the `embedding` model type (its pooled head taps the encoder "
             "bottleneck; there is nothing for a decoder to do)."
+        )
+
+
+def _set_pretrained_decoder_mode(config: OmegaConf, model_type: str) -> None:
+    """Record `mode: decoder` for a `pretrained` backbone under a spatial head.
+
+    ``mode: auto`` means "decoder" whenever the model has a spatial head (for a
+    plain ViT, the feature-pyramid neck), which the backbone would otherwise work
+    out from the heads at construction. Writing it here makes the saved training
+    config say which integration the checkpoint was trained with.
+
+    Args:
+        config: The full training job config, with `backbone_type == "pretrained"`.
+        model_type: The model type (its heads decide).
+    """
+    pretrained_cfg = config.model_config.backbone_config.pretrained
+    if OmegaConf.select(pretrained_cfg, "mode", default="auto") != "auto":
+        return
+    heads = config.model_config.head_configs[model_type] or {}
+    if any(
+        heads[name] is not None and name not in ("class_vectors", "embedding")
+        for name in heads
+    ):
+        pretrained_cfg.mode = "decoder"
+        logger.info(
+            "Setting `model_config.backbone_config.pretrained.mode` to 'decoder' "
+            f"(`auto` with the spatial heads of a `{model_type}` model)."
         )
 
 

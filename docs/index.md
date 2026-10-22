@@ -18,7 +18,7 @@
 ## ✨ Features
 
 - **Multiple model types** – Single instance, top-down, bottom-up, and centroid models
-- **Modern backbones** – UNet, ConvNeXt, and Swin Transformer architectures
+- **Modern backbones** – UNet, ConvNeXt, and Swin Transformer architectures, plus pretrained HuggingFace / timm encoders (ConvNeXtV2, DINOv2/v3, CLIP, SigLIP, ...)
 - **Multi-GPU training** – PyTorch Lightning with DDP support
 - **Production export** – ONNX and TensorRT for fast deployment
 - **Flexible config** – Hydra/OmegaConf for reproducible experiments

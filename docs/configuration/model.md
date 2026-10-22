@@ -25,6 +25,8 @@ model_config:
     multi_class_bottomup: null
     multi_class_topdown: null
     bottomup_segmentation: null
+    bbox_centernet: null
+    bbox_ssd: null
 ```
 
 ---
@@ -92,37 +94,56 @@ backbone_config:
 
 ### Pretrained (HuggingFace)
 
-Reuse an external pretrained image encoder (ConvNeXtV2, ResNet, Swinv2, DINOv2, …)
-from HuggingFace `transformers` as the backbone — frozen or fine-tuned. Requires
-the `backbones` extra (`pip install "sleap-nn[backbones]"` / `uv sync --extra
-backbones`).
+Reuse an external pretrained image encoder (ConvNeXtV2, ResNet, Swinv2,
+DINOv2/v3, CLIP, SigLIP, MAE, …) from the HuggingFace Hub as the backbone —
+frozen or fine-tuned. Requires the `backbones` extra (`pip install
+"sleap-nn[backbones]"` / `uv sync --extra backbones`), which brings
+`transformers` and `timm` (`timm` is needed only for `timm/...` checkpoints).
 
 ```yaml
 backbone_config:
   pretrained:
-    source: hf                                   # HuggingFace transformers
-    model_name: facebook/convnextv2-nano-22k-224 # any AutoBackbone model id
+    source: hf                                   # HuggingFace Hub
+    model_name: facebook/convnextv2-nano-22k-224 # HF model id, or a timm/... checkpoint
     weights: true          # download & load pretrained weights (false = random init)
     mode: auto             # auto | decoder (spatial heads) | encoder (pooled heads)
     freeze: false          # true = feature extraction (encoder frozen)
-    normalize: true        # apply the model's image_mean/std (read from processor)
+    normalize: true        # apply the model's image_mean/std
     revision: null         # pin an HF commit sha/tag for reproducibility
     in_channels: 3         # HF stems are 3-channel (grayscale is replicated)
-    output_stride: 2       # finest decoder output (Case A / decoder mode)
-    max_stride: 32         # deepest encoder stride (32 for CNN/Swin; patch size for ViT)
+    output_stride: 2       # finest decoder output (decoder mode)
+    max_stride: 32         # 32 for CNN/Swin; a multiple of 2 x token_stride for a plain ViT
+    # Plain-ViT knobs (ignored by hierarchical backbones unless noted):
+    token_stride: null     # null = power of two nearest the patch size (16 for patch 14/16)
+    layers: null           # null = 4 evenly spaced taps, e.g. [3, 6, 9, 12]
+    vit_neck: dpt          # dpt | sfp
+    neck_channels: null    # null = [h/8, h/4, h/2, h] for hidden size h
+    gradient_checkpointing: false  # any encoder
+    encoder_lr_scale: 1.0          # any encoder
+    layer_decay: null              # layer-wise LR decay for ViT blocks
+    detail_stem: false     # conv stream adding stride-2/4/8 skips to the ViT pyramid
+    detail_channels: null  # null = [32, 64, 128]
 ```
 
-Two integration modes (auto-selected from the model family, or forced via `mode`):
+Three integration cases (`mode: auto` picks one from the backbone family and the
+model's heads; `mode` forces it):
 
-- **`decoder`** (Case A) — a **hierarchical** backbone (ConvNeXtV2 / ResNet /
-  Swinv2 / DINOv3-ConvNeXt) emits a multi-scale feature pyramid that feeds
-  sleap-nn's decoder, so any spatial head (pose, centroid, segmentation) works.
-- **`encoder`** (Case B) — an **isotropic** ViT (DINOv2 / DINOv2-with-registers)
-  emits a single pooled bottleneck for pooled heads (class-vectors / re-ID).
+- **Case A — `decoder`, hierarchical backbone** (ConvNeXtV2 / ResNet / Swinv2 /
+  DINOv3-ConvNeXt): its stride-4/8/16/32 stage pyramid feeds sleap-nn's decoder,
+  so any spatial head (pose, centroid, PAFs, segmentation) works.
+- **Case B — `encoder`, encoder-only**: a single bottleneck feature map, no
+  decoder, for pooled heads. `auto` resolves to it only for the `embedding`
+  (re-ID) model type.
+- **Case C — `decoder`, plain ViT** (DINOv2/v3, CLIP, SigLIP, MAE, PE-Spatial,
+  EVA02, …): 4 tapped transformer layers go through a feature-pyramid neck
+  (strides `token_stride/4` to `2 × token_stride`) into the same decoder, so a
+  plain ViT can feed spatial heads. `auto` resolves to it whenever the model has a
+  spatial head.
 
 See the [Pretrained Backbones guide](../guides/pretrained-backbones.md) for the
-full tested-model table, gating/`HF_TOKEN` and offline workflow, and freeze /
-fine-tune guidance.
+tested-model table, `timm/...` checkpoints, the ViT knobs, gating/`HF_TOKEN` and
+offline workflow, and freeze / fine-tune guidance. The full field list is in
+[PretrainedConfig](#pretrainedconfig) below.
 
 ---
 
@@ -257,6 +278,48 @@ Notes:
   instances at the frame edge.
 - See the sample config
   [`config_bottomup_segmentation_unet.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_unet.yaml).
+
+### Bounding-Box Detectors
+
+Axis-aligned box detection, one box per animal (written as
+`sio.PredictedBoundingBox` on `LabeledFrame.bboxes`). Ground-truth boxes come from
+the labels' own boxes or are derived from poses / masks
+(`data_config.bbox_source`). Two styles:
+
+```yaml
+head_configs:
+  bbox_centernet:        # CenterNet-style: center heatmap + size + sub-cell offset
+    center:
+      categories: null   # filled from the training boxes
+      sigma: null        # null = size-adaptive Gaussian radius
+      output_stride: 4
+    size:
+      output_stride: 4
+      loss_weight: 0.1
+    offset:
+      output_stride: 4
+      loss_weight: 1.0
+```
+
+```yaml
+head_configs:
+  bbox_ssd:              # SSD-style: multi-scale anchors over strides 8/16/32
+    ssd:
+      output_stride: 8   # finest level; set the backbone's output_stride to match
+      num_levels: 3      # needs backbone max_stride >= 32
+      anchor_sizes: null # null = auto-sized from the training boxes, saved into the config
+```
+
+Notes:
+
+- Keep rotation augmentation off: the axis-aligned box of rotated corners is larger
+  than the rotated animal.
+- With `trainer_config.eval.enabled: true`, the best checkpoint and early stopping
+  follow `eval/val/bbox_mAP` (see `eval.select_metric`).
+- See the [Bounding-box detection guide](../guides/bbox-detection.md) and the sample
+  configs
+  [`config_bbox_centernet_unet.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_centernet_unet.yaml) /
+  [`config_bbox_ssd_unet.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_ssd_unet.yaml).
 
 ---
 
@@ -419,6 +482,40 @@ model_config:
 | `up_interpolate` | bool | `true` | Use interpolation for upsampling |
 | `output_stride` | int | `1` | Output resolution divisor |
 | `max_stride` | int | `32` | Fixed at 32 for all SwinT |
+
+### PretrainedConfig
+
+External HuggingFace / timm backbone (`backbone_config.pretrained`). See the
+[Pretrained Backbones guide](../guides/pretrained-backbones.md).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `source` | str | `hf` | Backbone source; only `hf` (HuggingFace Hub) is supported |
+| `model_name` | str | `facebook/convnextv2-nano-22k-224` | HF model id, or a `timm/...` checkpoint (needs `timm`) |
+| `weights` | bool | `true` | Download and load pretrained weights; `false` = random init from the model config |
+| `mode` | str | `auto` | `auto`, `decoder` (Case A hierarchical / Case C plain ViT), or `encoder` (Case B pooled bottleneck). `auto` picks `decoder` when the model has a spatial head, `encoder` for `embedding` |
+| `freeze` | bool | `false` | Freeze the pretrained encoder (feature extraction); the neck, decoder and heads still train |
+| `revision` | str | `null` | HF revision (commit sha / tag) to pin |
+| `normalize` | bool | `true` | Apply the model's mean/std inside the backbone (forced off for `embedding`) |
+| `image_mean` | list[float] | `null` | Explicit per-channel mean; `null` = timm `pretrained_cfg` / `AutoImageProcessor` / ImageNet |
+| `image_std` | list[float] | `null` | Explicit per-channel std |
+| `out_indices` | list[int] | `null` | Hierarchical stage indices to tap; `null` = all stages, deduplicated by stride. HF backbones index `stage_names` (`0` is the stem: a ConvNeXt's stages are `[1, 2, 3, 4]`); `timm/...` checkpoints index `feature_info` (`0` is the first stage) |
+| `in_channels` | int | `3` | Stem input channels (set to 3 by the trainer) |
+| `filters_rate` | float | `2.0` | Decoder filter growth factor |
+| `convs_per_block` | int | `2` | Convolutions per decoder block |
+| `kernel_size` | int | `3` | Decoder conv kernel size |
+| `up_interpolate` | bool | `true` | Bilinear upsampling (vs. transposed conv) in the decoder |
+| `output_stride` | int | `2` | Finest decoder output stride (plain ViT: at most `token_stride`) |
+| `max_stride` | int | `32` | Deepest encoder stride: 32 for hierarchical backbones; for a plain ViT a multiple of `2 × token_stride` |
+| `token_stride` | int | `null` | Plain ViT: stride of the token grid (power of two ≥ 4; the input is resized to match). `null` = power of two nearest the patch size (16 for patch 14 or 16). `8` = finer grid, ~4× encoder cost |
+| `layers` | list[int] | `null` | Plain ViT: layers to tap, 1-indexed (`-1` = last). `null` = one evenly spaced tap per built pyramid level, ending at the last, for `dpt` (`[3, 6, 9, 12]` for 12 layers); the last layer for `sfp` / encoder mode (which take exactly one) |
+| `vit_neck` | str | `dpt` | Plain ViT: `dpt` (one tapped layer per pyramid level) or `sfp` (ViTDet Simple Feature Pyramid from the last tap) |
+| `neck_channels` | list[int] | `null` | Plain ViT: channels of the 4 neck levels, finest first. `null` = `[h/8, h/4, h/2, h]` for hidden size `h` |
+| `gradient_checkpointing` | bool | `false` | Enable gradient checkpointing in the encoder during training (less memory, slower) |
+| `encoder_lr_scale` | float | `1.0` | LR multiplier for the pretrained encoder relative to the neck/decoder/heads |
+| `layer_decay` | float | `null` | Plain ViT: layer-wise LR decay; block `i` of `L` trains at `encoder_lr_scale · layer_decay^(L+1−i)` × base LR (LR-schedule floors scale with it) |
+| `detail_stem` | bool | `false` | Plain ViT: add a light conv stream whose stride-2/4/8 features join the pyramid as decoder skips |
+| `detail_channels` | list[int] | `null` | Detail-stem channels at strides 2, 4, 8 (exactly three). `null` = `[32, 64, 128]` |
 
 ### single_instance.confmaps
 

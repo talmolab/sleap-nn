@@ -79,6 +79,10 @@ def resolve_output_stride(cfg: DictConfig, model_type: str) -> int:
         if leaf is not None and getattr(leaf, "output_stride", None) is not None:
             return int(leaf.output_stride)
         return 1
+    if model_type in ("bbox_centernet", "bbox_ssd"):
+        # Detectors: the finest head stride (CenterNet's shared stride; SSD's
+        # finest pyramid level).
+        return int(min(head_cfg[leaf].output_stride for leaf in head_cfg))
     if hasattr(head_cfg, "confmaps") and head_cfg.confmaps is not None:
         return int(head_cfg.confmaps.output_stride)
     if hasattr(head_cfg, "pafs") and head_cfg.pafs is not None:
@@ -167,12 +171,16 @@ def resolve_embedding_input_channels(cfg: DictConfig) -> int:
 def resolve_backbone_source(cfg: DictConfig) -> Optional[str]:
     """Resolve a human-readable backbone weight source for metadata.
 
-    Returns ``"imagenet"`` if the backbone was initialized from pretrained ImageNet
-    weights (convnext/swint ``pre_trained_weights`` or unet
-    ``pretrained_backbone_weights``), else ``"scratch"``.
+    Returns ``"hf:<model_name>"`` for a HuggingFace ``pretrained`` backbone that
+    loaded its pretrained weights, ``"imagenet"`` if the backbone was initialized
+    from pretrained ImageNet weights (convnext/swint ``pre_trained_weights`` or
+    unet ``pretrained_backbone_weights``), else ``"scratch"``.
     """
     backbone_type = get_backbone_type_from_cfg(cfg)
     backbone_cfg = cfg.model_config.backbone_config.get(backbone_type)
+    if backbone_type == "pretrained" and backbone_cfg is not None:
+        if OmegaConf.select(backbone_cfg, "weights", default=True):
+            return f"hf:{OmegaConf.select(backbone_cfg, 'model_name')}"
     if backbone_cfg is not None:
         pre_trained = OmegaConf.select(
             backbone_cfg, "pre_trained_weights", default=None

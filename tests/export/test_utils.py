@@ -1120,3 +1120,29 @@ class TestResolveEmbedding:
             == "imagenet"
         )
         assert resolve_backbone_source(_embedding_cfg()) == "scratch"
+
+    def test_resolve_backbone_source_hf_pretrained(self):
+        from omegaconf import OmegaConf
+
+        from sleap_nn.export.utils import resolve_backbone_source
+
+        def cfg(weights):
+            return OmegaConf.create(
+                {
+                    "model_config": {
+                        "backbone_config": {
+                            "unet": None,
+                            "convnext": None,
+                            "swint": None,
+                            "pretrained": {
+                                "model_name": "timm/vit_small_patch16_dinov3",
+                                "weights": weights,
+                            },
+                        },
+                        "pretrained_backbone_weights": None,
+                    }
+                }
+            )
+
+        assert resolve_backbone_source(cfg(True)) == "hf:timm/vit_small_patch16_dinov3"
+        assert resolve_backbone_source(cfg(False)) == "scratch"

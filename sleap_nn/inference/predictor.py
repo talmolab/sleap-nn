@@ -42,6 +42,7 @@ from loguru import logger
 from sleap_nn.inference.filters import FilterConfig, FilterPipeline
 from sleap_nn.config.utils import check_tiling_parity
 from sleap_nn.inference.layers.backends import TorchBackend
+from sleap_nn.inference.layers.bbox import BBoxLayer
 from sleap_nn.inference.layers.base import InferenceLayer
 from sleap_nn.inference.layers.bottomup import BottomUpLayer
 from sleap_nn.inference.layers.bottomup_multiclass import BottomUpMultiClassLayer
@@ -488,6 +489,29 @@ def _build_semantic_segmentation_layer(
     )
 
 
+def _build_bbox_layer(predictor: Any, device: str) -> BBoxLayer:
+    """Wrap a ``BBoxInferenceModel`` in a ``BBoxLayer``."""
+    inf = predictor.inference_model
+    max_stride = getattr(predictor, "max_stride", 1) or 1
+    return BBoxLayer(
+        backend=TorchBackend(model=inf.torch_model, device=device),
+        decoder=inf.decoder,
+        output_stride=inf.output_stride,
+        max_stride=max_stride,
+        preprocess_config=PreprocessConfig(
+            scale=inf.input_scale,
+            max_height=_pp_field(predictor, "max_height"),
+            max_width=_pp_field(predictor, "max_width"),
+            ensure_rgb=_pp_field(predictor, "ensure_rgb"),
+            ensure_grayscale=_pp_field(predictor, "ensure_grayscale"),
+        ),
+        postprocess_config=PostprocessConfig(
+            peak_threshold=inf.decoder.score_threshold,
+            max_instances=getattr(predictor, "max_instances", None),
+        ),
+    )
+
+
 def _build_centroid_layer(
     centroid_model: Any,
     device: str,
@@ -769,6 +793,8 @@ def _select_layer(assets: Any, model_types: List[str], device: str):
             check_tiling_parity(_tiling_source_cfg(assets))
             return _build_tiled_semantic_segmentation_layer(inner, tiling)
         return inner
+    if "bbox_centernet" in model_types or "bbox_ssd" in model_types:
+        return _build_bbox_layer(assets, device)
     # Appearance-embedding (re-ID). Checked BEFORE the centroid / centered_instance
     # / topdown family so a centroid + embedding pair isn't swallowed by the
     # centroid-only branch.
@@ -918,6 +944,7 @@ def _select_export_layer(
     min_instance_peaks: float = 0,
     min_line_scores: float = 0.25,
     peak_conf_threshold: Optional[float] = None,
+    export_dir: Optional[Path] = None,
 ):
     """Dispatch on ``metadata.model_type`` to build the right export adapter."""
     from sleap_nn.inference.layers.exported import (
@@ -999,6 +1026,52 @@ def _select_export_layer(
             n_classes=int(metadata.n_classes),
             input_scale=float(metadata.input_scale),
             peak_conf_threshold=peak_conf_threshold,
+        )
+
+    if model_type in ("bbox_centernet", "bbox_ssd"):
+        # Decoding and preprocessing are not baked into a detector's graph: rebuild
+        # its BBoxDecoder (categories, anchors, NMS) and preprocessing from the
+        # training config copied next to it.
+        from omegaconf import OmegaConf
+
+        from sleap_nn.inference.bbox import BBoxDecoder
+        from sleap_nn.inference.layers.bbox import ExportedBBoxLayer
+
+        cfg_path = Path(export_dir) / "training_config.yaml" if export_dir else None
+        if cfg_path is None or not cfg_path.exists():
+            raise ValueError(
+                f"A {model_type} export needs its training_config.yaml next to "
+                "export_metadata.json to rebuild the box decoder. Re-export the "
+                "model with `sleap-nn export`."
+            )
+        cfg = OmegaConf.load(cfg_path.as_posix())
+        backbone_cfg = next(
+            v for v in cfg.model_config.backbone_config.values() if v is not None
+        )
+        pre = cfg.data_config.preprocessing
+        score = peak_conf_threshold if peak_conf_threshold is not None else 0.2
+        decoder = BBoxDecoder.from_head_configs(
+            model_type,
+            cfg.model_config.head_configs,
+            score_threshold=score,
+            max_detections=max_instances,
+        )
+        return ExportedBBoxLayer(
+            backend=backend,
+            decoder=decoder,
+            output_stride=int(metadata.output_stride),
+            max_stride=int(backbone_cfg.max_stride),
+            preprocess_config=PreprocessConfig(
+                # The export's own scale (`--input-scale` may override training's).
+                scale=float(metadata.input_scale),
+                max_height=pre.get("max_height"),
+                max_width=pre.get("max_width"),
+                ensure_rgb=pre.get("ensure_rgb") or None,
+                ensure_grayscale=pre.get("ensure_grayscale") or None,
+            ),
+            postprocess_config=PostprocessConfig(
+                peak_threshold=score, max_instances=max_instances
+            ),
         )
 
     raise ValueError(f"Unrecognized model_type {model_type!r} in export_metadata.json.")
@@ -1122,6 +1195,7 @@ class Predictor:
         full_res_masks: bool = False,
         mask_output: str = "mask",
         polygon_epsilon: float = 0.01,
+        bbox_nms_iou: Optional[float] = None,
     ) -> "Predictor":
         """Build a :class:`Predictor` from one or more checkpoint paths.
 
@@ -1197,6 +1271,9 @@ class Predictor:
                 ``"both"`` (bottom-up segmentation only).
             polygon_epsilon: Douglas-Peucker tolerance (fraction of perimeter)
                 for ``mask_output`` polygon/both (bottom-up segmentation only).
+            bbox_nms_iou: Class-wise IoU-NMS threshold for ``bbox_*`` detectors.
+                ``None`` (default) uses the style's default (0.45 for SSD, off for
+                CenterNet, whose peak NMS already dedupes); ``1.0`` disables it.
         """
         from sleap_nn.inference.loaders import load_model_assets
         from sleap_nn.system_info import get_startup_info_string
@@ -1235,6 +1312,7 @@ class Predictor:
             full_res_masks=full_res_masks,
             mask_output=mask_output,
             polygon_epsilon=polygon_epsilon,
+            bbox_nms_iou=bbox_nms_iou,
         )
 
         if centroid_only:
@@ -1290,6 +1368,8 @@ class Predictor:
         if "centered_instance_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"mask_output={mask_output}")
+        if "bbox_centernet" in model_types or "bbox_ssd" in model_types:
+            spec.append(f"bbox_nms_iou={loaded.inference_model.decoder.iou_threshold}")
         if "semantic_segmentation" in model_types:
             spec.append(f"fg_threshold={fg_threshold}")
             spec.append(f"min_mask_area={min_mask_area}")
@@ -1376,6 +1456,7 @@ class Predictor:
             min_instance_peaks=min_instance_peaks,
             min_line_scores=min_line_scores,
             peak_conf_threshold=resolved_peak_conf,
+            export_dir=export_dir,
         )
 
         skeleton = _skeleton_from_export(export_dir, metadata)
@@ -1851,6 +1932,15 @@ class Predictor:
                 "for tracking."
             )
 
+        # The tracker operates on poses and masks; a detector emits boxes only.
+        if self.tracker_config is not None and self._is_bbox_layer():
+            raise ValueError(
+                "Tracking is not supported for bounding-box detectors (bbox_*): "
+                "the tracker operates on sio.PredictedInstance / "
+                "sio.PredictedSegmentationMask objects, and this model emits "
+                "sio.PredictedBoundingBox objects."
+            )
+
         # Segmentation emits sio.PredictedSegmentationMask objects to
         # LabeledFrame.masks; apply_tracking auto-detects the mask-only labels
         # and tracks them by pixel mask-IoU (#619), so tracking is supported.
@@ -1903,7 +1993,11 @@ class Predictor:
                 "vector to its source detection via `sio.Embedding`, or pass "
                 "`make_labels=False` for the raw `Outputs`."
             )
-        if self.skeleton is None and not self._is_segmentation_layer():
+        if (
+            self.skeleton is None
+            and not self._is_segmentation_layer()
+            and not self._is_bbox_layer()
+        ):
             raise ValueError(
                 "make_labels=True requires a skeleton. Either pass "
                 "`skeleton=...` or build the Predictor via Predictor.from_model_paths() "
@@ -1951,6 +2045,9 @@ class Predictor:
                 len(getattr(lf, "masks", None) or []) for lf in labels.labeled_frames
             )
             object_label = "masks"
+        elif self._is_bbox_layer():
+            n_objects = sum(len(lf.bboxes) for lf in labels.labeled_frames)
+            object_label = "boxes"
         else:
             n_objects = sum(len(lf.instances) for lf in labels.labeled_frames)
             object_label = "instances"
@@ -2092,7 +2189,11 @@ class Predictor:
                 "(or `sleap-nn predict --save_embeddings slp`) instead."
             )
 
-        if self.skeleton is None and not self._is_segmentation_layer():
+        if (
+            self.skeleton is None
+            and not self._is_segmentation_layer()
+            and not self._is_bbox_layer()
+        ):
             raise ValueError(
                 "predict_to_file requires a skeleton. Either pass "
                 "`skeleton=...` or build the Predictor via Predictor.from_model_paths() "
@@ -2129,6 +2230,7 @@ class Predictor:
             source=pkg.source,
             mask_output=getattr(self.layer, "mask_output", "mask"),
             polygon_epsilon=getattr(self.layer, "polygon_epsilon", 0.01),
+            bbox_categories=self._bbox_categories(),
         )
         _prov_start = datetime.now()
         with writer:
@@ -2364,6 +2466,7 @@ class Predictor:
                 mask_output=mask_output,
                 polygon_epsilon=polygon_epsilon,
                 keep_empty_frames=keep_empty_frames,
+                bbox_categories=self._bbox_categories(),
             )
             all_lf.extend(sub.labeled_frames)
             for trk in sub.tracks:
@@ -2381,7 +2484,7 @@ class Predictor:
         labels = sio.Labels(
             labeled_frames=all_lf,
             videos=valid_videos,
-            skeletons=[out_skeleton],
+            skeletons=[out_skeleton] if out_skeleton is not None else [],
         )
         if used_tracks:
             labels.tracks = used_tracks
@@ -2484,6 +2587,18 @@ class Predictor:
                 TiledSemanticSegmentationLayer,
             ),
         )
+
+    def _is_bbox_layer(self) -> bool:
+        """``True`` iff ``layer`` is a bounding-box detection layer.
+
+        Detectors are skeleton-less: they emit ``Outputs.pred_bboxes`` packaged as
+        ``sio.PredictedBoundingBox`` on ``LabeledFrame.bboxes``.
+        """
+        return isinstance(self.layer, BBoxLayer)
+
+    def _bbox_categories(self) -> Optional[List[str]]:
+        """The detector's ordered class names (``None`` for non-detection layers)."""
+        return self.layer.categories if self._is_bbox_layer() else None
 
     def _is_embedding_layer(self) -> bool:
         """``True`` iff ``layer`` is an appearance-embedding (re-ID) layer.

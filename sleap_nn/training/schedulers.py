@@ -5,7 +5,35 @@ used in deep learning for pose estimation and computer vision tasks.
 """
 
 import math
+from typing import List, Sequence, Union
+
 from torch.optim.lr_scheduler import LRScheduler
+
+
+def _per_group(
+    value: Union[float, Sequence[float]], optimizer, name: str
+) -> List[float]:
+    """Broadcast a scalar LR setting to every param group (or check a per-group list).
+
+    Args:
+        value: One learning rate for every group, or one per param group.
+        optimizer: The wrapped optimizer.
+        name: Argument name, for error messages.
+
+    Returns:
+        One non-negative value per param group.
+    """
+    n = len(optimizer.param_groups)
+    values = (
+        [float(v) for v in value] if isinstance(value, Sequence) else [float(value)] * n
+    )
+    if len(values) != n:
+        raise ValueError(
+            f"{name} has {len(values)} values but the optimizer has {n} param groups"
+        )
+    if any(v < 0 for v in values):
+        raise ValueError(f"{name} must be >= 0, got {value}")
+    return values
 
 
 class LinearWarmupCosineAnnealingLR(LRScheduler):
@@ -22,8 +50,10 @@ class LinearWarmupCosineAnnealingLR(LRScheduler):
         optimizer: Wrapped optimizer.
         warmup_epochs: Number of epochs for the linear warmup phase.
         max_epochs: Total number of training epochs.
-        warmup_start_lr: Learning rate at the start of warmup. Default: 0.0.
-        eta_min: Minimum learning rate at the end of the schedule. Default: 0.0.
+        warmup_start_lr: Learning rate at the start of warmup, or one per param
+            group. Default: 0.0.
+        eta_min: Minimum learning rate at the end of the schedule, or one per
+            param group. Default: 0.0.
         last_epoch: The index of the last epoch. Default: -1.
 
     Example:
@@ -41,8 +71,8 @@ class LinearWarmupCosineAnnealingLR(LRScheduler):
         optimizer,
         warmup_epochs: int,
         max_epochs: int,
-        warmup_start_lr: float = 0.0,
-        eta_min: float = 0.0,
+        warmup_start_lr: Union[float, Sequence[float]] = 0.0,
+        eta_min: Union[float, Sequence[float]] = 0.0,
         last_epoch: int = -1,
     ):
         """Initialize the scheduler.
@@ -51,8 +81,10 @@ class LinearWarmupCosineAnnealingLR(LRScheduler):
             optimizer: Wrapped optimizer.
             warmup_epochs: Number of epochs for the linear warmup phase.
             max_epochs: Total number of training epochs.
-            warmup_start_lr: Learning rate at the start of warmup. Default: 0.0.
-            eta_min: Minimum learning rate at the end of the schedule. Default: 0.0.
+            warmup_start_lr: Learning rate at the start of warmup, or one per
+                param group. Default: 0.0.
+            eta_min: Minimum learning rate at the end of the schedule, or one per
+                param group. Default: 0.0.
             last_epoch: The index of the last epoch. Default: -1.
         """
         if warmup_epochs < 0:
@@ -63,10 +95,10 @@ class LinearWarmupCosineAnnealingLR(LRScheduler):
             raise ValueError(
                 f"warmup_epochs ({warmup_epochs}) must be < max_epochs ({max_epochs})"
             )
-        if warmup_start_lr < 0:
-            raise ValueError(f"warmup_start_lr must be >= 0, got {warmup_start_lr}")
-        if eta_min < 0:
-            raise ValueError(f"eta_min must be >= 0, got {eta_min}")
+        self._warmup_start_lrs = _per_group(
+            warmup_start_lr, optimizer, "warmup_start_lr"
+        )
+        self._eta_mins = _per_group(eta_min, optimizer, "eta_min")
 
         self.warmup_epochs = warmup_epochs
         self.max_epochs = max_epochs
@@ -82,21 +114,20 @@ class LinearWarmupCosineAnnealingLR(LRScheduler):
                 return list(self.base_lrs)
             alpha = self.last_epoch / self.warmup_epochs
             return [
-                self.warmup_start_lr + alpha * (base_lr - self.warmup_start_lr)
-                for base_lr in self.base_lrs
+                start + alpha * (base_lr - start)
+                for start, base_lr in zip(self._warmup_start_lrs, self.base_lrs)
             ]
         else:
             # Cosine annealing phase
             decay_epochs = self.max_epochs - self.warmup_epochs
             if decay_epochs == 0:
-                return [self.eta_min for _ in self.base_lrs]
+                return list(self._eta_mins)
             progress = (self.last_epoch - self.warmup_epochs) / decay_epochs
             # Clamp progress to [0, 1] to handle epochs beyond max_epochs
             progress = min(1.0, progress)
             return [
-                self.eta_min
-                + (base_lr - self.eta_min) * (1 + math.cos(math.pi * progress)) / 2
-                for base_lr in self.base_lrs
+                eta_min + (base_lr - eta_min) * (1 + math.cos(math.pi * progress)) / 2
+                for eta_min, base_lr in zip(self._eta_mins, self.base_lrs)
             ]
 
 
@@ -114,8 +145,10 @@ class LinearWarmupLinearDecayLR(LRScheduler):
         optimizer: Wrapped optimizer.
         warmup_epochs: Number of epochs for the linear warmup phase.
         max_epochs: Total number of training epochs.
-        warmup_start_lr: Learning rate at the start of warmup. Default: 0.0.
-        end_lr: Learning rate at the end of training. Default: 0.0.
+        warmup_start_lr: Learning rate at the start of warmup, or one per param
+            group. Default: 0.0.
+        end_lr: Learning rate at the end of training, or one per param group.
+            Default: 0.0.
         last_epoch: The index of the last epoch. Default: -1.
 
     Example:
@@ -133,8 +166,8 @@ class LinearWarmupLinearDecayLR(LRScheduler):
         optimizer,
         warmup_epochs: int,
         max_epochs: int,
-        warmup_start_lr: float = 0.0,
-        end_lr: float = 0.0,
+        warmup_start_lr: Union[float, Sequence[float]] = 0.0,
+        end_lr: Union[float, Sequence[float]] = 0.0,
         last_epoch: int = -1,
     ):
         """Initialize the scheduler.
@@ -143,8 +176,10 @@ class LinearWarmupLinearDecayLR(LRScheduler):
             optimizer: Wrapped optimizer.
             warmup_epochs: Number of epochs for the linear warmup phase.
             max_epochs: Total number of training epochs.
-            warmup_start_lr: Learning rate at the start of warmup. Default: 0.0.
-            end_lr: Learning rate at the end of training. Default: 0.0.
+            warmup_start_lr: Learning rate at the start of warmup, or one per
+                param group. Default: 0.0.
+            end_lr: Learning rate at the end of training, or one per param group.
+                Default: 0.0.
             last_epoch: The index of the last epoch. Default: -1.
         """
         if warmup_epochs < 0:
@@ -155,10 +190,10 @@ class LinearWarmupLinearDecayLR(LRScheduler):
             raise ValueError(
                 f"warmup_epochs ({warmup_epochs}) must be < max_epochs ({max_epochs})"
             )
-        if warmup_start_lr < 0:
-            raise ValueError(f"warmup_start_lr must be >= 0, got {warmup_start_lr}")
-        if end_lr < 0:
-            raise ValueError(f"end_lr must be >= 0, got {end_lr}")
+        self._warmup_start_lrs = _per_group(
+            warmup_start_lr, optimizer, "warmup_start_lr"
+        )
+        self._end_lrs = _per_group(end_lr, optimizer, "end_lr")
 
         self.warmup_epochs = warmup_epochs
         self.max_epochs = max_epochs
@@ -174,18 +209,18 @@ class LinearWarmupLinearDecayLR(LRScheduler):
                 return list(self.base_lrs)
             alpha = self.last_epoch / self.warmup_epochs
             return [
-                self.warmup_start_lr + alpha * (base_lr - self.warmup_start_lr)
-                for base_lr in self.base_lrs
+                start + alpha * (base_lr - start)
+                for start, base_lr in zip(self._warmup_start_lrs, self.base_lrs)
             ]
         else:
             # Linear decay phase
             decay_epochs = self.max_epochs - self.warmup_epochs
             if decay_epochs == 0:
-                return [self.end_lr for _ in self.base_lrs]
+                return list(self._end_lrs)
             progress = (self.last_epoch - self.warmup_epochs) / decay_epochs
             # Clamp progress to [0, 1] to handle epochs beyond max_epochs
             progress = min(1.0, progress)
             return [
-                base_lr + progress * (self.end_lr - base_lr)
-                for base_lr in self.base_lrs
+                base_lr + progress * (end_lr - base_lr)
+                for end_lr, base_lr in zip(self._end_lrs, self.base_lrs)
             ]

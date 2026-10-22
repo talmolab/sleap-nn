@@ -410,6 +410,8 @@ def predict(
     full_res_masks: bool = False,
     mask_output: str = "mask",
     polygon_epsilon: float = 0.01,
+    # Bounding-box detector knob (construction-time; bbox_* models only)
+    bbox_nms_iou: Optional[float] = None,
     # SAM prompted-mask producer (explicit, no default; PLAN L2). When set, masks
     # are produced from the existing poses in ``source`` (no trained seg model).
     mask_backend: Optional[str] = None,
@@ -519,6 +521,10 @@ def predict(
             segmentation only).
         polygon_epsilon: Douglas-Peucker tolerance (fraction of perimeter) for
             ``mask_output`` polygon/both (bottom-up segmentation only).
+        bbox_nms_iou: Class-wise IoU-NMS threshold for bounding-box detectors
+            (``None``: the style default, 0.45 for SSD / off for CenterNet; ``1.0``
+            disables it). ``peak_threshold`` is their score threshold and
+            ``max_instances`` their per-frame detection cap.
         mask_backend: **Explicit** SAM mask backend (PLAN L2): ``"sam"`` (SAM1) /
             ``"sam3"`` (PR-B). When set, ``source`` is treated as a pose ``.slp``
             and masks are predicted from its existing instances (no trained seg
@@ -728,6 +734,7 @@ def predict(
         build_kwargs["mask_cleanup"] = mask_cleanup
         build_kwargs["mask_cleanup_radius"] = mask_cleanup_radius
         build_kwargs["distance_gate_alpha"] = distance_gate_alpha
+        build_kwargs["bbox_nms_iou"] = bbox_nms_iou
         build_kwargs["merge_fragments"] = merge_fragments
         build_kwargs["merge_method"] = merge_method
         build_kwargs["merge_thresholds"] = merge_thresholds

@@ -648,6 +648,19 @@ def run_inference(
                     "  from sleap_nn.inference.run import predict\n"
                     "  predict(src, model_paths=[centroid_dir, seg_dir])"
                 )
+            if "bbox_centernet" in _types or "bbox_ssd" in _types:
+                # Box detectors emit `sio.PredictedBoundingBox`es, which the legacy
+                # pose pipeline has no output path for.
+                raise ValueError(
+                    "Bounding-box models are not supported by the legacy "
+                    "`track` / `run_inference` pipeline (they emit boxes, not "
+                    "poses). Use the new flow:\n"
+                    "  sleap-nn predict --data_path <video|.slp> "
+                    "--model_paths <bbox_dir>\n"
+                    "or, from Python:\n"
+                    "  from sleap_nn.inference.run import predict\n"
+                    "  predict(src, model_paths=[bbox_dir])"
+                )
 
         start_inf_time = time()
         start_datetime = datetime.now()

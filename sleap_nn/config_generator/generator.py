@@ -379,9 +379,15 @@ class ConfigGenerator:
           CI preprocessing (crop_size), scale=1.0, sigma=2.5, output_stride=2.
         - ``single_instance``, ``bottomup``, ``multi_class_bottomup``: main
           preprocessing, scale=1.0, sigma=5.0, output_stride=2.
+        - ``bbox_centernet``, ``bbox_ssd``: bounding-box detectors trained on
+          boxes derived from the poses (``bbox_source: auto``). Main
+          preprocessing, scale=0.5, output_stride=4 (CenterNet) / 8 (SSD, whose
+          three anchor levels need max_stride >= 32), rotation augmentation off
+          (rotated corners inflate the box), and evaluation on so checkpoints
+          are selected on ``eval/val/bbox_mAP``.
 
         Args:
-            pipeline: One of the six canonical pipeline types.
+            pipeline: A canonical pipeline type (see ``PipelineType``).
 
         Returns:
             self for method chaining.
@@ -422,6 +428,15 @@ class ConfigGenerator:
             # CI stages operate on cropped instances; max_stride=16 is the
             # web-app default ("ci-max-stride" HTML).
             self._max_stride = 16
+        elif pipeline in ("bbox_centernet", "bbox_ssd"):
+            self._input_scale = 0.5
+            self._output_stride = 4 if pipeline == "bbox_centernet" else 8
+            self._rotation_range = (0.0, 0.0)
+            self._enable_eval = True
+            self._recalculate_max_stride()
+            if pipeline == "bbox_ssd":
+                # Anchor levels at strides 8/16/32 read the bottleneck at 32.
+                self._max_stride = max(self._max_stride, 32)
         else:  # single_instance, bottomup, multi_class_bottomup
             self._input_scale = 1.0
             self._sigma = 5.0
@@ -657,6 +672,11 @@ class ConfigGenerator:
         """Check if current pipeline is top-down (requires 2 models)."""
         return self._pipeline in ("centroid", "multi_class_topdown")
 
+    @property
+    def is_bbox(self) -> bool:
+        """Check if current pipeline is a bounding-box detector."""
+        return self._pipeline in ("bbox_centernet", "bbox_ssd")
+
     def build(self) -> DictConfig:
         """Build the configuration as an OmegaConf DictConfig.
 
@@ -732,6 +752,11 @@ class ConfigGenerator:
             "use_augmentations_train": self._use_augmentations,
             "augmentation_config": self._build_augmentation_config(),
         }
+        if self.is_bbox:
+            # GT boxes: the file's user boxes if it has any, else the tight box of
+            # each user instance's visible points (else of each mask).
+            config["bbox_source"] = "auto"
+            config["bbox_padding"] = 0.0
         return config
 
     def _build_augmentation_config(self) -> Optional[dict]:
@@ -769,14 +794,21 @@ class ConfigGenerator:
 
         if has_rotation or has_scale or has_translate:
             geometric: dict = {}
+            # An omitted rotation/scale would fall back to the schema's default
+            # (+-15 deg / 0.9-1.1, applied with p=1.0), so a disabled one is
+            # switched off explicitly.
             if has_rotation:
                 geometric["rotation_min"] = float(rot_min)
                 geometric["rotation_max"] = float(rot_max)
                 geometric["rotation_p"] = 1.0
+            else:
+                geometric["rotation_p"] = 0.0
             if has_scale:
                 geometric["scale_min"] = float(scale_min)
                 geometric["scale_max"] = float(scale_max)
                 geometric["scale_p"] = 1.0
+            else:
+                geometric["scale_p"] = 0.0
             if has_translate:
                 geometric["translate_width"] = float(self._translate)
                 geometric["translate_height"] = float(self._translate)
@@ -862,9 +894,10 @@ class ConfigGenerator:
     def _build_head_config(self) -> dict:
         """Build head configuration based on pipeline type.
 
-        All six head keys are emitted with exactly one non-null value, matching
-        the canonical ``HeadConfig`` ``oneof`` schema and the web app's
-        ``generateConfigYaml`` head section.
+        All six pose head keys are emitted with exactly one non-null value,
+        matching the canonical ``HeadConfig`` ``oneof`` schema and the web app's
+        ``generateConfigYaml`` head section. The bounding-box pipelines add their
+        own head key (the one non-null value) next to the six null pose keys.
         """
         part_names = list(self.stats.node_names) if self.stats else []
         edges = list(getattr(self.stats, "edges", []) or [])
@@ -968,6 +1001,30 @@ class ConfigGenerator:
                     "output_stride": self._max_stride,
                     "loss_weight": self._class_loss_weight,
                 },
+            }
+
+        elif self._pipeline == "bbox_centernet":
+            # Categories are filled from the training boxes at train time; a null
+            # sigma sizes each Gaussian from its box (CenterNet's radius rule).
+            head_configs["bbox_centernet"] = {
+                "center": {
+                    "categories": None,
+                    "sigma": None,
+                    "output_stride": self._output_stride,
+                },
+                "size": {"output_stride": self._output_stride, "loss_weight": 0.1},
+                "offset": {"output_stride": self._output_stride, "loss_weight": 1.0},
+            }
+
+        elif self._pipeline == "bbox_ssd":
+            # Anchor sizes are auto-sized from the training boxes at train time.
+            head_configs["bbox_ssd"] = {
+                "ssd": {
+                    "categories": None,
+                    "output_stride": self._output_stride,
+                    "num_levels": 3,
+                    "anchor_sizes": None,
+                }
             }
 
         return head_configs

@@ -1586,6 +1586,182 @@ class EmbeddingConfig:
     embedding: Optional[EmbeddingHeadConfig] = None
 
 
+# ---------------------------------------------------------------------------
+# Bounding-box detection head configs (the `bbox_*` model family). Two detection
+# styles share one data pipeline (`sleap_nn.data.bboxes`), one output type
+# (`sio.PredictedBoundingBox` on `LabeledFrame.bboxes`) and one COCO-style eval
+# (`match_method="bbox"`); they differ only in their heads, targets and decoder.
+# ---------------------------------------------------------------------------
+BBOX_MODEL_TYPES = ("bbox_centernet", "bbox_ssd")
+
+# Class name given to boxes that carry no `sio.Category`.
+DEFAULT_BBOX_CATEGORY = "object"
+
+
+@define
+class BBoxCenterHeadConfig:
+    """Center-heatmap head of a ``bbox_centernet`` model.
+
+    One sigmoid heatmap channel per category with a Gaussian peak at each box
+    center (CenterNet, Zhou et al. 2019), trained with the penalty-reduced pixelwise
+    focal loss of CornerNet/CenterNet.
+
+    Attributes:
+        categories: (List[str]) Ordered class names; one heatmap channel per entry.
+            ``None`` (default) is filled in at training setup from the categories of
+            the training boxes, in first-seen order; boxes without a category belong
+            to the single class ``"object"``.
+        sigma: (float) Fixed Gaussian sigma in input pixels. ``None`` (default) uses
+            CenterNet's size-adaptive radius instead: the largest radius at which a
+            box whose corners move by that much still has IoU >= ``min_overlap``
+            with the GT box, and ``sigma = (2 * radius + 1) / 6``.
+        min_overlap: (float) IoU used by the size-adaptive radius. *Default*: ``0.7``.
+        output_stride: (int) Stride of the heatmap relative to the input image.
+            Must equal the ``size`` and ``offset`` strides. *Default*: ``4``.
+        loss_weight: (float) Weight of the heatmap focal loss. *Default*: ``1.0``.
+        focal_alpha: (float) Focal exponent on the prediction error. *Default*:
+            ``2.0``.
+        focal_beta: (float) Exponent of the penalty reduction around GT peaks.
+            *Default*: ``4.0``.
+    """
+
+    categories: Optional[List[str]] = None
+    sigma: Optional[float] = None
+    min_overlap: float = 0.7
+    output_stride: int = 4
+    loss_weight: float = 1.0
+    focal_alpha: float = 2.0
+    focal_beta: float = 4.0
+
+
+@define
+class BBoxSizeHeadConfig:
+    """Box-size regression head of a ``bbox_centernet`` model.
+
+    Two channels (width, height) regressed at each box's center cell, in units of
+    output-grid cells, with an L1 loss masked to center cells.
+
+    Attributes:
+        output_stride: (int) Must equal the center head's stride. *Default*: ``4``.
+        loss_weight: (float) Weight of the size L1 loss. *Default*: ``0.1``
+            (CenterNet's value; sizes are large numbers next to the focal loss).
+    """
+
+    output_stride: int = 4
+    loss_weight: float = 0.1
+
+
+@define
+class BBoxOffsetHeadConfig:
+    """Sub-cell center offset head of a ``bbox_centernet`` model.
+
+    Two channels recovering the center's position inside its output-grid cell,
+    i.e. the quantization error of the stride, with an L1 loss masked to center
+    cells.
+
+    Attributes:
+        output_stride: (int) Must equal the center head's stride. *Default*: ``4``.
+        loss_weight: (float) Weight of the offset L1 loss. *Default*: ``1.0``.
+    """
+
+    output_stride: int = 4
+    loss_weight: float = 1.0
+
+
+@define
+class BBoxCenterNetConfig:
+    """Head config for the ``bbox_centernet`` (CenterNet-style) model type.
+
+    A whole-frame, anchor-free detector: a center heatmap plus per-center size and
+    offset regression. Decoding takes the heatmap's local maxima as detections and
+    reads each one's box from the size/offset maps (no anchors, no grouping).
+    """
+
+    center: Optional[BBoxCenterHeadConfig] = None
+    size: Optional[BBoxSizeHeadConfig] = None
+    offset: Optional[BBoxOffsetHeadConfig] = None
+
+
+@define
+class SSDHeadConfig:
+    """Multi-scale anchor head of a ``bbox_ssd`` (SSD-style) model.
+
+    Binds to ``num_levels`` feature maps of the backbone at strides
+    ``output_stride * 2**i`` (the decoder's top-down path is the feature pyramid;
+    the bottleneck supplies the deepest level). Each level runs a small conv tower
+    and predicts, for each of its anchors, ``len(categories) + 1`` class logits
+    (index 0 is background) and 4 box deltas in SSD's ``(cx, cy, w, h)`` encoding.
+    Training matches anchors to boxes by IoU and uses softmax cross-entropy with
+    hard negative mining plus smooth-L1 on the positives (Liu et al. 2016).
+
+    Attributes:
+        categories: (List[str]) Ordered class names (background excluded). ``None``
+            (default) is filled in at training setup, as for ``bbox_centernet``.
+        output_stride: (int) Stride of the finest pyramid level. *Default*: ``8``.
+        num_levels: (int) Number of pyramid levels. The deepest one,
+            ``output_stride * 2**(num_levels - 1)``, must not exceed the backbone's
+            ``max_stride`` (it is raised to fit, as for any head stride). *Default*:
+            ``3``.
+        anchor_sizes: (List[float]) Base anchor size (sqrt of the area, in input
+            pixels) per level, finest first. ``None`` (default) sizes them at
+            training setup from the training boxes: geometrically spaced between the
+            5th and 95th percentile of ``sqrt(w * h)``. The resolved sizes are
+            written into the saved config so inference uses the same anchors.
+        anchor_scales: (List[float]) Multipliers on each level's base size.
+            *Default*: ``(1.0, 1.26, 1.587)`` (``2 ** (0, 1/3, 2/3)``).
+        aspect_ratios: (List[float]) Anchor ``h / w`` ratios. *Default*:
+            ``(0.5, 1.0, 2.0)``.
+        pos_iou_threshold: (float) An anchor with IoU >= this with some box is a
+            positive for it. Each box's best anchor is always a positive too.
+            *Default*: ``0.5``.
+        neg_iou_threshold: (float) Anchors whose best IoU is below this are
+            background; those in between are ignored. *Default*: ``0.4``.
+        neg_pos_ratio: (float) Hard negative mining keeps this many of the
+            highest-loss background anchors per positive. *Default*: ``3.0``.
+        box_variances: (List[float]) SSD's ``(cx, cy, w, h)`` encoding variances.
+            *Default*: ``(0.1, 0.1, 0.2, 0.2)``.
+        head_channels: (int) Channels of each level's conv tower. *Default*:
+            ``128``.
+        head_convs: (int) 3x3 conv + ReLU layers in each level's tower before the
+            predictors. *Default*: ``1``.
+        loss_weight: (float) Weight of the box regression loss relative to the
+            classification loss. *Default*: ``1.0``.
+    """
+
+    categories: Optional[List[str]] = None
+    output_stride: int = 8
+    num_levels: int = field(default=3, validator=validators.ge(1))
+    anchor_sizes: Optional[List[float]] = None
+    # Tuples, not `field(factory=...)`: OmegaConf cannot call an attrs Factory when
+    # it builds this class from its type (see `NegativesConfig.sources`).
+    anchor_scales: List[float] = (1.0, 1.26, 1.587)
+    aspect_ratios: List[float] = (0.5, 1.0, 2.0)
+    pos_iou_threshold: float = 0.5
+    neg_iou_threshold: float = 0.4
+    neg_pos_ratio: float = 3.0
+    box_variances: List[float] = (0.1, 0.1, 0.2, 0.2)
+    head_channels: int = 128
+    head_convs: int = 1
+    loss_weight: float = 1.0
+
+
+def ssd_level_strides(ssd_config) -> List[int]:
+    """Pyramid level strides of an ``SSDHeadConfig`` (or its DictConfig), finest first."""
+    return [
+        int(ssd_config.output_stride) * 2**i for i in range(int(ssd_config.num_levels))
+    ]
+
+
+@define
+class BBoxSSDConfig:
+    """Head config for the ``bbox_ssd`` (SSD-style, anchor-based) model type.
+
+    Wraps the single multi-scale ``ssd`` leaf (mirrors ``SemanticSegmentationConfig``).
+    """
+
+    ssd: Optional[SSDHeadConfig] = None
+
+
 @oneof
 @define
 class HeadConfig:
@@ -1605,6 +1781,8 @@ class HeadConfig:
             `CenteredInstanceSegmentationConfig`.
         semantic_segmentation: An instance of `SemanticSegmentationConfig`.
         embedding: An instance of `EmbeddingConfig`.
+        bbox_centernet: An instance of `BBoxCenterNetConfig`.
+        bbox_ssd: An instance of `BBoxSSDConfig`.
     """
 
     single_instance: Optional[SingleInstanceConfig] = None
@@ -1617,16 +1795,22 @@ class HeadConfig:
     centered_instance_segmentation: Optional[CenteredInstanceSegmentationConfig] = None
     semantic_segmentation: Optional[SemanticSegmentationConfig] = None
     embedding: Optional[EmbeddingConfig] = None
+    bbox_centernet: Optional[BBoxCenterNetConfig] = None
+    bbox_ssd: Optional[BBoxSSDConfig] = None
 
 
 @define
 class PretrainedConfig:
     """Configuration for an external pretrained backbone (HuggingFace).
 
-    Reuses an external pretrained image encoder (ConvNeXtV2, ResNet, Swinv2,
-    DINOv2, ...) as the model backbone via `transformers` `AutoBackbone`. See
-    ``sleap_nn.architectures.pretrained.PretrainedBackbone`` for the two
-    integration surfaces (hierarchical decoder vs. encoder-only pooled).
+    Reuses an external pretrained image encoder from the HuggingFace Hub as the
+    model backbone: hierarchical encoders (ConvNeXtV2, ResNet, Swinv2, DINOv3
+    ConvNeXt, ...) via `transformers` `AutoBackbone`, and plain ViTs (DINOv2/v3,
+    CLIP, SigLIP, MAE, ...) via `AutoModel` hidden states; ``timm/...`` ids load
+    through transformers' `TimmWrapperModel`. See
+    ``sleap_nn.architectures.pretrained.PretrainedBackbone`` for the three
+    integration surfaces (hierarchical decoder, encoder-only pooled, plain ViT +
+    pyramid neck + decoder).
 
     Attributes:
         source: (str) Backbone source. Only ``"hf"`` (HuggingFace `transformers`)
@@ -1639,9 +1823,10 @@ class PretrainedConfig:
             config (no network) — useful for tests and cold-start training.
             *Default*: ``True``.
         mode: (str) One of ``"auto"``, ``"decoder"`` (Case A: hierarchical encoder
-            + sleap decoder for spatial heads), ``"encoder"`` (Case B: encoder-only
-            pooled bottleneck for class-vectors/embedding heads). *Default*:
-            ``"auto"``.
+            + sleap decoder; Case C for a plain ViT: pyramid neck + decoder),
+            ``"encoder"`` (Case B: encoder-only pooled bottleneck for
+            class-vectors/embedding heads). ``"auto"`` picks the decoder whenever
+            the model has a spatial head. *Default*: ``"auto"``.
         freeze: (bool) If ``True``, freeze the pretrained encoder (feature
             extraction; only the decoder/head train). *Default*: ``False``.
         revision: (str) Optional HuggingFace revision (commit sha / tag) to pin for
@@ -1656,6 +1841,9 @@ class PretrainedConfig:
             *Default*: ``None``.
         out_indices: (List[int]) Optional explicit stage indices to tap (Case A).
             If ``None``, all stages are requested and deduplicated by stride.
+            Indices follow the source: an HF backbone's ``stage_names`` (``0`` is
+            the stem, so a ConvNeXt's stages are ``[1, 2, 3, 4]``) or a
+            ``timm/...`` checkpoint's ``feature_info`` (``0`` is the first stage).
             *Default*: ``None``.
         in_channels: (int) Number of input channels the stem expects. Pretrained
             stems are 3-channel; grayscale is replicated upstream. *Default*: ``3``.
@@ -1668,7 +1856,38 @@ class PretrainedConfig:
         output_stride: (int) Stride of the finest decoder output (Case A).
             *Default*: ``2``.
         max_stride: (int) Deepest stride the encoder reaches (``32`` for
-            hierarchical CNN/Swin; patch size for a ViT). *Default*: ``32``.
+            hierarchical CNN/Swin; twice the token stride for a plain ViT, i.e.
+            ``32`` at the default token stride of 16). *Default*: ``32``.
+        layers: (List[int]) Plain-ViT layers to tap for the feature-pyramid neck,
+            1-indexed (negative counts from the last). ``None`` taps 4 evenly
+            spaced layers ending at the last (``vit_neck: dpt``) or the last layer
+            (``sfp``). *Default*: ``None``.
+        vit_neck: (str) How a plain ViT's single-stride token maps become the
+            stride ``s/4..2s`` pyramid the decoder needs: ``"dpt"`` (one tapped
+            layer per level) or ``"sfp"`` (ViTDet Simple Feature Pyramid from the
+            last tapped layer). *Default*: ``"dpt"``.
+        neck_channels: (List[int]) Channels of the 4 neck levels, finest first.
+            ``None`` uses ``[h/8, h/4, h/2, h]`` for ViT hidden size ``h``.
+            *Default*: ``None``.
+        token_stride: (int) Effective stride of a plain ViT's token grid; the
+            input is resampled so the grid is ``H / token_stride`` tokens tall
+            whatever the patch size (power of two). ``None`` uses the power of two
+            nearest the patch size (16 for a patch-14 DINOv2). Use ``8`` for a
+            finer grid at ~4x encoder cost (then ``max_stride: 16`` suffices).
+            *Default*: ``None``.
+        gradient_checkpointing: (bool) Enable gradient checkpointing in the
+            encoder while training (less memory, slower). *Default*: ``False``.
+        encoder_lr_scale: (float) Learning-rate multiplier for the pretrained
+            encoder relative to the neck/decoder/heads. *Default*: ``1.0``.
+        layer_decay: (float) Optional layer-wise LR decay for a plain ViT
+            encoder: block ``i`` of ``L`` trains at
+            ``encoder_lr_scale * layer_decay**(L + 1 - i)`` times the base LR.
+            *Default*: ``None`` (off).
+        detail_stem: (bool) Add a light conv stream on the image whose stride
+            2/4/8 features join a plain ViT's pyramid as decoder skips (real
+            high-resolution detail below the token stride). *Default*: ``False``.
+        detail_channels: (List[int]) Detail-stem channels at strides 2, 4, 8
+            (exactly three). ``None`` uses ``[32, 64, 128]``. *Default*: ``None``.
     """
 
     source: str = "hf"
@@ -1688,6 +1907,15 @@ class PretrainedConfig:
     up_interpolate: bool = True
     output_stride: int = 2
     max_stride: int = 32
+    layers: Optional[List[int]] = None
+    vit_neck: str = "dpt"
+    neck_channels: Optional[List[int]] = None
+    token_stride: Optional[int] = None
+    gradient_checkpointing: bool = False
+    encoder_lr_scale: float = 1.0
+    layer_decay: Optional[float] = None
+    detail_stem: bool = False
+    detail_channels: Optional[List[int]] = None
 
 
 @oneof

@@ -279,6 +279,23 @@ sleap-nn predict -i video.mp4 -m models/bottomup_segmentation/ \
     --mask_output both --polygon_epsilon 0.02
 ```
 
+### Bounding Boxes
+
+Box detectors (`bbox_centernet`, `bbox_ssd`) write `sio.PredictedBoundingBox` on
+`LabeledFrame.bboxes`:
+
+```bash
+sleap-nn predict -i video.mp4 -m models/bbox_ssd/ --peak_threshold 0.3 --bbox_nms_iou 0.5
+```
+
+**How parameters apply:**
+
+- `--peak_threshold`: detection score threshold
+- `--max_instances`: boxes kept per frame (default 100)
+- `--bbox_nms_iou`: class-wise IoU-NMS threshold (default 0.45 for SSD, off for CenterNet)
+- Tracking and the instance filters do not apply to boxes. See the
+  [Bounding-box detection guide](bbox-detection.md).
+
 ---
 
 ## Filtering Instances

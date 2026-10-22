@@ -300,6 +300,9 @@ class ConfigState:
 
         # Evaluation config
         self._evaluation: EvaluationConfig = EvaluationConfig()
+        # Settings a bounding-box pick overrode (output stride, rotation, eval),
+        # restored when a pose model is picked again.
+        self._pre_bbox_settings: Optional[Dict[str, Any]] = None
 
         # Observers for reactive updates
         self._observers: List[Callable[[], None]] = []

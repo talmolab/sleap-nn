@@ -163,6 +163,64 @@ class TestExportCommand:
         # Just check it doesn't crash unexpectedly
         assert result.exception is None or isinstance(result.exception, SystemExit)
 
+    def test_crop_models_are_traced_at_their_crop_size(
+        self, minimal_instance_centered_instance_ckpt, tmp_path, monkeypatch
+    ):
+        """A centered-instance graph takes crops: trace it at the crop size (the
+        size a RoPE backbone's static export fixes), not at a 512 frame."""
+        import sleap_nn.export.exporters as exporters
+        from sleap_nn.export.cli import export
+
+        seen = {}
+        real = exporters.export_to_onnx
+
+        def spy(*args, **kwargs):
+            seen.update(kwargs)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(exporters, "export_to_onnx", spy)
+        result = CliRunner().invoke(
+            export,
+            [
+                str(minimal_instance_centered_instance_ckpt),
+                "-o",
+                str(tmp_path / "out"),
+                "--format",
+                "onnx",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert tuple(seen["input_shape"][2:]) == (96, 96)  # crop_size, not 384
+
+    def test_topdown_static_size_follows_the_centroid_model(
+        self,
+        minimal_instance_centroid_ckpt,
+        minimal_instance_centered_instance_ckpt,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Only the centroid model sees the frame size, so only it decides
+        whether a top-down graph needs a fixed input size."""
+        import sleap_nn.export.exporters as exporters
+        from sleap_nn.export.cli import export
+
+        seen = {}
+        monkeypatch.setattr(
+            exporters, "export_to_onnx", lambda *a, **kw: seen.update(kw)
+        )
+        CliRunner().invoke(
+            export,
+            [
+                str(minimal_instance_centroid_ckpt),
+                str(minimal_instance_centered_instance_ckpt),
+                "-o",
+                str(tmp_path / "out"),
+                "--format",
+                "onnx",
+            ],
+        )
+        assert seen["static_hw"] is False  # UNet centroid: no RoPE
+
     def test_export_command_invalid_path(self, tmp_path):
         """Test that non-existent path produces an error."""
         from sleap_nn.export.cli import export

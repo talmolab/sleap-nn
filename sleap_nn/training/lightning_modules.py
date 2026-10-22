@@ -1,6 +1,6 @@
 """This module has the LightningModule classes for all model types."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Optional, Union, Dict, Any, List, Tuple
 import math
 import time
@@ -44,8 +44,13 @@ from sleap_nn.training.losses import (
     compute_masked_smooth_l1,
     build_contrastive_masks,
     compute_centroid_focal_loss,
+    compute_centernet_focal_loss,
+    compute_masked_l1,
+    compute_ssd_loss,
     get_contrastive_loss,
 )
+from sleap_nn.data.bboxes import bbox_head_categories
+from sleap_nn.inference.bbox import BBoxDecoder
 from loguru import logger
 from sleap_nn.training.utils import (
     xavier_init_weights,
@@ -320,10 +325,12 @@ class LightningModel(L.LightningModule):
             "centered_instance_segmentation": TopDownCenteredInstanceSegmentationLightningModule,
             "semantic_segmentation": SemanticSegmentationLightningModule,
             "embedding": EmbeddingLightningModule,
+            "bbox_centernet": BBoxCenterNetLightningModule,
+            "bbox_ssd": BBoxSSDLightningModule,
         }
 
         if model_type not in lightning_models:
-            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`, `semantic_segmentation`, `embedding`]"
+            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`, `semantic_segmentation`, `embedding`, `bbox_centernet`, `bbox_ssd`]"
             logger.error(message)
             raise ValueError(message)
 
@@ -775,6 +782,24 @@ class LightningModel(L.LightningModule):
         """Validation step."""
         pass
 
+    def _trainable_param_groups(self):
+        """Parameters that require grad, split into LR groups when asked for.
+
+        A ``pretrained`` backbone can train its encoder at a scaled (and, for a
+        plain ViT, layer-wise decayed) learning rate; everything else -- neck,
+        decoder, heads -- trains at ``self.lr``. Without those options this is the
+        flat list of trainable parameters (a single optimizer group, as before).
+        """
+        trainable = [p for p in self.parameters() if p.requires_grad]
+        backbone = getattr(self.model, "backbone", None)
+        groups_fn = getattr(backbone, "encoder_param_groups", None)
+        encoder_groups = groups_fn(self.lr) if groups_fn is not None else None
+        if not encoder_groups:
+            return trainable
+        in_encoder = {id(p) for g in encoder_groups for p in g["params"]}
+        rest = [p for p in trainable if id(p) not in in_encoder]
+        return [{"params": rest, "lr": self.lr}] + encoder_groups
+
     def configure_optimizers(self, optimizer=None):
         """Configure optimiser and learning rate scheduler.
 
@@ -794,7 +819,7 @@ class LightningModel(L.LightningModule):
             # Only optimize params that require gradients so a frozen pretrained
             # backbone (freeze=True) is excluded; a no-op for fully-trainable models.
             optimizer = optim(
-                filter(lambda p: p.requires_grad, self.parameters()),
+                self._trainable_param_groups(),
                 lr=self.lr,
                 amsgrad=self.amsgrad,
             )
@@ -804,6 +829,30 @@ class LightningModel(L.LightningModule):
             return {
                 "optimizer": optimizer,
             }
+
+        # Encoder param groups train at a fraction of `self.lr` (encoder_lr_scale /
+        # layer_decay). A schedule's absolute LRs (warmup start, floor, end) are set
+        # against `self.lr`, so give each group the same fraction of them; applied
+        # as-is, a floor above a deep-decayed group's LR would raise that group.
+        group_ratios = [
+            g["lr"] / self.lr if self.lr else 1.0 for g in optimizer.param_groups
+        ]
+
+        def _per_group_lr(value):
+            if all(r == 1.0 for r in group_ratios):
+                return value
+            if isinstance(value, Sequence) and not isinstance(value, str):
+                if len(value) == len(group_ratios):
+                    return list(value)  # already one per param group
+                if len(value) != 1:
+                    raise ValueError(
+                        f"An LR schedule value {list(value)} gives {len(value)} "
+                        "entries, but encoder_lr_scale / layer_decay split the "
+                        f"optimizer into {len(group_ratios)} param groups. Give one "
+                        "value; it is scaled for each group."
+                    )
+                value = value[0]
+            return [float(value) * r for r in group_ratios]
 
         scheduler = None
         if isinstance(self.lr_scheduler, str):
@@ -885,8 +934,8 @@ class LightningModel(L.LightningModule):
                 optimizer=optimizer,
                 warmup_epochs=cfg.warmup_epochs,
                 max_epochs=max_epochs,
-                warmup_start_lr=cfg.warmup_start_lr,
-                eta_min=cfg.eta_min,
+                warmup_start_lr=_per_group_lr(cfg.warmup_start_lr),
+                eta_min=_per_group_lr(cfg.eta_min),
             )
         elif _sched("linear_warmup_linear_decay") is not None:
             cfg = _sched("linear_warmup_linear_decay")
@@ -900,8 +949,8 @@ class LightningModel(L.LightningModule):
                 optimizer=optimizer,
                 warmup_epochs=cfg.warmup_epochs,
                 max_epochs=max_epochs,
-                warmup_start_lr=cfg.warmup_start_lr,
-                end_lr=cfg.end_lr,
+                warmup_start_lr=_per_group_lr(cfg.warmup_start_lr),
+                end_lr=_per_group_lr(cfg.end_lr),
             )
         elif _sched("step_lr") is not None:
             scheduler = torch.optim.lr_scheduler.StepLR(
@@ -918,7 +967,7 @@ class LightningModel(L.LightningModule):
                 cooldown=_sched("reduce_lr_on_plateau").cooldown,
                 patience=_sched("reduce_lr_on_plateau").patience,
                 factor=_sched("reduce_lr_on_plateau").factor,
-                min_lr=_sched("reduce_lr_on_plateau").min_lr,
+                min_lr=_per_group_lr(_sched("reduce_lr_on_plateau").min_lr),
             )
         if scheduler is None:
             return {
@@ -3712,8 +3761,9 @@ class EmbeddingLightningModule(LightningModel):
         to the retrieval metric via ModelCheckpoint in the trainer).
         """
         optim = torch.optim.AdamW if self.optimizer == "AdamW" else torch.optim.Adam
-        params = [p for p in self.parameters() if p.requires_grad]
-        optimizer = optim(params, lr=self.lr, amsgrad=self.amsgrad)
+        optimizer = optim(
+            self._trainable_param_groups(), lr=self.lr, amsgrad=self.amsgrad
+        )
         return LightningModel.configure_optimizers(self, optimizer=optimizer)
 
 
@@ -4442,3 +4492,253 @@ class SemanticSegmentationLightningModule(LightningModel):
         fig = plot_img(data.image, dpi=72 * scale, scale=scale)
         plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
         return fig
+
+
+class _BBoxLightningModel(LightningModel):
+    """Shared base of the whole-frame bounding-box detectors (``bbox_*``).
+
+    Subclasses define the head-specific loss (``_compute_losses``) and how raw head
+    outputs become the decoder's input (``_decoder_inputs``); this base owns the
+    rest: the inference ``forward``, the val-time detection collection that
+    ``BBoxEvaluationCallback`` scores (decoded with the same
+    :class:`~sleap_nn.inference.bbox.BBoxDecoder` the predictor uses), and the
+    training visualization (GT boxes green, predictions red).
+
+    Val-time decoding keeps detections down to ``_EVAL_SCORE_THRESHOLD`` so the
+    epoch-end AP sees (nearly) the whole precision-recall curve.
+    """
+
+    _EVAL_SCORE_THRESHOLD = 0.05
+    # sleap-nn's default `peak_threshold`, so the viz shows what `predict` keeps.
+    _VIZ_SCORE_THRESHOLD = 0.2
+
+    def __init__(self, **kwargs):
+        """Initialise the configs, the model and the decoder."""
+        super().__init__(**kwargs)
+        self.categories = bbox_head_categories(self.model_type, self.head_configs)
+        self.decoder = BBoxDecoder.from_head_configs(
+            self.model_type,
+            self.head_configs,
+            score_threshold=self._EVAL_SCORE_THRESHOLD,
+        )
+        self.node_names = ["bbox"]
+
+    def _decoder_inputs(self, raw: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """Raw head outputs -> the decoder's input dict (identity by default)."""
+        return raw
+
+    def _compute_losses(
+        self, raw: Dict[str, torch.Tensor], batch: Dict
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        """``(total_loss, {name: loss_term})`` for a batch."""
+        raise NotImplementedError
+
+    def forward(self, img):
+        """Forward pass returning the decoder-ready head dict (see subclasses)."""
+        img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
+        return self._decoder_inputs(self.model(img))
+
+    def _step(self, batch, stage: str):
+        X = normalize_on_gpu(torch.squeeze(batch["image"], dim=1))
+        raw = self.model(X)
+        loss, terms = self._compute_losses(raw, batch)
+        if stage == "train":
+            self.log(
+                "loss",
+                loss,
+                prog_bar=True,
+                on_step=True,
+                on_epoch=False,
+                sync_dist=True,
+            )
+            self._accumulate_loss(loss)
+        else:
+            self.log(
+                "val/loss",
+                loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        for name, value in terms.items():
+            self.log(
+                f"{stage}/{name}", value, on_step=False, on_epoch=True, sync_dist=True
+            )
+        return loss, raw, X
+
+    def training_step(self, batch, batch_idx):
+        """Training step."""
+        loss, _, _ = self._step(batch, "train")
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step (loss terms + optional detection collection)."""
+        _, raw, X = self._step(batch, "val")
+        if not self._collect_val_predictions:
+            return
+        with torch.no_grad():
+            boxes, scores, classes = self.decoder(
+                self._decoder_inputs(raw), img_hw=tuple(X.shape[-2:])
+            )
+        boxes, scores, classes = boxes.cpu(), scores.cpu(), classes.cpu()
+        gt_boxes, gt_classes = batch["bboxes"].cpu(), batch["bbox_classes"].cpu()
+        for i in range(X.shape[0]):
+            valid = torch.isfinite(scores[i])
+            n_gt = int(batch["num_instances"][i])
+            self.val_predictions.append(
+                {
+                    "video_idx": int(batch["video_idx"][i]),
+                    "frame_idx": int(batch["frame_idx"][i]),
+                    "pred_bboxes": boxes[i][valid].numpy(),
+                    "pred_scores": scores[i][valid].numpy(),
+                    "pred_classes": classes[i][valid].numpy(),
+                }
+            )
+            self.val_ground_truth.append(
+                {
+                    "video_idx": int(batch["video_idx"][i]),
+                    "frame_idx": int(batch["frame_idx"][i]),
+                    "gt_bboxes": gt_boxes[i, :n_gt].numpy(),
+                    "gt_classes": gt_classes[i, :n_gt].numpy(),
+                }
+            )
+
+    def _viz_heatmap(self, dec_in: Dict[str, torch.Tensor]) -> Optional[np.ndarray]:
+        """An ``(h, w, C)`` map to overlay in the visualization, if the style has one."""
+        return None
+
+    def get_visualization_data(self, sample) -> VisualizationData:
+        """Image + GT boxes + predicted boxes (and CenterNet's center heatmap)."""
+        image = sample["image"].unsqueeze(0).to(self.device)  # (1, 1, C, H, W)
+        with torch.no_grad():
+            dec_in = self.forward(image)
+            boxes, scores, _ = self.decoder(
+                dec_in,
+                img_hw=tuple(image.shape[-2:]),
+                score_threshold=self._VIZ_SCORE_THRESHOLD,
+            )
+        img = image[0, 0].cpu().numpy().transpose(1, 2, 0)
+        heatmap = self._viz_heatmap(dec_in)
+        if heatmap is None:
+            heatmap = np.zeros((img.shape[0], img.shape[1], 1), dtype=np.float32)
+        valid = torch.isfinite(scores[0]).cpu().numpy()
+        n_gt = int(sample["num_instances"])
+        return VisualizationData(
+            image=img,
+            pred_confmaps=heatmap,
+            pred_peaks=np.zeros((0, 1, 2)),
+            pred_peak_values=np.zeros((0,)),
+            gt_instances=np.zeros((0, 1, 2)),
+            node_names=self.node_names,
+            output_scale=heatmap.shape[0] / img.shape[0],
+            is_paired=False,
+            gt_bboxes=sample["bboxes"][:n_gt].cpu().numpy(),
+            pred_bboxes=boxes[0].cpu().numpy()[valid],
+            pred_bbox_scores=scores[0].cpu().numpy()[valid],
+        )
+
+    def visualize_example(self, sample):
+        """Visualize predictions during training (used with callbacks)."""
+        from sleap_nn.training.utils import MatplotlibRenderer
+
+        return MatplotlibRenderer().render(self.get_visualization_data(sample))
+
+
+class BBoxCenterNetLightningModule(_BBoxLightningModel):
+    """Lightning Module for the ``bbox_centernet`` (CenterNet-style) detector.
+
+    Three heads at one stride -- a per-category center heatmap (logits), box size
+    (grid cells) and sub-cell center offset -- trained with CenterNet's objective:
+    the penalty-reduced focal loss on the heatmap (normalized by the number of
+    objects) plus L1 on size and offset at the center cells, weighted by the heads'
+    ``loss_weight`` (CenterNet's 1 / 0.1 / 1 by default). ``forward`` returns the
+    heatmap as probabilities (sigmoid applied) for the decoder, mirroring
+    :class:`SemanticSegmentationLightningModule`.
+    """
+
+    def __init__(self, **kwargs):
+        """Initialise the configs, the model and the loss knobs."""
+        super().__init__(**kwargs)
+        cfg = self.head_configs.bbox_centernet
+        self.focal_alpha = float(cfg.center.focal_alpha)
+        self.focal_beta = float(cfg.center.focal_beta)
+        self.center_weight = float(cfg.center.loss_weight)
+        self.size_weight = float(cfg.size.loss_weight)
+        self.offset_weight = float(cfg.offset.loss_weight)
+        # Focal-loss prior-probability bias init (RetinaNet / CenterNet): start the
+        # heatmap near p=0.1 instead of 0.5 so >99%-background targets do not
+        # swamp the first steps (see `CentroidLightningModule`).
+        bias_value = -math.log((1.0 - 0.1) / 0.1)
+        for head, head_layer in zip(self.model.heads, self.model.head_layers):
+            if head.name == "BBoxCenterHead":
+                nn.init.constant_(getattr(head_layer, head.name)[0].bias, bias_value)
+
+    def _decoder_inputs(self, raw):
+        """Sigmoid the center heatmap; size/offset pass through."""
+        out = dict(raw)
+        out["BBoxCenterHead"] = torch.sigmoid(raw["BBoxCenterHead"])
+        return out
+
+    def _viz_heatmap(self, dec_in):
+        heatmap = dec_in["BBoxCenterHead"][0].max(dim=0, keepdim=True).values
+        return heatmap.cpu().numpy().transpose(1, 2, 0)
+
+    def _compute_losses(self, raw, batch):
+        # `BBoxDataset` targets are (B, C, h, w) -- no n_samples axis to squeeze.
+        # (Squeezing dim 1 of a 1-class target would broadcast it against the
+        # (B, 1, h, w) logits into a (B, B, h, w) cross-sample loss.)
+        heatmap_target = batch["center_heatmap"]
+        reg_mask = batch["reg_mask"]
+        center_loss = compute_centernet_focal_loss(
+            raw["BBoxCenterHead"],
+            heatmap_target,
+            alpha=self.focal_alpha,
+            beta=self.focal_beta,
+        )
+        size_loss = compute_masked_l1(
+            raw["BBoxSizeHead"], batch["size_target"], reg_mask
+        )
+        offset_loss = compute_masked_l1(
+            raw["BBoxOffsetHead"], batch["offset_target"], reg_mask
+        )
+        loss = (
+            self.center_weight * center_loss
+            + self.size_weight * size_loss
+            + self.offset_weight * offset_loss
+        )
+        return loss, {
+            "center_loss": center_loss,
+            "size_loss": size_loss,
+            "offset_loss": offset_loss,
+        }
+
+
+class BBoxSSDLightningModule(_BBoxLightningModel):
+    """Lightning Module for the ``bbox_ssd`` (SSD-style, anchor-based) detector.
+
+    One multi-scale head predicts, per anchor of every pyramid level, class logits
+    (background first) and SSD box deltas. Trained with SSD's multibox loss: softmax
+    cross-entropy over positives plus the hardest ``neg_pos_ratio`` background
+    anchors per positive, and smooth-L1 on the positives' deltas
+    (:func:`~sleap_nn.training.losses.compute_ssd_loss`). ``forward`` returns the
+    raw ``SSDHead`` tensor; the decoder applies the softmax.
+    """
+
+    def __init__(self, **kwargs):
+        """Initialise the configs, the model and the loss knobs."""
+        super().__init__(**kwargs)
+        ssd = self.head_configs.bbox_ssd.ssd
+        self.neg_pos_ratio = float(ssd.neg_pos_ratio)
+        self.box_weight = float(ssd.loss_weight)
+
+    def _compute_losses(self, raw, batch):
+        loss, cls_loss, box_loss = compute_ssd_loss(
+            raw["SSDHead"],
+            batch["ssd_cls_target"],
+            batch["ssd_box_target"],
+            neg_pos_ratio=self.neg_pos_ratio,
+            box_weight=self.box_weight,
+        )
+        return loss, {"cls_loss": cls_loss, "box_loss": box_loss}

@@ -2443,6 +2443,160 @@ class CentroidEvaluationCallback(Callback):
                 wandb_logger.experiment.summary[summary_key] = value
 
 
+class BBoxEvaluationCallback(Callback):
+    """COCO-style box metrics at the end of validation epochs (``bbox_*`` models).
+
+    Turns on the LightningModule's val-time detection collection (detections are
+    decoded by the same ``BBoxDecoder`` the predictor uses, down to a low score
+    threshold so the precision-recall curve is nearly complete), then scores them
+    with :func:`sleap_nn.evaluation.compute_bbox_metrics` and logs
+    ``eval/val/bbox_*`` (``mAP`` @[.5:.95], ``AP50``, ``AP75``, ``AR``, and the
+    IoU-0.5 best-F1 operating point) to ``callback_metrics`` (CSV log,
+    ``ModelCheckpoint``) and wandb, with ``best/`` summaries. Boxes are compared in
+    model-input pixels (IoU is scale-invariant).
+
+    Attributes:
+        eval_frequency: Run evaluation every N epochs.
+    """
+
+    # Lower-is-better keys (counts of errors); everything else is higher-is-better.
+    _LOWER_IS_BETTER = ("bbox_n_fp", "bbox_n_fn")
+
+    def __init__(self, eval_frequency: int = 1):
+        """Initialize the callback."""
+        super().__init__()
+        self.eval_frequency = eval_frequency
+
+    def on_validation_epoch_start(self, trainer, pl_module):
+        """Enable detection collection on scored epochs (not the sanity check)."""
+        if trainer.sanity_checking:
+            return
+        # Decoding every val batch costs time; only collect when this epoch scores.
+        pl_module._collect_val_predictions = (
+            trainer.current_epoch + 1
+        ) % self.eval_frequency == 0
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """Score the collected detections and log the metrics."""
+        from sleap_nn.evaluation import BBOX_EVAL_LOG_KEYS, compute_bbox_metrics
+
+        scored = (
+            trainer.current_epoch + 1
+        ) % self.eval_frequency == 0 and not trainer.sanity_checking
+        gts, preds = pl_module.val_ground_truth, pl_module.val_predictions
+        if scored:
+            gts, preds = self._gather(trainer, gts, preds)
+        metrics = None
+        if scored and trainer.is_global_zero:
+            if not gts:
+                logger.warning("No detections collected for bbox epoch-end evaluation")
+            else:
+                try:
+                    frames = [{**gt, **pred} for gt, pred in zip(gts, preds)]
+                    metrics = compute_bbox_metrics(
+                        frames,
+                        num_classes=len(pl_module.categories),
+                        max_detections=pl_module.decoder.max_detections,
+                    )
+                    logger.info(
+                        f"Epoch {trainer.current_epoch} bbox evaluation: "
+                        f"mAP={metrics['bbox_mAP']:.4f}, "
+                        f"AP50={metrics['bbox_AP50']:.4f}, "
+                        f"F1@0.5={metrics['bbox_f1']:.4f}"
+                    )
+                except Exception as e:
+                    metrics = None
+                    logger.warning(f"Bbox epoch-end evaluation failed: {e}")
+        if scored:
+            # `ModelCheckpoint` / `EarlyStopping` run on every rank and may monitor a
+            # box metric (`eval.select_metric`); the checkpointer raises on a missing
+            # monitor, so every rank gets rank 0's values, even after a failed eval.
+            values = None
+            if metrics is not None:
+                values = {key: metrics.get(key) for key in BBOX_EVAL_LOG_KEYS}
+            values = trainer.strategy.broadcast(values, src=0)
+            self._log_metrics(trainer, values or {}, trainer.current_epoch)
+
+        # Every rank clears its own lists (they only fill on scored epochs).
+        pl_module._collect_val_predictions = False
+        pl_module.val_predictions = []
+        pl_module.val_ground_truth = []
+        trainer.strategy.barrier()
+
+    @staticmethod
+    def _gather(trainer, gts: list, preds: list):
+        """All ranks' val detections (DDP shards the val set), de-duplicated.
+
+        A collective: every rank must call it. The distributed sampler pads the
+        last shard by repeating frames, so frames are kept once by
+        ``(video_idx, frame_idx)``. A single process returns its own lists.
+        """
+        import torch.distributed as dist
+
+        if not (dist.is_available() and dist.is_initialized()) or (
+            trainer.world_size <= 1
+        ):
+            return gts, preds
+        gathered = [None] * trainer.world_size
+        dist.all_gather_object(gathered, (gts, preds))
+        seen, out_gts, out_preds = set(), [], []
+        for rank_gts, rank_preds in gathered:
+            for gt, pred in zip(rank_gts, rank_preds):
+                key = (gt["video_idx"], gt["frame_idx"])
+                if key not in seen:
+                    seen.add(key)
+                    out_gts.append(gt)
+                    out_preds.append(pred)
+        return out_gts, out_preds
+
+    def _log_metrics(self, trainer, metrics: dict, epoch: int):
+        """Expose metrics to callback_metrics (every rank) and log them to wandb.
+
+        Every ``BBOX_EVAL_LOG_KEYS`` key lands in ``callback_metrics``; a missing or
+        NaN value becomes the metric's worst value, so a monitored key never goes
+        missing and a failed evaluation is never selected as best.
+        """
+        import numpy as np
+        import torch
+        from lightning.pytorch.loggers import WandbLogger
+        from sleap_nn.evaluation import BBOX_EVAL_LOG_KEYS
+
+        log_dict = {}
+        for key in BBOX_EVAL_LOG_KEYS:
+            raw_value = metrics.get(key, float("nan"))
+            lower_is_better = key in self._LOWER_IS_BETTER
+            if raw_value is None or np.isnan(raw_value):
+                fv = float("inf") if lower_is_better else 0.0
+            else:
+                fv = float(raw_value)
+                log_dict[f"eval/val/{key}"] = fv
+            trainer.callback_metrics[f"eval/val/{key}"] = torch.as_tensor(fv)
+
+        wandb_logger = next(
+            (log for log in trainer.loggers if isinstance(log, WandbLogger)), None
+        )
+        if wandb_logger is None or not trainer.is_global_zero or not log_dict:
+            return
+        wandb_logger.experiment.log({"epoch": epoch, **log_dict}, commit=False)
+        summary = wandb_logger.experiment.summary
+        for key, value in log_dict.items():
+            if key.endswith("_threshold"):
+                continue
+            summary_key = f"best/{key}"
+            current = summary.get(summary_key)
+            better = (
+                (
+                    value < current
+                    if key.split("/")[-1] in self._LOWER_IS_BETTER
+                    else value > current
+                )
+                if current is not None
+                else True
+            )
+            if better:
+                summary[summary_key] = value
+
+
 class TilingEpochCallback(Callback):
     """Propagate the current epoch to the tiling sampler + dataset each epoch.
 

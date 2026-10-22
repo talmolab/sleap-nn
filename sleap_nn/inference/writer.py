@@ -72,6 +72,7 @@ class IncrementalLabelsWriter:
     # matches the in-memory ``predict()`` output (mask / polygon ROI / both).
     mask_output: str = "mask"
     polygon_epsilon: float = 0.01
+    bbox_categories: Optional[List[str]] = None
 
     _buffer: List[Any] = attrs.field(factory=list, init=False, repr=False)
     _all_frames: List[Any] = attrs.field(factory=list, init=False, repr=False)
@@ -120,6 +121,7 @@ class IncrementalLabelsWriter:
             source=self.source,
             mask_output=self.mask_output,
             polygon_epsilon=self.polygon_epsilon,
+            bbox_categories=self.bbox_categories,
         )
         self._buffer.extend(sub.labeled_frames)
 

@@ -66,6 +66,14 @@ from sleap_nn.data.utils import (
     superseded_predictions,
 )
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
+from sleap_nn.data.bboxes import (
+    bboxes_to_corners,
+    clip_bboxes,
+    corners_to_bboxes,
+    bbox_head_categories,
+    frame_bbox_arrays,
+    get_bbox_target_encoder,
+)
 from sleap_nn.data.edge_maps import generate_pafs
 from sleap_nn.data.segmentation_maps import (
     _compute_mask_centroids,
@@ -432,6 +440,11 @@ class BaseDataset(Dataset):
     # other dataset keeps requiring a pose instance per frame.
     _include_centroid_only_frames: bool = False
 
+    # Whether flip augmentation needs the skeleton's left/right symmetries to keep
+    # labels correct. Datasets whose targets are mirror-invariant (bounding boxes)
+    # set this False so a skeleton-less dataset does not warn about flipping.
+    _flip_needs_symmetries: bool = True
+
     def __init__(
         self,
         labels: List[sio.Labels],
@@ -542,7 +555,13 @@ class BaseDataset(Dataset):
             if self.geometric_aug is not None
             else 0.0
         )
-        if self.apply_aug and flip_p and flip_p > 0 and not self.symmetric_inds:
+        if (
+            self.apply_aug
+            and flip_p
+            and flip_p > 0
+            and not self.symmetric_inds
+            and self._flip_needs_symmetries
+        ):
             logger.warning(
                 "Flip augmentation is enabled (flip_p > 0) but the skeleton has no "
                 "symmetries. Flipping will not swap any nodes, which is only correct "
@@ -5189,6 +5208,191 @@ class SemanticSegmentationDataset(BaseDataset):
         return sample_dict
 
 
+class BBoxDataset(BaseDataset):
+    """Whole-frame dataset for the bounding-box detectors (``bbox_*`` model types).
+
+    Indexes frames by their user boxes (``LabeledFrame.bboxes``; derive them from
+    poses/masks beforehand with :func:`sleap_nn.data.bboxes.add_bboxes_to_labels`)
+    and, optionally, the user-confirmed negative frames. Each sample carries the
+    preprocessed image, the frame's boxes in model-input pixels (``bboxes``,
+    NaN-padded to ``(max_instances, 4)``, with ``bbox_classes`` ``-1``-padded) and
+    the training targets of the model's detection style, produced by
+    ``target_encoder`` (see :mod:`sleap_nn.data.bboxes`).
+
+    Boxes are pushed through the shared preprocessing/augmentation chain as
+    4-corner pseudo-instances, so rotation/scale/translate/flip stay registered with
+    the image; afterwards each box is the extent of its corners, clipped to the
+    frame, and dropped when too little of it remains visible.
+
+    Attributes:
+        target_encoder: Callable ``(boxes (n, 4), classes (n,), img_hw) -> dict`` of
+            target tensors (``CenterNetTargetEncoder`` / ``SSDTargetEncoder``).
+        categories: Ordered class names; box class ids index into it.
+        min_visible_fraction: A box keeping less of its area than this inside the
+            frame after augmentation is dropped from the targets.
+    """
+
+    _flip_needs_symmetries = False
+
+    def __init__(
+        self,
+        labels: List[sio.Labels],
+        target_encoder: Any,
+        categories: List[str],
+        max_stride: int,
+        user_instances_only: bool = True,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
+        intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        geometric_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+        scale: float = 1.0,
+        apply_aug: bool = False,
+        max_hw: Tuple[Optional[int]] = (None, None),
+        cache_img: Optional[str] = None,
+        cache_img_path: Optional[str] = None,
+        use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
+        parallel_caching: bool = True,
+        cache_workers: int = 0,
+        use_negative_frames: bool = False,
+        min_visible_fraction: float = 0.25,
+    ) -> None:
+        """Initialize class attributes."""
+        # Read by `_get_lf_idx_list`, which runs inside `BaseDataset.__init__`.
+        self.target_encoder = target_encoder
+        self.categories = list(categories)
+        self.min_visible_fraction = min_visible_fraction
+        super().__init__(
+            labels=labels,
+            max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
+            intensity_aug=intensity_aug,
+            geometric_aug=geometric_aug,
+            scale=scale,
+            apply_aug=apply_aug,
+            max_hw=max_hw,
+            cache_img=cache_img,
+            cache_img_path=cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
+            use_negative_frames=use_negative_frames,
+        )
+        # A box's corners are not skeleton nodes: a horizontal flip mirrors them and
+        # re-boxing takes their extent, so no index swap is needed (or wanted).
+        self.symmetric_inds = []
+
+    def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Dict]:
+        """Return samples for frames with user boxes (+ negative frames if enabled).
+
+        The boxes are captured into each sample as plain arrays so ``__getitem__``
+        needs no live ``Labels`` handle (the image-caching paths drop it).
+        """
+        lf_idx_list = []
+        max_boxes = 0
+        for labels_idx, label in enumerate(labels):
+            for lf_idx, lf in enumerate(label):
+                xyxy, classes = frame_bbox_arrays(lf, self.categories)
+                if xyxy.shape[0] == 0:
+                    continue
+                max_boxes = max(max_boxes, xyxy.shape[0])
+                lf_idx_list.append(
+                    {
+                        "labels_idx": labels_idx,
+                        "lf_idx": lf_idx,
+                        "video_idx": label.videos.index(lf.video),
+                        "frame_idx": lf.frame_idx,
+                        "is_negative": False,
+                        "instances": None,
+                        "bboxes": xyxy,
+                        "bbox_classes": classes,
+                    }
+                )
+        if self.use_negative_frames and lf_idx_list:
+            neg_samples = self._collect_negative_frames(labels)
+            for neg in neg_samples:
+                neg["bboxes"] = np.zeros((0, 4), dtype=np.float32)
+                neg["bbox_classes"] = np.zeros((0,), dtype=np.int64)
+            if neg_samples:
+                logger.info(
+                    f"Added {len(neg_samples)} negative samples "
+                    f"to {len(lf_idx_list)} positive samples."
+                )
+                lf_idx_list.extend(neg_samples)
+        # GT boxes are padded to this many slots per sample (collation needs one
+        # shape). Overrides the pose-instance count `BaseDataset` computed.
+        self.max_instances = max(max_boxes, 1)
+        return lf_idx_list
+
+    def _read_image(self, sample: Dict) -> np.ndarray:
+        """The sample's frame as ``(H, W, C)``, from the cache or the video."""
+        labels_idx, lf_idx = sample["labels_idx"], sample["lf_idx"]
+        if self.cache_img == "disk":
+            img = np.array(
+                Image.open(f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg")
+            )
+        elif self.cache_img == "memory":
+            img = self.cache[(labels_idx, lf_idx)].copy()
+        elif sample["is_negative"]:
+            video = self.labels_list[labels_idx].videos[sample["video_idx"]]
+            img = video[sample["frame_idx"]]
+        else:
+            img = self.labels_list[labels_idx][lf_idx].image
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
+        return img
+
+    def __getitem__(self, index) -> Dict:
+        """Return the image, padded GT boxes and detection targets for ``index``."""
+        sample = self.lf_idx_list[index]
+        img = self._read_image(sample)
+        image = torch.from_numpy(np.transpose(img, (2, 0, 1))[None].copy())
+
+        xyxy = sample["bboxes"]
+        classes = torch.from_numpy(sample["bbox_classes"]).long()
+        n_boxes = xyxy.shape[0]
+        # Boxes ride the instance-coordinate path of the shared preprocessing /
+        # augmentation as (1, n, 4 corners, 2) pseudo-instances.
+        corners = (
+            torch.from_numpy(bboxes_to_corners(xyxy))[None]
+            if n_boxes
+            else torch.full((1, 1, 4, 2), float("nan"))
+        )
+        sample_dict = {
+            "image": image,
+            "instances": corners,
+            "video_idx": torch.tensor(sample["video_idx"], dtype=torch.int32),
+            "frame_idx": torch.tensor(sample["frame_idx"], dtype=torch.int32),
+            "orig_size": torch.Tensor([image.shape[-2], image.shape[-1]]).unsqueeze(0),
+        }
+        sample_dict = self._apply_common_preprocessing(sample_dict)
+        img_hw = tuple(sample_dict["image"].shape[-2:])
+
+        corners = sample_dict.pop("instances")[0, :n_boxes]
+        boxes, keep = clip_bboxes(
+            corners_to_bboxes(corners),
+            img_hw,
+            min_visible_fraction=self.min_visible_fraction,
+        )
+        boxes, classes = boxes[keep], classes[keep]
+        sample_dict.update(self.target_encoder(boxes, classes, img_hw))
+
+        n_kept = boxes.shape[0]
+        padded = torch.full((self.max_instances, 4), float("nan"))
+        padded[:n_kept] = boxes
+        padded_cls = torch.full((self.max_instances,), -1, dtype=torch.long)
+        padded_cls[:n_kept] = classes
+        sample_dict["bboxes"] = padded
+        sample_dict["bbox_classes"] = padded_cls
+        sample_dict["num_instances"] = n_kept
+        sample_dict["is_negative"] = bool(sample["is_negative"])
+        sample_dict["labels_idx"] = sample["labels_idx"]
+        return sample_dict
+
+
 # Minimum number of tile-local foreground pixels for a mask to be "owned" by a tile.
 # Guards against degenerate near-empty slivers (and all-zero background masks, whose
 # `_compute_mask_centroids` fallback lands at the tile center) being kept as owners.
@@ -6848,6 +7052,57 @@ def get_train_val_datasets(
                 cache_workers=cache_workers,
                 use_negative_frames=False,
             )
+
+    elif model_type in ("bbox_centernet", "bbox_ssd"):
+        head_configs = config.model_config.head_configs
+        target_encoder = get_bbox_target_encoder(model_type, head_configs)
+        categories = bbox_head_categories(model_type, head_configs)
+        common = dict(
+            target_encoder=target_encoder,
+            categories=categories,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            scale=config.data_config.preprocessing.scale,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+            parallel_caching=parallel_caching,
+            cache_workers=cache_workers,
+        )
+        train_dataset = BBoxDataset(
+            labels=train_labels,
+            intensity_aug=(
+                config.data_config.augmentation_config.intensity
+                if config.data_config.augmentation_config is not None
+                else None
+            ),
+            geometric_aug=(
+                config.data_config.augmentation_config.geometric
+                if config.data_config.augmentation_config is not None
+                else None
+            ),
+            apply_aug=config.data_config.use_augmentations_train,
+            cache_img_path=train_cache_img_path,
+            use_negative_frames=use_negative_frames,
+            **common,
+        )
+        val_dataset = BBoxDataset(
+            labels=val_labels,
+            intensity_aug=None,
+            geometric_aug=None,
+            apply_aug=False,
+            cache_img_path=val_cache_img_path,
+            use_negative_frames=False,
+            **common,
+        )
 
     elif model_type == "centered_instance_segmentation":
         seg_cfg = config.model_config.head_configs.centered_instance_segmentation
