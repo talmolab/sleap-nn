@@ -171,12 +171,16 @@ def resolve_embedding_input_channels(cfg: DictConfig) -> int:
 def resolve_backbone_source(cfg: DictConfig) -> Optional[str]:
     """Resolve a human-readable backbone weight source for metadata.
 
-    Returns ``"imagenet"`` if the backbone was initialized from pretrained ImageNet
-    weights (convnext/swint ``pre_trained_weights`` or unet
-    ``pretrained_backbone_weights``), else ``"scratch"``.
+    Returns ``"hf:<model_name>"`` for a HuggingFace ``pretrained`` backbone that
+    loaded its pretrained weights, ``"imagenet"`` if the backbone was initialized
+    from pretrained ImageNet weights (convnext/swint ``pre_trained_weights`` or
+    unet ``pretrained_backbone_weights``), else ``"scratch"``.
     """
     backbone_type = get_backbone_type_from_cfg(cfg)
     backbone_cfg = cfg.model_config.backbone_config.get(backbone_type)
+    if backbone_type == "pretrained" and backbone_cfg is not None:
+        if OmegaConf.select(backbone_cfg, "weights", default=True):
+            return f"hf:{OmegaConf.select(backbone_cfg, 'model_name')}"
     if backbone_cfg is not None:
         pre_trained = OmegaConf.select(
             backbone_cfg, "pre_trained_weights", default=None

@@ -1,6 +1,6 @@
 """This module has the LightningModule classes for all model types."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Optional, Union, Dict, Any, List, Tuple
 import math
 import time
@@ -782,6 +782,24 @@ class LightningModel(L.LightningModule):
         """Validation step."""
         pass
 
+    def _trainable_param_groups(self):
+        """Parameters that require grad, split into LR groups when asked for.
+
+        A ``pretrained`` backbone can train its encoder at a scaled (and, for a
+        plain ViT, layer-wise decayed) learning rate; everything else -- neck,
+        decoder, heads -- trains at ``self.lr``. Without those options this is the
+        flat list of trainable parameters (a single optimizer group, as before).
+        """
+        trainable = [p for p in self.parameters() if p.requires_grad]
+        backbone = getattr(self.model, "backbone", None)
+        groups_fn = getattr(backbone, "encoder_param_groups", None)
+        encoder_groups = groups_fn(self.lr) if groups_fn is not None else None
+        if not encoder_groups:
+            return trainable
+        in_encoder = {id(p) for g in encoder_groups for p in g["params"]}
+        rest = [p for p in trainable if id(p) not in in_encoder]
+        return [{"params": rest, "lr": self.lr}] + encoder_groups
+
     def configure_optimizers(self, optimizer=None):
         """Configure optimiser and learning rate scheduler.
 
@@ -801,7 +819,7 @@ class LightningModel(L.LightningModule):
             # Only optimize params that require gradients so a frozen pretrained
             # backbone (freeze=True) is excluded; a no-op for fully-trainable models.
             optimizer = optim(
-                filter(lambda p: p.requires_grad, self.parameters()),
+                self._trainable_param_groups(),
                 lr=self.lr,
                 amsgrad=self.amsgrad,
             )
@@ -811,6 +829,30 @@ class LightningModel(L.LightningModule):
             return {
                 "optimizer": optimizer,
             }
+
+        # Encoder param groups train at a fraction of `self.lr` (encoder_lr_scale /
+        # layer_decay). A schedule's absolute LRs (warmup start, floor, end) are set
+        # against `self.lr`, so give each group the same fraction of them; applied
+        # as-is, a floor above a deep-decayed group's LR would raise that group.
+        group_ratios = [
+            g["lr"] / self.lr if self.lr else 1.0 for g in optimizer.param_groups
+        ]
+
+        def _per_group_lr(value):
+            if all(r == 1.0 for r in group_ratios):
+                return value
+            if isinstance(value, Sequence) and not isinstance(value, str):
+                if len(value) == len(group_ratios):
+                    return list(value)  # already one per param group
+                if len(value) != 1:
+                    raise ValueError(
+                        f"An LR schedule value {list(value)} gives {len(value)} "
+                        "entries, but encoder_lr_scale / layer_decay split the "
+                        f"optimizer into {len(group_ratios)} param groups. Give one "
+                        "value; it is scaled for each group."
+                    )
+                value = value[0]
+            return [float(value) * r for r in group_ratios]
 
         scheduler = None
         if isinstance(self.lr_scheduler, str):
@@ -892,8 +934,8 @@ class LightningModel(L.LightningModule):
                 optimizer=optimizer,
                 warmup_epochs=cfg.warmup_epochs,
                 max_epochs=max_epochs,
-                warmup_start_lr=cfg.warmup_start_lr,
-                eta_min=cfg.eta_min,
+                warmup_start_lr=_per_group_lr(cfg.warmup_start_lr),
+                eta_min=_per_group_lr(cfg.eta_min),
             )
         elif _sched("linear_warmup_linear_decay") is not None:
             cfg = _sched("linear_warmup_linear_decay")
@@ -907,8 +949,8 @@ class LightningModel(L.LightningModule):
                 optimizer=optimizer,
                 warmup_epochs=cfg.warmup_epochs,
                 max_epochs=max_epochs,
-                warmup_start_lr=cfg.warmup_start_lr,
-                end_lr=cfg.end_lr,
+                warmup_start_lr=_per_group_lr(cfg.warmup_start_lr),
+                end_lr=_per_group_lr(cfg.end_lr),
             )
         elif _sched("step_lr") is not None:
             scheduler = torch.optim.lr_scheduler.StepLR(
@@ -925,7 +967,7 @@ class LightningModel(L.LightningModule):
                 cooldown=_sched("reduce_lr_on_plateau").cooldown,
                 patience=_sched("reduce_lr_on_plateau").patience,
                 factor=_sched("reduce_lr_on_plateau").factor,
-                min_lr=_sched("reduce_lr_on_plateau").min_lr,
+                min_lr=_per_group_lr(_sched("reduce_lr_on_plateau").min_lr),
             )
         if scheduler is None:
             return {
@@ -3719,8 +3761,9 @@ class EmbeddingLightningModule(LightningModel):
         to the retrieval metric via ModelCheckpoint in the trainer).
         """
         optim = torch.optim.AdamW if self.optimizer == "AdamW" else torch.optim.Adam
-        params = [p for p in self.parameters() if p.requires_grad]
-        optimizer = optim(params, lr=self.lr, amsgrad=self.amsgrad)
+        optimizer = optim(
+            self._trainable_param_groups(), lr=self.lr, amsgrad=self.amsgrad
+        )
         return LightningModel.configure_optimizers(self, optimizer=optimizer)
 
 

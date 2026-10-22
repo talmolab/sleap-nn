@@ -7,6 +7,7 @@ explore the focused topics below.
 |------|-------------|
 | [Training Guide](../training-guide.md) | Configure and run model training |
 | [Config Generator](../config-generator.md) | Generate training configs via TUI or auto mode |
+| [Pretrained Backbones](../pretrained-backbones.md) | Start from HuggingFace / timm encoders (ConvNeXtV2, DINOv2/v3, CLIP, ...) |
 | [Negative Frames](../negative-frames.md) | Reduce false positives with background frames |
 | [Monitoring](../monitoring.md) | WandB, visualizations, epoch-end evaluation |
 | [Multi-GPU](../multi-gpu.md) | Scale training across multiple GPUs |

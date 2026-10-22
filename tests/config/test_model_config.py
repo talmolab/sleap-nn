@@ -248,6 +248,89 @@ def test_pretrained_backbone_struct_merge():
     assert merged.backbone_config.pretrained.weights is False
 
 
+def test_pretrained_config_plain_vit_defaults():
+    """The plain-ViT (neck / LR-group) fields default to the legacy behavior."""
+    from sleap_nn.config.model_config import PretrainedConfig
+
+    cfg = PretrainedConfig()
+    assert cfg.layers is None
+    assert cfg.vit_neck == "dpt"
+    assert cfg.neck_channels is None
+    assert cfg.token_stride is None
+    assert cfg.gradient_checkpointing is False
+    assert cfg.encoder_lr_scale == 1.0
+    assert cfg.layer_decay is None
+
+
+_PLAIN_VIT_VALUES = dict(
+    layers=[-1, 3, 6, 9],
+    vit_neck="sfp",
+    neck_channels=[32, 64, 128, 256],
+    token_stride=8,
+    gradient_checkpointing=True,
+    encoder_lr_scale=0.1,
+    layer_decay=0.75,
+)
+
+
+def test_pretrained_config_plain_vit_fields_round_trip():
+    """The new fields survive structured -> YAML -> merge onto the schema."""
+    from sleap_nn.config.model_config import PretrainedConfig
+
+    structured = OmegaConf.structured(
+        PretrainedConfig(
+            model_name="facebook/dinov2-with-registers-small", **_PLAIN_VIT_VALUES
+        )
+    )
+    reloaded = OmegaConf.merge(
+        OmegaConf.structured(PretrainedConfig),
+        OmegaConf.create(OmegaConf.to_yaml(structured)),
+    )
+    for key, value in _PLAIN_VIT_VALUES.items():
+        assert reloaded[key] == value, key
+    assert isinstance(reloaded.encoder_lr_scale, float)
+    assert isinstance(reloaded.token_stride, int)
+
+
+def test_pretrained_config_plain_vit_fields_merge_and_build():
+    """The new keys pass the training gate and the `get_backbone_config` path.
+
+    A YAML-style dict carrying them merges onto the structured `ModelConfig`, and
+    an old config without them still loads, at the defaults.
+    """
+    from sleap_nn.config.get_config import get_backbone_config
+
+    def user(pretrained):
+        return OmegaConf.create(
+            {
+                "backbone_config": {
+                    "unet": None,
+                    "convnext": None,
+                    "swint": None,
+                    "pretrained": pretrained,
+                }
+            }
+        )
+
+    name = "facebook/dinov2-with-registers-small"
+    struct = OmegaConf.structured(ModelConfig())
+    merged = OmegaConf.merge(struct, user({"model_name": name, **_PLAIN_VIT_VALUES}))
+    for key, value in _PLAIN_VIT_VALUES.items():
+        assert merged.backbone_config.pretrained[key] == value, key
+
+    old = OmegaConf.merge(struct, user({"model_name": name})).backbone_config
+    assert old.pretrained.layers is None
+    assert old.pretrained.vit_neck == "dpt"
+    assert old.pretrained.encoder_lr_scale == 1.0
+    assert old.pretrained.layer_decay is None
+
+    built = get_backbone_config(
+        {"pretrained": {"model_name": name, **_PLAIN_VIT_VALUES}}
+    )
+    for key, value in _PLAIN_VIT_VALUES.items():
+        assert getattr(built.pretrained, key) == value, key
+
+
 def test_get_head_configs_embedding_missing_leaf_raises():
     """A dict embedding head with no inner `embedding` leaf raises a clear error.
 
@@ -259,6 +342,45 @@ def test_get_head_configs_embedding_missing_leaf_raises():
     for bad in ({"embedding": {}}, {"embedding": {"embedding": None}}):
         with pytest.raises(ValueError, match="embedding"):
             get_head_configs(bad)
+
+
+class TestPretrainedDecoderModeIsRecorded:
+    """Training setup writes what `mode: auto` means for a spatial-head model."""
+
+    @staticmethod
+    def _cfg(mode):
+        return OmegaConf.create(
+            {
+                "model_config": {
+                    "backbone_config": {
+                        "pretrained": {
+                            "model_name": "facebook/dinov2-with-registers-small",
+                            "mode": mode,
+                            "max_stride": 32,
+                            "output_stride": 2,
+                        }
+                    },
+                    "head_configs": {
+                        "single_instance": {
+                            "confmaps": {"part_names": ["a"], "output_stride": 4}
+                        }
+                    },
+                }
+            }
+        )
+
+    def test_auto_becomes_decoder(self):
+        from sleap_nn.config.utils import check_output_strides
+
+        cfg = check_output_strides(self._cfg("auto"))
+        assert cfg.model_config.backbone_config.pretrained.mode == "decoder"
+
+    def test_an_explicit_mode_is_left_alone(self):
+        """`encoder` under a spatial head is the user's call (and errors in Model)."""
+        from sleap_nn.config.utils import check_output_strides
+
+        cfg = check_output_strides(self._cfg("encoder"))
+        assert cfg.model_config.backbone_config.pretrained.mode == "encoder"
 
 
 class TestEmbeddingPretrainedEncoderMode:
