@@ -80,8 +80,9 @@ _ANCHOR_RATIO = 2.0
 # Two same-frame detections whose intersection covers more than this fraction of
 # the smaller box are duplicates (split masks, double detections).
 _DUPLICATE_IOMIN = 0.5
-# Body size / spacing when nothing can be measured (px).
-_DEFAULT_SIZE = 50.0
+# Body size / spacing when nothing can be measured (px). Public: the identity
+# linker falls back to the same value (one default for the whole package).
+DEFAULT_BODY_SIZE = 50.0
 # Motion-derived body size of extent-less (single-node) detections:
 # MOTION_BODY_FACTOR x step_p99, at least MIN_MOTION_BODY px (see
 # `resolve_body_size`). The trackers' centroid similarity (scale body / 2) then
@@ -549,7 +550,7 @@ def resolve_body_size(
        not a body length: in a sparse arena it would open the centroid gate
        (scale ``body / 2``) most of the way to the next animal.
     3. Else ``nn_distance`` -> ``"nn_distance"``.
-    4. Else 50 px -> ``"default"``.
+    4. Else :data:`DEFAULT_BODY_SIZE` (50 px) -> ``"default"``.
 
     Args:
         measured: Measured body size (NaN if none).
@@ -572,7 +573,7 @@ def resolve_body_size(
         return float(body), "motion"
     if ok(nn_distance):
         return float(nn_distance), "nn_distance"
-    return _DEFAULT_SIZE, "default"
+    return DEFAULT_BODY_SIZE, "default"
 
 
 def score_normalizer(calibration: Optional["VideoCalibration"]) -> float:

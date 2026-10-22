@@ -1582,12 +1582,32 @@ def _check_tracker_flags(kwargs: dict) -> None:
         name for name in _MOT_ONLY_FLAGS if kwargs.get(name) not in (None, (), [])
     ]
     if tracker == "classic":
+        from sleap_nn.inference.tracking import CLASSIC_LINKING_MOT_PARAMS
+
+        if (
+            "mot_param" in mot_given
+            and kwargs.get("link_tracklets")
+            and all(
+                str(text).partition("=")[0].strip() in CLASSIC_LINKING_MOT_PARAMS
+                for text in kwargs["mot_param"]
+            )
+        ):
+            # The classic tracker's identity linking reads these keys.
+            mot_given.remove("mot_param")
         if mot_given:
             raise click.UsageError(
                 f"{', '.join('--' + n for n in mot_given)} only appl"
                 f"{'ies' if len(mot_given) == 1 else 'y'} to the MOT trackers; pass "
                 f"--tracker ({' / '.join(_TRACKER_CHOICES[1:])}) or drop "
                 f"{'it' if len(mot_given) == 1 else 'them'}."
+                + (
+                    " (With --link_tracklets, the classic tracker's identity "
+                    "linking reads "
+                    + " / ".join(f"--mot_param {k}" for k in CLASSIC_LINKING_MOT_PARAMS)
+                    + ".)"
+                    if "mot_param" in mot_given
+                    else ""
+                )
             )
         return
     ctx = click.get_current_context(silent=True)
@@ -4086,7 +4106,9 @@ def _common_inference_options(f):
             "--mot_param preset=paper --mot_param gallery_size=50, "
             "normalize_scores=false (score thresholds on raw scores), or "
             "body_size=40 (animal size in px for centroid-only models) (see "
-            "sleap_nn.tracking.mot.params.MOTParams).",
+            "sleap_nn.tracking.mot.params.MOTParams). With --tracker classic, only "
+            "time_base and body_size, with --link_tracklets (read by the identity "
+            "linking).",
         ),
         click.option("--gui", is_flag=True, default=False),
         # New PR 10 flags ─────────────────────────────────────────────

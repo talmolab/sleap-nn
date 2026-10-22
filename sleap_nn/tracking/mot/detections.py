@@ -247,14 +247,44 @@ def _mask_geometry(objs: Sequence) -> Tuple[np.ndarray, np.ndarray]:
     return raw, nonempty
 
 
+def _usable_vector(obj) -> Optional[Tuple[np.ndarray, float]]:
+    """A detection's appearance vector (float64, flat) and its L2 norm, if usable.
+
+    THE "usable vector" rule, shared by the trackers (:func:`extract_detections`)
+    and the up-front checks of ``apply_tracking``
+    (:func:`has_usable_embedding`): a vector that is absent, empty, non-finite
+    or zero-norm is unusable (``None``).
+    """
+    vec = get_embedding(obj)
+    if vec is None:
+        return None
+    vec = np.asarray(vec, dtype=np.float64).reshape(-1)
+    if vec.size == 0:
+        return None
+    norm = float(np.linalg.norm(vec))
+    if not np.isfinite(norm) or norm <= 0.0:
+        return None
+    return vec, norm
+
+
+def has_usable_embedding(obj) -> bool:
+    """Whether ``obj`` carries a usable appearance vector (see :func:`_usable_vector`).
+
+    A frame-level check can additionally drop a usable vector whose dimension
+    differs from the frame's (:func:`extract_detections`); per detection, only
+    presence, finiteness and a non-zero norm can be judged.
+    """
+    return _usable_vector(obj) is not None
+
+
 def _embedding_arrays(
     objs: Sequence, embedding_dim: Optional[int]
 ) -> Tuple[Optional[np.ndarray], np.ndarray]:
     """Collect re-L2-normalized appearance vectors.
 
-    A vector that is absent, empty, non-finite, zero-norm, or of a dimension
-    other than ``embedding_dim`` (``None``: the first usable vector's) counts as
-    missing.
+    A vector that is absent, empty, non-finite, zero-norm (:func:`_usable_vector`),
+    or of a dimension other than ``embedding_dim`` (``None``: the first usable
+    vector's) counts as missing.
 
     Returns:
         ``(embeddings, has_embedding)``; ``embeddings`` is ``None`` when no
@@ -264,14 +294,11 @@ def _embedding_arrays(
     rows: List[Optional[np.ndarray]] = [None] * len(objs)
     dim = embedding_dim
     for i, obj in enumerate(objs):
-        vec = get_embedding(obj)
-        if vec is None:
+        usable = _usable_vector(obj)
+        if usable is None:
             continue
-        vec = np.asarray(vec, dtype=np.float64).reshape(-1)
-        if vec.size == 0 or (dim is not None and vec.size != dim):
-            continue
-        norm = float(np.linalg.norm(vec))
-        if not np.isfinite(norm) or norm <= 0.0:
+        vec, norm = usable
+        if dim is not None and vec.size != dim:
             continue
         rows[i] = vec / norm
         has[i] = True

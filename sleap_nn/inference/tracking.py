@@ -47,6 +47,7 @@ import numpy as np
 import sleap_io as sio
 
 from sleap_nn.tracking.mot import APPEARANCE_TRACKERS, VECTOR_REQUIRED_TRACKERS
+from sleap_nn.tracking.mot.detections import has_usable_embedding
 from sleap_nn.tracking.mot.params import MOT_TRACKER_NAMES, MOTParams
 
 # Default candidate window. Mask tracking uses a larger default than the
@@ -77,6 +78,12 @@ MOT_ONLY_OPTIONS = (
     "appearance_threshold",
     "mot_params",
 )
+
+# The `mot_params` keys the classic tracker reads -- only with `link_tracklets`,
+# and only through its identity linking: the clock the linker counts steps in and
+# the animal size (e.g. for a centroid-only model the calibration cannot size).
+# Every other `mot_params` key is MOT-only.
+CLASSIC_LINKING_MOT_PARAMS = ("time_base", "body_size")
 
 # TrackerConfig options that only the classic tracker reads; a MOT tracker refuses
 # any of them away from its default (they would be silently ignored).
@@ -312,7 +319,8 @@ class TrackerConfig:
         default=None, converter=_convert_appearance_threshold
     )
     # Identity linking (long-term identity memory) at the end of each video;
-    # works after the classic tracker too.
+    # works after the classic tracker too (which then also reads the
+    # CLASSIC_LINKING_MOT_PARAMS keys of `mot_params`).
     link_tracklets: bool = False
     mot_params: Optional[dict] = attrs.field(
         default=None, converter=_convert_mot_params
@@ -479,7 +487,13 @@ def count_carriers(
 
 
 def _has_embedding(detection) -> bool:
-    return getattr(detection, "identity_embedding", None) is not None
+    """Whether ``detection`` carries a USABLE appearance vector.
+
+    The trackers' own rule (:func:`~sleap_nn.tracking.mot.detections.has_usable_embedding`:
+    present, non-empty, finite, non-zero norm), so the up-front checks count the
+    vectors the trackers will actually use: a NaN or all-zero vector is missing.
+    """
+    return has_usable_embedding(detection)
 
 
 def embedding_carriers(labels: sio.Labels) -> CarrierCounts:
@@ -867,7 +881,9 @@ def validate_mot_config(config: TrackerConfig) -> None:
     """Refuse options the selected tracker family would silently ignore.
 
     For the classic tracker: any MOT-only option (``track_buffer``, ...,
-    ``mot_params``; ``link_tracklets`` is shared). For a MOT tracker: every
+    ``mot_params``; ``link_tracklets`` is shared, and with it ``mot_params`` may
+    hold the :data:`CLASSIC_LINKING_MOT_PARAMS` keys its identity linking reads).
+    For a MOT tracker: every
     classic-only option away from its default (the candidate window, the scoring
     knobs, motion models, ``appearance_weight``, the pre-cull / clean / connect
     cleanups -- identity linking covers what those do), ``features`` other than
@@ -887,12 +903,22 @@ def validate_mot_config(config: TrackerConfig) -> None:
         set_mot = [
             name for name in MOT_ONLY_OPTIONS if getattr(config, name) is not None
         ]
+        if (
+            "mot_params" in set_mot
+            and config.link_tracklets
+            and set(config.mot_params) <= set(CLASSIC_LINKING_MOT_PARAMS)
+        ):
+            set_mot.remove("mot_params")
+            classic_linking_params(config)  # Validates the values.
         if set_mot:
             raise ValueError(
                 f"{', '.join(_flag(n) for n in set_mot)} only appl"
                 f"{'ies' if len(set_mot) == 1 else 'y'} to the MOT trackers "
                 f"(--tracker {' / '.join(MOT_TRACKER_NAMES)}); the classic "
-                "tracker would ignore them. (--link_tracklets works with both.)"
+                "tracker would ignore them. (--link_tracklets works with both; "
+                "with it, the classic tracker's identity linking also reads "
+                f"{' / '.join('--mot_param ' + k for k in CLASSIC_LINKING_MOT_PARAMS)}"
+                ".)"
             )
         return
 
@@ -987,7 +1013,9 @@ def tracker_config_params(config: TrackerConfig) -> Dict[str, Any]:
     The ``*_explicit`` flags are recorded under their public names, as resolved.
     For a classic run the MOT options are left out (all unset by
     :func:`validate_mot_config`), so a classic run's provenance is what it was
-    before the MOT trackers existed; ``link_tracklets`` is kept when it ran. For a
+    before the MOT trackers existed; ``link_tracklets`` is kept when it ran, and
+    so are the ``mot_params`` its identity linking read
+    (:data:`CLASSIC_LINKING_MOT_PARAMS`). For a
     MOT run the classic-only options are left out (they are at their defaults and
     did not apply), and so are ``scoring_method`` / ``features`` when they were not
     chosen explicitly (the run used its preset similarity / carrier, recorded
@@ -1008,6 +1036,8 @@ def tracker_config_params(config: TrackerConfig) -> Dict[str, Any]:
     if not config.is_mot:
         params.pop("tracker", None)
         for name in MOT_ONLY_OPTIONS:
+            if name == "mot_params" and config.link_tracklets and config.mot_params:
+                continue
             params.pop(name, None)
         if not config.link_tracklets:
             params.pop("link_tracklets", None)
@@ -1202,17 +1232,41 @@ def _video_records(labels: sio.Labels, entries: list) -> list:
     return out
 
 
+def classic_linking_params(config: TrackerConfig) -> Dict[str, Any]:
+    """The MOT parameters the classic tracker's identity linking reads.
+
+    ``{key: value}`` for every :data:`CLASSIC_LINKING_MOT_PARAMS` key: the
+    ``mot_params`` override when given, else the :class:`MOTParams` default
+    (``time_base="auto"``, ``body_size=None``: measured per video).
+
+    Raises:
+        ValueError: An invalid value (e.g. an unknown ``time_base`` or a
+            non-positive ``body_size``).
+    """
+    overrides = {
+        k: v
+        for k, v in (config.mot_params or {}).items()
+        if k in CLASSIC_LINKING_MOT_PARAMS and v is not None
+    }
+    params = MOTParams(tracker=MOT_TRACKER_NAMES[0], **overrides)
+    return {k: getattr(params, k) for k in CLASSIC_LINKING_MOT_PARAMS}
+
+
 def _link_tracked_video(
     video_lfs: list,
     carrier: str,
     track_objects: dict,
     max_tracks: Optional[int],
+    time_base: str = "auto",
+    body_size: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Identity linking over one video tracked by the classic tracker, in place.
 
     Calibrates the video from its tracked detections and runs
     :func:`~sleap_nn.tracking.mot.linking.link_tracklets` with the MOT defaults
-    (:class:`~sleap_nn.tracking.mot.params.MOTParams`).
+    (:class:`~sleap_nn.tracking.mot.params.MOTParams`), except ``time_base`` and
+    ``body_size`` (:func:`classic_linking_params`), which reach both the
+    calibration and the linker.
 
     Returns:
         ``{"calibration": ..., "linking": ...}`` for the provenance record.
@@ -1238,6 +1292,8 @@ def _link_tracked_video(
         track_buffer=defaults["track_buffer"],
         gallery_size=defaults["gallery_size"],
         ema_alpha=defaults["ema_alpha"],
+        time_base=time_base,
+        body_size=body_size,
     )
     result = link_tracklets(
         frames,
@@ -1250,6 +1306,8 @@ def _link_tracked_video(
         box_padding=defaults["box_padding"],
         high_threshold=defaults["track_high_threshold"],
         score_mode=defaults["score_mode"],
+        time_base=time_base,
+        body_size=body_size,
         track_objects=track_objects,
     )
     return {"calibration": calibration.as_dict(), "linking": result.as_dict()}
@@ -1913,6 +1971,7 @@ def apply_tracking(
                         tracked_carrier,
                         tracker._track_objects,
                         effective_max_tracks,
+                        **classic_linking_params(config),
                     ),
                 )
             )

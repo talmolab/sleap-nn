@@ -393,6 +393,57 @@ def test_classic_link_tracklets_runs_and_records(skeleton):
     json.dumps(record, allow_nan=False)
 
 
+def test_classic_linking_reads_time_base_and_body_size(skeleton, monkeypatch):
+    """Classic + ``link_tracklets``: the ``mot_params`` keys its identity linking
+    reads (``CLASSIC_LINKING_MOT_PARAMS``) reach the calibration and the linker,
+    and are recorded; without them the MOTParams defaults apply."""
+    from sleap_nn.inference.tracking import (
+        CLASSIC_LINKING_MOT_PARAMS,
+        tracker_config_params,
+    )
+    from sleap_nn.tracking.mot import linking
+
+    assert CLASSIC_LINKING_MOT_PARAMS == ("time_base", "body_size")
+    seen = []
+    real = linking.link_tracklets
+
+    def spy(frames, **kwargs):
+        seen.append(kwargs)
+        return real(frames, **kwargs)
+
+    monkeypatch.setattr(linking, "link_tracklets", spy)
+    labels = _make_labels(skeleton, [sio.Video(filename="a.mp4")], n_frames=10)
+    config = TrackerConfig(
+        link_tracklets=True, mot_params={"time_base": "steps", "body_size": 40}
+    )
+    out = apply_tracking(labels, config)
+    assert seen[-1]["time_base"] == "steps" and seen[-1]["body_size"] == 40.0
+    cal = out.provenance["tracking"]["videos"][0]["calibration"]
+    assert cal["time_base"] == "steps" and cal["body_size"] == 40.0
+    assert cal["body_size_source"] == "override"
+    assert tracker_config_params(config)["mot_params"] == {
+        "time_base": "steps",
+        "body_size": 40,
+    }
+
+    labels = _make_labels(skeleton, [sio.Video(filename="a.mp4")], n_frames=10)
+    apply_tracking(labels, TrackerConfig(link_tracklets=True))
+    assert seen[-1]["time_base"] == "auto" and seen[-1]["body_size"] is None
+    assert "mot_params" not in tracker_config_params(TrackerConfig())
+
+    labels = _make_labels(skeleton, [sio.Video(filename="a.mp4")])
+    for bad in (
+        dict(mot_params={"body_size": 40}),  # no linking: nothing reads it
+        dict(link_tracklets=True, mot_params={"gallery_size": 3}),
+    ):
+        with pytest.raises(ValueError, match="MOT trackers"):
+            apply_tracking(labels, TrackerConfig(**bad))
+    with pytest.raises(ValueError, match="body_size"):
+        apply_tracking(
+            labels, TrackerConfig(link_tracklets=True, mot_params={"body_size": -1})
+        )
+
+
 def test_classic_default_records_no_tracking_provenance(skeleton):
     labels = _make_labels(skeleton, [sio.Video(filename="a.mp4")])
     labels.provenance["kept"] = 1

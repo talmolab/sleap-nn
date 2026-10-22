@@ -109,7 +109,8 @@ class MOTParams:
             the nearest-neighbor spacing), else the spacing, else 50 px; without
             ``prepare()``, the same chain on the frames seen so far. Set it for
             centroid-only models whose calibration cannot size the animal.
-        oks_stddev: OKS per-node standard deviation for ``similarity="oks"``. The
+        oks_stddev: OKS per-node standard deviation for ``similarity="oks"``
+            (a finite number > 0; NaN and inf are refused). The
             MOT default (0.1) is 4x the evaluation default: tracking compares two
             noisy observations a frame apart, and at 0.025 an OKS threshold is
             ~7x stricter than the same IoU threshold.
@@ -259,8 +260,14 @@ class MOTParams:
             raise ValueError(f"track_buffer must be >= 0, got {self.track_buffer}.")
         if self.min_hits < 1:
             raise ValueError(f"min_hits must be >= 1, got {self.min_hits}.")
-        if self.oks_stddev <= 0:
-            raise ValueError(f"oks_stddev must be > 0, got {self.oks_stddev}.")
+        try:
+            oks_ok = math.isfinite(self.oks_stddev) and self.oks_stddev > 0
+        except TypeError:
+            oks_ok = False
+        if not oks_ok:
+            raise ValueError(
+                f"oks_stddev must be a finite number > 0, got {self.oks_stddev!r}."
+            )
         if self.gallery_size < 1 or self.gallery_budget < 1:
             raise ValueError("gallery_size and gallery_budget must be >= 1.")
         if self.delta_t < 1:

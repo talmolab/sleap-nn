@@ -161,12 +161,13 @@ guide](../guides/tracking.md#tracking-parameters) for the full list.
 trackers](../guides/tracking.md#modern-mot-trackers). These options apply only to
 those trackers. Unset options take the tracker's preset value (`animal` preset
 shown). Giving a classic-only option to a MOT tracker, or a MOT-only option to
-`classic`, is an error.
+`classic`, is an error; the one exception is `--mot_param time_base=...` /
+`body_size=...` with `classic --link_tracklets`, which its identity linking reads.
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
 | `--tracker` | Tracking algorithm | `classic`, `sort`, `deepsort`, `strongsort`, `bytetrack`, `botsort`, `ocsort`, `deepocsort` | `classic` |
-| `--track_buffer` | Steps a lost track is kept for re-association | `INT` | `30` |
+| `--track_buffer` | Steps a lost track is kept for re-association | `INT` | `30` (`paper` preset: `1` for `sort`) |
 | `--min_hits` | Matches before a track is confirmed (earlier detections then labeled) | `INT` | `3` (`2` for `bytetrack`, `botsort`) |
 | `--track_high_threshold` | Score above which a detection is high-confidence | `FLOAT` in `[0, 1]` | per tracker |
 | `--track_low_threshold` | Detections scoring at or below this are ignored | `FLOAT` in `[0, 1]` | `0.1` |
@@ -175,7 +176,7 @@ shown). Giving a classic-only option to a MOT tracker, or a MOT-only option to
 | `--appearance_threshold` | Appearance trackers (`deepsort`, `strongsort`, `botsort`, `deepocsort`): minimum cosine, or `auto` (calibrated per video) | `auto`, `FLOAT` in `[-1, 1]` | `auto` |
 | `--link_tracklets` | Identity linking after tracking each video | Flag | `false` |
 | `--max_tracks` | Known number of animals: closed-set identity linking, at most N tracks per video | `INT` | `None` |
-| `--mot_param` | Override any MOT parameter, e.g. `preset=paper`, `score_mode=none`, `use_byte=true`, `normalize_scores=false`, `body_size=40` (repeatable) | `KEY=VALUE` | — |
+| `--mot_param` | Override any MOT parameter, e.g. `preset=paper`, `score_mode=none`, `use_byte=true`, `normalize_scores=false` (thresholds on raw scores instead of per-video normalized ones), `body_size=40` (animal size in px, e.g. for centroid-only models) (repeatable). With `classic`: only `time_base` / `body_size`, with `--link_tracklets` | `KEY=VALUE` | — |
 | `--scoring_method` | Geometric similarity | `iou`, `oks`, `euclidean_dist` (centroid) | auto |
 | `--oks_stddev` | OKS spread for `--scoring_method oks` (refused with any other similarity) | `FLOAT` | `0.1` |
 | `--features` | Carrier to track (one the labels do not hold is an error) | `keypoints`, `masks` | auto |

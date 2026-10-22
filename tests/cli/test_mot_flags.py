@@ -204,6 +204,37 @@ def test_link_tracklets_works_with_the_classic_tracker():
     assert cfg.tracker == "classic" and cfg.link_tracklets is True
 
 
+def test_classic_link_tracklets_takes_the_linking_mot_params():
+    """With --link_tracklets, the classic tracker's identity linking reads
+    --mot_param time_base / body_size; any other key, or either one without
+    --link_tracklets, is refused."""
+    result, cfg = _predict_video(
+        "--tracking",
+        "--link_tracklets",
+        "--mot_param",
+        "body_size=40",
+        "--mot_param",
+        "time_base=steps",
+    )
+    assert result.exit_code == 0, result.output
+    assert cfg.tracker == "classic"
+    assert cfg.mot_params == {"body_size": 40.0, "time_base": "steps"}
+
+    result, cfg = _predict_video("--tracking", "--mot_param", "body_size=40")
+    assert result.exit_code == 2 and cfg is None
+    assert "only applies to the MOT trackers" in _flat(result)
+    assert "--mot_param time_base / --mot_param body_size" in _flat(result)
+    result, cfg = _predict_video(
+        "--tracking", "--link_tracklets", "--mot_param", "gallery_size=5"
+    )
+    assert result.exit_code == 2 and cfg is None
+    result, cfg = _predict_video(
+        "--tracking", "--link_tracklets", "--mot_param", "body_size=-3"
+    )
+    assert result.exit_code == 2 and cfg is None
+    assert "body_size" in _flat(result)
+
+
 @pytest.mark.parametrize(
     "flag,value",
     [

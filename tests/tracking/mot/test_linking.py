@@ -145,6 +145,56 @@ def test_s_link_is_mean_of_top5_means():
     assert np.isnan(_s_link(q[:0], gallery))
 
 
+def test_batched_pair_scores_equal_s_link(monkeypatch):
+    """The open set's batched statistic (`_Linker._score_pairs`) is `_s_link`.
+
+    Pins the batched top-k path to the reference statistic for every scored pair
+    -- including tails shorter than k and heads shorter than the query length --
+    so the two cannot drift apart (they once lived in separate update helpers).
+    """
+    from sleap_nn.tracking.mot import linking
+
+    real = linking._Linker._score_pairs
+    checked = []
+
+    def spy(self, ii, jj):
+        out = real(self, ii, jj)
+        for i, j, got in zip(ii, jj, out):
+            head, tail = self.heads[int(j)], self.tails[int(i)]
+            want = _s_link(head, tail) if self.use_app else float("nan")
+            if np.isnan(want):
+                assert np.isnan(got)
+            else:
+                assert got == pytest.approx(want, rel=0, abs=1e-12)
+                checked.append((len(head), len(tail)))
+        return out
+
+    monkeypatch.setattr(linking._Linker, "_score_pairs", spy)
+    # Four animals, each re-spawned as a new track after every absence, with
+    # tracklet lengths from 2 to 60 frames (short heads and tails included).
+    rng = np.random.default_rng(3)
+    names = iter(sio.Track(f"track_{k}") for k in range(1000))
+    animals = []
+    for a in range(4):
+        segments, f = [], int(rng.integers(0, 5))
+        while f < 400:
+            length = int(rng.choice([2, 3, 4, 8, 20, 60]))
+            segments.append((f, f + length, next(names)))
+            f += length + int(rng.integers(3, 12))
+
+        def fn(frame, segments=segments, a=a):
+            for lo, hi, track in segments:
+                if lo <= frame < hi:
+                    return (80 + 120 * a + 0.2 * frame, 100 + 40 * a, track)
+            return None
+
+        animals.append((a, fn))
+    frames = _video(range(400), animals)
+    link_tracklets(frames, calibration=_cal())
+    assert len(checked) > 20
+    assert min(t for _, t in checked) < 5 and min(h for h, _ in checked) < 10
+
+
 # ------------------------------------------------------------- gap linking
 def _reid_scene(track_a, track_b, track_c):
     """Animal 0 leaves for 200 frames and comes back as track_c; animal 1 stays."""

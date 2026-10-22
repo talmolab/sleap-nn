@@ -24,11 +24,11 @@ identical to the references' ``P - K S K^T`` but keeps ``P`` positive
 semi-definite under rounding.
 """
 
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 from loguru import logger
-from scipy.linalg import LinAlgError, cho_factor, cho_solve
+from scipy.linalg.lapack import dpotrf, dpotrs
 
 # DeepSORT-style noise weights (XYAH, XYWH): the standard deviations are these
 # fractions of the box size.
@@ -89,18 +89,32 @@ def _solve_spd(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     Uses a Cholesky factorization. If ``a`` is numerically not positive definite
     the solve is retried with a growing diagonal jitter, and the pseudo-inverse is
     the last resort, so finite inputs always give a finite result.
+
+    Calls LAPACK ``dpotrf`` / ``dpotrs`` directly: the routines
+    ``scipy.linalg.cho_factor`` / ``cho_solve`` wrap (same arguments, so the same
+    bits), without their per-call dispatch and checks -- this runs once per
+    Kalman update and per gated track on the hot path. A non-zero LAPACK
+    ``info`` is the failure ``cho_factor`` / ``cho_solve`` would raise on.
     """
-    a = _symmetrize(a)
-    scale = max(float(np.max(np.abs(np.diag(a)))), 1e-12)
-    eye = np.eye(len(a))
+    a = _symmetrize(np.asarray(a, dtype=np.float64))
+    b = np.asarray(b, dtype=np.float64)
+    if b.size == 0:
+        return np.empty_like(b)
+    eye = None  # Built on the first failure only (the common case never jitters).
     jitter = 0.0
     for attempt in range(5):
-        try:
-            factor = cho_factor(a + jitter * eye, lower=True, check_finite=False)
-            return cho_solve(factor, b, check_finite=False)
-        except (LinAlgError, ValueError):
-            # 1e-12, 1e-9, 1e-6, 1e-3 of the largest variance.
-            jitter = scale * 10.0 ** (-12 + 3 * attempt)
+        # `a + 0.0` is exactly `a + 0 * I` (signed zeros included).
+        shifted = a + 0.0 if eye is None else a + jitter * eye
+        factor, info = dpotrf(shifted, lower=1, clean=0)
+        if info == 0:
+            x, info = dpotrs(factor, b, lower=1)
+            if info == 0:
+                return x
+        if eye is None:
+            scale = max(float(np.max(np.abs(np.diag(a)))), 1e-12)
+            eye = np.eye(len(a))
+        # 1e-12, 1e-9, 1e-6, 1e-3 of the largest variance.
+        jitter = scale * 10.0 ** (-12 + 3 * attempt)
     return np.linalg.pinv(a) @ b
 
 
@@ -347,31 +361,52 @@ class _KalmanBase:
             ``(m,)`` squared distances. The innovation covariance always uses the
             un-scaled measurement noise (no NSA), as in the reference.
         """
-        boxes = np.asarray(boxes_xyxy, dtype=np.float64).reshape(-1, 4)
-        out = np.full(len(boxes), np.inf)
-        if len(boxes) == 0:
-            return out
-        mean = np.asarray(mean, dtype=np.float64).reshape(self.ndim)
-        cov = np.asarray(cov, dtype=np.float64).reshape(self.ndim, self.ndim)
-        if not (np.all(np.isfinite(mean)) and np.all(np.isfinite(cov))):
-            return out
+        return self.gating_distances([mean], [cov], boxes_xyxy, only_position)[0]
 
-        z_mean, s = self.project(mean, cov)  # conf=None: never NSA-scaled.
-        z = self.z_from_xyxy(boxes)
-        if only_position:
-            z_mean, s, z = z_mean[:2], s[:2, :2], z[:, :2]
+    def gating_distances(
+        self,
+        means: Sequence[np.ndarray],
+        covs: Sequence[np.ndarray],
+        boxes_xyxy: np.ndarray,
+        only_position: bool = False,
+    ) -> np.ndarray:
+        """:meth:`gating_distance` of ``n`` states at once: ``(n, m)``.
+
+        Row ``i`` is ``gating_distance(means[i], covs[i], boxes_xyxy,
+        only_position)``, bit for bit: the boxes are converted once, and each
+        state's innovation covariance is factored and solved on its own (the
+        same LAPACK calls), so batching changes no result.
+
+        Args:
+            means: ``n`` predicted ``(ndim,)`` state means.
+            covs: ``n`` predicted ``(ndim, ndim)`` state covariances.
+            boxes_xyxy: ``(m, 4)`` candidate boxes.
+            only_position: See :meth:`gating_distance`.
+
+        Returns:
+            ``(n, m)`` squared distances (``inf`` for a non-finite box or state).
+        """
+        boxes = np.asarray(boxes_xyxy, dtype=np.float64).reshape(-1, 4)
+        out = np.full((len(means), len(boxes)), np.inf)
+        if len(means) == 0 or len(boxes) == 0:
+            return out
+        k = 2 if only_position else self.ndim_z
+        z = self.z_from_xyxy(boxes)[:, :k]
         valid = np.all(np.isfinite(z), axis=1)
         if not np.any(valid):
             return out
-        d = z[valid] - z_mean
-        # d_i^T S^-1 d_i for every valid row.
-        out[valid] = np.maximum(np.sum(d * _solve_spd(s, d.T).T, axis=1), 0.0)
-        return out
-
-    def zero_velocity(self, mean: np.ndarray, indices) -> np.ndarray:
-        """Return a copy of ``mean`` with the given velocity components set to 0."""
-        out = np.array(mean, dtype=np.float64, copy=True)
-        out[list(indices)] = 0.0
+        z = z[valid]
+        for i, (mean, cov) in enumerate(zip(means, covs)):
+            mean = np.asarray(mean, dtype=np.float64).reshape(self.ndim)
+            cov = np.asarray(cov, dtype=np.float64).reshape(self.ndim, self.ndim)
+            if not (np.all(np.isfinite(mean)) and np.all(np.isfinite(cov))):
+                continue
+            z_mean, s = self.project(mean, cov)  # conf=None: never NSA-scaled.
+            d = z - z_mean[:k]
+            # d_j^T S^-1 d_j for every valid box j.
+            out[i, valid] = np.maximum(
+                np.sum(d * _solve_spd(s[:k, :k], d.T).T, axis=1), 0.0
+            )
         return out
 
 

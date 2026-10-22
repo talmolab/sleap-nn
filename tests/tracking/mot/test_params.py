@@ -71,3 +71,11 @@ def test_parse_new_fields():
     assert parse_mot_param("max_tracks=3") == ("max_tracks", 3)
     with pytest.raises(ValueError, match="cannot be None"):
         parse_mot_param("track_buffer=none")
+
+
+@pytest.mark.parametrize("bad", [0, -0.1, float("nan"), float("inf"), "wide"])
+def test_oks_stddev_must_be_finite_and_positive(bad):
+    """oks_stddev: a finite number > 0 (NaN and inf used to pass the `<= 0` check)."""
+    with pytest.raises(ValueError, match="oks_stddev"):
+        MOTParams.for_tracker("bytetrack", oks_stddev=bad)
+    assert MOTParams.for_tracker("bytetrack", oks_stddev=0.05).oks_stddev == 0.05

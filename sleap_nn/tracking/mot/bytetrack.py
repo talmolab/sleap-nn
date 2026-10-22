@@ -93,7 +93,7 @@ import numpy as np
 from loguru import logger
 
 from sleap_nn.tracking.mot.association import (
-    appearance_margins,
+    decisive_cells,
     fuse_score,
     iou_matrix,
     linear_assignment,
@@ -213,42 +213,6 @@ def shared_node_iou(
     return out
 
 
-def decisive_cells(
-    cos: np.ndarray, admissible: np.ndarray, margin: float = 0.0
-) -> np.ndarray:
-    """Cells where appearance decides a pair (per cell, not per row/column).
-
-    A cell is decisive when it is admissible and its cosine is the top admissible
-    cosine of its row AND of its column, with each top-1 minus top-2 margin
-    strictly positive and at least ``margin`` (a lone admissible cell has an
-    infinite margin). A row's runner-up is never decisive, even when the row's
-    margin is large: appearance ranks it below another candidate.
-
-    Args:
-        cos: ``(n, m)`` cosines (NaN where unavailable).
-        admissible: ``(n, m)`` bool cells appearance may decide at all.
-        margin: Minimum row and column margin (the calibrated ``m_assoc``).
-
-    Returns:
-        ``(n, m)`` bool mask.
-    """
-    cos = np.asarray(cos, dtype=np.float64)
-    admissible = np.asarray(admissible, dtype=bool) & np.isfinite(cos)
-    if cos.size == 0 or not admissible.any():
-        return np.zeros(cos.shape, dtype=bool)
-    row_margin, col_margin = appearance_margins(np.where(admissible, cos, np.nan))
-    filled = np.where(admissible, cos, -np.inf)
-    is_top = (filled >= filled.max(axis=1, keepdims=True)) & (
-        filled >= filled.max(axis=0, keepdims=True)
-    )
-    row_margin = np.nan_to_num(row_margin, nan=0.0)
-    col_margin = np.nan_to_num(col_margin, nan=0.0)
-    margin = max(float(margin), 0.0)
-    row_ok = (row_margin > 0.0) & (row_margin >= margin)
-    col_ok = (col_margin > 0.0) & (col_margin >= margin)
-    return admissible & is_top & row_ok[:, None] & col_ok[None, :]
-
-
 class ByteTracker(BaseMOTTracker):
     """ByteTrack tracker (see :mod:`sleap_nn.tracking.mot.bytetrack`).
 
@@ -288,41 +252,19 @@ class ByteTracker(BaseMOTTracker):
         # `kalman` override changes the state layout).
         self.lost_zero_velocity = self.size_velocity[self.kalman_kind]
 
-    def prepare(self, frames: Sequence[Tuple[int, Sequence]]) -> None:
-        """Per-video pre-pass (see :meth:`BaseMOTTracker.prepare`).
+    def _score_cuts(self) -> List[Tuple[str, bool, str]]:
+        """Base cuts, plus the STRICT high-score split.
 
-        Also warns when the video's detections cannot start tracks because of the
-        STRICT high-score split (only ``s > track_high_threshold`` may start a
-        track), which the base check on ``new_track_threshold`` does not cover.
-
-        Args:
-            frames: ``(frame_idx, objects)`` per frame, in temporal order.
+        Only ``s > track_high_threshold`` (``D_hi``) may start a track.
         """
-        super().prepare(frames)
-        self._check_spawn_gate()
-
-    def _check_spawn_gate(self) -> None:
-        """Warn when 95% of the (possibly normalized) scores are not ``D_hi``."""
-        p = self.params
-        cal = self.calibration
-        if cal is None or not cal.score_quantiles:
-            return
-        q95 = float(cal.score_quantiles[-1])
-        if not np.isfinite(q95):
-            return
-        normalizer = self._score_normalizer
-        if normalizer is not None and np.isfinite(normalizer) and normalizer > 0:
-            q95 = min(max(q95 / normalizer, 0.0), 1.0)
-        # The base already warned for raw scores below the new-track threshold.
-        base_warned = not p.normalize_scores and q95 < p.new_track_threshold
-        if q95 <= p.track_high_threshold and not base_warned:
-            logger.warning(
-                f"{self.name}: 95% of this video's detections score at or below "
-                f"track_high_threshold={p.track_high_threshold} (score q95 "
-                f"{q95:.3f}{', normalized' if p.normalize_scores else ''}); only "
-                "detections scoring above it can start a track, so most "
-                "detections can never start one. Lower --track_high_threshold."
+        return super()._score_cuts() + [
+            (
+                "track_high_threshold",
+                True,
+                "only detections scoring above it can start a track, so most "
+                "detections can never start one. Lower --track_high_threshold",
             )
+        ]
 
     def _associate(self, dets: FrameDetections) -> AssociationResult:
         """BYTE association: high, low and unconfirmed stages, then de-duplication.

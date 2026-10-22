@@ -302,7 +302,7 @@ Every MOT option defaults to *unset*, which means the tracker's
 | Flag | What it sets | Default |
 |---|---|---|
 | `--tracker` | `classic`, `sort`, `deepsort`, `strongsort`, `bytetrack`, `botsort`, `ocsort`, `deepocsort` | `classic` |
-| `--track_buffer INT` | How many steps a lost track is kept for re-association before removal (`max_age`). Identity linking also uses it as the gap that splits a track into tracklets. | `30` |
+| `--track_buffer INT` | How many steps a lost track is kept for re-association before removal (`max_age`). Identity linking also uses it as the gap that splits a track into tracklets. | `30` (`paper` preset: `1` for `sort`) |
 | `--min_hits INT` | Matches needed to confirm a new track; the track's tentative detections are labeled on confirmation. For `sort`, `ocsort` and `deepocsort` the matches must be consecutive and the detection that starts the track does not count, so `3` means four detections in a row. | `3`; `2` for `bytetrack` / `botsort` |
 | `--track_high_threshold FLOAT` | Detection score above which a detection is high-confidence (the first stage of ByteTrack, BoT-SORT and OC-SORT). Also the minimum score for a re-ID vector to update a track's appearance memory or join a linking gallery. | per tracker |
 | `--track_low_threshold FLOAT` | Detections scoring at or below this are ignored. | `0.1` |
@@ -311,7 +311,7 @@ Every MOT option defaults to *unset*, which means the tracker's
 | `--appearance_threshold {auto,FLOAT}` | Appearance trackers only. The minimum cosine similarity for appearance to support a match, or `auto` to [calibrate it per video](#per-video-calibration-of-appearance-thresholds). | `auto` |
 | `--link_tracklets` | Run [identity linking](#identity-linking-long-term-identity-memory) after tracking each video. Also works with `--tracker classic`. | off |
 | `--max_tracks INT` | The known number of animals. Enables closed-set identity linking (implies `--link_tracklets`), which leaves at most N tracks per video. | unset |
-| `--mot_param KEY=VALUE` | Override any [MOT parameter](#mot-parameter-overrides). Repeatable, and accepts `preset=paper`. | — |
+| `--mot_param KEY=VALUE` | Override any [MOT parameter](#mot-parameter-overrides). Repeatable, and accepts `preset=paper`. With `--tracker classic`, only `time_base` and `body_size`, together with `--link_tracklets`: the classic tracker's identity linking reads them. | — |
 | `--scoring_method` | Geometric [similarity](#geometric-similarity): `iou`, `oks`, or `euclidean_dist` (centroid). | `auto` |
 | `--oks_stddev FLOAT` | Per-keypoint spread used by `--scoring_method oks`. Refused with any other similarity, which would ignore it. | `0.1` |
 | `--features` | Carrier to track: `keypoints` (pose instances) or `masks`. Left unset, the masks are tracked when the file has masks but no predicted poses. Appearance trackers track whichever carrier holds more re-ID vectors. Naming a carrier the labels do not hold is an error. | auto |
@@ -321,7 +321,9 @@ ignored. Checks that do not need the labels run before any inference:
 
 - MOT-only flags (`--track_buffer`, `--min_hits`, the three score thresholds,
   `--min_match_similarity`, `--appearance_threshold`, `--mot_param`) with
-  `--tracker classic`.
+  `--tracker classic`. The one exception is `--mot_param time_base=...` /
+  `body_size=...` together with `--link_tracklets`: the classic tracker's identity
+  linking reads those two keys (any other key is still refused).
 - Classic-only flags given with a MOT tracker. These are
   `--tracking_window_size`, `--candidates_method`, `--min_new_track_points`,
   `--min_match_points`, `--scoring_reduction`, `--robust_best_instance`,
@@ -369,28 +371,38 @@ The `animal` preset:
 | tracker | Kalman state | `min_hits` | high / low / new score thresholds | first-stage min similarity | appearance | other |
 |---|---|---|---|---|---|---|
 | `sort` | `xysr` | 3 (consecutive) | 0.1 / 0.1 / 0.1 | 0.3 | — | |
-| `deepsort` | `xyah` | 3 | 0.5 / 0.1 / 0.1 | 0.3 (geometric stage) | `auto` (gallery gate) | gallery budget 30 |
-| `strongsort` | `xyah` + NSA | 3 | 0.5 / 0.1 / 0.1 | 0.3 (geometric stage) | `auto` (EMA gate) | EMA α 0.8, motion weight λ 0.98 |
-| `bytetrack` | `xyah` | 2 | 0.5 / 0.1 / 0.6 | 0.2, score-fused | — | low-score stage 0.5, unconfirmed 0.3, duplicates 0.85 |
+| `deepsort` | `xywh` | 3 | 0.5 / 0.1 / 0.1 | 0.3 (geometric stage) | `auto` (gallery gate) | gallery budget 30 |
+| `strongsort` | `xywh` + NSA | 3 | 0.5 / 0.1 / 0.1 | 0.3 (geometric stage) | `auto` (EMA gate) | EMA α 0.8, motion weight λ 0.98 |
+| `bytetrack` | `xywh` | 2 | 0.5 / 0.1 / 0.6 | 0.2, score-fused | — | low-score stage 0.5, unconfirmed 0.3, duplicates 0.85 |
 | `botsort` | `xywh` | 2 | 0.6 / 0.1 / 0.7 | 0.2, score-fused | `auto` (EMA gate) | proximity 0.5, EMA α 0.8 |
 | `ocsort` | `xysr` | 3 (consecutive) | 0.6 / 0.1 / 0.6 | 0.3 | — | `delta_t` 3, inertia 0.2, BYTE stage off |
 | `deepocsort` | `xywh` | 3 (consecutive) | 0.6 / 0.1 / 0.6 | 0.3 | `auto` (EMA gate) | adaptive EMA α 0.95, appearance weight 0.75, adaptive weighting 0.5, rescue on (min similarity 0.15) |
 
-Every tracker also starts from `track_buffer` 30, similarity `auto`,
-`oks_stddev` 0.1, box padding 0.1 and score mode `auto`.
+Every tracker in the `animal` preset also starts from `track_buffer` 30,
+similarity `auto`, `oks_stddev` 0.1, box padding 0.1, score mode `auto` and
+**per-video score normalization** (`normalize_scores`, see [Detection
+scores](#detection-scores)). The `animal` preset replaces the pedestrian `xyah`
+filter of DeepSORT, StrongSORT and ByteTrack with `xywh`: `xyah` carries the
+aspect ratio with a pedestrian's (near-constant) process noise, so a turning
+animal's predicted box inflates and loses IoU.
 
-`paper` differs from `animal` in the following ways. `bytetrack` and `ocsort` are
-the same in both.
+`paper` differs from `animal` in the following ways. Every tracker compares the
+**raw** scores under `paper` (`normalize_scores` off); apart from that, `ocsort`
+is the same in both.
 
-- `sort`: all score thresholds are 0. SORT has no score logic of its own, so every
-  detection with a positive score is kept.
-- `deepsort`: every score threshold is 0.8 (the reference `min_confidence`), the
-  appearance threshold is a fixed 0.8 (cosine distance 0.2), and the gallery
-  budget is 100.
-- `strongsort`: every score threshold is 0.6, the appearance threshold is 0.7,
-  and EMA α is 0.9.
-- `botsort`: the appearance threshold is 0.5 and EMA α is 0.9. No appearance
-  margin is required.
+- `sort`: `track_buffer` is 1 (the reference `max_age=1`: a track survives one
+  missed step and is removed at the second), and all score thresholds are 0. SORT has no score logic of its
+  own, so every detection with a positive score is kept.
+- `deepsort`: the `xyah` filter, every score threshold is 0.8 (the reference
+  `min_confidence`), the appearance threshold is a fixed 0.8 (cosine distance
+  0.2), and the gallery budget is 100.
+- `strongsort`: the `xyah` filter, every score threshold is 0.6, the appearance
+  threshold is 0.7, and EMA α is 0.9.
+- `bytetrack`: the `xyah` filter.
+- `botsort`: the appearance threshold is 0.5 and EMA α is 0.9. Every in-gate cell
+  gets the appearance discount, as published; `animal` gives it only to a cell
+  that is the top in-gate cosine of both its row and its column, by at least the
+  calibrated margin (see [Geometric similarity](#geometric-similarity)).
 - `deepocsort`: rescue is off.
 
 !!! note "Paper thresholds were tuned for pedestrian detectors"
@@ -415,16 +427,16 @@ own:
 | `score_mode` | `auto` | all | Detection score: `auto` (mean point score), `instance` or `none` (all 1.0). See [Detection scores](#detection-scores). |
 | `box_padding` | `0.1` | all | Padding added to each side of a keypoint or mask box, as a fraction of `max(w, h)`. |
 | `kalman` | `auto` | all | Replace the tracker's own filter with `xywh`, `xyah` or `xysr`. |
-| `time_base` | `auto` | all | `frames` or `steps`. See [Time base](#time-base). |
+| `time_base` | `auto` | all, identity linking | `frames` or `steps`. See [Time base](#time-base). Also read by the classic tracker's identity linking. |
 | `normalize_scores` | `true` (`paper`: `false`) | all | Divide each detection score by the video's 95th-percentile score before the score thresholds apply. `false` compares raw scores. |
-| `body_size` | measured per video | all | Animal size in px (box diagonal). Scales the `centroid` similarity and sizes single-node detections; set it for centroid-only models whose calibration cannot size the animal. |
+| `body_size` | measured per video | all, identity linking | Animal size in px (box diagonal). Scales the `centroid` similarity, sizes single-node detections and scales linking's gates and duplicate test; set it for centroid-only models whose calibration cannot size the animal (see [Body size](#body-size)). Also read by the classic tracker's identity linking. |
 | `fuse_score` | `true` for `bytetrack` / `botsort` | ByteTrack, BoT-SORT | Multiply the similarity by the detection score in the first and unconfirmed stages. |
 | `low_stage_min_similarity` | `0.5` | ByteTrack, BoT-SORT | Minimum similarity in the low-score stage. |
 | `unconfirmed_min_similarity` | `0.3` | ByteTrack, BoT-SORT | Minimum similarity in the tentative-track stage. |
-| `duplicate_similarity` | `0.85` | ByteTrack, BoT-SORT | Similarity above which a tracked track and a lost track count as duplicates. |
+| `duplicate_similarity` | `0.85` | ByteTrack, BoT-SORT | IoU of a lost track's predicted box and a matched detection's box above which the two count as duplicates (the one with the shorter history is removed). Always a box IoU, also under the `centroid` similarity; under `oks`, the OKS of the predicted pose. |
 | `proximity_threshold` | `0.5` | BoT-SORT | Minimum geometric similarity before appearance is considered at all. |
 | `ema_alpha` | `0.8` (`deepocsort` 0.95) | appearance trackers | Weight on the previous appearance feature in the per-track EMA. |
-| `gallery_size` | `30` | appearance trackers, calibration | Recent quality-gated vectors kept per track. |
+| `gallery_size` | `30` | appearance trackers, calibration | Recent quality-gated vectors kept per track. The calibration's one-step trials use the tracker's own gallery length (`gallery_budget` for DeepSORT). Identity linking always uses 30-vector galleries, whatever this is. |
 | `gallery_budget` | `30` | DeepSORT | Gallery size for DeepSORT's cascade (`nn_budget`). |
 | `mc_lambda` | `0.98` | StrongSORT | Weight of appearance in the cost; motion gets `1 - λ`. |
 | `delta_t`, `inertia` | `3`, `0.2` | OC-SORT, Deep OC-SORT | Look-back (in steps) and weight of the direction-consistency term. |
@@ -457,6 +469,23 @@ Bottom-up and single-instance instance scores are sums over edges or nodes, so
 they are not limited to `[0, 1]`. The mean keypoint confidence lies in `[0, 1]` for every pose
 model.
 
+**Per-video score normalization** (`normalize_scores`, on in every `animal`
+preset). The published thresholds assume a pedestrian detector's scores; a SLEAP
+model's mean point scores sit lower, at a scale that depends on the model. So
+before tracking each video, every score is divided by that video's
+95th-percentile raw score and clipped to `[0, 1]`: the thresholds then compare a
+detection with the video's own confident detections, whatever the model. The
+divisor is recorded as `score_normalizer` in the [provenance
+record](#provenance-record), and identity linking's gallery gate sees the same
+normalized scores. It is computed by the per-video pre-pass: a library loop that
+calls `track()` without `prepare()` compares raw scores. Under the `paper` preset
+(raw scores), the pre-pass warns when 95% of a video's scores fail the first
+score cut that matters: `new_track_threshold` for every tracker, then the
+tracker's own strict cut (`track_high_threshold` for ByteTrack, BoT-SORT,
+OC-SORT and Deep OC-SORT, which start tracks only above it;
+`track_low_threshold` for SORT, DeepSORT and StrongSORT, which ignore detections
+at or below it).
+
 ### Geometric similarity
 
 Every MOT threshold is a **similarity in `[0, 1]`**, where higher is stricter.
@@ -466,9 +495,9 @@ selects the similarity:
 | `--scoring_method` | similarity | between |
 |---|---|---|
 | unset (`auto`) | `iou` for masks; `centroid` for single-node skeletons; `iou` otherwise | |
-| `iou` | IoU of padded boxes | the track's predicted box and the detection's box (the extent of the visible keypoints, or the mask's bounding box, padded by `box_padding`). On masks this is **bounding-box** IoU, not pixel IoU. |
+| `iou` | IoU of padded boxes | the track's predicted box and the detection's box (the extent of the visible keypoints, or the mask's bounding box, padded by `box_padding`). On masks this is **bounding-box** IoU, not pixel IoU. For poses, ByteTrack and BoT-SORT take the larger of that IoU and the **shared-node IoU**: the IoU of the boxes of only the nodes visible on both sides (at least 2), on the detection and on the track's predicted pose. A partly occluded pose's box spans only its visible nodes, while the track's box keeps the full body, so without it an occluded, low-score animal would never match in the low-score stage. |
 | `oks` | OKS with spread `--oks_stddev` (default 0.1) | the detection's keypoints and the track's predicted pose: its last pose shifted by the Kalman-predicted displacement. Requires poses with at least 2 nodes; on masks it falls back to `iou`, and on single-node skeletons to `centroid`, with a warning. |
-| `euclidean_dist` | centroid: `exp(-d² / (2 s²))` with `s = body_size / 2` | the predicted box center and the detection's box center. `body_size` is calibrated per video. |
+| `euclidean_dist` | centroid: `exp(-d² / (2 s²))` with `s = body_size / 2` | the predicted box center and the detection's box center. `body_size` is calibrated per video ([Body size](#body-size)). |
 
 The MOT default spread of 0.1 is 4× the evaluation default. Tracking compares two
 noisy observations one frame apart, and at 0.025 an OKS threshold is several
@@ -484,6 +513,30 @@ similarities.
     instead. The CLI does not have this problem: an explicit `--scoring_method oks`
     is honored.
 
+### Body size
+
+The animal's size in pixels (`body_size`) scales the `centroid` similarity, gives
+single-node detections (which have no extent) a body-sized box, floors thin boxes,
+and scales identity linking's distance gates and duplicate test. Each video's
+calibration chooses it, in this order, and records where it came from
+(`body_size_source`):
+
+1. **measured**: the median box diagonal of the masks and of the poses with at
+   least 2 visible nodes.
+2. **motion**, for single-node (centroid-only) detections: 8 × the 99th
+   percentile of the per-step displacement, at least 16 px and at most the
+   nearest-neighbor spacing. Inter-animal spacing is not a body length: in a
+   sparse arena it would open the `centroid` gate most of the way to the next
+   animal, so that far-away false positives inherit identities.
+3. **nn_distance**: the median same-frame nearest-neighbor spacing. A warning is
+   logged.
+4. **default**: 50 px. A warning is logged.
+
+`--mot_param body_size=PX` replaces all of them (`override`); set it for a
+centroid-only model whose calibration cannot size the animal. Without the
+per-video pre-pass (a library loop), the tracker applies the same chain to the
+frames seen so far.
+
 ### Time base
 
 Kalman prediction, `--track_buffer` and OC-SORT's `delta_t` all count
@@ -498,6 +551,11 @@ Kalman prediction, `--track_buffer` and OC-SORT's `delta_t` all count
   frame. A warning is logged.
 
 Use `--mot_param time_base=frames` or `time_base=steps` to force either.
+Calibration, the trackers and identity linking count the same steps with one
+shared rule: a gap of `d` frames is `max(1, round(d / k))` steps, rounding half to
+even. Without the per-video
+pre-pass (a library loop), the tracker learns the stride from the frame gaps it
+sees, with the same rule.
 
 ### Identity linking (long-term identity memory)
 
@@ -526,33 +584,61 @@ It then runs three passes:
 2. **Gap linking (re-identification).** An identity that ends is joined to one
    that starts later. The two must never appear in the same frame, and the second
    must start within a distance gate that grows with the gap:
-   `body + 3 · step_p95 · (gap if gap ≤ 10 else √(10 · gap))`, with no gate beyond
-   `link_spatial_gate_frames` steps. With calibrated appearance, the pair's
-   tracklet-to-gallery similarity must clear the calibrated threshold and beat
-   every competing candidate by the calibrated margin. Without calibrated
-   appearance, a link is made only when the gap is at most 4 × `--track_buffer`
-   steps and the two identities are each other's only feasible candidate. The
+   `body + 3 · s · (gap if gap ≤ 10 else √(10 · gap))`, where `s` is the
+   calibrated per-step motion `step_p95` floored at 0.05 body sizes per step (a
+   clip where the animals barely move must not shrink the gate to the body
+   size), with no gate beyond `link_spatial_gate_frames` steps. With calibrated
+   appearance, the pair's tracklet-to-gallery similarity must clear the
+   calibrated threshold and beat every competing candidate by the calibrated
+   margin. Both are calibrated **per query length** (1 to 10 gated vectors): a
+   short query is noisier, so it is held to the threshold and margin of its own
+   length, and a length too short to reach the calibrated precision cannot be
+   decided by appearance at all. Without calibrated appearance, a link is made
+   only when the gap is at most 4 × `--track_buffer` steps and the pair is
+   unique on that window's **frontier**: no other candidate successor starts
+   before the nearest one ends, and no other candidate predecessor ends after
+   the latest one starts. A candidate that starts after the nearest one ends can
+   follow through it, so an identity's own later fragments do not compete with
+   each other and a chain of short fragments of one animal links up fully. The
    best links are applied first. A merged identity keeps the earlier track's
    name.
-3. **Closed set** (`--max_tracks N`). While more than N identities remain, the
-   best feasible merge is forced. Candidates include an identity that fits inside
-   another's gap, ranked by appearance agreement and then by distance. Identities
-   that appear alongside every other one, so that they cannot be merged, are
-   *untracked* (`track=None`). Duplicate identities go first: those with at least
-   half of their frames overlapping another identity at IoU ≥ 0.5. After them,
-   the identity with the fewest detections goes. Detections are never deleted.
+3. **Closed set** (`--max_tracks N`). The N best-supported identities that are
+   present **together** in some frame become **anchors**, one per animal (being
+   present together, they are certainly different animals). Every tracklet of
+   the other identities then joins a compatible anchor: one it never co-occurs
+   with, apart from frames where its detection merely **duplicates** the
+   anchor's (raw boxes overlapping by at least half of the smaller one, when both
+   have an extent, or centroids closer than 0.3 body sizes: one animal detected
+   twice). Such frames
+   are resolved **per frame**: the higher-scoring detection stays on the anchor
+   and the other is untracked. Up to 5% of a tracklet's frames may also be
+   non-duplicate conflicts (a false positive on one side), resolved the same way.
+   Fits are ranked by appearance agreement, then by whether a conflict is more
+   than a body size away, then by a gap-aware junction cost; the most constrained
+   tracklets are decided first. Past the spatial gate, a tracklet still joins
+   only when appearance agrees, or when it is longer than `--track_buffer`
+   detections and appearance does not contradict. Only duplicate detections and
+   tracklets that fit no anchor are *untracked* (`track=None`); a real fragment
+   is never dropped because a short false-positive identity happened to
+   co-occur with it. Detections are never deleted. `n_forced_merges` in the
+   provenance record counts the tracklets assigned to an anchor.
 
 Only quality-gated vectors enter a gallery. A gated vector comes from a detection
-that scores at least `--track_high_threshold`, has at least half of its nodes
-visible, and is isolated: its padded-box IoU with every other detection in the
-frame is below 0.1. Crops of overlapping animals are contaminated. Linking logs a
+that scores at least `--track_high_threshold` (after [score
+normalization](#detection-scores), as the tracker saw it), has at least half of
+its nodes visible, and is isolated: its padded-box IoU with every other detection
+in the frame is below 0.1. Crops of overlapping animals are contaminated. A
+gallery holds the last 30 gated vectors, whatever `gallery_size` the tracker
+uses: the calibration's linking trials use exactly that length. Linking logs a
 one-line summary whenever it changes something, and the counts go to the
 [provenance record](#provenance-record).
 
 With `--tracker classic`, `--link_tracklets` links each video after it is tracked,
-using the MOT defaults. A `--max_tracks` given there both caps the classic tracker
-and closes the set. With a MOT tracker, `--max_tracks` always turns linking on. A
-MOT tracker never enforces the count by refusing to start new tracks.
+using the MOT defaults; `--mot_param time_base=...` and `body_size=...` are the
+two MOT parameters it reads (both reach its calibration and the linker). A
+`--max_tracks` given there both caps the classic tracker and closes the set. With
+a MOT tracker, `--max_tracks` always turns linking on. A MOT tracker never
+enforces the count by refusing to start new tracks.
 
 Linking works **within a video**. It does not link one animal across the videos
 or sessions of a multi-video file.
@@ -578,11 +664,14 @@ own detections, with no ground truth:
    detections nearby. Anchors are kept when at least 10 detections long.
 2. **Appearance trials.** Two anchors that overlap in time are certainly
    different animals, so they supply negatives. Later vectors of the same anchor
-   supply positives. Over up to 2000 trials per gap, calibration measures the
-   **exact statistics the trackers threshold**: the EMA cosine (BoT-SORT,
-   StrongSORT, Deep OC-SORT), the gallery-max cosine (DeepSORT), and the
-   tracklet-to-gallery top-5 mean (linking). These are measured one step after
-   the gallery and `--track_buffer` steps after it.
+   supply positives. Over up to 2000 trials per gap (the split points are spaced
+   so that a short clip still reaches enough trials and a long one is not
+   over-sampled), calibration measures the **exact statistics the trackers
+   threshold**: the EMA cosine (BoT-SORT, StrongSORT, Deep OC-SORT), the
+   gallery-max cosine (DeepSORT), and the tracklet-to-gallery top-5 mean
+   (linking, always with a 30-vector gallery and for every query length from 1
+   to 10 vectors). These are measured one step after the gallery and
+   `--track_buffer` steps after it.
 
 The calibration reports these values. Under `--appearance_threshold auto`, they
 become the trackers' and the linker's thresholds:
@@ -592,7 +681,9 @@ become the trackers' and the linker's thresholds:
 | `assoc_rank1` | Fraction of one-step trials in which the true track beats every co-occurring animal. |
 | `ema_cos_gate` / `gallery_cos_gate` | The 95th percentile of competitor cosines: a match below this cosine gets no appearance support. |
 | `m_assoc` | The minimum lead over the next-best candidate before appearance may decide a pair (at least 0.02). |
-| `link_thresh` / `link_margin` / `link_recall` | The linking threshold (99th percentile of competitors), the smallest margin that reaches 99% precision on the trials, and the recall at that margin. |
+| `link_thresh` / `link_margin` / `link_recall` | The linking threshold (99th percentile of competitors), the smallest margin that reaches 99% precision on the trials, and the recall at that margin, for a full 10-vector query. |
+| `link_thresh_by_len` / `link_margin_by_len` | The same threshold and margin for each query length from 1 to 10 vectors (`null` margin: no margin reaches 99% precision at that length, so appearance cannot decide such a query). |
+| `body_size` / `body_size_source` | The animal size and where it came from ([Body size](#body-size)). |
 | `neg_collision_rate` | Fraction of same-frame pairs of different animals that look as similar as the same animal one step apart. |
 
 **When appearance is turned off.** Appearance is used for association only when
@@ -600,13 +691,20 @@ the calibration `status` is `ok` and `assoc_rank1 ≥ 0.95`. It is used for link
 only when a `link_margin` reaches 99% precision with recall ≥ 0.2. The `status` is
 `no_vectors` when there are no vectors. It is `insufficient` with fewer than 100
 one-step trials that have a co-occurring competitor, for example a single animal,
-or animals that are never well separated at the same time. In each of these cases
-`auto` **turns appearance off** rather than falling back to a published constant.
-The appearance trackers then associate on geometry alone and log a warning.
-Linking uses only its spatial rules, as the `MOT calibration` log line reports.
-An explicit number, such as `--appearance_threshold 0.6`, skips the
+or animals that are never well separated at the same time. It is `skipped` when
+nothing reads appearance (a geometry-only tracker without identity linking): the
+vector work is not done at all, and the geometry is the same. In each of the
+first two cases `auto` **turns appearance off** rather than falling back to a
+published constant. The appearance trackers then associate on geometry alone and
+log a warning. Linking uses only its spatial rules, as the `MOT calibration` log
+line reports. An explicit number, such as `--appearance_threshold 0.6`, skips the
 `assoc_rank1` check and is used as the minimum association cosine for every
-statistic. Linking always uses its calibrated thresholds.
+statistic; this holds for `deepocsort` too. Deep OC-SORT's appearance term
+standardizes the cosine with the calibrated same-animal and different-animal
+means; on a clip too short to calibrate them it uses the raw EMA cosine instead
+(the reference's term), logs it, and records `association_term: "raw_cosine"`
+in the provenance record (`"standardized"` normally, `"off"` without
+appearance). Linking always uses its calibrated thresholds.
 
 !!! warning "\"The embedding may encode class/sex rather than identity\""
     Calibration logs this warning when more than 5% of same-frame pairs of
@@ -638,8 +736,12 @@ JSON:
             "time_base": "frames",
             "frame_step": 1,
             "similarity": "iou",    # after `auto` resolution
+            "body_size": 61.2,
+            "body_size_source": "measured",  # measured / motion / nn_distance / default / override
+            "score_normalizer": 0.83,  # the video's score q95 (None: raw scores)
             "calibration": {...},   # VideoCalibration.as_dict(): status, body_size, gates, ...
             "appearance": {"enabled": False, "reason": "calibration status='insufficient', ...", ...},
+            # deepocsort also records "association_term": "standardized" / "raw_cosine" / "off
             "linking": {"n_identities_before": 5, "n_identities": 4, "n_merges": 1,
                         "n_forced_merges": 0, "n_swaps": 0, "n_untracked": 0, "notes": [...]},
         }
@@ -923,7 +1025,8 @@ either can be scored against the other.
 (default `0.5`), or for single-node skeletons the maximum centroid distance in
 **pixels** (default `50`, as in `sleap-nn eval --match_method centroid`); a run
 where nothing matched says so in `notes`. `--mt_threshold` / `--ml_threshold`
-are the coverage cuts for MT and ML.
+are the legacy block's coverage cuts for MT and ML; the `mot` block keeps
+TrackEval's fixed > 80% / < 20%.
 
 !!! note "`--user_labels_only` is OFF here, unlike `sleap-nn eval`"
     Tracked ground truth usually *is* predicted: the normal workflow predicts
@@ -933,10 +1036,14 @@ are the coverage cuts for MT and ML.
     2465 scored detections to 0.
 
     So everything carrying a track on the ground-truth side is scored, and the
-    count of predicted ground-truth detections is reported in `notes`. Pass
-    `--user_labels_only` in the one case it helps: user-labeled ground truth in
-    a file that *also* holds stale predictions from an earlier run, which would
-    otherwise be scored as extra trajectories.
+    count of predicted ground-truth detections is reported in `notes`.
+    Predictions that a user label on the same frame replaces (a prediction
+    corrected in the GUI: the user instance's `from_predicted`, or sleap-io's
+    own superseded-prediction rule) are already left out without the flag, and
+    counted in `notes`. Pass `--user_labels_only` in the one case it still
+    helps: user-labeled ground truth in a file that *also* holds stale
+    predictions from an earlier run that nothing links to, which would otherwise
+    be scored as extra trajectories.
 
 ### Score a video clip, not a training split
 
@@ -1057,4 +1164,8 @@ arms = {
     vectors, too few trials (for example a single animal), or a rank-1 below
     0.95 because the embedder does not separate the animals. Pass a number, such as
     `--appearance_threshold 0.6`, to force it on, then check the result with
-    `sleap-nn eval-tracking`.
+    `sleap-nn eval-tracking`. On a clip too short to calibrate, `deepocsort` then
+    uses the raw EMA cosine as its appearance term (`association_term` in the
+    provenance record). A `... appearance vector that cannot be used` warning
+    means the vectors are NaN, all zeros or of another dimension: re-run the
+    embedding model.

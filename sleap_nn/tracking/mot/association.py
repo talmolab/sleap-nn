@@ -528,3 +528,42 @@ def appearance_margins(cos: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     if cos.ndim != 2:
         raise ValueError(f"cos must be a 2-D matrix, got shape {cos.shape}.")
     return _top2_margin(cos), _top2_margin(cos.T)
+
+
+def decisive_cells(
+    cos: np.ndarray, admissible: np.ndarray, margin: float = 0.0
+) -> np.ndarray:
+    """Cells where appearance decides a pair (per cell, not per row/column).
+
+    A cell is decisive when it is admissible and its cosine is the top admissible
+    cosine of its row AND of its column, with each top-1 minus top-2 margin
+    strictly positive and at least ``margin`` (a lone admissible cell has an
+    infinite margin). A row's runner-up is never decisive, even when the row's
+    margin is large: appearance ranks it below another candidate. Shared by
+    BoT-SORT's appearance discount (admissible: inside the proximity and
+    appearance gates) and Deep OC-SORT's rescue rule (admissible: geometrically
+    plausible).
+
+    Args:
+        cos: ``(n, m)`` cosines (NaN where unavailable).
+        admissible: ``(n, m)`` bool cells appearance may decide at all.
+        margin: Minimum row and column margin (the calibrated ``m_assoc``).
+
+    Returns:
+        ``(n, m)`` bool mask.
+    """
+    cos = np.asarray(cos, dtype=np.float64)
+    admissible = np.asarray(admissible, dtype=bool) & np.isfinite(cos)
+    if cos.size == 0 or not admissible.any():
+        return np.zeros(cos.shape, dtype=bool)
+    row_margin, col_margin = appearance_margins(np.where(admissible, cos, np.nan))
+    filled = np.where(admissible, cos, -np.inf)
+    is_top = (filled >= filled.max(axis=1, keepdims=True)) & (
+        filled >= filled.max(axis=0, keepdims=True)
+    )
+    row_margin = np.nan_to_num(row_margin, nan=0.0)
+    col_margin = np.nan_to_num(col_margin, nan=0.0)
+    margin = max(float(margin), 0.0)
+    row_ok = (row_margin > 0.0) & (row_margin >= margin)
+    col_ok = (col_margin > 0.0) & (col_margin >= margin)
+    return admissible & is_top & row_ok[:, None] & col_ok[None, :]

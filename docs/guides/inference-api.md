@@ -397,7 +397,7 @@ They read these fields:
 | `min_match_similarity` | Minimum geometric similarity for a first-stage match | `None` (preset) |
 | `appearance_threshold` | Appearance trackers: `"auto"` (calibrated per video) or a minimum cosine in `[-1, 1]` | `None` (preset: `"auto"`) |
 | `link_tracklets` | Identity linking after each video; also works with `"classic"` | `False` |
-| `mot_params` | Overrides for any `sleap_nn.tracking.mot.params.MOTParams` field, including `"preset"` (`"animal"` / `"paper"`) and `"similarity"` | `None` |
+| `mot_params` | Overrides for any `sleap_nn.tracking.mot.params.MOTParams` field, including `"preset"` (`"animal"` / `"paper"`), `"similarity"`, `"normalize_scores"` and `"body_size"`. With `"classic"` and `link_tracklets=True`, only `"time_base"` and `"body_size"` (`CLASSIC_LINKING_MOT_PARAMS`), which its identity linking reads | `None` |
 | `max_tracks` | Shared field. For a MOT tracker it is the known animal count: closed-set identity linking | `None` |
 | `oks_stddev` | Shared field. OKS spread for the `oks` similarity | `None` (MOT: 0.1) |
 | `features` | Shared field. Carrier to track: `"keypoints"` or `"masks"` | `"keypoints"` |
@@ -407,7 +407,9 @@ with `validate_mot_config` before tracking, and you can call it yourself. It
 raises `ValueError` for a MOT tracker with any classic-only field away from its
 default (`window_size`, `candidates_method`, `use_flow`, `use_kalman`,
 `appearance_weight`, the cull / clean / connect options, ...). It also raises for
-the classic tracker with any MOT-only field set. The properties `is_mot`, `uses_appearance`, `requires_vectors` and
+the classic tracker with any MOT-only field set (except `mot_params` holding only
+`time_base` / `body_size` with `link_tracklets=True`). The properties `is_mot`,
+`runs_linking`, `uses_appearance`, `requires_vectors` and
 `follows_vector_carrier` describe what a config will do.
 
 ```python
@@ -429,9 +431,18 @@ print(resolve_mot_params(config))  # the resolved MOTParams (preset + overrides)
 
 tracked = apply_tracking(labels, config)  # in place; returns `labels`
 record = tracked.provenance["tracking"]   # resolved params, calibration, linking
-print(record["videos"][0]["linking"])
+entry = record["videos"][0]
+print(entry["video"], entry["video_filename"])  # index into labels.videos, its file
+print(entry["linking"])
 tracked.save("tracked_ocsort.slp")
 ```
+
+Each `record["videos"]` entry describes one tracked video: `"video"` is its index
+in `labels.videos` (a video with no frames has no entry) and `"video_filename"` its
+file name, next to the resolved `kalman`, `time_base`, `similarity`, `body_size`
+(and `body_size_source`), `score_normalizer`, `calibration`, `appearance` and,
+when linking ran, `linking`. The record describes the latest tracking run;
+retracking replaces it.
 
 !!! note "Set the MOT similarity with `mot_params`"
     `scoring_method="oks"` is `TrackerConfig`'s default value, so for a MOT

@@ -75,8 +75,10 @@ from scipy.optimize import linear_sum_assignment
 
 from sleap_nn.tracking.mot.association import iou_matrix
 from sleap_nn.tracking.mot.calibration import (
+    DEFAULT_BODY_SIZE,
     LINK_GALLERY_LEN,
     LINK_QUERY_LEN,
+    LINK_TOPK,
     RESOLVED_TIME_BASES,
     VideoCalibration,
     calibrate,
@@ -99,8 +101,9 @@ GALLERY_SIZE = LINK_GALLERY_LEN
 # decided with the calibrated rule of its own length).
 LINK_QUERY_SIZE = LINK_QUERY_LEN
 SWAP_QUERY_SIZE = LINK_QUERY_SIZE
-# Top-k cosines averaged per query vector in the linking statistic.
-LINK_TOP_K = 5
+# Top-k cosines averaged per query vector in the linking statistic: the
+# calibration's own `k` (its linking trials compute exactly this statistic).
+LINK_TOP_K = LINK_TOPK
 # Isolation test of the gallery quality gate (padded-box IoU, strict <).
 ISOLATION_IOU = 0.1
 # Minimum fraction of visible nodes for a gated vector.
@@ -316,7 +319,7 @@ class _Linker:
         body = calibration.body_size if body_size is None else body_size
         self.body = float(body) if body is not None else float("nan")
         if not np.isfinite(self.body) or self.body <= 0:
-            self.body = 50.0
+            self.body = DEFAULT_BODY_SIZE
         p95 = calibration.step_p95
         p95 = float(p95) if p95 is not None else float("nan")
         # Per-step motion scale of the gate (NaN: no gate).
@@ -1862,13 +1865,14 @@ def link_tracklets(
        identity's gap).
     3. **Closed set** (``max_tracks``): while more identities remain, the
        ``max_tracks`` best-supported identities present together become
-       anchors; every other tracklet, longest first, joins the anchor it never
-       co-occurs with (frames where it only duplicates the anchor's detection
-       are resolved: the higher-scoring detection stays), ranked by appearance
-       agreement, then a gap-aware geometric cost of its junctions (gated
-       first; past the gate only when appearance agrees, or for a tracklet longer
-       than ``track_buffer`` that appearance does not contradict). A tracklet
-       that fits no anchor is untracked.
+       anchors; every other tracklet, most constrained first (a single viable
+       anchor before a choice; decisive choices before close calls), joins the
+       anchor it never co-occurs with (frames where it only duplicates the
+       anchor's detection are resolved: the higher-scoring detection stays),
+       ranked by appearance agreement, then a gap-aware geometric cost of its
+       junctions (gated first; past the gate only when appearance agrees, or for
+       a tracklet longer than ``track_buffer`` that appearance does not
+       contradict). A tracklet that fits no anchor is untracked.
 
     Args:
         frames: ``(frame_idx, objects)`` per frame in temporal order: the tracked

@@ -206,8 +206,8 @@ per-track Kalman motion model:
 
 | `--tracker` | how appearance is used |
 |---|---|
-| `botsort` | Appearance can support a match only when the pair is already geometrically close (`proximity_threshold`). The cosine to the track's appearance EMA must also clear the gate, and the pair must lead the next-best candidate in its row and column by a calibrated margin. |
-| `deepocsort` | A standardized appearance term is added to OC-SORT's objective, weighted more where it is discriminative. A match with weak geometry can be rescued when appearance is decisive. |
+| `botsort` | Appearance can support a match only when the pair is already geometrically close (`proximity_threshold`). The cosine to the track's appearance EMA must also clear the gate, and the pair itself must be the top in-gate cosine of both its row and its column, ahead of each runner-up by a calibrated margin: a row's runner-up never gets the appearance discount, however large the row's margin. |
+| `deepocsort` | A standardized appearance term is added to OC-SORT's objective, weighted more where it is discriminative. A match with weak geometry can be rescued when appearance is decisive. Appearance never vetoes a pair that is the only admissible candidate of both its row and its column. On a clip too short to calibrate the standardization, an explicit `--appearance_threshold` uses the raw EMA cosine instead (logged, and recorded as `association_term` in the provenance record). |
 | `deepsort` | Appearance is the primary cue: a matching cascade on the best cosine to each track's gallery, inside a Mahalanobis motion gate. |
 | `strongsort` | Appearance is the primary cue: one assignment on the EMA cosine blended with motion (`mc_lambda` 0.98). |
 
@@ -236,7 +236,8 @@ How they differ from the classic appearance options:
   calibration](tracking.md#per-video-calibration-of-appearance-thresholds),
   including the *"embedding may encode class/sex rather than identity"* warning.
   A number, such as `--appearance_threshold 0.6`, sets a fixed minimum cosine
-  for association instead. Linking keeps its calibrated thresholds.
+  for association instead (for all four trackers). Linking keeps its calibrated
+  thresholds.
 - **Only quality-gated vectors update a track's appearance.** The detection must
   be confident (`--track_high_threshold`), at least half visible, and not
   overlapping another detection or another track's predicted box. Once the
@@ -249,11 +250,13 @@ How they differ from the classic appearance options:
   an appearance tracker follows the carrier that holds more vectors.
   `deepsort` / `strongsort` refuse vectors that are on the other carrier;
   `botsort` / `deepocsort` warn and track on geometry alone.
-- **Vectors are required.** With no vector on any detection, all four refuse to
-  run. When the run produces its own detections (a video input, or detection
-  models in `-m`), it also needs an `embedding` model among `-m`. A run in which
-  at least 10% of the tracked detections lack a vector logs a warning. Those
-  detections are scored on geometry alone.
+- **Vectors are required.** With no usable vector on any detection, all four
+  refuse to run. A vector counts only when it is present, finite and not all
+  zeros (the trackers' own rule); a NaN or all-zero vector is reported and counts
+  as missing. When the run produces its own detections (a video input, or
+  detection models in `-m`), it also needs an `embedding` model among `-m`. A run
+  in which at least 10% of the tracked detections lack a vector logs a warning.
+  Those detections are scored on geometry alone.
 
 A geometry-only MOT tracker (`sort`, `bytetrack`, `ocsort`) can still use the
 vectors for identity linking:
@@ -266,6 +269,15 @@ Without `--link_tracklets`, `--max_tracks` or `--save_embeddings slp`, that
 combination is refused, because the vectors would be computed and then thrown
 away.
 
+Linking reads the vectors of the **tracked carrier** only. On a pose + mask file
+the embedder puts its vectors on the carrier it was trained on, so after a
+mask-trained embedder pass `--features masks` to track (and link) the masks.
+When the vectors would land on the carrier that is not tracked, and only linking
+would read them, the run is refused before the embedding pass, since that pass
+would be wasted. With `--save_embeddings slp` the vectors are kept for later, so
+the run goes ahead and tracking warns that linking falls back to its spatial
+rules.
+
 ### Identity linking vs the `appearance_weight` blend
 
 The two options answer different questions. Use either one, or both
@@ -275,8 +287,8 @@ The two options answer different questions. Use either one, or both
 |---|---|---|
 | decides | every detection-to-candidate match, frame by frame | whether two whole tracks are the same animal, after the video is tracked |
 | evidence | one detection's vector against the candidate window | up to 30 gated vectors at each end of a track (mean of the top-5 cosines per query) |
-| threshold | your fixed weight `w` | calibrated per video: a linking threshold and the smallest margin that reaches 99% precision on the video's own trials |
-| when appearance does not discriminate | the blend still applies | spatial rules only: a link is made only when it is the unique candidate within 4 × `--track_buffer` steps |
+| threshold | your fixed weight `w` | calibrated per video and per query length (1 to 10 gated vectors): a linking threshold and the smallest margin that reaches 99% precision on the video's own trials |
+| when appearance does not discriminate | the blend still applies | spatial rules only: a link is made only when it is the unique candidate on the frontier of a 4 × `--track_buffer`-step window |
 | also does | — | corrects identity swaps at crossings; with `--max_tracks N`, merges or untracks identities down to N |
 | works with | `classic` only | every tracker |
 

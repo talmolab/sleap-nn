@@ -75,23 +75,22 @@ always the geometric similarity of the matched pair (prediction or last
 observation), never the composite objective.
 """
 
-from typing import Any, Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from loguru import logger
 
 from sleap_nn.tracking.mot.association import (
     adaptive_weight,
-    appearance_margins,
+    decisive_cells,
     linear_assignment_masked,
     ocm_matrix,
     one_to_one_pattern,
 )
 from sleap_nn.tracking.mot.base import AssociationResult, BaseMOTTracker
-from sleap_nn.tracking.mot.detections import FrameDetections
+from sleap_nn.tracking.mot.detections import FrameDetections, has_usable_embedding
 from sleap_nn.tracking.mot.params import MOTParams
 from sleap_nn.tracking.mot.track import MOTTrack
-from sleap_nn.tracking.utils import get_embedding
 
 # Smallest calibrated (mu_pos - mu_neg) spread that can standardize cosines.
 _MIN_APPEARANCE_SPREAD = 1e-6
@@ -119,6 +118,21 @@ class OCSORTTracker(BaseMOTTracker):
 
     # Whether the optional BYTE (low-score) stage is available to this family.
     _supports_byte = True
+
+    def _score_cuts(self) -> List[Tuple[str, bool, str]]:
+        """Base cuts, plus the STRICT high-score split.
+
+        Only ``s > track_high_threshold`` (``D_hi``) may start a track (and,
+        without the optional BYTE stage, be matched at all).
+        """
+        return super()._score_cuts() + [
+            (
+                "track_high_threshold",
+                True,
+                "only detections scoring above it can start a track, so most "
+                "detections can never start one. Lower --track_high_threshold",
+            )
+        ]
 
     def _associate(self, dets: FrameDetections) -> AssociationResult:
         """Stage 1 (geometry-gated, OCM-ordered), optional BYTE, then OCR.
@@ -328,7 +342,9 @@ class DeepOCSORTTracker(OCSORTTracker):
     def prepare(self, frames: Sequence[Tuple[int, Sequence[Any]]]) -> None:
         """Per-video pre-pass (see :meth:`BaseMOTTracker.prepare`).
 
-        Without any appearance vector Deep OC-SORT is OC-SORT on a ``[cx, cy, w,
+        Without any usable appearance vector (the shared rule:
+        :func:`~sleap_nn.tracking.mot.detections.has_usable_embedding`; a NaN or
+        all-zero vector is missing) Deep OC-SORT is OC-SORT on a ``[cx, cy, w,
         h]`` filter: with ``appearance_threshold="auto"`` this is logged and the
         video is tracked on geometry alone; an explicit (float)
         ``appearance_threshold`` asks for appearance that does not exist and
@@ -342,21 +358,20 @@ class DeepOCSORTTracker(OCSORTTracker):
 
         Raises:
             ValueError: An explicit ``appearance_threshold`` was given but no
-                detection carries an appearance vector.
+                detection carries a usable appearance vector.
         """
         frames = [(int(fi), list(objs)) for fi, objs in frames]
         n_objects = sum(len(objs) for _, objs in frames)
         if (
             n_objects > 0
             and self.params.appearance_threshold != "auto"
-            and not any(
-                get_embedding(obj) is not None for _, objs in frames for obj in objs
-            )
+            and not any(has_usable_embedding(obj) for _, objs in frames for obj in objs)
         ):
             raise ValueError(
                 "deepocsort was given an explicit appearance_threshold "
                 f"({self.params.appearance_threshold}) but none of the "
-                f"{n_objects} detections to track carries an appearance vector. "
+                f"{n_objects} detections to track carries a usable appearance "
+                "vector (present, finite and non-zero). "
                 "Run an embedding model first, or use --tracker ocsort (the same "
                 "algorithm without appearance)."
             )
@@ -519,26 +534,8 @@ class DeepOCSORTTracker(OCSORTTracker):
         plausible = (sim >= floor) & np.isfinite(cos)
         if not plausible.any():
             return rescued
-        ranked = np.where(plausible, cos, np.nan)
-        row_margin, col_margin = appearance_margins(ranked)
-        filled = np.where(plausible, cos, -np.inf)
-        row_top = filled.max(axis=1)
-        col_top = filled.max(axis=0)
-        margin = max(self._appearance_margin(), 0.0)
-        decisive_row = np.nan_to_num(row_margin, nan=0.0) > 0.0
-        decisive_row &= np.nan_to_num(row_margin, nan=0.0) >= margin
-        decisive_col = np.nan_to_num(col_margin, nan=0.0) > 0.0
-        decisive_col &= np.nan_to_num(col_margin, nan=0.0) >= margin
-        rescued = (
-            plausible
-            & (sim >= p.rescue_min_similarity)
-            & (filled >= gate)
-            & (filled >= row_top[:, None])
-            & (filled >= col_top[None, :])
-            & decisive_row[:, None]
-            & decisive_col[None, :]
-        )
-        return rescued
+        decisive = decisive_cells(cos, plausible, self._appearance_margin())
+        return decisive & (sim >= p.rescue_min_similarity) & (cos >= gate)
 
     def _appearance_notice(self, dets: FrameDetections) -> None:
         """Log once how a run associates when the standardized term is unavailable.

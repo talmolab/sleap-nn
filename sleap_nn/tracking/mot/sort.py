@@ -23,6 +23,8 @@ Algorithm (per frame, after every live track is predicted to this step):
    scoring at least ``new_track_threshold`` start tracks.
 """
 
+from typing import List, Tuple
+
 import numpy as np
 
 from sleap_nn.tracking.mot.association import linear_assignment, one_to_one_pattern
@@ -38,6 +40,21 @@ class SORTTracker(BaseMOTTracker):
     tentative_dies_on_miss = False
     hits_start = 0
     confirm_on_streak = True
+
+    def _score_cuts(self) -> List[Tuple[str, bool, str]]:
+        """Base cuts, plus ``track_low_threshold``.
+
+        A detection scoring at or below it is ignored (never matched, never
+        starts a track).
+        """
+        return super()._score_cuts() + [
+            (
+                "track_low_threshold",
+                True,
+                "they are ignored (never matched, never start a track). Lower "
+                "--track_low_threshold",
+            )
+        ]
 
     def _associate(self, dets: FrameDetections) -> AssociationResult:
         """Single-pool, single-stage assignment on geometric similarity.

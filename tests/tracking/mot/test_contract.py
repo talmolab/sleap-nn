@@ -996,3 +996,64 @@ def test_uncalibrated_clock_matches_frame_steps(time_base):
         tracker.track(objs, frame_idx)
         steps.append(tracker._step)
     np.testing.assert_array_equal(steps, frame_steps(idx, time_base, 2))
+
+
+# The strict score cut each tracker adds to `new_track_threshold` (`_score_cuts`).
+_STRICT_CUT = {
+    "sort": "track_low_threshold",
+    "deepsort": "track_low_threshold",
+    "strongsort": "track_low_threshold",
+    "bytetrack": "track_high_threshold",
+    "botsort": "track_high_threshold",
+    "ocsort": "track_high_threshold",
+    "deepocsort": "track_high_threshold",
+}
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_score_gate_warning_names_the_failing_cut(name, caplog):
+    """prepare() warns once, naming the first score cut 95% of the scores fail:
+    ``new_track_threshold`` for every tracker, then the tracker's own strict cut
+    (ByteTrack / BoT-SORT / OC-SORT / Deep OC-SORT start tracks only above
+    ``track_high_threshold``; SORT / DeepSORT / StrongSORT ignore detections at
+    or below ``track_low_threshold``). Normalized scores never trip it."""
+    assert set(_STRICT_CUT) == set(NAMES)
+
+    def gate_warnings():
+        return [m for m in _warnings(caplog) if "95% of this video's" in m]
+
+    raw = dict(normalize_scores=False, track_high_threshold=0.5)
+    # Every score 0.5: new_track_threshold 0.3 passes, the strict cut at 0.5 fails.
+    run_tracker(
+        build_tracker(name, **raw, new_track_threshold=0.3, track_low_threshold=0.5),
+        _scene(scores=0.5).frames,
+    )
+    assert len(gate_warnings()) == 1
+    assert f"{_STRICT_CUT[name]}=0.5" in gate_warnings()[0]
+    caplog.clear()
+    # Every score 0.2: new_track_threshold 0.6 is the first cut that fails.
+    run_tracker(
+        build_tracker(name, **raw, new_track_threshold=0.6, track_low_threshold=0.1),
+        _scene(scores=0.2).frames,
+    )
+    assert len(gate_warnings()) == 1
+    assert "new_track_threshold=0.6" in gate_warnings()[0]
+    caplog.clear()
+    # The animal preset divides by the video's q95: no cut fails.
+    run_tracker(build_tracker(name), _scene(scores=0.2).frames)
+    assert gate_warnings() == []
+
+
+@pytest.mark.parametrize("name", [n for n in NAMES if MOT_TRACKERS[n].uses_appearance])
+def test_unusable_vectors_are_reported_by_every_appearance_tracker(name, caplog):
+    """A NaN or all-zero ``identity_embedding`` passes a presence check but not
+    the usable-vector rule: every appearance tracker's prepare() says so."""
+    scene = _scene()
+    objs = list(scene.objects())
+    for k, obj in enumerate(objs[::3]):
+        bad = np.full(16, np.nan if k % 2 else 0.0, dtype=np.float32)
+        obj.identity_embedding = sio.Embedding(bad)
+    run_tracker(build_tracker(name), scene.frames)
+    notices = [m for m in _warnings(caplog) if "cannot be used" in m]
+    assert len(notices) == 1
+    assert f"{len(objs[::3])} of {len(objs)} detection(s)" in notices[0]

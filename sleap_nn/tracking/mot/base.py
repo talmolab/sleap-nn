@@ -85,6 +85,7 @@ from sleap_nn.tracking.mot.kalman import make_kalman_filter, oru_replay
 from sleap_nn.tracking.mot.linking import link_tracklets
 from sleap_nn.tracking.mot.params import MOTParams
 from sleap_nn.tracking.mot.track import MOTTrack, TrackState
+from sleap_nn.tracking.utils import get_embedding
 
 # Samples (raw-box diagonals, same-frame spacings, per-step link lengths)
 # remembered for the running body-size estimate (no calibration).
@@ -131,6 +132,18 @@ class AssociationResult:
     removed: List[MOTTrack] = attrs.field(factory=list)
 
 
+def _has_any_vector(obj: Any) -> bool:
+    """Whether ``obj`` holds an appearance vector at all, usable or not.
+
+    Only used to explain why a detection counts as vector-less; whether a vector
+    is USABLE is ``FrameDetections.has_embedding``.
+    """
+    try:
+        return get_embedding(obj) is not None
+    except (AttributeError, TypeError, ValueError):
+        return True
+
+
 def _set_label(obj: Any, track: Optional[sio.Track], score: float) -> None:
     """Write ``.track`` / ``.tracking_score`` onto a detection (never raises)."""
     try:
@@ -170,8 +183,12 @@ class BaseMOTTracker:
         name: Tracker name (registry key).
         default_kalman: Filter used when ``params.kalman == "auto"``.
         uses_appearance: The algorithm associates by appearance vectors.
-        requires_vectors: Appearance is the algorithm's primary cue (raise when
-            the tracked detections carry no vectors).
+        requires_vectors: Appearance is the algorithm's primary cue.
+            ``apply_tracking`` (and the CLI, before inference) refuses a run whose
+            tracked carrier holds no usable vector
+            (:data:`~sleap_nn.tracking.mot.VECTOR_REQUIRED_TRACKERS`); the tracker
+            itself never raises on missing vectors -- detections without one are
+            matched on geometry alone.
         tentative_dies_on_miss: A tentative track is removed at its first miss
             (DeepSORT/ByteTrack/BoT-SORT) instead of coasting until
             ``track_buffer`` (SORT/OC-SORT/Deep OC-SORT).
@@ -383,14 +400,7 @@ class BaseMOTTracker:
                 f"({self._score_normalizer:.3f}) and clipped to [0, 1] "
                 "(normalize_scores)."
             )
-        if not p.normalize_scores and q95 is not None and q95 < p.new_track_threshold:
-            logger.warning(
-                f"{self.name}: 95% of this video's detections score below "
-                f"new_track_threshold={p.new_track_threshold} (score q95 "
-                f"{q95:.3f}): most detections can never start a track; lower "
-                "--new_track_threshold or use the animal preset "
-                "(normalize_scores=True)."
-            )
+        self._check_score_cuts(q95)
 
         # Degenerate detections (single node, sub-pixel extent) get the body
         # size as their box; every padded box is floored at MIN_BOX_FRACTION of
@@ -423,6 +433,7 @@ class BaseMOTTracker:
         )
 
         if self.uses_appearance:
+            self._unusable_vector_notice()
             if not self._vectors_seen:
                 logger.warning(
                     f"{self.name}: the tracked detections carry no appearance "
@@ -435,6 +446,94 @@ class BaseMOTTracker:
                     f"{cal.assoc_rank1}); associating on geometry alone."
                 )
         self._refresh_resolved()
+
+    def _score_cuts(self) -> List[Tuple[str, bool, str]]:
+        """The score cuts of this tracker, for the ``prepare()`` score-gate warning.
+
+        Each entry is ``(MOTParams field, strict, consequence)``: a detection
+        passes the cut when its score is above (``strict``) or at least the
+        field's value. Every tracker starts tracks only from detections scoring
+        at least ``new_track_threshold``; a tracker with a stricter cut
+        (ByteTrack's and OC-SORT's ``D_hi`` split, the ``track_low_threshold``
+        below which SORT and DeepSORT ignore a detection) adds it.
+        """
+        return [
+            (
+                "new_track_threshold",
+                False,
+                "most detections can never start a track; lower "
+                "--new_track_threshold"
+                + (
+                    ""
+                    if self.params.normalize_scores
+                    else " or use the animal preset (normalize_scores=True)"
+                ),
+            )
+        ]
+
+    def _check_score_cuts(self, q95: Optional[float]) -> None:
+        """Warn once when 95% of the video's scores fail one of :meth:`_score_cuts`.
+
+        The scores are the tracker's: divided by the per-video normalizer when
+        ``normalize_scores`` is on. Only the first failing cut is reported.
+
+        Args:
+            q95: The calibration's 95th-percentile raw score (``None``/NaN: no
+                check).
+        """
+        if q95 is None or not np.isfinite(q95):
+            return
+        q95 = float(q95)
+        normalizer = self._score_normalizer
+        normalized = normalizer is not None and np.isfinite(normalizer)
+        if normalized and normalizer > 0:
+            q95 = min(max(q95 / normalizer, 0.0), 1.0)
+        for name, strict, consequence in self._score_cuts():
+            value = float(getattr(self.params, name))
+            if (q95 <= value) if strict else (q95 < value):
+                logger.warning(
+                    f"{self.name}: 95% of this video's detections score "
+                    f"{'at or below' if strict else 'below'} {name}={value:g} "
+                    f"(score q95 {q95:.3f}"
+                    f"{', normalized' if self.params.normalize_scores else ''}): "
+                    f"{consequence}."
+                )
+                return
+
+    def _unusable_vector_notice(self) -> None:
+        """Warn about valid detections whose vector is not usable.
+
+        Such a detection holds an ``identity_embedding`` (so a check for its mere
+        presence passes) but fails the shared usable-vector rule
+        (``FrameDetections.has_embedding``: finite, non-zero, of the video's
+        dimension), so every appearance decision treats it as vector-less.
+        Called by :meth:`prepare` for every appearance tracker.
+        """
+        n_valid = n_usable = n_unusable = 0
+        for dets in self._cache.values():
+            valid = np.asarray(dets.valid, dtype=bool)
+            usable = valid & np.asarray(dets.has_embedding, dtype=bool)
+            n_valid += int(valid.sum())
+            n_usable += int(usable.sum())
+            n_unusable += sum(
+                _has_any_vector(dets.sources[j])
+                for j in np.flatnonzero(valid & ~usable)
+            )
+        if not n_unusable:
+            return
+        dim = f" ({self._embedding_dim}-D)" if self._embedding_dim is not None else ""
+        logger.warning(
+            f"{self.name}: {n_unusable} of {n_valid} detection(s) carry an "
+            "appearance vector that cannot be used (non-finite, all zeros, or of "
+            f"another dimension than the video's vectors{dim}); they count as "
+            "having no vector"
+            + (
+                ", and no detection has a usable one: associating on geometry "
+                "alone. Re-run the embedding model."
+                if n_usable == 0
+                else "."
+            )
+        )
 
     def track(
         self, untracked_instances: Sequence[Any], frame_idx: int, image: Any = None

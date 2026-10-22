@@ -317,6 +317,61 @@ def test_gating_distance(kind):
     np.testing.assert_array_equal(kf_nsa.gating_distance(mean, cov, boxes), d_full)
 
 
+def test_solve_spd_is_cholesky_bit_for_bit():
+    """`_solve_spd` calls LAPACK potrf/potrs directly: the same bits as scipy's
+    cho_factor/cho_solve on SPD input, and the jitter / pseudo-inverse fallbacks
+    still give finite results on singular or indefinite input."""
+    from scipy.linalg import cho_factor, cho_solve
+
+    from sleap_nn.tracking.mot.kalman import _solve_spd
+
+    rng = np.random.default_rng(0)
+    for k in (2, 4):
+        for _ in range(50):
+            m = rng.normal(size=(k, k))
+            a = 0.5 * ((m @ m.T + 0.1 * np.eye(k)) + (m @ m.T + 0.1 * np.eye(k)).T)
+            b = rng.normal(size=(k, 3))
+            want = cho_solve(cho_factor(a, lower=True, check_finite=False), b)
+            np.testing.assert_array_equal(_solve_spd(a, b), want)
+        v = rng.normal(size=k)
+        assert np.all(np.isfinite(_solve_spd(np.outer(v, v), np.ones((k, 2)))))
+        assert np.all(np.isfinite(_solve_spd(-np.eye(k), np.ones((k, 2)))))
+    assert _solve_spd(np.eye(2), np.zeros((2, 0))).shape == (2, 0)
+
+
+@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize("only_position", [True, False])
+def test_gating_distances_rows_are_single_state_gates(kind, only_position):
+    """Batched gating: row i is the gate of state i alone (bit for bit); a
+    non-finite state or box gives inf; no state or no box gives an empty side."""
+    kf = make_kalman_filter(kind)
+    states = []
+    for velocity in ((2.0, 1.0), (-1.0, 3.0), (0.0, 0.0)):
+        mean, cov = _track(kf, BOX, velocity, n=10)
+        states.append(kf.predict(mean, cov))
+    bad = states[0][0].copy()
+    bad[0] = np.nan
+    states.append((bad, states[0][1]))
+    boxes = np.stack([BOX, _shift(BOX, (30, -20)), np.full(4, np.nan)])
+    out = kf.gating_distances(
+        [m for m, _ in states], [c for _, c in states], boxes, only_position
+    )
+    assert out.shape == (4, 3)
+    assert np.all(np.isinf(out[3])) and np.all(np.isinf(out[:, 2]))
+    assert np.all(np.isfinite(out[:3, :2]))
+    # A reference gate per state: project, slice, solve on its own.
+    for i, (mean, cov) in enumerate(states[:3]):
+        z_mean, s = kf.project(mean, cov)
+        k = 2 if only_position else 4
+        d = kf.z_from_xyxy(boxes[:2])[:, :k] - z_mean[:k]
+        want = np.maximum(np.sum(d * np.linalg.solve(s[:k, :k], d.T).T, axis=1), 0)
+        np.testing.assert_allclose(out[i, :2], want, rtol=1e-10)
+    assert kf.gating_distances([], [], boxes).shape == (0, 3)
+    assert kf.gating_distances(
+        [m for m, _ in states], [c for _, c in states], np.zeros((0, 4))
+    ).shape == (4, 0)
+
+
 def test_position_only_gate_tolerates_shape_change():
     """A rotating animal's box changes shape: only the 2-dof gate keeps it."""
     kf = make_kalman_filter("xyah")
