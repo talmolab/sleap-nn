@@ -1,0 +1,104 @@
+# CenterNet-style bounding-box detector (model type `bbox_centernet`).
+# A center heatmap (one channel per box category) + per-center size (w, h) and
+# sub-cell offset regression, all at one stride; decoding takes the heatmap's
+# local maxima. Ground-truth boxes come from `LabeledFrame.bboxes`, or are derived
+# from poses/masks via `data_config.bbox_source` (default `auto`).
+# See docs/guides/bbox-detection.md.
+data_config:
+  train_labels_path: null
+  val_labels_path: null
+  test_file_path: null
+  data_pipeline_fw: torch_dataset_cache_img_memory
+  preprocessing:
+    scale: 0.5
+  use_augmentations_train: true
+  augmentation_config:
+    intensity:
+      contrast_min: 0.8
+      contrast_max: 1.2
+      contrast_p: 0.5
+      brightness_min: 0.8
+      brightness_max: 1.2
+      brightness_p: 0.5
+    geometric:
+      rotation_min: 0.0
+      rotation_max: 0.0
+      scale_min: 0.85
+      scale_max: 1.15
+      translate_width: 0.1
+      translate_height: 0.1
+      affine_p: 1.0
+      flip_p: 0.5
+  validation_fraction: 0.1
+  bbox_source: auto
+  bbox_padding: 0.0
+model_config:
+  init_weights: xavier
+  backbone_config:
+    unet:
+      in_channels: 1
+      filters: 32
+      filters_rate: 1.5
+      max_stride: 32
+      convs_per_block: 2
+      middle_block: true
+      up_interpolate: true
+      output_stride: 4
+  head_configs:
+    bbox_centernet:
+      center:
+        output_stride: 4
+        categories: null
+        sigma: null
+        min_overlap: 0.7
+      size:
+        output_stride: 4
+      offset:
+        output_stride: 4
+trainer_config:
+  train_data_loader:
+    batch_size: 8
+    shuffle: true
+    num_workers: 4
+  val_data_loader:
+    batch_size: 8
+    shuffle: false
+    num_workers: 4
+  model_ckpt:
+    save_top_k: 1
+    save_last: false
+  trainer_devices: 1
+  trainer_accelerator: gpu
+  enable_progress_bar: true
+  min_train_steps_per_epoch: 100
+  visualize_preds_during_training: true
+  keep_viz: false
+  max_epochs: 200
+  seed: 0
+  use_wandb: false
+  save_ckpt: true
+  ckpt_dir: models
+  run_name: null
+  wandb:
+    entity: null
+    project: null
+    name: null
+    group: null
+  optimizer_name: Adam
+  optimizer:
+    lr: 0.0005
+  lr_scheduler:
+    reduce_lr_on_plateau:
+      threshold: 1.0e-06
+      threshold_mode: abs
+      cooldown: 3
+      patience: 8
+      factor: 0.5
+      min_lr: 1.0e-06
+  early_stopping:
+    stop_training_on_plateau: true
+    min_delta: 1.0e-06
+    patience: 20
+  eval:
+    enabled: true
+    frequency: 5

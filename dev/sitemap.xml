@@ -209,6 +209,10 @@
          <lastmod>2026-10-22</lastmod>
     </url>
     <url>
+         <loc>https://nn.sleap.ai/dev/api/data/bboxes/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
          <loc>https://nn.sleap.ai/dev/api/data/confidence_maps/</loc>
          <lastmod>2026-10-22</lastmod>
     </url>
@@ -301,6 +305,10 @@
          <lastmod>2026-10-22</lastmod>
     </url>
     <url>
+         <loc>https://nn.sleap.ai/dev/api/export/wrappers/bbox/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
          <loc>https://nn.sleap.ai/dev/api/export/wrappers/bottomup/</loc>
          <lastmod>2026-10-22</lastmod>
     </url>
@@ -334,6 +342,10 @@
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/inference/bbox/</loc>
          <lastmod>2026-10-22</lastmod>
     </url>
     <url>
@@ -442,6 +454,10 @@
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/layers/base/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/inference/layers/bbox/</loc>
          <lastmod>2026-10-22</lastmod>
     </url>
     <url>
@@ -658,6 +674,10 @@
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/getting-started/quickstart/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/guides/bbox-detection/</loc>
          <lastmod>2026-10-22</lastmod>
     </url>
     <url>
