@@ -148,6 +148,7 @@ class CentroidCrop(L.LightningModule):
                 image,
                 bboxes=instance_bbox.squeeze(dim=0),
                 sample_inds=[0] * n,
+                crop_size=box_size,
             )
 
             # Access top left point (x,y) of bounding box and subtract this offset from

@@ -21,6 +21,8 @@ implementation:
   driven crops floor the top-left)
 """
 
+from typing import Optional, Tuple
+
 import torch
 import torch.nn.functional as F
 
@@ -29,7 +31,10 @@ from sleap_nn.data.instance_cropping import make_centered_bboxes  # noqa: F401
 
 
 def crop_bboxes(
-    images: torch.Tensor, bboxes: torch.Tensor, sample_inds: torch.Tensor
+    images: torch.Tensor,
+    bboxes: torch.Tensor,
+    sample_inds: torch.Tensor,
+    crop_size: Optional[Tuple[int, int]] = None,
 ) -> torch.Tensor:
     """Crop bounding boxes from a batch of images.
 
@@ -40,6 +45,9 @@ def crop_bboxes(
             these with :func:`make_centered_bboxes`.
         sample_inds: ``(n_bboxes,)`` int tensor selecting which sample each
             bbox crops from.
+        crop_size: ``(height, width)`` of the crops when the caller knows it
+            (e.g. a top-down layer's ``crop_size``); skips deriving it from the
+            first box (and the device sync that costs). ``None`` derives it.
 
     Returns:
         ``(n_bboxes, channels, crop_height, crop_width)`` of the same dtype
@@ -59,12 +67,18 @@ def crop_bboxes(
             0, images.shape[1], 0, 0, device=images.device, dtype=images.dtype
         )
 
-    # Crop size from the first bbox. ``.item()`` makes this a Python int —
-    # required to allocate fixed-shape index tensors. PR 7 (#515)
-    # parameterizes ONNX wrappers with the constexpr crop size to bypass
-    # this call.
-    height = int(abs(bboxes[0, 3, 1] - bboxes[0, 0, 1]).item()) + 1
-    width = int(abs(bboxes[0, 1, 0] - bboxes[0, 0, 0]).item()) + 1
+    if crop_size is not None:
+        height, width = int(crop_size[0]), int(crop_size[1])
+    else:
+        # Crop size from the first bbox. ``.item()`` makes this a Python int —
+        # required to allocate fixed-shape index tensors. PR 7 (#515)
+        # parameterizes ONNX wrappers with the constexpr crop size to bypass
+        # this call. Round, don't truncate: `make_centered_bboxes` corners are
+        # float32, and for ~5% of centroid positions their span comes out just
+        # under `size - 1` (190.99998 for a 192 px crop), which truncation turned
+        # into a crop 1 px short -- for every crop of the batch (#778).
+        height = int(torch.round(abs(bboxes[0, 3, 1] - bboxes[0, 0, 1])).item()) + 1
+        width = int(torch.round(abs(bboxes[0, 1, 0] - bboxes[0, 0, 0])).item()) + 1
 
     device = images.device
     bboxes_on_device = bboxes.to(device)

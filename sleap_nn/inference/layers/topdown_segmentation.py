@@ -207,7 +207,7 @@ class TopDownSegmentationLayer(TopDownLayer):
         per_crop_eff_scale = eff_scale[sample_inds]  # (n_valid,)
 
         bboxes = make_centered_bboxes(valid_centroids, crop_h, crop_w)
-        crops = crop_bboxes(image_4d, bboxes, sample_inds)
+        crops = crop_bboxes(image_4d, bboxes, sample_inds, crop_size=(crop_h, crop_w))
 
         # Run the seg model on the crops -> per-crop bool masks (N, 1, h, w).
         stage2_out = self.centered_instance_layer.predict(crops)
