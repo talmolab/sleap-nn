@@ -10,7 +10,7 @@ returns the decoder-ready head dict) and decodes its outputs with the model's
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import torch
 
@@ -123,3 +123,157 @@ class ExportedBBoxLayer(BBoxLayer):
             output_stride=self.output_stride,
         )
         return x.round().clamp(0, 255).to(torch.uint8), info
+
+
+class BBoxStageLayer(BBoxLayer):
+    """A box detector as the first stage of a top-down layer.
+
+    Stands in for :class:`~sleap_nn.inference.layers.centroid.CentroidLayer` inside
+    :class:`~sleap_nn.inference.layers.topdown.TopDownLayer` (and its multi-class /
+    segmentation / embedding subclasses): ``predict`` returns each detection's box
+    center as ``pred_centroids`` and its score as ``pred_centroid_values``, plus the
+    boxes themselves (``pred_bboxes`` / ``pred_bbox_scores`` / ``pred_bbox_classes``)
+    for box-scaled crops (``preprocess.crop_mode="bbox"``) and for packaging. The
+    detector's ``peak_threshold`` (score threshold) and ``max_instances`` play the
+    centroid stage's roles, so the per-stage threshold overrides route to it
+    unchanged.
+
+    With ``use_gt_boxes=True`` no detector runs: boxes are derived from the
+    ground-truth instances passed to ``predict`` (the tight box of each instance's
+    visible keypoints, padded by ``gt_bbox_padding`` pixels, as the centered-instance
+    model's training boxes were), the box analog of the GT-centroid fallback.
+
+    Args:
+        backend: The detector's backend (with ``use_gt_boxes``, any backend; it is
+            never called).
+        decoder: The detector's :class:`BBoxDecoder` (``None`` with
+            ``use_gt_boxes``).
+        output_stride: Finest head stride relative to the model input.
+        max_stride: Backbone max stride.
+        use_gt_boxes: Read boxes from ground-truth instances instead.
+        gt_bbox_padding: Pixels added on every side of ground-truth boxes.
+        preprocess_config / postprocess_config: As for :class:`BBoxLayer`.
+    """
+
+    def __init__(
+        self,
+        backend: ModelBackend,
+        decoder: Optional[BBoxDecoder],
+        output_stride: int = 1,
+        max_stride: int = 1,
+        use_gt_boxes: bool = False,
+        gt_bbox_padding: float = 0.0,
+        preprocess_config: Optional[PreprocessConfig] = None,
+        postprocess_config: Optional[PostprocessConfig] = None,
+    ) -> None:
+        """Store the detector (or the GT-box fallback) and its configs."""
+        super().__init__(
+            backend=backend,
+            decoder=decoder,
+            output_stride=output_stride,
+            max_stride=max_stride,
+            preprocess_config=preprocess_config,
+            postprocess_config=postprocess_config,
+        )
+        self.use_gt_boxes = use_gt_boxes
+        self.gt_bbox_padding = float(gt_bbox_padding)
+
+    @property
+    def use_gt_centroids(self) -> bool:
+        """Whether ``predict`` needs GT instances (the TopDownLayer contract)."""
+        return self.use_gt_boxes
+
+    @property
+    def categories(self) -> List[str]:
+        """Detector class names (``[]`` for the GT-box fallback)."""
+        return self.decoder.categories if self.decoder is not None else []
+
+    def predict(
+        self,
+        image,
+        instances: Optional[torch.Tensor] = None,
+        boxes: Optional[torch.Tensor] = None,
+    ) -> Outputs:
+        """Detect boxes (or read GT boxes) and report their centers as centroids.
+
+        Args:
+            image: Full frames, as for :meth:`BBoxLayer.predict`.
+            instances: ``(B, I, n_nodes, 2)`` GT keypoints in original pixels
+                (NaN-padded); required with ``use_gt_boxes``.
+            boxes: ``(B, I, 4)`` GT boxes aligned with ``instances`` (NaN for
+                padding), e.g. ``Batch.instance_boxes``. With ``use_gt_boxes``
+                they are used as given; without them boxes are derived from the
+                keypoints.
+
+        Returns:
+            ``Outputs`` with ``pred_centroids (B, K, 2)``, ``pred_centroid_values
+            (B, K)``, ``pred_bboxes (B, K, 4)``, ``pred_bbox_scores (B, K)`` and
+            ``pred_bbox_classes (B, K)`` in original-image pixels; empty slots are
+            NaN (class ``-1``).
+        """
+        if self.use_gt_boxes:
+            if instances is None:
+                raise ValueError(
+                    "BBoxStageLayer(use_gt_boxes=True) requires `instances`."
+                )
+            if boxes is not None:
+                boxes = boxes.float().to(instances.device)
+                valid = torch.isfinite(boxes).all(dim=-1)
+                scores = torch.ones(valid.shape, device=boxes.device).masked_fill(
+                    ~valid, float("nan")
+                )
+                classes = torch.zeros(
+                    valid.shape, dtype=torch.long, device=boxes.device
+                ).masked_fill(~valid, -1)
+            else:
+                boxes, scores, classes = gt_boxes_from_instances(
+                    instances, padding=self.gt_bbox_padding
+                )
+        else:
+            out = super().predict(image)
+            boxes, scores = out.pred_bboxes, out.pred_bbox_scores
+            classes = out.pred_bbox_classes
+        centers = torch.stack(
+            [(boxes[..., 0] + boxes[..., 2]) / 2, (boxes[..., 1] + boxes[..., 3]) / 2],
+            dim=-1,
+        )
+        return Outputs(
+            pred_centroids=centers,
+            pred_centroid_values=scores,
+            pred_bboxes=boxes,
+            pred_bbox_scores=scores,
+            pred_bbox_classes=classes,
+        )
+
+
+def gt_boxes_from_instances(
+    instances: torch.Tensor, padding: float = 0.0
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Tight, padded boxes of GT instances' visible keypoints.
+
+    Matches ``sio.Instance.to_bbox(mode="tight", padding=padding)``, the derivation
+    of the centered-instance model's training boxes for ``bbox_source="instances"``.
+
+    Args:
+        instances: ``(B, I, n_nodes, 2)`` keypoints, NaN for missing nodes and
+            padded instance slots.
+        padding: Pixels added on every side.
+
+    Returns:
+        ``(boxes (B, I, 4), scores (B, I), classes (B, I))``: score ``1`` and class
+        ``0`` for instances with a visible keypoint, NaN / ``-1`` otherwise.
+    """
+    pts = instances.float()
+    visible = ~torch.isnan(pts).any(dim=-1)  # (B, I, N)
+    big = torch.finfo(pts.dtype).max
+    lo = torch.where(visible[..., None], pts, torch.full_like(pts, big)).amin(dim=-2)
+    hi = torch.where(visible[..., None], pts, torch.full_like(pts, -big)).amax(dim=-2)
+    valid = visible.any(dim=-1)  # (B, I)
+    boxes = torch.cat([lo - padding, hi + padding], dim=-1)
+    boxes = boxes.masked_fill(~valid[..., None], float("nan"))
+    scores = torch.ones(valid.shape, device=pts.device).masked_fill(
+        ~valid, float("nan")
+    )
+    classes = torch.zeros(valid.shape, dtype=torch.long, device=pts.device)
+    classes = classes.masked_fill(~valid, -1)
+    return boxes, scores, classes

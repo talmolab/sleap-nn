@@ -168,6 +168,34 @@ def export(
             "Pass one centroid directory for a standalone centroid export."
         )
 
+    if len(model_paths) >= 2 and {"bbox_centernet", "bbox_ssd"} & set(model_types):
+        raise click.ClickException(
+            "A bounding-box detector + top-down model pair cannot be exported as one "
+            "bundle yet. Export each directory on its own (the detector exports its "
+            "network; the centered-instance model exports a network that takes "
+            "crops), or run the pair from its checkpoints with `sleap-nn predict "
+            "--model_paths <bbox_dir> --model_paths <centered_instance_dir>`."
+        )
+
+    from sleap_nn.data.instance_cropping import BBoxCropSpec
+
+    box_scaled = [p for p, c in zip(model_paths, cfgs) if BBoxCropSpec.from_config(c)]
+    if box_scaled and len(model_paths) >= 2:
+        raise click.ClickException(
+            f"{box_scaled[0]} crops each instance's bounding box "
+            "(preprocessing.crop_mode='bbox'); combined top-down bundles cut fixed "
+            "windows around centroids, so it cannot be exported in one. Export it "
+            "alone (the network takes crops) or run it with a box detector via "
+            "`sleap-nn predict`."
+        )
+    if box_scaled:
+        logger.warning(
+            f"{box_scaled[0]} is a box-scaled centered-instance model "
+            "(preprocessing.crop_mode='bbox'): the exported network takes crops "
+            "cut by its crop rule, which is recorded in the exported "
+            "training_config (data_config.preprocessing.crop_*)."
+        )
+
     if len(model_paths) == 1:
         model_path = model_paths[0]
         cfg = cfgs[0]
