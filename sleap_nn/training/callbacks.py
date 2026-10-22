@@ -1474,6 +1474,20 @@ class ProgressReporterZMQ(Callback):
         }
 
 
+def _eval_frame_idx(entry: dict) -> int:
+    """The frame index an epoch-end eval entry is scored under.
+
+    Top-down (centered-instance) entries are one per crop, in that crop's own
+    coordinates, and tagged with a ``crop_id`` shared by the prediction and its GT
+    instance. Each crop is scored as its own pseudo-frame so it is matched only
+    against its own instance: pooling a frame's crops under one ``frame_idx`` made
+    every GT crop of a frame pair with that frame's LAST prediction (``sio.Labels``
+    keeps the last of duplicate frames), halving mOKS on multi-animal data.
+    """
+    crop_id = entry.get("crop_id")
+    return int(crop_id) if crop_id is not None else int(entry["frame_idx"])
+
+
 class EpochEndEvaluationCallback(Callback):
     """Callback to run full evaluation metrics at end of validation epochs.
 
@@ -1651,7 +1665,7 @@ class EpochEndEvaluationCallback(Callback):
             if instances:
                 lf = sio.LabeledFrame(
                     video=self.videos[pred["video_idx"]],
-                    frame_idx=pred["frame_idx"],
+                    frame_idx=_eval_frame_idx(pred),
                     instances=instances,
                 )
                 labeled_frames.append(lf)
@@ -1687,7 +1701,7 @@ class EpochEndEvaluationCallback(Callback):
             if instances:
                 lf = sio.LabeledFrame(
                     video=self.videos[gt["video_idx"]],
-                    frame_idx=gt["frame_idx"],
+                    frame_idx=_eval_frame_idx(gt),
                     instances=instances,
                 )
                 labeled_frames.append(lf)
