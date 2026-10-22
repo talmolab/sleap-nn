@@ -2,8 +2,11 @@
 
 Functions provided:
 
-- :func:`morphological_dilation` — pure-PyTorch 3×3 dilation used as the
-  non-maximum suppression kernel below.
+- :func:`morphological_dilation` — pure-PyTorch 3×3 dilation (max over the
+  8 neighbors).
+- :func:`morphological_dilation_split` — the same 8-neighbor max, split into
+  the neighbors before and after each pixel in raster order, so that
+  :func:`find_local_peaks_rough` can keep one pixel of a tied peak.
 - :func:`integral_regression` — sub-pixel refinement by integrating expected
   coordinates over a local patch.
 - :func:`find_global_peaks_rough` / :func:`find_global_peaks` — single peak
@@ -26,7 +29,8 @@ from sleap_nn.inference.ops.crops import crop_bboxes, make_centered_bboxes
 def morphological_dilation(image: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
     """Compute the per-pixel max over the 8-neighborhood (excluding center).
 
-    Used by :func:`find_local_peaks_rough` as the NMS dilation step. The
+    :func:`find_local_peaks_rough` now uses :func:`morphological_dilation_split`
+    (the same max, split by raster order) so it can break ties. The
     ``kernel`` argument is preserved for API compatibility but is currently
     ignored — the 8-neighbor pattern is hardcoded so the function lowers
     cleanly to ``torch.stack + max``, which exports to ONNX (PR 5 of #508
@@ -61,6 +65,47 @@ def morphological_dilation(image: torch.Tensor, kernel: torch.Tensor) -> torch.T
         dim=0,
     )
     return eight.max(dim=0)[0]
+
+
+def morphological_dilation_split(
+    image: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Compute the 8-neighbor max split into earlier and later neighbors.
+
+    The 8 neighbors of each pixel are split by raster order (row, then column):
+    the 4 that come before it (NW, N, NE, W) and the 4 that come after it
+    (E, SW, S, SE). The elementwise max of the two outputs equals
+    :func:`morphological_dilation`. It uses the same pad + shifted slices +
+    ``max``, so it exports to ONNX the same way.
+
+    Args:
+        image: Input tensor of shape ``(B, 1, H, W)``.
+
+    Returns:
+        ``(before, after)``, each the same shape as ``image``: the max over the
+        4 earlier and over the 4 later neighbors (out-of-image neighbors are
+        ``-inf``).
+    """
+    padded = F.pad(image, (1, 1, 1, 1), mode="constant", value=float("-inf"))
+    before = torch.stack(
+        [
+            padded[..., :-2, :-2],  # NW
+            padded[..., :-2, 1:-1],  # N
+            padded[..., :-2, 2:],  # NE
+            padded[..., 1:-1, :-2],  # W
+        ],
+        dim=0,
+    ).max(dim=0)[0]
+    after = torch.stack(
+        [
+            padded[..., 1:-1, 2:],  # E
+            padded[..., 2:, :-2],  # SW
+            padded[..., 2:, 1:-1],  # S
+            padded[..., 2:, 2:],  # SE
+        ],
+        dim=0,
+    ).max(dim=0)[0]
+    return before, after
 
 
 def integral_regression(
@@ -186,6 +231,13 @@ def find_local_peaks_rough(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Find local maxima via non-maximum suppression.
 
+    A pixel is a peak if it is above ``threshold``, strictly greater than its
+    4 neighbors before it in raster order (NW, N, NE, W) and greater than or
+    equal to its 4 neighbors after it (E, SW, S, SE). A pixel with no equal
+    neighbor is a peak exactly when it is greater than all 8 neighbors. When
+    the top of a peak is two equal pixels (common with fp16 confidence maps),
+    the first of them in raster order is kept, instead of neither. See #781.
+
     Args:
         cms: ``(samples, channels, height, width)``.
         threshold: Peaks below this are dropped.
@@ -196,17 +248,16 @@ def find_local_peaks_rough(
         ``peak_vals`` is ``(n_peaks,)``;
         the index tensors are ``(n_peaks,)`` ``int32``.
     """
-    kernel = torch.tensor([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=torch.float32)
-
     height = cms.size(2)
     width = cms.size(3)
     channels = cms.size(1)
     flat_img = cms.reshape(-1, 1, height, width)
 
-    max_img = morphological_dilation(flat_img, kernel.to(flat_img.device))
-    max_img = max_img.reshape(-1, channels, height, width)
+    before_img, after_img = morphological_dilation_split(flat_img)
+    is_peak = (flat_img > before_img) & (flat_img >= after_img)
+    is_peak = is_peak.reshape(-1, channels, height, width)
 
-    argmax_and_thresh_img = (cms > max_img) & (cms > threshold)
+    argmax_and_thresh_img = is_peak & (cms > threshold)
 
     peak_subs = torch.stack(
         torch.where(argmax_and_thresh_img.permute(0, 2, 3, 1)), axis=-1

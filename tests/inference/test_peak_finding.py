@@ -1,5 +1,10 @@
+import pytest
 import torch
 
+from sleap_nn.inference.ops.peaks import (
+    morphological_dilation,
+    morphological_dilation_split,
+)
 from sleap_nn.inference.peak_finding import (
     crop_bboxes,
     integral_regression,
@@ -458,3 +463,124 @@ def test_find_local_peaks(minimal_cms):
     torch.testing.assert_close(gt_peak_vals, peak_vals, atol=0.001, rtol=0.0)
     assert torch.equal(gt_peak_sample_inds, peak_sample_inds)
     assert torch.equal(gt_peak_channel_inds, peak_channel_inds)
+
+
+def _gaussian(height, width, cx, cy, sigma=2.5):
+    yy, xx = torch.meshgrid(
+        torch.arange(height, dtype=torch.float32),
+        torch.arange(width, dtype=torch.float32),
+        indexing="ij",
+    )
+    return torch.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma**2))
+
+
+def _peak_list(cms, threshold=0.2):
+    """``find_local_peaks_rough`` output as ``[(sample, channel, x, y), ...]``."""
+    points, _vals, samples, channels = find_local_peaks_rough(cms, threshold)
+    return [
+        (int(s), int(c), int(x), int(y))
+        for (x, y), s, c in zip(points.tolist(), samples, channels)
+    ]
+
+
+def _strict_peak_mask(cms, threshold=0.2):
+    """The previous rule: strictly greater than all 8 neighbors."""
+    height, width = cms.shape[-2:]
+    max_img = morphological_dilation(cms.reshape(-1, 1, height, width), None)
+    return (cms > max_img.reshape(cms.shape)) & (cms > threshold)
+
+
+def test_morphological_dilation_split_matches_dilation():
+    torch.manual_seed(0)
+    img = torch.randn(3, 1, 9, 11)
+    before, after = morphological_dilation_split(img)
+    assert before.shape == after.shape == img.shape
+    assert torch.equal(torch.maximum(before, after), morphological_dilation(img, None))
+    # The first pixel has no earlier neighbors; the last has no later ones.
+    assert torch.all(before[..., 0, 0] == float("-inf"))
+    assert torch.all(after[..., -1, -1] == float("-inf"))
+
+
+@pytest.mark.parametrize("dx, dy", [(1, 0), (0, 1), (1, 1), (-1, 1)])
+def test_find_local_peaks_rough_two_equal_top_pixels(dx, dy):
+    """Two equal top pixels (E, S, SE or SW of each other) give one peak.
+
+    The previous strict rule found none (#781). The kept pixel is the first of
+    the two in raster order.
+    """
+    cms = _gaussian(20, 24, 10, 8)[None, None] * 0.5
+    a, b = (10, 8), (10 + dx, 8 + dy)
+    for x, y in (a, b):
+        cms[0, 0, y, x] = 0.9
+    first = min(a, b, key=lambda p: (p[1], p[0]))
+    assert not _strict_peak_mask(cms).any()
+    assert _peak_list(cms) == [(0, 0) + first]
+
+
+def test_find_local_peaks_rough_flat_top():
+    # A Gaussian centered between two pixels has two equal top pixels; one
+    # centered between four has a 2x2 flat top. Each gives one peak.
+    cms = _gaussian(20, 24, 10.5, 8)[None, None]
+    assert cms[0, 0, 8, 10] == cms[0, 0, 8, 11]
+    assert _peak_list(cms) == [(0, 0, 10, 8)]
+    cms = _gaussian(20, 24, 10.5, 8.5)[None, None]
+    assert _peak_list(cms) == [(0, 0, 10, 8)]
+
+
+def test_find_local_peaks_rough_ties_at_edges():
+    cms = torch.zeros(1, 1, 6, 6)
+    cms[0, 0, 0, 0] = 0.9  # a corner: off-image neighbors don't count
+    cms[0, 0, 5, 4] = cms[0, 0, 5, 5] = 0.6  # tied on the last row
+    cms[0, 0, 2, 3] = 0.2  # not above the threshold
+    assert _peak_list(cms) == [(0, 0, 0, 0), (0, 0, 4, 5)]
+    points, vals, samples, channels = find_local_peaks_rough(torch.zeros(1, 1, 6, 6))
+    assert points.shape == (0, 2) and vals.shape == (0,)
+    assert samples.dtype == channels.dtype == torch.int32
+
+
+def test_find_local_peaks_rough_unchanged_without_ties():
+    # Random fp32 maps have no two equal neighbors: the same peaks as the
+    # previous strict rule.
+    torch.manual_seed(0)
+    cms = torch.rand(4, 3, 40, 50)
+    mask = _strict_peak_mask(cms)
+    assert mask.sum() > 100
+    subs = torch.stack(torch.where(mask.permute(0, 2, 3, 1)), axis=-1)
+    points, vals, samples, channels = find_local_peaks_rough(cms)
+    assert torch.equal(points, subs[:, [2, 1]].to(torch.float32))
+    assert torch.equal(vals, cms[subs[:, 0], subs[:, 3], subs[:, 1], subs[:, 2]])
+    assert torch.equal(samples, subs[:, 0].to(torch.int32))
+    assert torch.equal(channels, subs[:, 3].to(torch.int32))
+
+
+def test_find_local_peaks_rough_fp16_ties():
+    """In fp16, the top two pixels of a Gaussian sometimes round to one value.
+
+    Every peak the strict rule finds is still found; the extra ones are
+    exactly at tied tops, one per tie.
+    """
+    torch.manual_seed(1)
+    height, width = 64, 80
+    cms = torch.zeros(200, 1, height, width)
+    for i in range(cms.shape[0]):
+        for _ in range(5):
+            cx, cy = torch.rand(2) * torch.tensor([width - 10.0, height - 10.0]) + 5
+            peak = _gaussian(height, width, float(cx), float(cy))
+            peak = peak * (0.6 + 0.4 * float(torch.rand(1)))
+            cms[i, 0] = torch.maximum(cms[i, 0], peak)
+    cms = cms.half()
+
+    found = set(_peak_list(cms))
+    strict = {
+        (int(s), int(c), int(x), int(y))
+        for s, y, x, c in torch.stack(
+            torch.where(_strict_peak_mask(cms).permute(0, 2, 3, 1)), axis=-1
+        ).tolist()
+    }
+    assert strict <= found
+    extra = found - strict
+    assert extra  # fp16 ties do happen
+    for s, c, x, y in extra:
+        top = cms[s, c, y, x]
+        around = cms[s, c, max(y - 1, 0) : y + 2, max(x - 1, 0) : x + 2]
+        assert (around == top).sum() >= 2 and (around <= top).all()

@@ -36,6 +36,7 @@ from sleap_nn.inference.ops.peaks import (
     find_local_peaks_rough,
     integral_regression,
     morphological_dilation,
+    morphological_dilation_split,
 )
 
 try:
@@ -197,6 +198,23 @@ def test_morphological_dilation_exports():
     _assert_close(out_onnx, module(img))
 
 
+class _MorphologicalDilationSplitModule(nn.Module):
+    def forward(self, x: torch.Tensor):
+        return morphological_dilation_split(x)
+
+
+def test_morphological_dilation_split_exports():
+    """The before/after split used by find_local_peaks_rough exports too."""
+    img = torch.randn(2, 1, 16, 16)
+    module = _MorphologicalDilationSplitModule()
+    before_onnx, after_onnx = _export_and_run(
+        module, (img,), ["img"], ["before", "after"]
+    )
+    before, after = module(img)
+    _assert_close(before_onnx, before)
+    _assert_close(after_onnx, after)
+
+
 class _IntegralRegressionModule(nn.Module):
     def __init__(self, size: int) -> None:
         super().__init__()
@@ -257,6 +275,7 @@ def test_find_local_peaks_rough_exports():
     ``find_top_k_peaks`` for variable-shape safety (PR 7)."""
     cms = torch.zeros(1, 1, 8, 8)
     cms[0, 0, 4, 4] = 1.0
+    cms[0, 0, 1, 1] = cms[0, 0, 1, 2] = 0.5  # a tied peak (#781)
     module = _FindLocalPeaksRoughModule()
     (out_pts_onnx,) = _export_and_run(module, (cms,), ["cms"], ["pts"])
     _assert_close(out_pts_onnx, module(cms))
