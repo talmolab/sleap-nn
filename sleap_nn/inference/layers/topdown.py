@@ -333,7 +333,9 @@ class TopDownLayer:
             bboxes = window_corners(windows) - 0.5
         else:
             bboxes = make_centered_bboxes(valid_centroids, crop_h, crop_w)
-            crops = crop_bboxes(image_4d, bboxes, sample_inds)
+            crops = crop_bboxes(
+                image_4d, bboxes, sample_inds, crop_size=(crop_h, crop_w)
+            )
 
         # Run centered-instance model on the crops.
         stage2_out = self.centered_instance_layer.predict(crops)

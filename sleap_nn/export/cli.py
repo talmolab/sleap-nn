@@ -93,6 +93,7 @@ def export(
     import torch
 
     from sleap_nn.export.exporters import export_to_onnx, export_to_tensorrt
+    from sleap_nn.export.exporters.onnx_exporter import has_rope
     from sleap_nn.export.metadata import (
         build_base_metadata,
         embed_metadata_in_onnx,
@@ -439,6 +440,15 @@ def export(
             crop_h, crop_w = resolved_crop_size
             input_channels = resolve_embedding_input_channels(cfg)
             input_shape = (1, input_channels, crop_h, crop_w)
+        elif (
+            model_type in ("centered_instance", "multi_class_topdown")
+            and resolved_crop_size is not None
+            and input_height is None
+            and input_width is None
+        ):
+            # These wrappers take crops: trace at the crop size, the only size the
+            # model sees -- and the size a RoPE backbone's static-H/W export fixes.
+            input_shape = (input_shape[0], input_shape[1], *resolved_crop_size)
         if model_type in ("bbox_centernet", "bbox_ssd"):
             # Trace on a model-input-sized frame (scaled, stride-padded).
             max_stride = int(
@@ -695,6 +705,9 @@ def export(
                 "instance_valid",
             ],
             verify=verify,
+            # Only the centroid model sees the frame size; the instance model
+            # always receives fixed-size crops, so its RoPE grid never changes.
+            static_hw=has_rope(centroid_model),
         )
 
         centroid_cfg_path = _copy_training_config(centroid_path, export_dir, "centroid")
@@ -764,6 +777,8 @@ def export(
                 max_shape=(max_batch_size, C, H * 2, W * 2),
                 **trt_workspace_kwargs,
                 verbose=True,
+                # As for the ONNX graph: only the centroid model sees the frame.
+                static_hw=has_rope(centroid_model),
             )
             # Update metadata for TensorRT
             trt_metadata = build_base_metadata(
@@ -907,6 +922,8 @@ def export(
                 "instance_valid",
             ],
             verify=verify,
+            # As for top-down: only the centroid model sees the frame size.
+            static_hw=has_rope(centroid_model),
         )
 
         centroid_cfg_path = _copy_training_config(centroid_path, export_dir, "centroid")
@@ -972,6 +989,8 @@ def export(
                 max_shape=(max_batch_size, C, H * 2, W * 2),
                 **trt_workspace_kwargs,
                 verbose=True,
+                # As for the ONNX graph: only the centroid model sees the frame.
+                static_hw=has_rope(centroid_model),
             )
             trt_metadata = build_base_metadata(
                 export_format="tensorrt",

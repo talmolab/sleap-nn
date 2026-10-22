@@ -290,6 +290,48 @@ class TestLinearWarmupLinearDecayLR:
         assert abs(lrs[0] - 1e-3) < 1e-9  # base_lr for group 1
         assert abs(lrs[1] - 1e-4) < 1e-9  # base_lr for group 2
 
+    @pytest.mark.parametrize(
+        "scheduler_cls, floor_arg",
+        [
+            (LinearWarmupCosineAnnealingLR, "eta_min"),
+            (LinearWarmupLinearDecayLR, "end_lr"),
+        ],
+    )
+    def test_per_group_start_and_floor(self, scheduler_cls, floor_arg):
+        """A list gives each param group its own warmup start and floor.
+
+        The layer-decayed encoder groups need this: one absolute floor above a
+        group's own LR would pull that group's LR up instead of down.
+        """
+        model = nn.Sequential(nn.Linear(10, 5), nn.Linear(5, 1))
+        optimizer = torch.optim.Adam(
+            [
+                {"params": model[0].parameters(), "lr": 1e-3},
+                {"params": model[1].parameters(), "lr": 1e-5},
+            ]
+        )
+        scheduler = scheduler_cls(
+            optimizer,
+            warmup_epochs=2,
+            max_epochs=10,
+            warmup_start_lr=[1e-4, 1e-6],
+            **{floor_arg: [1e-4, 1e-6]},
+        )
+        assert scheduler.get_last_lr() == pytest.approx([1e-4, 1e-6])
+        for _ in range(10):
+            scheduler.step()
+        assert scheduler.get_last_lr() == pytest.approx([1e-4, 1e-6])
+
+    def test_per_group_values_must_match_the_groups(self, optimizer):
+        with pytest.raises(ValueError, match="1 param groups"):
+            LinearWarmupCosineAnnealingLR(
+                optimizer, warmup_epochs=1, max_epochs=5, eta_min=[0.0, 0.0]
+            )
+        with pytest.raises(ValueError, match="eta_min must be >= 0"):
+            LinearWarmupCosineAnnealingLR(
+                optimizer, warmup_epochs=1, max_epochs=5, eta_min=[-1.0]
+            )
+
 
 class TestSchedulerIntegration:
     """Integration tests for schedulers with training loop."""

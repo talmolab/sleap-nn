@@ -337,7 +337,7 @@ class TopDownEmbeddingLayer(TopDownLayer):
         sample_inds = valid_idx[:, 0]  # (n_valid,)
 
         bboxes = make_centered_bboxes(valid_centroids, crop_h, crop_w)
-        crops = crop_bboxes(image_4d, bboxes, sample_inds)
+        crops = crop_bboxes(image_4d, bboxes, sample_inds, crop_size=(crop_h, crop_w))
 
         stage2_out = self.centered_instance_layer.predict(crops)
         crop_emb = stage2_out.pred_embeddings.squeeze(1)  # (n_valid, D)

@@ -340,6 +340,7 @@ tracker_config = TrackerConfig(
     track_matching_method="hungarian",
     max_tracks=None,
 )
+# Or a modern MOT tracker (see below): TrackerConfig(tracker="bytetrack")
 
 predictor = Predictor.from_model_paths(
     ["models/centroid/", "models/centered_instance/"],
@@ -357,14 +358,17 @@ labels = predictor.predict("video.mp4")   # tracked
 ### Tracking existing labels with `apply_tracking`
 
 `apply_tracking` is the labels-in / labels-out tracking function. It builds a
-fresh `Tracker` per call (no shared state) and tracks frames in temporal order.
+fresh tracker for each video, tracks the frames in `(video, frame_idx)` order, and
+works **in place**: it writes tracks onto the detections of the `Labels` you pass
+and returns that same object. Pass `labels.copy()` to keep the input, for example
+when comparing settings.
 
 ```python
 import sleap_io as sio
 from sleap_nn.inference.tracking import TrackerConfig, apply_tracking
 
 labels = sio.load_slp("predictions.slp")
-tracked = apply_tracking(labels, TrackerConfig(window_size=5))
+tracked = apply_tracking(labels, TrackerConfig(window_size=5))   # tracked is labels
 tracked.save("tracked.slp")
 ```
 
@@ -373,8 +377,122 @@ tracked.save("tracked.slp")
 
 !!! note "post_connect_single_breaks"
     Setting `post_connect_single_breaks=True` requires
-    `tracking_target_instance_count` (or `max_tracks`) to be set, otherwise
-    `apply_tracking` raises `ValueError`.
+    `tracking_target_instance_count` to be set; otherwise `apply_tracking` raises
+    `ValueError`. `max_tracks` is not a substitute.
+
+### Modern MOT trackers
+
+`TrackerConfig.tracker` selects the tracker. `"classic"` is the default: the
+candidate-window tracker configured by the fields above. The other values are
+`"sort"`, `"deepsort"`, `"strongsort"`, `"bytetrack"`, `"botsort"`, `"ocsort"`
+and `"deepocsort"`, the [modern MOT trackers](tracking.md#modern-mot-trackers).
+They read these fields:
+
+| Field | Meaning | Default |
+|---|---|---|
+| `tracker` | `"classic"` or a MOT tracker name | `"classic"` |
+| `track_buffer` | Steps a lost track is kept for re-association | `None` (preset: 30) |
+| `min_hits` | Matches before a track is confirmed | `None` (preset) |
+| `track_high_threshold` / `track_low_threshold` / `new_track_threshold` | Detection-score thresholds, in `[0, 1]` | `None` (preset) |
+| `min_match_similarity` | Minimum geometric similarity for a first-stage match | `None` (preset) |
+| `appearance_threshold` | Appearance trackers: `"auto"` (calibrated per video) or a minimum cosine in `[-1, 1]` | `None` (preset: `"auto"`) |
+| `link_tracklets` | Identity linking after each video; also works with `"classic"` | `False` |
+| `mot_params` | Overrides for any `sleap_nn.tracking.mot.params.MOTParams` field, including `"preset"` (`"animal"` / `"paper"`), `"similarity"`, `"normalize_scores"` and `"body_size"`. With `"classic"` and `link_tracklets=True`, only `"time_base"` and `"body_size"` (`CLASSIC_LINKING_MOT_PARAMS`), which its identity linking reads | `None` |
+| `max_tracks` | Shared field. For a MOT tracker it is the known animal count: closed-set identity linking | `None` |
+| `oks_stddev` | Shared field. OKS spread for the `oks` similarity | `None` (MOT: 0.1) |
+| `features` | Shared field. Carrier to track: `"keypoints"` or `"masks"` | `"keypoints"` |
+
+`None` means the tracker's preset value. `apply_tracking` validates the config
+with `validate_mot_config` before tracking, and you can call it yourself. It
+raises `ValueError` for a MOT tracker with any classic-only field away from its
+default (`window_size`, `candidates_method`, `use_flow`, `use_kalman`,
+`appearance_weight`, the cull / clean / connect options, ...). It also raises for
+the classic tracker with any MOT-only field set (except `mot_params` holding only
+`time_base` / `body_size` with `link_tracklets=True`). The properties `is_mot`,
+`runs_linking`, `uses_appearance`, `requires_vectors` and
+`follows_vector_carrier` describe what a config will do.
+
+```python
+import sleap_io as sio
+from sleap_nn.inference.tracking import (
+    TrackerConfig,
+    apply_tracking,
+    resolve_mot_params,
+)
+
+labels = sio.load_slp("predictions.slp")
+config = TrackerConfig(
+    tracker="ocsort",
+    track_buffer=60,           # keep lost tracks for 60 steps
+    max_tracks=4,              # 4 animals: closed-set identity linking
+    mot_params={"similarity": "oks", "delta_t": 3},
+)
+print(resolve_mot_params(config))  # the resolved MOTParams (preset + overrides)
+
+tracked = apply_tracking(labels, config)  # in place; returns `labels`
+record = tracked.provenance["tracking"]   # resolved params, calibration, linking
+entry = record["videos"][0]
+print(entry["video"], entry["video_filename"])  # index into labels.videos, its file
+print(entry["linking"])
+tracked.save("tracked_ocsort.slp")
+```
+
+Each `record["videos"]` entry describes one tracked video: `"video"` is its index
+in `labels.videos` (a video with no frames has no entry) and `"video_filename"` its
+file name, next to the resolved `kalman`, `time_base`, `similarity`, `body_size`
+(and `body_size_source`), `score_normalizer`, `calibration`, `appearance` and,
+when linking ran, `linking`. The record describes the latest tracking run;
+retracking replaces it.
+
+!!! note "Set the MOT similarity with `mot_params`"
+    `scoring_method="oks"` is `TrackerConfig`'s default value, so for a MOT
+    tracker it counts as *unset*, and the similarity stays `"auto"`. Pass
+    `mot_params={"similarity": "oks"}`, which also accepts `"iou"`,
+    `"centroid"` and `"auto"`. An explicit non-default `scoring_method`
+    (`"iou"`, `"euclidean_dist"`) also works.
+
+The trackers can also be driven frame by frame without `apply_tracking`. A
+tracker tracks **one video, in increasing frame order**, so build one per video
+(this is what `apply_tracking` does):
+
+```python
+from sleap_nn.tracking.mot import MOTParams, build_mot_tracker
+
+params = MOTParams.for_tracker("bytetrack")
+offset = 0
+for video in labels.videos:
+    lfs = sorted(labels.find(video), key=lambda lf: lf.frame_idx)
+    frames = [(lf.frame_idx, lf.predicted_instances) for lf in lfs]
+    tracker = build_mot_tracker(params, carrier="pose")
+    tracker.track_name_offset = offset   # names continue across videos
+    tracker.prepare(frames)       # optional: calibration, time base, score scale
+    for frame_idx, instances in frames:
+        tracker.track(instances, frame_idx)   # sets .track / .tracking_score
+    tracker.finalize()            # optional: identity linking, if enabled
+    offset = tracker.next_track_name_offset
+
+labels.tracks = []   # rebuild the track list from the new assignments
+labels.update()
+labels.reindex()
+labels.save("tracked.slp")
+```
+
+`prepare()` and `finalize()` are optional, but `prepare()` needs every frame up
+front, so a live stream skips it. Without `prepare()`:
+
+- an `"auto"` appearance threshold disables appearance (there is no
+  calibration);
+- scores are not normalized per video (`normalize_scores` needs the
+  calibration's score quantiles), so the thresholds apply to raw scores;
+- the frame stride and time base are inferred from the frame indices seen so
+  far, so tracking every k-th frame works;
+- the body size of single-node (centroid) detections is estimated from the
+  motion seen so far; pass `body_size=<px>` to `MOTParams.for_tracker` if you
+  know it.
+
+A frame index that repeats or goes backwards logs a warning: it means two videos
+(or unsorted frames) are going through one tracker. `finalize()` also warns when
+no track was ever confirmed.
 
 ---
 

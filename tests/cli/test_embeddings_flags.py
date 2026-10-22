@@ -189,6 +189,8 @@ def test_derived_tracker_options_are_all_real_predict_options():
     # Picked up with no edit here when `--euclidean_scale` was added, which is the
     # whole point of deriving rather than listing.
     assert "euclidean_scale" in derived
+    # ...and the MOT tracker options (read unconditionally by the builder).
+    assert {"tracker", "track_buffer", "appearance_threshold", "mot_param"} <= derived
     assert not (derived | _EMBEDDING_ROUTE_HONORED_OPTIONS) - real
 
 

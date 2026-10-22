@@ -3531,6 +3531,137 @@ def _identity_tracks(
     return tracks
 
 
+def _superseded_ground_truth(
+    frame: sio.LabeledFrame, carrier: str, dets: List[Any]
+) -> set:
+    """Indices of a ground-truth frame's detections that a user label replaces.
+
+    Correcting a pose in the SLEAP GUI adds a user ``Instance`` that takes the
+    prediction's track and links to it through ``from_predicted``, and leaves the
+    ``PredictedInstance`` in the frame. Scored as is, the animal would be two
+    ground-truth detections on one track. What is left out:
+
+    - **Poses.** sleap-io's rule (:func:`sleap_nn.data.utils.superseded_predictions`,
+      from ``LabeledFrame.unused_predictions``): a ``PredictedInstance`` whose
+      track a user ``Instance`` on the frame holds, or -- on a frame with no
+      tracks -- that a user ``Instance`` links to. Plus any ``PredictedInstance``
+      a user ``Instance`` links to through ``from_predicted`` whatever the tracks
+      (sleap-io's track rule keeps an untracked linked prediction, which would
+      otherwise be don't-care ground truth that takes the tracker's matches).
+    - **Masks.** A ``PredictedSegmentationMask`` a user mask adopts (sleap-io's
+      ``unused_predicted_masks``: linked through ``from_predicted``, or
+      overlapping), and a mask with no track of its own linked to a replaced
+      ``PredictedInstance`` when the user ``Instance`` replacing it has a mask of
+      its own on the frame. A replaced prediction's mask that is its animal's
+      only mask is kept.
+
+    Args:
+        frame: The ground-truth frame.
+        carrier: ``"pose"`` or ``"mask"``.
+        dets: ``_identity_dets(frame, carrier)``.
+
+    Returns:
+        The set of indices into ``dets`` to leave out of the ground truth.
+    """
+    from sleap_nn.data.utils import superseded_predictions
+
+    superseded = set(superseded_predictions(frame))
+    user_instances = [
+        inst for inst in frame.instances if not isinstance(inst, sio.PredictedInstance)
+    ]
+    predicted_instances = {
+        id(inst): inst
+        for inst in frame.instances
+        if isinstance(inst, sio.PredictedInstance)
+    }
+    for inst in user_instances:
+        source = getattr(inst, "from_predicted", None)
+        if source is not None and id(source) in predicted_instances:
+            superseded.add(id(source))
+
+    if carrier != "mask":
+        return {i for i, det in enumerate(dets) if id(det) in superseded}
+
+    # The user instances that replace each superseded prediction: linked to it,
+    # or (sleap-io's track rule) holding its track.
+    replaced_by: Dict[int, set] = {}
+    for inst in user_instances:
+        for pred_id, pred in predicted_instances.items():
+            if pred_id not in superseded:
+                continue
+            source = getattr(inst, "from_predicted", None)
+            same_track = inst.track is not None and inst.track is pred.track
+            if source is pred or same_track:
+                replaced_by.setdefault(pred_id, set()).add(id(inst))
+    instances_with_masks = {
+        id(m.instance) for m in dets if getattr(m, "instance", None) is not None
+    }
+    drop = set()
+    for i, mask in enumerate(dets):
+        if id(mask) in superseded:
+            drop.add(i)
+            continue
+        linked = getattr(mask, "instance", None)
+        if (
+            getattr(mask, "track", None) is None
+            and linked is not None
+            and id(linked) in superseded
+            and replaced_by.get(id(linked), set()) & instances_with_masks
+        ):
+            drop.add(i)
+    return drop
+
+
+def _ground_truth_keep(
+    frame: sio.LabeledFrame, carrier: str, dets: List[Any], user_labels_only: bool
+) -> Tuple[List[int], int]:
+    """Which of a ground-truth frame's detections the identity metrics score.
+
+    Shared by :func:`identity_metrics` and :func:`compute_mot_metrics`, so both
+    blocks score the same ground truth.
+
+    Args:
+        frame: The ground-truth frame.
+        carrier: ``"pose"`` or ``"mask"``.
+        dets: ``_identity_dets(frame, carrier)``.
+        user_labels_only: Drop every prediction (model output) instead of only
+            the ones a user label replaces.
+
+    Returns:
+        ``(keep, n_superseded)``: the indices into ``dets`` to score, in order,
+        and how many detections were left out because a user label on the same
+        frame replaces them (:func:`_superseded_ground_truth`; always 0 with
+        ``user_labels_only``, which drops them along with every prediction).
+    """
+    if user_labels_only:
+        return [i for i, d in enumerate(dets) if not _is_predicted_detection(d)], 0
+    drop = _superseded_ground_truth(frame, carrier, dets)
+    return [i for i in range(len(dets)) if i not in drop], len(drop)
+
+
+def _check_oks_stddev(oks_stddev: Any) -> float:
+    """Return ``oks_stddev`` as a float, or raise if it is not a usable spread.
+
+    OKS divides by the squared spread, so 0 (or NaN) turns every score into NaN
+    or 0 -- a raw scipy error in one block and silent all-misses in the other --
+    and ``inf`` scores every pair 1, which makes the matching arbitrary. A
+    negative value would be squared away and recorded as given.
+
+    Raises:
+        ValueError: Unless ``oks_stddev`` is a finite number greater than 0.
+    """
+    try:
+        value = float(oks_stddev)
+    except (TypeError, ValueError):
+        value = float("nan")
+    if not (np.isfinite(value) and value > 0):
+        raise ValueError(
+            "oks_stddev (the per-keypoint OKS spread, e.g. the default 0.025) "
+            f"must be a finite number greater than 0, got {oks_stddev!r}."
+        )
+    return value
+
+
 def _identity_match_method(
     gt_labels: sio.Labels, pred_labels: sio.Labels, carrier: str
 ) -> str:
@@ -3554,7 +3685,7 @@ def _identity_match_method(
     return "oks"
 
 
-def _pose_similarity(gt: List[Any], pr: List[Any]) -> np.ndarray:
+def _pose_similarity(gt: List[Any], pr: List[Any], stddev: float = 0.025) -> np.ndarray:
     """Compute the ``(n_gt, n_pr)`` OKS matrix between two instance lists.
 
     Built one predicted instance at a time. OKS is defined per ``(gt, pr)`` pair
@@ -3567,6 +3698,9 @@ def _pose_similarity(gt: List[Any], pr: List[Any]) -> np.ndarray:
     turns OKS into an exact-equality test, so those rows are scored by pixel
     distance instead (:func:`compute_distance_match_score`), exactly as
     :func:`match_instances` does for the detection metrics.
+
+    ``stddev`` is the per-keypoint OKS spread (:func:`compute_oks`); the default
+    is ``compute_oks``'s own.
     """
     if not gt or not pr:
         return np.zeros((len(gt), len(pr)))
@@ -3575,9 +3709,9 @@ def _pose_similarity(gt: List[Any], pr: List[Any]) -> np.ndarray:
     sim = np.zeros((len(gt), len(pr)))
     for j, inst in enumerate(pr):
         pts_pr = np.asarray(inst.numpy(), dtype=float)[None, :, :2]
-        sim[:, j] = np.asarray(compute_oks(pts_gt, pts_pr), dtype=float).reshape(
-            len(gt)
-        )
+        sim[:, j] = np.asarray(
+            compute_oks(pts_gt, pts_pr, stddev=stddev), dtype=float
+        ).reshape(len(gt))
         if degenerate.any():
             sim[degenerate, j] = compute_distance_match_score(
                 pts_gt[degenerate],
@@ -3616,7 +3750,11 @@ def _identity_centroids(dets: List[Any]) -> np.ndarray:
 
 
 def _match_identity_frame(
-    gt: List[Any], pr: List[Any], method: str, threshold: float
+    gt: List[Any],
+    pr: List[Any],
+    method: str,
+    threshold: float,
+    oks_stddev: float = 0.025,
 ) -> List[Tuple[int, int, float]]:
     """Hungarian-match ground-truth to predicted detections within one frame.
 
@@ -3628,6 +3766,7 @@ def _match_identity_frame(
             :func:`_identity_match_method`).
         threshold: Minimum OKS / IoU for a pair to count as matched, or for
             ``"distance"`` the maximum centroid distance in pixels.
+        oks_stddev: Per-keypoint OKS spread, for ``"oks"``.
 
     Returns:
         List of ``(gt_index, pred_index, score)`` for the matched pairs; ``score``
@@ -3652,7 +3791,11 @@ def _match_identity_frame(
             )
         return pairs
 
-    sim = _pose_similarity(gt, pr) if method == "oks" else _mask_similarity(gt, pr)
+    sim = (
+        _pose_similarity(gt, pr, stddev=oks_stddev)
+        if method == "oks"
+        else _mask_similarity(gt, pr)
+    )
     if sim.size == 0:
         return []
     rows, cols = linear_sum_assignment(-sim)
@@ -3795,6 +3938,28 @@ def motion_diagnostic(labels: sio.Labels, carrier: str = "pose") -> Dict[str, An
 class IdentityMetrics:
     """Identity-persistence metrics for one tracked prediction.
 
+    These are sleap-nn's own (legacy) definitions. Four of them differ from
+    TrackEval, the reference MOT evaluation code; quote
+    :func:`compute_mot_metrics` (:class:`MOTMetrics`) when comparing with
+    published MOT numbers:
+
+    1. **ID switches.** Each frame is matched by a plain Hungarian assignment,
+       with no preference for keeping last frame's match. TrackEval's CLEAR-MOT
+       first keeps the previous frame's pairs that are still above threshold, so
+       ``id_switches`` can exceed its ``IDSW`` when a competing prediction scores
+       higher for a frame.
+    2. **IDF1.** IDTP counts one-to-one co-matches from those per-frame
+       assignments. TrackEval counts every frame on which a ground-truth /
+       predicted identity pair is above threshold, matched or not, so its IDTP
+       (and IDF1) can be higher.
+    3. **Mostly tracked** is ``coverage >= mt_threshold`` here; TrackEval uses
+       ``> 0.8`` (a trajectory matched on exactly 4 of 5 frames is MT here, PT
+       in TrackEval).
+    4. **Fragmentation** counts matched -> unmatched -> re-matched interruptions
+       over the frames the ground truth is present. TrackEval counts tracked
+       segments minus one, and its segments are also broken by frames where the
+       ground truth is absent but predictions are present.
+
     Attributes:
         id_switches: CLEAR-MOT ID switches, summed over ground-truth trajectories.
         idf1: Identity F1 (Ristani et al.). Includes detection errors: every
@@ -3894,11 +4059,97 @@ class IdentityMetrics:
         )
 
 
+def _align_identity_frames(gt_labels: sio.Labels, pred_labels: sio.Labels) -> Tuple[
+    Dict[Tuple[str, int], sio.LabeledFrame],
+    Dict[Tuple[str, int], sio.LabeledFrame],
+    List[Tuple[str, int]],
+    set,
+    List[str],
+]:
+    """Pair ground-truth and predicted frames the way the identity metrics score them.
+
+    Frames are keyed by ``(video path, frame index)``. When nothing aligns and
+    each side holds a single video, frames fall back to ``frame_idx`` alone (a
+    clip re-saved under another path). Every ground-truth frame of each video
+    the prediction shares at least one frame with is scored -- a frame missing
+    from the prediction is a frame on which nothing was found, not one to skip.
+
+    Args:
+        gt_labels: Ground truth.
+        pred_labels: Prediction.
+
+    Returns:
+        ``(gt_by_key, pred_by_key, gt_keys, scored_videos, notes)``: the frames
+        of each side by key, the sorted ground-truth keys to score, the video
+        keys scored (empty when the files share no frame), and human-readable
+        notes in the order they arose.
+    """
+    notes: List[str] = []
+    gt_by_key = {_identity_frame_key(lf): lf for lf in gt_labels}
+    pred_by_key = {_identity_frame_key(lf): lf for lf in pred_labels}
+    shared = set(gt_by_key) & set(pred_by_key)
+    if not shared:
+        # One video on each side but under different paths (a clip re-saved or
+        # copied elsewhere, an embedded package vs its source) is common enough
+        # to be worth rescuing: there is only one possible pairing, so fall back
+        # to frame_idx alone rather than reporting nothing. With several videos
+        # on either side the pairing is ambiguous, so it is left unaligned.
+        if (
+            len({k[0] for k in gt_by_key}) == 1
+            and len({k[0] for k in pred_by_key}) == 1
+        ):
+            gt_by_key = {("", lf.frame_idx): lf for lf in gt_labels}
+            pred_by_key = {("", lf.frame_idx): lf for lf in pred_labels}
+            shared = set(gt_by_key) & set(pred_by_key)
+            notes.append("aligned on frame_idx only (single video on both sides)")
+        if not shared:
+            notes.append("no frames in common -- nothing compared")
+            return gt_by_key, pred_by_key, [], set(), notes
+
+    # Score every GT frame of each video the prediction covers: a frame missing
+    # from the prediction is a frame on which nothing was found, not a frame to
+    # skip -- skipping it let a tracker score higher by producing fewer frames.
+    scored_videos = {video for video, _ in shared}
+    unscored_videos = sorted({video for video, _ in gt_by_key} - scored_videos)
+    if unscored_videos:
+        notes.append(
+            f"{len(unscored_videos)} GT video(s) share no frame with the prediction "
+            f"and were not scored: {unscored_videos}"
+        )
+    gt_keys = sorted(k for k in gt_by_key if k[0] in scored_videos)
+    n_missing = sum(1 for k in gt_keys if k not in pred_by_key)
+    if n_missing:
+        notes.append(
+            f"{n_missing} GT frames had no predicted counterpart -- scored as "
+            "misses (every tracked GT detection on them is unmatched)"
+        )
+    return gt_by_key, pred_by_key, gt_keys, scored_videos, notes
+
+
 def _threshold_phrase(method: str, threshold: float) -> str:
     """Describe a match threshold in its own units, for notes and logs."""
     if method == "distance":
         return f"centroid distance <= {threshold:g} px"
     return f"{'OKS' if method == 'oks' else 'mask IoU'} >= {threshold:g}"
+
+
+def _superseded_note(n_superseded: int) -> str:
+    """The note for ground truth left out because a user label replaces it."""
+    return (
+        f"{n_superseded} ground-truth detections were left out because a user "
+        "label on the same frame replaces them (a prediction corrected in the "
+        "GUI -- same track, or linked by from_predicted -- or its mask)"
+    )
+
+
+def _dont_care_took_every_match_note() -> str:
+    """The note for a run whose only matches were on untracked ground truth."""
+    return (
+        "every prediction that matched ground truth matched an UNTRACKED "
+        "detection (don't-care) and was not scored. If the untracked ground "
+        "truth is stale predictions rather than animals left unlabeled, pass "
+        "user_labels_only=True (--user_labels_only)."
+    )
 
 
 def identity_metrics(
@@ -3911,6 +4162,7 @@ def identity_metrics(
     ml_threshold: float = 0.2,
     user_labels_only: bool = False,
     global_identity: bool = False,
+    oks_stddev: float = 0.025,
 ) -> IdentityMetrics:
     """Score a tracked prediction against tracked ground truth.
 
@@ -3934,6 +4186,11 @@ def identity_metrics(
     - **Untracked predictions** are counted (``n_pred_untracked``) but never
       matched: they have no identity to get right, so their ground truth scores
       as missed.
+    - **Corrected predictions are left out of the ground truth.** A
+      ``PredictedInstance`` (or its mask) that a user label on the same frame
+      replaces -- a pose corrected in the GUI, which keeps the prediction next
+      to the user copy on the same track -- is not ground truth; the user copy
+      is (:func:`_superseded_ground_truth`). Counted in ``notes``.
 
     Args:
         gt_labels: Ground truth with ``track`` set on the detections to score.
@@ -3958,21 +4215,30 @@ def identity_metrics(
             the ground truth is user-labeled and the file also carries stale
             predictions from an earlier run, which would otherwise be scored as
             extra trajectories. Either way the count is reported in ``notes``,
-            and the prediction side is never filtered.
+            and the prediction side is never filtered. Off, predictions a user
+            label on the same frame replaces are still left out (see above).
         global_identity: Key trajectories by track name ACROSS videos -- for
             files whose names are global identities (a multi-class ID model, or
             a project proofread with one name per animal), where keeping an
             animal's name from one video to the next is part of the score.
+        oks_stddev: Per-keypoint OKS spread (:func:`compute_oks`) for the
+            ``"oks"`` matcher, a finite number > 0. Default 0.025,
+            ``compute_oks``'s own.
 
     Returns:
         An :class:`IdentityMetrics`. When the two files share no frames, the
         result is empty and ``notes`` says so rather than raising -- check
         ``n_frames_compared`` before quoting a number.
+
+    Raises:
+        ValueError: If the carrier is unknown or ``oks_stddev`` is not a finite
+            number greater than 0.
     """
     from collections import Counter, defaultdict
     from scipy.optimize import linear_sum_assignment
 
     carrier = _validate_carrier(carrier)
+    oks_stddev = _check_oks_stddev(oks_stddev)
     method = _identity_match_method(gt_labels, pred_labels, carrier)
     threshold = (
         IDENTITY_MATCH_THRESHOLDS[method]
@@ -3983,46 +4249,13 @@ def identity_metrics(
         match_method=method, match_threshold=threshold, global_identity=global_identity
     )
 
-    gt_by_key = {_identity_frame_key(lf): lf for lf in gt_labels}
-    pred_by_key = {_identity_frame_key(lf): lf for lf in pred_labels}
-    shared = set(gt_by_key) & set(pred_by_key)
-    if not shared:
-        # One video on each side but under different paths (a clip re-saved or
-        # copied elsewhere, an embedded package vs its source) is common enough
-        # to be worth rescuing: there is only one possible pairing, so fall back
-        # to frame_idx alone rather than reporting nothing. With several videos
-        # on either side the pairing is ambiguous, so it is left unaligned.
-        if (
-            len({k[0] for k in gt_by_key}) == 1
-            and len({k[0] for k in pred_by_key}) == 1
-        ):
-            gt_by_key = {("", lf.frame_idx): lf for lf in gt_labels}
-            pred_by_key = {("", lf.frame_idx): lf for lf in pred_labels}
-            shared = set(gt_by_key) & set(pred_by_key)
-            metrics.notes.append(
-                "aligned on frame_idx only (single video on both sides)"
-            )
-        if not shared:
-            metrics.notes.append("no frames in common -- nothing compared")
-            return metrics
-
-    # Score every GT frame of each video the prediction covers: a frame missing
-    # from the prediction is a frame on which nothing was found, not a frame to
-    # skip -- skipping it let a tracker score higher by producing fewer frames.
-    scored_videos = {video for video, _ in shared}
-    unscored_videos = sorted({video for video, _ in gt_by_key} - scored_videos)
-    if unscored_videos:
-        metrics.notes.append(
-            f"{len(unscored_videos)} GT video(s) share no frame with the prediction "
-            f"and were not scored: {unscored_videos}"
-        )
-    gt_keys = sorted(k for k in gt_by_key if k[0] in scored_videos)
+    gt_by_key, pred_by_key, gt_keys, scored_videos, align_notes = (
+        _align_identity_frames(gt_labels, pred_labels)
+    )
+    metrics.notes.extend(align_notes)
+    if not scored_videos:
+        return metrics
     n_missing = sum(1 for k in gt_keys if k not in pred_by_key)
-    if n_missing:
-        metrics.notes.append(
-            f"{n_missing} GT frames had no predicted counterpart -- scored as "
-            "misses (every tracked GT detection on them is unmatched)"
-        )
 
     def trajectory(video: str, track: sio.Track) -> Tuple[str, str]:
         return ("" if global_identity else video, track.name)
@@ -4037,18 +4270,24 @@ def identity_metrics(
     pred_tracks: set = set()
     gt_names_by_video: Dict[str, set] = defaultdict(set)
     n_gt_predicted = 0
+    n_gt_superseded = 0
 
     for position, key in enumerate(gt_keys):
         video = key[0]
         gt_frame, pred_frame = gt_by_key[key], pred_by_key.get(key)
 
         gt_all = _identity_dets(gt_frame, carrier)
-        n_gt_predicted += sum(1 for d in gt_all if _is_predicted_detection(d))
-        gt_keep = [
-            i
+        gt_keep, n_superseded = _ground_truth_keep(
+            gt_frame, carrier, gt_all, user_labels_only
+        )
+        n_gt_superseded += n_superseded
+        # Predicted GT detections: dropped (user_labels_only) or scored.
+        kept = set(gt_keep)
+        n_gt_predicted += sum(
+            1
             for i, d in enumerate(gt_all)
-            if not (user_labels_only and _is_predicted_detection(d))
-        ]
+            if _is_predicted_detection(d) and (user_labels_only or i in kept)
+        )
         gt_all_tracks = _identity_tracks(gt_frame, carrier, gt_all)
         gt_trk = [gt_all_tracks[i] for i in gt_keep]
         tracked_gt = [i for i, track in enumerate(gt_trk) if track is not None]
@@ -4088,7 +4327,7 @@ def identity_metrics(
         # untracked GT animal is don't-care, not a false positive.
         matched_gt: Dict[int, Tuple[str, str]] = {}
         for gt_idx, pred_idx, _score in _match_identity_frame(
-            match_gt, match_pred, method, threshold
+            match_gt, match_pred, method, threshold, oks_stddev=oks_stddev
         ):
             gt_track = gt_trk[gt_idx]
             if gt_track is None:
@@ -4130,12 +4369,16 @@ def identity_metrics(
                 "output (tracks assigned over predictions); scored as ground "
                 "truth. Pass user_labels_only=True to exclude them."
             )
+    if n_gt_superseded:
+        metrics.notes.append(_superseded_note(n_gt_superseded))
     if metrics.n_gt_untracked:
         metrics.notes.append(
             f"{metrics.n_gt_untracked} untracked ground-truth detections are "
             f"don't-care; {metrics.n_dont_care} tracked predictions matched them "
             "and are scored as neither hits nor false positives"
         )
+    if metrics.n_dont_care and metrics.n_gt_dets and not metrics.n_matched:
+        metrics.notes.append(_dont_care_took_every_match_note())
     if not global_identity and len(scored_videos) > 1:
         name_counts = Counter(
             name for names in gt_names_by_video.values() for name in names
@@ -4276,6 +4519,501 @@ def compare_identity_metrics(arms: Dict[str, IdentityMetrics]) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# TrackEval-faithful MOT metrics (CLEAR-MOT, Identity, HOTA)
+# ---------------------------------------------------------------------------
+# The adapter from `sio.Labels` to the pure core in
+# `sleap_nn.tracking.mot_metrics`. It shares the identity metrics' frame
+# alignment, carriers, track resolution and matcher (OKS / mask IoU / centroid
+# distance), but scores with TrackEval's definitions so the numbers can be put
+# next to published MOT results. The legacy `identity_metrics` stays as it is
+# (see the `IdentityMetrics` docstring for how the two differ).
+
+
+@attrs.define(auto_attribs=True, slots=True)
+class MOTMetrics:
+    """TrackEval-faithful CLEAR-MOT, Identity and HOTA metrics for one prediction.
+
+    Field names are snake_case versions of TrackEval's (``mota`` = ``MOTA``,
+    ``det_a`` = ``DetA``, ...). HOTA-family scalars are the mean over the 19
+    localization thresholds ``alpha = 0.05, ..., 0.95``
+    (:data:`sleap_nn.tracking.mot_metrics.HOTA_ALPHAS`), as TrackEval reports
+    them; the ``*_alpha`` lists hold the per-alpha values. Videos are combined
+    as TrackEval combines sequences: counts summed, ratios recomputed.
+
+    Attributes:
+        mota: Multi-object tracking accuracy, ``(TP - FP - IDSW) / n_gt``.
+        motp: Mean similarity of the matched pairs (OKS / IoU, or the mapped
+            distance similarity -- see :func:`compute_mot_metrics`).
+        moda: Detection accuracy, ``(TP - FP) / n_gt``.
+        idsw: CLEAR-MOT identity switches.
+        frag: Fragmentations: tracked segments minus one, per trajectory.
+        mt: Ground-truth trajectories matched on more than 80% of their frames.
+        pt: Trajectories matched on 20-80% of their frames.
+        ml: Trajectories matched on less than 20% of their frames.
+        clr_tp: CLEAR-MOT true positives (matched pairs).
+        clr_fn: CLEAR-MOT false negatives (unmatched tracked ground truth).
+        clr_fp: CLEAR-MOT false positives (unmatched tracked predictions).
+        idf1: Identity F1 (Ristani et al.).
+        idp: Identity precision.
+        idr: Identity recall.
+        idtp: Identity true positives.
+        idfp: Identity false positives.
+        idfn: Identity false negatives.
+        hota: Higher-order tracking accuracy, ``sqrt(DetA * AssA)``.
+        det_a: Detection accuracy.
+        ass_a: Association accuracy.
+        loc_a: Localization accuracy (1 at an alpha with no true positive).
+        det_re: Detection recall.
+        det_pr: Detection precision.
+        ass_re: Association recall.
+        ass_pr: Association precision.
+        owta: Open-world tracking accuracy, ``sqrt(DetRe * AssA)``.
+        hota_0: HOTA at the first alpha, 0.05 (TrackEval's ``HOTA(0)``).
+        loc_a_0: LocA at the first alpha, 0.05 (TrackEval's ``LocA(0)``).
+        hota_alpha: HOTA per alpha.
+        det_a_alpha: DetA per alpha.
+        ass_a_alpha: AssA per alpha.
+        loc_a_alpha: LocA per alpha.
+        n_gt_dets: Tracked ground-truth detections scored (``clr_tp + clr_fn``).
+        n_gt_untracked: Untracked ground-truth detections in the scored frames
+            (don't-care: matched against, never scored).
+        n_pred_dets: Tracked predicted detections scored (``clr_tp + clr_fp``):
+            after untracked ones and those on untracked ground truth are
+            removed.
+        n_pred_untracked: Predicted detections with no track, removed before
+            scoring.
+        n_dont_care: Tracked predictions removed because they matched an
+            untracked ground-truth detection.
+        n_frames: Ground-truth frames scored (every GT frame of every scored
+            video).
+        n_frames_missing_pred: Of those, frames the prediction does not have.
+        n_videos: Videos scored.
+        match_method: ``"oks"``, ``"iou"`` or ``"distance"``.
+        match_threshold: The match threshold in ``match_method``'s units (OKS /
+            IoU, or pixels for ``"distance"``).
+        oks_stddev: The OKS keypoint spread used (``"oks"`` only).
+        global_identity: Whether trajectories were keyed by name across videos.
+        notes: Human-readable caveats raised while comparing.
+    """
+
+    # CLEAR-MOT.
+    mota: float = float("nan")
+    motp: float = float("nan")
+    moda: float = float("nan")
+    idsw: int = 0
+    frag: int = 0
+    mt: int = 0
+    pt: int = 0
+    ml: int = 0
+    clr_tp: int = 0
+    clr_fn: int = 0
+    clr_fp: int = 0
+    # Identity.
+    idf1: float = float("nan")
+    idp: float = float("nan")
+    idr: float = float("nan")
+    idtp: int = 0
+    idfp: int = 0
+    idfn: int = 0
+    # HOTA (means over alphas).
+    hota: float = float("nan")
+    det_a: float = float("nan")
+    ass_a: float = float("nan")
+    loc_a: float = float("nan")
+    det_re: float = float("nan")
+    det_pr: float = float("nan")
+    ass_re: float = float("nan")
+    ass_pr: float = float("nan")
+    owta: float = float("nan")
+    hota_0: float = float("nan")
+    loc_a_0: float = float("nan")
+    hota_alpha: List[float] = attrs.field(factory=list)
+    det_a_alpha: List[float] = attrs.field(factory=list)
+    ass_a_alpha: List[float] = attrs.field(factory=list)
+    loc_a_alpha: List[float] = attrs.field(factory=list)
+    # Detection accounting.
+    n_gt_dets: int = 0
+    n_gt_untracked: int = 0
+    n_pred_dets: int = 0
+    n_pred_untracked: int = 0
+    n_dont_care: int = 0
+    n_frames: int = 0
+    n_frames_missing_pred: int = 0
+    n_videos: int = 0
+    # How the comparison was made.
+    match_method: str = ""
+    match_threshold: float = float("nan")
+    oks_stddev: float = 0.025
+    global_identity: bool = False
+    notes: List[str] = attrs.field(factory=list)
+
+    def as_dict(self) -> Dict[str, Any]:
+        """Return the metrics as a plain, JSON-serializable dict."""
+        return attrs.asdict(self)
+
+    def summary(self) -> str:
+        """Return a one-line summary of the headline metrics."""
+        return (
+            f"MOTA={self.mota:.4f} MOTP={self.motp:.4f} IDSW={self.idsw} "
+            f"Frag={self.frag} MT/PT/ML={self.mt}/{self.pt}/{self.ml}  "
+            f"IDF1={self.idf1:.4f} (P={self.idp:.4f} R={self.idr:.4f})  "
+            f"HOTA={self.hota:.4f} (DetA={self.det_a:.4f} AssA={self.ass_a:.4f} "
+            f"LocA={self.loc_a:.4f})  "
+            f"[{self.clr_tp} TP / {self.clr_fn} FN / {self.clr_fp} FP over "
+            f"{self.n_gt_dets} GT dets, {self.n_frames} frames]"
+        )
+
+
+def _mot_similarity(
+    gt: List[Any],
+    pr: List[Any],
+    method: str,
+    threshold: float,
+    oks_stddev: float,
+) -> np.ndarray:
+    """Ground-truth x prediction similarity in ``[0, 1]`` for the MOT metrics.
+
+    Unlike the identity matcher, which only needs to know which pairs pass,
+    HOTA / MOTP need a continuous similarity for EVERY pair:
+
+    - ``"oks"``: OKS (zero-area ground truth by pixel distance, as in
+      :func:`_pose_similarity`).
+    - ``"iou"``: mask IoU; an empty mask has IoU 0 with everything (the
+      detection helper scores two empty masks 1.0).
+    - ``"distance"``: ``max(0, 1 - d / (2 * threshold))`` on centroid distance
+      ``d`` in pixels -- TrackEval's Euclidean similarity with its zero point at
+      twice the threshold, so a similarity of 0.5 is exactly ``threshold``
+      pixels.
+
+    NaN (e.g. a fully occluded pose) becomes 0: such a pair never matches.
+
+    Args:
+        gt: Ground-truth detections (instances, or decoded mask arrays).
+        pr: Predicted detections, same convention.
+        method: ``"oks"``, ``"iou"`` or ``"distance"``.
+        threshold: The match threshold; only used by ``"distance"`` (pixels).
+        oks_stddev: OKS keypoint spread, for ``"oks"``.
+
+    Returns:
+        ``(len(gt), len(pr))`` float array.
+    """
+    if not len(gt) or not len(pr):
+        return np.zeros((len(gt), len(pr)))
+    if method == "distance":
+        gt_c, pr_c = _identity_centroids(gt), _identity_centroids(pr)
+        dist = np.linalg.norm(gt_c[:, None, :] - pr_c[None, :, :], axis=-1)
+        sim = np.maximum(0.0, 1.0 - dist / (2.0 * threshold))
+    elif method == "oks":
+        sim = _pose_similarity(gt, pr, stddev=oks_stddev)
+    else:
+        sim = _mask_similarity(gt, pr)
+        sim[[not np.any(m) for m in gt], :] = 0.0
+        sim[:, [not np.any(m) for m in pr]] = 0.0
+    return np.nan_to_num(np.asarray(sim, dtype=float), nan=0.0)
+
+
+def _drop_dont_care_predictions(
+    sim: np.ndarray, gt_tracked: np.ndarray, threshold: float
+) -> np.ndarray:
+    """Mask of predictions to keep after TrackEval's don't-care preprocessing.
+
+    As MOTChallenge's preprocessing treats distractor classes: one Hungarian
+    matching between ALL ground truth (tracked and untracked) and the tracked
+    predictions, on pairs at or above the threshold; predictions matched to an
+    untracked ground truth are removed -- neither hits nor false positives.
+
+    Args:
+        sim: ``(n_gt, n_pred)`` similarity, every ground-truth row.
+        gt_tracked: ``(n_gt,)`` boolean, which rows carry a track.
+        threshold: Match threshold on the similarity scale.
+
+    Returns:
+        ``(n_pred,)`` boolean mask of the predictions to keep.
+    """
+    from scipy.optimize import linear_sum_assignment
+
+    from sleap_nn.tracking.mot_metrics import EPS
+
+    keep = np.ones(sim.shape[1], dtype=bool)
+    if gt_tracked.all() or sim.size == 0:
+        return keep
+    score = sim.copy()
+    score[score < threshold - EPS] = 0.0
+    rows, cols = linear_sum_assignment(-score)
+    hit = score[rows, cols] > EPS
+    keep[cols[hit & ~gt_tracked[rows]]] = False
+    return keep
+
+
+def compute_mot_metrics(
+    gt_labels: sio.Labels,
+    pred_labels: sio.Labels,
+    carrier: str = "pose",
+    *,
+    match_threshold: Optional[float] = None,
+    oks_stddev: float = 0.025,
+    user_labels_only: bool = False,
+    global_identity: bool = False,
+) -> MOTMetrics:
+    """Score a tracked prediction with TrackEval-faithful CLEAR-MOT, IDF1 and HOTA.
+
+    Reproduces TrackEval 1.3.0 (the reference HOTA / MOTChallenge code) on the
+    same detections, matcher and conventions as :func:`identity_metrics`:
+
+    - **Matching.** OKS for ``"pose"`` (pixel distance for single-node
+      skeletons), mask IoU for ``"mask"``; tracks are read off each detection
+      or through its pose <-> mask link (:func:`_identity_tracks`). CLEAR-MOT
+      and IDF1 match at ``similarity >= match_threshold``; HOTA scores over its
+      19 thresholds. For ``"distance"`` the pixel distance ``d`` becomes the
+      similarity ``max(0, 1 - d / (2 * match_threshold))``, so the 0.5 cut is
+      exactly ``match_threshold`` pixels (50 px by default) and MOTP / LocA are
+      in that unit.
+    - **Sequences.** Each video is one sequence; videos are combined as
+      TrackEval combines sequences (counts summed, HOTA's AssA / LocA weighted
+      by true positives). With ``global_identity`` all videos form ONE
+      sequence keyed by track name, with CLEAR-MOT's frame-to-frame state reset
+      at each video boundary (no ID switch, continuity bonus or fragment
+      across it); keeping a name across videos is then scored by IDF1 and
+      HOTA's AssA.
+    - **Frames.** Every ground-truth frame of each video the prediction covers
+      is a timestep; a frame missing from the prediction scores as misses.
+    - **Untracked ground truth is don't-care**, as MOTChallenge treats
+      distractors: one Hungarian matching against ALL ground truth at the match
+      threshold, predictions matched to an untracked ground truth removed, then
+      the untracked ground truth removed.
+    - **Untracked predictions** are removed before scoring and counted in
+      ``n_pred_untracked``.
+    - **Corrected predictions are left out of the ground truth**, before the
+      don't-care matching: a prediction a user label on the same frame replaces
+      (a pose corrected in the GUI) is not ground truth, the user copy is
+      (:func:`_superseded_ground_truth`, shared with :func:`identity_metrics`).
+
+    Args:
+        gt_labels: Ground truth with ``track`` set on the detections to score.
+        pred_labels: Prediction with ``track`` set by the tracker under test.
+        carrier: ``"pose"`` (instances) or ``"mask"`` (segmentation masks).
+        match_threshold: Minimum OKS / IoU for a pair to match, or for
+            single-node skeletons the maximum centroid distance in PIXELS.
+            ``None`` (default): 0.5 for OKS / IoU, 50 px for distance
+            (``IDENTITY_MATCH_THRESHOLDS``).
+        oks_stddev: Per-keypoint OKS spread (:func:`compute_oks`), a finite
+            number > 0. Default 0.025, the same as :func:`identity_metrics`.
+        user_labels_only: Drop model output from the GROUND-TRUTH side (see
+            :func:`identity_metrics` for why this is off by default).
+        global_identity: Key trajectories by track name across videos.
+
+    Returns:
+        A :class:`MOTMetrics`. When the files share no frame the metrics are
+        NaN and ``notes`` says so -- check ``n_frames`` before quoting a number.
+
+    Raises:
+        ValueError: If the carrier is unknown, ``oks_stddev`` is not a finite
+            number greater than 0, a distance threshold is not positive, or a
+            track occurs on two scored detections of one frame (TrackEval
+            refuses ambiguous identities too).
+    """
+    from collections import defaultdict
+
+    from sleap_nn.tracking import mot_metrics as mm
+
+    carrier = _validate_carrier(carrier)
+    oks_stddev = _check_oks_stddev(oks_stddev)
+    method = _identity_match_method(gt_labels, pred_labels, carrier)
+    threshold = (
+        IDENTITY_MATCH_THRESHOLDS[method]
+        if match_threshold is None
+        else float(match_threshold)
+    )
+    if method == "distance" and not threshold > 0:
+        raise ValueError(
+            f"match_threshold must be a positive pixel distance for single-node "
+            f"skeletons, got {threshold!r}."
+        )
+    # CLEAR-MOT / IDF1 threshold on the similarity scale.
+    sim_threshold = 0.5 if method == "distance" else threshold
+    metrics = MOTMetrics(
+        match_method=method,
+        match_threshold=threshold,
+        oks_stddev=oks_stddev,
+        global_identity=global_identity,
+    )
+
+    gt_by_key, pred_by_key, gt_keys, scored_videos, notes = _align_identity_frames(
+        gt_labels, pred_labels
+    )
+    metrics.notes.extend(notes)
+    if not scored_videos:
+        return metrics
+
+    # One sequence per video, or one overall under global identities.
+    frames_by_seq: Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]] = (
+        defaultdict(list)
+    )
+    seq_resets: Dict[str, List[int]] = defaultdict(list)
+    gt_ids: Dict[Tuple[str, str], int] = {}
+    pred_ids: Dict[Tuple[str, str], int] = {}
+    last_video: Optional[str] = None
+    n_gt_superseded = 0
+
+    def trajectory(video: str, track: sio.Track) -> Tuple[str, str]:
+        return ("" if global_identity else video, track.name)
+
+    def check_unique(keys: List[Tuple[str, str]], side: str, key: Tuple) -> None:
+        names = [name for _video, name in keys]
+        duplicates = sorted({n for n in names if names.count(n) > 1})
+        if duplicates:
+            hint = (
+                " Predictions a user label on the same frame replaces (same "
+                "track, or linked by from_predicted) are already left out, so "
+                "two ground-truth detections share a track: two user labels, or "
+                "a stale prediction carrying a user track. Fix the tracks, or "
+                "pass user_labels_only=True (--user_labels_only) to score the "
+                "user labels only."
+                if side == "Ground-truth" and not user_labels_only
+                else " Fix the tracks (or drop the duplicate detections) before "
+                "scoring."
+            )
+            raise ValueError(
+                f"{side} track(s) {duplicates} occur on more than one scored "
+                f"detection in video {key[0]!r}, frame {key[1]} -- a track can "
+                f"hold one detection per frame.{hint}"
+            )
+
+    for key in gt_keys:
+        video = key[0]
+        seq_key = "" if global_identity else video
+        if global_identity and last_video is not None and video != last_video:
+            seq_resets[seq_key].append(len(frames_by_seq[seq_key]))
+        last_video = video
+        gt_frame, pred_frame = gt_by_key[key], pred_by_key.get(key)
+        if pred_frame is None:
+            metrics.n_frames_missing_pred += 1
+
+        gt_all = _identity_dets(gt_frame, carrier)
+        gt_keep, n_superseded = _ground_truth_keep(
+            gt_frame, carrier, gt_all, user_labels_only
+        )
+        n_gt_superseded += n_superseded
+        gt_all_tracks = _identity_tracks(gt_frame, carrier, gt_all)
+        gt_trk = [gt_all_tracks[i] for i in gt_keep]
+        gt_tracked = np.array([t is not None for t in gt_trk], dtype=bool)
+
+        if pred_frame is None:
+            pred_all: List[Any] = []
+            pred_all_tracks: List[Optional[sio.Track]] = []
+        else:
+            pred_all = _identity_dets(pred_frame, carrier)
+            pred_all_tracks = _identity_tracks(pred_frame, carrier, pred_all)
+        pred_keep = [j for j, t in enumerate(pred_all_tracks) if t is not None]
+        metrics.n_pred_untracked += len(pred_all) - len(pred_keep)
+        metrics.n_gt_untracked += int((~gt_tracked).sum())
+
+        if carrier == "mask":
+            gt_arrays = _frame_masks(gt_frame)
+            match_gt = [gt_arrays[i] for i in gt_keep]
+            pred_arrays = _frame_masks(pred_frame) if pred_frame is not None else []
+            match_pred = [pred_arrays[j] for j in pred_keep]
+        else:
+            match_gt = [gt_all[i] for i in gt_keep]
+            match_pred = [pred_all[j] for j in pred_keep]
+
+        sim = _mot_similarity(match_gt, match_pred, method, threshold, oks_stddev)
+        keep_pred = _drop_dont_care_predictions(sim, gt_tracked, sim_threshold)
+        metrics.n_dont_care += int((~keep_pred).sum())
+        sim = sim[np.ix_(gt_tracked, keep_pred)]
+
+        gt_traj = [trajectory(video, t) for t in gt_trk if t is not None]
+        pred_traj = [
+            trajectory(video, pred_all_tracks[pred_keep[j]])
+            for j in np.flatnonzero(keep_pred)
+        ]
+        check_unique(gt_traj, "Ground-truth", key)
+        check_unique(pred_traj, "Predicted", key)
+        frames_by_seq[seq_key].append(
+            (
+                np.array([gt_ids.setdefault(k, len(gt_ids)) for k in gt_traj], int),
+                np.array(
+                    [pred_ids.setdefault(k, len(pred_ids)) for k in pred_traj], int
+                ),
+                sim,
+            )
+        )
+
+    per_seq = []
+    for seq_key, frames in frames_by_seq.items():
+        seq = mm.MOTSequence(
+            gt_ids=[g for g, _p, _s in frames],
+            pred_ids=[p for _g, p, _s in frames],
+            similarity=[s for _g, _p, s in frames],
+            resets=tuple(seq_resets[seq_key]),
+        )
+        per_seq.append(mm.mot_metrics(seq, threshold=sim_threshold))
+    res = mm.combine_sequences(per_seq)
+
+    metrics.mota, metrics.motp, metrics.moda = (
+        float(res["MOTA"]),
+        float(res["MOTP"]),
+        float(res["MODA"]),
+    )
+    metrics.idsw, metrics.frag = int(res["IDSW"]), int(res["Frag"])
+    metrics.mt, metrics.pt, metrics.ml = int(res["MT"]), int(res["PT"]), int(res["ML"])
+    metrics.clr_tp, metrics.clr_fn, metrics.clr_fp = (
+        int(res["CLR_TP"]),
+        int(res["CLR_FN"]),
+        int(res["CLR_FP"]),
+    )
+    metrics.idf1, metrics.idp, metrics.idr = (
+        float(res["IDF1"]),
+        float(res["IDP"]),
+        float(res["IDR"]),
+    )
+    metrics.idtp, metrics.idfp, metrics.idfn = (
+        int(res["IDTP"]),
+        int(res["IDFP"]),
+        int(res["IDFN"]),
+    )
+    for attr, field in (
+        ("hota", "HOTA"),
+        ("det_a", "DetA"),
+        ("ass_a", "AssA"),
+        ("loc_a", "LocA"),
+        ("det_re", "DetRe"),
+        ("det_pr", "DetPr"),
+        ("ass_re", "AssRe"),
+        ("ass_pr", "AssPr"),
+        ("owta", "OWTA"),
+    ):
+        setattr(metrics, attr, float(np.mean(res[field])))
+    metrics.hota_0, metrics.loc_a_0 = float(res["HOTA(0)"]), float(res["LocA(0)"])
+    metrics.hota_alpha = [float(v) for v in res["HOTA"]]
+    metrics.det_a_alpha = [float(v) for v in res["DetA"]]
+    metrics.ass_a_alpha = [float(v) for v in res["AssA"]]
+    metrics.loc_a_alpha = [float(v) for v in res["LocA"]]
+    metrics.n_gt_dets = metrics.clr_tp + metrics.clr_fn
+    metrics.n_pred_dets = metrics.clr_tp + metrics.clr_fp
+    metrics.n_frames = len(gt_keys)
+    metrics.n_videos = len(scored_videos)
+
+    if n_gt_superseded:
+        metrics.notes.append(_superseded_note(n_gt_superseded))
+    if metrics.n_gt_untracked:
+        metrics.notes.append(
+            f"{metrics.n_gt_untracked} untracked ground-truth detections are "
+            f"don't-care; {metrics.n_dont_care} tracked predictions matched them "
+            "and were removed before scoring"
+        )
+    if metrics.n_dont_care and metrics.n_gt_dets and not metrics.clr_tp:
+        metrics.notes.append(_dont_care_took_every_match_note())
+    if metrics.n_gt_dets and metrics.n_pred_dets and not metrics.clr_tp:
+        metrics.notes.append(
+            "no tracked prediction matched a tracked ground-truth detection "
+            f"({_threshold_phrase(method, threshold)}) -- check the match "
+            "threshold and the carrier"
+        )
+    return metrics
+
+
 def run_identity_evaluation(
     ground_truth_path: str,
     predicted_path: str,
@@ -4287,8 +5025,16 @@ def run_identity_evaluation(
     global_identity: bool = False,
     save_metrics: Optional[str] = None,
     raise_if_empty: bool = False,
+    oks_stddev: float = 0.025,
 ) -> Optional[Dict[str, Any]]:
     """Evaluate identity persistence of a tracked prediction against tracked GT.
+
+    Computes two blocks over the same matching: sleap-nn's identity metrics
+    (:func:`identity_metrics`, legacy definitions) and TrackEval-faithful
+    CLEAR-MOT / IDF1 / HOTA (:func:`compute_mot_metrics`). Where the two name
+    the same quantity (ID switches, IDF1, MT/PT/ML, fragmentation) they can
+    differ; see :class:`IdentityMetrics` for how. Quote the ``"mot"`` block
+    when comparing with published MOT results.
 
     Args:
         ground_truth_path: Path to the ground-truth ``.slp`` file, tracked.
@@ -4310,15 +5056,26 @@ def run_identity_evaluation(
         raise_if_empty: Raise :class:`NothingToScoreError` instead of returning
             ``None`` when nothing is scoreable (the CLI sets it, to exit
             non-zero).
+        oks_stddev: Per-keypoint OKS spread for pose matching, in both blocks;
+            a finite number > 0. Default 0.025.
 
     Returns:
-        Dict with the :class:`IdentityMetrics` fields plus ``carrier`` and
-        ``motion_diagnostic``, or ``None`` if nothing is scoreable: no tracked
+        Dict with the :class:`IdentityMetrics` fields plus ``carrier``,
+        ``motion_diagnostic`` and ``mot`` (the :class:`MOTMetrics` fields, or
+        ``{"error": message}`` if the MOT metrics could not be computed -- a
+        track on two detections of one frame), or ``None`` if nothing is
+        scoreable: no tracked
         predicted detection on the carrier, no frame in common with the ground
         truth, or no tracked ground-truth detection in the frames compared.
         Nothing is saved in that case.
+
+    Raises:
+        ValueError: If ``oks_stddev`` is not a finite number greater than 0
+            (checked before either file is loaded), or the carrier is unknown.
     """
     from sleap_nn.inference.tracking import count_carriers
+
+    oks_stddev = _check_oks_stddev(oks_stddev)
 
     def nothing_to_score(reason: str) -> None:
         logger.error(reason)
@@ -4411,10 +5168,11 @@ def run_identity_evaluation(
         ml_threshold=ml_threshold,
         user_labels_only=user_labels_only,
         global_identity=global_identity,
+        oks_stddev=oks_stddev,
     )
 
     logger.info(
-        f"Identity Evaluation Results ({carrier} carrier, matched by "
+        f"Identity (legacy definitions) ({carrier} carrier, matched by "
         f"{_threshold_phrase(metrics.match_method, metrics.match_threshold)}; "
         f"{'global identities' if global_identity else 'per video'}):"
     )
@@ -4440,9 +5198,38 @@ def run_identity_evaluation(
             f"the {metrics.n_frames_compared} frames compared.{hint}"
         )
 
+    # TrackEval-faithful CLEAR-MOT / IDF1 / HOTA over the same frames and
+    # matcher. A file TrackEval would refuse (a track on two detections of one
+    # frame) still gets the legacy block above; the MOT block says why not.
+    mot: Dict[str, Any]
+    try:
+        mot_scores = compute_mot_metrics(
+            gt_labels,
+            pred_labels,
+            carrier,
+            match_threshold=match_threshold,
+            oks_stddev=oks_stddev,
+            user_labels_only=user_labels_only,
+            global_identity=global_identity,
+        )
+    except ValueError as e:
+        logger.error(f"TrackEval-faithful MOT metrics not computed: {e}")
+        mot = {"error": str(e)}
+    else:
+        logger.info(
+            "TrackEval-faithful MOT (CLEAR-MOT / IDF1 / HOTA; HOTA averaged over "
+            "alpha = 0.05..0.95):"
+        )
+        logger.info(f"  {mot_scores.summary()}")
+        for note in mot_scores.notes:
+            if note not in metrics.notes:
+                logger.warning(f"  note: {note}")
+        mot = mot_scores.as_dict()
+
     result = metrics.as_dict()
     result["carrier"] = carrier
     result["motion_diagnostic"] = motion
+    result["mot"] = mot
 
     if save_metrics:
         save_path = Path(save_metrics)

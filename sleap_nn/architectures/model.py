@@ -42,7 +42,9 @@ import torchvision.transforms.v2.functional as F
 from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY, ssd_level_strides
 
 
-def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
+def get_backbone(
+    backbone: str, backbone_config: DictConfig, spatial_heads: bool = False
+) -> nn.Module:
     """Get a backbone model `nn.Module` based on the provided name.
 
     This function returns an instance of a PyTorch `nn.Module`
@@ -52,6 +54,12 @@ def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
         backbone (str): Name of the backbone. Supported values are 'unet',
             'convnext', 'swint', and 'pretrained' (external HuggingFace backbone).
         backbone_config (DictConfig): A config for the backbone.
+        spatial_heads (bool): Whether the model has a spatial head (confidence
+            maps, PAFs, segmentation, ...). Only the `pretrained` backbone reads
+            it: under `mode: auto` a plain ViT then gets its feature-pyramid neck
+            and decoder instead of staying encoder-only. Training setup records
+            the resolved mode in the config (`check_output_strides`); this covers
+            a `Model` built from a config that did not go through it.
 
     Returns:
         nn.Module: An instance of the requested backbone model.
@@ -71,9 +79,11 @@ def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
         logger.error(message)
         raise KeyError(message)
 
-    backbone = backbones[backbone].from_config(backbone_config)
-
-    return backbone
+    if backbone == "pretrained":
+        return PretrainedBackbone.from_config(
+            backbone_config, spatial_heads=spatial_heads
+        )
+    return backbones[backbone].from_config(backbone_config)
 
 
 def get_head(model_type: str, head_config: DictConfig) -> Head:
@@ -266,6 +276,10 @@ class Model(nn.Module):
         self.backbone = get_backbone(
             self.backbone_type,
             backbone_config,
+            spatial_heads=any(
+                not isinstance(head, (ClassVectorsHead, EmbeddingHead))
+                for head in self.heads
+            ),
         )
 
         self.head_layers = nn.ModuleList([])

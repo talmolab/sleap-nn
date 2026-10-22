@@ -133,6 +133,7 @@ sam3 = [
 # Gated foundation weights (DINOv3, SAM3) additionally require `HF_TOKEN` + accepted
 # terms. See docs/guides/pretrained-backbones.md.
 backbones = [
+    "timm>=1.0.20",
     "transformers>=5.0",
 ]
 
@@ -327,5 +328,6 @@ convention = "google"
 skip = '.git*,*.css'
 check-hidden = true
 # ignore-regex = ''
-# `fpr` = false positive rate (ROC term in the embedding verification eval).
-ignore-words-list = 'fpr'
+# `fpr` = false positive rate (ROC term in the embedding verification eval);
+# `mot` = multi-object tracking (sleap_nn/tracking/mot, MOT metrics).
+ignore-words-list = 'fpr,mot'
