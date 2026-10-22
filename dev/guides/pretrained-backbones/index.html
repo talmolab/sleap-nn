@@ -957,13 +957,30 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#two-modes-decoder-case-a-vs-encoder-case-b" class="md-nav__link">
+  <a href="#three-cases" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Two modes: decoder (Case A) vs. encoder (Case B)
+        Three cases
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Three cases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-mode-auto-resolves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How mode: auto resolves
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -972,6 +989,17 @@
     <span class="md-ellipsis">
       
         Tested model families
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmark" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmark
       
     </span>
   </a>
@@ -989,6 +1017,28 @@
   
     <nav class="md-nav" aria-label="Config">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#timm-hub-checkpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        timm Hub checkpoints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vit-knobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ViT knobs
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#freeze-vs-fine-tune" class="md-nav__link">
@@ -2529,6 +2579,34 @@
     
   
     utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/architectures/vit_neck/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vit_neck
   
 
     
@@ -7408,13 +7486,30 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#two-modes-decoder-case-a-vs-encoder-case-b" class="md-nav__link">
+  <a href="#three-cases" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Two modes: decoder (Case A) vs. encoder (Case B)
+        Three cases
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Three cases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-mode-auto-resolves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How mode: auto resolves
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -7423,6 +7518,17 @@
     <span class="md-ellipsis">
       
         Tested model families
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmark" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmark
       
     </span>
   </a>
@@ -7440,6 +7546,28 @@
   
     <nav class="md-nav" aria-label="Config">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#timm-hub-checkpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        timm Hub checkpoints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vit-knobs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ViT knobs
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#freeze-vs-fine-tune" class="md-nav__link">
@@ -7511,75 +7639,139 @@
 
 
 <h1 id="pretrained-backbones-huggingface">Pretrained backbones (HuggingFace)<a class="headerlink" href="#pretrained-backbones-huggingface" title="Permanent link">&para;</a></h1>
-<p>Reuse an external <strong>pretrained image backbone</strong> — a ConvNeXtV2, ResNet, Swinv2,
-or DINOv2 encoder from HuggingFace <code>transformers</code> — as the backbone of any
-sleap-nn model, frozen or fine-tuned. This lets pose, centroid, and segmentation
-models start from ImageNet / foundation-model features instead of random init,
-which usually helps most on small labeled datasets.</p>
-<p>It plugs into the existing <code>Model</code>/backbone path: a new <code>pretrained</code> member on
+<p>Reuse an external <strong>pretrained image backbone</strong> as the backbone of any sleap-nn
+model, frozen or fine-tuned: a hierarchical CNN or transformer (ConvNeXtV2,
+ResNet, Swinv2, DINOv3-ConvNeXt) or a plain vision transformer (DINOv2/v3, CLIP,
+SigLIP, MAE, PE-Spatial, EVA02, ...), loaded from the HuggingFace Hub through
+<code>transformers</code> (and <code>timm</code>, for <code>timm/...</code> checkpoints). This lets pose,
+centroid, and segmentation models start from ImageNet / foundation-model
+features instead of random init, which usually helps most on small labeled
+datasets.</p>
+<p>It plugs into the existing <code>Model</code>/backbone path: a <code>pretrained</code> member on
 <code>backbone_config</code> selects the HuggingFace encoder, which is wrapped to emit the
 same backbone contract as the native UNet/ConvNeXt/SwinT backbones. No head
 changes, no new model type.</p>
 <h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
-<p><code>transformers</code> is an optional dependency (the <code>backbones</code> extra), imported only
-when a <code>pretrained</code> backbone is requested:</p>
+<p><code>transformers</code> and <code>timm</code> are optional dependencies (the <code>backbones</code> extra),
+imported only when a <code>pretrained</code> backbone is requested:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;sleap-nn[backbones]&quot;</span><span class="w">      </span><span class="c1"># or: uv sync --extra backbones</span>
 </span></code></pre></div>
-<p>Native HuggingFace backbones (ConvNeXt/Swin/ResNet/DINOv2) need <code>transformers</code>
-core only — no <code>timm</code>, no extra packages.</p>
-<h2 id="two-modes-decoder-case-a-vs-encoder-case-b">Two modes: decoder (Case A) vs. encoder (Case B)<a class="headerlink" href="#two-modes-decoder-case-a-vs-encoder-case-b" title="Permanent link">&para;</a></h2>
-<p>A pretrained encoder is used one of two ways, auto-selected from the model
-family (override with <code>mode</code>):</p>
+<p><code>transformers</code> loads every model id; <code>timm</code> is needed only for <code>timm/...</code> Hub
+checkpoints (see <a href="#timm-hub-checkpoints">timm Hub checkpoints</a>).</p>
+<h2 id="three-cases">Three cases<a class="headerlink" href="#three-cases" title="Permanent link">&para;</a></h2>
+<p>A pretrained encoder is wired in one of three ways. <code>mode: auto</code> (the default)
+picks the case from the backbone family and the model's heads; <code>mode: decoder</code> /
+<code>mode: encoder</code> force it.</p>
 <table>
 <thead>
 <tr>
-<th>Mode</th>
-<th><code>mode</code></th>
+<th>Case</th>
+<th>Resolved <code>mode</code></th>
 <th>Backbone family</th>
-<th>Emits</th>
+<th>What the backbone emits</th>
 <th>For</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Case A — hierarchical + decoder</strong></td>
+<td><strong>A — hierarchical + decoder</strong></td>
 <td><code>decoder</code></td>
 <td>ConvNeXtV2, ResNet, Swinv2, DINOv3-ConvNeXt</td>
-<td>multi-scale pyramid → sleap-nn decoder</td>
-<td>spatial heads: pose, centroid, segmentation</td>
+<td>its own stride-4/8/16/32 stage pyramid → sleap-nn decoder</td>
+<td>spatial heads: pose, centroid, PAFs, segmentation</td>
 </tr>
 <tr>
-<td><strong>Case B — encoder-only pooled</strong></td>
+<td><strong>B — encoder-only pooled</strong></td>
 <td><code>encoder</code></td>
-<td>DINOv2, DINOv2-with-registers (isotropic ViT)</td>
-<td>single pooled bottleneck</td>
-<td>pooled heads: class-vectors / re-ID</td>
+<td>any; normally a plain ViT</td>
+<td>a single bottleneck feature map, no decoder</td>
+<td>pooled heads: <code>embedding</code> (re-ID)</td>
+</tr>
+<tr>
+<td><strong>C — plain ViT + pyramid neck + decoder</strong></td>
+<td><code>decoder</code></td>
+<td>plain (isotropic) ViTs: DINOv2/v3, CLIP, SigLIP/SigLIP2, ViT, MAE, PE-Spatial, EVA02, ...</td>
+<td>4 tapped transformer layers → feature-pyramid neck → sleap-nn decoder</td>
+<td>spatial heads: pose, centroid, PAFs, segmentation</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Why the split?</strong> Hierarchical backbones emit a stride-4/8/16/32 feature
-pyramid that maps cleanly onto the decoder's skip connections. Plain ViTs are
-<em>isotropic</em> — every stage is a single stride (14 or 16) — so they cannot supply
-a U-Net-style pyramid; they are used encoder-only. A ViT feeding a spatial head
-would need a ViTDet-style Simple Feature Pyramid, which is not yet implemented.</p>
-<p><code>mode: auto</code> picks <code>encoder</code> for isotropic ViTs and <code>decoder</code> for everything
-else — <strong>except</strong> for the <code>embedding</code> (re-ID) model type, where it always
-resolves to <code>encoder</code> regardless of family. That head is a lone pooled head that
-reads the encoder bottleneck, so a decoder underneath it would be dead weight:
-on convnextv2-nano, 4.9 M of 20.1 M parameters (24%) receive no gradient, which
-is also a DDP hazard. <code>mode: decoder</code> with an <code>embedding</code> head is rejected at
-setup for the same reason.</p>
+<p><strong>Why a neck?</strong> Hierarchical backbones already emit a stride-4/8/16/32 pyramid
+that maps onto the decoder's skip connections. A plain ViT is <em>isotropic</em>: every
+layer sits at one stride (its patch size), so on its own it cannot supply a
+U-Net-style pyramid. Case C builds that pyramid from several of the ViT's layers,
+in the style of DPT (Ranftl et al. 2021) and ViTDet's Simple Feature Pyramid
+(Li et al. 2022):</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>image [0,1] → normalize → resize so the token grid is (H/s, W/s)
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  → ViT (output_hidden_states) → layers [3, 6, 9, 12]   (12-layer default)
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  → strip prefix tokens (CLS, registers) → LayerNorm per tap → reshape to grid
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  → ViTPyramidNeck → strides s/4, s/2, s, 2s  (4, 8, 16, 32 at s = 16)
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  → sleap-nn decoder → heads
+</span></code></pre></div>
+<p><code>s</code> is the <strong>token stride</strong> (<code>token_stride</code>, default 16 — see
+<a href="#vit-knobs">ViT knobs</a>). The input is bilinearly resampled so the token grid
+always lands on that power-of-two stride (a patch-14 DINOv2 runs at stride 16),
+so the rest of sleap-nn's stride bookkeeping is unchanged. Two-tower checkpoints
+(CLIP, SigLIP) load only their vision tower. The tap LayerNorms and the neck are
+new, randomly initialized layers that always train, like the decoder.</p>
+<h3 id="how-mode-auto-resolves">How <code>mode: auto</code> resolves<a class="headerlink" href="#how-mode-auto-resolves" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Backbone</th>
+<th>Model has a spatial head</th>
+<th>Pooled head only (<code>embedding</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>hierarchical (ConvNeXtV2, ResNet, Swinv2, DINOv3-ConvNeXt)</td>
+<td><code>decoder</code> → Case A</td>
+<td><code>encoder</code> → Case B</td>
+</tr>
+<tr>
+<td>plain ViT (DINOv2/v3, CLIP, SigLIP, MAE, ...)</td>
+<td><code>decoder</code> → Case C</td>
+<td><code>encoder</code> → Case B</td>
+</tr>
+</tbody>
+</table>
+<p>A model "has a spatial head" if any head predicts a map (confidence maps, PAFs,
+class maps, segmentation, centers/offsets); <code>multi_class_topdown</code> counts, since
+its confidence-map head is spatial (its class-vectors head reads the neck's
+coarsest level).</p>
+<ul>
+<li><strong>Explicit <code>mode: decoder</code> on a plain ViT</strong> builds Case C (it used to raise a
+  "single-scale feature map" error).</li>
+<li><strong>Explicit <code>mode: encoder</code> with a spatial head</strong> is rejected at model build
+  ("encoder-only backbone supports only pooled heads").</li>
+<li><strong>The <code>embedding</code> (re-ID) model type always resolves to <code>encoder</code></strong>, whatever
+  the family. That head is a lone pooled head that reads the encoder bottleneck,
+  so a decoder underneath it would be dead weight: on convnextv2-nano, 4.9 M of
+  20.1 M parameters (24%) receive no gradient, which is also a DDP hazard.
+  <code>mode: decoder</code> with an <code>embedding</code> head is rejected at setup for the same
+  reason.</li>
+</ul>
+<p>In Case B, a ViT that ships a <code>*Backbone</code> class in <code>transformers</code> (DINOv2,
+DINOv2-with-registers) keeps the <code>AutoBackbone</code> path at its native stride (14),
+so existing embedding checkpoints load unchanged. ViTs without one (CLIP,
+SigLIP, every <code>timm/...</code> ViT) use the Case C token extractor instead, tapping the
+last layer at the token stride, with no neck or decoder.</p>
 <h2 id="tested-model-families">Tested model families<a class="headerlink" href="#tested-model-families" title="Permanent link">&para;</a></h2>
-<p>Verified to build and train through the sleap-nn pipeline (<code>weights=false</code> builds
-are exercised network-free in CI; the ✓ families were run end-to-end locally):</p>
+<p>The wrapper is family-agnostic: it probes strides and channels (Case A) or
+reads the hidden states (Case C) rather than hard-coding per-model taps. The
+families below were verified to build and run forward and backward at
+non-square input sizes; ✓ marks families also trained end-to-end through
+<code>sleap-nn train</code>. <code>weights: false</code> builds of representative families are
+exercised in CI.</p>
+<p><strong>Hierarchical (Case A):</strong></p>
 <table>
 <thead>
 <tr>
 <th>Model</th>
 <th>Example <code>model_name</code></th>
-<th>Family</th>
+<th>Loader</th>
 <th>Strides</th>
-<th>Mode</th>
 <th>License / gated</th>
 <th>Notes</th>
 </tr>
@@ -7588,118 +7780,646 @@ are exercised network-free in CI; the ✓ families were run end-to-end locally):
 <tr>
 <td><strong>ConvNeXtV2</strong></td>
 <td><code>facebook/convnextv2-nano-22k-224</code></td>
-<td>CNN</td>
+<td>transformers</td>
 <td>4/8/16/32</td>
-<td>decoder</td>
 <td>Apache-2.0 / no</td>
-<td>✓ recommended default for pose/seg</td>
+<td>✓ recommended default CNN for pose/seg</td>
 </tr>
 <tr>
 <td><strong>ResNet</strong></td>
 <td><code>microsoft/resnet-50</code></td>
-<td>CNN</td>
+<td>transformers</td>
 <td>4/8/16/32</td>
-<td>decoder</td>
 <td>Apache-2.0 / no</td>
 <td>✓ legacy-SLEAP parity target</td>
 </tr>
 <tr>
 <td><strong>Swinv2</strong></td>
 <td><code>microsoft/swinv2-tiny-patch4-window8-256</code></td>
-<td>hier. transformer</td>
+<td>transformers</td>
 <td>4/8/16/32</td>
-<td>decoder</td>
 <td>MIT / no</td>
 <td>builds; ONNX export is fragile (see below)</td>
 </tr>
 <tr>
-<td><strong>DINOv2</strong></td>
-<td><code>facebook/dinov2-base</code></td>
-<td>ViT (isotropic)</td>
-<td>14</td>
-<td>encoder</td>
-<td>Apache-2.0 / no</td>
-<td>pooled bottleneck; patch-14 (see gotchas)</td>
-</tr>
-<tr>
-<td><strong>DINOv2-with-registers</strong></td>
-<td><code>facebook/dinov2-with-registers-base</code></td>
-<td>ViT (isotropic)</td>
-<td>14</td>
-<td>encoder</td>
-<td>Apache-2.0 / no</td>
-<td>✓ recommended for pooled/re-ID heads</td>
-</tr>
-<tr>
 <td><strong>DINOv3-ConvNeXt</strong></td>
-<td><code>facebook/dinov3-convnext-base-…</code></td>
-<td>CNN</td>
+<td><code>timm/convnext_tiny.dinov3_lvd1689m</code></td>
+<td>timm</td>
 <td>4/8/16/32</td>
-<td>decoder</td>
-<td>DINOv3 custom / <strong>gated</strong></td>
-<td>foundation SSL + pyramid; opt-in</td>
-</tr>
-<tr>
-<td><strong>DINOv3-ViT</strong></td>
-<td><code>facebook/dinov3-vit…16-…</code></td>
-<td>ViT (isotropic)</td>
-<td>16</td>
-<td>encoder</td>
-<td>DINOv3 custom / <strong>gated</strong></td>
-<td>patch-16, RoPE (resolution-agnostic)</td>
+<td>DINOv3 License / no</td>
+<td>foundation SSL + pyramid; the <code>facebook/dinov3-convnext-*</code> repos are gated</td>
 </tr>
 </tbody>
 </table>
-<p>The table lists the main models we recommend and tested. The wrapper is
-<strong>family-agnostic</strong> — it probes strides and channels at construction rather than
-hard-coding per-model taps — so any <code>AutoBackbone</code>-compatible checkpoint should
-work. That includes the other hierarchical families <code>transformers</code> exposes
-(e.g. ConvNeXt v1, BiT, FocalNet, Hiera) for <code>decoder</code> mode, and other isotropic
-ViTs (e.g. BEiT, ViT-MAE, ViTDet, I-JEPA) for <code>encoder</code> mode. Pick a model id
-from the <a href="https://huggingface.co/models?other=backbone">HuggingFace Hub</a> and set
-it as <code>model_name</code>; mind the license/gating column above (Hiera and I-JEPA
+<p><strong>Plain ViTs (Case C with a spatial head, Case B for <code>embedding</code>):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th><code>model_name</code></th>
+<th>Loader</th>
+<th>Patch → token stride</th>
+<th>License / gated</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>DINOv2</strong> S/B/L</td>
+<td><code>facebook/dinov2-small</code>, <code>-base</code>, <code>-large</code></td>
+<td>transformers</td>
+<td>14 → 16</td>
+<td>Apache-2.0 / no</td>
+<td></td>
+</tr>
+<tr>
+<td><strong>DINOv2-with-registers</strong> S/B/L</td>
+<td><code>facebook/dinov2-with-registers-small</code>, <code>-base</code>, <code>-large</code></td>
+<td>transformers</td>
+<td>14 → 16</td>
+<td>Apache-2.0 / no</td>
+<td>✓ recommended for pooled/re-ID heads; 4 register tokens stripped</td>
+</tr>
+<tr>
+<td><strong>DINOv3 ViT</strong> S/B/L</td>
+<td><code>timm/vit_small_patch16_dinov3.lvd1689m</code>, <code>timm/vit_base_patch16_dinov3.lvd1689m</code>, <code>timm/vit_large_patch16_dinov3.lvd1689m</code></td>
+<td>timm</td>
+<td>16 → 16</td>
+<td>DINOv3 License / no</td>
+<td>RoPE; the <code>facebook/dinov3-vit*</code> repos are gated</td>
+</tr>
+<tr>
+<td><strong>CLIP</strong> B/16</td>
+<td><code>openai/clip-vit-base-patch16</code></td>
+<td>transformers</td>
+<td>16 → 16</td>
+<td>MIT / no</td>
+<td>vision tower only</td>
+</tr>
+<tr>
+<td><strong>SigLIP</strong> B/16</td>
+<td><code>google/siglip-base-patch16-224</code></td>
+<td>transformers</td>
+<td>16 → 16</td>
+<td>Apache-2.0 / no</td>
+<td>vision tower only; no CLS token</td>
+</tr>
+<tr>
+<td><strong>SigLIP2</strong> B/16</td>
+<td><code>google/siglip2-base-patch16-224</code></td>
+<td>transformers</td>
+<td>16 → 16</td>
+<td>Apache-2.0 / no</td>
+<td>fixed-resolution variant (not NaFlex)</td>
+</tr>
+<tr>
+<td><strong>ViT (ImageNet-21k)</strong> B/16</td>
+<td><code>google/vit-base-patch16-224-in21k</code></td>
+<td>transformers</td>
+<td>16 → 16</td>
+<td>Apache-2.0 / no</td>
+<td>supervised baseline</td>
+</tr>
+<tr>
+<td><strong>MAE</strong> B/16</td>
+<td><code>facebook/vit-mae-base</code></td>
+<td>transformers</td>
+<td>16 → 16</td>
+<td>CC-BY-NC-4.0 upstream / no</td>
+<td>pretraining masking forced off (<code>mask_ratio: 0</code>, tokens kept in place)</td>
+</tr>
+<tr>
+<td><strong>PE-Spatial</strong> S/B</td>
+<td><code>timm/vit_pe_spatial_small_patch16_512.fb</code>, <code>timm/vit_pe_spatial_base_patch16_512.fb</code></td>
+<td>timm</td>
+<td>16 → 16</td>
+<td>Apache-2.0 / no</td>
+<td>Perception Encoder, spatial-tuned</td>
+</tr>
+<tr>
+<td><strong>EVA02</strong> S</td>
+<td><code>timm/eva02_small_patch14_224.mim_in22k</code></td>
+<td>timm</td>
+<td>14 → 16</td>
+<td>MIT / no</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Other checkpoints should work if they fit one of the paths:
+<code>AutoBackbone</code>-compatible hierarchical models (e.g. ConvNeXt v1, BiT, FocalNet)
+for Case A, and HuggingFace or <code>timm/...</code> ViTs that return hidden states and run
+off their pretraining resolution (e.g. BEiT, DeiT, I-JEPA) for Case C. These are
+not in the verified set. Case C runs a dummy forward and backward on a non-square
+input at construction, so a model that cannot work fails at setup with a clear
+error, not at the first training step. Mind the license column (Hiera and I-JEPA
 weights are non-commercial).</p>
+<p><strong>Known not to work:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SAM ViT image encoder (<code>facebook/sam-vit-*</code>)</td>
+<td>fixed 1024×1024 positional embedding</td>
+</tr>
+<tr>
+<td>Hiera (<code>facebook/hiera-*</code>)</td>
+<td>fixed input size</td>
+</tr>
+<tr>
+<td>AIMv2 224-px checkpoints (<code>apple/aimv2-*-224</code>)</td>
+<td>fixed input size</td>
+</tr>
+<tr>
+<td>SigLIP2 NaFlex (<code>google/siglip2-*-naflex</code>)</td>
+<td>expects pre-patchified inputs</td>
+</tr>
+<tr>
+<td>RADIO (<code>nvidia/*RADIO*</code>)</td>
+<td>requires <code>trust_remote_code</code>, which sleap-nn does not enable</td>
+</tr>
+</tbody>
+</table>
+<h2 id="benchmark">Benchmark<a class="headerlink" href="#benchmark" title="Permanent link">&para;</a></h2>
+<p>Every pretrained backbone beat a UNet trained from scratch with the same budget,
+and three were consistently near the top: ConvNeXtV2-N, DINOv3 ConvNeXt-T, and
+DINOv2-reg ViT-B. Numbers are test-split OKS mAP from a single seed per run, so
+differences under about 0.02 should be read as ties.</p>
+<p><strong>Protocol.</strong> Adam at LR 1e-4, batch 8, 15k steps (50 epochs × 300), cosine LR
+with a 2-epoch warmup, best-validation-loss checkpoint, seed 0. Datasets:
+<code>fly32</code> (single instance, 192 × 192 gray, 1,200 training frames), <code>flies13</code>
+(centered instance on a 192 px crop, 3,200 training instances) and <code>gerbils</code>
+(centered instance, RGB, scale 0.5 and a 288 px crop, 340 training frames).
+Centered-instance models are scored with ground-truth centroids. Timings are
+fp16 forward passes on one RTX A6000 with random weights, batch of 8 crops.</p>
+<table>
+<thead>
+<tr>
+<th>Backbone</th>
+<th>fly32</th>
+<th>flies13</th>
+<th>gerbils</th>
+<th>Mean gap to best</th>
+<th>Params (M)</th>
+<th>ms / batch of 8, 192 px</th>
+<th>ms / batch of 8, 288 px</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ConvNeXtV2-N (IN-22k)</td>
+<td>0.876</td>
+<td>0.779</td>
+<td>0.299</td>
+<td>0.015</td>
+<td>19.9</td>
+<td>6.0</td>
+<td>10.6</td>
+</tr>
+<tr>
+<td>DINOv3 ConvNeXt-T</td>
+<td>0.889</td>
+<td>0.729</td>
+<td>0.331</td>
+<td>0.017</td>
+<td>34.9</td>
+<td>5.7</td>
+<td>8.5</td>
+</tr>
+<tr>
+<td>DINOv2-reg ViT-B/14</td>
+<td>0.886</td>
+<td>0.770</td>
+<td>0.294</td>
+<td>0.017</td>
+<td>111.2</td>
+<td>8.7</td>
+<td>14.7</td>
+</tr>
+<tr>
+<td>PE-Spatial ViT-B/16</td>
+<td>0.884</td>
+<td>0.751</td>
+<td>0.305</td>
+<td>0.020</td>
+<td>111.1</td>
+<td>10.7</td>
+<td>17.8</td>
+</tr>
+<tr>
+<td>DINOv2 ViT-L/14</td>
+<td>0.883</td>
+<td>0.771</td>
+<td>0.281</td>
+<td>0.022</td>
+<td>348.1</td>
+<td>17.4</td>
+<td>37.3</td>
+</tr>
+<tr>
+<td>MAE ViT-B/16</td>
+<td>0.877</td>
+<td>0.755</td>
+<td>0.291</td>
+<td>0.025</td>
+<td>110.4</td>
+<td>8.0</td>
+<td>15.9</td>
+</tr>
+<tr>
+<td>DINOv3 ViT-B/16</td>
+<td>0.884</td>
+<td>0.732</td>
+<td>0.308</td>
+<td>0.026</td>
+<td>110.3</td>
+<td>10.6</td>
+<td>18.3</td>
+</tr>
+<tr>
+<td>SigLIP2 ViT-B/16</td>
+<td>0.877</td>
+<td>0.735</td>
+<td>0.277</td>
+<td>0.037</td>
+<td>117.5</td>
+<td>8.7</td>
+<td>17.6</td>
+</tr>
+<tr>
+<td>DINOv3 ViT-S/16</td>
+<td>0.856</td>
+<td>0.736</td>
+<td>0.289</td>
+<td>0.039</td>
+<td>27.7</td>
+<td>10.2</td>
+<td>10.7</td>
+</tr>
+<tr>
+<td>ViT-B/16 (IN-21k sup.)</td>
+<td>0.867</td>
+<td>0.734</td>
+<td>0.271</td>
+<td>0.043</td>
+<td>111.0</td>
+<td>7.9</td>
+<td>16.0</td>
+</tr>
+<tr>
+<td>DINOv2-reg ViT-S/14</td>
+<td>0.883</td>
+<td>0.730</td>
+<td>0.255</td>
+<td>0.044</td>
+<td>28.2</td>
+<td>8.3</td>
+<td>8.2</td>
+</tr>
+<tr>
+<td>EVA02 ViT-S/14 (MIM)</td>
+<td>0.874</td>
+<td>0.727</td>
+<td>0.256</td>
+<td>0.048</td>
+<td>27.8</td>
+<td>11.1</td>
+<td>11.1</td>
+</tr>
+<tr>
+<td>CLIP ViT-B/16</td>
+<td>0.863</td>
+<td>0.737</td>
+<td>0.227</td>
+<td>0.057</td>
+<td>110.4</td>
+<td>8.5</td>
+<td>17.3</td>
+</tr>
+<tr>
+<td>UNet (scratch)</td>
+<td>0.761</td>
+<td>0.000</td>
+<td>0.011</td>
+<td>0.409</td>
+<td>0.3</td>
+<td>1.5</td>
+<td>5.3</td>
+</tr>
+</tbody>
+</table>
+<p><em>Mean gap to best</em> is the backbone's average mAP shortfall from the best
+backbone on each dataset. For reference, the long-trained UNets distributed with
+these datasets reach 0.796 (fly32, trained on about as many samples) and 0.818
+(flies13, about 13× as many).</p>
+<p><strong>Ablations</strong> (mAP, change from the base backbone in parentheses):</p>
+<table>
+<thead>
+<tr>
+<th>Change</th>
+<th>Base</th>
+<th>fly32</th>
+<th>flies13</th>
+<th>gerbils</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Frozen encoder</td>
+<td>DINOv2-reg ViT-B/14</td>
+<td></td>
+<td>0.758 (-0.011)</td>
+<td>0.244 (-0.050)</td>
+</tr>
+<tr>
+<td>Frozen encoder</td>
+<td>DINOv3 ViT-B/16</td>
+<td></td>
+<td>0.741 (+0.010)</td>
+<td>0.246 (-0.061)</td>
+</tr>
+<tr>
+<td>Layer decay 0.75</td>
+<td>DINOv2-reg ViT-B/14</td>
+<td></td>
+<td>0.778 (+0.008)</td>
+<td>0.309 (+0.015)</td>
+</tr>
+<tr>
+<td>SFP neck</td>
+<td>DINOv2-reg ViT-S/14</td>
+<td></td>
+<td>0.759 (+0.029)</td>
+<td>0.281 (+0.026)</td>
+</tr>
+<tr>
+<td>Token stride 8</td>
+<td>DINOv2-reg ViT-S/14</td>
+<td></td>
+<td>0.765 (+0.034)</td>
+<td>0.258 (+0.003)</td>
+</tr>
+<tr>
+<td>Random init</td>
+<td>DINOv2-reg ViT-S/14</td>
+<td></td>
+<td>0.555 (-0.175)</td>
+<td>0.107 (-0.148)</td>
+</tr>
+<tr>
+<td>Detail stem</td>
+<td>DINOv2-reg ViT-S/14</td>
+<td>0.871 (-0.012)</td>
+<td>0.714 (-0.016)</td>
+<td>0.260 (+0.005)</td>
+</tr>
+<tr>
+<td>Detail stem</td>
+<td>DINOv3 ViT-S/16</td>
+<td>0.875 (+0.018)</td>
+<td>0.672 (-0.064)</td>
+<td>0.274 (-0.016)</td>
+</tr>
+<tr>
+<td>Detail stem</td>
+<td>DINOv3 ViT-B/16</td>
+<td>0.886 (+0.003)</td>
+<td>0.745 (+0.013)</td>
+<td>0.294 (-0.013)</td>
+</tr>
+<tr>
+<td>3x training steps</td>
+<td>UNet (scratch)</td>
+<td></td>
+<td>0.533 (+0.533)</td>
+<td>0.187 (+0.177)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>What to use.</strong></p>
+<ul>
+<li>Start from a pretrained backbone. A scratch UNet needs far more training to
+  catch up (0.533 on flies13 at 3× the steps, versus 0.73–0.78 for every
+  pretrained backbone at 1×).</li>
+<li>ConvNeXtV2-N or DINOv3 ConvNeXt-T for the best accuracy per millisecond;
+  DINOv2-reg ViT-B (with <code>layer_decay: 0.75</code>) among the plain ViTs.</li>
+<li>Bigger is not better here: DINOv2 ViT-L matches ViT-B at 2–2.5× the inference cost.</li>
+<li>Self-supervised (DINOv2/v3) and masked-image (MAE) pretraining beat
+  language-supervised CLIP and SigLIP2 on these tasks.</li>
+<li>Fine-tune rather than freeze when labels are scarce (−0.05 to −0.06 mAP on
+  gerbils when frozen).</li>
+<li>For ViT-S, <code>vit_neck: sfp</code> and <code>token_stride: 8</code> each gained about 0.03 on
+  flies13; <code>detail_stem</code> did not help on average and stays off by default.</li>
+</ul>
+<p>The configs, logs, per-run metrics and the scripts behind these tables are in
+<code>scratch/2026-10-20-hf-foundation-backbones/</code> on the development machine; runs
+were logged to the wandb project <code>sleap-nn-hf-backbones</code>.</p>
 <h2 id="config">Config<a class="headerlink" href="#config" title="Permanent link">&para;</a></h2>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">model_config</span><span class="p">:</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">init_weights</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">xavier</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">backbone_config</span><span class="p">:</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">unet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">convnext</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">swint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">pretrained</span><span class="p">:</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">      </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hf</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">      </span><span class="nt">model_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">facebook/convnextv2-nano-22k-224</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">      </span><span class="nt">weights</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">       </span><span class="c1"># download &amp; load pretrained weights</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">      </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auto</span><span class="w">          </span><span class="c1"># auto | decoder | encoder</span>
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">      </span><span class="nt">freeze</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">       </span><span class="c1"># true = freeze encoder (feature extraction)</span>
-</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">      </span><span class="nt">normalize</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">     </span><span class="c1"># apply the model&#39;s image_mean/std</span>
-</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">      </span><span class="nt">revision</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">      </span><span class="c1"># pin an HF commit sha/tag for reproducibility</span>
-</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">      </span><span class="nt">in_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># HF stems are 3-channel (grayscale is replicated)</span>
-</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">      </span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">    </span><span class="c1"># finest decoder output (decoder mode)</span>
-</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">      </span><span class="nt">max_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">32</span><span class="w">      </span><span class="c1"># deepest encoder stride</span>
-</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">  </span><span class="nt">head_configs</span><span class="p">:</span>
-</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">    </span><span class="nt">bottomup_segmentation</span><span class="p">:</span>
-</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">      </span><span class="nt">segmentation</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="nt"> loss_weight</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">}</span>
-</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">      </span><span class="nt">center</span><span class="p">:</span><span class="w">       </span><span class="p p-Indicator">{</span><span class="nt">sigma</span><span class="p">:</span><span class="w"> </span><span class="nv">4.0</span><span class="p p-Indicator">,</span><span class="nt"> output_stride</span><span class="p">:</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="nt"> loss_weight</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">}</span>
-</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="w">      </span><span class="nt">offsets</span><span class="p">:</span><span class="w">      </span><span class="p p-Indicator">{</span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="nt"> loss_weight</span><span class="p">:</span><span class="w"> </span><span class="nv">0.005</span><span class="p p-Indicator">}</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">model_config</span><span class="p">:</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">init_weights</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">xavier</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">backbone_config</span><span class="p">:</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">unet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">convnext</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">swint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">pretrained</span><span class="p">:</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">      </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hf</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">      </span><span class="nt">model_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">facebook/convnextv2-nano-22k-224</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">      </span><span class="nt">weights</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">       </span><span class="c1"># download &amp; load pretrained weights</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">      </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auto</span><span class="w">          </span><span class="c1"># auto | decoder | encoder</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">      </span><span class="nt">freeze</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">       </span><span class="c1"># true = freeze encoder (feature extraction)</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">      </span><span class="nt">normalize</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">     </span><span class="c1"># apply the model&#39;s image_mean/std</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">      </span><span class="nt">revision</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">      </span><span class="c1"># pin an HF commit sha/tag for reproducibility</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">      </span><span class="nt">in_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># HF stems are 3-channel (grayscale is replicated)</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">      </span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">    </span><span class="c1"># finest decoder output (decoder mode)</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">      </span><span class="nt">max_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">32</span><span class="w">      </span><span class="c1"># deepest encoder stride</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">  </span><span class="nt">head_configs</span><span class="p">:</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">    </span><span class="nt">bottomup_segmentation</span><span class="p">:</span>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">      </span><span class="nt">segmentation</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="nt"> loss_weight</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">      </span><span class="nt">center</span><span class="p">:</span><span class="w">       </span><span class="p p-Indicator">{</span><span class="nt">sigma</span><span class="p">:</span><span class="w"> </span><span class="nv">4.0</span><span class="p p-Indicator">,</span><span class="nt"> output_stride</span><span class="p">:</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="nt"> loss_weight</span><span class="p">:</span><span class="w"> </span><span class="nv">1.0</span><span class="p p-Indicator">}</span>
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">      </span><span class="nt">offsets</span><span class="p">:</span><span class="w">      </span><span class="p p-Indicator">{</span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="nt"> loss_weight</span><span class="p">:</span><span class="w"> </span><span class="nv">0.005</span><span class="p p-Indicator">}</span>
 </span></code></pre></div>
 <p>Train exactly as usual — the backbone is selected purely from config:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>data_config.train_labels_path<span class="o">=</span><span class="s2">&quot;[train.pkg.slp]&quot;</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>data_config.val_labels_path<span class="o">=</span><span class="s2">&quot;[val.pkg.slp]&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>config.yaml<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>data_config.train_labels_path<span class="o">=</span><span class="s2">&quot;[train.pkg.slp]&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>data_config.val_labels_path<span class="o">=</span><span class="s2">&quot;[val.pkg.slp]&quot;</span>
 </span></code></pre></div>
-<p>A ready-to-edit sample lives at
-<a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_pretrained.yaml"><code>config_bottomup_segmentation_pretrained.yaml</code></a>.</p>
+<p>Ready-to-edit samples:</p>
+<ul>
+<li><a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_pretrained.yaml"><code>config_bottomup_segmentation_pretrained.yaml</code></a>
+  — bottom-up segmentation on ConvNeXtV2 (Case A).</li>
+<li><a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_centered_instance_pretrained_vit.yaml"><code>config_topdown_centered_instance_pretrained_vit.yaml</code></a>
+  — top-down centered-instance pose on DINOv3 ViT-S/16 (Case C).</li>
+</ul>
+<h3 id="timm-hub-checkpoints">timm Hub checkpoints<a class="headerlink" href="#timm-hub-checkpoints" title="Permanent link">&para;</a></h3>
+<p>A <code>model_name</code> under the <code>timm/</code> namespace (e.g.
+<code>timm/vit_small_patch16_dinov3.lvd1689m</code>) is loaded through <code>transformers</code>'
+<code>TimmWrapperModel</code>, and its features are read with timm's
+<code>forward_intermediates</code>. This is how sleap-nn gets ungated DINOv3 weights,
+PE-Spatial, EVA02, and DINOv3-ConvNeXt.</p>
+<ul>
+<li><strong>Needs <code>timm</code></strong> (<code>timm&gt;=1.0.20</code>, included in the <code>backbones</code> extra). Without
+  it, construction fails with an install hint.</li>
+<li><strong>Plain ViT or hierarchical is read off the built model</strong>, not the model id:
+  <code>timm/vit_*</code> checkpoints take Case C (or B), <code>timm/convnext_*</code> take Case A.</li>
+<li><strong>Any input size.</strong> timm ViTs are built with <code>dynamic_img_size=True</code>, so
+  positional embeddings are resampled per call.</li>
+<li><strong>Normalization</strong> comes from the checkpoint's timm <code>pretrained_cfg</code>
+  (<code>mean</code>/<code>std</code>) unless you set <code>image_mean</code>/<code>image_std</code>.</li>
+<li><code>revision</code>, <code>weights: false</code>, and the offline cache behave as for any other
+  model id.</li>
+</ul>
+<h3 id="vit-knobs">ViT knobs<a class="headerlink" href="#vit-knobs" title="Permanent link">&para;</a></h3>
+<p><code>token_stride</code>, <code>layers</code>, <code>vit_neck</code>, <code>neck_channels</code>, and <code>detail_stem</code> shape
+the plain-ViT path (Case C, and the token path of Case B); a hierarchical
+backbone logs a warning that it ignores them, and so does the plain-ViT path for
+the knobs it cannot use (<code>out_indices</code>; the neck knobs in encoder-only mode). <code>freeze</code>, <code>encoder_lr_scale</code>, and
+<code>gradient_checkpointing</code> apply to every encoder. <code>layer_decay</code> applies to plain
+ViTs (including DINOv2 in encoder-only mode); on a hierarchical backbone it logs
+a warning and applies only <code>encoder_lr_scale</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>token_stride</code></td>
+<td><code>null</code> → power of two nearest the patch size (16 for patch 14 or 16)</td>
+<td>Stride of the token grid. The input is resized to <code>(H/s·p, W/s·p)</code> for patch size <code>p</code>, so the grid is <code>H/s × W/s</code>. Must be a power of two ≥ 4. <code>8</code> gives a 2× finer grid at 4× the tokens (roughly 4× the encoder cost or more, since attention is quadratic in token count).</td>
+</tr>
+<tr>
+<td><code>layers</code></td>
+<td><code>null</code> → one evenly spaced layer per pyramid level, ending at the last (<code>dpt</code>): <code>[3, 6, 9, 12]</code> for 12 layers, <code>[6, 12, 18, 24]</code> for 24; the last layer for <code>sfp</code> and encoder mode</td>
+<td>Transformer layers to tap, 1-indexed (<code>-1</code> = last). <code>dpt</code> needs one per built level (4 unless <code>output_stride</code> is coarser than <code>token_stride/4</code>), and a layer may repeat; <code>sfp</code> and encoder mode take exactly one.</td>
+</tr>
+<tr>
+<td><code>vit_neck</code></td>
+<td><code>dpt</code></td>
+<td><code>dpt</code>: one tapped layer per pyramid level, shallowest tap → finest level. <code>sfp</code>: ViTDet Simple Feature Pyramid; every level is built from the last tap.</td>
+</tr>
+<tr>
+<td><code>neck_channels</code></td>
+<td><code>null</code> → <code>[h/8, h/4, h/2, h]</code> for hidden size <code>h</code> (ViT-S: <code>[48, 96, 192, 384]</code>; ViT-B: <code>[96, 192, 384, 768]</code>)</td>
+<td>Channels of the 4 neck levels, finest first.</td>
+</tr>
+<tr>
+<td><code>detail_stem</code></td>
+<td><code>false</code></td>
+<td>Add a light conv stream on the image (ViTMatte-style) whose stride-2/4/8 features are concatenated into the pyramid as decoder skips, so the decoder sees real image detail below the token stride. ~0.3 M parameters.</td>
+</tr>
+<tr>
+<td><code>detail_channels</code></td>
+<td><code>null</code> → <code>[32, 64, 128]</code></td>
+<td>Detail-stem channels at strides 2, 4, 8 (exactly three values).</td>
+</tr>
+<tr>
+<td><code>freeze</code></td>
+<td><code>false</code></td>
+<td>Freeze the ViT. The tap LayerNorms, neck, decoder, and heads still train.</td>
+</tr>
+<tr>
+<td><code>encoder_lr_scale</code></td>
+<td><code>1.0</code></td>
+<td>Learning-rate multiplier for the pretrained encoder; the neck, decoder, and heads train at the base LR.</td>
+</tr>
+<tr>
+<td><code>layer_decay</code></td>
+<td><code>null</code> (off)</td>
+<td>Layer-wise LR decay: block <code>i</code> of <code>L</code> trains at <code>encoder_lr_scale · layer_decay^(L+1−i)</code> × base LR. Everything registered before the first block (patch/position embeddings, prefix tokens, CLIP's pre-norm) gets <code>layer_decay^(L+1)</code>; everything after the last block (final norm) gets <code>encoder_lr_scale</code>. An LR schedule's absolute values (<code>warmup_start_lr</code>, <code>eta_min</code>, <code>end_lr</code>, <code>min_lr</code>) are scaled by each group's factor too, so the ratios hold for the whole run.</td>
+</tr>
+<tr>
+<td><code>gradient_checkpointing</code></td>
+<td><code>false</code></td>
+<td>Recompute encoder activations in the backward pass: less memory, slower steps. Only active in training (off for inference and export). Logs a warning and does nothing on a model that does not support it.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Strides.</strong> The neck emits strides <code>s/4, s/2, s, 2s</code>: 4/8/16/32 at the default
+<code>s = 16</code>, 2/4/8/16 at <code>token_stride: 8</code>. <code>max_stride</code> must be a multiple of
+<code>2s</code> so padded inputs tile the token grid exactly: the default <code>max_stride: 32</code>
+works for both, and anything else fails at construction with a message naming
+the required multiple. <code>output_stride</code> is the finest decoder output, as for
+Case A: at <code>s = 16</code>, <code>output_stride: 4</code> has a skip connection at every level and
+<code>output_stride: 2</code> adds one upsampling block without a skip; at <code>s = 8</code> the neck
+reaches stride 2 itself. <code>output_stride</code> can be at most <code>s</code>: the decoder needs at
+least two pyramid levels.</p>
+<p><strong>Unused parameters.</strong> Only the tapped layers feed the neck, and the encoder
+stops after the deepest tap (timm's <code>stop_early</code>; an HF encoder's block loop is
+cut short, with every block kept in the state dict). On the plain-ViT path (Case C and the Case B token path),
+encoder parameters that cannot receive a gradient — blocks after the deepest
+tap, final/pooler norms, pooling heads (CLIP's <code>post_layernorm</code>, SigLIP's
+attention-pool head), unused mask tokens — are found by a dummy backward pass at
+construction and excluded from training, so DDP does not fail on unused
+parameters. They stay in the state dict, so pretrained and trained weights load
+unchanged. Likewise the neck builds only the levels the decoder reads: at
+<code>output_stride: 8</code> (token stride 16) it builds strides 8/16/32 from three taps,
+and the detail stem contributes only the strides at or above <code>output_stride</code>.</p>
+<p><strong>Learning rates.</strong> A fine-tuned ViT trains at the same LR as the randomly
+initialized neck and decoder by default. <code>encoder_lr_scale</code> (e.g. <code>0.1</code>) and
+<code>layer_decay</code> (values around 0.65–0.9 are common in ViT fine-tuning recipes)
+let the pretrained layers move more slowly than the new ones. Both are applied
+through optimizer parameter groups, so they also apply to the <code>embedding</code> model
+type.</p>
+<p>A top-down centered-instance pose model on DINOv3 ViT-S/16 (swap in
+<code>facebook/dinov2-with-registers-small</code> for an Apache-2.0, <code>transformers</code>-only
+alternative):</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">data_config</span><span class="p">:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">preprocessing</span><span class="p">:</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">ensure_rgb</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># set automatically for a pretrained backbone</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">crop_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">256</span><span class="w">            </span><span class="c1"># a multiple of max_stride avoids extra padding</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="nt">model_config</span><span class="p">:</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span><span class="nt">init_weights</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">xavier</span><span class="w">        </span><span class="c1"># pretrained encoder weights are re-applied after init</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span><span class="nt">backbone_config</span><span class="p">:</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">unet</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="nt">convnext</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">    </span><span class="nt">swint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">    </span><span class="nt">pretrained</span><span class="p">:</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">      </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hf</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">      </span><span class="nt">model_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">timm/vit_small_patch16_dinov3.lvd1689m</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">      </span><span class="nt">weights</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">      </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auto</span><span class="w">              </span><span class="c1"># resolves to decoder (Case C): confmaps are spatial</span>
+</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">      </span><span class="nt">freeze</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="w">      </span><span class="nt">in_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+</span><span id="__span-4-18"><a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="w">      </span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+</span><span id="__span-4-19"><a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="w">      </span><span class="nt">max_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">32</span><span class="w">          </span><span class="c1"># multiple of 2 x token_stride</span>
+</span><span id="__span-4-20"><a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a><span class="w">      </span><span class="nt">token_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">      </span><span class="c1"># 16 here; 8 = finer grid, ~4x encoder cost</span>
+</span><span id="__span-4-21"><a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a><span class="w">      </span><span class="nt">layers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">            </span><span class="c1"># [3, 6, 9, 12] for a 12-layer ViT</span>
+</span><span id="__span-4-22"><a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a><span class="w">      </span><span class="nt">vit_neck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dpt</span><span class="w">           </span><span class="c1"># dpt | sfp</span>
+</span><span id="__span-4-23"><a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a><span class="w">      </span><span class="nt">neck_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">     </span><span class="c1"># [48, 96, 192, 384] for ViT-S (hidden size 384)</span>
+</span><span id="__span-4-24"><a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a><span class="w">      </span><span class="nt">encoder_lr_scale</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
+</span><span id="__span-4-25"><a id="__codelineno-4-25" name="__codelineno-4-25" href="#__codelineno-4-25"></a><span class="w">      </span><span class="nt">layer_decay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+</span><span id="__span-4-26"><a id="__codelineno-4-26" name="__codelineno-4-26" href="#__codelineno-4-26"></a><span class="w">      </span><span class="nt">gradient_checkpointing</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</span><span id="__span-4-27"><a id="__codelineno-4-27" name="__codelineno-4-27" href="#__codelineno-4-27"></a><span class="w">  </span><span class="nt">head_configs</span><span class="p">:</span>
+</span><span id="__span-4-28"><a id="__codelineno-4-28" name="__codelineno-4-28" href="#__codelineno-4-28"></a><span class="w">    </span><span class="nt">centered_instance</span><span class="p">:</span>
+</span><span id="__span-4-29"><a id="__codelineno-4-29" name="__codelineno-4-29" href="#__codelineno-4-29"></a><span class="w">      </span><span class="nt">confmaps</span><span class="p">:</span>
+</span><span id="__span-4-30"><a id="__codelineno-4-30" name="__codelineno-4-30" href="#__codelineno-4-30"></a><span class="w">        </span><span class="nt">part_names</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+</span><span id="__span-4-31"><a id="__codelineno-4-31" name="__codelineno-4-31" href="#__codelineno-4-31"></a><span class="w">        </span><span class="nt">anchor_part</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+</span><span id="__span-4-32"><a id="__codelineno-4-32" name="__codelineno-4-32" href="#__codelineno-4-32"></a><span class="w">        </span><span class="nt">sigma</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.5</span>
+</span><span id="__span-4-33"><a id="__codelineno-4-33" name="__codelineno-4-33" href="#__codelineno-4-33"></a><span class="w">        </span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+</span></code></pre></div>
+<p>The full config is
+<a href="https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_topdown_centered_instance_pretrained_vit.yaml"><code>config_topdown_centered_instance_pretrained_vit.yaml</code></a>.
+Train the matching centroid model as usual (any backbone).</p>
 <h3 id="freeze-vs-fine-tune">Freeze vs. fine-tune<a class="headerlink" href="#freeze-vs-fine-tune" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>freeze: false</code> (default) — the whole backbone fine-tunes end-to-end. Best
-  accuracy; recommended when you have enough labeled data.</li>
+  accuracy; recommended when you have enough labeled data. <code>encoder_lr_scale</code>
+  and <code>layer_decay</code> (above) are a middle ground between this and freezing.</li>
 <li><code>freeze: true</code> — the encoder is frozen (feature extraction) and only the
-  decoder/head train. Faster, lower memory, and more robust on very small
-  datasets. sleap-nn filters frozen parameters out of the optimizer
-  automatically, and holds the encoder in eval mode for the whole run so a
-  BatchNorm-bearing backbone (ResNet, BiT) does not drift its running statistics —
-  "frozen" covers the statistics, not just the weights.</li>
+  decoder/head train (for Case C also the tap LayerNorms and the neck). Faster,
+  lower memory, and more robust on very small datasets. sleap-nn filters frozen
+  parameters out of the optimizer automatically, and holds the encoder in eval
+  mode for the whole run so a BatchNorm-bearing backbone (ResNet, BiT) does not
+  drift its running statistics — "frozen" covers the statistics, not just the
+  weights.</li>
 <li>For the <code>embedding</code> model type, <code>head_configs.embedding.embedding.freeze_backbone:
   true</code> does the same thing, and also works on the native <code>convnext</code> / <code>swint</code>
   (their ImageNet encoder; the randomly initialized middle blocks still train) and
@@ -7717,10 +8437,11 @@ weights are non-commercial).</p>
 <h3 id="channels-and-normalization">Channels and normalization<a class="headerlink" href="#channels-and-normalization" title="Permanent link">&para;</a></h3>
 <p>Pretrained stems are <strong>3-channel</strong>. The trainer sets <code>in_channels=3</code> and
 <code>ensure_rgb=true</code> automatically for a <code>pretrained</code> backbone, so grayscale videos
-are replicated to 3 channels. Model-specific mean/std normalization (read from
-the model's <code>AutoImageProcessor</code>, or set explicitly via <code>image_mean</code>/<code>image_std</code>)
-is applied <strong>inside the backbone</strong> — the data pipeline still only rescales to
-<code>[0, 1]</code>.</p>
+are replicated to 3 channels. Model-specific mean/std normalization is applied
+<strong>inside the backbone</strong> — the data pipeline still only rescales to <code>[0, 1]</code>. The
+statistics come from <code>image_mean</code>/<code>image_std</code> if set, otherwise from the
+checkpoint's timm <code>pretrained_cfg</code> (<code>timm/...</code> models) or its
+<code>AutoImageProcessor</code>, falling back to ImageNet statistics.</p>
 <div class="admonition note">
 <p class="admonition-title">The <code>embedding</code> model type is the exception</p>
 <p>The re-ID (<code>embedding</code>) pipeline per-crop standardizes to ~N(0, 1) before the
@@ -7741,40 +8462,68 @@ makes color an identity cue that will not generalize).</p>
 <ul>
 <li><strong>Pin <code>revision</code>.</strong> HuggingFace <code>main</code> moves. Set <code>revision</code> to a commit sha
   or tag so a re-run loads identical weights.</li>
-<li><strong>Gated models (DINOv3, SAM3).</strong> These live in gated HF repos with a custom
-  license. Request access, then authenticate before training:</li>
+<li><strong>Gated models (<code>facebook/dinov3-*</code>, SAM3).</strong> These live in gated HF repos
+  with a custom license. Request access, then authenticate before training:</li>
 </ul>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>huggingface-cli<span class="w"> </span>login<span class="w">          </span><span class="c1"># or: export HF_TOKEN=hf_...</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>huggingface-cli<span class="w"> </span>login<span class="w">          </span><span class="c1"># or: export HF_TOKEN=hf_...</span>
 </span></code></pre></div>
-<p>DINOv3's license is non-OSI (commercial use permitted with attribution) —
-  review it before bundling. Hiera / I-JEPA weights are <code>cc-by-nc-4.0</code>
-  (non-commercial).
+<p>The <code>timm/...dinov3...</code> checkpoints are not gated, but the DINOv3 License still
+  applies to them. That license is non-OSI (commercial use permitted with
+  attribution) — review it before bundling. Hiera / I-JEPA weights are
+  <code>cc-by-nc-4.0</code> (non-commercial), and the upstream MAE weights are released
+  under CC-BY-NC-4.0.
 - <strong>Offline / air-gapped.</strong> Pre-seed the HuggingFace cache
   (<code>~/.cache/huggingface/hub</code>) on a networked machine, copy it over, and set
-  <code>HF_HUB_OFFLINE=1</code>. With <code>weights: false</code> the architecture still needs the
-  model's <code>config.json</code> (tiny), but no checkpoint download.</p>
-<p>sleap-nn resolves the concrete <code>*Backbone</code> class from <code>AutoConfig</code> rather than
-  going through <code>AutoBackbone.from_pretrained</code>, which probes the Hub for the
-  repo's existence before resolving anything and so fails offline even for a
+  <code>HF_HUB_OFFLINE=1</code>. <code>timm/...</code> checkpoints use the same cache. With
+  <code>weights: false</code> the architecture still needs the model's <code>config.json</code> (tiny),
+  but no checkpoint download.</p>
+<p>sleap-nn resolves the concrete model class from <code>AutoConfig</code> (the <code>*Backbone</code>
+  class for Case A/B, the vision-model class for Case C) rather than going
+  through <code>AutoBackbone.from_pretrained</code>, which probes the Hub for the repo's
+  existence before resolving anything and so fails offline even for a
   fully-cached model. A backbone whose config type is not in <code>transformers</code>'
   backbone mapping (a custom or very new model) falls back to <code>AutoBackbone</code> and
   inherits that limitation.</p>
 <h2 id="gotchas">Gotchas<a class="headerlink" href="#gotchas" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>DINOv2 is patch-14.</strong> Its stride (14) does not divide the 16/32-padded crops
-  sleap-nn produces. For pooled (encoder) use this is fine; if you need a
-  ÷14-friendly crop, size crops to a multiple of 14, or use DINOv3-ViT
-  (patch-16). ConvNeXt/ResNet/Swin avoid the issue entirely.</li>
-<li><strong><code>output_stride=2</code> on a hierarchical HF backbone.</strong> These backbones bottom out
-  at stride 4 (no stride-2 feature), so reaching <code>output_stride=2</code> adds one
-  learned-upsample decoder block with no skip connection — a small
-  localization-quality nuance, not a blocker. <code>output_stride=4</code> uses skips at
-  every level.</li>
-<li><strong>ONNX export.</strong> ViT/DINOv2/ConvNeXt/ResNet export cleanly (opset-17). Swin is
+<li><strong>Patch-14 ViTs (DINOv2, EVA02) run at token stride 16.</strong> The input is
+  bilinearly resized by 14/16 before patch embedding so the token grid lands on
+  stride 16, so 16/32-padded crops work without changes. Set <code>token_stride: 8</code>
+  for a finer grid instead. The exception is Case B on DINOv2 (the <code>embedding</code>
+  model type), which keeps its native stride 14; pooled heads are unaffected.</li>
+<li><strong><code>max_stride</code> for a plain ViT</strong> must be a multiple of <code>2 × token_stride</code> (32
+  by default, 16 at <code>token_stride: 8</code>); the default 32 works for both. A larger
+  multiple (e.g. 64) builds, but only adds padding: the backbone logs a warning
+  and uses its real deepest stride.</li>
+<li><strong><code>output_stride=2</code>.</strong> Hierarchical HF backbones bottom out at stride 4 (no
+  stride-2 feature), and so does the Case C neck at the default token stride, so
+  reaching <code>output_stride=2</code> adds one learned-upsample decoder block with no skip
+  connection — a small localization-quality nuance, not a blocker.
+  <code>output_stride=4</code> uses skips at every level.</li>
+<li><strong>Fixed-resolution models fail at construction.</strong> Case C runs a dummy forward
+  at a non-square size off the pretraining resolution and raises a <code>ValueError</code>
+  naming the model if it cannot run there (see
+  <a href="#tested-model-families">Known not to work</a>).</li>
+<li><strong>Memory.</strong> A ViT-L at large crops, or any ViT at <code>token_stride: 8</code>, is much
+  heavier than a ConvNeXtV2-nano. <code>gradient_checkpointing: true</code> and
+  <code>freeze: true</code> are the main levers.</li>
+<li><strong>ONNX export.</strong> ConvNeXt/ResNet encoders and plain ViTs (the Case C neck
+  included) export at opset 17; DINOv2-with-registers resamples its positional
+  embeddings with an antialiased bicubic resize, so the exporter retries it at
+  opset 18. The export tests check Case C graphs (DINOv2-reg, CLIP) against
+  PyTorch at batch and input sizes other than the traced ones. Swin is
   export-fragile: a graph can pass the structural <code>onnx.checker</code> yet be
-  numerically wrong. The exporter's optional <code>numerical_check</code> runs a
-  torch-vs-onnxruntime parity assert for exactly this case — enable it when
-  exporting transformer backbones.</li>
+  numerically wrong, so enable the exporter's <code>numerical_check</code> (a
+  torch-vs-onnxruntime parity assert) when exporting transformer backbones.</li>
+<li><strong>RoPE models export at a fixed input size.</strong> Rotary position embeddings
+  (<code>timm/</code> DINOv3, EVA02, PE-Spatial) bake the traced token grid into the
+  graph, so their ONNX/TensorRT models take only the traced height and width
+  (the batch stays dynamic), and other sizes are rejected rather than silently
+  wrong. Crop models (<code>centered_instance</code>, <code>multi_class_topdown</code>) are traced
+  at their crop size, so this costs nothing there; a combined top-down export
+  is fixed only when its centroid model uses RoPE. For a whole-frame RoPE
+  model, set <code>--input-height</code>/<code>--input-width</code> to your frame size. TensorRT
+  profiles are clamped to the fixed size, with a warning.</li>
 <li><strong><code>dtype</code>.</strong> <code>transformers</code> v5 defaults to <code>dtype="auto"</code>, which can silently
   load fp16/bf16. sleap-nn forces <code>float32</code> in the backbone factory.</li>
 <li><strong>Re-ID (<code>embedding</code>) has three trainer-applied overrides.</strong> <code>mode</code> resolves to

@@ -2165,6 +2165,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pretrainedconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PretrainedConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#single_instanceconfmaps" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2869,6 +2880,34 @@
     
   
     utils
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/architectures/vit_neck/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    vit_neck
   
 
     
@@ -8070,6 +8109,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pretrainedconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PretrainedConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#single_instanceconfmaps" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -8294,34 +8344,53 @@
 </span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="nt">pre_trained_weights</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Swin_T_Weights</span><span class="w">  </span><span class="c1"># ImageNet</span>
 </span></code></pre></div>
 <h3 id="pretrained-huggingface">Pretrained (HuggingFace)<a class="headerlink" href="#pretrained-huggingface" title="Permanent link">&para;</a></h3>
-<p>Reuse an external pretrained image encoder (ConvNeXtV2, ResNet, Swinv2, DINOv2, …)
-from HuggingFace <code>transformers</code> as the backbone — frozen or fine-tuned. Requires
-the <code>backbones</code> extra (<code>pip install "sleap-nn[backbones]"</code> / <code>uv sync --extra
-backbones</code>).</p>
+<p>Reuse an external pretrained image encoder (ConvNeXtV2, ResNet, Swinv2,
+DINOv2/v3, CLIP, SigLIP, MAE, …) from the HuggingFace Hub as the backbone —
+frozen or fine-tuned. Requires the <code>backbones</code> extra (<code>pip install
+"sleap-nn[backbones]"</code> / <code>uv sync --extra backbones</code>), which brings
+<code>transformers</code> and <code>timm</code> (<code>timm</code> is needed only for <code>timm/...</code> checkpoints).</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">backbone_config</span><span class="p">:</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">pretrained</span><span class="p">:</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hf</span><span class="w">                                   </span><span class="c1"># HuggingFace transformers</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">model_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">facebook/convnextv2-nano-22k-224</span><span class="w"> </span><span class="c1"># any AutoBackbone model id</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hf</span><span class="w">                                   </span><span class="c1"># HuggingFace Hub</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">model_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">facebook/convnextv2-nano-22k-224</span><span class="w"> </span><span class="c1"># HF model id, or a timm/... checkpoint</span>
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="nt">weights</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># download &amp; load pretrained weights (false = random init)</span>
 </span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">auto</span><span class="w">             </span><span class="c1"># auto | decoder (spatial heads) | encoder (pooled heads)</span>
 </span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">freeze</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">          </span><span class="c1"># true = feature extraction (encoder frozen)</span>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">normalize</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">        </span><span class="c1"># apply the model&#39;s image_mean/std (read from processor)</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">normalize</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">        </span><span class="c1"># apply the model&#39;s image_mean/std</span>
 </span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="nt">revision</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">         </span><span class="c1"># pin an HF commit sha/tag for reproducibility</span>
 </span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">    </span><span class="nt">in_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">         </span><span class="c1"># HF stems are 3-channel (grayscale is replicated)</span>
-</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">    </span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">       </span><span class="c1"># finest decoder output (Case A / decoder mode)</span>
-</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">    </span><span class="nt">max_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">32</span><span class="w">         </span><span class="c1"># deepest encoder stride (32 for CNN/Swin; patch size for ViT)</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">    </span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">       </span><span class="c1"># finest decoder output (decoder mode)</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="w">    </span><span class="nt">max_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">32</span><span class="w">         </span><span class="c1"># 32 for CNN/Swin; a multiple of 2 x token_stride for a plain ViT</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="w">    </span><span class="c1"># Plain-ViT knobs (ignored by hierarchical backbones unless noted):</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="w">    </span><span class="nt">token_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">     </span><span class="c1"># null = power of two nearest the patch size (16 for patch 14/16)</span>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="w">    </span><span class="nt">layers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">           </span><span class="c1"># null = 4 evenly spaced taps, e.g. [3, 6, 9, 12]</span>
+</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a><span class="w">    </span><span class="nt">vit_neck</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dpt</span><span class="w">          </span><span class="c1"># dpt | sfp</span>
+</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a><span class="w">    </span><span class="nt">neck_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">    </span><span class="c1"># null = [h/8, h/4, h/2, h] for hidden size h</span>
+</span><span id="__span-4-18"><a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a><span class="w">    </span><span class="nt">gradient_checkpointing</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">  </span><span class="c1"># any encoder</span>
+</span><span id="__span-4-19"><a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a><span class="w">    </span><span class="nt">encoder_lr_scale</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span><span class="w">          </span><span class="c1"># any encoder</span>
+</span><span id="__span-4-20"><a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a><span class="w">    </span><span class="nt">layer_decay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">              </span><span class="c1"># layer-wise LR decay for ViT blocks</span>
+</span><span id="__span-4-21"><a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a><span class="w">    </span><span class="nt">detail_stem</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">     </span><span class="c1"># conv stream adding stride-2/4/8 skips to the ViT pyramid</span>
+</span><span id="__span-4-22"><a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a><span class="w">    </span><span class="nt">detail_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">  </span><span class="c1"># null = [32, 64, 128]</span>
 </span></code></pre></div>
-<p>Two integration modes (auto-selected from the model family, or forced via <code>mode</code>):</p>
+<p>Three integration cases (<code>mode: auto</code> picks one from the backbone family and the
+model's heads; <code>mode</code> forces it):</p>
 <ul>
-<li><strong><code>decoder</code></strong> (Case A) — a <strong>hierarchical</strong> backbone (ConvNeXtV2 / ResNet /
-  Swinv2 / DINOv3-ConvNeXt) emits a multi-scale feature pyramid that feeds
-  sleap-nn's decoder, so any spatial head (pose, centroid, segmentation) works.</li>
-<li><strong><code>encoder</code></strong> (Case B) — an <strong>isotropic</strong> ViT (DINOv2 / DINOv2-with-registers)
-  emits a single pooled bottleneck for pooled heads (class-vectors / re-ID).</li>
+<li><strong>Case A — <code>decoder</code>, hierarchical backbone</strong> (ConvNeXtV2 / ResNet / Swinv2 /
+  DINOv3-ConvNeXt): its stride-4/8/16/32 stage pyramid feeds sleap-nn's decoder,
+  so any spatial head (pose, centroid, PAFs, segmentation) works.</li>
+<li><strong>Case B — <code>encoder</code>, encoder-only</strong>: a single bottleneck feature map, no
+  decoder, for pooled heads. <code>auto</code> resolves to it only for the <code>embedding</code>
+  (re-ID) model type.</li>
+<li><strong>Case C — <code>decoder</code>, plain ViT</strong> (DINOv2/v3, CLIP, SigLIP, MAE, PE-Spatial,
+  EVA02, …): 4 tapped transformer layers go through a feature-pyramid neck
+  (strides <code>token_stride/4</code> to <code>2 × token_stride</code>) into the same decoder, so a
+  plain ViT can feed spatial heads. <code>auto</code> resolves to it whenever the model has a
+  spatial head.</li>
 </ul>
 <p>See the <a href="../../guides/pretrained-backbones/">Pretrained Backbones guide</a> for the
-full tested-model table, gating/<code>HF_TOKEN</code> and offline workflow, and freeze /
-fine-tune guidance.</p>
+tested-model table, <code>timm/...</code> checkpoints, the ViT knobs, gating/<code>HF_TOKEN</code> and
+offline workflow, and freeze / fine-tune guidance. The full field list is in
+<a href="#pretrainedconfig">PretrainedConfig</a> below.</p>
 <hr />
 <h2 id="heads">Heads<a class="headerlink" href="#heads" title="Permanent link">&para;</a></h2>
 <p>Choose the head type for your task. Set others to <code>null</code>.</p>
@@ -8820,6 +8889,177 @@ the labels' own boxes or are derived from poses / masks
 <td>int</td>
 <td><code>32</code></td>
 <td>Fixed at 32 for all SwinT</td>
+</tr>
+</tbody>
+</table>
+<h3 id="pretrainedconfig">PretrainedConfig<a class="headerlink" href="#pretrainedconfig" title="Permanent link">&para;</a></h3>
+<p>External HuggingFace / timm backbone (<code>backbone_config.pretrained</code>). See the
+<a href="../../guides/pretrained-backbones/">Pretrained Backbones guide</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>source</code></td>
+<td>str</td>
+<td><code>hf</code></td>
+<td>Backbone source; only <code>hf</code> (HuggingFace Hub) is supported</td>
+</tr>
+<tr>
+<td><code>model_name</code></td>
+<td>str</td>
+<td><code>facebook/convnextv2-nano-22k-224</code></td>
+<td>HF model id, or a <code>timm/...</code> checkpoint (needs <code>timm</code>)</td>
+</tr>
+<tr>
+<td><code>weights</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td>Download and load pretrained weights; <code>false</code> = random init from the model config</td>
+</tr>
+<tr>
+<td><code>mode</code></td>
+<td>str</td>
+<td><code>auto</code></td>
+<td><code>auto</code>, <code>decoder</code> (Case A hierarchical / Case C plain ViT), or <code>encoder</code> (Case B pooled bottleneck). <code>auto</code> picks <code>decoder</code> when the model has a spatial head, <code>encoder</code> for <code>embedding</code></td>
+</tr>
+<tr>
+<td><code>freeze</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td>Freeze the pretrained encoder (feature extraction); the neck, decoder and heads still train</td>
+</tr>
+<tr>
+<td><code>revision</code></td>
+<td>str</td>
+<td><code>null</code></td>
+<td>HF revision (commit sha / tag) to pin</td>
+</tr>
+<tr>
+<td><code>normalize</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td>Apply the model's mean/std inside the backbone (forced off for <code>embedding</code>)</td>
+</tr>
+<tr>
+<td><code>image_mean</code></td>
+<td>list[float]</td>
+<td><code>null</code></td>
+<td>Explicit per-channel mean; <code>null</code> = timm <code>pretrained_cfg</code> / <code>AutoImageProcessor</code> / ImageNet</td>
+</tr>
+<tr>
+<td><code>image_std</code></td>
+<td>list[float]</td>
+<td><code>null</code></td>
+<td>Explicit per-channel std</td>
+</tr>
+<tr>
+<td><code>out_indices</code></td>
+<td>list[int]</td>
+<td><code>null</code></td>
+<td>Hierarchical stage indices to tap; <code>null</code> = all stages, deduplicated by stride. HF backbones index <code>stage_names</code> (<code>0</code> is the stem: a ConvNeXt's stages are <code>[1, 2, 3, 4]</code>); <code>timm/...</code> checkpoints index <code>feature_info</code> (<code>0</code> is the first stage)</td>
+</tr>
+<tr>
+<td><code>in_channels</code></td>
+<td>int</td>
+<td><code>3</code></td>
+<td>Stem input channels (set to 3 by the trainer)</td>
+</tr>
+<tr>
+<td><code>filters_rate</code></td>
+<td>float</td>
+<td><code>2.0</code></td>
+<td>Decoder filter growth factor</td>
+</tr>
+<tr>
+<td><code>convs_per_block</code></td>
+<td>int</td>
+<td><code>2</code></td>
+<td>Convolutions per decoder block</td>
+</tr>
+<tr>
+<td><code>kernel_size</code></td>
+<td>int</td>
+<td><code>3</code></td>
+<td>Decoder conv kernel size</td>
+</tr>
+<tr>
+<td><code>up_interpolate</code></td>
+<td>bool</td>
+<td><code>true</code></td>
+<td>Bilinear upsampling (vs. transposed conv) in the decoder</td>
+</tr>
+<tr>
+<td><code>output_stride</code></td>
+<td>int</td>
+<td><code>2</code></td>
+<td>Finest decoder output stride (plain ViT: at most <code>token_stride</code>)</td>
+</tr>
+<tr>
+<td><code>max_stride</code></td>
+<td>int</td>
+<td><code>32</code></td>
+<td>Deepest encoder stride: 32 for hierarchical backbones; for a plain ViT a multiple of <code>2 × token_stride</code></td>
+</tr>
+<tr>
+<td><code>token_stride</code></td>
+<td>int</td>
+<td><code>null</code></td>
+<td>Plain ViT: stride of the token grid (power of two ≥ 4; the input is resized to match). <code>null</code> = power of two nearest the patch size (16 for patch 14 or 16). <code>8</code> = finer grid, ~4× encoder cost</td>
+</tr>
+<tr>
+<td><code>layers</code></td>
+<td>list[int]</td>
+<td><code>null</code></td>
+<td>Plain ViT: layers to tap, 1-indexed (<code>-1</code> = last). <code>null</code> = one evenly spaced tap per built pyramid level, ending at the last, for <code>dpt</code> (<code>[3, 6, 9, 12]</code> for 12 layers); the last layer for <code>sfp</code> / encoder mode (which take exactly one)</td>
+</tr>
+<tr>
+<td><code>vit_neck</code></td>
+<td>str</td>
+<td><code>dpt</code></td>
+<td>Plain ViT: <code>dpt</code> (one tapped layer per pyramid level) or <code>sfp</code> (ViTDet Simple Feature Pyramid from the last tap)</td>
+</tr>
+<tr>
+<td><code>neck_channels</code></td>
+<td>list[int]</td>
+<td><code>null</code></td>
+<td>Plain ViT: channels of the 4 neck levels, finest first. <code>null</code> = <code>[h/8, h/4, h/2, h]</code> for hidden size <code>h</code></td>
+</tr>
+<tr>
+<td><code>gradient_checkpointing</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td>Enable gradient checkpointing in the encoder during training (less memory, slower)</td>
+</tr>
+<tr>
+<td><code>encoder_lr_scale</code></td>
+<td>float</td>
+<td><code>1.0</code></td>
+<td>LR multiplier for the pretrained encoder relative to the neck/decoder/heads</td>
+</tr>
+<tr>
+<td><code>layer_decay</code></td>
+<td>float</td>
+<td><code>null</code></td>
+<td>Plain ViT: layer-wise LR decay; block <code>i</code> of <code>L</code> trains at <code>encoder_lr_scale · layer_decay^(L+1−i)</code> × base LR (LR-schedule floors scale with it)</td>
+</tr>
+<tr>
+<td><code>detail_stem</code></td>
+<td>bool</td>
+<td><code>false</code></td>
+<td>Plain ViT: add a light conv stream whose stride-2/4/8 features join the pyramid as decoder skips</td>
+</tr>
+<tr>
+<td><code>detail_channels</code></td>
+<td>list[int]</td>
+<td><code>null</code></td>
+<td>Detail-stem channels at strides 2, 4, 8 (exactly three). <code>null</code> = <code>[32, 64, 128]</code></td>
 </tr>
 </tbody>
 </table>

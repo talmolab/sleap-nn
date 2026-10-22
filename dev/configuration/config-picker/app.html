@@ -1412,7 +1412,7 @@
                         </div>
                     </div>
                     <div class="grid-2">
-                        <div class="form-group">
+                        <div class="form-group" id="sigma-group">
                             <label>
                                 Sigma
                                 <span class="tooltip">?
@@ -1521,7 +1521,7 @@
                     </div>
 
                     <!-- Sigma Visualization -->
-                    <div class="sigma-guide-card" style="background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 15px 0;">
+                    <div class="sigma-guide-card" id="sigma-guide-card" style="background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 15px 0;">
                         <div style="display: flex; align-items: flex-start; gap: 16px;">
                             <div style="flex: 1;">
                                 <h4 style="margin: 0 0 8px; color: var(--text-dim); font-size: 0.85rem;">Gaussian Spread Guide</h4>
@@ -3281,6 +3281,8 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
         let labelsObj = null;  // sleap-io.js Labels object
         let selectedModelType = null;
         let isTopDown = false;
+        // Pose-model settings the box-detector defaults override, restored on a later pose pick.
+        let preBboxSettings = null;
         let firstFrame = null;
         let selectedAnchor = null;
         let selectedCIAnchor = null;
@@ -3528,8 +3530,27 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                 singleAnimal: false,
                 twoStage: true,
                 requiresTracks: true
+            },
+            // Bounding-box detectors: trained on the tight box of each pose.
+            {
+                id: 'bbox_centernet',
+                name: 'Bounding Boxes (CenterNet)',
+                description: 'Detect one box per animal from a center heatmap + size',
+                details: 'Best for: Animal detection/counting when you need extents, not keypoints. Trained on the box around each labeled pose (or your own boxes, if the project has them).',
+                singleAnimal: false
+            },
+            {
+                id: 'bbox_ssd',
+                name: 'Bounding Boxes (SSD)',
+                description: 'Detect boxes from multi-scale anchors (SSD-style)',
+                details: 'Best for: Boxes when animal sizes vary a lot within or across frames. Trained on the box around each labeled pose (or your own boxes, if the project has them).',
+                singleAnimal: false
             }
         ];
+
+        function isBboxModel(modelType) {
+            return modelType === 'bbox_centernet' || modelType === 'bbox_ssd';
+        }
 
         // Initialize - for ES modules with top-level await, DOM is already loaded
         function initAll() {
@@ -3677,7 +3698,9 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                                     heads.single_instance ? 'single_instance' :
                                     heads.bottomup ? 'bottomup' :
                                     heads.multi_class_bottomup ? 'multi_class_bottomup' :
-                                    heads.multi_class_topdown ? 'multi_class_topdown' : 'unknown';
+                                    heads.multi_class_topdown ? 'multi_class_topdown' :
+                                    heads.bbox_centernet ? 'bbox_centernet' :
+                                    heads.bbox_ssd ? 'bbox_ssd' : 'unknown';
 
                 // Validate model type matches what user expects
                 if (configType === 'centroid' && detectedType !== 'centroid') {
@@ -4830,7 +4853,8 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
         }
 
         // Generate UNet architecture diagram as visual HTML (PR28 style)
-        // modelType: 'single_instance', 'centroid', 'centered_instance', 'bottomup', 'multi_class_bottomup', 'multi_class_topdown'
+        // modelType: 'single_instance', 'centroid', 'centered_instance', 'bottomup', 'multi_class_bottomup', 'multi_class_topdown',
+        //            'bbox_centernet', 'bbox_ssd'
         function generateUNetDiagram(filters, maxStride, outputStride, inChannels, numKeypoints, filtersRate = 1.5, modelType = 'single_instance', numEdges = 0, numClasses = 0, pafOutputStride = null) {
             const downBlocks = Math.log2(maxStride);
             // Use the smaller output stride to determine decoder depth (need to decode to the finest level required)
@@ -4938,6 +4962,16 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                 html += `<div class="layer-box head" style="flex: 1; min-width: 120px;">Confmaps Head<br>${confmapsInputCh} → ${numKeypoints} ch</div>`;
                 html += `<div class="layer-box head" style="flex: 1; min-width: 120px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">Class Vector Head<br>FC → ${numClasses} classes</div>`;
                 html += `</div>`;
+            } else if (modelType === 'bbox_centernet') {
+                // CenterNet has THREE SEPARATE heads at the same stride
+                html += `<div style="display: flex; gap: 8px; flex-wrap: wrap;">`;
+                html += `<div class="layer-box head" style="flex: 1; min-width: 100px;">Center Head<br>${confmapsInputCh} → 1 ch/category @ s${outputStride}</div>`;
+                html += `<div class="layer-box head" style="flex: 1; min-width: 100px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">Size Head<br>${confmapsInputCh} → 2 ch (w, h)</div>`;
+                html += `<div class="layer-box head" style="flex: 1; min-width: 100px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">Offset Head<br>${confmapsInputCh} → 2 ch (dx, dy)</div>`;
+                html += `</div>`;
+            } else if (modelType === 'bbox_ssd') {
+                // SSD reads three pyramid levels, finest at output_stride
+                html += `<div class="layer-box head">SSD Head: anchors @ s${outputStride}/s${outputStride * 2}/s${outputStride * 4} → class logits + 4 box deltas per anchor</div>`;
             } else {
                 // single_instance, centered_instance - single head
                 html += `<div class="layer-box head">Head: ${confmapsInputCh} → ${numKeypoints} (confmaps) @ stride ${outputStride}</div>`;
@@ -5261,6 +5295,7 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
             selectedModelType = modelId;
             isTopDown = modelId === 'topdown' || modelId === 'multi_class_topdown';
             const isBottomUp = modelId === 'bottomup' || modelId === 'multi_class_bottomup';
+            const isBbox = isBboxModel(modelId);
 
             document.querySelectorAll('.model-type-card').forEach(card => {
                 card.classList.toggle('selected', card.dataset.model === modelId);
@@ -5281,9 +5316,13 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                     : 'Load a previous config to use as baseline for your new training.';
             }
 
-            // Hide OHKM section for centroid models (top-down) - only applies to models with multiple keypoints
+            // Hide OHKM section for centroid models (top-down) and box detectors - only applies to models with multiple keypoints
             const ohkmSection = document.getElementById('ohkm-section');
-            if (ohkmSection) ohkmSection.classList.toggle('hidden', isTopDown);
+            if (ohkmSection) ohkmSection.classList.toggle('hidden', isTopDown || isBbox);
+
+            // Box detectors have no keypoint Gaussians (CenterNet sizes each center Gaussian from its box)
+            document.getElementById('sigma-group')?.classList.toggle('hidden', isBbox);
+            document.getElementById('sigma-guide-card')?.classList.toggle('hidden', isBbox);
 
             // Check for edges if bottomup is selected
             let warningEl = document.getElementById('bottomup-warning');
@@ -5321,14 +5360,49 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                 classVectorsConfig.classList.toggle('hidden', modelId !== 'multi_class_topdown');
             }
 
-            // Set scale to 0.5 for centroid model only - don't need high resolution for single keypoint
+            // Set scale to 0.5 for the centroid model and box detectors - neither needs high resolution
             // All other models (including centered_instance) should use 1.0
-            if (isTopDown) {
+            if (isTopDown || isBbox) {
                 document.getElementById('scale').value = 0.5;
                 document.getElementById('scale-value').textContent = '0.500';
             } else {
                 document.getElementById('scale').value = 1.0;
                 document.getElementById('scale-value').textContent = '1.000';
+            }
+
+            // Box detectors: coarser output stride, no rotation augmentation (rotated corners
+            // inflate the boxes), and evaluation on so checkpoints are selected on box mAP.
+            // Remember what these override so a later pose-model pick gets it back.
+            const outputStrideSelect = document.getElementById('output-stride');
+            const rotationSlider = document.getElementById('aug-rotation-val');
+            const evalCheckbox = document.getElementById('enable-eval');
+            const hadBboxSettings = preBboxSettings !== null;
+            if (isBbox && !hadBboxSettings) {
+                preBboxSettings = {
+                    outputStride: outputStrideSelect.value,
+                    rotation: rotationSlider.value,
+                    evalEnabled: evalCheckbox.checked
+                };
+            } else if (!isBbox && hadBboxSettings) {
+                outputStrideSelect.value = preBboxSettings.outputStride;
+                rotationSlider.value = preBboxSettings.rotation;
+                evalCheckbox.checked = preBboxSettings.evalEnabled;
+                preBboxSettings = null;
+            }
+            if (isBbox) {
+                outputStrideSelect.value = modelId === 'bbox_centernet' ? '4' : '8';
+                rotationSlider.value = 0;
+                evalCheckbox.checked = true;
+                if (modelId === 'bbox_ssd') {
+                    // Anchor levels at strides 8/16/32 read the bottleneck at 32.
+                    const maxStrideSelect = document.getElementById('max-stride');
+                    if (parseInt(maxStrideSelect.value) < 32) maxStrideSelect.value = '32';
+                }
+            }
+            if (isBbox || hadBboxSettings) {
+                updateAugSliderValue('rotation');
+                toggleEvalOptions();
+                updateSigmaVisualization();
             }
 
             // Update tab visibility for top-down vs other models
@@ -5612,6 +5686,14 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                 const numClasses = slpData.numTracks || 2;
                 outSizeText = `${outWidth}×${outHeight}×${numKeypoints}`;
                 outDetail = `+ class vector (${numClasses})`;
+            } else if (selectedModelType === 'bbox_centernet') {
+                // Three outputs at the same stride: center heatmap, box size, sub-cell offset
+                outSizeText = `${outWidth}×${outHeight}`;
+                outDetail = 'Center: ×1/category | Size: ×2 | Offset: ×2';
+            } else if (selectedModelType === 'bbox_ssd') {
+                // Anchor predictions at three pyramid levels, finest at output_stride
+                outSizeText = `${outWidth}×${outHeight}`;
+                outDetail = `Anchors at strides ${outputStride}/${outputStride * 2}/${outputStride * 4}`;
             } else {
                 // single_instance, centered_instance
                 outSizeText = `${outWidth}×${outHeight}×${numKeypoints}`;
@@ -6236,14 +6318,18 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                 'centered_instance': 'Centered Instance',
                 'bottomup': 'Bottom-Up',
                 'multi_class_bottomup': 'Multi-Class Bottom-Up',
-                'multi_class_topdown': 'Multi-Class Top-Down'
+                'multi_class_topdown': 'Multi-Class Top-Down',
+                'bbox_centernet': 'Bounding Boxes (CenterNet)',
+                'bbox_ssd': 'Bounding Boxes (SSD)'
             };
             const currentType = isTopDown ? 'topdown' : (selectedModelType || 'single_instance');
             document.getElementById('mem-model-type').textContent = modelNames[currentType] || currentType;
 
             // Update output label based on model type
             const outputLabelEl = document.getElementById('mem-output-label');
-            if (currentType === 'bottomup') {
+            if (isBboxModel(currentType)) {
+                outputLabelEl.textContent = 'Box Maps';
+            } else if (currentType === 'bottomup') {
                 outputLabelEl.textContent = 'Conf+PAF Maps';
             } else if (currentType === 'multi_class_bottomup') {
                 outputLabelEl.textContent = 'Conf+Class Maps';
@@ -7152,8 +7238,8 @@ Input → [Encoder] → [Middle] → [Decoder] → Head → Output
                 linearWarmupStartLr: parseFloat(document.getElementById('linear-warmup-start-lr')?.value) || 0,
                 linearEndLr: parseFloat(document.getElementById('linear-end-lr')?.value) || 0,
                 // Augmentation values (from sliders)
-                augRotation: parseInt(document.getElementById('aug-rotation-val')?.value) || 15,
-                augScaleRange: parseInt(document.getElementById('aug-scale-val')?.value) || 10,
+                augRotation: parseInt(document.getElementById('aug-rotation-val')?.value) || 0,
+                augScaleRange: parseInt(document.getElementById('aug-scale-val')?.value) || 0,
                 augTranslate: parseInt(document.getElementById('aug-translate-val')?.value) / 100 || 0,
                 augBrightness: parseInt(document.getElementById('aug-brightness-val')?.value) || 0,
                 augContrast: parseInt(document.getElementById('aug-contrast-val')?.value) || 0,
@@ -7839,7 +7925,47 @@ ${partNames}
         global_pool: true
         output_stride: ${maxStride}
         loss_weight: ${adv.classLossWeight || 1.0}`;
+            } else if (headType === 'bbox_centernet') {
+                // Categories are filled from the training boxes at train time; a null
+                // sigma sizes each Gaussian from its box (CenterNet's radius rule).
+                headConfig = `    single_instance: null
+    centroid: null
+    centered_instance: null
+    bottomup: null
+    multi_class_bottomup: null
+    multi_class_topdown: null
+    bbox_centernet:
+      center:
+        categories: null
+        sigma: null
+        output_stride: ${outputStride}
+      size:
+        output_stride: ${outputStride}
+        loss_weight: 0.1
+      offset:
+        output_stride: ${outputStride}
+        loss_weight: 1.0`;
+            } else if (headType === 'bbox_ssd') {
+                // Anchor sizes are auto-sized from the training boxes at train time.
+                headConfig = `    single_instance: null
+    centroid: null
+    centered_instance: null
+    bottomup: null
+    multi_class_bottomup: null
+    multi_class_topdown: null
+    bbox_ssd:
+      ssd:
+        categories: null
+        output_stride: ${outputStride}
+        num_levels: 3
+        anchor_sizes: null`;
             }
+
+            // GT boxes: the file's user boxes if it has any, else the tight box of
+            // each user instance's visible points (else of each mask).
+            const bboxDataConfig = isBboxModel(headType) ? `
+  bbox_source: auto
+  bbox_padding: 0.0` : '';
 
             // Preprocessing - use max_height/max_width from advanced options if set, otherwise use image dimensions
             const maxH = adv.maxHeight || slpData.imgHeight;
@@ -7884,16 +8010,23 @@ ${partNames}
 
                 if (hasGeometric) {
                     let geoParts = ['    geometric:'];
+                    // An omitted rotation/scale would fall back to the schema's default
+                    // (+-15 deg / 0.9-1.1, applied with p=1.0), so a disabled one is
+                    // switched off explicitly.
                     if (hasRotation) {
                         geoParts.push(`      rotation_min: ${-adv.augRotation}`);
                         geoParts.push(`      rotation_max: ${adv.augRotation}`);
                         geoParts.push('      rotation_p: 1.0');
+                    } else {
+                        geoParts.push('      rotation_p: 0.0');
                     }
                     if (hasScale) {
                         const scalePct = adv.augScaleRange / 100;
                         geoParts.push(`      scale_min: ${(1 - scalePct).toFixed(2)}`);
                         geoParts.push(`      scale_max: ${(1 + scalePct).toFixed(2)}`);
                         geoParts.push('      scale_p: 1.0');
+                    } else {
+                        geoParts.push('      scale_p: 0.0');
                     }
                     if (hasTranslate) {
                         geoParts.push(`      translate_width: ${adv.augTranslate.toFixed(2)}`);
@@ -7928,7 +8061,7 @@ data_config:
     ensure_grayscale: ${needEnsureGrayscale}
 ${preprocessingConfig}
   use_augmentations_train: ${useAug}
-  augmentation_config: ${augConfig}
+  augmentation_config: ${augConfig}${bboxDataConfig}
 
 model_config:
   init_weights: default

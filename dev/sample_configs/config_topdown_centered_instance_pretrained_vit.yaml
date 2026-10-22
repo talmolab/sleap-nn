@@ -1,0 +1,189 @@
+data_config:
+  train_labels_path: null
+  val_labels_path: null
+  validation_fraction: 0.1
+  use_same_data_for_val: false
+  test_file_path: null
+  provider: LabelsReader
+  user_instances_only: true
+  data_pipeline_fw: torch_dataset
+  cache_img_path: null
+  use_existing_imgs: false
+  delete_cache_imgs_after_training: true
+  preprocessing:
+    # Pretrained HuggingFace stems are 3-channel; the trainer forces in_channels=3
+    # and ensure_rgb=true, so grayscale videos are replicated to 3 channels.
+    ensure_rgb: true
+    ensure_grayscale: false
+    max_height: null
+    max_width: null
+    scale: 1.0
+    # Set to cover your animal. A multiple of max_stride (32) avoids extra padding;
+    # null auto-sizes from the labels (rounded up to a multiple of max_stride).
+    crop_size: 256
+    min_crop_size: 100
+    crop_padding: null
+  use_augmentations_train: true
+  augmentation_config:
+    intensity:
+      uniform_noise_min: 0.0
+      uniform_noise_max: 0.04
+      uniform_noise_p: 0.0
+      gaussian_noise_mean: 0.0
+      gaussian_noise_std: 0.02
+      gaussian_noise_p: 0.0
+      contrast_min: 0.9
+      contrast_max: 1.1
+      contrast_p: 0.0
+      brightness_min: 0.9
+      brightness_max: 1.1
+      brightness_p: 0.0
+    geometric:
+      rotation_min: -15.0
+      rotation_max: 15.0
+      scale_min: 0.9
+      scale_max: 1.1
+      translate_width: 0.0
+      translate_height: 0.0
+      affine_p: 1.0
+      erase_scale_min: 0.0001
+      erase_scale_max: 0.01
+      erase_ratio_min: 1.0
+      erase_ratio_max: 1.0
+      erase_p: 0.0
+      mixup_lambda_min: 0.01
+      mixup_lambda_max: 0.05
+      mixup_p: 0.0
+  skeletons:
+model_config:
+  # The pretrained encoder weights are re-applied after init; xavier initializes
+  # the new neck, decoder and head.
+  init_weights: xavier
+  pretrained_backbone_weights: null
+  pretrained_head_weights: null
+  backbone_config:
+    unet: null
+    convnext: null
+    swint: null
+    # External pretrained backbone: a plain ViT feeding a spatial head (Case C:
+    # tapped ViT layers -> feature-pyramid neck -> sleap-nn decoder). Requires the
+    # `backbones` extra (transformers + timm):
+    #   pip install "sleap-nn[backbones]"   (or: uv sync --extra backbones)
+    # See docs/guides/pretrained-backbones.md for the tested-model table, licenses
+    # and gating, and the ViT knobs below.
+    pretrained:
+      source: hf
+      # DINOv3 ViT-S/16 via its ungated timm mirror (DINOv3 License applies).
+      # For an Apache-2.0, transformers-only alternative use
+      # facebook/dinov2-with-registers-small (patch 14, run at token stride 16).
+      model_name: timm/vit_small_patch16_dinov3.lvd1689m
+      weights: true        # download & load pretrained weights (false = random init)
+      mode: auto           # resolves to decoder (Case C): confmaps are a spatial head
+      freeze: false        # true = feature extraction (ViT frozen; neck/decoder train)
+      revision: null       # pin an HF commit sha/tag for reproducibility
+      normalize: true      # apply the model's mean/std (timm pretrained_cfg)
+      image_mean: null
+      image_std: null
+      out_indices: null    # hierarchical backbones only
+      in_channels: 3
+      filters_rate: 2.0
+      convs_per_block: 2
+      kernel_size: 3
+      up_interpolate: true
+      output_stride: 2     # finest decoder output; matches the head below
+      max_stride: 32       # must be a multiple of 2 x token_stride
+      # --- plain-ViT knobs (null = default) ---
+      token_stride: null   # 16 for patch 16; 8 = finer token grid at ~4x encoder cost
+      layers: null         # taps [3, 6, 9, 12] of the 12-layer ViT-S
+      vit_neck: dpt        # dpt (one tap per pyramid level) | sfp (ViTDet, last tap)
+      neck_channels: null  # [48, 96, 192, 384] for hidden size 384
+      gradient_checkpointing: false  # true = less memory, slower steps
+      encoder_lr_scale: 1.0  # LR multiplier for the ViT (e.g. 0.1 to move it slowly)
+      layer_decay: null      # layer-wise LR decay for ViT blocks (e.g. 0.75)
+      detail_stem: false     # conv stream adding stride-2/4/8 decoder skips
+      detail_channels: null  # null = [32, 64, 128]
+  head_configs:
+    single_instance: null
+    centroid: null
+    centered_instance:
+      confmaps:
+        part_names: null
+        anchor_part: null
+        sigma: 2.5
+        output_stride: 2
+        loss_weight: 1.0
+    bottomup: null
+    multi_class_bottomup: null
+    multi_class_topdown: null
+  total_params: null
+trainer_config:
+  train_data_loader:
+    batch_size: 4
+    shuffle: true
+    num_workers: 0
+  val_data_loader:
+    batch_size: 4
+    shuffle: false
+    num_workers: 0
+  model_ckpt:
+    save_top_k: 1
+    save_last: false
+  trainer_devices:
+  trainer_device_indices: null
+  trainer_accelerator: auto
+  profiler: null
+  trainer_strategy: auto
+  enable_progress_bar: true
+  min_train_steps_per_epoch: 200
+  train_steps_per_epoch: null
+  visualize_preds_during_training: true
+  keep_viz: false
+  max_epochs: 200
+  seed: 42
+  use_wandb: false
+  save_ckpt: true
+  ckpt_dir: models
+  run_name: null
+  resume_ckpt_path: null
+  wandb:
+    entity: null
+    project: null
+    name: null
+    save_viz_imgs_wandb: false
+    api_key: null
+    wandb_mode: null
+    prv_runid: null
+    group: null
+    current_run_id: null
+  optimizer_name: Adam
+  optimizer:
+    # A lower LR is a good default when fine-tuning a pretrained backbone.
+    lr: 0.0001
+    amsgrad: false
+  lr_scheduler:
+    step_lr: null
+    reduce_lr_on_plateau:
+      threshold: 1.0e-08
+      threshold_mode: abs
+      cooldown: 3
+      patience: 5
+      factor: 0.5
+      min_lr: 1.0e-08
+  early_stopping:
+    min_delta: 1.0e-08
+    patience: 10
+    stop_training_on_plateau: true
+  online_hard_keypoint_mining:
+    online_mining: false
+    hard_to_easy_ratio: 2.0
+    min_hard_keypoints: 2
+    max_hard_keypoints: null
+    loss_scale: 5.0
+  zmq:
+    # ZMQ monitoring is off by default; the SLEAP GUI sets these ports when it
+    # launches training. Leave them unset (null) for CLI runs.
+    controller_port:
+    controller_polling_timeout: 10
+    publish_port:
+name: ''
+description: ''
