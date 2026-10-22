@@ -297,8 +297,12 @@ class EvalConfig:
         select_metric: (str) For the ``embedding`` model type, which retrieval /
             verification metric selects the best checkpoint (and drives early
             stopping): one of ``rank1``, ``mAP``, ``auc``, ``knn_acc`` (higher is
-            better) or ``eer`` (lower is better). Ignored by every other model
-            type, which selects on ``val/loss``. *Default*: `"rank1"`.
+            better) or ``eer`` (lower is better). For the ``bbox_*`` detectors, one
+            of ``bbox_mAP``, ``bbox_AP50``, ``bbox_AP75``, ``bbox_AR``, ``bbox_f1``
+            or ``val_loss``; left at the default, detectors select on ``bbox_mAP``
+            when ``enabled`` and on ``val/loss`` otherwise. Box and retrieval
+            metrics are checked on evaluation epochs only. Ignored by every other
+            model type, which selects on ``val/loss``. *Default*: `"rank1"`.
     """
 
     enabled: bool = False

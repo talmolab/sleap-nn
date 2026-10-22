@@ -102,6 +102,13 @@ class Outputs:
     # Light (not in _HEAVY_FIELDS) but should be streamed for long videos.
     pred_embeddings: Optional[torch.Tensor] = None  # (B, I, D)
 
+    # ── Bounding-box detection ───────────────────────────────────────
+    # From the `bbox_*` detectors: xyxy boxes in original-image pixels, sorted by
+    # descending score per frame; unused slots are NaN (boxes/scores) / -1 (class).
+    pred_bboxes: Optional[torch.Tensor] = None  # (B, I, 4)
+    pred_bbox_scores: Optional[torch.Tensor] = None  # (B, I)
+    pred_bbox_classes: Optional[torch.Tensor] = None  # (B, I), int64
+
     # ── Instance-level metadata ──────────────────────────────────────
     instance_scores: Optional[torch.Tensor] = None  # (B, I)
     instance_valid: Optional[torch.Tensor] = None  # (B, I), bool
@@ -257,7 +264,12 @@ class Outputs:
         """Batch dimension B, or 0 if no batch-bearing field is set."""
         if self.pred_masks is not None:
             return len(self.pred_masks)
-        for name in ("pred_keypoints", "pred_centroids", "frame_indices"):
+        for name in (
+            "pred_keypoints",
+            "pred_centroids",
+            "pred_bboxes",
+            "frame_indices",
+        ):
             t = getattr(self, name)
             if t is not None:
                 return int(t.shape[0])
@@ -266,7 +278,12 @@ class Outputs:
     @property
     def n_instances(self) -> int:
         """Per-frame instance dimension I, or 0 if no instance field is set."""
-        for name in ("pred_keypoints", "pred_centroids", "instance_scores"):
+        for name in (
+            "pred_keypoints",
+            "pred_centroids",
+            "pred_bboxes",
+            "instance_scores",
+        ):
             t = getattr(self, name)
             if t is None:
                 continue
@@ -611,6 +628,62 @@ class Outputs:
             )
         return out
 
+    def to_bboxes(
+        self,
+        batch_index: int = 0,
+        categories: Optional[List[str]] = None,
+    ) -> list["sio.PredictedBoundingBox"]:
+        """Convert one batch slot's boxes into ``sio.PredictedBoundingBox``es.
+
+        Each finite box becomes a ``sio.PredictedBoundingBox`` (stored in
+        ``LabeledFrame.bboxes``) carrying its detection score. With ``categories``,
+        the box's class id is resolved to a ``sio.Category`` -- except for a
+        single-class ``["object"]`` detector, whose boxes stay uncategorized like
+        the ground truth it was trained on. Returns ``[]`` when there are no boxes.
+
+        Args:
+            batch_index: Which sample in the batch to convert.
+            categories: Ordered class names of the detector, or ``None``.
+        """
+        if self.pred_bboxes is None:
+            return []
+        import sleap_io as sio
+
+        from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY
+
+        boxes = self.pred_bboxes[batch_index].detach().cpu().numpy()
+        scores = (
+            self.pred_bbox_scores[batch_index].detach().cpu().numpy()
+            if self.pred_bbox_scores is not None
+            else np.ones((boxes.shape[0],), dtype=np.float32)
+        )
+        classes = (
+            self.pred_bbox_classes[batch_index].detach().cpu().numpy()
+            if self.pred_bbox_classes is not None
+            else np.zeros((boxes.shape[0],), dtype=np.int64)
+        )
+        named = categories is not None and list(categories) != [DEFAULT_BBOX_CATEGORY]
+        out: List["sio.PredictedBoundingBox"] = []
+        for box, score, cls in zip(boxes, scores, classes):
+            if not np.isfinite(box).all() or not np.isfinite(score):
+                continue
+            category = (
+                categories[int(cls)]
+                if named and 0 <= int(cls) < len(categories)
+                else None
+            )
+            out.append(
+                sio.PredictedBoundingBox(
+                    x1=float(box[0]),
+                    y1=float(box[1]),
+                    x2=float(box[2]),
+                    y2=float(box[3]),
+                    score=float(score),
+                    category=category,
+                )
+            )
+        return out
+
     def to_rois(
         self,
         batch_index: int = 0,
@@ -652,6 +725,7 @@ class Outputs:
         mask_output: str = "mask",
         polygon_epsilon: float = 0.01,
         keep_empty_frames: bool = False,
+        bbox_categories: Optional[List[str]] = None,
     ) -> "sio.Labels":
         """Convert this ``Outputs`` to a ``sleap_io.Labels``.
 
@@ -692,6 +766,9 @@ class Outputs:
                 tracker sees every processed frame in order -- including
                 detection gaps -- matching the legacy pipeline's per-frame
                 ``tracker.track()`` cadence (#714).
+            bbox_categories: Ordered class names of a ``bbox_*`` detector, used to
+                give its ``PredictedBoundingBox``es a category (see
+                :meth:`to_bboxes`).
 
         Returns:
             A ``sleap_io.Labels`` containing one ``LabeledFrame`` per batch
@@ -751,12 +828,14 @@ class Outputs:
                     )
                     if roi is not None:
                         rois.append(roi)
+            bboxes = self.to_bboxes(batch_index=b, categories=bbox_categories)
             if (
                 not keep_empty_frames
                 and not instances
                 and not centroids
                 and not masks
                 and not rois
+                and not bboxes
             ):
                 continue
             for inst in instances:
@@ -806,6 +885,7 @@ class Outputs:
                     centroids=centroids,
                     masks=masks,
                     rois=rois,
+                    bboxes=bboxes,
                 )
             )
         valid_videos = [v for v in videos if v is not None]

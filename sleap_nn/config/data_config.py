@@ -425,6 +425,20 @@ class DataConfig:
             already carry user centroids are left alone. Once derived, the ordinary
             `centroid_source="user"` path takes over unchanged; nothing downstream
             knows the centroids came from masks. *Default*: `None`.
+        bbox_source: (str) Where the `bbox_*` model types read their ground-truth boxes
+            from: `bboxes` (the frames' `UserBoundingBox` annotations,
+            `LabeledFrame.bboxes`), `instances` (a tight box around each user pose
+            instance's visible points, derived at load time with
+            `sio.Instance.to_bbox`), `masks` (each user segmentation mask's extent,
+            `sio.SegmentationMask.to_bbox`), or `auto` (default): per labels file,
+            `bboxes` if it carries any user box, else `instances`, else `masks`.
+            Derived boxes are added to the frames in memory only. Ignored by every
+            other model type. *Default*: `"auto"`.
+        bbox_padding: (float) Pixels added on every side of boxes derived from
+            instances or masks (`bbox_source` resolving to `instances`/`masks`).
+            Pose keypoints sit inside the animal's outline, so a tight keypoint box
+            is slightly smaller than the animal; a few pixels of padding compensate.
+            Never applied to existing `UserBoundingBox` annotations. *Default*: `0.0`.
     """
 
     train_labels_path: Optional[List[str]] = None
@@ -453,6 +467,11 @@ class DataConfig:
     identity: Optional[IdentityConfig] = None
     split: Optional[SplitConfig] = None
     centroids_from_masks: Optional[str] = None
+    bbox_source: str = field(
+        default="auto",
+        validator=validators.in_(("auto", "bboxes", "instances", "masks")),
+    )
+    bbox_padding: float = field(default=0.0, validator=validators.ge(0))
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:

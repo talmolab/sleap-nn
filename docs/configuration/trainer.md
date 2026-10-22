@@ -198,7 +198,7 @@ Choose **one** scheduler:
 trainer_config:
   early_stopping:
     stop_training_on_plateau: true
-    patience: 10        # Epochs without improvement (embedding: evaluations)
+    patience: 10        # Epochs without improvement (embedding, bbox_* with eval on: evaluations)
     min_delta: 1e-8     # Minimum improvement
 ```
 
@@ -441,7 +441,7 @@ Only one scheduler should be set at a time.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `stop_training_on_plateau` | bool | `true` | Enable early stopping |
-| `patience` | int | `10` | Epochs without improvement. For `embedding`, evaluations without improvement (one check every `eval.frequency` epochs) |
+| `patience` | int | `10` | Epochs without improvement. For `embedding`, and for `bbox_*` models with `eval.enabled` (which select on `eval/val/bbox_mAP`), evaluations without improvement (one check every `eval.frequency` epochs) |
 | `min_delta` | float | `1e-8` | Minimum improvement |
 
 ### ModelCkptConfig

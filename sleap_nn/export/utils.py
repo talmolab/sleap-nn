@@ -79,6 +79,10 @@ def resolve_output_stride(cfg: DictConfig, model_type: str) -> int:
         if leaf is not None and getattr(leaf, "output_stride", None) is not None:
             return int(leaf.output_stride)
         return 1
+    if model_type in ("bbox_centernet", "bbox_ssd"):
+        # Detectors: the finest head stride (CenterNet's shared stride; SSD's
+        # finest pyramid level).
+        return int(min(head_cfg[leaf].output_stride for leaf in head_cfg))
     if hasattr(head_cfg, "confmaps") and head_cfg.confmaps is not None:
         return int(head_cfg.confmaps.output_stride)
     if hasattr(head_cfg, "pafs") and head_cfg.pafs is not None:

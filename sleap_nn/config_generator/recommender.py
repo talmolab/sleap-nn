@@ -18,6 +18,8 @@ PipelineType = Literal[
     "bottomup",
     "multi_class_bottomup",
     "multi_class_topdown",
+    "bbox_centernet",
+    "bbox_ssd",
 ]
 
 BackboneType = Literal[

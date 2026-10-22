@@ -12,9 +12,11 @@ from sleap_nn.export.wrappers.topdown_multiclass import (
 )
 from sleap_nn.export.wrappers.bottomup_multiclass import BottomUpMultiClassONNXWrapper
 from sleap_nn.export.wrappers.embedding import EmbeddingONNXWrapper
+from sleap_nn.export.wrappers.bbox import BBoxONNXWrapper
 
 __all__ = [
     "BaseExportWrapper",
+    "BBoxONNXWrapper",
     "EmbeddingONNXWrapper",
     "CentroidONNXWrapper",
     "CenteredInstanceONNXWrapper",

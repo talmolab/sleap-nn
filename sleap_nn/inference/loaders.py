@@ -624,6 +624,86 @@ def _build_semantic_segmentation(
     )
 
 
+def _build_bbox(
+    ckpt_path: str,
+    *,
+    model_type: str,
+    device: str,
+    backbone_ckpt_path: Optional[str],
+    head_ckpt_path: Optional[str],
+    peak_threshold: float,
+    integral_refinement: str,
+    integral_patch_size: int,
+    return_confmaps: bool,
+    preprocess_config: Any,
+    max_instances: Optional[int] = None,
+    nms_iou: Optional[float] = None,
+) -> LoadedAssets:
+    """Load a ``bbox_centernet`` / ``bbox_ssd`` detector and wrap it for inference.
+
+    ``peak_threshold`` is the detection score threshold and ``max_instances`` caps
+    detections per frame (default 100). ``nms_iou`` is the class-wise IoU-NMS
+    threshold (``None``: the style's default, 0.45 for SSD and off for CenterNet;
+    ``1.0`` suppresses nothing). ``integral_refinement`` /
+    ``integral_patch_size`` / ``return_confmaps`` are accepted for the uniform
+    ``common_kwargs`` call signature but unused (detectors have no keypoints).
+    The decoder (style, categories, anchors, NMS) is rebuilt from the saved head
+    config, so inference uses exactly the trained anchors.
+    """
+    from sleap_nn.inference.bbox import BBoxDecoder, BBoxInferenceModel
+    from sleap_nn.training.lightning_modules import (
+        BBoxCenterNetLightningModule,
+        BBoxSSDLightningModule,
+    )
+
+    cls = (
+        BBoxCenterNetLightningModule
+        if model_type == "bbox_centernet"
+        else BBoxSSDLightningModule
+    )
+    module, config, backbone_type = _load_lightning_module(
+        cls,
+        ckpt_path,
+        model_type=model_type,
+        device=device,
+        backbone_ckpt_path=backbone_ckpt_path,
+        head_ckpt_path=head_ckpt_path,
+    )
+    # Box-only labels may carry no skeleton; tolerate an empty/missing one.
+    try:
+        skeletons = get_skeleton_from_config(config.data_config.skeletons)
+    except Exception:  # noqa: BLE001 — skeleton is optional for detection
+        skeletons = []
+    max_stride = config.model_config.backbone_config[backbone_type]["max_stride"]
+    preprocess_config = _resolve_preprocess_config(preprocess_config, config)
+    head_configs = config.model_config.head_configs
+    decoder = BBoxDecoder.from_head_configs(
+        model_type,
+        head_configs,
+        score_threshold=float(peak_threshold),
+        iou_threshold="default" if nms_iou is None else float(nms_iou),
+        max_detections=max_instances,
+    )
+    output_stride = min(
+        head_configs[model_type][leaf].output_stride
+        for leaf in head_configs[model_type]
+    )
+    inference_model = BBoxInferenceModel(
+        torch_model=module,
+        decoder=decoder,
+        input_scale=preprocess_config.scale,
+        output_stride=output_stride,
+    )
+    return LoadedAssets(
+        inference_model=inference_model,
+        preprocess_config=preprocess_config,
+        skeletons=skeletons,
+        backbone_type=backbone_type,
+        max_stride=max_stride,
+        max_instances=max_instances,
+    )
+
+
 def _build_embedding(
     ckpt_path: str,
     *,
@@ -1406,6 +1486,7 @@ def load_model_assets(
     full_res_masks: bool = False,
     mask_output: str = "mask",
     polygon_epsilon: float = 0.01,
+    bbox_nms_iou: Optional[float] = None,
 ) -> tuple[LoadedAssets, List[str]]:
     """Load checkpoints and build inference models.
 
@@ -1418,7 +1499,8 @@ def load_model_assets(
     ``min_line_scores``) are forwarded ONLY to the plain bottom-up builder
     (legacy applied them only to ``BottomUpPredictor``); they are inert for
     other model types. Likewise ``fg_threshold`` / ``min_mask_area`` are
-    forwarded ONLY to the bottom-up segmentation builder.
+    forwarded ONLY to the bottom-up segmentation builder, and ``bbox_nms_iou``
+    only to the ``bbox_*`` detector builder.
 
     Returns:
         ``(loaded_assets, model_types)`` — *model_types* is the list of
@@ -1542,6 +1624,18 @@ def load_model_assets(
             full_res_masks=full_res_masks,
             mask_output=mask_output,
             polygon_epsilon=polygon_epsilon,
+            **common_kwargs,
+        )
+
+    elif "bbox_centernet" in model_types or "bbox_ssd" in model_types:
+        # Whole-frame bounding-box detectors: single-stage, never composed.
+        model_type = "bbox_centernet" if "bbox_centernet" in model_types else "bbox_ssd"
+        path = model_paths[model_types.index(model_type)]
+        assets = _build_bbox(
+            path,
+            model_type=model_type,
+            max_instances=max_instances,
+            nms_iou=bbox_nms_iou,
             **common_kwargs,
         )
 

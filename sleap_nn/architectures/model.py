@@ -26,6 +26,11 @@ from sleap_nn.architectures.heads import (
     InstanceCenterHead,
     CenterOffsetHead,
     EmbeddingHead,
+    BBoxCenterHead,
+    BBoxSizeHead,
+    BBoxOffsetHead,
+    MultiScaleHead,
+    SSDHead,
     default_embedding_pool,
     embedding_encoder_is_frozen,
 )
@@ -34,6 +39,7 @@ from sleap_nn.architectures.convnext import ConvNextWrapper
 from sleap_nn.architectures.swint import SwinTWrapper
 from sleap_nn.architectures.pretrained import PretrainedBackbone
 import torchvision.transforms.v2.functional as F
+from sleap_nn.config.model_config import DEFAULT_BBOX_CATEGORY, ssd_level_strides
 
 
 def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
@@ -87,6 +93,8 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
             - 'bottomup_segmentation'
             - 'centered_instance_segmentation'
             - 'embedding'
+            - 'bbox_centernet'
+            - 'bbox_ssd'
         head_config (DictConfig): A config for the head.
 
     Returns:
@@ -165,8 +173,45 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
             )
         )
 
+    elif model_type == "bbox_centernet":
+        # CenterNet-style detector: center heatmap + size + offset at one stride.
+        # The leaves' target knobs (sigma, min_overlap, focal exponents) are read
+        # by the dataset/LightningModule, not the heads.
+        missing = [k for k in ("center", "size", "offset") if head_config[k] is None]
+        if missing:
+            message = (
+                f"model_config.head_configs.bbox_centernet is missing {missing}; "
+                "the center, size and offset heads are all required."
+            )
+            logger.error(message)
+            raise ValueError(message)
+        center = head_config.center
+        heads.append(
+            BBoxCenterHead(
+                categories=list(center.categories or [DEFAULT_BBOX_CATEGORY]),
+                output_stride=center.output_stride,
+                loss_weight=center.loss_weight,
+            )
+        )
+        heads.append(BBoxSizeHead(**head_config.size))
+        heads.append(BBoxOffsetHead(**head_config.offset))
+
+    elif model_type == "bbox_ssd":
+        # SSD-style detector: one multi-scale anchor head over the pyramid levels.
+        ssd = head_config.ssd
+        heads.append(
+            SSDHead(
+                categories=list(ssd.categories or [DEFAULT_BBOX_CATEGORY]),
+                anchors_per_location=len(ssd.anchor_scales) * len(ssd.aspect_ratios),
+                output_strides=ssd_level_strides(ssd),
+                head_channels=ssd.head_channels,
+                head_convs=ssd.head_convs,
+                loss_weight=ssd.loss_weight,
+            )
+        )
+
     else:
-        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`, `semantic_segmentation`, `embedding`."
+        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`, `bottomup_segmentation`, `centered_instance_segmentation`, `semantic_segmentation`, `embedding`, `bbox_centernet`, `bbox_ssd`."
         logger.error(message)
         raise Exception(message)
 
@@ -225,6 +270,26 @@ class Model(nn.Module):
 
         self.head_layers = nn.ModuleList([])
         for head in self.heads:
+            if isinstance(head, MultiScaleHead):
+                # One input per pyramid level. `decoder_stride_to_filters` covers
+                # the decoder outputs and the bottleneck (the decoder's input).
+                stride_to_filters = self.backbone.decoder_stride_to_filters
+                absent = [s for s in head.output_strides if s not in stride_to_filters]
+                if absent:
+                    message = (
+                        f"Head '{head.name}' reads strides {head.output_strides}, but "
+                        f"backbone '{self.backbone_type}' produces strides "
+                        f"{sorted(stride_to_filters)}; {absent} are missing. Lower "
+                        f"the head's levels or raise the backbone's max_stride."
+                    )
+                    logger.error(message)
+                    raise ValueError(message)
+                self.head_layers.append(
+                    head.make_head(
+                        x_in=[int(stride_to_filters[s]) for s in head.output_strides]
+                    )
+                )
+                continue
             if isinstance(head, (ClassVectorsHead, EmbeddingHead)):
                 in_channels = int(self.backbone.middle_blocks[-1].filters)
             else:
@@ -278,7 +343,14 @@ class Model(nn.Module):
 
         outputs = {}
         for head, head_layer in zip(self.heads, self.head_layers):
-            if not len(backbone_outputs["outputs"]):
+            if isinstance(head, MultiScaleHead):
+                outputs[head.name] = head_layer(
+                    [
+                        _feature_at_stride(backbone_outputs, s)
+                        for s in head.output_strides
+                    ]
+                )
+            elif not len(backbone_outputs["outputs"]):
                 outputs[head.name] = head_layer(backbone_outputs["middle_output"])
             else:
                 if isinstance(head, (ClassVectorsHead, EmbeddingHead)):
@@ -289,3 +361,15 @@ class Model(nn.Module):
                     outputs[head.name] = head_layer(backbone_outputs["outputs"][idx])
 
         return outputs
+
+
+def _feature_at_stride(backbone_outputs: dict, stride: int) -> torch.Tensor:
+    """The backbone feature map at ``stride``: a decoder output or the bottleneck.
+
+    The decoder's outputs cover the strides below the bottleneck's; the bottleneck
+    itself (``middle_output``, the decoder's input) is the deepest level.
+    """
+    strides = backbone_outputs["strides"]
+    if stride in strides:
+        return backbone_outputs["outputs"][strides.index(stride)]
+    return backbone_outputs["middle_output"]

@@ -287,6 +287,48 @@ def plot_tile_grid(
     return fig
 
 
+def plot_bboxes(
+    gt_bboxes: Optional[np.ndarray] = None,
+    pred_bboxes: Optional[np.ndarray] = None,
+    pred_scores: Optional[np.ndarray] = None,
+):
+    """Outline ground-truth (green) and predicted (red, with scores) boxes.
+
+    Args:
+        gt_bboxes: ``(n, 4)`` xyxy ground-truth boxes in image pixels (NaN rows
+            are skipped).
+        pred_bboxes: ``(m, 4)`` xyxy predicted boxes.
+        pred_scores: ``(m,)`` predicted scores, printed at each box's corner.
+    """
+    from matplotlib.patches import Rectangle
+
+    ax = plt.gca()
+
+    def _draw(boxes, color, scores=None):
+        if boxes is None:
+            return
+        for i, (x1, y1, x2, y2) in enumerate(np.asarray(boxes).reshape(-1, 4)):
+            if not np.isfinite([x1, y1, x2, y2]).all():
+                continue
+            ax.add_patch(
+                Rectangle(
+                    (x1, y1), x2 - x1, y2 - y1, fill=False, ec=color, lw=1.5, alpha=0.9
+                )
+            )
+            if scores is not None and np.isfinite(scores[i]):
+                ax.text(
+                    x1,
+                    y1,
+                    f"{scores[i]:.2f}",
+                    color="w",
+                    fontsize=7,
+                    bbox=dict(facecolor=color, alpha=0.6, pad=1, lw=0),
+                )
+
+    _draw(gt_bboxes, "g")
+    _draw(pred_bboxes, "r", pred_scores)
+
+
 def plot_peaks(
     pts_gt: np.ndarray, pts_pr: np.ndarray | None = None, paired: bool = False
 ):
@@ -397,6 +439,9 @@ class VisualizationData:
     pred_offsets: Optional[np.ndarray] = None
     gt_mask: Optional[np.ndarray] = None
     instance_masks: Optional[List[np.ndarray]] = None
+    gt_bboxes: Optional[np.ndarray] = None
+    pred_bboxes: Optional[np.ndarray] = None
+    pred_bbox_scores: Optional[np.ndarray] = None
 
 
 class MatplotlibRenderer:
@@ -421,6 +466,8 @@ class MatplotlibRenderer:
         fig = plot_img(img, dpi=72 * scale, scale=scale)
         plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
         plot_peaks(data.gt_instances, data.pred_peaks, paired=data.is_paired)
+        if data.gt_bboxes is not None or data.pred_bboxes is not None:
+            plot_bboxes(data.gt_bboxes, data.pred_bboxes, data.pred_bbox_scores)
         return fig
 
     def render_gt_mask(self, data: VisualizationData) -> matplotlib.figure.Figure:

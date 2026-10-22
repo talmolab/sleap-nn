@@ -25,6 +25,8 @@ model_config:
     multi_class_bottomup: null
     multi_class_topdown: null
     bottomup_segmentation: null
+    bbox_centernet: null
+    bbox_ssd: null
 ```
 
 ---
@@ -257,6 +259,48 @@ Notes:
   instances at the frame edge.
 - See the sample config
   [`config_bottomup_segmentation_unet.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bottomup_segmentation_unet.yaml).
+
+### Bounding-Box Detectors
+
+Axis-aligned box detection, one box per animal (written as
+`sio.PredictedBoundingBox` on `LabeledFrame.bboxes`). Ground-truth boxes come from
+the labels' own boxes or are derived from poses / masks
+(`data_config.bbox_source`). Two styles:
+
+```yaml
+head_configs:
+  bbox_centernet:        # CenterNet-style: center heatmap + size + sub-cell offset
+    center:
+      categories: null   # filled from the training boxes
+      sigma: null        # null = size-adaptive Gaussian radius
+      output_stride: 4
+    size:
+      output_stride: 4
+      loss_weight: 0.1
+    offset:
+      output_stride: 4
+      loss_weight: 1.0
+```
+
+```yaml
+head_configs:
+  bbox_ssd:              # SSD-style: multi-scale anchors over strides 8/16/32
+    ssd:
+      output_stride: 8   # finest level; set the backbone's output_stride to match
+      num_levels: 3      # needs backbone max_stride >= 32
+      anchor_sizes: null # null = auto-sized from the training boxes, saved into the config
+```
+
+Notes:
+
+- Keep rotation augmentation off: the axis-aligned box of rotated corners is larger
+  than the rotated animal.
+- With `trainer_config.eval.enabled: true`, the best checkpoint and early stopping
+  follow `eval/val/bbox_mAP` (see `eval.select_metric`).
+- See the [Bounding-box detection guide](../guides/bbox-detection.md) and the sample
+  configs
+  [`config_bbox_centernet_unet.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_centernet_unet.yaml) /
+  [`config_bbox_ssd_unet.yaml`](https://github.com/talmolab/sleap-nn/blob/main/docs/sample_configs/config_bbox_ssd_unet.yaml).
 
 ---
 

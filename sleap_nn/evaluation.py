@@ -2332,6 +2332,356 @@ def _write_metrics(save_path: Path, metrics: dict) -> None:
         json.dump(json_safe, f)
 
 
+# ---------------------------------------------------------------------------
+# Bounding-box detection metrics (the `bbox_*` model types).
+#
+# COCO protocol: per class and IoU threshold, each frame's detections (top
+# `max_detections` by score) are greedily matched to the highest-IoU unmatched GT
+# box in descending score order; AP is the 101-point interpolated area under the
+# precision-recall curve of all frames' detections (`_ap_from_pr`). mAP averages
+# over IoU 0.50:0.05:0.95 and classes; AR is the max recall, averaged the same way.
+# The operating point (precision / recall / F1, mean IoU of the matches) is taken at
+# IoU 0.5 and the score threshold maximizing F1, since a fixed threshold would favor
+# whichever model's scores happen to be calibrated to it.
+# ---------------------------------------------------------------------------
+BBOX_IOU_THRESHOLDS = np.round(np.arange(0.5, 0.96, 0.05), 2)
+BBOX_EVAL_LOG_KEYS = (
+    "bbox_mAP",
+    "bbox_AP50",
+    "bbox_AP75",
+    "bbox_AR",
+    "bbox_precision",
+    "bbox_recall",
+    "bbox_f1",
+    "bbox_f1_threshold",
+    "bbox_mean_iou",
+    "bbox_n_tp",
+    "bbox_n_fp",
+    "bbox_n_fn",
+)
+
+
+def bbox_iou_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Pairwise IoU of ``(n, 4)`` and ``(m, 4)`` xyxy boxes -> ``(n, m)``."""
+    a = np.asarray(a, dtype=np.float64).reshape(-1, 4)
+    b = np.asarray(b, dtype=np.float64).reshape(-1, 4)
+    if a.shape[0] == 0 or b.shape[0] == 0:
+        return np.zeros((a.shape[0], b.shape[0]))
+    x1 = np.maximum(a[:, None, 0], b[None, :, 0])
+    y1 = np.maximum(a[:, None, 1], b[None, :, 1])
+    x2 = np.minimum(a[:, None, 2], b[None, :, 2])
+    y2 = np.minimum(a[:, None, 3], b[None, :, 3])
+    inter = np.clip(x2 - x1, 0, None) * np.clip(y2 - y1, 0, None)
+    area_a = (a[:, 2] - a[:, 0]) * (a[:, 3] - a[:, 1])
+    area_b = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
+    union = area_a[:, None] + area_b[None, :] - inter
+    return np.where(union > 0, inter / np.maximum(union, 1e-12), 0.0)
+
+
+def _greedy_match_bboxes(
+    iou: np.ndarray, iou_threshold: float
+) -> Tuple[np.ndarray, np.ndarray]:
+    """COCO greedy matching of score-sorted detections (rows) to GT (columns).
+
+    Returns:
+        ``(gt_idx, matched_iou)`` per detection: the matched GT index (``-1`` for a
+        false positive) and the IoU of the match (``0`` when unmatched).
+    """
+    n_det, n_gt = iou.shape
+    gt_idx = np.full(n_det, -1, dtype=np.int64)
+    matched_iou = np.zeros(n_det)
+    taken = np.zeros(n_gt, dtype=bool)
+    for d in range(n_det):
+        candidates = np.where(~taken & (iou[d] >= iou_threshold))[0]
+        if candidates.size:
+            g = candidates[np.argmax(iou[d, candidates])]
+            taken[g] = True
+            gt_idx[d] = g
+            matched_iou[d] = iou[d, g]
+    return gt_idx, matched_iou
+
+
+def compute_bbox_metrics(
+    frames: List[Dict[str, np.ndarray]],
+    num_classes: Optional[int] = None,
+    iou_thresholds: np.ndarray = BBOX_IOU_THRESHOLDS,
+    max_detections: int = 100,
+) -> Dict[str, Any]:
+    """COCO-style detection metrics over a set of frames.
+
+    Args:
+        frames: One dict per evaluated frame with ``gt_bboxes (n, 4)``,
+            ``gt_classes (n,)``, ``pred_bboxes (m, 4)``, ``pred_scores (m,)`` and
+            ``pred_classes (m,)`` (xyxy, any consistent pixel space).
+        num_classes: Number of classes (inferred from the class ids if ``None``).
+        iou_thresholds: IoU thresholds averaged by mAP / AR.
+        max_detections: Highest-scoring detections kept per frame (COCO's 100).
+
+    Returns:
+        A dict with ``bbox_mAP`` (AP@[.5:.95]), ``bbox_AP50``, ``bbox_AP75``,
+        ``bbox_AR``, the IoU-0.5 operating point (``bbox_precision``,
+        ``bbox_recall``, ``bbox_f1`` at ``bbox_f1_threshold``, ``bbox_mean_iou``,
+        ``bbox_n_tp/fp/fn``), ``n_frames`` / ``n_gt`` / ``n_pred``, per-class
+        ``ap_per_class`` (``(C, T)``) and the IoU-0.5 ``pr_curve`` (scores,
+        precision, recall).
+    """
+    recall_grid = np.linspace(0.0, 1.0, 101)
+    iou_thresholds = np.asarray(iou_thresholds, dtype=float)
+    if num_classes is None:
+        ids = [
+            int(c)
+            for f in frames
+            for c in list(f["gt_classes"]) + list(f["pred_classes"])
+        ]
+        num_classes = max(ids) + 1 if ids else 1
+
+    # Per (class, threshold): detection scores, TP flags, matched IoUs.
+    scores = [[[] for _ in iou_thresholds] for _ in range(num_classes)]
+    tps = [[[] for _ in iou_thresholds] for _ in range(num_classes)]
+    ious = [[[] for _ in iou_thresholds] for _ in range(num_classes)]
+    n_gt_per_class = np.zeros(num_classes, dtype=np.int64)
+    n_pred = 0
+    for f in frames:
+        gt_b = np.asarray(f["gt_bboxes"], dtype=np.float64).reshape(-1, 4)
+        gt_c = np.asarray(f["gt_classes"], dtype=np.int64).reshape(-1)
+        pr_b = np.asarray(f["pred_bboxes"], dtype=np.float64).reshape(-1, 4)
+        pr_s = np.asarray(f["pred_scores"], dtype=np.float64).reshape(-1)
+        pr_c = np.asarray(f["pred_classes"], dtype=np.int64).reshape(-1)
+        keep = np.isfinite(pr_s) & np.isfinite(pr_b).all(axis=1)
+        pr_b, pr_s, pr_c = pr_b[keep], pr_s[keep], pr_c[keep]
+        order = np.argsort(-pr_s, kind="mergesort")[:max_detections]
+        pr_b, pr_s, pr_c = pr_b[order], pr_s[order], pr_c[order]
+        n_pred += len(pr_s)
+        for c in range(num_classes):
+            g = gt_b[gt_c == c]
+            p_mask = pr_c == c
+            p, s = pr_b[p_mask], pr_s[p_mask]
+            n_gt_per_class[c] += len(g)
+            iou = bbox_iou_matrix(p, g)
+            for t, thr in enumerate(iou_thresholds):
+                gt_idx, m_iou = _greedy_match_bboxes(iou, thr)
+                scores[c][t].append(s)
+                tps[c][t].append(gt_idx >= 0)
+                ious[c][t].append(m_iou)
+
+    ap = np.full((num_classes, len(iou_thresholds)), np.nan)
+    ar = np.full((num_classes, len(iou_thresholds)), np.nan)
+    for c in range(num_classes):
+        for t in range(len(iou_thresholds)):
+            s = np.concatenate(scores[c][t]) if scores[c][t] else np.zeros(0)
+            tp = np.concatenate(tps[c][t]) if tps[c][t] else np.zeros(0, bool)
+            ap[c, t], ar[c, t] = _ap_from_pr(s, tp, n_gt_per_class[c], recall_grid)
+
+    def _nanmean(x):
+        x = np.asarray(x, dtype=float)
+        return float(np.nanmean(x)) if np.isfinite(x).any() else float("nan")
+
+    t50 = int(np.argmin(np.abs(iou_thresholds - 0.5)))
+    t75 = int(np.argmin(np.abs(iou_thresholds - 0.75)))
+
+    # IoU-0.5 operating point over all classes: the F1-maximizing score threshold.
+    s50 = np.concatenate([np.concatenate(scores[c][t50]) for c in range(num_classes)])
+    tp50 = np.concatenate([np.concatenate(tps[c][t50]) for c in range(num_classes)])
+    iou50 = np.concatenate([np.concatenate(ious[c][t50]) for c in range(num_classes)])
+    n_gt = int(n_gt_per_class.sum())
+    order = np.argsort(-s50, kind="mergesort")
+    s50, tp50, iou50 = s50[order], tp50[order], iou50[order]
+    cum_tp = np.cumsum(tp50)
+    cum_fp = np.cumsum(~tp50)
+    precision = cum_tp / np.maximum(cum_tp + cum_fp, 1)
+    recall = cum_tp / max(n_gt, 1)
+    f1 = 2 * precision * recall / np.maximum(precision + recall, 1e-12)
+    if f1.size:
+        best = int(np.argmax(f1))
+        n_tp, n_fp = int(cum_tp[best]), int(cum_fp[best])
+        op = dict(
+            bbox_precision=float(precision[best]),
+            bbox_recall=float(recall[best]) if n_gt else float("nan"),
+            bbox_f1=float(f1[best]),
+            bbox_f1_threshold=float(s50[best]),
+            bbox_mean_iou=(
+                float(iou50[: best + 1][tp50[: best + 1]].mean()) if n_tp else 0.0
+            ),
+            bbox_n_tp=n_tp,
+            bbox_n_fp=n_fp,
+            bbox_n_fn=n_gt - n_tp,
+        )
+    else:
+        op = dict(
+            bbox_precision=float("nan"),
+            bbox_recall=0.0 if n_gt else float("nan"),
+            bbox_f1=0.0,
+            bbox_f1_threshold=float("nan"),
+            bbox_mean_iou=float("nan"),
+            bbox_n_tp=0,
+            bbox_n_fp=0,
+            bbox_n_fn=n_gt,
+        )
+
+    return {
+        "bbox_mAP": _nanmean(ap),
+        "bbox_AP50": _nanmean(ap[:, t50]),
+        "bbox_AP75": _nanmean(ap[:, t75]),
+        "bbox_AR": _nanmean(ar),
+        **op,
+        "n_frames": len(frames),
+        "n_gt": n_gt,
+        "n_pred": int(n_pred),
+        "iou_thresholds": iou_thresholds,
+        "ap_per_class": ap,
+        "ar_per_class": ar,
+        "pr_curve": {"scores": s50, "precision": precision, "recall": recall},
+    }
+
+
+def _frame_bbox_arrays_by_name(
+    boxes: List[Any], categories: List[str]
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(xyxy, class_ids, scores)`` of a frame's boxes; categories grow as seen."""
+    from sleap_nn.data.bboxes import bbox_category_name
+
+    xyxy, cls, sc = [], [], []
+    for b in boxes:
+        if b.is_empty:
+            continue
+        name = bbox_category_name(b)
+        if name not in categories:
+            categories.append(name)
+        xyxy.append(b.bounds)
+        cls.append(categories.index(name))
+        sc.append(float(getattr(b, "score", 1.0)))
+    return (
+        np.asarray(xyxy, dtype=np.float64).reshape(-1, 4),
+        np.asarray(cls, dtype=np.int64),
+        np.asarray(sc, dtype=np.float64),
+    )
+
+
+def bbox_frame_pairs(
+    labels_gt: sio.Labels,
+    labels_pr: sio.Labels,
+    class_agnostic: Optional[bool] = None,
+) -> Tuple[List[Dict[str, np.ndarray]], List[str]]:
+    """Build :func:`compute_bbox_metrics` frames from GT and predicted labels.
+
+    Every GT frame with at least one user box is evaluated (its predictions --
+    the ``PredictedBoundingBox``es of the matching predicted frame -- may be none,
+    making all its boxes false negatives). Predicted frames with no GT frame are
+    not scored (unlabeled frames carry no ground truth).
+
+    Args:
+        labels_gt: Ground truth with user boxes on ``LabeledFrame.bboxes``.
+        labels_pr: Predictions with ``PredictedBoundingBox``es.
+        class_agnostic: Score every box as one class. ``None`` (default) decides
+            from the data: class-agnostic when the GT and the predictions each
+            carry at most one category name -- a single-class detector maps every
+            box to its one class whatever it is called, so an uncategorized GT
+            (``"object"``, e.g. boxes derived from poses) and predictions named
+            after the model's one class (``"mouse"``) are the same class.
+
+    Returns:
+        ``(frames, categories)``.
+    """
+    from sleap_nn.data.bboxes import bbox_category_name, frame_user_bboxes
+
+    categories: List[str] = []
+    match_result = labels_gt.match(labels_pr)
+    # `sio.Video` defines `__len__` but not `__bool__`: a matched video whose
+    # shape is unknown is falsy, so test against None explicitly.
+    gt_to_pr = {
+        id(v_gt): v_pr
+        for v_pr, v_gt in match_result.video_map.items()
+        if v_gt is not None
+    }
+    if class_agnostic is None:
+        gt_names = {
+            bbox_category_name(b) for lf in labels_gt for b in frame_user_bboxes(lf)
+        }
+        pr_names = {
+            bbox_category_name(b)
+            for lf in labels_pr
+            for b in lf.bboxes
+            if b.is_predicted
+        }
+        class_agnostic = len(gt_names) <= 1 and len(pr_names) <= 1
+    frames = []
+    for lf in labels_gt.labeled_frames:
+        gt_boxes = frame_user_bboxes(lf)
+        if not gt_boxes:
+            continue
+        pred_boxes = []
+        video_pr = gt_to_pr.get(id(lf.video))
+        if video_pr is not None:
+            for lf_pr in labels_pr.find(video_pr, frame_idx=lf.frame_idx):
+                pred_boxes.extend(b for b in lf_pr.bboxes if b.is_predicted)
+        gt_b, gt_c, _ = _frame_bbox_arrays_by_name(gt_boxes, categories)
+        pr_b, pr_c, pr_s = _frame_bbox_arrays_by_name(pred_boxes, categories)
+        if class_agnostic:
+            gt_c, pr_c = np.zeros_like(gt_c), np.zeros_like(pr_c)
+        frames.append(
+            {
+                "video_idx": labels_gt.videos.index(lf.video),
+                "frame_idx": lf.frame_idx,
+                "gt_bboxes": gt_b,
+                "gt_classes": gt_c,
+                "pred_bboxes": pr_b,
+                "pred_scores": pr_s,
+                "pred_classes": pr_c,
+            }
+        )
+    if class_agnostic:
+        categories = ["object"]
+    return frames, categories
+
+
+def _run_bbox_evaluation(
+    labels_gt: sio.Labels,
+    labels_pr: sio.Labels,
+    save_metrics: Optional[str] = None,
+    bbox_source: str = "auto",
+    bbox_padding: float = 0.0,
+    class_agnostic: Optional[bool] = None,
+) -> Optional[Dict[str, Any]]:
+    """``run_evaluation(match_method="bbox")``: COCO box metrics of two label sets."""
+    from sleap_nn.data.bboxes import add_bboxes_to_labels
+
+    if not any(b.is_predicted for lf in labels_pr for b in lf.bboxes):
+        logger.info(
+            "0 predicted boxes: skipping metric computation (model likely "
+            "predicted nothing usable, or training collapsed)."
+        )
+        return None
+    # GT without boxes (e.g. the pose labels a detector was trained from with
+    # `bbox_source: instances`) gets them derived exactly as training did.
+    resolved = add_bboxes_to_labels(labels_gt, source=bbox_source, padding=bbox_padding)
+    logger.info(f"  Ground-truth boxes from: {resolved}")
+    frames, categories = bbox_frame_pairs(labels_gt, labels_pr, class_agnostic)
+    if not frames:
+        raise ValueError(
+            "Empty Frame Pairs: no ground-truth frame with boxes matched the "
+            "predictions' videos."
+        )
+    metrics = compute_bbox_metrics(frames, num_classes=len(categories))
+    metrics["categories"] = categories
+    logger.info("Evaluation Results (bbox mode):")
+    logger.info(f"  Frames: {metrics['n_frames']}, GT boxes: {metrics['n_gt']}")
+    logger.info(f"  mAP @[.5:.95]: {metrics['bbox_mAP']:.4f}")
+    logger.info(f"  AP50: {metrics['bbox_AP50']:.4f}, AP75: {metrics['bbox_AP75']:.4f}")
+    logger.info(f"  AR @[.5:.95]: {metrics['bbox_AR']:.4f}")
+    logger.info(
+        f"  @IoU0.5, best-F1 threshold {metrics['bbox_f1_threshold']:.3f}: "
+        f"P={metrics['bbox_precision']:.4f} R={metrics['bbox_recall']:.4f} "
+        f"F1={metrics['bbox_f1']:.4f} meanIoU={metrics['bbox_mean_iou']:.4f} "
+        f"(TP={metrics['bbox_n_tp']}, FP={metrics['bbox_n_fp']}, "
+        f"FN={metrics['bbox_n_fn']})"
+    )
+    if save_metrics:
+        save_path = Path(save_metrics)
+        _write_metrics(save_path, metrics)
+        logger.info(f"Metrics saved successfully to {save_path}")
+    return metrics
+
+
 def run_evaluation(
     ground_truth_path: str,
     predicted_path: str,
@@ -2344,6 +2694,8 @@ def run_evaluation(
     anchor_part: Optional[str] = None,
     centroid_method: Optional[str] = None,
     centroid_fallback: Optional[str] = None,
+    bbox_source: str = "auto",
+    bbox_padding: float = 0.0,
 ):
     """Evaluate SLEAP-NN model predictions against ground truth labels.
 
@@ -2372,6 +2724,9 @@ def run_evaluation(
             ``"auto"`` switches to centroid mode when the PREDICTION skeleton is a
             single-node skeleton (e.g. ``sio.get_centroid_skeleton()``); it never
             auto-selects ``"mask"`` or ``"semantic"`` (pass those explicitly).
+            ``"bbox"`` scores ``PredictedBoundingBox``es against the GT's user
+            boxes with COCO box AP (for the ``bbox_*`` detectors); a GT file with
+            no boxes has them derived from its poses (or masks) first.
         anchor_part: Name of the GT skeleton node used to compute GT centroids
             (centroid mode). Resolved against the GT skeleton; ``None`` (or an
             absent name) falls back to the mean of visible nodes (#586).
@@ -2383,6 +2738,11 @@ def run_evaluation(
             metric scores predictions against a different centroid than the one
             they were trained to predict.
         centroid_fallback: Reduce method used when the anchor node is not visible.
+        bbox_source: ``"bbox"`` mode only: where GT boxes come from (``auto``,
+            ``bboxes``, ``instances``, ``masks``; pass the model's
+            ``data_config.bbox_source``).
+        bbox_padding: ``"bbox"`` mode only: pixels of padding on GT boxes derived
+            from poses/masks (pass the model's ``data_config.bbox_padding``).
 
     Returns:
         The metrics dict, or ``None`` if the predicted labels have zero
@@ -2404,6 +2764,22 @@ def run_evaluation(
         f"  Predictions: {len(predicted_instances.videos)} videos, "
         f"{len(predicted_instances.labeled_frames)} frames"
     )
+
+    if (
+        match_method == "auto"
+        and not any(len(lf.instances) for lf in predicted_instances)
+        and any(b.is_predicted for lf in predicted_instances for b in lf.bboxes)
+    ):
+        match_method = "bbox"
+        logger.info("Auto-detected bbox mode (box-only predictions).")
+    if match_method == "bbox":
+        return _run_bbox_evaluation(
+            ground_truth_instances,
+            predicted_instances,
+            save_metrics=save_metrics,
+            bbox_source=bbox_source,
+            bbox_padding=bbox_padding,
+        )
 
     # Detect a fully collapsed prediction set up front and skip the metric
     # math entirely (#719) -- frames may still be present (both predictor

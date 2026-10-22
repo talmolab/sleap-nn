@@ -36,7 +36,10 @@ PLACEHOLDER_PATH = "/path/to/labels.slp"
 # key remains the canonical ``centroid`` (so ``get_model_type_from_cfg`` returns
 # 'centroid'). It is golden-tested but is NOT part of ``PIPELINES`` for the
 # "head key == pipeline name" oneof test (its head key differs from its name).
-GOLDEN_PIPELINES = PIPELINES + ["centroid_only"]
+# The bounding-box detectors (boxes derived from the poses). Their head key is the
+# pipeline name, emitted next to the six null pose head keys.
+BBOX_PIPELINES = ["bbox_centernet", "bbox_ssd"]
+GOLDEN_PIPELINES = PIPELINES + ["centroid_only"] + BBOX_PIPELINES
 
 
 def _build_config(pipeline: str) -> dict:
@@ -59,7 +62,7 @@ def test_yaml_matches_golden(pipeline):
         from pathlib import Path
         for p in ['single_instance', 'centroid', 'centroid_only',
                   'centered_instance', 'bottomup', 'multi_class_bottomup',
-                  'multi_class_topdown']:
+                  'multi_class_topdown', 'bbox_centernet', 'bbox_ssd']:
             gen = ConfigGenerator.from_slp(
                 'tests/assets/datasets/minimal_instance.pkg.slp'
             ).auto().pipeline(p)
@@ -85,7 +88,7 @@ def test_exactly_one_backbone_active(pipeline):
     assert len(active) == 1, f"{pipeline}: expected 1 active backbone, got {active}"
 
 
-@pytest.mark.parametrize("pipeline", PIPELINES)
+@pytest.mark.parametrize("pipeline", PIPELINES + BBOX_PIPELINES)
 def test_exactly_one_head_active(pipeline):
     """Generated YAML has exactly one non-null head matching the pipeline."""
     cfg = _build_config(pipeline)
@@ -159,6 +162,25 @@ def test_centered_instance_emits_part_names_and_loss_weight():
     ci = cfg["model_config"]["head_configs"]["centered_instance"]["confmaps"]
     assert isinstance(ci["part_names"], list) and len(ci["part_names"]) > 0
     assert "loss_weight" in ci
+
+
+@pytest.mark.parametrize("off", ["rotation", "scale"])
+def test_disabled_geometric_aug_stays_off(off):
+    """A disabled rotation/scale is switched off, not left to the schema default
+    (+-15 deg / 0.9-1.1 at p=1.0) when another geometric augmentation is on."""
+    from sleap_nn.config.training_job_config import verify_training_cfg
+
+    gen = ConfigGenerator.from_slp(FIXTURE_SLP).auto().pipeline("single_instance")
+    if off == "rotation":
+        gen.rotation(0.0, 0.0)
+    else:
+        gen.scale_augmentation(1.0, 1.0)
+    geometric = verify_training_cfg(
+        gen.build()
+    ).data_config.augmentation_config.geometric
+    assert getattr(geometric, f"{off}_p") == 0.0
+    on = "scale" if off == "rotation" else "rotation"
+    assert getattr(geometric, f"{on}_p") == 1.0
 
 
 def test_lr_scheduler_has_all_four_keys():
@@ -385,3 +407,105 @@ def test_cli_config_pipeline_centroid_writes_single_file(tmp_path):
     assert get_model_type_from_cfg(cfg) == "centroid"
     assert cfg.data_config.preprocessing.scale == 1.0
     assert cfg.data_config.preprocessing.crop_size is None
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Bounding-box detector pipelines
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("pipeline", BBOX_PIPELINES)
+def test_bbox_pipeline_defaults(pipeline):
+    """Box detectors: half scale, derived boxes, no rotation, eval on (mAP ckpts)."""
+    from sleap_nn.config.training_job_config import verify_training_cfg
+    from sleap_nn.config.utils import get_model_type_from_cfg
+
+    gen = ConfigGenerator.from_slp(FIXTURE_SLP).auto().pipeline(pipeline)
+    assert gen.is_bbox and not gen.is_topdown
+    cfg = verify_training_cfg(gen.build())
+    assert get_model_type_from_cfg(cfg) == pipeline
+    data = cfg.data_config
+    assert data.bbox_source == "auto" and data.bbox_padding == 0.0
+    assert data.preprocessing.scale == 0.5 and data.preprocessing.crop_size is None
+    geometric = data.augmentation_config.geometric
+    assert geometric.rotation_p == 0.0 and geometric.scale_p == 1.0
+    assert cfg.trainer_config.eval.enabled
+    unet = cfg.model_config.backbone_config.unet
+    if pipeline == "bbox_ssd":
+        assert unet.output_stride == 8 and unet.max_stride >= 32
+        assert cfg.model_config.head_configs.bbox_ssd.ssd.anchor_sizes is None
+    else:
+        assert unet.output_stride == 4
+        assert cfg.model_config.head_configs.bbox_centernet.size.output_stride == 4
+
+
+@pytest.mark.parametrize("pipeline", PIPELINES + ["centroid_only"])
+def test_pose_pipelines_emit_no_bbox_fields(pipeline):
+    """Pose configs keep their schema: no bbox data fields, no bbox head keys."""
+    cfg = _build_config(pipeline)
+    assert "bbox_source" not in cfg["data_config"]
+    assert not set(BBOX_PIPELINES) & set(cfg["model_config"]["head_configs"])
+
+
+def test_cli_config_pipeline_bbox_ssd_writes_single_file(tmp_path):
+    """`config --auto --pipeline bbox_ssd` writes ONE config resolving to bbox_ssd."""
+    from click.testing import CliRunner
+
+    from sleap_nn.cli import config as config_cmd
+    from sleap_nn.config.utils import get_model_type_from_cfg
+
+    out = tmp_path / "out.yaml"
+    result = CliRunner().invoke(
+        config_cmd, [FIXTURE_SLP, "--auto", "--pipeline", "bbox_ssd", "-o", str(out)]
+    )
+    assert result.exit_code == 0, result.output
+    assert out.exists() and not (tmp_path / "out_centroid.yaml").exists()
+    assert get_model_type_from_cfg(OmegaConf.load(str(out))) == "bbox_ssd"
+
+
+def test_tui_bbox_selection_and_restore():
+    """Picking a box detector in the TUI builds its config; picking a pose model
+    again restores the rotation / eval / output stride the box defaults replaced."""
+    pytest.importorskip("textual")
+    import asyncio
+
+    from sleap_nn.config.utils import get_model_type_from_cfg
+    from sleap_nn.config_generator.tui.app import ConfigGeneratorApp
+
+    async def run():
+        app = ConfigGeneratorApp(FIXTURE_SLP)
+        async with app.run_test(size=(160, 60)) as pilot:
+            await app._show_step(2)
+            await pilot.pause()
+            screen = app.query_one("#model-screen")
+            state = app._state
+            before = (
+                state._output_stride,
+                state._augmentation.rotation_enabled,
+                state._evaluation.enabled,
+            )
+            for pipeline in BBOX_PIPELINES:
+                screen._select_type(pipeline)
+                cfg = OmegaConf.create(state.build_config())
+                assert get_model_type_from_cfg(cfg) == pipeline
+                assert cfg.data_config.bbox_source == "auto"
+                assert cfg.data_config.augmentation_config.geometric.rotation_p == 0.0
+                assert cfg.trainer_config.eval.enabled
+            assert state._max_stride >= 32  # SSD's deepest anchor level
+            screen._select_type("bottomup")
+            after = (
+                state._output_stride,
+                state._augmentation.rotation_enabled,
+                state._evaluation.enabled,
+            )
+            assert after == before
+            # The configure and export steps render for a box pipeline.
+            await app._show_step(2)
+            await pilot.pause()
+            app.query_one("#model-screen")._select_type("bbox_centernet")
+            await app._show_step(3)
+            await pilot.pause()
+            await app._show_step(4)
+            await pilot.pause()
+
+    asyncio.run(run())
