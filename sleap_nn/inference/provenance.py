@@ -15,6 +15,17 @@ import sleap_nn
 from sleap_nn.system_info import get_system_info_dict
 
 
+def _input_provenance(
+    input_labels: Optional[sio.Labels], input_provenance: Optional[dict[str, Any]]
+) -> dict[str, Any]:
+    """A copy of the input's provenance: the snapshot if given, else the labels'."""
+    if input_provenance is not None:
+        return dict(input_provenance)
+    if input_labels is not None and hasattr(input_labels, "provenance"):
+        return dict(input_labels.provenance or {})
+    return {}
+
+
 def build_inference_provenance(
     model_paths: Optional[list[str]] = None,
     model_type: Optional[str] = None,
@@ -30,6 +41,7 @@ def build_inference_provenance(
     device: Optional[str] = None,
     cli_args: Optional[dict[str, Any]] = None,
     include_system_info: bool = True,
+    input_provenance: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Build provenance metadata dictionary for inference output.
 
@@ -57,6 +69,10 @@ def build_inference_provenance(
         cli_args: Command-line arguments if available.
         include_system_info: If True, include detailed system information.
             Set to False for lighter-weight provenance.
+        input_provenance: The input's provenance as it was BEFORE tracking; it
+            takes precedence over ``input_labels.provenance``. Tracking works in
+            place and replaces (or removes) the input's ``"tracking"`` record, so
+            a caller that tracks ``input_labels`` first snapshots this beforehand.
 
     Returns:
         Dictionary containing provenance metadata suitable for storing in
@@ -108,13 +124,12 @@ def build_inference_provenance(
         )
 
     # Preserve input provenance if available
-    if input_labels is not None and hasattr(input_labels, "provenance"):
-        input_prov = dict(input_labels.provenance)
-        if input_prov:
-            provenance["input_provenance"] = input_prov
-            # Also set source_labels for compatibility with sleap-io conventions
-            if "filename" in input_prov:
-                provenance["source_labels"] = input_prov["filename"]
+    input_prov = _input_provenance(input_labels, input_provenance)
+    if input_prov:
+        provenance["input_provenance"] = input_prov
+        # Also set source_labels for compatibility with sleap-io conventions
+        if "filename" in input_prov:
+            provenance["source_labels"] = input_prov["filename"]
 
     # Frame selection information
     if frames_processed is not None or frames_total is not None:
@@ -191,6 +206,7 @@ def build_tracking_only_provenance(
     tracking_params: Optional[dict[str, Any]] = None,
     frames_processed: Optional[int] = None,
     include_system_info: bool = True,
+    input_provenance: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Build provenance metadata for tracking-only pipeline.
 
@@ -205,6 +221,9 @@ def build_tracking_only_provenance(
         tracking_params: Dictionary of tracking parameters.
         frames_processed: Number of frames that were tracked.
         include_system_info: If True, include system information.
+        input_provenance: The input's provenance as it was BEFORE tracking (see
+            :func:`build_inference_provenance`); takes precedence over
+            ``input_labels.provenance``, which tracking in place has changed.
 
     Returns:
         Dictionary containing provenance metadata.
@@ -236,12 +255,11 @@ def build_tracking_only_provenance(
         )
 
     # Preserve input provenance if available
-    if input_labels is not None and hasattr(input_labels, "provenance"):
-        input_prov = dict(input_labels.provenance)
-        if input_prov:
-            provenance["input_provenance"] = input_prov
-            if "filename" in input_prov:
-                provenance["source_labels"] = input_prov["filename"]
+    input_prov = _input_provenance(input_labels, input_provenance)
+    if input_prov:
+        provenance["input_provenance"] = input_prov
+        if "filename" in input_prov:
+            provenance["source_labels"] = input_prov["filename"]
 
     # Frame information
     if frames_processed is not None:
@@ -266,6 +284,56 @@ def build_tracking_only_provenance(
         except Exception:
             pass
 
+    return provenance
+
+
+# Key under which `sleap_nn.inference.tracking.apply_tracking` records what a MOT /
+# identity-linking run resolved (per-video parameters, calibration, linking).
+TRACKING_RECORD_KEY = "tracking"
+
+
+def carry_tracking_record(
+    provenance: dict[str, Any],
+    tracked_labels: Any,
+    tracker_config: Any = None,
+) -> dict[str, Any]:
+    """Keep the tracking record ``apply_tracking`` left on the labels.
+
+    The provenance builders return a FRESH dict that callers assign to
+    ``labels.provenance``, which would drop the ``"tracking"`` record a MOT
+    tracker (or identity linking) wrote there. This copies it into
+    ``provenance``, only when ``tracker_config`` is such a run (``apply_tracking``
+    removes a stale record an input file carried, so any record found is this
+    run's). Callers snapshot the input's provenance BEFORE tracking (the
+    builders' ``input_provenance``), which keeps the input's own record as
+    lineage; a caller that copied it after tracking would find this run's record
+    in ``input_provenance`` instead, and it is removed there.
+
+    Args:
+        provenance: The freshly built provenance dict (modified and returned).
+        tracked_labels: The labels ``apply_tracking`` tracked.
+        tracker_config: The run's ``TrackerConfig`` (``None``: no tracking).
+
+    Returns:
+        ``provenance``, with ``"tracking"`` set when this run recorded one.
+    """
+    if tracker_config is None or not (
+        getattr(tracker_config, "is_mot", False)
+        or getattr(tracker_config, "link_tracklets", False)
+    ):
+        return provenance
+    source = getattr(tracked_labels, "provenance", None)
+    record = source.get(TRACKING_RECORD_KEY) if isinstance(source, dict) else None
+    if record is None:
+        return provenance
+    provenance[TRACKING_RECORD_KEY] = record
+    input_prov = provenance.get("input_provenance")
+    if isinstance(input_prov, dict) and input_prov.get(TRACKING_RECORD_KEY) is record:
+        input_prov = {k: v for k, v in input_prov.items() if k != TRACKING_RECORD_KEY}
+        if input_prov:
+            provenance["input_provenance"] = input_prov
+        else:
+            provenance.pop("input_provenance")
     return provenance
 
 

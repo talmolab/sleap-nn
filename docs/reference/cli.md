@@ -20,6 +20,7 @@ Complete command-line interface documentation.
 | [`sleap-nn predict`](#sleap-nn-predict) | Run inference on videos/labels (checkpoints or exported models) — **recommended** |
 | [`sleap-nn track`](#sleap-nn-track) | Run inference/tracking (legacy pipeline) |
 | [`sleap-nn eval`](#sleap-nn-eval) | Evaluate predictions |
+| [`sleap-nn eval-tracking`](#sleap-nn-eval-tracking) | Evaluate identity persistence of tracked predictions |
 | [`sleap-nn export`](#sleap-nn-export) | Export to ONNX/TensorRT |
 | [`sleap-nn config`](#sleap-nn-config) | Generate training configs (experimental) |
 | [`sleap-nn info`](#sleap-nn-info) | Inspect trained models |
@@ -130,18 +131,55 @@ Each `--model_paths` entry may be a model **directory**, or a path to that model
 
 | Option | Description | Values | Default |
 |--------|-------------|--------|---------|
+These are the options of the default `classic` tracker. See the [tracking
+guide](../guides/tracking.md#tracking-parameters) for the full list.
+
+| Option | Description | Values | Default |
+|--------|-------------|--------|---------|
 | `--tracking` | Enable tracking | Flag | `false` |
 | `--tracking_window_size` | Frames to look back | `INT` | `5` |
-| `--candidates_method` | Candidate selection method | `fixed_window`, `local_queues` | `fixed_window` |
+| `--candidates_method` | Candidate selection method | `fixed_window`, `local_queues` | `fixed_window` (`local_queues` for `--features embeddings`, mask tracking, or with `--max_tracks`) |
 | `--max_tracks` | Maximum track count (auto-selects `local_queues`) | `INT` | `None` |
-| `--features` | Features for matching | `keypoints`, `centroids`, `bboxes`, `image` | `keypoints` |
-| `--scoring_method` | Similarity scoring method | `oks`, `cosine_sim`, `iou`, `euclidean_dist` | `oks` |
+| `--features` | Features for matching. Unset: `centroids` for single-node skeletons, `masks` for segmentation-only output | `keypoints`, `centroids`, `bboxes`, `masks`, `embeddings` | `keypoints` |
+| `--scoring_method` | Similarity scoring method. Unset: `euclidean_dist` for single-node skeletons, `mask_iou` for masks, `cosine_sim` for `--features embeddings` | `oks`, `cosine_sim`, `iou`, `mask_iou`, `euclidean_dist` | `oks` |
+| `--oks_stddev` | OKS keypoint spread | `FLOAT` | `0.025` |
 | `--use_flow` | Enable optical flow | Flag | `false` |
+| `--use_kalman` | Enable Kalman-filter motion model (needs a target instance count) | Flag | `false` |
+| `--appearance_weight` | `predict` only. Blend re-ID appearance into the geometric score ([details](../guides/embedding-tracking.md#blending-appearance-with-geometry)) | `FLOAT` in `[0, 1]` | `0.0` |
+| `--euclidean_scale` | `predict` only. Pixel scale for blending appearance into `euclidean_dist` | `FLOAT` | `None` |
+| `--link_tracklets` | `predict` only. Identity linking after tracking each video ([details](../guides/tracking.md#identity-linking-long-term-identity-memory)) | Flag | `false` |
 
 !!! note "`--max_tracks` requires `local_queues`"
-    `--max_tracks` is honored only by `local_queues`; `fixed_window` ignores it.
-    Setting it auto-selects `candidates_method local_queues` (logged at INFO),
-    so you do not need to set `--candidates_method` yourself.
+    With the classic tracker, `--max_tracks` is honored only by `local_queues`;
+    `fixed_window` ignores it. Setting it auto-selects `candidates_method
+    local_queues` (logged at INFO), so you do not need to set
+    `--candidates_method` yourself.
+
+#### Modern MOT trackers (`sleap-nn predict` only)
+
+`--tracker` selects one of the [modern MOT
+trackers](../guides/tracking.md#modern-mot-trackers). These options apply only to
+those trackers. Unset options take the tracker's preset value (`animal` preset
+shown). Giving a classic-only option to a MOT tracker, or a MOT-only option to
+`classic`, is an error; the one exception is `--mot_param time_base=...` /
+`body_size=...` with `classic --link_tracklets`, which its identity linking reads.
+
+| Option | Description | Values | Default |
+|--------|-------------|--------|---------|
+| `--tracker` | Tracking algorithm | `classic`, `sort`, `deepsort`, `strongsort`, `bytetrack`, `botsort`, `ocsort`, `deepocsort` | `classic` |
+| `--track_buffer` | Steps a lost track is kept for re-association | `INT` | `30` (`paper` preset: `1` for `sort`) |
+| `--min_hits` | Matches before a track is confirmed (earlier detections then labeled) | `INT` | `3` (`2` for `bytetrack`, `botsort`) |
+| `--track_high_threshold` | Score above which a detection is high-confidence | `FLOAT` in `[0, 1]` | per tracker |
+| `--track_low_threshold` | Detections scoring at or below this are ignored | `FLOAT` in `[0, 1]` | `0.1` |
+| `--new_track_threshold` | Minimum score to start a track | `FLOAT` in `[0, 1]` | per tracker |
+| `--min_match_similarity` | Minimum geometric similarity for a first-stage match | `FLOAT` in `[0, 1]` | `0.3` (`0.2` for `bytetrack`, `botsort`) |
+| `--appearance_threshold` | Appearance trackers (`deepsort`, `strongsort`, `botsort`, `deepocsort`): minimum cosine, or `auto` (calibrated per video) | `auto`, `FLOAT` in `[-1, 1]` | `auto` |
+| `--link_tracklets` | Identity linking after tracking each video | Flag | `false` |
+| `--max_tracks` | Known number of animals: closed-set identity linking, at most N tracks per video | `INT` | `None` |
+| `--mot_param` | Override any MOT parameter, e.g. `preset=paper`, `score_mode=none`, `use_byte=true`, `normalize_scores=false` (thresholds on raw scores instead of per-video normalized ones), `body_size=40` (animal size in px, e.g. for centroid-only models) (repeatable). With `classic`: only `time_base` / `body_size`, with `--link_tracklets` | `KEY=VALUE` | — |
+| `--scoring_method` | Geometric similarity | `iou`, `oks`, `euclidean_dist` (centroid) | auto |
+| `--oks_stddev` | OKS spread for `--scoring_method oks` (refused with any other similarity) | `FLOAT` | `0.1` |
+| `--features` | Carrier to track (one the labels do not hold is an error) | `keypoints`, `masks` | auto |
 
 ### Examples
 
@@ -160,6 +198,9 @@ sleap-nn track -i labels.slp -t
 
 # Filter overlapping + tracking
 sleap-nn track -i video.mp4 -m models/ --filter_overlapping -t
+
+# Modern MOT tracker (predict only): retrack existing predictions with ByteTrack
+sleap-nn predict -i labels.slp -t --tracker bytetrack
 ```
 
 ---
@@ -226,6 +267,40 @@ sleap-nn eval --ground_truth_path GT --predicted_path PRED [OPTIONS]
 
 ```bash
 sleap-nn eval -g ground_truth.slp -p predictions.slp -s metrics.npz
+```
+
+---
+
+## `sleap-nn eval-tracking`
+
+Score whether tracks keep the right identity, against tracked ground truth. It
+reports sleap-nn's identity metrics (ID switches, IDF1, MT/PT/ML, fragmentation,
+purity, coverage). It also reports TrackEval-faithful CLEAR-MOT, IDF1 and HOTA,
+saved under the `"mot"` key. See [Evaluating Identity
+Persistence](../guides/tracking.md#evaluating-identity-persistence).
+
+```bash
+sleap-nn eval-tracking --ground_truth_path GT --predicted_path PRED [OPTIONS]
+```
+
+### Options
+
+| Option | Short | Description | Values | Default |
+|--------|-------|-------------|--------|---------|
+| `--ground_truth_path` | `-g` | Tracked ground-truth labels | `PATH` | Required |
+| `--predicted_path` | `-p` | Tracked predicted labels | `PATH` | Required |
+| `--save_metrics` | `-s` | Save metrics to .json | `PATH` | None |
+| `--carrier` | | What carries identity | `auto`, `pose`, `mask` | `auto` |
+| `--match_threshold` | | Minimum OKS / mask IoU to match; maximum centroid distance (px) for single-node skeletons | `FLOAT` | `0.5` (`50` px) |
+| `--mt_threshold` / `--ml_threshold` | | Coverage cuts for mostly-tracked / mostly-lost (legacy identity block; the `mot` block keeps TrackEval's fixed 0.8 / 0.2) | `FLOAT` | `0.8` / `0.2` |
+| `--oks_stddev` | | OKS keypoint spread used to match poses | `FLOAT` > 0, finite | `0.025` |
+| `--user_labels_only` / `--no-user_labels_only` | | Drop predicted detections from the ground-truth side | Flag | `False` |
+| `--global_identity` / `--per_video_identity` | | Score track names as identities shared across videos | Flag | per video |
+
+### Example
+
+```bash
+sleap-nn eval-tracking -g ground_truth.slp -p tracked.slp -s tracking_metrics.json
 ```
 
 ---

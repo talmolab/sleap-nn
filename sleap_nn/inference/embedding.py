@@ -305,12 +305,17 @@ def _why_this_carrier(config, carrier: str) -> str:
 
 
 def _check_tracking_plan(
-    tracker_config, model_dir, labels: sio.Labels, include_untracked: bool
+    tracker_config,
+    model_dir,
+    labels: sio.Labels,
+    include_untracked: bool,
+    vectors_kept: bool = False,
 ) -> None:
     """:func:`~sleap_nn.inference.tracking.check_tracking_plan` for these labels.
 
     Before the embedding pass: the carriers come from ``labels``, the carrier the
-    vectors will land on from :func:`embedded_carrier`.
+    vectors will land on from :func:`embedded_carrier`. ``vectors_kept``: the
+    vectors persist in the output (``save_embeddings="slp"``).
 
     Raises:
         EmbeddingInputError: The labels could not be tracked as configured.
@@ -320,11 +325,9 @@ def _check_tracking_plan(
 
     config = _load_training_config(model_dir)[0]
     vector_carrier, n_embedded = None, 0
-    if (
-        tracker_config.appearance_weight > 0.0
-        or tracker_config.features == "embeddings"
-    ):
-        # Only appearance reads the vectors; a geometric plan does not need them.
+    if tracker_config.uses_appearance or tracker_config.runs_linking:
+        # Only appearance (and identity linking) reads the vectors; a geometric
+        # plan does not need them.
         vector_carrier, n_embedded = embedded_carrier(
             config, labels, include_untracked=include_untracked
         )
@@ -343,6 +346,7 @@ def _check_tracking_plan(
                 if n_embedded
                 else ""
             ),
+            vectors_kept=vectors_kept,
         )
     except ValueError as e:
         raise EmbeddingInputError(str(e)) from e
@@ -723,7 +727,13 @@ def predict_embeddings_to_slp(
         # What `apply_tracking` would refuse after the embedding pass, refused
         # before it: the carriers these labels hold, and the one the vectors will
         # land on, are known from the labels and the model config already.
-        _check_tracking_plan(tracker_config, model_dir, labels, inc_untracked)
+        _check_tracking_plan(
+            tracker_config,
+            model_dir,
+            labels,
+            inc_untracked,
+            vectors_kept=save_embeddings == "slp",
+        )
 
     # Clear every vector the input already carries (both carriers) so that a
     # detection this pass does not embed -- the carrier `EmbeddingDataset` did not
@@ -752,6 +762,9 @@ def predict_embeddings_to_slp(
             f"Attached {n_attached} embeddings (dim={embedding_dim}); "
             f"{_describe_association(tracker_config)}."
         )
+        # The input's lineage as it was BEFORE tracking: tracking works in place
+        # and replaces (or removes) its `provenance["tracking"]` record.
+        input_provenance = dict(getattr(labels, "provenance", None) or {})
         tracked = apply_tracking(labels, tracker_config)
         # save_embeddings controls whether the vectors persist in the tracked .slp;
         # "none" -> tracks only, so strip the attached vectors (belt-and-braces with
@@ -760,7 +773,7 @@ def predict_embeddings_to_slp(
         if not persist_vectors:
             _strip_embeddings(tracked)
         tracked.provenance = _embedding_provenance(
-            labels,
+            tracked,
             model_dir,
             data_path,
             start_time=start_time,
@@ -770,6 +783,7 @@ def predict_embeddings_to_slp(
             n_attached=n_attached,
             embedding_dim=embedding_dim,
             tracker_config=tracker_config,
+            input_provenance=input_provenance,
         )
         # #536 flipped the save_slp default to False; be explicit either way. Identity
         # links (sio.Track) always persist regardless of this flag.
@@ -860,20 +874,37 @@ def _describe_association(tracker_config) -> str:
     re-resolved by ``apply_tracking`` (single-node / mask detections), which logs
     that resolution.
     """
+    # Identity linking (after either tracker family, requested by an option or
+    # through `mot_params`) reads the tracked carrier's vectors too.
+    linking = (
+        "; identity linking reads the tracked carrier's vectors where present"
+        if tracker_config.runs_linking
+        else ""
+    )
+    if tracker_config.is_mot:
+        name = tracker_config.tracker
+        if tracker_config.requires_vectors:
+            return (
+                f"tracking with {name} by geometry and appearance (appearance "
+                f"inside the geometric gate){linking}"
+            )
+        return f"tracking with {name} by geometry alone" + (
+            linking or "; the appearance vectors are not used"
+        )
     features = tracker_config.features
     weight = tracker_config.appearance_weight or 0.0
     if features == "embeddings":
         return (
             "tracking by appearance alone "
-            f"(scoring_method={tracker_config.scoring_method!r})"
+            f"(scoring_method={tracker_config.scoring_method!r}){linking}"
         )
     if weight:
         return (
-            f"tracking by geometry blended with appearance (appearance_weight={weight})"
+            "tracking by geometry blended with appearance "
+            f"(appearance_weight={weight}){linking}"
         )
-    return (
-        f"tracking by geometry alone (features={features!r}); the appearance vectors "
-        "are not used for association"
+    return f"tracking by geometry alone (features={features!r})" + (
+        linking or "; the appearance vectors are not used for association"
     )
 
 
@@ -889,6 +920,7 @@ def _embedding_provenance(
     n_attached: int,
     embedding_dim: int,
     tracker_config: Optional["TrackerConfig"] = None,  # noqa: F821
+    input_provenance: Optional[dict] = None,
 ) -> dict:
     """Provenance for an embedding-route output ``.slp``.
 
@@ -903,11 +935,17 @@ def _embedding_provenance(
     ``inference_params`` carries the geometry read off the TRAINED config, which is
     the load-bearing detail for this route: the crops must match training exactly,
     and the CLI rejects overriding them.
+
+    ``input_provenance`` is the input's provenance snapshot taken BEFORE tracking
+    (tracking works in place); when omitted, ``labels.provenance`` is the input's.
     """
     from omegaconf import OmegaConf
 
     from sleap_nn.inference.loaders import _load_training_config
-    from sleap_nn.inference.provenance import build_inference_provenance
+    from sleap_nn.inference.provenance import (
+        build_inference_provenance,
+        carry_tracking_record,
+    )
 
     params: dict = {
         "batch_size": batch_size,
@@ -940,22 +978,25 @@ def _embedding_provenance(
 
     tracking_params = None
     if tracker_config is not None:
-        import attrs
+        from sleap_nn.inference.tracking import tracker_config_params
 
-        tracking_params = attrs.asdict(tracker_config)
+        tracking_params = tracker_config_params(tracker_config)
 
-    return build_inference_provenance(
+    provenance = build_inference_provenance(
         model_paths=[str(model_dir)],
         model_type="embedding",
         start_time=start_time,
         end_time=datetime.now(),
         input_labels=labels,
+        input_provenance=input_provenance,
         input_path=data_path,
         frames_processed=len(labels.labeled_frames),
         inference_params=params,
         tracking_params=tracking_params,
         device=device,
     )
+    # Keep the record a MOT / identity-linking run wrote on the (tracked) labels.
+    return carry_tracking_record(provenance, labels, tracker_config)
 
 
 def _strip_embeddings(labels: sio.Labels) -> None:
