@@ -244,6 +244,8 @@ data_config:
 | `parallel_caching` | bool | `true` | Use parallel processing for caching (faster for large datasets) |
 | `cache_workers` | int | `0` | Number of workers for parallel caching (0 = auto: min(4, cpu_count)) |
 | `use_augmentations_train` | bool | `true` | Apply augmentations during training |
+| `bbox_source` | str | `auto` | Ground-truth boxes for `bbox_*` models: `auto` (the file's user boxes if it has any, else the tight box of each user instance's visible points, else of each mask), `bboxes`, `instances` or `masks`. Ignored by other model types |
+| `bbox_padding` | float | `0.0` | Pixels added on every side of boxes derived from instances or masks |
 
 ### PreprocessingConfig
 
