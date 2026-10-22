@@ -130,3 +130,34 @@ def test_crop_bboxes_far_out_of_bounds_is_zero_filled():
     assert crops.shape[0] == 2
     # Entirely outside -> all-zero (no real pixels sampled).
     np.testing.assert_array_equal(crops, np.zeros_like(crops))
+
+
+def test_crop_bboxes_size_survives_float32_rounding():
+    """Crops are always the requested size, whatever the centroid (#778).
+
+    `make_centered_bboxes` corners are float32; for some centroids their span
+    comes out just under `size - 1` (190.99998 for 192 px), which truncation
+    turned into a crop 1 px short for the whole batch.
+    """
+    image = torch.zeros(1, 1, 256, 320)
+    boxes = make_centered_bboxes(
+        torch.tensor([[221.54798889160156, 77.36744689941406]]), 192, 192
+    )
+    assert (boxes[0, 1, 0] - boxes[0, 0, 0]).item() < 191  # the float32 shortfall
+    assert crop_bboxes(image, boxes, torch.tensor([0])).shape[-2:] == (192, 192)
+
+    torch.manual_seed(0)
+    image = _ramp_image(256, 320)
+    centroids = torch.rand(500, 2) * torch.tensor([300.0, 240.0])
+    for size in (96, 97, 192, 320):
+        boxes = make_centered_bboxes(centroids, size, size)
+        for i in range(len(centroids)):
+            crop = crop_bboxes(image, boxes[i : i + 1], torch.tensor([0]))
+            assert crop.shape[-2:] == (size, size)
+        # Passing the known size gives the same crops, without deriving it.
+        inds = torch.zeros(len(centroids), dtype=torch.long)
+        derived = torch.cat(
+            [crop_bboxes(image, boxes[i : i + 1], inds[:1]) for i in range(10)]
+        )
+        given = crop_bboxes(image, boxes[:10], inds[:10], crop_size=(size, size))
+        assert torch.equal(derived, given)
