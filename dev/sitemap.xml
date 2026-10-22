@@ -597,6 +597,10 @@
          <lastmod>2026-10-22</lastmod>
     </url>
     <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot_metrics/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
          <loc>https://nn.sleap.ai/dev/api/tracking/track_instance/</loc>
          <lastmod>2026-10-22</lastmod>
     </url>
@@ -618,6 +622,62 @@
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/tracking/candidates/local_queues/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot/appearance/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot/association/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot/base/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot/bytetrack/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot/calibration/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot/deepsort/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot/detections/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot/kalman/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot/linking/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot/ocsort/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot/params/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot/sort/</loc>
+         <lastmod>2026-10-22</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/api/tracking/mot/track/</loc>
          <lastmod>2026-10-22</lastmod>
     </url>
     <url>
