@@ -763,6 +763,22 @@ class _Linker:
             self.step_scale
         )
 
+    def _ungated_by_appearance(self, gap: np.ndarray) -> np.ndarray:
+        """Junctions that may skip the spatial gate if appearance decides them.
+
+        After a gap longer than ``track_buffer`` an animal can resurface anywhere
+        it could walk to, which a motion-scaled gate underestimates for animals
+        that rest and then move fast. When the video's appearance is calibrated
+        for linking, such a junction is admitted on appearance alone (it must
+        still clear the per-length threshold and margin); without usable
+        appearance the gate stays in force.
+        """
+        return (
+            np.asarray(gap) > self.track_buffer
+            if self.use_app
+            else np.zeros(np.shape(gap), dtype=bool)
+        )
+
     def _gate_ok(self, gap: np.ndarray, dist: np.ndarray) -> np.ndarray:
         """Spatial feasibility of junctions (``dist`` NaN fails a gated junction)."""
         gap = np.asarray(gap, dtype=np.float64)
@@ -867,7 +883,9 @@ class _Linker:
             dist = np.linalg.norm(
                 self.start_c[cols][None, :, :] - self.end_c[r][:, None, :], axis=-1
             )
-            ok = (gap > 0) & self._gate_ok(gap, dist)
+            ok = (gap > 0) & (
+                self._gate_ok(gap, dist) | self._ungated_by_appearance(gap)
+            )
             sim = np.where(ok, sim, -np.inf).astype(np.float32)
             # Each row's best successors.
             top = np.argpartition(-sim, kr - 1, axis=1)[:, :kr]
@@ -941,14 +959,27 @@ class _Linker:
             return
         gap = self.first_step[jj] - self.last_step[ii]
         dist = np.linalg.norm(self.start_c[jj] - self.end_c[ii], axis=1)
+        gate_ok = self._gate_ok(gap, dist)
         ok = (
             self.alive[ii]
             & self.alive[jj]
             & (ii != jj)
             & (gap > 0)
-            & self._gate_ok(gap, dist)
+            & (gate_ok | self._ungated_by_appearance(gap))
         )
-        ii, jj, gap, dist = ii[ok], jj[ok], gap[ok], dist[ok]
+        ii, jj, gap, dist, gate_ok = ii[ok], jj[ok], gap[ok], dist[ok], gate_ok[ok]
+        pre_score = None
+        if not gate_ok.all():
+            # Past the spatial gate only a calibrated appearance link may
+            # survive: score the candidates now and keep those that clear the
+            # threshold for j's head length (their scores are reused below).
+            score = self._score_pairs(ii, jj)
+            n_q = np.clip(self.n_head[jj], 1, len(self.thresh_n))
+            with np.errstate(invalid="ignore"):
+                passes = np.isfinite(score) & (score >= self.thresh_n[n_q - 1])
+            keep = gate_ok | passes
+            ii, jj, gap, dist = ii[keep], jj[keep], gap[keep], dist[keep]
+            pre_score = score[keep]
         n_new = len(ii)
         if n_new == 0:
             return
@@ -969,7 +1000,9 @@ class _Linker:
         sl = slice(self._np, need)
         self.pi[sl], self.pj[sl] = ii, jj
         self.pgap[sl], self.pdist[sl] = gap, dist
-        if known:
+        if pre_score is not None:
+            self.pscore[sl] = pre_score
+        elif known:
             keys = (jj if known_side == 1 else ii).tolist()
             have = np.array([k in known for k in keys], dtype=bool)
             score = np.full(n_new, np.nan)

@@ -234,6 +234,41 @@ def test_appearance_gap_reid_merges_back_to_original_name():
     assert res.as_dict()["n_merges"] == 1
 
 
+def _far_return_scene(t0, t1, t2, returning_animal=0):
+    """Animal 0 rests at x~200, vanishes for 150 frames and reappears ~700 px away
+    (well past the motion-scaled spatial gate); animal 1 stays put elsewhere."""
+    return [
+        (0, lambda f: (100 + f, 100, t0) if f < 100 else None),
+        (
+            returning_animal,
+            lambda f: (900 + 0.5 * (f - 250), 150, t2) if f >= 250 else None,
+        ),
+        (1, lambda f: (500, 400, t1)),
+    ]
+
+
+@pytest.mark.parametrize(
+    "returning_animal, vectors, merged",
+    [(0, True, True), (2, True, False), (0, False, False)],
+    ids=["same_animal", "different_animal", "no_appearance"],
+)
+def test_long_gap_appearance_link_skips_the_spatial_gate(
+    returning_animal, vectors, merged
+):
+    """Regression (#17): after a gap longer than track_buffer, a calibrated,
+    decisive appearance link is not vetoed by the motion-scaled spatial gate; a
+    different-looking animal, or a video without usable appearance, is not
+    linked across the same jump."""
+    t0, t1, t2 = sio.Track("track_0"), sio.Track("track_1"), sio.Track("track_2")
+    frames = _video(
+        range(400), _far_return_scene(t0, t1, t2, returning_animal), vectors=vectors
+    )
+    res = link_tracklets(frames, calibration=_cal(appearance=vectors))
+    assert res.n_merges == (1 if merged else 0)
+    expected = "track_0" if merged else "track_2"
+    assert _tracks_where(frames, lambda f, o: f >= 250 and _x(o) > 600) == {expected}
+
+
 def test_cooccurring_identities_are_never_merged():
     """Identical appearance does not merge identities that share frames."""
     a, b = sio.Track("track_0"), sio.Track("track_1")

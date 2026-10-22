@@ -400,11 +400,12 @@ def _two_tracks(appearance_threshold=0.5, **overrides):
 
 
 def test_standardized_appearance():
-    """E' maps mu_neg -> -1 and mu_pos -> +1 (clipped); missing -> 0; no usable
-    calibration -> 0 everywhere."""
+    """E' maps the midpoint of mu_neg..mu_pos -> 0 and mu_pos -> +1, negative
+    evidence is dropped (clipped at 0); missing -> 0; no usable calibration -> 0
+    everywhere."""
     tracker, _ = _two_tracks()
     cos = np.array([[0.9, 0.1, 0.5, np.nan], [1.0, -0.5, 0.3, 0.7]])
-    expected = np.array([[1.0, -1.0, 0.0, 0.0], [1.0, -1.0, -0.5, 0.5]])
+    expected = np.array([[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.5]])
     np.testing.assert_allclose(tracker._standardized_appearance(cos), expected)
 
     for calibration in (
@@ -595,8 +596,8 @@ def test_appearance_never_vetoes_an_uncontested_pair():
     row and column made the masked assignment drop it for a zero-evidence
     inadmissible cell (here the lost track D's) whenever an unrelated pair (B/C)
     stopped the one-to-one shortcut; OCR could not recover the jump, so A's
-    detection went untracked. Such a pair keeps its OC-SORT score; contested
-    pairs keep their negative appearance term."""
+    detection went untracked. Appearance never subtracts: dissimilar pairs keep
+    their OC-SORT score, contested or not."""
     frames = _veto_frames()
     tracker = build_tracker("deepocsort", preset="animal")
     tracker.calibration = _calibration()
@@ -627,12 +628,13 @@ def test_appearance_never_vetoes_an_uncontested_pair():
     )
     a, b = captured["rows"].index(0), captured["rows"].index(1)
     assert ocsort_module.one_to_one_pattern(valid) is None
-    # A's pair is uncontested with a negative E': clamped to its OC-SORT score.
+    # A's pair is uncontested and dissimilar: no penalty, its OC-SORT score.
     assert valid[a].sum() == 1 and valid[:, 0].sum() == 1 and valid[a, 0]
-    assert e[a, 0] < 0.0
+    assert e[a, 0] == 0.0
     assert score[a, 0] == pytest.approx(oc_score[a, 0])
-    # B's competing pair (B vs C's detection) keeps its appearance penalty.
-    assert valid[b, 2] and e[b, 2] < 0.0 and score[b, 2] < oc_score[b, 2]
+    # B's competing, dissimilar pair (B vs C's detection) is not penalized either.
+    assert valid[b, 2] and e[b, 2] == 0.0
+    assert score[b, 2] == pytest.approx(oc_score[b, 2])
 
     assert objs[0].track is not None and objs[0].track.name == "track_0"
     _track_all(tracker, frames[11:])
