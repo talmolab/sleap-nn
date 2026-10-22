@@ -283,7 +283,7 @@ sleap-nn config SLP_PATH [OPTIONS]
 |--------|-------|-------------|--------|---------|
 | `--output` | `-o` | Output path for config file(s) | `PATH` | `<slp_name>_config.yaml` |
 | `--auto` | | Auto-generate without interactive TUI | Flag | `false` |
-| `--pipeline` | | Model pipeline type | `single_instance`, `bottomup`, `topdown`, `multi_class_bottomup`, `multi_class_topdown` | Auto-detected |
+| `--pipeline` | | Model pipeline type | `single_instance`, `bottomup`, `topdown`, `multi_class_bottomup`, `multi_class_topdown`, `centroid`, `bbox_centernet`, `bbox_ssd`, `topdown_bbox_centernet`, `topdown_bbox_ssd` | Auto-detected |
 | `--show-yaml` | | Print YAML to stdout instead of saving | Flag | `false` |
 
 ### Modes
@@ -329,6 +329,10 @@ For **top-down** pipelines, two config files are generated:
 
 - `<name>_centroid.yaml` - Centroid model config
 - `<name>_centered_instance.yaml` - Centered instance model config
+
+The box-detector top-down pipelines (`topdown_bbox_centernet` / `topdown_bbox_ssd`)
+write `<name>_bbox_centernet.yaml` (or `<name>_bbox_ssd.yaml`) and a
+`<name>_centered_instance.yaml` with box-scaled crops.
 
 For other pipelines, a single config file is generated.
 

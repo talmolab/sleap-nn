@@ -50,6 +50,11 @@ For top-down pipelines, this creates two config files:
 - `config_centroid.yaml`
 - `config_centered_instance.yaml`
 
+The box-detector top-down pipelines (`--pipeline topdown_bbox_centernet` /
+`topdown_bbox_ssd`) write `config_bbox_centernet.yaml` (or `config_bbox_ssd.yaml`)
+and a `config_centered_instance.yaml` with box-scaled crops (`crop_mode: bbox`); see
+[Top-down pose with a box detector](bbox-topdown.md).
+
 ---
 
 ## CLI Options
@@ -58,7 +63,7 @@ For top-down pipelines, this creates two config files:
 |--------|-------|-------------|---------|
 | `--output` | `-o` | Output path for config file(s) | `<slp_name>_config.yaml` |
 | `--auto` | | Auto-generate without interactive TUI | `false` |
-| `--pipeline` | | Pipeline: `single_instance`, `bottomup`, `topdown`, `multi_class_bottomup`, or `multi_class_topdown` | Auto-detected |
+| `--pipeline` | | Pipeline: `single_instance`, `bottomup`, `topdown`, `multi_class_bottomup`, `multi_class_topdown`, `centroid`, `bbox_centernet`, `bbox_ssd`, `topdown_bbox_centernet` or `topdown_bbox_ssd` | Auto-detected |
 | `--show-yaml` | | Print YAML to stdout instead of saving | `false` |
 
 ---
@@ -184,6 +189,8 @@ The config generator analyzes your data to recommend a pipeline:
 | `topdown` | Multiple animals, need centroids + instances |
 | `multi_class_bottomup` | Multiple animals with identity classes |
 | `multi_class_topdown` | Multiple animals with classes, top-down approach |
+| `bbox_centernet` / `bbox_ssd` | A bounding-box detector (boxes derived from the poses) |
+| `topdown_bbox_centernet` / `topdown_bbox_ssd` | Top-down with a box detector as stage 1 and box-scaled crops |
 
 The recommendation is based on:
 

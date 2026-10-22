@@ -147,6 +147,7 @@ nav:
       - Top-Down Segmentation: guides/topdown-segmentation.md
       - Semantic Segmentation: guides/semantic-segmentation.md
       - Bounding-Box Detection: guides/bbox-detection.md
+      - Top-Down with a Box Detector: guides/bbox-topdown.md
       - SAM-Prompted Segmentation: guides/sam-inference-segmentation.md
       - Performance: guides/inference-performance.md
     - Evaluation: guides/evaluation.md
